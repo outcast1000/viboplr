@@ -367,6 +367,22 @@ pub fn set_entity_like_state(
     Ok(like_state)
 }
 
+/// Batch-resolve persisted track like states by metadata, for reconciling the
+/// restored queue/now-playing track (which carry no DB id). Reads from the
+/// durable `entity_likes` store so it works for non-library tracks too. Returns
+/// a Vec parallel to the input (0 = neutral / no stored like).
+#[tauri::command]
+pub fn get_track_like_states(
+    state: State<'_, AppState>,
+    tracks: Vec<TrackLikeQuery>,
+) -> Result<Vec<i32>, String> {
+    let pairs: Vec<(String, Option<String>)> = tracks
+        .into_iter()
+        .map(|t| (t.title, t.artist_name))
+        .collect();
+    state.db.get_track_like_states(&pairs).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
     state.db.get_liked_tracks().map_err(|e| e.to_string())

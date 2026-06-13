@@ -1616,6 +1616,20 @@ function App() {
             const tracks = tracksFromManifest(manifest);
             const ctx = contextFromManifest(manifest, dir);
             if (tracks.length > 0) {
+              // tracksFromManifest seeds liked: 0 (QueueTracks carry no DB id).
+              // Reconcile against the durable entity_likes store so a like set
+              // before restart survives — keyed by metadata, works for
+              // non-library tracks too. Best-effort: on failure leave neutral.
+              try {
+                const states = await invoke<number[]>("get_track_like_states", {
+                  tracks: tracks.map(t => ({ title: t.title, artistName: t.artist_name })),
+                });
+                for (let i = 0; i < tracks.length && i < states.length; i++) {
+                  tracks[i].liked = states[i];
+                }
+              } catch (e) {
+                console.error("Failed to reconcile restored like states:", e);
+              }
               const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
               pendingRestoreQueueRef.current = { tracks, index: idx };
               if (idx >= 0) {

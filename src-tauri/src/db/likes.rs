@@ -45,6 +45,24 @@ impl Database {
         Ok(())
     }
 
+    /// Batch-read track like states from `entity_likes` (the durable, ID-less
+    /// source of truth). Each input is `(title, artist_name)`; the result is a
+    /// parallel Vec of like states (0 when no row exists). Used to reconcile the
+    /// restored queue/now-playing track, whose `QueueTrack`s carry no DB id.
+    pub fn get_track_like_states(&self, tracks: &[(String, Option<String>)]) -> SqlResult<Vec<i32>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT liked FROM entity_likes WHERE kind = 'track' AND entity_key = ?1",
+        )?;
+        let mut out = Vec::with_capacity(tracks.len());
+        for (title, artist) in tracks {
+            let key = build_entity_key("track", title, artist.as_deref());
+            let v: Option<i32> = stmt.query_row(params![key], |r| r.get(0)).optional()?;
+            out.push(v.unwrap_or(0));
+        }
+        Ok(out)
+    }
+
     /// Read the current like state (0 if no row).
     pub fn get_entity_like_state(&self, kind: &str, entity_key: &str) -> SqlResult<i32> {
         let conn = self.conn.lock().unwrap();
@@ -233,6 +251,25 @@ mod tests {
             conn.query_row("SELECT COUNT(*) FROM entity_likes", [], |r| r.get(0)).unwrap()
         };
         assert_eq!(count, 0, "neutral state should leave no row");
+    }
+
+    #[test]
+    fn test_get_track_like_states_batch() {
+        let db = test_db();
+        // Persisted likes via the durable entity_likes store (no library rows needed).
+        db.set_entity_like("track", &build_entity_key("track", "Jóga", Some("Björk")), 1, None, 100).unwrap();
+        db.set_entity_like("track", &build_entity_key("track", "Hunter", Some("Björk")), -1, None, 101).unwrap();
+
+        let states = db.get_track_like_states(&[
+            ("Jóga".to_string(), Some("Björk".to_string())),
+            ("Hunter".to_string(), Some("Björk".to_string())),
+            ("Unknown".to_string(), Some("Nobody".to_string())),
+        ]).unwrap();
+        assert_eq!(states, vec![1, -1, 0]);
+
+        // Case/diacritic-insensitive: the entity_key normalizes both segments.
+        let states = db.get_track_like_states(&[("JOGA".to_string(), Some("BJORK".to_string()))]).unwrap();
+        assert_eq!(states, vec![1]);
     }
 
     #[test]
