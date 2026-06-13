@@ -112,6 +112,7 @@ Navigation items (top to bottom):
 - **Home** (Cmd+0) — curated landing surface (`HomeView`), default startup view
 - Library (Cmd+1) — unified search/browse view rendered by `SearchView` with tabs for Tracks, Artists, Albums, Tags
 - History (Cmd+2)
+- **Now Playing** (Cmd+3) — lean-back view of the current track (`NowPlayingView`). Its sidebar icon reflects playback state: a spinning disc (`SpinningDisc`) for audio, a `FilmReel` for video, both frozen when paused.
 - Playlists
 - Plugin sidebar items (below separator)
 - Bottom: Collections, Extensions (with update count badge), Settings (with update badge)
@@ -134,6 +135,7 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 | `albums` | — (entered only via entity selection from Library) | `AlbumDetailHeader` + `TrackList` |
 | `tags` | — (entered only via entity selection from Library) | Tag header + `TrackList` |
 | Track detail | — (entered only via track selection) | `TrackDetailView` |
+| `nowplaying` | `NowPlayingView` (lean-back view of the current track) | — |
 | `history` | `HistoryView` | — |
 | `playlists` | `PlaylistsView` | Playlist detail |
 | `collections` | `CollectionsView` | — |
@@ -147,7 +149,7 @@ See "Entity System > Three Rendering Modes" above. Toggled via `ViewModeToggle` 
 
 ## Home View
 
-**Components:** `HomeView.tsx` + `HomeHero.tsx` + `HomeShelf.tsx` + `HomeShelvesPopover.tsx`. State owned by `useHome.ts`.
+**Components:** `HomeView.tsx` (composes the page + owns the inline shelf-visibility popover) + `HomeHero.tsx` + `HomeShelf.tsx`. State owned by `useHome.ts`.
 
 **Purpose:** the default landing surface — a curated overview of the user's library and external sources.
 
@@ -194,7 +196,7 @@ Two states:
 - **Expanded:** Header (load/save/save-as/clear buttons) + scrollable queue list + info bar (count + duration)
 - **Collapsed:** 40px strip showing count & duration, click to expand
 
-Queue items show: thumbnail, title + duration, artist + album, "locate track" button.
+Queue items show: thumbnail, a like/dislike indicator before the title (driven by `QueueTrack.liked`, using `var(--error)` to match the other like buttons), title + duration, artist + album, and an inline play/locate icon.
 
 Features: drag-and-drop reorder, multi-select (Shift/Cmd+Click), right-click context menu, duplicate detection on enqueue, resizable width via drag handle.
 
@@ -239,9 +241,28 @@ interface PlaylistContext {
 - Seek bar (waveform visualization or segmented bar) with elapsed | total time
 - Track info: album art, like/dislike buttons, title/artist/album (all clickable to navigate)
 - Controls: previous, play/pause, next, stop
-- Right: queue mode (normal/loop/shuffle), auto-continue, sync-with-playing toggle, volume
+- Right: queue mode (normal/repeat-all/repeat-one), randomize, auto-continue, sync-with-playing toggle, volume
 
 **Mini mode:** Compact bar with art, title/artist, play controls, close/expand. Draggable window, scroll-to-volume.
+
+## Now Playing View
+
+**Component:** `NowPlayingView.tsx` (the `nowplaying` main-content view, reached via the sidebar or Cmd+3). A lean-back, full-column presentation of the current track. Distinct from the always-present Now Playing **Bar** in row 3.
+
+**Audio tracks:** blurred album-art backdrop + foreground album art + centered lyrics. Image resolution uses the album→artist `useImageCache` chain (same as queue/bar).
+
+**Video tracks:** the shared `<video>` element is repositioned to fill the column (theater mode via `.video-container--theater` — no remount, mirrors fullscreen). A `VideoAmbientOverlay` paints three auto-managed layers over the full-bleed video without adding playback controls:
+- An always-on color glow sampled from the resolved image (`extractDominantColor`, neutral accent fallback)
+- An auto-hiding "up next" chip (bottom-right, click to jump)
+- An auto-hiding title/artist intro (bottom-left, re-triggers on track change)
+
+Overlay visibility uses a self-contained idle timer mirroring `FullscreenControls`; the glow stays painted while the chip and intro fade together. Pure helpers `nextQueueTrack` / `glowColorValue` live in `src/utils/videoOverlay.ts` (unit-tested).
+
+**Lyrics** run through the existing plugin info-type provider chain (LRCLIB → …) via the `useLyrics` hook (`useInformationTypes` gained an `include` filter to scope the fetch to lyrics only):
+- **Synced (LRC):** centered karaoke highlighting — active line bright/bigger/bolder — with smooth auto-scroll, spring line animation, and tap-a-line-to-seek. Auto-scroll stops on unsynced lyrics.
+- **Plain (unsynced):** same typography as synced but no spring/scale animation (no active line to drive it); scrolls proportionally to playback position when it overflows.
+
+**Up next:** a floating list in the bottom-right (audio mode) shows upcoming queue tracks (art + title + artist) with click-to-jump, reusing the queue's `setQueueIndex` + `handlePlay` action and the album→artist image chain.
 
 ## Detail Pages
 

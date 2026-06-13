@@ -22,14 +22,15 @@ Each entry documents the gold standard implementation for a repeated user action
 ### Like/Unlike Track
 
 - **Canonical:** `useLikeActions.ts` -> `handleToggleLike()` / `handleToggleDislike()`
-- **Like flow:** Resolve library track via `find_track_by_metadata` if needed -> `invoke("toggle_liked", { kind: "track", id, liked: 1|0 })` -> update `library.tracks` + `playback.currentTrack` (if relevant) + `queue` -> dispatch plugin event `track:liked` -> catch must `console.error`
-- **Dislike flow:** Resolve library track via `find_track_by_metadata` if needed -> `invoke("toggle_liked", { kind: "track", id, liked: -1|0 })` -> update `library.tracks` + `playback.currentTrack` (if relevant) + `queue` -> catch must `console.error` (note: dislike does NOT dispatch a plugin event)
-- **Non-library tracks:** If `find_track_by_metadata` returns null, show "Track not in library" via `addLog()` and return early
+- **Like flow:** Compute `newLiked` via `nextTriState(track.liked, "like")` -> `invoke("set_entity_like_state", { kind: "track", entity: trackLikePayload(track), likeState: newLiked })` (persists to the durable `entity_likes` store by metadata — see backend.md "Likes") -> mirror the new state into `library.tracks` (by key if the track has a `lib:N` key, else best-effort by title+artist) + `playback.currentTrack` + `queue` via the `sameSong()` predicate -> dispatch plugin event `track:liked` -> catch must `console.error`
+- **Dislike flow:** Same as Like but with `nextTriState(track.liked, "dislike")` and no plugin event (dislike does NOT dispatch `track:liked`)
+- **Propagation rule:** Likes propagate to same-song copies via `sameSong(a, b)` (key match, falling back to `title` + `artist_name`), so liking a song from any surface updates external/restored/duplicate copies that carry a different `ext:N`/`lib:N` key.
+- **No library lookup needed:** Because `entity_likes` is keyed by metadata, there is no `find_track_by_metadata` / "Track not in library" gate — any `QueueTrack` can be liked, library or not.
 
 ### Like/Unlike Artist, Album, Tag
 
 - **Canonical:** `useLikeActions.ts` -> `handleToggleArtistLike()` / `handleToggleAlbumLike()` / `handleToggleTagLike()` (and hate variants)
-- **Flow:** `invoke("toggle_liked", { kind, id, liked })` -> update the relevant entity list in library state -> catch must `console.error`
+- **Flow:** `invoke("set_entity_like_state", { kind, entity: entityLikePayload(name[, artistName]), likeState })` -> update the relevant entity list in library state -> catch must `console.error`
 - These do NOT dispatch plugin events or update queue/currentTrack
 
 ### Play / Enqueue / Play Next

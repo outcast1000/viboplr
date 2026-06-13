@@ -44,10 +44,12 @@ Image resolution is **async-only** — there is no synchronous stamping. Tracks 
 
 ### Library Operations on QueueTracks
 
-Operations that need a library ID (like, delete, show in folder, audio properties) use on-demand metadata lookup:
+Operations that need a library ID (delete, show in folder, audio properties) use on-demand metadata lookup:
 - Call `invoke("find_track_by_metadata", { title, artistName, albumName })` to resolve the library track
 - If found, proceed with the resolved ID
 - If not found, show feedback "Track not in library" via `addLog()`
+
+**Like/dislike is the exception** — it does NOT require a library ID. `useLikeActions` persists via `set_entity_like_state` against the metadata-keyed `entity_likes` store, so any `QueueTrack` (library or not) can be liked, and the new state propagates to same-song copies in the queue/`currentTrack` via the `sameSong()` predicate. The `QueueTrack.liked` field drives the like/dislike indicator rendered before the title in `QueuePanel.tsx`.
 
 ### Navigation from QueueTracks
 

@@ -8,8 +8,8 @@
 ## Files
 
 - **lib.rs** — Tauri app setup, plugin registration, command handler registration. Debug-only commands via `#[cfg(debug_assertions)]` using separate `get_invoke_handler()` functions. Initializes `AppState` with all shared resources. Constructs image provider fallback chains at startup.
-- **commands.rs** — All `#[tauri::command]` functions (~107 commands). Each takes `State<'_, AppState>` and delegates to `db.rs` or other modules. Commands return `Result<T, String>`. `AppState` holds: `Arc<Database>`, `app_dir`, `download_queue`, `track_download_manager`, `LastfmClient`, `lastfm_session`, `lastfm_importing`.
-- **db.rs** — SQLite wrapper behind `Mutex<Connection>` (~67 public functions). Owns schema creation, CRUD, FTS5 search index, history recording, Last.fm cache. Registers custom SQL functions: `filename_from_path()`, `strip_diacritics()`, `unicode_lower()`. Schema versioning via `db_version` table with `run_migrations()` on startup (PoC baseline squashed into `init_tables`; `db_version` starts at 1 and there are currently no migrations). `recompute_counts()` runs every startup.
+- **commands/** — All `#[tauri::command]` functions, split by area into submodules (`app`, `collections`, `downloads`, `extensions`, `history`, `images`, `library`, `main_playlist`, `media`, `mixtapes`, `p2p`, `playlists`, `plugin_files`, `plugins`, `skins_cmd`, `transcode`, `waveforms`, `youtube`). `commands/mod.rs` re-exports each submodule (`pub use <mod>::*`) and holds the shared `AppState` + helpers. Each command takes `State<'_, AppState>`, delegates to the `db/` layer or other modules, and returns `Result<T, String>`. `AppState` holds: `Arc<Database>`, `app_dir`, `download_queue`, `track_download_manager`, `LastfmClient`, `lastfm_session`, `lastfm_importing`.
+- **db/** — SQLite wrapper behind `Mutex<Connection>`, split by entity into submodules (`albums`, `artists`, `collections`, `history`, `image_failures`, `likes`, `playlists`, `plugin_storage`, `providers`, `search`, `tags`, `tracks`). `db/mod.rs` owns the `Database` struct, schema creation (`init_tables`), `Database::new` / `new_in_memory`, and registers custom SQL functions: `filename_from_path()`, `strip_diacritics()`, `unicode_lower()`. Schema versioning via `db_version` table with `run_migrations()` on startup (PoC baseline squashed into `init_tables`; `db_version` starts at 1 and there are currently no migrations). `recompute_counts()` runs every startup. Likes live in `db/likes.rs` — see "Likes (entity_likes)" below.
 - **scanner.rs** — Walks folder trees with `walkdir`, reads tags with `lofty`. Video files skip tag reading (filename = title). Falls back to regex-based filename parsing (4 patterns tried in order). Genres stored as tags.
 - **models.rs** — Serde-serializable structs shared between commands and DB layer.
 - **lastfm.rs** — Last.fm API client. Token-based auth with MD5 API signature hashing. Read-only methods use unsigned GET, write methods use signed POST. Methods include: auth, scrobble, now_playing, similar artists/tracks, artist/album/track info, top tags, love/unlove, recent tracks. 90-day TTL cache in `lastfm_cache` table.
@@ -23,6 +23,15 @@
 - **lyric_provider/** — Trait-based `LyricProvider` fallback chain. Currently: LRCLIB (lrclib.net). Returns synced (LRC) or plain text.
 - **skins.rs** — Skin file I/O, gallery fetching from GitHub, slug generation.
 - **mixtape.rs** — Mixtape export/import functionality.
+- **main_playlist.rs** — Persistence layer for the live ("main") queue: reads/writes the manifest (`manifest.json`), state (`state.json`), cover (`cover.jpg`), and per-track thumbnails (`thumbs/`) in the main-playlist folder. Backs the `main_playlist_*` commands and the queue restore/persist contract in `queue.md`. `gc()` prunes orphaned cover/thumb files.
+- **video_frames.rs** — Extracts representative frames from video tracks via `ffmpeg` (4 frames at fixed positions) and caches them on disk; backs the `get_video_frames` lookup used by the queue/now-playing image-resolution chain. Cache-only reads (`get_cached_frames`); extraction is explicit.
+- **tag_writer.rs** — Writes tag edits back to audio files (`TagUpdates`, only `Some` fields written). Backs the Edit Properties / bulk-edit flow.
+- **transcode_server.rs** — Local HTTP transcode server (axum) with per-file sessions; non-blocking `start_sync` startup so window paint isn't gated on TCP bind. Serves on-the-fly transcoded streams.
+- **browse_window.rs** — Embedded browse-window management (`open_browse_window`, `browse_window_eval`, `close_browse_window`, visibility) with an autoplay gate; backs the plugin `api.network.openBrowseWindow` bridge.
+- **update_checker.rs** — App + plugin/skin update checks (semver comparison helpers, gallery `update.json` resolution).
+- **logging.rs** — File-based logging (`CombinedLogger` = env_logger + optional file writer), toggled in Settings.
+- **cursor_tracker.rs** / **cursor_tracker_win.rs** — Native cursor polling so the mini player can expand on hover without window focus (Windows uses a platform-specific poller).
+- **p2p/** — libp2p-based peer-to-peer engine (host side of the `p2p-sharing` plugin): `swarm.rs` (the `NetworkBehaviour`: identify, ping, autonat, relay-client, dcutr hole-punching, request-response binary transfer), `protocols.rs`, `handler.rs`, `discovery.rs`, `mod.rs` (`P2pNode`, `P2pStatus`). Version-coupled to `viboplr-relay` — see "Relay version coupling" below. Commands live in `commands/p2p.rs` (`api.p2p.*` bridge).
 - **timing.rs** — Startup performance profiling.
 - **seed.rs** — Debug-only (`#[cfg(debug_assertions)]`). Fake data seeding.
 - **dependencies.rs** — External binary dependency service (ffmpeg, yt-dlp). See "External Binary Dependencies" below.
@@ -79,9 +88,18 @@ Long-running operations use `thread::spawn` with `AtomicBool` guards for cancell
 
 Schema versioned via `db_version` table. The full PoC migration history was squashed into the `init_tables` baseline, so `db_version` starts at 1 and `run_migrations()` is currently a no-op kept as the extension point for future schema changes (add `if version < N { ... }` blocks). `recompute_counts()` runs every startup for crash safety (called from `Database::new`).
 
-Full schema: `artists`, `albums`, `tags`, `track_tags`, `tracks`, `collections`, `history_artists`, `history_tracks`, `history_plays`, `image_fetch_failures`, `plugin_storage`, `lastfm_cache`, `lyrics`, `tracks_fts` (FTS5).
+Full schema: `artists`, `albums`, `tags`, `track_tags`, `tracks`, `collections`, `entity_likes`, `history_artists`, `history_tracks`, `history_plays`, `image_fetch_failures`, `playlists`, `playlist_tracks`, `plugin_storage`, `lastfm_cache`, `lyrics`, `tracks_fts` (FTS5). (Plugin-system tables — `information_types`, `information_values`, `image_providers`, `stream_resolvers`, `download_providers`, `plugin_schedules` — are documented in `plugins.md`.)
 
-Key constraints: albums UNIQUE on `(title, artist_id)`, tracks UNIQUE on `path` with upsert, `track_tags` with CASCADE deletes. The `liked` column is excluded from upsert ON CONFLICT so re-scanning preserves likes.
+Key constraints: albums UNIQUE on `(title, artist_id)`, tracks UNIQUE on `path` with upsert, `track_tags` with CASCADE deletes. The `liked` column on `tracks` is excluded from upsert ON CONFLICT so re-scanning preserves likes.
+
+### Likes (entity_likes)
+
+`entity_likes` is the **durable, ID-less source of truth** for like/dislike state across tracks, artists, albums, and tags. Schema: `(kind, entity_key, liked, metadata, updated_at)` with PK `(kind, entity_key)`. Logic lives in `db/likes.rs`.
+
+- **Entity keys** are name-based and diacritic-normalized (`strip_diacritics(lowercase(...))` via `norm_segment`), built by `build_entity_key(kind, name_or_title, artist_name)`: `track:{artist}:{title}`, `album:{artist}:{title}`, `artist:{name}`, `tag:{name}`. Because keys are metadata-based, likes survive for non-library and `id`-less `QueueTrack`s.
+- `set_entity_like` upserts a row (or **deletes** it when `liked == 0`). The `tracks.liked` column is kept as a mirror for library list rendering, but `entity_likes` is authoritative.
+- `get_track_like_states(&[(title, artist)])` batch-reads track like states from `entity_likes` (0 when no row). Used on startup to reconcile the restored queue / now-playing tracks, whose `QueueTrack`s carry no DB id — `tracksFromManifest` hardcodes `liked: 0`, so the restore path patches it from this command.
+- Commands: `set_entity_like_state` (frontend `useLikeActions` calls this with `{ kind, entity, likeState }`), `get_track_like_states` (in `commands/library.rs`).
 
 ## Profiles
 

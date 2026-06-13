@@ -14,7 +14,7 @@ npm run test:e2e   # Playwright E2E tests
 
 **Framework:** `cargo test` with `#[cfg(test)]` modules.
 
-**Files with tests:** `db.rs`, `scanner.rs`, `mixtape.rs`, `plugins.rs`, `commands.rs`, `skins.rs`, `entity_image.rs`.
+**Files with tests:** `db/mod.rs`, `db/history.rs`, `db/image_failures.rs`, `db/likes.rs`, `scanner.rs`, `mixtape.rs`, `main_playlist.rs`, `plugins.rs`, `commands/mod.rs`, `skins.rs`, `entity_image.rs`, `dependencies.rs`, `downloader.rs`, `models.rs`, `subsonic.rs`, `update_checker.rs`, `video_frames.rs`.
 
 **Test dependencies:** `tempfile = "3"` for temporary files.
 
@@ -48,10 +48,14 @@ mod tests {
 
 **Test location:** `src/__tests__/`
 
-**Existing test files:**
+**Existing test files** (representative — see `src/__tests__/` for the full set):
 - `computeSelection.test.ts` — multi-select, range selection, Shift/Cmd+click
-- `fallbackProviders.test.ts` — async provider resolution with timeouts
-- `hooks-logic.test.ts` — extracted hook logic (shuffle, strategy selection, positioning)
+- `hooks-logic.test.ts` — extracted hook logic (strategy selection, positioning)
+- `queueNav.test.ts` — per-mode next/prev index helpers (normal/repeat-all/repeat-one)
+- `trackKey.test.ts` — `sameSong()` identity / key matching
+- `likeKeys.test.ts` — like entity-key building + tri-state transitions
+- `videoOverlay.test.ts` — `nextQueueTrack` / `glowColorValue` ambient-overlay helpers
+- `mainPlaylist.test.ts` — manifest/state serialization (incl. legacy mode normalization)
 - `informationTypes.test.ts` — cache decision logic
 - `queueEntry.test.ts` — queue/track URL handling and scheme parsing
 - `skinUtils.test.ts` — skin validation, CSS generation, CSS sanitization

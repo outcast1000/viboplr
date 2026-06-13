@@ -2,7 +2,7 @@
 
 ## Core Files
 
-- **App.tsx** — Root React component: owns app-wide state, hook composition, playback/stream-resolver wiring, context menu, sidebar, and the view render tree. Views toggled via `View` union type: `"search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "settings" | "extensions" | plugin:${string}`. The unified Library is `"search"` (rendered by `SearchView`); `"artists"`, `"albums"`, `"tags"` are detail-page views reached by selecting an entity from the Library. Simple confirmation/error/loading modals are presentational leaf components in `components/modals/` (`ConfirmModals.tsx`, `YoutubeFeedbackModal.tsx`) — App.tsx owns their state and passes primitive props + callbacks; the components hold no app state. The native context-menu spec building lives in `contextMenu/buildContextMenuSpecs.tsx` — a pure `buildContextMenuSpecs(target, deps)` that returns the `MenuItemSpec[]` (or `null`) per `ContextMenuTarget` kind; App.tsx keeps a thin `buildAndShowNativeMenu` wrapper that owns `setContextMenu` + `showNativeMenu`.
+- **App.tsx** — Root React component: owns app-wide state, hook composition, playback/stream-resolver wiring, context menu, sidebar, and the view render tree. Views toggled via `View` union type: `"home" | "search" | "artists" | "albums" | "tags" | "history" | "collections" | "playlists" | "nowplaying" | "settings" | "extensions" | plugin:${string}`. The unified Library is `"search"` (rendered by `SearchView`); `"artists"`, `"albums"`, `"tags"` are detail-page views reached by selecting an entity from the Library. Simple confirmation/error/loading modals are presentational leaf components in `components/modals/` (`ConfirmModals.tsx`, `YoutubeFeedbackModal.tsx`) — App.tsx owns their state and passes primitive props + callbacks; the components hold no app state. The native context-menu spec building lives in `contextMenu/buildContextMenuSpecs.tsx` — a pure `buildContextMenuSpecs(target, deps)` that returns the `MenuItemSpec[]` (or `null`) per `ContextMenuTarget` kind; App.tsx keeps a thin `buildAndShowNativeMenu` wrapper that owns `setContextMenu` + `showNativeMenu`.
 - **App.css** — All styles. CSS Grid layout, CSS custom properties for skinning, 7-level type scale (`--fs-2xs` through `--fs-2xl`). Shared keyframe animations: `fade-in`, `scale-in`, `glow-pulse`, `slide-text-in`, `equalizer-bar-{1,2,3}`, `waveform-grow-in`.
 - **skinUtils.ts** — Skin validation, CSS generation, customCSS sanitization.
 - **types.ts** — Core TypeScript types (Track, QueueTrack, Artist, Album, Tag, etc.). `Track` is the full library type with DB IDs; `QueueTrack` is the ID-less metadata type used by queue/playback/playlists.
@@ -14,7 +14,7 @@
 ## Components (src/components/)
 
 - **CaptionBar.tsx** — Custom caption bar: window controls, brand logo, back/forward nav, `CentralSearchDropdown`, mini player button. Full-width drag region (`data-tauri-drag-region`).
-- **Sidebar.tsx** — Navigation sidebar with animated active indicator. Items: Library (Cmd+1), History (Cmd+2), Playlists, plugin sidebar items. Bottom: Collections, Extensions (with update count badge), Settings (with update badge). Collapsible via Cmd+B.
+- **Sidebar.tsx** — Navigation sidebar with animated active indicator. Items: Home (Cmd+0), Library (Cmd+1), History (Cmd+2), Now Playing (Cmd+3), Playlists, plugin sidebar items. Bottom: Collections, Extensions (with update count badge), Settings (with update badge). Collapsible via Cmd+B. The Now Playing icon is playback-aware: `SpinningDisc` for audio, `FilmReel` for video, both frozen when paused.
 - **TrackList.tsx** — Table/list/tile view for tracks with column sorting, multi-selection (Click, Cmd+Click, Shift+Click), and drag-to-queue.
 - **NowPlayingBar.tsx** — Footer playback controls. Full mode: seek bar (waveform or segmented), track info with like/dislike, transport controls, queue mode, auto-continue, volume. Mini mode: compact draggable bar with art, title/artist, play controls. Rank badges for top-100 tracks. Scrobble indicator checkmark. Album art resolved async via `currentTrack` effect in `App.tsx` — same priority chain as queue (see `queue.md` "Image Resolution" section).
 - **QueuePanel.tsx** — Right sidebar playlist panel. Drag-and-drop reorder, multi-select, duplicate detection banner (add all / add new / cancel with auto-approve countdown). Resizable width. Collapsed mode (40px strip).
@@ -37,6 +37,25 @@
 - **AddServerModal.tsx, EditCollectionModal.tsx** — Collection modals.
 - **TrackPropertiesModal.tsx** — Tabbed modal (Info, Tags, Similar, Artist, Album).
 - **FullscreenControls.tsx** — Video fullscreen overlay.
+- **NowPlayingView.tsx** — Lean-back current-track view (the `nowplaying` main view). Audio: blurred-art backdrop + album art + centered lyrics + floating "up next" list. Video: shared `<video>` repositioned to fill the column (theater mode, `.video-container--theater`) with a `VideoAmbientOverlay`. Lyrics via `useLyrics`. See `ui.md` "Now Playing View".
+- **VideoAmbientOverlay.tsx** — Ambient layers over the theater-mode video in NowPlayingView: sampled color glow (`extractDominantColor`), auto-hiding up-next chip, auto-hiding title/artist intro. Idle-timer visibility mirrors FullscreenControls. Pure helpers in `utils/videoOverlay.ts`.
+- **FilmReel.tsx** — Animated film-reel icon (video counterpart to `SpinningDisc`) used by the playback-aware sidebar Now Playing icon.
+- **HomeView.tsx, HomeHero.tsx, HomeShelf.tsx** — Home landing surface: `HomeView` composes the page and owns the inline shelf-visibility popover; featured-track hero carousel (`HomeHero`); horizontal shelves (`HomeShelf`, with the `resolveImagePath` helper). State owned by `useHome.ts`. See `ui.md` "Home View".
+- **SearchView.tsx** — The unified Library view (the `search` view): tabbed Tracks/Artists/Albums/Tags, empty query shows the full library.
+- **ExtensionsView.tsx** — Plugin/extension management (install from gallery, enable/disable, updates).
+- **SettingsPanel.tsx** — Settings UI: providers ordering, dependencies, skins, profiles, toggles.
+- **DetailHero.tsx, DetailHeroBackground.tsx, DetailHeroEffect.tsx** — Shared native detail hero (multi-image crossfade background, FX looks, square/circle art, play/enqueue + overflow). Used by all detail pages and the plugin `detail-header` display kind. Images via `useDetailHeroImages.ts`.
+- **AlbumDetail.tsx, TagDetail.tsx** — Detail-page wrappers composing the hero + track list + information sections for albums/tags.
+- **DownloadModal.tsx** — Unified download flow (provider-chain resolution, interactive manual search, progress). See conventions.md "Download Track".
+- **BulkEditModal.tsx** — Multi-track tag/metadata bulk editor (`bulk_update_tracks`).
+- **LikeDislikeButtons.tsx** — Shared like (heart) / dislike (X) button pair, reused across surfaces.
+- **SegmentedSeekBar.tsx** — Segmented (non-waveform) seek bar variant for the Now Playing bar.
+- **AutoContinuePopover.tsx, EqPopover.tsx** — Popover controls for auto-continue strategy weights and the equalizer.
+- **MiniSearchPanel.tsx** — Quick-search panel for mini mode (opened by typing when no input is focused).
+- **TitleLineInfo.tsx** — Renders the `title_line` information display kind inline in detail headers.
+- **VideoFilmstrip.tsx, VideoFrameCard.tsx, VideoRowThumb.tsx** — Video frame thumbnails (filmstrip + per-row/card art) backed by `useVideoFrames.ts` / `video_frames.rs`.
+- **SpinningDisc.tsx** — Animated spinning-disc icon (audio counterpart to `FilmReel`).
+- **AutocompleteInput.tsx, PromptModal.tsx, ConfirmModal.tsx, DeletePlaylistModal.tsx, SavePlaylistModal.tsx, DependencyModal.tsx, FirstRunPluginModal.tsx, MixtapeExportModal.tsx, MixtapePreviewModal.tsx, PlaybackErrorModal.tsx, HeroOverflowMenu.tsx** — Supporting inputs/modals/menus (see conventions.md for native-menu and modal-dismiss rules).
 - **StatusBar.tsx, Icons.tsx, WindowControls.tsx** — Utility components.
 
 ## Hooks (src/hooks/)
@@ -49,7 +68,7 @@
 - **useImageCache.ts** — Entity image caching and on-demand fetching with dedup guards.
 - **useAutoContinue.ts** — Auto-continue with 5 weighted strategies: Random (40%), Same Artist (20%), Same Tag (20%), Most Played (10%), Liked (10%). "Same format" filter option.
 - **useMiniMode.ts** — Mini player (40px height, 280-550px auto-width). Always-on-top, no decorations. macOS transparent background via Cocoa APIs.
-- **useVideoSplit.ts** — Resizable video splitter (default 300px, min 150px track list). Dock sides: top/bottom/left/right.
+- **useVideoLayout.ts** — Resizable video splitter / dock layout (default 300px, min 150px track list; dock sides top/bottom/left/right).
 - **useWaveform.ts** — Waveform data caching and computation.
 - **useGlobalShortcuts.ts** — OS-level media keys (MediaPlayPause/Next/Previous/Stop) via Tauri's global-shortcut plugin.
 - **useInAppKeyboardShortcuts.ts** — In-window keyboard shortcuts (the `window` keydown handler; see "Keyboard Shortcuts" below). Takes a single `deps` object refreshed into a ref each render, so its one installed listener never reads stale closures. App.tsx owns the deps; the hook owns the dispatch.
@@ -60,13 +79,26 @@
 - **useAppUpdater.ts** — App update checking and installation.
 - **usePasteImage.ts** — Clipboard image paste handling for entity images.
 - **useSkins.ts** — Skin management: load/apply/import/delete, gallery browsing, CSS injection via `<style id="viboplr-skin">`.
-- **useLikeActions.ts** — Like/unlike for tracks (tri-state: -1/0/1), artists, albums, tags (binary: 0/1).
+- **useLikeActions.ts** — Like/unlike for tracks (tri-state: -1/0/1), artists, albums, tags (binary: 0/1). Persists via `set_entity_like_state` (durable, ID-less `entity_likes` store) and propagates the new state to same-song copies in `currentTrack`/queue via the `sameSong()` predicate (key match, falling back to title+artist).
 - **useContextMenuActions.ts** — Context menu action handlers (delete, show in folder, YouTube, etc.).
+- **useLyrics.ts** — Fetches lyrics for the current track through the plugin info-type provider chain (scoped via the `include` filter on `useInformationTypes`). Used by `NowPlayingView`. Returns synced (LRC) or plain text.
+- **useInformationTypes.ts** — Orchestrates plugin information-type fetching + caching for detail pages (cache decision logic, provider priority, in-flight dedup). Supports an `include` filter to scope fetches (used by `useLyrics`). See `plugins.md` "Information Sections".
+- **useImageResolver.ts** — Bridge between the Rust image-download worker and JS plugin image providers (handles `image-resolve-request` events). See `plugins.md` "Image Provider Chain".
+- **useHome.ts** — Home view state: built-in shelf resolvers, merged plugin shelves, featured-track selection, persisted snapshot + 24h refresh model. See `ui.md` "Home View".
+- **useEntityDetail.ts** — Loads detail-page data (tracks/albums/sections) for a selected artist/album/tag.
+- **useDetailHeroImages.ts** — Resolves the multi-image background set for `DetailHero`.
+- **useArtistInfo.ts** — Artist metadata loading for the artist detail page.
+- **usePlayActions.ts** — Shared play/enqueue action helpers routed through the canonical queue actions.
+- **useCollectionActions.ts** — Collection CRUD/resync action handlers for `CollectionsView`.
+- **useExtensions.ts** — Extension/plugin install, enable/disable, update checking for `ExtensionsView`.
+- **useDependencies.ts** — External-binary dependency state (install/update/progress/check). See `backend.md` "External Binary Dependencies".
+- **useVideoFrames.ts** — Video frame thumbnail caching/extraction bridge (`video_frames.rs`).
+- **useMiniSearch.ts** — Mini-mode quick-search state for `MiniSearchPanel`.
 
 ## Keyboard Shortcuts
 
 No modifier (when not in text input): Space (play/pause), arrows (seek/volume).
-Cmd/Ctrl: 1 (Library), 2 (History), K (search), F (fullscreen), L (like), P (playlist panel), M (mute), Shift+M (mini), B (sidebar), Left/Right (prev/next track).
+Cmd/Ctrl: 0 (Home), 1 (Library), 2 (History), 3 (Now Playing), K (search), F (fullscreen), L (like), P (playlist panel), M (mute), Shift+M (mini), B (sidebar), Left/Right (prev/next track).
 Alt: Left/Right (nav history back/forward).
 Track list: arrows (navigate), Enter (play), Shift+Enter (enqueue).
 Mini mode: any printable character (when no input is focused) opens the mini-player quick-search panel; Space/arrows remain player controls.
