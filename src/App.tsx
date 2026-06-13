@@ -74,6 +74,7 @@ import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import ExtensionsView from "./components/ExtensionsView";
 import { FullscreenControls } from "./components/FullscreenControls";
+import { VideoAmbientOverlay } from "./components/VideoAmbientOverlay";
 import { AddServerModal } from "./components/AddServerModal";
 import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
 import { buildContextMenuSpecs } from "./contextMenu/buildContextMenuSpecs";
@@ -3125,6 +3126,17 @@ function App() {
             onNavigateToArtistByName={library.navigateToArtistByName}
             onNavigateToAlbumByName={(name, artistName) => library.navigateToAlbumByName(name, artistName ?? undefined)}
           />
+          {view === "nowplaying" && playback.currentTrack && isVideoTrack(playback.currentTrack) && (
+            <VideoAmbientOverlay
+              currentTrack={playback.currentTrack}
+              playing={playback.playing}
+              queue={queueHook.queue}
+              queueIndex={queueHook.queueIndex}
+              getAlbumImage={albumImageCache.getImage}
+              getArtistImage={artistImageCache.getImage}
+              onPlayQueueIndex={(index) => { queueHook.setQueueIndex(index); playback.handlePlay(queueHook.queue[index]); }}
+            />
+          )}
         </div>
       </main>
 
