@@ -36,6 +36,16 @@ interface UseLikeActionsDeps {
   plugins: PluginsDeps;
 }
 
+// A queue/now-playing entry is the same song as `track` when its in-memory key
+// matches, OR — for copies that came from a different surface (external source,
+// restored playlist, a duplicate add) and so carry a different `ext:N`/`lib:N`
+// key — when title + artist match. Without the metadata fallback, liking a song
+// from one surface would leave a same-song copy elsewhere in the queue stale.
+export function sameSong(a: QueueTrack, b: QueueTrack): boolean {
+  if (a.key === b.key) return true;
+  return a.title === b.title && (a.artist_name ?? null) === (b.artist_name ?? null);
+}
+
 export function useLikeActions(deps: UseLikeActionsDeps) {
   const { library, playback, queueHook, plugins } = deps;
 
@@ -58,10 +68,10 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
           t.title === track.title && (t.artist_name ?? null) === (track.artist_name ?? null)
             ? { ...t, liked: newLiked } : t));
       }
-      if (playback.currentTrack?.key === track.key) {
+      if (playback.currentTrack && sameSong(playback.currentTrack, track)) {
         playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
-      queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+      queueHook.setQueue(prev => prev.map(t => sameSong(t, track) ? { ...t, liked: newLiked } : t));
       plugins.dispatchEvent("track:liked", track, newLiked === 1);
     } catch (e) {
       console.error("Failed to toggle like:", e);
@@ -85,10 +95,10 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
           t.title === track.title && (t.artist_name ?? null) === (track.artist_name ?? null)
             ? { ...t, liked: newLiked } : t));
       }
-      if (playback.currentTrack?.key === track.key) {
+      if (playback.currentTrack && sameSong(playback.currentTrack, track)) {
         playback.setCurrentTrack(prev => prev ? { ...prev, liked: newLiked } : prev);
       }
-      queueHook.setQueue(prev => prev.map(t => t.key === track.key ? { ...t, liked: newLiked } : t));
+      queueHook.setQueue(prev => prev.map(t => sameSong(t, track) ? { ...t, liked: newLiked } : t));
     } catch (e) {
       console.error("Failed to toggle dislike:", e);
     }

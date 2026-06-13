@@ -8,6 +8,7 @@ import { queueItemLocalThumb, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { SpinningDisc } from "./SpinningDisc";
+import { IconHeartFilled, IconThumbsDownFilled } from "./Icons";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./QueuePanel.css";
 
@@ -613,6 +614,8 @@ export function QueuePanel({
             >
               <div className="queue-item-line1">
                 {i === queueIndex && <SpinningDisc size={13} playing={!!isPlaying} />}
+                {t.liked === 1 && <IconHeartFilled size={11} className="queue-item-like" />}
+                {t.liked === -1 && <IconThumbsDownFilled size={11} className="queue-item-dislike" />}
                 <span className="queue-item-title">{t.title}</span>
                 <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
               </div>

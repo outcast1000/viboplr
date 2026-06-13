@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { nextExternalKey, parseLibraryId, isLibraryTrack, isLocalTrack } from "../queueEntry";
+import { sameSong } from "../hooks/useLikeActions";
 import type { Track } from "../types";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
@@ -129,6 +130,34 @@ describe("guard behavior for non-library tracks", () => {
 
       expect(updatedLibrary[0].liked).toBe(1);
       expect(updatedQueue[0].liked).toBe(1);
+    });
+  });
+
+  describe("sameSong (like propagation predicate)", () => {
+    it("matches when keys are identical", () => {
+      const a = makeTrack({ key: "lib:42" });
+      const b = makeTrack({ key: "lib:42" });
+      expect(sameSong(a, b)).toBe(true);
+    });
+
+    it("matches same song across different keys via title + artist", () => {
+      // Same song, but one copy entered the queue from another surface and so
+      // carries an ext: key rather than the library lib: key.
+      const fromLibrary = makeTrack({ key: "lib:42", title: "Joga", artist_name: "Björk" });
+      const inQueue = makeTrack({ key: "ext:7", title: "Joga", artist_name: "Björk" });
+      expect(sameSong(fromLibrary, inQueue)).toBe(true);
+    });
+
+    it("does not match different songs", () => {
+      const a = makeTrack({ key: "ext:1", title: "Joga", artist_name: "Björk" });
+      const b = makeTrack({ key: "ext:2", title: "Hyperballad", artist_name: "Björk" });
+      expect(sameSong(a, b)).toBe(false);
+    });
+
+    it("treats null and missing artist as equal", () => {
+      const a = makeTrack({ key: "ext:1", title: "Untitled", artist_name: null });
+      const b = makeTrack({ key: "ext:2", title: "Untitled", artist_name: null });
+      expect(sameSong(a, b)).toBe(true);
     });
   });
 });
