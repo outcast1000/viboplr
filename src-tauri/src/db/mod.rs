@@ -558,6 +558,41 @@ impl Database {
             )?;
         }
 
+        // 4. Drop the stale CHECK(entity IN ('artist','album')) constraint on
+        //    image_providers. Pre-feature DBs created the table with that
+        //    constraint, which silently rejects 'tag' (and any future entity)
+        //    rows on INSERT OR IGNORE — so the Google Image Search plugin's tag
+        //    provider never registers and "Tags" never appears in Settings.
+        //    SQLite can't drop a CHECK via ALTER, so rebuild the table. Detected
+        //    by schema presence (idempotent): only runs when the CHECK is found.
+        let has_entity_check: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'table' AND name = 'image_providers' AND sql LIKE '%CHECK%'",
+                [], |r| r.get::<_, i64>(0),
+            )? > 0
+        };
+        if has_entity_check {
+            let conn = self.conn.lock().unwrap();
+            conn.execute_batch(
+                "BEGIN;
+                 CREATE TABLE image_providers_new (
+                     id          INTEGER PRIMARY KEY,
+                     plugin_id   TEXT NOT NULL,
+                     entity      TEXT NOT NULL,
+                     priority    INTEGER NOT NULL DEFAULT 500,
+                     active      INTEGER NOT NULL DEFAULT 1,
+                     UNIQUE (plugin_id, entity)
+                 );
+                 INSERT INTO image_providers_new (id, plugin_id, entity, priority, active)
+                     SELECT id, plugin_id, entity, priority, active FROM image_providers;
+                 DROP TABLE image_providers;
+                 ALTER TABLE image_providers_new RENAME TO image_providers;
+                 COMMIT;",
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -625,6 +660,42 @@ mod tests {
         assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("disliked")));
         // The pre-existing library like must have been backfilled.
         assert_eq!(db.get_entity_like_state("artist", "artist:bjork").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_image_providers_check_constraint_dropped() {
+        // Pre-feature DBs created image_providers with CHECK(entity IN ('artist','album')),
+        // which silently rejects 'tag' rows on INSERT OR IGNORE. The migration must
+        // rebuild the table without the CHECK so tag/track providers can register.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("viboplr.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE image_providers (
+                    id          INTEGER PRIMARY KEY,
+                    plugin_id   TEXT NOT NULL,
+                    entity      TEXT NOT NULL CHECK(entity IN ('artist', 'album')),
+                    priority    INTEGER NOT NULL DEFAULT 500,
+                    active      INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE (plugin_id, entity)
+                 );
+                 INSERT INTO image_providers (plugin_id, entity, priority) VALUES ('google-image-search', 'artist', 600);
+                 CREATE TABLE db_version (version INTEGER NOT NULL);
+                 INSERT INTO db_version (rowid, version) VALUES (1, 1);",
+            ).unwrap();
+        }
+        let db = Database::new(dir.path()).expect("DB with stale CHECK should open");
+        // The CHECK must be gone: a tag provider now inserts successfully.
+        db.sync_image_providers(&[
+            ("google-image-search".to_string(), "artist".to_string(), 600),
+            ("google-image-search".to_string(), "tag".to_string(), 900),
+        ]).expect("syncing a tag image provider must succeed after migration");
+        let tag_providers = db.get_image_providers("tag").unwrap();
+        assert!(
+            tag_providers.iter().any(|(plugin_id, _, _)| plugin_id == "google-image-search"),
+            "tag image provider should be registered after the CHECK is dropped",
+        );
     }
 
     /// Helper: create a test collection and return its id.

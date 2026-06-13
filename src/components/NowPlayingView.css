@@ -306,6 +306,20 @@
   text-overflow: ellipsis;
 }
 
+.np-tags {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  margin-top: 6px;
+  text-align: center;
+  max-width: 80%;
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* When there are no lyrics, center the art alone (no two-column split). */
 .np-audio--nolyrics .np-stage {
   gap: 0;

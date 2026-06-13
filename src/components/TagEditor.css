@@ -1,0 +1,92 @@
+.tag-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tag-editor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.tag-editor-input.ds-input {
+  width: auto;
+  min-width: 140px;
+  padding: 4px 8px;
+  font-size: var(--fs-xs);
+}
+
+.tag-editor-empty,
+.tag-editor-hint {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Inline variant fills its row. */
+.tag-editor--inline {
+  width: 100%;
+}
+
+/* Popover variant stacks chips above the input in a compact column. */
+.tag-editor--popover {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 220px;
+}
+
+.tag-editor--popover .tag-editor-input.ds-input {
+  width: 100%;
+}
+
+/* Self-contained chip styles (scoped) so TagEditor renders correctly on any
+   surface, not just where TrackDetailView.css happens to be loaded. Mirrors the
+   .track-tag-chip / .track-tag-assigned rules in TrackDetailView.css. */
+.tag-editor .track-tag-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: var(--fs-2xs);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border: 1px solid var(--border);
+}
+
+.tag-editor .track-tag-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tag-editor .track-tag-assigned {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+.tag-editor .track-tag-assigned .track-tag-name {
+  cursor: default;
+}
+
+.tag-editor .track-tag-assigned .track-tag-remove {
+  cursor: pointer;
+  opacity: 0;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  color: var(--text-tertiary);
+  transition: opacity 0.15s, color 0.15s;
+  padding: 0 2px;
+}
+
+.tag-editor .track-tag-assigned:hover .track-tag-remove {
+  opacity: 1;
+}
+
+.tag-editor .track-tag-assigned .track-tag-remove:hover {
+  color: var(--text-primary);
+}

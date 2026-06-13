@@ -57,6 +57,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.video-ambient-intro-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.video-ambient-intro-tag {
+  font-size: var(--fs-2xs);
+  color: var(--text-primary);
+  padding: 2px 9px;
+  border-radius: 11px;
+  background: rgba(var(--overlay-inverse), 0.55);
+  backdrop-filter: blur(8px);
+  text-shadow: none;
+}
 
 /* 2. Up-next chip: bottom-right, reuses the np-upnext visual language but as a
    single compact, clickable card. */
@@ -126,8 +141,11 @@
   text-overflow: ellipsis;
 }
 
+/* No `forwards` fill-mode: the slide-in still ramps opacity 0->1 on entrance,
+   but once it ends, `opacity` falls back to the .video-ambient-fade layer so the
+   idle timer can fade the intro out (with `forwards` it stayed pinned at 1). */
 .video-ambient-intro.anim-slide-text-in {
-  animation: slide-text-in 250ms ease-out forwards;
+  animation: slide-text-in 250ms ease-out;
 }
 
 /* Auto-hiding fullscreen toggle: top-right, shares the fade layer with the

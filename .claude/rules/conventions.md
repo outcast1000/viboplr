@@ -52,11 +52,11 @@ Each entry documents the gold standard implementation for a repeated user action
 
 ### Tag Operations
 
-- **Canonical:** `TrackDetailView.tsx` -> `handleApplyTag()` / `handleRemoveTag()` / `handleSaveTags()`
-- **Apply single tag:** `invoke("plugin_apply_tags", { trackId, tagNames })` -> update local tag state -> `addLog()`
-- **Remove/replace tags:** `invoke("replace_track_tags", { trackId, tagNames })` -> update local tag state -> `addLog()`
-- **Bulk edit:** `invoke("bulk_update_tracks", { trackIds, fields })` -> `addLog()` on completion
-- Other entry points (InformationSections, BulkEditModal) should route through the same patterns
+- **Canonical editor:** `TagEditor.tsx` — the shared chip+autocomplete component. Used on every tag surface: `TrackDetailView`, `BulkEditModal`, `NowPlayingView` (inline), and `NowPlayingBar` (via `TagPopover`, a `variant="popover"` host). New tag-editing surfaces must reuse `TagEditor`, not reimplement chips/autocomplete.
+- **Suggestion pool:** `buildTagSuggestionPool(libraryTags, communityTags)` in `utils/tagSuggestions.ts` — library tags ranked by `track_count` descending, then community/Last.fm tags appended (case-insensitive dedup). Order is preserved so `filterSuggestions` keeps the frequency ranking. Already-applied tags are hidden from the dropdown via `AutocompleteInput`'s `exclude` set (built inside `TagEditor`), not stripped from the pool — so a just-removed tag is immediately suggestable again.
+- **Single-track add/remove (canonical path):** route through `useTagActions` (`hooks/useTagActions.ts`). `add` -> `invoke("plugin_apply_tags", { trackId, tagNames: [name] })`; `remove` -> `invoke("replace_track_tags", { trackId, tagNames: remaining })`. Both return `Array<[tagId, tagName]>`. Quick-edit is **DB-only** and uses **optimistic UI**: the chip appears/disappears immediately, reverts on failure. There is **no** `addLog` mechanism in this codebase — feedback is the optimistic chip update; every `catch` must `console.error`.
+- **Bulk edit / file write:** `BulkEditModal` keeps its replace/add/remove mode selector and saves via `invoke("bulk_update_tracks", { trackIds, fields })` with `fields.tag_names` + `fields.tag_mode`. This is the **only** path that writes tags into audio-file genre metadata. The inline quick-editors never touch files.
+- **Non-library tracks:** the Now Playing surfaces operate on `QueueTrack` (no DB id). They resolve the playing track to a library row via `invoke("find_track_by_metadata", { title, artistName, albumName })` (on the Bar, only when the popover opens). If not found, `TagEditor` renders read-only (`disabled` + `disabledHint`).
 
 ### Record Play / Scrobble
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { isVideoTrack, getInitials } from "../utils";
 import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
@@ -207,6 +207,31 @@ export function NowPlayingView({
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
 
+  // Read-only tags for the metadata line. NowPlayingView operates on a
+  // QueueTrack (no DB id), so resolve to a library track by metadata; tags show
+  // only for tracks that exist in the library. Editing lives in the Now Playing
+  // bar's tag popover and the track detail page, not in this lean-back view.
+  const [trackTags, setTrackTags] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!track) { setTrackTags([]); return; }
+    invoke<{ id: number } | null>("find_track_by_metadata", {
+      title: track.title,
+      artistName: track.artist_name ?? null,
+      albumName: track.album_title ?? null,
+    })
+      .then((lib) => {
+        if (cancelled) return;
+        if (!lib) { setTrackTags([]); return; }
+        invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId: lib.id })
+          .then((rows) => { if (!cancelled) setTrackTags(rows.map((r) => r.name)); })
+          .catch((e) => console.error("Failed to load tags for now-playing track:", e));
+      })
+      .catch((e) => console.error("Failed to resolve now-playing track:", e));
+    return () => { cancelled = true; };
+  }, [track?.title, track?.artist_name, track?.album_title]);
+
   // Up-next: the tracks after the current one (capped). Indices are absolute
   // into `queue` so clicks can jump directly.
   const upNext = useMemo(() => {
@@ -290,6 +315,9 @@ export function NowPlayingView({
         </div>
       </div>
       {metaLine}
+      {track && trackTags.length > 0 && (
+        <div className="np-tags">{trackTags.join(" · ")}</div>
+      )}
       {/* Floats in the bottom-right corner, over the stage. */}
       <UpNext
         items={upNext}

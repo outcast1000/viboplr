@@ -20,6 +20,9 @@ import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { DetailHero } from "./DetailHero";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
+import TagEditor from "./TagEditor";
+import { buildTagSuggestionPool } from "../utils/tagSuggestions";
+import { useTagActions } from "../hooks/useTagActions";
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
@@ -95,12 +98,12 @@ export function TrackDetailView({
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
   const [artistTags, setArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
-  const [editingTags, setEditingTags] = useState(false);
-  const [tagInput, setTagInput] = useState("");
+  const [allLibraryTags, setAllLibraryTags] = useState<Array<{ name: string; track_count: number }>>([]);
+  const tagActions = useTagActions();
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
-  const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } | null>(null);
+  const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; url?: string } | null>(null);
   const [youtubeUrlEdit, setYoutubeUrlEdit] = useState<string | null>(null);
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
@@ -131,6 +134,13 @@ export function TrackDetailView({
     });
   }, []);
 
+  // Load all library tags once for suggestion ranking
+  useEffect(() => {
+    invoke<Array<{ id: number; name: string; track_count: number; liked: number }>>("get_tags")
+      .then((tags) => setAllLibraryTags(tags.map((t) => ({ name: t.name, track_count: t.track_count }))))
+      .catch((e) => console.error("Failed to load library tags:", e));
+  }, []);
+
   const handleTabOrderChange = useCallback((order: string[]) => {
     setTabOrder(order);
     store.set("trackDetailTabOrder", order);
@@ -141,7 +151,6 @@ export function TrackDetailView({
     setTrackTags([]);
     setCommunityTags([]);
     setArtistTags([]);
-    setEditingTags(false);
     setPlayStats(null);
     setPlayHistory([]);
     setAudioProps(null);
@@ -174,52 +183,46 @@ export function TrackDetailView({
     const val = data as Record<string, unknown>;
     if (!val) return;
     const items = val.items as Array<{ label: string; value: number }> | undefined;
-    const info: { listeners?: string; playcount?: string; toptags?: Array<{ name: string }>; url?: string } = {};
+    const info: { listeners?: string; playcount?: string; url?: string } = {};
     if (items) {
       for (const item of items) {
         if (item.label === "listeners") info.listeners = String(item.value);
         if (item.label === "scrobbles") info.playcount = String(item.value);
       }
     }
-    if (val.toptags) info.toptags = val.toptags as Array<{ name: string }>;
     if (val.url) info.url = val.url as string;
     if (info.listeners || info.playcount) setTrackInfo(info);
   }, []);
 
-  const handleApplyTag = useCallback(async (tagName: string) => {
-    try {
-      const result = await invoke<Array<[number, string]>>("plugin_apply_tags", { trackId, tagNames: [tagName] });
-      if (result.length > 0) {
-        setTrackTags(prev => [...prev, ...result.map(([id, name]) => ({ id, name }))]);
-        setCommunityTags(prev => prev.filter(t => t.name.toLowerCase() !== tagName.toLowerCase()));
-        onTagsChanged?.();
-      }
-    } catch (e) { console.error("Failed to apply tag:", e); }
-  }, [trackId, onTagsChanged]);
+  const handleAddTag = useCallback(async (tagName: string) => {
+    if (trackId == null) return;
+    setTrackTags((prev) => [...prev, { id: -1, name: tagName }]);
+    setCommunityTags((prev) => prev.filter((t) => t.name.toLowerCase() !== tagName.toLowerCase()));
+    const names = await tagActions.add(trackId, tagName);
+    if (names == null) {
+      setTrackTags((prev) => prev.filter((t) => t.name.toLowerCase() !== tagName.toLowerCase()));
+      return;
+    }
+    invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId })
+      .then(setTrackTags)
+      .catch((e) => console.error("Failed to reload track tags:", e));
+    onTagsChanged?.();
+  }, [trackId, tagActions, onTagsChanged]);
 
-  const handleRemoveTag = useCallback(async (tagToRemove: { id: number; name: string }) => {
-    const remaining = trackTags.filter(t => t.id !== tagToRemove.id).map(t => t.name);
-    try {
-      const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId, tagNames: remaining });
-      setTrackTags(result.map(([id, name]) => ({ id, name })));
-      onTagsChanged?.();
-    } catch (e) { console.error("Failed to remove tag:", e); }
-  }, [trackId, trackTags, onTagsChanged]);
-
-  const handleStartEditTags = useCallback(() => {
-    setTagInput(trackTags.map(t => t.name).join(", "));
-    setEditingTags(true);
-  }, [trackTags]);
-
-  const handleSaveTags = useCallback(async () => {
-    const tagNames = tagInput.split(",").map(s => s.trim()).filter(Boolean);
-    try {
-      const result = await invoke<Array<[number, string]>>("replace_track_tags", { trackId, tagNames });
-      setTrackTags(result.map(([id, name]) => ({ id, name })));
-      setEditingTags(false);
-      onTagsChanged?.();
-    } catch (e) { console.error("Failed to save tags:", e); }
-  }, [trackId, tagInput, onTagsChanged]);
+  const handleRemoveTagByName = useCallback(async (tagName: string) => {
+    if (trackId == null) return;
+    const before = trackTags;
+    setTrackTags((prev) => prev.filter((t) => t.name.toLowerCase() !== tagName.toLowerCase()));
+    const names = await tagActions.remove(trackId, before.map((t) => t.name), tagName);
+    if (names == null) {
+      setTrackTags(before);
+      return;
+    }
+    invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId })
+      .then(setTrackTags)
+      .catch((e) => console.error("Failed to reload track tags:", e));
+    onTagsChanged?.();
+  }, [trackId, trackTags, tagActions, onTagsChanged]);
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
@@ -231,28 +234,10 @@ export function TrackDetailView({
     }
   }, [actions.playExternal, actions.enqueueExternal]);
 
-  const assignedTagNames = new Set(trackTags.map(t => t.name.toLowerCase()));
-
-  const allCommunityTags = (() => {
-    const seen = new Set<string>();
-    const merged: Array<{ name: string }> = [];
-    for (const t of communityTags) {
-      const key = t.name.toLowerCase();
-      if (!seen.has(key)) { seen.add(key); merged.push(t); }
-    }
-    for (const t of (trackInfo?.toptags ?? [])) {
-      const key = t.name.toLowerCase();
-      if (!seen.has(key)) { seen.add(key); merged.push(t); }
-    }
-    // Fall back to artist tags if no track-level community tags
-    if (merged.length === 0) {
-      for (const t of artistTags) {
-        const key = t.name.toLowerCase();
-        if (!seen.has(key)) { seen.add(key); merged.push(t); }
-      }
-    }
-    return merged;
-  })();
+  const suggestionPool = buildTagSuggestionPool(
+    allLibraryTags,
+    [...communityTags, ...artistTags],
+  );
 
   const heroImageKind: "album" | "artist" | null =
     isLibrary && albumImagePath && track.album_title ? "album"
@@ -502,39 +487,18 @@ export function TrackDetailView({
                       <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
                     </div>
                   )}
-                  {isLibrary && (editingTags ? (
-                    <div className="track-tags-edit">
-                      <span className="track-detail-label">Tags</span>
-                      <input
-                        className="track-tags-edit-input"
-                        value={tagInput}
-                        onChange={e => setTagInput(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") handleSaveTags(); if (e.key === "Escape") setEditingTags(false); }}
-                        placeholder="tag1, tag2, tag3..."
-                        autoFocus
-                      />
-                      <button className="track-tags-edit-btn save" onClick={handleSaveTags}>Save</button>
-                      <button className="track-tags-edit-btn" onClick={() => setEditingTags(false)}>Cancel</button>
-                    </div>
-                  ) : (
+                  {isLibrary && (
                     <div className="track-detail-tags-inline">
                       <span className="track-detail-label">Tags</span>
-                      {trackTags.map(tag => (
-                        <span key={tag.id} className="track-tag-chip track-tag-assigned">
-                          <span className="track-tag-name" onClick={() => actions.navigateToTag(tag.id)}>{tag.name}</span>
-                          <span className="track-tag-remove" onClick={() => handleRemoveTag(tag)} title="Remove tag">&times;</span>
-                        </span>
-                      ))}
-                      {allCommunityTags.filter(t => !assignedTagNames.has(t.name.toLowerCase())).slice(0, 15).map(tag => (
-                        <span key={tag.name} className="track-tag-chip track-tag-suggestion" onClick={() => handleApplyTag(tag.name)}>
-                          + {tag.name}
-                        </span>
-                      ))}
-                      <button className="track-tags-edit-btn" onClick={handleStartEditTags} title="Edit tags">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                      </button>
+                      <TagEditor
+                        tags={trackTags.map((t) => t.name)}
+                        suggestions={suggestionPool}
+                        onAdd={handleAddTag}
+                        onRemove={handleRemoveTagByName}
+                        variant="inline"
+                      />
                     </div>
-                  ))}
+                  )}
                 </div>
               ),
             },

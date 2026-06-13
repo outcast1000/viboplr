@@ -1,0 +1,124 @@
+/* Tag trigger button — sits inline in the now-playing subtitle, after the
+   artist/album and before the #tags. */
+.now-tag-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 8px;
+  vertical-align: middle;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: var(--ds-radius);
+  transition: color 0.15s, background 0.15s;
+  flex: 0 0 auto;
+}
+
+.now-tag-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Centered edit-tags modal (uses the .ds-modal-overlay / .ds-modal shells).
+   Wider than the default so chips have room to wrap without being cramped. */
+.tag-edit-modal {
+  width: 440px;
+}
+
+.tag-edit-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tag-edit-modal-title {
+  margin-bottom: 0;
+}
+
+.tag-edit-modal-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin: -4px -4px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 50%;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.tag-edit-modal-close:hover {
+  color: var(--text-primary);
+  background: var(--error);
+  border-color: var(--error);
+}
+
+.tag-edit-modal-track {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Section label above the chips. */
+.tag-edit-modal-label {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+}
+
+/* Give the chip row room to breathe and wrap. */
+.tag-edit-modal .tag-editor-chips {
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* In the modal, chips are accent-tinted and always show their remove ×, so it's
+   obvious they're editable (the default hover-to-reveal × reads as a static
+   label otherwise). */
+.tag-edit-modal .tag-editor .track-tag-chip.track-tag-assigned {
+  gap: 6px;
+  padding: 5px 8px 5px 12px;
+  font-size: var(--fs-xs);
+  background: rgba(var(--accent-rgb), 0.14);
+  border-color: rgba(var(--accent-rgb), 0.35);
+  color: var(--text-primary);
+}
+
+.tag-edit-modal .tag-editor .track-tag-assigned .track-tag-remove {
+  opacity: 1;
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+  margin-left: 0;
+}
+
+.tag-edit-modal .tag-editor .track-tag-assigned .track-tag-remove:hover {
+  color: var(--error);
+}
+
+/* Make the add-tag input read as the primary action in the modal. */
+.tag-edit-modal .tag-editor-input.ds-input {
+  padding: 8px 10px;
+  font-size: var(--fs-sm);
+}
+
+/* Empty-state hint when the track has no tags yet. */
+.tag-edit-modal-emptyhint {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}

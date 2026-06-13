@@ -57,6 +57,13 @@ export function usePlayback(
   // the id at the start of each request and comparing on completion, a superseded
   // request silently discards its outcome instead of flashing a playback-error modal.
   const playGenerationRef = useRef(0);
+  // Synchronous re-entrancy guard for fullscreen toggling. requestFullscreen /
+  // exitFullscreen are activation-consuming in WKWebView: a second call fired
+  // before the first transition settles rejects with "Cannot request fullscreen
+  // without transient activation". We set this on the first call and clear it on
+  // the next `fullscreenchange` (or on rejection), so rapid double-clicks become
+  // a no-op instead of an unhandled rejection.
+  const fullscreenPendingRef = useRef(false);
 
   const audioRefA = useRef<HTMLAudioElement>(null);
   const audioRefB = useRef<HTMLAudioElement>(null);
@@ -976,10 +983,22 @@ export function usePlayback(
   function toggleFullscreen() {
     const container = videoRef.current?.parentElement;
     if (!container) return;
+    // Ignore a toggle while a previous enter/exit is still in flight — firing a
+    // second activation-consuming call mid-transition is what triggers WKWebView's
+    // "Cannot request fullscreen without transient activation" rejection.
+    if (fullscreenPendingRef.current) return;
+    fullscreenPendingRef.current = true;
+    const settle = () => { fullscreenPendingRef.current = false; };
+    document.addEventListener("fullscreenchange", settle, { once: true });
+    const onError = (e: unknown) => {
+      document.removeEventListener("fullscreenchange", settle);
+      fullscreenPendingRef.current = false;
+      console.error("Failed to toggle fullscreen:", e);
+    };
     if (document.fullscreenElement) {
-      document.exitFullscreen();
+      document.exitFullscreen().catch(onError);
     } else {
-      container.requestFullscreen();
+      container.requestFullscreen().catch(onError);
     }
   }
 

@@ -294,6 +294,19 @@
   color: var(--accent);
 }
 
+.now-tags {
+  margin-left: 6px;
+  color: var(--text-tertiary);
+}
+
+.now-tag {
+  margin-right: 6px;
+}
+
+.now-tag:last-child {
+  margin-right: 0;
+}
+
 .now-controls {
   display: flex;
   gap: 8px;

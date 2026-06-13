@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import { getInitials } from "../utils";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
@@ -65,6 +65,29 @@ export function VideoAmbientOverlay({
     });
     return () => { cancelled = true; };
   }, [currentTrack?.image_url]);
+
+  // Read-only tags for the intro label. The overlay only has a QueueTrack (no DB
+  // id), so resolve to a library row by metadata first; tags show only for
+  // tracks that exist in the library. Mirrors NowPlayingView's resolve path.
+  const [tags, setTags] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentTrack) { setTags([]); return; }
+    invoke<{ id: number } | null>("find_track_by_metadata", {
+      title: currentTrack.title,
+      artistName: currentTrack.artist_name ?? null,
+      albumName: currentTrack.album_title ?? null,
+    })
+      .then((lib) => {
+        if (cancelled) return;
+        if (!lib) { setTags([]); return; }
+        invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId: lib.id })
+          .then((rows) => { if (!cancelled) setTags(rows.map((r) => r.name)); })
+          .catch((e) => console.error("Failed to load tags for video track:", e));
+      })
+      .catch((e) => console.error("Failed to resolve video track:", e));
+    return () => { cancelled = true; };
+  }, [currentTrack?.title, currentTrack?.artist_name, currentTrack?.album_title]);
 
   // Idle-timer visibility: mirror FullscreenControls — show on activity, hide
   // after the timeout while playing, stay visible while paused.
@@ -150,8 +173,16 @@ export function VideoAmbientOverlay({
       {currentTrack && (
         <div key={introKey} className="video-ambient-intro video-ambient-fade anim-slide-text-in">
           <div className="video-ambient-intro-title">{currentTrack.title}</div>
-          {currentTrack.artist_name && (
-            <div className="video-ambient-intro-sub">{currentTrack.artist_name}</div>
+          {(() => {
+            const sub = [currentTrack.artist_name, currentTrack.album_title].filter(Boolean).join(" · ");
+            return sub ? <div className="video-ambient-intro-sub">{sub}</div> : null;
+          })()}
+          {tags.length > 0 && (
+            <div className="video-ambient-intro-tags">
+              {tags.map((t) => (
+                <span key={t} className="video-ambient-intro-tag">{t}</span>
+              ))}
+            </div>
           )}
         </div>
       )}

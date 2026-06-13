@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Track } from "../types";
 import { emitTrackPatch } from "../trackEvents";
 import AutocompleteInput from "./AutocompleteInput";
+import TagEditor from "./TagEditor";
 import { effectiveTagNames } from "../utils/bulkEditTags";
 
 interface BulkEditModalProps {
@@ -76,7 +77,6 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
   const [album, setAlbum] = useState(shared.album);
   const [year, setYear] = useState(shared.year);
   const [tags, setTags] = useState<TagEntry[]>([]);
-  const [tagInput, setTagInput] = useState("");
   const [tagsLoaded, setTagsLoaded] = useState(false);
   const [tagMode, setTagMode] = useState<"replace" | "add" | "remove">("replace");
 
@@ -119,12 +119,11 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
   useEffect(() => {
     if (tagMode !== "replace") {
       setTags([]);
-      setTagInput("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tagMode]);
 
-  const hasDirtyFields = dirtyArtist || dirtyAlbum || dirtyYear || dirtyTags || dirtyTitle || dirtyTrackNumber || tagInput.trim().length > 0;
+  const hasDirtyFields = dirtyArtist || dirtyAlbum || dirtyYear || dirtyTags || dirtyTitle || dirtyTrackNumber;
 
   function addTag(name: string) {
     const trimmed = name.trim();
@@ -132,7 +131,6 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
     if (tags.some((t) => t.name.toLowerCase() === trimmed.toLowerCase())) return;
     setTags((prev) => [...prev, { name: trimmed }]);
     setDirtyTags(true);
-    setTagInput("");
   }
 
   function removeTag(name: string) {
@@ -140,21 +138,12 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
     setDirtyTags(true);
   }
 
-  function handleTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === ",") {
-      e.preventDefault();
-      addTag(tagInput);
-    } else if (e.key === "Backspace" && tagInput === "" && tags.length > 0) {
-      removeTag(tags[tags.length - 1].name);
-    }
-  }
-
   async function handleSave() {
     setSaving(true);
     setErrors([]);
 
-    // Flush any pending tag text into the effective list (tested helper).
-    const effectiveTagList = effectiveTagNames(tags, tagInput);
+    // TagEditor commits on Enter/comma, so there's no pending text at save time.
+    const effectiveTagList = effectiveTagNames(tags, "");
     const tagsChanged =
       tagMode === "replace"
         ? dirtyTags || effectiveTagList.length !== tags.length
@@ -300,25 +289,15 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
               ))}
             </div>
           )}
-          <div className="bulk-edit-tags-input">
-            {tags.map((t) => (
-              <span key={t.name} className="bulk-edit-tag-pill">
-                {t.name}
-                <span className="bulk-edit-tag-remove" onClick={() => removeTag(t.name)}>&times;</span>
-              </span>
-            ))}
-            <AutocompleteInput
-              value={tagInput}
-              onChange={setTagInput}
-              suggestions={tagOptions}
-              exclude={new Set(tags.map((t) => t.name.toLowerCase()))}
-              onCommit={addTag}
-              onKeyDownExtra={handleTagKeyDown}
-              placeholder={!tagsLoaded ? "Loading tags..." : tags.length === 0 ? "Type and press Enter..." : ""}
-              disabled={!tagsLoaded}
-              inputClassName="bulk-edit-tag-text-input"
-            />
-          </div>
+          <TagEditor
+            tags={tags.map((t) => t.name)}
+            suggestions={tagOptions}
+            onAdd={(name) => { addTag(name); }}
+            onRemove={(name) => { removeTag(name); }}
+            variant="inline"
+            placeholder={!tagsLoaded ? "Loading tags..." : tags.length === 0 ? "Type and press Enter..." : "Add a tag…"}
+            disabled={!tagsLoaded}
+          />
         </div>
 
         {errors.length > 0 && (

@@ -407,6 +407,24 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }
 
+  async function navigateToTagByName(name: string) {
+    const result = await invoke<Tag | null>("find_tag_by_name", { name });
+    if (!result) return; // tag doesn't exist — nothing to navigate to
+    // A tag just created via the tag editor isn't in the in-memory list yet, so
+    // navigate using the backend-resolved Tag directly rather than through the
+    // guarded handleTagClick (which bails on unknown ids). Add it to the list so
+    // the tag detail view can resolve its name from the id, and so it shows up
+    // in the Library tags list (it now has at least one track).
+    setTags(prev => prev.some(t => t.id === result.id) ? prev : [...prev, result]);
+    onBeforeNavigate?.();
+    clearFallback();
+    setSelectedTag(result.id);
+    setSelectedArtist(null);
+    setSelectedAlbum(null);
+    setSelectedTrack(null);
+    setView("tags");
+  }
+
   async function navigateToTrackByName(name: string, artistName?: string, albumTitle?: string) {
     const result = await invoke<Track | null>("find_track_by_metadata", { title: name, artistName: artistName ?? null, albumName: albumTitle ?? null });
     if (result) {
@@ -462,7 +480,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     fallbackArtistName, setFallbackArtistName,
     fallbackAlbumName, setFallbackAlbumName,
     fallbackTrackName, setFallbackTrackName,
-    navigateToArtistByName, navigateToAlbumByName, navigateToTrackByName,
+    navigateToArtistByName, navigateToAlbumByName, navigateToTagByName, navigateToTrackByName,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
     filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,

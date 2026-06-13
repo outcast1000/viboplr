@@ -16,6 +16,7 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
 import { MiniSearchPanel } from "./MiniSearchPanel";
+import TagPopover from "./TagPopover";
 import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -144,6 +145,7 @@ interface NowPlayingBarProps {
   onTrackClick: (trackKey: string) => void;
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
+  onNavigateToTagByName?: (name: string) => void;
   syncState: boolean;
   onToggleSync: () => void;
   showHelp: boolean;
@@ -166,6 +168,7 @@ interface NowPlayingBarProps {
   };
   getAlbumImage?: (title: string, artistName?: string | null) => string | null;
   getArtistImage?: (name: string) => string | null;
+  tagSuggestions?: string[];
 }
 
 export function NowPlayingBar({
@@ -183,7 +186,7 @@ export function NowPlayingBar({
   onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onTrackClick,
-  onNavigateToArtistByName, onNavigateToAlbumByName,
+  onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
   syncState, onToggleSync,
   showHelp, onToggleHelp,
   playbackError, resolvedSource, loadingTrack, onSkipError,
@@ -192,6 +195,7 @@ export function NowPlayingBar({
   miniSearch,
   getAlbumImage,
   getArtistImage,
+  tagSuggestions,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -206,6 +210,10 @@ export function NowPlayingBar({
   const eqAnchorRef = useRef<HTMLButtonElement>(null);
   const acAnchorRef = useRef<HTMLButtonElement>(null);
   const isVideo = currentTrack ? isVideoTrack(currentTrack) : false;
+  // Tags for the current track, shown inline in the subtitle. The track is a
+  // QueueTrack (no DB id), so resolve to a library row by metadata. The tag
+  // popover edits keep this in sync via onTagsChange so the subtitle updates live.
+  const [trackTags, setTrackTags] = useState<string[]>([]);
 
   // Pulse the Follow button when sync navigates to a new track
   useEffect(() => {
@@ -234,6 +242,26 @@ export function NowPlayingBar({
       .catch(e => console.error("Failed to load audio properties:", e));
     return () => { cancelled = true; };
   }, [currentTrack?.path]);
+
+  // Load tags for the current track (library tracks only). Reset on track change.
+  useEffect(() => {
+    setTrackTags([]);
+    if (!currentTrack) return;
+    let cancelled = false;
+    invoke<{ id: number } | null>("find_track_by_metadata", {
+      title: currentTrack.title,
+      artistName: currentTrack.artist_name ?? null,
+      albumName: currentTrack.album_title ?? null,
+    })
+      .then((lib) => {
+        if (cancelled || !lib) return;
+        invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId: lib.id })
+          .then((rows) => { if (!cancelled) setTrackTags(rows.map((r) => r.name)); })
+          .catch((e) => console.error("Failed to load tags for now-playing track:", e));
+      })
+      .catch((e) => console.error("Failed to resolve now-playing track:", e));
+    return () => { cancelled = true; };
+  }, [currentTrack?.title, currentTrack?.artist_name, currentTrack?.album_title]);
 
   // Auto-skip on error in mini mode (5s)
   useEffect(() => {
@@ -550,6 +578,21 @@ export function NowPlayingBar({
                   {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
                   {currentTrack.album_title && (
                     <><span className="now-sep"> — </span><span className="now-link" onClick={onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined}>{currentTrack.album_title}</span></>
+                  )}
+                  {!miniMode && (
+                    <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} onTagsChange={setTrackTags} />
+                  )}
+                  {trackTags.length > 0 && (
+                    <span className="now-tags">
+                      {trackTags.map((t) => (
+                        <span
+                          key={t}
+                          className="now-tag now-link"
+                          onClick={onNavigateToTagByName ? () => onNavigateToTagByName(t) : undefined}
+                          title={`Go to #${t}`}
+                        >#{t}</span>
+                      ))}
+                    </span>
                   )}
                 </span>
               </>

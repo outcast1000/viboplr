@@ -26,6 +26,7 @@ import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, nextExternalKey, par
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
+import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import { withResolverLog } from "./utils/resolverLog";
 import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
@@ -1873,6 +1874,15 @@ function App() {
     if (tag) tagImageCache.getImage(tag.name);
   }, [library.selectedTag, library.tags]);
 
+  // Ranked tag-suggestion pool for TagEditor surfaces (library tags by frequency).
+  const tagSuggestionPool = useMemo(
+    () => buildTagSuggestionPool(
+      library.tags.map((t) => ({ name: t.name, track_count: t.track_count })),
+      [],
+    ),
+    [library.tags],
+  );
+
   // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
   const detailTrackLocal = useMemo(() => {
     if (library.selectedTrack === null) return null;
@@ -3557,6 +3567,7 @@ function App() {
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onNavigateToArtistByName={library.navigateToArtistByName}
         onNavigateToAlbumByName={library.navigateToAlbumByName}
+        onNavigateToTagByName={library.navigateToTagByName}
         syncState={syncWithPlaying}
         onToggleSync={handleToggleSync}
         showHelp={showHelp}
@@ -3694,6 +3705,7 @@ function App() {
             providerName: provider.name,
           });
         } : undefined}
+        tagSuggestions={tagSuggestionPool}
       />
 
       {contextMenuActions.youtubeFeedback && (
