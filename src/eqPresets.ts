@@ -5,6 +5,17 @@ export const GAIN_MIN = -15;
 export const GAIN_MAX = 15;
 export const NUM_BANDS = 10;
 
+// Simple (Bass/Treble) mode: a classic two-band Baxandall-style tone stack built
+// from two shelving filters. Bass is a low-shelf at ~100 Hz (lifts/cuts the whole
+// low end without dragging the 200-400 Hz "mud" region), treble is a high-shelf at
+// ~10 kHz (adds "air"/sparkle without touching the harsh 2-5 kHz presence band).
+// Gain range matches the graphic EQ for consistency. Shelves ignore Q in Web Audio.
+export type EqMode = "advanced" | "simple";
+export const SHELF_BASS_FREQ = 100;
+export const SHELF_TREBLE_FREQ = 10000;
+export const SHELF_GAIN_MIN = -15;
+export const SHELF_GAIN_MAX = 15;
+
 export interface EqPreset {
   id: string;
   name: string;
@@ -21,6 +32,73 @@ export const BUILTIN_PRESETS: EqPreset[] = [
   { id: "classical",  name: "Classical",   gains: [3, 2, 1, 0, 0, 0, -1, -1, 2, 3] },
   { id: "electronic", name: "Electronic",  gains: [5, 4, 1, 0, -2, 0, 1, 2, 4, 5] },
 ];
+
+// Reference sample rate for drawing the EQ response curve. Biquad coefficients
+// are sample-rate dependent, but the visual curve is just an indicator; 48 kHz
+// matches the most common output rate and the shape is near-identical at 44.1k.
+const CURVE_SAMPLE_RATE = 48000;
+
+// Magnitude response in dB at frequency f for a biquad given its coefficients.
+function biquadMagDb(
+  f: number,
+  b0: number, b1: number, b2: number,
+  a0: number, a1: number, a2: number,
+): number {
+  const w = 2 * Math.PI * f / CURVE_SAMPLE_RATE;
+  const cosw = Math.cos(w);
+  const cos2w = Math.cos(2 * w);
+  const sinw = Math.sin(w);
+  const sin2w = Math.sin(2 * w);
+  const numRe = b0 + b1 * cosw + b2 * cos2w;
+  const numIm = -(b1 * sinw + b2 * sin2w);
+  const denRe = a0 + a1 * cosw + a2 * cos2w;
+  const denIm = -(a1 * sinw + a2 * sin2w);
+  const numMagSq = numRe * numRe + numIm * numIm;
+  const denMagSq = denRe * denRe + denIm * denIm;
+  return 10 * Math.log10(numMagSq / denMagSq);
+}
+
+// Single peaking-biquad magnitude response in dB (Web Audio "peaking" coefficients).
+export function peakingResponseDb(f: number, f0: number, q: number, gainDb: number): number {
+  if (gainDb === 0) return 0;
+  const A = Math.pow(10, gainDb / 40);
+  const w0 = 2 * Math.PI * f0 / CURVE_SAMPLE_RATE;
+  const alpha = Math.sin(w0) / (2 * q);
+  const cosw0 = Math.cos(w0);
+  return biquadMagDb(
+    f,
+    1 + alpha * A, -2 * cosw0, 1 - alpha * A,
+    1 + alpha / A, -2 * cosw0, 1 - alpha / A,
+  );
+}
+
+// Low/high-shelf magnitude response in dB, matching Web Audio's shelf coefficients
+// (S = 1, so alphaS = sin(w0)/2 * sqrt(2)). Q is unused for shelving filters.
+export function shelfResponseDb(f: number, f0: number, gainDb: number, kind: "low" | "high"): number {
+  if (gainDb === 0) return 0;
+  const A = Math.pow(10, gainDb / 40);
+  const w0 = 2 * Math.PI * f0 / CURVE_SAMPLE_RATE;
+  const cosw0 = Math.cos(w0);
+  const alphaS = (Math.sin(w0) / 2) * Math.SQRT2;
+  const twoSqrtAAlpha = 2 * Math.sqrt(A) * alphaS;
+  let b0: number, b1: number, b2: number, a0: number, a1: number, a2: number;
+  if (kind === "low") {
+    b0 = A * ((A + 1) - (A - 1) * cosw0 + twoSqrtAAlpha);
+    b1 = 2 * A * ((A - 1) - (A + 1) * cosw0);
+    b2 = A * ((A + 1) - (A - 1) * cosw0 - twoSqrtAAlpha);
+    a0 = (A + 1) + (A - 1) * cosw0 + twoSqrtAAlpha;
+    a1 = -2 * ((A - 1) + (A + 1) * cosw0);
+    a2 = (A + 1) + (A - 1) * cosw0 - twoSqrtAAlpha;
+  } else {
+    b0 = A * ((A + 1) + (A - 1) * cosw0 + twoSqrtAAlpha);
+    b1 = -2 * A * ((A - 1) + (A + 1) * cosw0);
+    b2 = A * ((A + 1) + (A - 1) * cosw0 - twoSqrtAAlpha);
+    a0 = (A + 1) - (A - 1) * cosw0 + twoSqrtAAlpha;
+    a1 = 2 * ((A - 1) - (A + 1) * cosw0);
+    a2 = (A + 1) - (A - 1) * cosw0 - twoSqrtAAlpha;
+  }
+  return biquadMagDb(f, b0, b1, b2, a0, a1, a2);
+}
 
 const EPSILON = 0.001;
 

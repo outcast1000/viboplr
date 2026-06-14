@@ -1582,14 +1582,18 @@ function App() {
         if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
 
-        const [savedEqEnabled, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb] = await Promise.all([
+        const [savedEqEnabled, savedEqMode, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb, savedEqBassDb, savedEqTrebleDb] = await Promise.all([
           store.get<boolean>("eqEnabled"),
+          store.get<string>("eqMode"),
           store.get<string>("eqPreset"),
           store.get<number[]>("eqGains"),
           store.get<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets"),
           store.get<number>("eqPreGainDb"),
+          store.get<number>("eqBassDb"),
+          store.get<number>("eqTrebleDb"),
         ]);
         if (typeof savedEqEnabled === "boolean") playback.setEqEnabled(savedEqEnabled);
+        if (savedEqMode === "simple" || savedEqMode === "advanced") playback.setEqMode(savedEqMode);
         if (typeof savedEqPreset === "string") playback.setEqPreset(savedEqPreset);
         if (Array.isArray(savedEqGains) && savedEqGains.length === 10 && savedEqGains.every(n => typeof n === "number")) {
           playback.setEqGains(savedEqGains);
@@ -1597,6 +1601,12 @@ function App() {
         if (Array.isArray(savedEqCustomPresets)) setEqCustomPresets(savedEqCustomPresets);
         if (typeof savedEqPreGainDb === "number" && Number.isFinite(savedEqPreGainDb)) {
           playback.setEqPreGainDb(savedEqPreGainDb);
+        }
+        if (typeof savedEqBassDb === "number" && Number.isFinite(savedEqBassDb)) {
+          playback.setEqBassDb(savedEqBassDb);
+        }
+        if (typeof savedEqTrebleDb === "number" && Number.isFinite(savedEqTrebleDb)) {
+          playback.setEqTrebleDb(savedEqTrebleDb);
         }
 
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
@@ -1791,6 +1801,11 @@ function App() {
 
   useEffect(() => {
     if (!restoredRef.current) return;
+    store.set("eqMode", playback.eqMode);
+  }, [playback.eqMode]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
     store.set("eqPreset", playback.eqPreset);
   }, [playback.eqPreset]);
 
@@ -1808,6 +1823,16 @@ function App() {
     if (!restoredRef.current) return;
     store.set("eqPreGainDb", playback.eqPreGainDb);
   }, [playback.eqPreGainDb]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqBassDb", playback.eqBassDb);
+  }, [playback.eqBassDb]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqTrebleDb", playback.eqTrebleDb);
+  }, [playback.eqTrebleDb]);
 
   // Persist recently visited entities (album/artist detail views)
   const recentlyVisitedRef = useRef<RecentlyVisitedEntry[]>([]);
@@ -3522,11 +3547,15 @@ function App() {
         onVolume={playback.handleVolume}
         onMute={playback.toggleMute}
         eqEnabled={playback.eqEnabled}
+        eqMode={playback.eqMode}
         eqPreset={playback.eqPreset}
         eqGains={playback.eqGains}
         eqPreGainDb={playback.eqPreGainDb}
+        eqBassDb={playback.eqBassDb}
+        eqTrebleDb={playback.eqTrebleDb}
         eqCustomPresets={eqCustomPresets}
         onEqEnabledChange={playback.setEqEnabled}
+        onEqModeChange={playback.setEqMode}
         onEqPresetChange={(id) => {
           if (id === "custom") {
             playback.setEqPreset("custom");
@@ -3547,7 +3576,14 @@ function App() {
           playback.setEqPreset(presetForGains(next, eqCustomPresets));
         }}
         onEqPreGainChange={playback.setEqPreGainDb}
+        onEqBassChange={playback.setEqBassDb}
+        onEqTrebleChange={playback.setEqTrebleDb}
         onEqResetAll={() => {
+          if (playback.eqMode === "simple") {
+            playback.setEqBassDb(0);
+            playback.setEqTrebleDb(0);
+            return;
+          }
           playback.setEqGains([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
           playback.setEqPreset("flat");
           playback.setEqPreGainDb(0);

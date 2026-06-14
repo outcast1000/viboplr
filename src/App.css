@@ -2677,6 +2677,166 @@
   color: var(--accent);
 }
 
+/* Simple/Advanced mode segmented toggle in the EQ popover titlebar */
+.eq-mode-seg {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius, 6px);
+  padding: 2px;
+  gap: 2px;
+}
+
+.eq-mode-seg-btn {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--ds-radius, 6px) - 2px);
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.eq-mode-seg-btn:hover {
+  color: var(--text-primary);
+}
+
+.eq-mode-seg-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+/* Simple (Bass/Treble) mode controls */
+.eq-simple {
+  display: flex;
+  justify-content: center;
+  gap: 64px;
+  padding: 6px 0 2px;
+}
+
+.eq-simple-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.eq-simple-readout {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.eq-simple-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Inline Bass/Treble knobs in the now-playing bar (simple EQ mode) */
+.now-eq-knobs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 4px 0 2px;
+}
+
+.ds-knob {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.ds-knob-dial {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  border-radius: 50%;
+  outline: none;
+  touch-action: none;
+}
+
+.ds-knob-dial:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.ds-knob-track {
+  fill: none;
+  stroke: var(--bg-tertiary);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.ds-knob-fill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke 0.15s;
+}
+
+.ds-knob-pointer {
+  stroke: var(--text-secondary);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* Value sits in the lower third of the dial face, clear of the pointer hub. */
+.ds-knob-val {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 7px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  line-height: 1;
+}
+
+/* Label + value share one compact caption line under the dial. */
+.ds-knob-label {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+
+.ds-knob--active .ds-knob-pointer {
+  stroke: var(--accent);
+}
+
+.ds-knob--active .ds-knob-val {
+  color: var(--accent);
+}
+
+.ds-knob--active .ds-knob-label {
+  color: var(--text-secondary);
+}
+
+/* EQ disabled: dial is muted but still draggable (drag re-enables EQ) */
+.ds-knob:not(.ds-knob--active) .ds-knob-fill {
+  stroke: var(--text-tertiary);
+}
+
+.ds-knob--disabled {
+  opacity: 0.4;
+}
+
+.ds-knob--disabled .ds-knob-dial {
+  cursor: default;
+}
+
 /* First-run plugin recommendations modal */
 .first-run-intro {
   color: var(--text-secondary);

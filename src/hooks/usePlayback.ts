@@ -8,12 +8,20 @@ import {
   BANDS,
   BAND_Q,
   NUM_BANDS,
+  SHELF_BASS_FREQ,
+  SHELF_TREBLE_FREQ,
   applyGainsToFilters,
+  type EqMode,
 } from "../eqPresets";
 
 function logPlayback(message: string) {
   invoke("write_frontend_log", { level: "info", message, section: "playback" }).catch(() => {});
 }
+
+// Master-bus limiter ceiling (dBFS) engaged for a simple-mode bass/treble boost.
+// The limiter catches boosted peaks ~1 dB below full scale instead of clipping —
+// so the boost stays loud rather than dropping the whole signal's level.
+const LIMITER_CEILING_DB = -1;
 
 // A play request is "current" only while no later request has started. Used to
 // decide whether a caught playback error / loading-state reset belongs to the
@@ -41,9 +49,14 @@ export function usePlayback(
   const [muted, setMuted] = useState(false);
   const [activeSlot, setActiveSlot] = useState<"A" | "B">("A");
   const [eqEnabled, setEqEnabled] = useState(false);
+  const [eqMode, setEqMode] = useState<EqMode>("advanced");
   const [eqPreset, setEqPreset] = useState<string>("flat");
   const [eqGains, setEqGains] = useState<number[]>(() => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   const [eqPreGainDb, setEqPreGainDb] = useState<number>(0);
+  // Simple mode shelf gains (dB). Independent of the 10-band eqGains so switching
+  // modes is non-destructive — each mode keeps its own settings.
+  const [eqBassDb, setEqBassDb] = useState<number>(0);
+  const [eqTrebleDb, setEqTrebleDb] = useState<number>(0);
   const trackChangeSourceRef = useRef<"user" | "auto">("user");
   // Synchronous guard against concurrent transcode starts. transcodeSessionRef
   // is only set after `await start_transcode` resolves, so two callers firing
@@ -130,25 +143,79 @@ export function usePlayback(
   const sourceBRef = useRef<MediaElementAudioSourceNode | null>(null);
   const filtersARef = useRef<BiquadFilterNode[]>([]);
   const filtersBRef = useRef<BiquadFilterNode[]>([]);
+  // Simple-mode shelf nodes, tuple [lowshelf (bass), highshelf (treble)] per chain.
+  // Always present in the graph at 0 dB when unused, so switching modes is a gain
+  // write — no graph rebuild, no audio glitch (even mid-crossfade).
+  const shelvesARef = useRef<BiquadFilterNode[]>([]);
+  const shelvesBRef = useRef<BiquadFilterNode[]>([]);
   const xfadeGainARef = useRef<GainNode | null>(null);
   const xfadeGainBRef = useRef<GainNode | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
+  // Brick-wall limiter on the master bus, engaged only while a simple-mode boost
+  // is active. Prevents shelf boosts from clipping without dropping overall level.
+  const limiterRef = useRef<DynamicsCompressorNode | null>(null);
   const eqEnabledRef = useRef(eqEnabled);
+  const eqModeRef = useRef<EqMode>(eqMode);
   const eqGainsRef = useRef<number[]>(eqGains);
   const eqPreGainDbRef = useRef<number>(eqPreGainDb);
+  const eqBassDbRef = useRef<number>(eqBassDb);
+  const eqTrebleDbRef = useRef<number>(eqTrebleDb);
   eqEnabledRef.current = eqEnabled;
+  eqModeRef.current = eqMode;
   eqGainsRef.current = eqGains;
   eqPreGainDbRef.current = eqPreGainDb;
+  eqBassDbRef.current = eqBassDb;
+  eqTrebleDbRef.current = eqTrebleDb;
 
   function masterGainValue(): number {
-    const linear = Math.pow(10, (eqEnabledRef.current ? eqPreGainDbRef.current : 0) / 20);
+    // Advanced mode: the user sets pre-gain manually. Simple mode does NOT
+    // attenuate — dropping the whole signal to make room for a boost is heard as
+    // "quieter" (especially the bass on small speakers). Clip protection for
+    // simple-mode boosts is handled by the master-bus limiter instead.
+    const preGainDb = (eqEnabledRef.current && eqModeRef.current !== "simple")
+      ? eqPreGainDbRef.current
+      : 0;
+    const linear = Math.pow(10, preGainDb / 20);
     return effectiveVolume() * linear;
   }
 
+  // The limiter only needs to act when a simple-mode boost can push peaks past
+  // the ceiling; cuts and the flat state can't clip, so it stays disengaged
+  // (threshold at 0 dB → effectively transparent) to keep the dry path clean.
+  function limiterThresholdDb(): number {
+    const boosting = eqEnabledRef.current
+      && eqModeRef.current === "simple"
+      && Math.max(eqBassDbRef.current, eqTrebleDbRef.current) > 0;
+    return boosting ? LIMITER_CEILING_DB : 0;
+  }
+
+  function applyLimiter(): void {
+    const lim = limiterRef.current;
+    if (!lim) return;
+    const ctx = audioCtxRef.current;
+    const t = ctx ? ctx.currentTime : 0;
+    // Ramp the threshold so engaging/releasing the limiter doesn't click.
+    lim.threshold.setTargetAtTime(limiterThresholdDb(), t, 0.02);
+  }
+
   function applyEqToFilters(): void {
-    const gains = eqEnabledRef.current ? eqGainsRef.current : new Array(NUM_BANDS).fill(0);
+    const enabled = eqEnabledRef.current;
+    const simple = enabled && eqModeRef.current === "simple";
+    // Peaking bands carry advanced mode; they sit flat in simple/disabled.
+    const gains = (enabled && !simple) ? eqGainsRef.current : new Array(NUM_BANDS).fill(0);
     if (filtersARef.current.length) applyGainsToFilters(filtersARef.current, gains);
     if (filtersBRef.current.length) applyGainsToFilters(filtersBRef.current, gains);
+    // Shelves carry simple mode; they sit flat otherwise.
+    const bass = simple ? eqBassDbRef.current : 0;
+    const treble = simple ? eqTrebleDbRef.current : 0;
+    if (shelvesARef.current.length) {
+      shelvesARef.current[0].gain.value = bass;
+      shelvesARef.current[1].gain.value = treble;
+    }
+    if (shelvesBRef.current.length) {
+      shelvesBRef.current[0].gain.value = bass;
+      shelvesBRef.current[1].gain.value = treble;
+    }
   }
 
   function ensureAudioGraph(): AudioContext | null {
@@ -172,14 +239,28 @@ export function usePlayback(
       ctx.resume().catch(console.error);
     }
 
+    // Master bus: [both chains] -> masterGain -> limiter -> destination.
+    // The limiter is a DynamicsCompressorNode tuned as a near-brick-wall limiter
+    // (high ratio, fast attack). It sits idle (threshold 0 dB) unless a simple-mode
+    // boost engages it, so normal playback and advanced mode are unaffected.
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = limiterThresholdDb();
+    limiter.knee.value = 0;       // hard knee — true limiting, not soft compression
+    limiter.ratio.value = 20;     // max ratio ≈ brick wall
+    limiter.attack.value = 0.003; // 3 ms — catch transients before they clip
+    limiter.release.value = 0.25;
+    limiter.connect(ctx.destination);
+    limiterRef.current = limiter;
+
     const masterGain = ctx.createGain();
     masterGain.gain.value = masterGainValue();
-    masterGain.connect(ctx.destination);
+    masterGain.connect(limiter);
     masterGainRef.current = masterGain;
 
     function buildChain(el: HTMLAudioElement): {
       source: MediaElementAudioSourceNode;
       filters: BiquadFilterNode[];
+      shelves: BiquadFilterNode[];
       xfadeGain: GainNode;
     } {
       const source = ctx.createMediaElementSource(el);
@@ -192,14 +273,27 @@ export function usePlayback(
         f.gain.value = 0;
         filters.push(f);
       }
+      // Simple-mode shelves, after the peaking bank, at unity (0 dB) until engaged.
+      const lowShelf = ctx.createBiquadFilter();
+      lowShelf.type = "lowshelf";
+      lowShelf.frequency.value = SHELF_BASS_FREQ;
+      lowShelf.gain.value = 0;
+      const highShelf = ctx.createBiquadFilter();
+      highShelf.type = "highshelf";
+      highShelf.frequency.value = SHELF_TREBLE_FREQ;
+      highShelf.gain.value = 0;
+      const shelves = [lowShelf, highShelf];
+
       const xfadeGain = ctx.createGain();
       xfadeGain.gain.value = 1;
 
       source.connect(filters[0]);
       for (let i = 0; i < filters.length - 1; i++) filters[i].connect(filters[i + 1]);
-      filters[filters.length - 1].connect(xfadeGain);
+      filters[filters.length - 1].connect(lowShelf);
+      lowShelf.connect(highShelf);
+      highShelf.connect(xfadeGain);
       xfadeGain.connect(masterGain);
-      return { source, filters, xfadeGain };
+      return { source, filters, shelves, xfadeGain };
     }
 
     const a = buildChain(elA);
@@ -208,10 +302,13 @@ export function usePlayback(
     sourceBRef.current = b.source;
     filtersARef.current = a.filters;
     filtersBRef.current = b.filters;
+    shelvesARef.current = a.shelves;
+    shelvesBRef.current = b.shelves;
     xfadeGainARef.current = a.xfadeGain;
     xfadeGainBRef.current = b.xfadeGain;
 
     applyEqToFilters();
+    applyLimiter();
     return ctx;
   }
 
@@ -249,15 +346,19 @@ export function usePlayback(
 
   useEffect(() => {
     eqEnabledRef.current = eqEnabled;
+    eqModeRef.current = eqMode;
     eqGainsRef.current = eqGains;
     eqPreGainDbRef.current = eqPreGainDb;
+    eqBassDbRef.current = eqBassDb;
+    eqTrebleDbRef.current = eqTrebleDb;
     // Lazily build the Web Audio graph the first time EQ is actually engaged.
     // Until then, audio plays through the native HTMLMediaElement path for
     // snappier play/pause/mute response.
     if (eqEnabled && !audioCtxRef.current) ensureAudioGraph();
     applyEqToFilters();
+    applyLimiter();
     if (masterGainRef.current) masterGainRef.current.gain.value = masterGainValue();
-  }, [eqEnabled, eqGains, eqPreGainDb]);
+  }, [eqEnabled, eqMode, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb]);
 
   // Load video source once the element is available after render
   useEffect(() => {
@@ -1026,8 +1127,11 @@ export function usePlayback(
     playbackError, failedTrack, clearPlaybackError,
     loadingTrack,
     eqEnabled, setEqEnabled,
+    eqMode, setEqMode,
     eqPreset, setEqPreset,
     eqGains, setEqGains,
     eqPreGainDb, setEqPreGainDb,
+    eqBassDb, setEqBassDb,
+    eqTrebleDb, setEqTrebleDb,
   };
 }

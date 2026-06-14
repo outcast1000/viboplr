@@ -357,9 +357,46 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 14px;
   flex-shrink: 0;
   z-index: 20;
+}
+
+/* Functional groups (playlist controls, audio controls). Each is a subtle
+   segmented pill so related controls read as one unit, separated from the next
+   group by the larger .now-right gap. */
+.now-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: rgba(var(--overlay-base), 0.04);
+  border: 1px solid rgba(var(--overlay-base), 0.06);
+}
+
+/* The audio group ends in the volume slider, whose thumb reaches the track's
+   right edge — give that side extra padding so it doesn't crowd the pill border. */
+.now-group--audio {
+  padding-right: 12px;
+}
+
+/* Inside a group the pill is the surface, so the icon buttons sit flat
+   (no individual chip) and only light up on hover / active / focus. */
+.now-group .g-btn {
+  background: transparent;
+  border-color: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.now-group .g-btn:hover:not(:disabled) {
+  background: rgba(var(--overlay-base), 0.1);
+  border-color: rgba(var(--overlay-base), 0.12);
+}
+.now-group .g-btn.active {
+  background: rgba(var(--accent-rgb), 0.14);
+  border-color: rgba(var(--accent-rgb), 0.28);
 }
 
 .now-volume {

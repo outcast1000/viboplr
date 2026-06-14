@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   BANDS,
   BUILTIN_PRESETS,
+  SHELF_BASS_FREQ,
+  SHELF_TREBLE_FREQ,
   presetForGains,
   validateImportedPreset,
+  peakingResponseDb,
+  shelfResponseDb,
 } from "../eqPresets";
 
 describe("eqPresets - constants", () => {
@@ -92,5 +96,67 @@ describe("validateImportedPreset", () => {
   it("rejects null/undefined input", () => {
     expect(validateImportedPreset(null)).toBeNull();
     expect(validateImportedPreset(undefined)).toBeNull();
+  });
+});
+
+describe("peakingResponseDb", () => {
+  it("is exactly 0 dB at any frequency when gain is 0", () => {
+    expect(peakingResponseDb(1000, 1000, 1.41, 0)).toBe(0);
+    expect(peakingResponseDb(50, 1000, 1.41, 0)).toBe(0);
+  });
+
+  it("hits ~full gain at the center frequency", () => {
+    // At f == f0 a peaking filter reaches its full gain.
+    expect(peakingResponseDb(1000, 1000, 1.41, 6)).toBeCloseTo(6, 1);
+    expect(peakingResponseDb(1000, 1000, 1.41, -6)).toBeCloseTo(-6, 1);
+  });
+
+  it("returns toward 0 dB far from the center (bell shape)", () => {
+    // Two decades below center the boost has essentially decayed away.
+    expect(Math.abs(peakingResponseDb(10, 1000, 1.41, 12))).toBeLessThan(0.5);
+  });
+});
+
+describe("shelfResponseDb", () => {
+  it("is exactly 0 dB at any frequency when gain is 0", () => {
+    expect(shelfResponseDb(50, SHELF_BASS_FREQ, 0, "low")).toBe(0);
+    expect(shelfResponseDb(15000, SHELF_TREBLE_FREQ, 0, "high")).toBe(0);
+  });
+
+  it("low-shelf holds full gain well below the corner and stays flat to DC", () => {
+    // A shelf (unlike a bell) keeps its gain out toward the spectral extreme.
+    const deep = shelfResponseDb(20, SHELF_BASS_FREQ, 10, "low");
+    const deeper = shelfResponseDb(25, SHELF_BASS_FREQ, 10, "low");
+    expect(deep).toBeGreaterThan(9.5);
+    expect(deep).toBeLessThan(10.5);
+    // Still essentially full gain even closer to DC (does not roll off).
+    expect(Math.abs(deeper - deep)).toBeLessThan(0.5);
+  });
+
+  it("low-shelf leaves high frequencies unaffected", () => {
+    expect(Math.abs(shelfResponseDb(15000, SHELF_BASS_FREQ, 10, "low"))).toBeLessThan(0.5);
+  });
+
+  it("high-shelf holds full gain well above the corner", () => {
+    const high = shelfResponseDb(18000, SHELF_TREBLE_FREQ, 8, "high");
+    expect(high).toBeGreaterThan(7);
+    expect(high).toBeLessThan(8.5);
+  });
+
+  it("high-shelf leaves low frequencies unaffected", () => {
+    expect(Math.abs(shelfResponseDb(100, SHELF_TREBLE_FREQ, 8, "high"))).toBeLessThan(0.5);
+  });
+
+  it("is approximately half the gain (in dB) at the corner frequency", () => {
+    // Web Audio shelf .frequency is the midpoint where response ~= G/2 dB.
+    const atCorner = shelfResponseDb(SHELF_BASS_FREQ, SHELF_BASS_FREQ, 12, "low");
+    expect(atCorner).toBeGreaterThan(4);
+    expect(atCorner).toBeLessThan(8);
+  });
+
+  it("cuts (negative gain) mirror boosts", () => {
+    const boost = shelfResponseDb(25, SHELF_BASS_FREQ, 10, "low");
+    const cut = shelfResponseDb(25, SHELF_BASS_FREQ, -10, "low");
+    expect(cut).toBeCloseTo(-boost, 1);
   });
 });
