@@ -241,7 +241,7 @@ interface PlaylistContext {
 - Seek bar (waveform visualization or segmented bar) with elapsed | total time
 - Track info: album art, like/dislike buttons, title/artist/album (all clickable to navigate)
 - Controls: previous, play/pause, next, stop
-- Right: queue mode (normal/repeat-all/repeat-one), randomize, auto-continue, sync-with-playing toggle, volume
+- Right: queue mode (normal/repeat-all/repeat-one), randomize, auto-continue, equalizer, volume
 
 **Mini mode:** Compact bar with art, title/artist, play controls, close/expand. Draggable window, scroll-to-volume.
 

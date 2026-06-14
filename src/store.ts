@@ -54,7 +54,6 @@ const STORE_DEFAULTS = {
   devPluginPath: null,
   artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
   albumSections: { review: true, unmatchedTracks: true },
-  syncWithPlaying: "disabled",
   trackDetailTabOrder: null,
   streamResolverOrder: null,
   minimizeToMiniPlayer: false,

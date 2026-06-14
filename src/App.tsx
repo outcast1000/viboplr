@@ -658,7 +658,6 @@ function App() {
     error?: string;
   } | null>(null);
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
-  const [syncWithPlaying, setSyncWithPlaying] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
   const [deepLinkInstall, setDeepLinkInstall] = useState<{ kind: "plugin" | "skin"; url: string } | null>(null);
@@ -1316,9 +1315,6 @@ function App() {
     getScrollTop,
   );
 
-  const syncRef = useRef(syncWithPlaying);
-  syncRef.current = syncWithPlaying;
-
   // Push history and reset scroll for the new view.
   // Used by all navigation triggers (sidebar, keyboard, click handlers).
   const pushAndScroll = useCallback(() => {
@@ -1682,11 +1678,10 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
-        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedSyncWithPlaying, savedFallbackTrack, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
+        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedFallbackTrack, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
           store.get<boolean>("loggingEnabled"),
           store.get<boolean>("debugLogging"),
           store.get<boolean>("debugMode"),
-          store.get<boolean | string>("syncWithPlaying"),
           store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName"),
           store.get<string | null>("devPluginPath"),
           store.get<boolean>("autoUpdateManagedDeps"),
@@ -1697,7 +1692,6 @@ function App() {
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         if (savedDebugMode) setDebugMode(true);
         if (savedDevPluginPath) setDevPluginPath(savedDevPluginPath);
-        if (savedSyncWithPlaying === true || savedSyncWithPlaying === "enabled" || savedSyncWithPlaying === "active") setSyncWithPlaying(true);
         if (savedFallbackTrack) {
           library.setFallbackTrackName(savedFallbackTrack);
         }
@@ -1960,25 +1954,6 @@ function App() {
       store.set("fallbackTrackName", null);
     }
   }, [detailTrack]);
-
-  // Sync detail view with currently playing track when user is idle (no navigation for 3 min)
-
-  // Navigate to current track's detail view on track change when sync is on
-  useEffect(() => {
-    if (!syncRef.current || !playback.currentTrack) return;
-    const ct = playback.currentTrack;
-    if (ct.key && ct.key !== library.selectedTrack) {
-      library.handleTrackClick(ct.key);
-    }
-  }, [playback.currentTrack?.key]);
-
-  const handleToggleSync = useCallback(() => {
-    setSyncWithPlaying(prev => {
-      const next = !prev;
-      store.set("syncWithPlaying", next);
-      return next;
-    });
-  }, []);
 
   // Resolve image for current track: video frame → album → artist
   useEffect(() => {
@@ -3604,8 +3579,6 @@ function App() {
         onNavigateToArtistByName={library.navigateToArtistByName}
         onNavigateToAlbumByName={library.navigateToAlbumByName}
         onNavigateToTagByName={library.navigateToTagByName}
-        syncState={syncWithPlaying}
-        onToggleSync={handleToggleSync}
         showHelp={showHelp}
         onToggleHelp={() => setShowHelp(h => !h)}
         resolvedSource={resolvedSource}

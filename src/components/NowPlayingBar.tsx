@@ -154,8 +154,6 @@ interface NowPlayingBarProps {
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   onNavigateToTagByName?: (name: string) => void;
-  syncState: boolean;
-  onToggleSync: () => void;
   showHelp: boolean;
   onToggleHelp: () => void;
   playbackError?: string | null;
@@ -195,7 +193,6 @@ export function NowPlayingBar({
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
-  syncState, onToggleSync,
   showHelp, onToggleHelp,
   playbackError, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
@@ -213,7 +210,6 @@ export function NowPlayingBar({
   const sourceHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sourceTooltipRef = useRef<HTMLDivElement | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
-  const [followPulse, setFollowPulse] = useState(false);
   const [eqOpen, setEqOpen] = useState(false);
   const eqAnchorRef = useRef<HTMLButtonElement>(null);
   const acAnchorRef = useRef<HTMLButtonElement>(null);
@@ -222,14 +218,6 @@ export function NowPlayingBar({
   // QueueTrack (no DB id), so resolve to a library row by metadata. The tag
   // popover edits keep this in sync via onTagsChange so the subtitle updates live.
   const [trackTags, setTrackTags] = useState<string[]>([]);
-
-  // Pulse the Follow button when sync navigates to a new track
-  useEffect(() => {
-    if (!syncState || !currentTrack?.key) return;
-    setFollowPulse(true);
-    const t = setTimeout(() => setFollowPulse(false), 600);
-    return () => clearTimeout(t);
-  }, [currentTrack?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Blur any focused element when entering mini mode so no button appears selected
   useEffect(() => {
@@ -679,22 +667,6 @@ export function NowPlayingBar({
             )}
           </div>
         </div>
-
-        {/* Follow is a view-sync toggle — neither audio nor playlist, kept standalone */}
-        <button
-          className={`g-btn g-btn-rect now-follow-btn${syncState ? " active now-follow-active" : ""}${followPulse && syncState ? " now-follow-pulse" : ""}`}
-          onClick={onToggleSync}
-          title={syncState ? "Following playback — click to stop" : "Follow playback"}
-        >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            {syncState ? (
-              <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>
-            ) : (
-              <><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/></>
-            )}
-          </svg>
-          <span className="now-follow-label">{syncState ? "Following" : "Follow"}</span>
-        </button>
 
         {/* Audio group: equalizer (+ inline knobs) · mute · volume */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">

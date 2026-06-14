@@ -160,29 +160,6 @@
   transform: scale(0.95);
 }
 
-.now-follow-label {
-  font-size: var(--fs-2xs);
-}
-
-.now-follow-active {
-  animation: follow-glow 2s ease-in-out infinite;
-}
-
-.now-follow-pulse {
-  animation: follow-pulse 0.6s ease-out;
-}
-
-@keyframes follow-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0); }
-  50% { box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.2); }
-}
-
-@keyframes follow-pulse {
-  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.4); }
-  50% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(var(--accent-rgb), 0); }
-  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0); }
-}
-
 .now-title-row {
   display: flex;
   align-items: center;
