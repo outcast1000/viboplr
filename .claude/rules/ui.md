@@ -153,9 +153,9 @@ See "Entity System > Three Rendering Modes" above. Toggled via `ViewModeToggle` 
 
 **Purpose:** the default landing surface — a curated overview of the user's library and external sources.
 
-**Layout:** featured-track hero carousel at the top, followed by a vertical stack of horizontal-scrolling shelves. Top-right page header has `[⟳ Refresh]` and `[⚙ Shelves]` ghost buttons.
+**Layout:** radio-station hero carousel at the top, followed by a vertical stack of horizontal-scrolling shelves. Top-right page header has `[⟳ Refresh]` and `[⚙ Shelves]` ghost buttons.
 
-**Featured hero:** auto-rotating carousel of 7 tracks picked via the same weighted strategy as `useAutoContinue.ts` (Random / Same Artist / Same Tag / Most Played / Liked). Auto-advances every 8s, pauses on hover, manual nav via arrows + dots. `Play` plays just the featured track; `Enqueue` enqueues just the featured track.
+**Radio-station hero:** auto-rotating carousel of up to 7 radio stations. `useHome` picks the seeds via `pick_radio_seeds` and resolves a cover for each (album image first, artist image fallback) into the `RadioStation` (`{ seed, coverUrl }`) shape. Same look as the rest of the hero (blurred backdrop, arrows + dots, auto-advance every 8s, pauses on hover). `Play` (or clicking the art) starts that station via `contextMenuActions.startRadio` (which calls `build_radio_for_track` and plays the result with a `Radio: <title>` / `source: "radio"` context). Radio is play-only — there is no Enqueue. The station seeds resolve independently of the shelves and are persisted in the home snapshot (`radioStations`).
 
 **Built-in shelves** (in this order):
 
@@ -185,8 +185,6 @@ Plugin-contributed shelves are merged in alongside the built-ins. See `plugins.m
 | `track-rows` | `playTracks([track], 0)` (no playlist context) |
 
 Track-row cards have an additional async image fallback: `track.image_url` → album image (by name) → artist image (by name) → first-letter placeholder, all via the same `useImageCache` chain used elsewhere.
-
-**Track row vs. featured rendering:** the featured carousel renders full library `Track` objects (with DB IDs). Featured `Play` / `Enqueue` route through `trackToQueueTrack` (preserving `format`, `liked`, etc.), not `pluginTrackToQueueTrack`. Don't confuse these — using the wrong converter strips library-only fields.
 
 ## Queue Panel
 

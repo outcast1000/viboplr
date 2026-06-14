@@ -40,7 +40,7 @@
 - **NowPlayingView.tsx** — Lean-back current-track view (the `nowplaying` main view). Audio: blurred-art backdrop + album art + centered lyrics + floating "up next" list. Video: shared `<video>` repositioned to fill the column (theater mode, `.video-container--theater`) with a `VideoAmbientOverlay`. Lyrics via `useLyrics`. See `ui.md` "Now Playing View".
 - **VideoAmbientOverlay.tsx** — Ambient layers over the theater-mode video in NowPlayingView: sampled color glow (`extractDominantColor`), auto-hiding up-next chip, auto-hiding title/artist intro. Idle-timer visibility mirrors FullscreenControls. Pure helpers in `utils/videoOverlay.ts`.
 - **FilmReel.tsx** — Animated film-reel icon (video counterpart to `SpinningDisc`) used by the playback-aware sidebar Now Playing icon.
-- **HomeView.tsx, HomeHero.tsx, HomeShelf.tsx** — Home landing surface: `HomeView` composes the page and owns the inline shelf-visibility popover; featured-track hero carousel (`HomeHero`); horizontal shelves (`HomeShelf`, with the `resolveImagePath` helper). State owned by `useHome.ts`. See `ui.md` "Home View".
+- **HomeView.tsx, HomeHero.tsx, HomeShelf.tsx** — Home landing surface: `HomeView` composes the page and owns the inline shelf-visibility popover; radio-station hero carousel (`HomeHero`); horizontal shelves (`HomeShelf`, with the `resolveImagePath` helper). State owned by `useHome.ts`. See `ui.md` "Home View".
 - **SearchView.tsx** — The unified Library view (the `search` view): tabbed Tracks/Artists/Albums/Tags, empty query shows the full library.
 - **ExtensionsView.tsx** — Plugin/extension management (install from gallery, enable/disable, updates).
 - **SettingsPanel.tsx** — Settings UI: providers ordering, dependencies, skins, profiles, toggles.
@@ -84,7 +84,7 @@
 - **useLyrics.ts** — Fetches lyrics for the current track through the plugin info-type provider chain (scoped via the `include` filter on `useInformationTypes`). Used by `NowPlayingView`. Returns synced (LRC) or plain text.
 - **useInformationTypes.ts** — Orchestrates plugin information-type fetching + caching for detail pages (cache decision logic, provider priority, in-flight dedup). Supports an `include` filter to scope fetches (used by `useLyrics`). See `plugins.md` "Information Sections".
 - **useImageResolver.ts** — Bridge between the Rust image-download worker and JS plugin image providers (handles `image-resolve-request` events). See `plugins.md` "Image Provider Chain".
-- **useHome.ts** — Home view state: built-in shelf resolvers, merged plugin shelves, featured-track selection, persisted snapshot + 24h refresh model. See `ui.md` "Home View".
+- **useHome.ts** — Home view state: built-in shelf resolvers, merged plugin shelves, radio-station selection (`pick_radio_seeds` + cover resolution), persisted snapshot + 24h refresh model. See `ui.md` "Home View".
 - **useEntityDetail.ts** — Loads detail-page data (tracks/albums/sections) for a selected artist/album/tag.
 - **useDetailHeroImages.ts** — Resolves the multi-image background set for `DetailHero`.
 - **useArtistInfo.ts** — Artist metadata loading for the artist detail page.

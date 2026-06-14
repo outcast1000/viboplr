@@ -1,71 +1,44 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { Track } from "../types";
-import { isVideoTrack } from "../utils";
-import { useVideoFrameQueue } from "../hooks/useVideoFrameQueueContext";
+import type { RadioStation } from "../hooks/useHome";
 
 export interface HomeHeroProps {
-  tracks: Track[];
-  albumImageFor: (name: string, artistName?: string) => string | null;
-  onPlay: (track: Track) => void;
-  onEnqueue: (track: Track) => void;
-  onContextMenu: (track: Track, e: React.MouseEvent) => void;
+  stations: RadioStation[];
+  onPlayStation: (station: RadioStation) => void;
 }
 
 const ROTATE_MS = 8_000;
 
-export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMenu }: HomeHeroProps) {
+// Resolve a station cover (album/artist image path, or remote URL) to an <img src>.
+function coverSrc(url: string | null): string | null {
+  if (!url) return null;
+  if (url.startsWith("http") || url.startsWith("data:")) return url;
+  return convertFileSrc(url);
+}
+
+export function HomeHero({ stations, onPlayStation }: HomeHeroProps) {
   const [idx, setIdx] = useState(0);
   const hoverRef = useRef(false);
-  const frameQueue = useVideoFrameQueue();
 
-  // Subscribe to the queue's ready-frames snapshot. The queue maintains
-  // referential stability across calls when nothing has changed, which
-  // useSyncExternalStore requires to avoid infinite render loops.
-  const frameMap = useSyncExternalStore(
-    (cb) => frameQueue.subscribe(cb),
-    () => frameQueue.getReadyFrameSnapshot(),
-  );
-
-  useEffect(() => { setIdx(0); }, [tracks.length]);
-
-  // Enqueue every video track for extraction. The shared queue handles cache hits
-  // synchronously and serializes ffmpeg extractions at concurrency 1.
-  useEffect(() => {
-    for (const t of tracks) {
-      if (t.id == null || !isVideoTrack(t)) continue;
-      frameQueue.enqueue(t.id);
-    }
-  }, [tracks, frameQueue]);
+  useEffect(() => { setIdx(0); }, [stations.length]);
 
   useEffect(() => {
-    if (tracks.length < 2) return;
+    if (stations.length < 2) return;
     const id = setInterval(() => {
       if (hoverRef.current) return;
-      setIdx((i) => (i + 1) % tracks.length);
+      setIdx((i) => (i + 1) % stations.length);
     }, ROTATE_MS);
     return () => clearInterval(id);
-  }, [tracks.length]);
+  }, [stations.length]);
 
-  if (tracks.length === 0) {
-    return <div className="home-hero home-hero--empty">No featured tracks yet.</div>;
+  if (stations.length === 0) {
+    return <div className="home-hero home-hero--empty">No radio stations yet.</div>;
   }
 
-  // Resolve a background/art image for a track. Frame URLs from the queue are
-  // already convertFileSrc'd; album paths are raw and need conversion.
-  const imgSrcFor = (t: Track): string | null => {
-    const videoFrame = t.id != null ? frameMap[t.id] ?? null : null;
-    if (videoFrame) return videoFrame;
-    const albumPath = t.album_title
-      ? albumImageFor(t.album_title, t.artist_name ?? undefined)
-      : null;
-    return albumPath ? convertFileSrc(albumPath) : null;
-  };
+  const current = stations[idx];
+  const imgSrc = coverSrc(current.coverUrl);
 
-  const current = tracks[idx];
-  const imgSrc = imgSrcFor(current);
-
-  const advance = (delta: number) => setIdx((i) => (i + delta + tracks.length) % tracks.length);
+  const advance = (delta: number) => setIdx((i) => (i + delta + stations.length) % stations.length);
 
   return (
     <div
@@ -73,11 +46,11 @@ export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMe
       onMouseEnter={() => { hoverRef.current = true; }}
       onMouseLeave={() => { hoverRef.current = false; }}
     >
-      {/* Cross-fading background layers — one per track, only the active one is
+      {/* Cross-fading background layers — one per station, only the active one is
           opaque. Mirrors DetailHeroBackground's layered-opacity approach. */}
       <div className="home-hero-bg" aria-hidden="true">
-        {tracks.map((t, i) => {
-          const src = imgSrcFor(t);
+        {stations.map((s, i) => {
+          const src = coverSrc(s.coverUrl);
           if (!src) return null;
           return (
             <div
@@ -90,29 +63,26 @@ export function HomeHero({ tracks, albumImageFor, onPlay, onEnqueue, onContextMe
       </div>
       <div className="home-hero-scrim" aria-hidden="true" />
 
-      <button className="home-hero-arrow home-hero-arrow--left" aria-label="Previous featured" onClick={() => advance(-1)}>‹</button>
-      <button className="home-hero-arrow home-hero-arrow--right" aria-label="Next featured" onClick={() => advance(1)}>›</button>
+      <button className="home-hero-arrow home-hero-arrow--left" aria-label="Previous station" onClick={() => advance(-1)}>‹</button>
+      <button className="home-hero-arrow home-hero-arrow--right" aria-label="Next station" onClick={() => advance(1)}>›</button>
 
       {/* key={idx} re-mounts the content on each change so it fades in fresh. */}
       <div className="home-hero-content" key={idx}>
-        <div className="home-hero-art" onClick={() => onPlay(current)} onContextMenu={(e) => { e.preventDefault(); onContextMenu(current, e); }}>
-          {imgSrc ? <img src={imgSrc} alt={current.title} /> : <div className="home-hero-art-fallback">{current.title[0]?.toUpperCase() ?? "?"}</div>}
+        <div className="home-hero-art" onClick={() => onPlayStation(current)}>
+          {imgSrc ? <img src={imgSrc} alt={current.seed.title} /> : <div className="home-hero-art-fallback">{current.seed.title[0]?.toUpperCase() ?? "?"}</div>}
         </div>
         <div className="home-hero-info">
-          <div className="home-hero-eyebrow">FEATURED TRACK</div>
-          <h1 className="home-hero-title">{current.title}</h1>
-          <div className="home-hero-artist">{current.artist_name ?? "Unknown artist"}</div>
+          <div className="home-hero-eyebrow">RADIO STATION</div>
+          <h1 className="home-hero-title">Radio: {current.seed.title}</h1>
+          <div className="home-hero-artist">{current.seed.artist_name ?? "Unknown artist"}</div>
           <div className="home-hero-meta">
-            {current.year && <span className="home-hero-chip">{current.year}</span>}
-            {current.album_title && <span className="home-hero-chip">{current.album_title}</span>}
-            {current.format && <span className="home-hero-chip">{current.format.toUpperCase()}</span>}
+            {current.seed.album_title && <span className="home-hero-chip">{current.seed.album_title}</span>}
           </div>
           <div className="home-hero-actions">
-            <button className="ds-btn ds-btn--primary" onClick={() => onPlay(current)}>▶ Play</button>
-            <button className="ds-btn ds-btn--secondary" onClick={() => onEnqueue(current)}>≡+ Enqueue</button>
+            <button className="ds-btn ds-btn--primary" onClick={() => onPlayStation(current)}>▶ Play</button>
           </div>
           <div className="home-hero-dots" role="tablist">
-            {tracks.map((_, i) => (
+            {stations.map((_, i) => (
               <button
                 key={i}
                 role="tab"

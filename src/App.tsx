@@ -118,7 +118,6 @@ import { NowPlayingView } from "./components/NowPlayingView";
 import { useLyrics } from "./hooks/useLyrics";
 import type { ResolvedShelf } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
-import { trackToQueueTrack } from "./queueEntry";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
 
@@ -2813,14 +2812,15 @@ function App() {
           <HomeView
             style={{ display: view === "home" ? undefined : "none" }}
             isVisible={view === "home"}
-            currentTrack={playback.currentTrack}
             pluginShelves={plugins.homeShelves}
             pluginsLoaded={plugins.pluginsLoaded}
             invokePluginShelf={plugins.invokeHomeShelf}
             restoredRef={restoredRef}
-            onPlayTrack={(t) => queueHook.playTracks([trackToQueueTrack(t)], 0)}
-            onEnqueueTrack={(t) => queueHook.enqueueTracks([trackToQueueTrack(t)])}
-            onTrackContextMenu={(t, e) => contextMenuActions.handleTrackContextMenu(e, t, new Set())}
+            onPlayStation={(s) => contextMenuActions.startRadio({
+              title: s.seed.title,
+              artistName: s.seed.artist_name,
+              coverPath: s.coverUrl ?? s.seed.image_url ?? null,
+            })}
             onShelfItemClick={handleHomeShelfItemClick}
             onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}

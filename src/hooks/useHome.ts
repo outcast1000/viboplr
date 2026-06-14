@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Album, Artist, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, QueueTrack } from "../types";
+import type { Track, Album, Artist, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
 import type {
   HomeShelfDisplayKind,
   HomeShelfResult,
   HomeShelfItem,
-  PluginTrack,
 } from "../types/plugin";
 import type { RecentlyVisitedEntry } from "../utils/recentlyVisited";
 import { store } from "../store";
@@ -13,9 +12,17 @@ import { store } from "../store";
 const STALE_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
 const SNAPSHOT_KEY = "homeSnapshot";
+const RADIO_STATION_COUNT = 7;
+
+// A radio station shown in the hero carousel: a seed track plus its resolved
+// cover (album image, falling back to artist image).
+export interface RadioStation {
+  seed: Track;
+  coverUrl: string | null;
+}
 
 interface HomeSnapshot {
-  featured: Track[];
+  radioStations: RadioStation[];
   shelves: ResolvedShelf[];
   savedAt?: number;
   // Resolver ids attempted in the last refresh (built-in + visible plugin
@@ -91,7 +98,6 @@ export async function resolveShelves(
 
 export interface UseHomeOptions {
   isVisible: boolean;
-  currentTrack: QueueTrack | null;
   pluginShelves: Array<{
     pluginId: string;
     shelfId: string;
@@ -114,70 +120,44 @@ export function shelfKey(pluginId: string | undefined, shelfId: string): string 
 }
 
 export function useHome(opts: UseHomeOptions) {
-  const { isVisible, currentTrack, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, restoredRef } = opts;
+  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, restoredRef } = opts;
 
-  const [featured, setFeatured] = useState<Track[]>([]);
+  const [radioStations, setRadioStations] = useState<RadioStation[]>([]);
   const [shelves, setShelves] = useState<ResolvedShelf[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const refreshGenRef = useRef(0);
-  const featuredRef = useRef<Track[]>([]);
-  featuredRef.current = featured;
+  const radioStationsRef = useRef<RadioStation[]>([]);
+  radioStationsRef.current = radioStations;
   const savedAtRef = useRef<number>(0);
   // Resolver ids attempted in the last completed refresh — used to detect
   // freshly-installed plugin shelves that have never been fetched.
   const attemptedKeysRef = useRef<Set<string>>(new Set());
 
-  const fetchFeatured = useCallback(async (): Promise<Track[]> => {
-    let anchorTitle: string | null = currentTrack?.title ?? null;
-    let anchorArtist: string | null = currentTrack?.artist_name ?? null;
-
-    if (!anchorTitle) {
-      try {
-        const recent = await invoke<HistoryEntry[]>("get_history_recent", { limit: 1 });
-        if (recent[0]) {
-          anchorTitle = recent[0].display_title;
-          anchorArtist = recent[0].display_artist;
+  // Pick the radio-station seeds for the hero carousel and resolve a cover image
+  // for each (album image first, artist image as fallback). Covers resolve in
+  // parallel; a missing cover just renders the letter fallback in the hero.
+  const fetchRadioStations = useCallback(async (): Promise<RadioStation[]> => {
+    try {
+      const seeds = await invoke<Track[]>("pick_radio_seeds", { count: RADIO_STATION_COUNT });
+      if (seeds.length === 0) return [];
+      const covers = await Promise.all(seeds.map(async (seed) => {
+        if (seed.album_title) {
+          const a = await invoke<string | null>("get_entity_image", { kind: "album", name: seed.album_title, artistName: seed.artist_name ?? null }).catch(() => null);
+          if (a) return a;
         }
-      } catch (e) {
-        console.error("Failed to fetch history for featured anchor:", e);
-      }
-    }
-
-    const STRATEGIES = ["random", "same_artist", "same_tag", "most_played", "liked"] as const;
-    const WEIGHTS = [40, 20, 20, 10, 10];
-    const total = WEIGHTS.reduce((a, b) => a + b, 0);
-    const pickStrategy = () => {
-      const roll = Math.floor(Math.random() * total);
-      let acc = 0;
-      for (let i = 0; i < STRATEGIES.length; i++) {
-        acc += WEIGHTS[i];
-        if (roll < acc) return STRATEGIES[i];
-      }
-      return "random";
-    };
-
-    const seen = new Set<number>();
-    const out: Track[] = [];
-    for (let i = 0; i < 20 && out.length < 7; i++) {
-      const strat = anchorTitle ? pickStrategy() : "random";
-      try {
-        const t = await invoke<Track | null>("get_auto_continue_track", {
-          strategy: strat,
-          currentTitle: anchorTitle,
-          currentArtist: anchorArtist,
-          formatFilter: null,
-        });
-        if (t && t.id != null && !seen.has(t.id)) {
-          seen.add(t.id);
-          out.push(t);
+        if (seed.artist_name) {
+          const ar = await invoke<string | null>("get_entity_image", { kind: "artist", name: seed.artist_name, artistName: null }).catch(() => null);
+          if (ar) return ar;
         }
-      } catch (e) {
-        console.error("Featured pick failed:", e);
-      }
+        return null;
+      }));
+      return seeds.map((seed, i) => ({ seed, coverUrl: covers[i] }));
+    } catch (e) {
+      console.error("Failed to pick radio stations:", e);
+      return [];
     }
-    return out;
-  }, [currentTrack]);
+  }, []);
 
   const buildBuiltInResolvers = useCallback(
     (recentlyVisited: RecentlyVisitedEntry[]): ShelfResolver[] => {
@@ -325,41 +305,6 @@ export function useHome(opts: UseHomeOptions) {
           },
         },
         {
-          id: "builtin:radio-stations",
-          title: "Radio stations",
-          displayKind: "playlist-cards",
-          limit: 5,
-          fetch: async (limit) => {
-            try {
-              const seeds = await invoke<Track[]>("pick_radio_seeds", { count: limit });
-              if (seeds.length === 0) return { status: "empty" };
-              const covers = await Promise.all(seeds.map(async (seed) => {
-                if (seed.album_title) {
-                  const a = await invoke<string | null>("get_entity_image", { kind: "album", name: seed.album_title, artistName: seed.artist_name ?? null }).catch(() => null);
-                  if (a) return a;
-                }
-                if (seed.artist_name) {
-                  const ar = await invoke<string | null>("get_entity_image", { kind: "artist", name: seed.artist_name, artistName: null }).catch(() => null);
-                  if (ar) return ar;
-                }
-                return undefined;
-              }));
-              return {
-                status: "ok",
-                items: seeds.map((seed, i) => ({
-                  id: `radio:${seed.id}`,
-                  name: `Radio: ${seed.title}`,
-                  coverUrl: covers[i] ?? undefined,
-                  // Sentinel — generation deferred until click; do NOT materialize 30 tracks here.
-                  tracks: [{ __radioSeed: { ...seed, image_url: covers[i] ?? seed.image_url } } as unknown as PluginTrack],
-                })),
-              };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
-          },
-        },
-        {
           id: "builtin:jump-back-in",
           title: "Jump back in",
           displayKind: "album-cards",
@@ -412,9 +357,9 @@ export function useHome(opts: UseHomeOptions) {
       const attemptedKeys = all.map((r) => r.id);
       attemptedKeysRef.current = new Set(attemptedKeys);
 
-      // Featured tracks resolve independently — render them as soon as they arrive.
-      const featuredPromise = fetchFeatured().then((feat) => {
-        if (gen === refreshGenRef.current) setFeatured(feat);
+      // Radio stations resolve independently — render them as soon as they arrive.
+      const radioPromise = fetchRadioStations().then((stations) => {
+        if (gen === refreshGenRef.current) setRadioStations(stations);
       });
 
       // Stream each shelf into the UI as it resolves, preserving the resolver order.
@@ -451,7 +396,7 @@ export function useHome(opts: UseHomeOptions) {
         }
       });
 
-      await Promise.all([featuredPromise, ...shelfPromises]);
+      await Promise.all([radioPromise, ...shelfPromises]);
       if (gen === refreshGenRef.current) {
         // Final pass: drop any shelves left over from a previous run that no longer
         // resolved this cycle (e.g., went from ok -> empty/error or were toggled off).
@@ -464,7 +409,7 @@ export function useHome(opts: UseHomeOptions) {
         const savedAt = Date.now();
         savedAtRef.current = savedAt;
         store.set(SNAPSHOT_KEY, {
-          featured: featuredRef.current,
+          radioStations: radioStationsRef.current,
           shelves: finalShelves,
           savedAt,
           attemptedKeys,
@@ -473,7 +418,7 @@ export function useHome(opts: UseHomeOptions) {
     } finally {
       if (gen === refreshGenRef.current) setIsLoading(false);
     }
-  }, [buildBuiltInResolvers, fetchFeatured, invokePluginShelf, pluginShelves, visibility]);
+  }, [buildBuiltInResolvers, fetchRadioStations, invokePluginShelf, pluginShelves, visibility]);
 
   // Hydrate from the persisted snapshot once, before the first refresh paints anything.
   // This makes a cold launch of Home land on real content instead of an empty state.
@@ -483,7 +428,7 @@ export function useHome(opts: UseHomeOptions) {
       try {
         const snap = await store.get<HomeSnapshot>(SNAPSHOT_KEY);
         if (cancelled) return;
-        if (snap?.featured?.length) setFeatured(snap.featured);
+        if (snap?.radioStations?.length) setRadioStations(snap.radioStations);
         if (snap?.shelves?.length) setShelves(snap.shelves);
         if (snap?.savedAt) savedAtRef.current = snap.savedAt;
         if (snap?.attemptedKeys) attemptedKeysRef.current = new Set(snap.attemptedKeys);
@@ -514,7 +459,7 @@ export function useHome(opts: UseHomeOptions) {
       // refresh schedule is unaffected) so a removed plugin's shelves don't
       // re-hydrate and flash on the next cold launch.
       store.set(SNAPSHOT_KEY, {
-        featured: featuredRef.current,
+        radioStations: radioStationsRef.current,
         shelves: next,
         savedAt: savedAtRef.current,
         attemptedKeys: Array.from(attemptedKeysRef.current),
@@ -538,5 +483,5 @@ export function useHome(opts: UseHomeOptions) {
     if (savedAtRef.current === 0 || age >= STALE_MS || hasNewShelves) refresh();
   }, [isVisible, refresh, restoredRef, hydrated, pluginsLoaded, pluginShelves, visibility]);
 
-  return { featured, shelves, refresh, isLoading };
+  return { radioStations, shelves, refresh, isLoading };
 }
