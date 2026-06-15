@@ -1,6 +1,7 @@
 import { renderers } from "./renderers";
 import type { InfoEntity } from "../types/informationTypes";
 import { useInformationTypes } from "../hooks/useInformationTypes";
+import type { OpenInfoArgs } from "../hooks/useRetrieveModal";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -46,6 +47,10 @@ interface InformationSectionsProps {
   onTitleData?: (typeId: string, data: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
   onEntityContextMenu?: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
+  /** When provided, the Refresh button opens the centered Retrieve modal (preview → Apply). */
+  retrieve?: {
+    openInfo: (args: OpenInfoArgs) => void;
+  };
 }
 
 type TabEntry =
@@ -68,10 +73,41 @@ export function InformationSections({
   onTitleData,
   onTrackContextMenu,
   onEntityContextMenu,
+  retrieve,
 }: InformationSectionsProps) {
-  const { sections, refresh, reloadCache } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
+  const { sections, refresh, reloadCache, getTypeMeta } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
+  const entityKey = entity ? buildEntityKey(entity) : null;
+
+  // After the Retrieve modal applies new info for one of our types, reload the
+  // section from cache so it reflects the newly-saved value.
+  useEffect(() => {
+    const onApplied = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { infoTypeId?: string; entityKey?: string };
+      if (detail.entityKey && detail.entityKey === entityKey) reloadCache();
+    };
+    window.addEventListener("retrieve:info-applied", onApplied);
+    return () => window.removeEventListener("retrieve:info-applied", onApplied);
+  }, [entityKey, reloadCache]);
+
+  const handleRefresh = useCallback((typeId: string, _name: string) => {
+    // Prefer the centered Retrieve modal (preview → Apply, provider switching).
+    // Fall back to the legacy in-place delete+refetch when no modal is wired.
+    const meta = getTypeMeta(typeId);
+    if (retrieve && entity && meta) {
+      retrieve.openInfo({
+        infoTypeId: typeId,
+        label: meta.name,
+        displayKind: meta.displayKind,
+        entity,
+        providers: meta.providers,
+        pluginNames: pluginNames ?? new Map(),
+      });
+      return;
+    }
+    refresh(typeId);
+  }, [retrieve, entity, getTypeMeta, pluginNames, refresh]);
 
   // Tab drag-and-drop state
   const [draggedTab, setDraggedTab] = useState<string | null>(null);
@@ -82,7 +118,6 @@ export function InformationSections({
   const tabGhostRef = useRef<HTMLDivElement | null>(null);
 
   // Reset to first tab when entity changes
-  const entityKey = entity ? buildEntityKey(entity) : null;
   useEffect(() => { setActiveTab(null); }, [entityKey]);
 
   // Notify parent about title_line data (filtered from tabs but still fetched)
@@ -321,7 +356,7 @@ export function InformationSections({
             className="info-sections-refresh"
             width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-            onClick={() => refresh(activeEntry.typeId)}
+            onClick={() => handleRefresh(activeEntry.typeId, activeEntry.name)}
           >
             <polyline points="23 4 23 10 17 10"/>
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>

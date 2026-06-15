@@ -110,8 +110,8 @@ export function TrackDetailView({
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
 
   const requestArtistImage = useCallback(
-    (n: string) => actions.requestFetchImage("artist", n),
-    [actions.requestFetchImage],
+    (n: string) => actions.autoFetchImage("artist", n),
+    [actions.autoFetchImage],
   );
   const artistHeroImages = useDetailHeroImages.singleArtist(
     track.artist_name,
@@ -419,6 +419,7 @@ export function TrackDetailView({
           exclude={["track_tags"]}
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}
+          retrieve={actions.retrieve}
           tabOrder={tabOrder}
           onTabOrderChange={handleTabOrderChange}
           onTitleData={handleTitleData}

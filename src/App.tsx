@@ -54,6 +54,8 @@ import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useImageResolver } from "./hooks/useImageResolver";
+import { useRetrieveModal } from "./hooks/useRetrieveModal";
+import { RetrieveModal } from "./components/RetrieveModal";
 import { useExtensions } from "./hooks/useExtensions";
 
 import { useLikeActions } from "./hooks/useLikeActions";
@@ -372,8 +374,25 @@ function App() {
   const dependencies = useDependencies(plugins.pluginStates);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
-  // Wire up image resolver to handle image-resolve-request events
+  // Centered, cancelable "Retrieve" modal for user-triggered image/info fetches
+  // (preview → Apply). Automatic background image fetching is unaffected.
+  const retrieve = useRetrieveModal(plugins.invokeImageFetch, plugins.invokeInfoFetch);
+
+  // Wire up image resolver to handle image-resolve-request events (automatic
+  // background fetching). User-triggered retrieval goes through `retrieve`.
   useImageResolver(plugins.invokeImageFetch);
+
+  // Open the Retrieve modal for an entity image: gather the active providers
+  // (priority order) and hand them to the modal for preview-then-apply.
+  const beginRetrieveImage = useCallback(async (kind: "artist" | "album" | "tag", name: string, artistName?: string | null) => {
+    try {
+      const providers = await invoke<Array<[string, number, number]>>("get_image_providers", { entity: kind });
+      retrieve.openImage({ kind, name, artistName: artistName ?? null, providers, pluginNames: plugins.pluginNames });
+    } catch (e) {
+      console.error("Failed to load image providers:", e);
+      retrieve.openImage({ kind, name, artistName: artistName ?? null, providers: [], pluginNames: plugins.pluginNames });
+    }
+  }, [retrieve, plugins.pluginNames]);
 
   // Build ordered stream resolver list from built-in + plugins + user ordering
   useEffect(() => {
@@ -758,6 +777,19 @@ function App() {
   const artistImageCache = useImageCache("artist");
   const tagImageCache = useImageCache("tag");
 
+  // After the Retrieve modal applies a new image, drop the cached entry so the
+  // displayed art (cards, hero, now-playing) re-resolves from disk.
+  useEffect(() => {
+    const onApplied = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { kind: "artist" | "album" | "tag"; name: string; artistName?: string | null };
+      if (detail.kind === "artist") artistImageCache.invalidate(detail.name);
+      else if (detail.kind === "album") albumImageCache.invalidate(detail.name, detail.artistName ?? null);
+      else tagImageCache.invalidate(detail.name);
+    };
+    window.addEventListener("retrieve:image-applied", onApplied);
+    return () => window.removeEventListener("retrieve:image-applied", onApplied);
+  }, [artistImageCache, albumImageCache, tagImageCache]);
+
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
     enqueueTracks: (tracks: Track[]) => handleEnqueueRef.current(tracks),
@@ -962,7 +994,8 @@ function App() {
     const specs = buildContextMenuSpecs(cm.target, {
       contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries,
       plugins, searchProviders, handleDownloadFromProvider, artistImageCache,
-      albumImageCache, tagImageCache, setSearchInitialQuery, setSearchQueryKey,
+      albumImageCache, tagImageCache, beginRetrieveImage,
+      setSearchInitialQuery, setSearchQueryKey,
       setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef,
     });
     if (!specs) {
@@ -970,7 +1003,7 @@ function App() {
       return;
     }
     showNativeMenu(cm.x, cm.y, specs);
-  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef]);
+  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
@@ -2316,6 +2349,13 @@ function App() {
       else tagImageCache.invalidate(name);
     },
     requestFetchImage: (kind: "artist" | "album" | "tag", name: string, artistName?: string) => {
+      // Explicit user action (hero refresh button) → open the centered Retrieve
+      // modal (preview → Apply). NOT for automatic/lazy hero-image fetching —
+      // that uses autoFetchImage below so the modal never auto-pops.
+      void beginRetrieveImage(kind, name, artistName ?? null);
+    },
+    autoFetchImage: (kind: "artist" | "album" | "tag", name: string, artistName?: string) => {
+      // Silent background fetch for lazy hero-image resolution (no modal).
       if (kind === "artist") artistImageCache.requestFetch(name);
       else if (kind === "album") albumImageCache.requestFetch(name, artistName);
       else tagImageCache.requestFetch(name);
@@ -2323,6 +2363,9 @@ function App() {
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
     searchProviders,
+    retrieve: {
+      openInfo: retrieve.openInfo,
+    },
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick,
     queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
@@ -2338,6 +2381,7 @@ function App() {
     artistImageCache.invalidate, albumImageCache.invalidate, tagImageCache.invalidate,
     artistImageCache.requestFetch, albumImageCache.requestFetch, tagImageCache.requestFetch,
     plugins.invokeInfoFetch, plugins.pluginNames, searchProviders,
+    beginRetrieveImage, retrieve.openInfo,
   ]);
 
   // Now Playing view: lyrics via the shared info-type chain, and resolved art.
@@ -3725,6 +3769,15 @@ function App() {
         />
       )}
 
+      {retrieve.modal && (
+        <RetrieveModal
+          modal={retrieve.modal}
+          onTryNext={retrieve.tryNext}
+          onApplyNow={retrieve.applyNow}
+          onCancel={retrieve.cancel}
+          onSetKeepOpen={retrieve.setKeepOpen}
+        />
+      )}
 
     </div>
     </VideoFrameQueueProvider>

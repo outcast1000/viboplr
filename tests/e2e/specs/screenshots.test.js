@@ -77,9 +77,35 @@ async function sidebarNavigate(page, navText) {
   }
 }
 
-/** Navigate to Artists view and open a specific artist by index */
+/** Open the Library, switch to a tab, and run a broad query so results render.
+ *  Artists/albums/tags are now tabs inside the unified Library (SearchView),
+ *  reached via the sidebar "Library" item — not their own sidebar entries. */
+async function goToLibraryTab(page, tabLabel) {
+  await sidebarNavigate(page, 'Library');
+  // A broad query populates all tabs (the SearchView only renders lists once a
+  // search has run). 'a' matches the mock's Artist A / Album X / etc.
+  const input = page.locator('.search-view-input');
+  await input.fill('a');
+  await page.waitForTimeout(700);
+  await page.locator('.ds-tab', { hasText: tabLabel }).first().click();
+  await page.waitForTimeout(400);
+}
+
+/** Open the Library Tracks tab in Table view so `.track-row` rows render. */
+async function goToLibraryTracks(page) {
+  await goToLibraryTab(page, 'Tracks');
+  // `.track-row` only renders in Table ("basic") view mode.
+  const tableBtn = page.locator('button[title="Table view"]');
+  if (await tableBtn.isVisible().catch(() => false)) {
+    await tableBtn.click();
+    await page.waitForTimeout(300);
+  }
+  await page.locator('.track-row').first().waitFor({ state: 'visible', timeout: 10000 });
+}
+
+/** Navigate to the Library Artists tab and open a specific artist by index */
 async function goToArtistDetail(page, artistIndex = 0) {
-  await sidebarNavigate(page, 'Artists');
+  await goToLibraryTab(page, 'Artists');
   await page.locator('.artist-card').nth(artistIndex).click();
   await page.waitForTimeout(500);
   await waitForImages(page);
@@ -93,6 +119,7 @@ test.describe('Screenshots', () => {
 
   test('02 - playback', async ({ page }) => {
     await setup(page);
+    await goToLibraryTracks(page);
     // Double-click the title cell of the first track to start playback
     const firstTitle = page.locator('.track-row .col-title').first();
     await firstTitle.dblclick();
@@ -125,6 +152,7 @@ test.describe('Screenshots', () => {
 
   test('06 - mini-player', async ({ page }) => {
     await setup(page);
+    await goToLibraryTracks(page);
     // Start playback first
     const firstTitle = page.locator('.track-row .col-title').first();
     await firstTitle.dblclick();
@@ -147,18 +175,16 @@ test.describe('Screenshots', () => {
 
   test('08 - skins', async ({ page }) => {
     await setup(page);
-    // Open settings view
-    await page.locator('.settings-btn').click();
-    await page.waitForSelector('.settings-tab-bar');
-    // Click the Skins tab
-    const skinsTab = page.locator('.settings-tab', { hasText: 'Skins' });
-    await skinsTab.click();
+    // Skins live in the Extensions view now (not Settings).
+    await sidebarNavigate(page, 'Extensions');
+    await page.locator('.ext-filter-tabs .ds-tab', { hasText: 'Skins' }).click();
     await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(outDir, 'skins.png'), type: 'png' });
   });
 
   test('09 - discovery', async ({ page }) => {
     await setup(page);
+    await goToLibraryTracks(page);
     // Double-click a track title to play it
     const firstTitle = page.locator('.track-row .col-title').first();
     await firstTitle.dblclick();
@@ -173,12 +199,9 @@ test.describe('Screenshots', () => {
 
   test('10 - plugins', async ({ page }) => {
     await setup(page);
-    // Open settings view
-    await page.locator('.settings-btn').click();
-    await page.waitForSelector('.settings-tab-bar');
-    // Click the Plugins tab
-    const pluginsTab = page.locator('.settings-tab', { hasText: 'Plugins' });
-    await pluginsTab.click();
+    // Plugins live in the Extensions view now (not Settings).
+    await sidebarNavigate(page, 'Extensions');
+    await page.locator('.ext-filter-tabs .ds-tab', { hasText: 'Plugins' }).click();
     await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(outDir, 'plugins.png'), type: 'png' });
   });
@@ -206,6 +229,7 @@ test.describe('Screenshots', () => {
   test('13 - track detail (Sunset)', async ({ page }) => {
     await setup(page);
     await applySkin(page, 'sunset');
+    await goToLibraryTracks(page);
     // Play a track and open its detail view
     const firstTitle = page.locator('.track-row .col-title').first();
     await firstTitle.dblclick();

@@ -90,6 +90,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::fetch_tag_image,
         commands::clear_image_failures,
+        commands::save_entity_image_from_provider,
+        commands::extract_embedded_album_image,
         commands::record_play,
         commands::get_history_recent,
         commands::get_history_most_played,
@@ -316,6 +318,8 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
         commands::fetch_album_image,
         commands::fetch_tag_image,
         commands::clear_image_failures,
+        commands::save_entity_image_from_provider,
+        commands::extract_embedded_album_image,
         commands::record_play,
         commands::get_history_recent,
         commands::get_history_most_played,
@@ -487,7 +491,7 @@ fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + '
     ]
 }
 
-fn download_image_from_url(
+pub(crate) fn download_image_from_url(
     url: &str,
     headers: Option<&std::collections::HashMap<String, String>>,
     dest: &std::path::Path,
@@ -510,7 +514,7 @@ fn download_image_from_url(
     image_provider::write_image(dest, &bytes)
 }
 
-fn base64_decode_and_save(data: &str, dest: &std::path::Path) -> Result<(), String> {
+pub(crate) fn base64_decode_and_save(data: &str, dest: &std::path::Path) -> Result<(), String> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)

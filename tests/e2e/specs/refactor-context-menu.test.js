@@ -96,10 +96,10 @@ test('multi-tag target offers delete-N-tags', async ({ page }) => {
   expect(texts).toContain('Delete 3 tags');
 });
 
-test('artist target offers Play All / Refresh Image', async ({ page }) => {
+test('artist target offers Play All / Retrieve Image', async ({ page }) => {
   const texts = await buildSpecTexts(page, { kind: 'artist', artistId: 7, name: 'Some Artist' });
   expect(texts).toContain('Play');
-  expect(texts).toContain('Refresh Image');
+  expect(texts).toContain('Retrieve Image');
 });
 
 test('track with no id omits Play/Enqueue/Trash but keeps metadata-only actions', async ({ page }) => {

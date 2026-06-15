@@ -28,6 +28,8 @@ export interface ContextMenuDeps {
   artistImageCache: ReturnType<typeof useImageCache>;
   albumImageCache: ReturnType<typeof useImageCache>;
   tagImageCache: ReturnType<typeof useImageCache>;
+  /** Opens the centered Retrieve modal (preview → Apply) for the Refresh Image action. */
+  beginRetrieveImage: (kind: "artist" | "album" | "tag", name: string, artistName?: string | null) => void;
   setSearchInitialQuery: (q: string | null) => void;
   setSearchQueryKey: (fn: (k: number) => number) => void;
   setDeleteTagConfirm: (tags: { id: number; name: string }[] | null) => void;
@@ -196,14 +198,14 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       }
       if (hasId && (target.kind === "artist" || target.kind === "album" || target.kind === "tag")) {
         const refreshAction = target.kind === "artist"
-          ? () => d.artistImageCache.requestFetch(target.name)
+          ? () => d.beginRetrieveImage("artist", target.name)
           : target.kind === "album"
-          ? () => d.albumImageCache.requestFetch(target.title, target.artistName)
+          ? () => d.beginRetrieveImage("album", target.title, target.artistName)
           : target.kind === "tag"
-          ? () => d.tagImageCache.requestFetch(target.name)
+          ? () => d.beginRetrieveImage("tag", target.name)
           : null;
         if (refreshAction) {
-          specs.push({ kind: "item", text: "Refresh Image", action: refreshAction });
+          specs.push({ kind: "item", text: "Retrieve Image", action: refreshAction });
         }
       }
       if (d.contextMenuActions.handleBulkEdit && (isMulti || (target.kind === "track" && target.trackId))) {

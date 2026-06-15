@@ -3,6 +3,7 @@ import type { Track, QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { SearchProviderConfig } from "../searchProviders";
+import type { OpenInfoArgs } from "../hooks/useRetrieveModal";
 
 export interface DetailViewActions {
   navigateToArtist: (id: number, name?: string) => void;
@@ -33,11 +34,18 @@ export interface DetailViewActions {
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getTagImage: (name: string) => string | null;
   invalidateImage: (kind: "artist" | "album" | "tag", name: string, artistName?: string) => void;
+  /** Explicit user action (hero refresh button): opens the Retrieve modal. */
   requestFetchImage: (kind: "artist" | "album" | "tag", name: string, artistName?: string) => void;
+  /** Silent background fetch for lazy hero-image resolution (no modal). */
+  autoFetchImage: (kind: "artist" | "album" | "tag", name: string, artistName?: string) => void;
 
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames: Map<string, string>;
   searchProviders: SearchProviderConfig[];
+  /** Opens the centered Retrieve modal for a user-triggered info-section refresh. */
+  retrieve: {
+    openInfo: (args: OpenInfoArgs) => void;
+  };
 }
 
 export interface DetailViewState {
@@ -73,8 +81,9 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.handleInfoTrackContextMenu, actions.handleEntityContextMenu,
     actions.handleTrackDragStart,
     actions.getArtistImage, actions.getAlbumImage, actions.getTagImage,
-    actions.invalidateImage, actions.requestFetchImage,
+    actions.invalidateImage, actions.requestFetchImage, actions.autoFetchImage,
     actions.invokeInfoFetch, actions.pluginNames, actions.searchProviders,
+    actions.retrieve,
   ]);
 
   return (

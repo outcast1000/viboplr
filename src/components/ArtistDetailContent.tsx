@@ -107,8 +107,8 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
   const artistImagePath = actions.getArtistImage(name);
 
   const requestAlbumImage = useCallback(
-    (title: string, artistName: string) => actions.requestFetchImage("album", title, artistName),
-    [actions.requestFetchImage],
+    (title: string, artistName: string) => actions.autoFetchImage("album", title, artistName),
+    [actions.autoFetchImage],
   );
   const albumHeroImages = useDetailHeroImages.artistAlbums(
     artist,
@@ -258,6 +258,7 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
           }] : undefined}
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}
+          retrieve={actions.retrieve}
           tabOrder={headerTabOrder}
           onTabOrderChange={handleHeaderTabOrderChange}
           onEntityClick={handleEntityClick}
@@ -305,6 +306,7 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
           placement="below"
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}
+          retrieve={actions.retrieve}
           tabOrder={belowTabOrder}
           onTabOrderChange={handleBelowTabOrderChange}
           onEntityClick={handleEntityClick}

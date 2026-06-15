@@ -25,43 +25,20 @@ test('Home is the first sidebar item and renders the home view', async ({ page }
   await expect(page.locator('.home-view-header button', { hasText: 'Shelves' })).toBeVisible();
 });
 
-test('shelf visibility toggle hides shelves in the same session', async ({ page }) => {
+test('shelf visibility menu opens without error and shelves render', async ({ page }) => {
+  // The shelf-visibility picker is now a native OS menu (showNativeMenu), not a
+  // DOM popover — Playwright can't inspect native menus, so we assert the
+  // trigger is present and clickable and that the Home shelves render. The
+  // visibility-toggle logic itself is covered by unit tests, not E2E.
   await page.locator('.nav .nav-btn').filter({ hasText: 'Home' }).click();
   await expect(page.locator('.home-view')).toBeVisible();
 
-  // Open shelves popover
-  await page.locator('.home-view-header button', { hasText: 'Shelves' }).click();
-  const popover = page.locator('.home-shelves-popover');
-  await expect(popover).toBeVisible();
+  const shelvesBtn = page.locator('.home-view-header button', { hasText: 'Shelves' });
+  await expect(shelvesBtn).toBeVisible();
+  // Clicking opens a native menu (no DOM to assert); just confirm it doesn't throw.
+  await shelvesBtn.click();
 
-  // All built-in shelves listed
-  for (const title of [
-    'Recently played',
-    'Most played · 30 days',
-    'Most played artists · 30 days',
-    'Recently added',
-    'Liked albums',
-    'Liked artists',
-    'Jump back in',
-  ]) {
-    await expect(popover.locator('.home-shelves-popover-row', { hasText: title })).toBeVisible();
-  }
-
-  // Uncheck "Recently played"
-  const recentlyPlayed = popover
-    .locator('.home-shelves-popover-row', { hasText: 'Recently played' })
-    .locator('input');
-  await recentlyPlayed.uncheck();
-  await expect(recentlyPlayed).not.toBeChecked();
-
-  // Close popover
-  await page.locator('.home-shelves-popover-backdrop').click();
-  await expect(popover).not.toBeVisible();
-
-  // Re-open and confirm the unchecked state survived within this session
-  await page.locator('.home-view-header button', { hasText: 'Shelves' }).click();
-  const recentlyPlayed2 = page
-    .locator('.home-shelves-popover-row', { hasText: 'Recently played' })
-    .locator('input');
-  await expect(recentlyPlayed2).not.toBeChecked();
+  // At least one built-in shelf renders its title (Recently played is fed by
+  // get_history_recent, which the mock returns).
+  await expect(page.locator('.home-shelf').first()).toBeVisible({ timeout: 5000 });
 });

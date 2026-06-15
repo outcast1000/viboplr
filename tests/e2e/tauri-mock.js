@@ -190,6 +190,30 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return [];
     case 'get_history_artist_stats':
       return [];
+    case 'get_history_most_played_artists_since':
+      return [];
+    case 'pick_radio_seeds':
+      // Home hero carousel: return a few seed tracks (count defaults to 7).
+      return TEST_TRACKS.slice(0, (args && args.count) || 7);
+    case 'find_artist_by_name':
+      return TEST_ARTISTS.find(a => a.name === (args && args.name)) || null;
+    case 'find_album_by_name': {
+      const title = args && args.title;
+      const artist = args && args.artistName;
+      return TEST_ALBUMS.find(a => a.title === title && (!artist || a.artist_name === artist)) || null;
+    }
+    case 'find_tag_by_name':
+      return null;
+    case 'get_artist_by_id':
+      return TEST_ARTISTS.find(a => a.id === (args && args.artistId)) || null;
+    case 'get_album_by_id':
+      return TEST_ALBUMS.find(a => a.id === (args && args.albumId)) || null;
+    case 'get_artist_count':
+      return TEST_ARTISTS.length;
+    case 'fetch_plugin_gallery':
+      return [];
+    case 'set_cursor_tracker':
+      return null;
     case 'get_cached_waveform':
       return null;
     case 'get_search_providers':
@@ -230,6 +254,8 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'sync_information_types':
       return null;
     case 'info_get_values_for_entity':
+      return [];
+    case 'info_get_types_for_entity':
       return [];
     case 'get_active_download_providers':
       return [];

@@ -65,8 +65,9 @@ test('album detail Play All shows context banner', async ({ page }) => {
   await page.locator('.album-card .album-card-body').first().click();
   await page.waitForTimeout(1000);
 
-  // Click Play All
-  await page.locator('.detail-art-play').click({ force: true });
+  // Click Play in the shared DetailHero (the old .detail-art-play button is now
+  // the hero's primary action button).
+  await page.locator('.detail-hero-actions .ds-btn--primary').click({ force: true });
 
   await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('.queue-context-name')).toHaveText('Album X');

@@ -329,7 +329,12 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
   switch (cmd) {
     case 'get_profile_info': return { storePath: 'mock-store.json' };
     case 'get_artists': return ARTISTS;
-    case 'get_albums': return ALBUMS;
+    case 'get_albums': {
+      const aid = args && args.artistId;
+      if (aid != null) return ALBUMS.filter(a => a.artist_id === aid);
+      if (args && args.likedOnly) return ALBUMS.filter(a => a.liked === 1);
+      return ALBUMS;
+    }
     case 'get_collections': return COLLECTIONS;
     case 'get_collection_stats': return COLLECTION_STATS;
     case 'get_tags': return TAGS;
@@ -347,7 +352,30 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'get_history_most_played': return HISTORY_MOST_PLAYED;
     case 'get_history_most_played_since': return HISTORY_MOST_PLAYED.slice(0, 7);
     case 'get_history_most_played_artists': return HISTORY_MOST_PLAYED_ARTISTS;
+    case 'get_history_most_played_artists_since': return HISTORY_MOST_PLAYED_ARTISTS;
+    case 'pick_radio_seeds': return TRACKS.slice(0, (args && args.count) || 7);
+    case 'find_artist_by_name': return ARTISTS.find(a => a.name === (args && args.name)) || null;
+    case 'find_album_by_name': {
+      const title = args && args.title;
+      const artist = args && args.artistName;
+      return ALBUMS.find(a => a.title === title && (!artist || a.artist_name === artist)) || null;
+    }
+    case 'find_tag_by_name': return TAGS.find(t => t.name === (args && args.name)) || null;
+    case 'get_artist_by_id': return ARTISTS.find(a => a.id === (args && args.artistId)) || null;
+    case 'get_album_by_id': return ALBUMS.find(a => a.id === (args && args.albumId)) || null;
+    case 'get_artist_count': return ARTISTS.length;
+    case 'get_album_count': return ALBUMS.length;
     case 'search_all': return SEARCH_RESULTS;
+    case 'search_entity': {
+      // SearchView (the Library) drives every tab through this command. Ignore
+      // the query text and return the full datasets so tabs populate.
+      const entity = args && args.entity;
+      if (entity === 'tracks') return { tracks: TRACKS, albums: null, artists: null, tags: null, total: TRACKS.length };
+      if (entity === 'albums') return { tracks: null, albums: ALBUMS, artists: null, tags: null, total: ALBUMS.length };
+      if (entity === 'artists') return { tracks: null, albums: null, artists: ARTISTS, tags: null, total: ARTISTS.length };
+      if (entity === 'tags') return { tracks: null, albums: null, artists: null, tags: TAGS, total: TAGS.length };
+      return { tracks: null, albums: null, artists: null, tags: null, total: 0 };
+    }
     case 'search_history_artists': return [];
     case 'search_history_tracks': return [];
     case 'list_user_skins': return [];

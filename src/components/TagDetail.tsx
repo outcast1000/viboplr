@@ -53,8 +53,8 @@ export function TagDetail({ name }: TagDetailProps) {
   const tagImagePath = actions.getTagImage(name);
 
   const requestArtistImage = useCallback(
-    (n: string) => actions.requestFetchImage("artist", n),
-    [actions.requestFetchImage],
+    (n: string) => actions.autoFetchImage("artist", n),
+    [actions.autoFetchImage],
   );
   const heroImages = useDetailHeroImages.tagTopArtists(
     tag?.id ?? null,
@@ -186,6 +186,7 @@ export function TagDetail({ name }: TagDetailProps) {
           placement="below"
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}
+          retrieve={actions.retrieve}
           tabOrder={belowTabOrder}
           onTabOrderChange={handleBelowTabOrderChange}
           onAction={handleInfoAction}

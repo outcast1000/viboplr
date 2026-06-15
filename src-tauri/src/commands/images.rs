@@ -105,3 +105,69 @@ pub fn fetch_tag_image(state: State<'_, AppState>, tag_name: String) {
 pub fn clear_image_failures(state: State<'_, AppState>) -> Result<(), String> {
     state.db.clear_image_failures().map_err(|e| e.to_string())
 }
+
+/// Save an entity image fetched from a specific provider (the "preview then
+/// Apply" path used by the Retrieve modal). Unlike the background worker, this
+/// does NOT walk the provider chain — the caller has already resolved a single
+/// provider's result (a URL+headers or base64 data) in JS and confirms the save.
+/// Returns the saved file path on success. Clears any recorded failure so the
+/// entity is re-fetchable later.
+#[tauri::command]
+pub fn save_entity_image_from_provider(
+    state: State<'_, AppState>,
+    kind: String,
+    name: String,
+    artist_name: Option<String>,
+    url: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    data: Option<String>,
+) -> Result<String, String> {
+    let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
+    let dir = crate::entity_image::image_dir(&state.app_dir, &kind);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // Remove any existing image (all extensions) so we don't leave a stale copy
+    // in a different extension alongside the new one.
+    crate::entity_image::remove_image(&state.app_dir, &kind, &slug);
+    let dest = dir.join(format!("{}.jpg", slug));
+
+    if let Some(data) = data {
+        crate::base64_decode_and_save(&data, &dest)?;
+    } else if let Some(url) = url {
+        crate::download_image_from_url(&url, headers.as_ref(), &dest)?;
+    } else {
+        return Err("No url or data provided".into());
+    }
+
+    let _ = state.db.clear_image_failure(&kind, &slug);
+    // The actual written file may be .png (write_image preserves the source
+    // format); resolve the real path for the caller.
+    let saved = crate::entity_image::get_image_path(&state.app_dir, &kind, &slug)
+        .unwrap_or(dest);
+    Ok(saved.to_string_lossy().to_string())
+}
+
+/// Extract an album's embedded artwork (from the audio file's tags) to a temp
+/// file and return its path, so the Retrieve modal can offer "Embedded artwork"
+/// as a selectable provider and preview it before applying. Returns an error
+/// when the album has no local track or no embedded picture.
+#[tauri::command]
+pub fn extract_embedded_album_image(
+    state: State<'_, AppState>,
+    album_title: String,
+    artist_name: Option<String>,
+) -> Result<String, String> {
+    let provider = crate::image_provider::embedded::EmbeddedArtworkProvider::new(state.db.clone());
+    let slug = crate::entity_image::entity_image_slug("album", &album_title, artist_name.as_deref());
+    let tmp_dir = state.app_dir.join("tmp_preview");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+    let dest = tmp_dir.join(format!("{}.jpg", slug));
+    crate::image_provider::AlbumImageProvider::fetch_album_image(
+        &provider,
+        &album_title,
+        artist_name.as_deref(),
+        &dest,
+    )?;
+    // write_image may have written .png; resolve actual file.
+    let actual = if dest.with_extension("png").exists() { dest.with_extension("png") } else { dest };
+    Ok(actual.to_string_lossy().to_string())
+}

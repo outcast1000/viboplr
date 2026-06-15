@@ -60,6 +60,9 @@ export function useInformationTypes({
   const [sections, setSections] = useState<InfoSection[]>([]);
   const inFlightRef = useRef<Set<string>>(new Set());
   const mountedRef = useRef(true);
+  // typeId → { displayKind, name, providers:[pluginId, integerId][] }, for the
+  // Retrieve modal (provider list + how to render the preview).
+  const typeMetaRef = useRef<Map<string, { displayKind: DisplayKind; name: string; providers: Array<[string, number]> }>>(new Map());
 
   useEffect(() => {
     mountedRef.current = true;
@@ -109,7 +112,9 @@ export function useInformationTypes({
       index: number;
     }> = [];
 
+    typeMetaRef.current.clear();
     for (const [typeId, name, displayKind, ttl, _sortOrder, providers, description] of types) {
+      typeMetaRef.current.set(typeId, { displayKind: displayKind as DisplayKind, name, providers });
       if (excludeSet?.has(typeId)) continue;
       if (includeSet && !includeSet.has(typeId)) continue;
 
@@ -304,5 +309,10 @@ export function useInformationTypes({
     [entity, loadSections],
   );
 
-  return { sections, refresh, reloadCache: loadSections };
+  const getTypeMeta = useCallback(
+    (typeId: string) => typeMetaRef.current.get(typeId),
+    [],
+  );
+
+  return { sections, refresh, reloadCache: loadSections, getTypeMeta };
 }
