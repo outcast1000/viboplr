@@ -183,6 +183,15 @@ pub fn get_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, String
     state.db.get_playlists().map_err(|e| e.to_string())
 }
 
+/// Decide which algorithmic ("auto") playlists should exist and (re)generate the
+/// stale/missing ones into materialized tracks. `force` regenerates regardless of
+/// age; with `force == false` the per-mix 24h staleness check decides, so calling
+/// this on view-mount is cheap when everything is fresh.
+#[tauri::command]
+pub fn ensure_auto_playlists(state: State<'_, AppState>, force: bool) -> Result<(), String> {
+    state.db.ensure_auto_playlists(force).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_playlist_tracks(state: State<'_, AppState>, playlist_id: i64) -> Result<Vec<PlaylistTrack>, String> {
     state.db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())

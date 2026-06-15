@@ -170,6 +170,7 @@ pub struct Database {
 // --- db submodules (split out of this file; inherent impl Database methods) ---
 mod albums;
 mod artists;
+mod auto_playlists;
 pub mod collections;
 mod history;
 mod image_failures;

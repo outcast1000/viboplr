@@ -13,7 +13,9 @@ import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
-import { IconHeartFilled, IconThumbsDownFilled } from "./Icons";
+import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
+import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist } from "../utils/autoPlaylist";
+import { useImageCache } from "../hooks/useImageCache";
 import "./PlaylistsView.css";
 
 interface Playlist {
@@ -95,11 +97,26 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
+  const [refreshingAuto, setRefreshingAuto] = useState(false);
 
   const loadPlaylists = useCallback(async () => {
     const rows = await invoke<Playlist[]>("get_playlists");
     setPlaylists(rows);
   }, []);
+
+  // Force-regenerate the algorithmic mixes, then reload. The on-mount refresh
+  // (24h-gated) lives in App.tsx; this is the user-initiated override.
+  const handleRefreshAuto = useCallback(async () => {
+    setRefreshingAuto(true);
+    try {
+      await invoke("ensure_auto_playlists", { force: true });
+      await loadPlaylists();
+    } catch (e) {
+      console.error("Failed to refresh auto playlists:", e);
+    } finally {
+      setRefreshingAuto(false);
+    }
+  }, [loadPlaylists]);
 
   useEffect(() => {
     loadPlaylists();
@@ -193,7 +210,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
       }});
     }
     specs.push({ kind: "separator" });
-    if (!pl.system_kind) {
+    if (!isProtectedSystem(pl)) {
       specs.push({ kind: "item", text: "Delete", action: () => setDeleteConfirm(pl) });
     }
     if (pluginMenuItems && pluginMenuItems.length > 0) {
@@ -227,6 +244,16 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     },
     [],
   );
+
+  // Auto-playlist covers come from the mix's first artist (recorded in metadata),
+  // resolved through the canonical artist-image chain (cached → fetch → ready event).
+  const artistImages = useImageCache("artist");
+  const autoCoverSrc = useCallback((pl: Playlist): string => {
+    if (pl.image_path) return convertFileSrc(pl.image_path);
+    const artist = firstArtist(pl.metadata);
+    const resolved = artist ? artistImages.getImage(artist) : null;
+    return resolved ? convertFileSrc(resolved) : playlistDefault;
+  }, [artistImages]);
 
   // Resolve artwork for tracks lacking an explicit image_path, using the same
   // name-based chain as the queue: album image by name → artist image by name.
@@ -290,10 +317,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   const filtered = (searchQuery
     ? playlists.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : playlists
-  ).slice().sort((a, b) => {
-    const rank = (p: Playlist) => p.system_kind === "liked" ? 0 : p.system_kind === "disliked" ? 1 : 2;
-    return rank(a) - rank(b);
-  });
+  ).slice().sort((a, b) => playlistRank(a) - playlistRank(b));
 
   const deleteModal = deleteConfirm && (
     <DeletePlaylistModal
@@ -320,7 +344,8 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     const detailMeta: string[] = [
       `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`,
     ];
-    if (!selectedPlaylist.system_kind) detailMeta.push(`Saved ${formatDate(selectedPlaylist.saved_at)}`);
+    if (isAuto(selectedPlaylist)) detailMeta.push(`Updated ${formatDate(selectedPlaylist.saved_at)}`);
+    else if (!selectedPlaylist.system_kind) detailMeta.push(`Saved ${formatDate(selectedPlaylist.saved_at)}`);
 
     const detailOverflowItems: HeroOverflowItem[] = [
       { kind: "action", id: "export-m3u", label: "Export as M3U", onClick: () => handleExport(selectedPlaylist) },
@@ -342,24 +367,40 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
         },
       });
     }
-    if (!selectedPlaylist.system_kind) {
+    if (isAuto(selectedPlaylist)) {
+      detailOverflowItems.push({ kind: "divider" });
+      detailOverflowItems.push({ kind: "action", id: "refresh", label: "Refresh mixes", onClick: () => handleRefreshAuto() });
+    }
+    if (!isProtectedSystem(selectedPlaylist)) {
       detailOverflowItems.push({ kind: "divider" });
       detailOverflowItems.push({ kind: "action", id: "delete", label: "Delete playlist", danger: true, onClick: () => setDeleteConfirm(selectedPlaylist) });
     }
 
+    // Cover: the playlist's own image if set, else (for auto mixes) the first
+    // artist's image. The latter also seeds the hero background when there are
+    // no resolved track images to collage.
+    const autoArtist = isAuto(selectedPlaylist) ? firstArtist(selectedPlaylist.metadata) : null;
+    const autoArtistImg = autoArtist ? artistImages.getImage(autoArtist) : null;
+    const detailArtSrc = selectedPlaylist.image_path
+      ? imageUrl(selectedPlaylist.image_path)
+      : autoArtistImg ? convertFileSrc(autoArtistImg) : playlistDefault;
+    const detailBgImages = heroBgImages.length > 0
+      ? heroBgImages
+      : autoArtistImg ? [convertFileSrc(autoArtistImg)] : [];
+
     return (
       <div className="playlists-view">
         <DetailHero
-          bgImages={heroBgImages}
+          bgImages={detailBgImages}
           onBack={goBack}
           art={
             <img
-              src={selectedPlaylist.image_path ? imageUrl(selectedPlaylist.image_path) : playlistDefault}
+              src={detailArtSrc}
               alt={selectedPlaylist.name}
             />
           }
           artShape="square"
-          eyebrow={selectedPlaylist.system_kind ? "System playlist" : "Playlist"}
+          eyebrow={isAuto(selectedPlaylist) ? "Made for you" : selectedPlaylist.system_kind ? "System playlist" : "Playlist"}
           title={selectedPlaylist.name}
           entityLabel="album"
           meta={detailMeta}
@@ -436,7 +477,8 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   }
 
   // List view
-  const systemPlaylists = filtered.filter((p) => p.system_kind);
+  const protectedSystem = filtered.filter(isProtectedSystem);
+  const autoPlaylists = filtered.filter(isAuto);
   const regularPlaylists = filtered.filter((p) => !p.system_kind);
 
   return (
@@ -445,9 +487,9 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
         <div className="playlists-empty">No saved playlists</div>
       ) : (
         <>
-          {systemPlaylists.length > 0 && (
+          {protectedSystem.length > 0 && (
             <div className="playlist-shortcuts">
-              {systemPlaylists.map((pl) => (
+              {protectedSystem.map((pl) => (
                 <div
                   key={pl.id}
                   className={`playlist-shortcut playlist-shortcut--${pl.system_kind}`}
@@ -465,6 +507,44 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
                   </button>
                 </div>
               ))}
+            </div>
+          )}
+          {autoPlaylists.length > 0 && (
+            <div className="playlists-section">
+              <div className="playlists-section-header">
+                <h3 className="playlists-section-title">Made for you</h3>
+                <button
+                  className="ds-btn ds-btn--ghost ds-btn--sm"
+                  onClick={handleRefreshAuto}
+                  disabled={refreshingAuto}
+                  title="Regenerate your mixes"
+                >
+                  {refreshingAuto ? <span className="ds-spinner ds-spinner--sm" /> : <IconRefresh size={15} />}
+                  Refresh
+                </button>
+              </div>
+              <div className="playlists-grid">
+                {autoPlaylists.map((pl) => (
+                  <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
+                    <div className="playlist-card-art">
+                      <img src={autoCoverSrc(pl)} alt="" />
+                      <span className="playlist-card-auto-badge" title={autoRecipeLabel(parseRecipe(pl.metadata))}>
+                        <IconSparkles size={13} />
+                      </span>
+                      <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
+                      <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                      </button>
+                    </div>
+                    <div className="playlist-card-info">
+                      <div className="playlist-card-name">{pl.name}</div>
+                    </div>
+                    <div className="playlist-card-meta">
+                      {`${pl.track_count} tracks · Updated ${formatDate(pl.saved_at)}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {regularPlaylists.length > 0 && (

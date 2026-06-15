@@ -56,8 +56,12 @@ impl Database {
     }
 
     pub fn get_playlist_tracks(&self, playlist_id: i64) -> SqlResult<Vec<PlaylistTrack>> {
-        // System playlists project their membership from entity_likes.
+        // The protected `liked`/`disliked` system playlists project their
+        // membership from entity_likes. Auto-playlists (`auto:*`) carry a
+        // system_kind too, but they DO store materialized rows — fall through
+        // to the real-rows query below for those.
         if let Some(kind) = self.system_playlist_kind(playlist_id)? {
+            if !kind.starts_with("auto:") {
             let want: i32 = if kind == "disliked" { -1 } else { 1 };
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn.prepare(
@@ -93,6 +97,7 @@ impl Database {
                 });
             }
             return Ok(out);
+            }
         }
 
         let conn = self.conn.lock().unwrap();
@@ -117,11 +122,16 @@ impl Database {
     }
 
     pub fn delete_playlist(&self, playlist_id: i64) -> SqlResult<()> {
-        if self.system_playlist_kind(playlist_id)?.is_some() {
-            return Err(rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-                Some("Cannot delete a system playlist".to_string()),
-            ));
+        // Only the protected `liked`/`disliked` system playlists are
+        // undeletable. Auto-playlists (`auto:*`) are user-deletable (they
+        // regenerate on the next `ensure_auto_playlists`).
+        if let Some(kind) = self.system_playlist_kind(playlist_id)? {
+            if !kind.starts_with("auto:") {
+                return Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                    Some("Cannot delete a system playlist".to_string()),
+                ));
+            }
         }
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])?;

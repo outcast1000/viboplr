@@ -1187,6 +1187,31 @@
   padding: 16px;
 }
 
+/* "Made for you" — algorithmic auto-playlist section */
+.playlists-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.playlists-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 0;
+}
+
+.playlists-section-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.playlists-section .playlists-grid {
+  padding-top: 12px;
+}
+
 /* Spotify-style shortcut tiles for system playlists (Liked / Disliked) */
 .playlist-shortcuts {
   display: grid;
@@ -1298,6 +1323,22 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* Sparkle marker on auto ("Made for you") playlist cards */
+.playlist-card-auto-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.45);
 }
 
 .playlist-card-play {

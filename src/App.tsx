@@ -1815,6 +1815,26 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appRestoring]);
 
+  // Refresh the algorithmic ("Made for you") auto-playlists ~daily, after restore.
+  // The store key throttles how often we bother invoking; the backend itself
+  // regenerates only the mixes whose 24h snapshot is stale (force:false), so this
+  // is cheap on warm launches and never blocks the UI. The manual Refresh button
+  // in PlaylistsView passes force:true. Mirrors the Home 24h snapshot model.
+  useEffect(() => {
+    if (appRestoring) return;
+    (async () => {
+      try {
+        const last = (await store.get<number>("autoPlaylistsRefreshedAt")) ?? 0;
+        if (Date.now() - last < 24 * 60 * 60 * 1000) return;
+        await invoke("ensure_auto_playlists", { force: false });
+        await store.set("autoPlaylistsRefreshedAt", Date.now());
+      } catch (e) {
+        console.error("Failed to ensure auto playlists:", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appRestoring]);
+
   // Persist current track as QueueEntry (location + metadata, no DB IDs)
   useEffect(() => {
     if (!restoredRef.current) return;
