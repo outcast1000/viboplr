@@ -597,7 +597,6 @@ export function QueuePanel({
                 {t.liked === 1 && <IconHeartFilled size={11} className="queue-item-like" />}
                 {t.liked === -1 && <IconThumbsDownFilled size={11} className="queue-item-dislike" />}
                 <span className="queue-item-title">{t.title}</span>
-                <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
                 <div className="queue-item-actions">
                   {i !== queueIndex && (
                     <button
@@ -618,6 +617,7 @@ export function QueuePanel({
                     </button>
                   )}
                 </div>
+                <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
               </div>
               <div className="queue-item-line2">
                 <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
