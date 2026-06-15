@@ -10,7 +10,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, Tag, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource } from "./types";
+import type { Track, QueueTrack, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
@@ -2852,7 +2852,6 @@ function App() {
                   library.setTracks(prev => prev.map(t => t.key === library.selectedTrack ? { ...t, ...update } : t));
                   if (libId != null) emitTrackPatch(libId, update);
                 }}
-                onTagsChanged={() => invoke<Tag[]>("get_tags").then(library.setTags).catch(console.error)}
               />
             );
           })()}
@@ -2901,7 +2900,6 @@ function App() {
                 onToggleDislike={() => {}}
                 onShowInFolder={() => {}}
                 onUpdateTrack={() => {}}
-                onTagsChanged={() => invoke<Tag[]>("get_tags").then(library.setTags).catch(console.error)}
               />
             );
           })()}

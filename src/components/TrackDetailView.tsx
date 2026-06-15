@@ -3,7 +3,6 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, QueueTrack } from "../types";
-import type { InfoEntity } from "../types/informationTypes";
 import { buildSearchUrl, getProvidersForContext } from "../searchProviders";
 import { formatDuration } from "../utils";
 import { isLocalTrack } from "../queueEntry";
@@ -20,9 +19,6 @@ import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { DetailHero } from "./DetailHero";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
-import TagEditor from "./TagEditor";
-import { buildTagSuggestionPool } from "../utils/tagSuggestions";
-import { useTagActions } from "../hooks/useTagActions";
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
@@ -81,7 +77,6 @@ interface TrackDetailViewProps {
   onToggleLike: () => void;
   onToggleDislike: () => void;
   onUpdateTrack: (update: Partial<Track>) => void;
-  onTagsChanged?: () => void;
 }
 
 export function TrackDetailView({
@@ -90,16 +85,11 @@ export function TrackDetailView({
   onPlay, onPlayAt, onShowInFolder, onWatchOnYoutube,
   onToggleLike, onToggleDislike,
   onUpdateTrack,
-  onTagsChanged,
 }: TrackDetailViewProps) {
   const actions = useDetailActions();
   const isLibrary = trackId != null;
 
   const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
-  const [communityTags, setCommunityTags] = useState<Array<{ name: string; count?: number }>>([]);
-  const [artistTags, setArtistTags] = useState<Array<{ name: string; count?: number }>>([]);
-  const [allLibraryTags, setAllLibraryTags] = useState<Array<{ name: string; track_count: number }>>([]);
-  const tagActions = useTagActions();
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
@@ -134,13 +124,6 @@ export function TrackDetailView({
     });
   }, []);
 
-  // Load all library tags once for suggestion ranking
-  useEffect(() => {
-    invoke<Array<{ id: number; name: string; track_count: number; liked: number }>>("get_tags")
-      .then((tags) => setAllLibraryTags(tags.map((t) => ({ name: t.name, track_count: t.track_count }))))
-      .catch((e) => console.error("Failed to load library tags:", e));
-  }, []);
-
   const handleTabOrderChange = useCallback((order: string[]) => {
     setTabOrder(order);
     store.set("trackDetailTabOrder", order);
@@ -149,8 +132,6 @@ export function TrackDetailView({
   // Fetch all data when trackId changes
   useEffect(() => {
     setTrackTags([]);
-    setCommunityTags([]);
-    setArtistTags([]);
     setPlayStats(null);
     setPlayHistory([]);
     setAudioProps(null);
@@ -164,18 +145,7 @@ export function TrackDetailView({
     }
     invoke<TrackPlayStats | null>("get_track_play_stats", { title: track.title, artistName: track.artist_name }).then(s => { if (s) setPlayStats(s); }).catch(e => console.error("Failed to load play stats:", e));
     invoke<Array<{ played_at: number }>>("get_track_play_history", { title: track.title, artistName: track.artist_name, limit: 50 }).then(setPlayHistory).catch(e => console.error("Failed to load play history:", e));
-
-    if (track.artist_name) {
-      const trackEntity: InfoEntity = { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name };
-      // Fetch track tags + artist tags (combined in one info type)
-      actions.invokeInfoFetch("lastfm", "track_tags", trackEntity).then(result => {
-        if (result.status !== "ok") return;
-        const val = result.value as any;
-        if (val?.tags?.length) setCommunityTags(val.tags);
-        if (val?.artistTags?.length) setArtistTags(val.artistTags);
-      }).catch(e => console.error("Failed to load community/artist tags:", e));
-    }
-  }, [trackId, isLibrary, track.artist_name, track.title, actions.invokeInfoFetch]);
+  }, [trackId, isLibrary, track.artist_name, track.title]);
 
   // Receive track_info data from InformationSections (via onTitleData callback)
   const handleTitleData = useCallback((typeId: string, data: unknown) => {
@@ -194,36 +164,6 @@ export function TrackDetailView({
     if (info.listeners || info.playcount) setTrackInfo(info);
   }, []);
 
-  const handleAddTag = useCallback(async (tagName: string) => {
-    if (trackId == null) return;
-    setTrackTags((prev) => [...prev, { id: -1, name: tagName }]);
-    setCommunityTags((prev) => prev.filter((t) => t.name.toLowerCase() !== tagName.toLowerCase()));
-    const names = await tagActions.add(trackId, tagName);
-    if (names == null) {
-      setTrackTags((prev) => prev.filter((t) => t.name.toLowerCase() !== tagName.toLowerCase()));
-      return;
-    }
-    invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId })
-      .then(setTrackTags)
-      .catch((e) => console.error("Failed to reload track tags:", e));
-    onTagsChanged?.();
-  }, [trackId, tagActions, onTagsChanged]);
-
-  const handleRemoveTagByName = useCallback(async (tagName: string) => {
-    if (trackId == null) return;
-    const before = trackTags;
-    setTrackTags((prev) => prev.filter((t) => t.name.toLowerCase() !== tagName.toLowerCase()));
-    const names = await tagActions.remove(trackId, before.map((t) => t.name), tagName);
-    if (names == null) {
-      setTrackTags(before);
-      return;
-    }
-    invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId })
-      .then(setTrackTags)
-      .catch((e) => console.error("Failed to reload track tags:", e));
-    onTagsChanged?.();
-  }, [trackId, trackTags, tagActions, onTagsChanged]);
-
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
     if (actionId === "play-track") {
       const t = payload as QueueTrack | undefined;
@@ -233,11 +173,6 @@ export function TrackDetailView({
       if (t) actions.enqueueExternal([t]);
     }
   }, [actions.playExternal, actions.enqueueExternal]);
-
-  const suggestionPool = buildTagSuggestionPool(
-    allLibraryTags,
-    [...communityTags, ...artistTags],
-  );
 
   const heroImageKind: "album" | "artist" | null =
     isLibrary && albumImagePath && track.album_title ? "album"
@@ -488,16 +423,14 @@ export function TrackDetailView({
                       <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
                     </div>
                   )}
-                  {isLibrary && (
+                  {isLibrary && trackTags.length > 0 && (
                     <div className="track-detail-tags-inline">
                       <span className="track-detail-label">Tags</span>
-                      <TagEditor
-                        tags={trackTags.map((t) => t.name)}
-                        suggestions={suggestionPool}
-                        onAdd={handleAddTag}
-                        onRemove={handleRemoveTagByName}
-                        variant="inline"
-                      />
+                      <div className="track-detail-tags-readonly">
+                        {trackTags.map((t) => (
+                          <span key={t.id} className="track-detail-tag-chip">{t.name}</span>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>

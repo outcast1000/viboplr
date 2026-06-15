@@ -406,6 +406,23 @@
   color: var(--text-tertiary);
 }
 
+.track-detail-tags-readonly {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.track-detail-tag-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: var(--fs-2xs);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
 .track-tags-edit {
   display: flex;
   flex-wrap: wrap;
