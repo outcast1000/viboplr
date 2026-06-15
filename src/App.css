@@ -2426,12 +2426,12 @@
   position: absolute;
   bottom: calc(100% + 8px);
   right: 0;
-  width: 620px;
+  width: 600px;
   max-width: calc(100vw - 24px);
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--ds-radius-modal, 10px);
-  padding: 16px 18px 14px;
+  padding: 16px 18px 16px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
   z-index: 1000;
   display: flex;
@@ -2439,11 +2439,11 @@
   gap: 14px;
 }
 
-.eq-popover-titlebar {
+/* Consolidated header: title · mode seg · spacer · enable · close */
+.eq-popover-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
 }
 
 .eq-popover-title {
@@ -2451,6 +2451,10 @@
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: -0.01em;
+}
+
+.eq-header-spacer {
+  flex: 1;
 }
 
 .eq-popover-close {
@@ -2472,35 +2476,19 @@
   color: var(--text-primary);
 }
 
-.eq-popover-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.eq-toolbar-spacer {
-  flex: 1;
-}
-
-.eq-toggle {
+/* Enable on/off pill toggle */
+.eq-enable-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   cursor: pointer;
-  font-size: var(--fs-sm);
-  color: var(--text-primary);
+  background: none;
+  border: none;
+  padding: 0;
   user-select: none;
 }
 
-.eq-toggle input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-}
-
-.eq-toggle-track {
+.eq-enable-track {
   position: relative;
   display: inline-block;
   width: 36px;
@@ -2511,7 +2499,7 @@
   flex-shrink: 0;
 }
 
-.eq-toggle-thumb {
+.eq-enable-thumb {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -2523,25 +2511,28 @@
   transition: transform 0.18s;
 }
 
-.eq-toggle input:checked ~ .eq-toggle-track {
+.eq-enable-toggle.on .eq-enable-track {
   background: var(--accent);
 }
 
-.eq-toggle input:checked ~ .eq-toggle-track .eq-toggle-thumb {
+.eq-enable-toggle.on .eq-enable-thumb {
   transform: translateX(16px);
 }
 
-.eq-toggle input:focus-visible ~ .eq-toggle-track {
+.eq-enable-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 999px;
 }
 
-.eq-toggle-label {
+.eq-enable-label {
   font-weight: 600;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
 }
 
-.eq-preset-select {
-  min-width: 140px;
+.eq-enable-toggle.on .eq-enable-label {
+  color: var(--text-primary);
 }
 
 .eq-icon-btn {
@@ -2566,29 +2557,29 @@
 .eq-curve-wrap {
   background: var(--bg-tertiary);
   border-radius: var(--ds-radius, 6px);
-  padding: 10px 8px;
+  padding: 10px 10px 8px;
   border: 1px solid var(--border);
 }
 
-.eq-curve {
+/* ── Shared response-curve component (EqCurve.tsx) ── */
+.eq-curve-host {
+  position: relative;
+}
+
+.eq-curve-svg {
   display: block;
-  width: 100%;
-  height: 180px;
-  overflow: visible;
 }
 
-.eq-grid-line {
-  stroke: var(--border);
+.eq-curve-grid {
+  stroke: rgba(var(--overlay-base), 0.10);
   stroke-width: 1;
-  opacity: 0.45;
 }
 
-.eq-grid-line--zero {
-  opacity: 0.85;
-  stroke-dasharray: 0;
+.eq-curve-grid--zero {
+  stroke: rgba(var(--overlay-base), 0.22);
 }
 
-.eq-grid-label {
+.eq-curve-axis {
   fill: var(--text-tertiary);
   font-size: 9px;
   font-variant-numeric: tabular-nums;
@@ -2596,52 +2587,164 @@
 
 .eq-curve-area {
   fill: var(--accent);
-  fill-opacity: 0.32;
+  fill-opacity: 0.20;
 }
 
 .eq-curve-line {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 1.5;
+  stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.5));
 }
 
-.eq-bands {
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 4px;
-  padding: 6px 0 2px;
+.eq-curve-host--disabled .eq-curve-area { fill-opacity: 0.08; }
+.eq-curve-host--disabled .eq-curve-line {
+  stroke: var(--text-tertiary);
+  filter: none;
 }
 
-.eq-band {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+/* Draggable handles — HTML divs over the SVG so they stay round + hit-test in real px */
+.eq-curve-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent);
+  transform: translate(-50%, -50%);
+  cursor: ns-resize;
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.5);
+  transition: transform 0.06s;
+  touch-action: none;
+  z-index: 3;
 }
 
-.eq-band-readout {
+.eq-curve-handle--band {
+  width: 13px;
+  height: 13px;
+}
+
+.eq-curve-handle:hover,
+.eq-curve-handle.dragging {
+  transform: translate(-50%, -50%) scale(1.18);
+}
+
+.eq-curve-handle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.45), 0 0 6px rgba(var(--accent-rgb), 0.5);
+  transform: translate(-50%, -50%) scale(1.18);
+}
+
+.eq-curve-host--disabled .eq-curve-handle {
+  border-color: var(--text-tertiary);
+  box-shadow: none;
+}
+
+/* Per-handle value tag — always shown for shelf handles, hover/focus only for bands */
+.eq-curve-handle-tag {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
   font-size: var(--fs-2xs);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
   white-space: nowrap;
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
-.eq-band-slider {
-  -webkit-appearance: slider-vertical;
-  appearance: slider-vertical;
-  width: 18px;
-  height: 150px;
-  accent-color: var(--accent);
-  cursor: pointer;
+.eq-curve-handle--band .eq-curve-handle-tag {
+  opacity: 0;
+  transition: opacity 0.12s;
 }
 
-.eq-band-label {
+.eq-curve-handle--band:hover .eq-curve-handle-tag,
+.eq-curve-handle--band:focus-visible .eq-curve-handle-tag,
+.eq-curve-handle--band.dragging .eq-curve-handle-tag {
+  opacity: 1;
+}
+
+.eq-curve-handle-glyph {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
   font-size: var(--fs-2xs);
+  font-weight: 800;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.eq-curve-handle-freq {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 600;
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Simple-mode readouts under the curve */
+.eq-simple-readouts {
+  display: flex;
+  justify-content: center;
+  gap: 48px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.eq-simple-readouts b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Presets (chips) + reset/save controls row */
+.eq-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.eq-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.eq-preset-chip {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.eq-preset-chip:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.eq-preset-chip.active {
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  color: var(--accent);
 }
 
 .eq-pregain-row {
@@ -2708,133 +2811,105 @@
   color: var(--bg-primary);
 }
 
-/* Simple (Bass/Treble) mode controls */
-.eq-simple {
+/* ── Inline bar EQ control (EqBarControl.tsx) — fixed slot in the audio pill ── */
+.eqbar-slot {
   display: flex;
-  justify-content: center;
-  gap: 64px;
-  padding: 6px 0 2px;
+  align-items: center;
+  flex-shrink: 0;
 }
 
-.eq-simple-control {
+.eqbar-slot--off {
+  opacity: 0.55;
+}
+
+.eqbar-sliders {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  gap: 6px;
+  width: 100%;
 }
 
-.eq-simple-readout {
-  font-size: var(--fs-xs);
+.eqbar-row {
+  display: flex;
+  align-items: center;
+}
+
+.eqbar-letter {
+  font-size: var(--fs-2xs);
+  font-weight: 800;
   color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  font-weight: 600;
+  width: 12px;
+  margin-right: 7px;
+  text-align: right;
 }
 
-.eq-simple-label {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-/* Inline Bass/Treble knobs in the now-playing bar (simple EQ mode) */
-.now-eq-knobs {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 4px 0 2px;
-}
-
-.ds-knob {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-}
-
-.ds-knob-dial {
+.eqbar-slider {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  cursor: ns-resize;
-  border-radius: 50%;
+  width: 66px;
+  height: 12px;
+  cursor: ew-resize;
   outline: none;
-  touch-action: none;
 }
 
-.ds-knob-dial:focus-visible {
+.eqbar-slider:focus-visible {
   box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 3px;
 }
 
-.ds-knob-track {
-  fill: none;
-  stroke: var(--bg-tertiary);
-  stroke-width: 3;
-  stroke-linecap: round;
-}
-
-.ds-knob-fill {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3;
-  stroke-linecap: round;
-  transition: stroke 0.15s;
-}
-
-.ds-knob-pointer {
-  stroke: var(--text-secondary);
-  stroke-width: 1.5;
-  stroke-linecap: round;
-}
-
-/* Value sits in the lower third of the dial face, clear of the pointer hub. */
-.ds-knob-val {
+.eqbar-track {
   position: absolute;
-  bottom: 3px;
   left: 0;
   right: 0;
-  text-align: center;
-  font-size: 7px;
-  font-weight: 700;
+  top: 4.5px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(var(--overlay-base), 0.14);
+}
+
+.eqbar-zero {
+  position: absolute;
+  left: 50%;
+  top: 2.5px;
+  width: 1px;
+  height: 7px;
+  background: rgba(var(--overlay-base), 0.32);
+}
+
+.eqbar-fill {
+  position: absolute;
+  top: 4.5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.eqbar-thumb {
+  position: absolute;
+  top: 0.5px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  box-shadow: 0 0 5px rgba(var(--accent-rgb), 0.4);
+  transform: translateX(-50%);
+}
+
+.eqbar-slot--off .eqbar-fill { background: var(--text-tertiary); }
+.eqbar-slot--off .eqbar-thumb { background: var(--text-tertiary); box-shadow: none; }
+
+.eqbar-val {
+  font-size: var(--fs-2xs);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
-  line-height: 1;
+  width: 26px;
+  margin-left: 7px;
+  text-align: right;
 }
 
-/* Label + value share one compact caption line under the dial. */
-.ds-knob-label {
-  font-size: var(--fs-2xs);
+.eqbar-val--zero {
   color: var(--text-tertiary);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.02em;
-}
-
-.ds-knob--active .ds-knob-pointer {
-  stroke: var(--accent);
-}
-
-.ds-knob--active .ds-knob-val {
-  color: var(--accent);
-}
-
-.ds-knob--active .ds-knob-label {
-  color: var(--text-secondary);
-}
-
-/* EQ disabled: dial is muted but still draggable (drag re-enables EQ) */
-.ds-knob:not(.ds-knob--active) .ds-knob-fill {
-  stroke: var(--text-tertiary);
-}
-
-.ds-knob--disabled {
-  opacity: 0.4;
-}
-
-.ds-knob--disabled .ds-knob-dial {
-  cursor: default;
 }
 
 /* First-run plugin recommendations modal */

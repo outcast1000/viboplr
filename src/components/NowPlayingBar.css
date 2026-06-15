@@ -396,7 +396,7 @@
   width: 90px;
   height: 6px;
   border-radius: 3px;
-  cursor: pointer;
+  cursor: ew-resize;
 }
 
 .volume-slider::-webkit-slider-thumb {
@@ -406,7 +406,7 @@
   height: 14px;
   border-radius: 50%;
   background: var(--text-primary);
-  cursor: pointer;
+  cursor: ew-resize;
   border: none;
 }
 

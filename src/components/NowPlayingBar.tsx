@@ -10,7 +10,7 @@ import { formatDuration, isVideoTrack } from "../utils";
 import { isRemoteScheme, isLocalTrack } from "../queueEntry";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { EqPopover } from "./EqPopover";
-import { Knob } from "./Knob";
+import { EqBarControl } from "./EqBarControl";
 import type { EqMode } from "../eqPresets";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
@@ -670,29 +670,18 @@ export function NowPlayingBar({
 
         {/* Audio group: equalizer (+ inline knobs) · mute · volume */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">
-          {eqMode === "simple" && !isVideo && (
-            <div className="now-eq-knobs" title={eqEnabled ? undefined : "Adjusting Bass/Treble enables the equalizer"}>
-              <Knob
-                label="Bass"
-                value={eqBassDb}
-                min={-15}
-                max={15}
-                step={0.5}
-                active={eqEnabled}
-                onChange={(v) => { if (!eqEnabled && v !== 0) onEqEnabledChange(true); onEqBassChange(v); }}
-                formatValue={(v) => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1))}
-              />
-              <Knob
-                label="Treble"
-                value={eqTrebleDb}
-                min={-15}
-                max={15}
-                step={0.5}
-                active={eqEnabled}
-                onChange={(v) => { if (!eqEnabled && v !== 0) onEqEnabledChange(true); onEqTrebleChange(v); }}
-                formatValue={(v) => (v > 0 ? `+${v.toFixed(1)}` : v.toFixed(1))}
-              />
-            </div>
+          {!isVideo && (
+            <EqBarControl
+              mode={eqMode}
+              enabled={eqEnabled}
+              bassDb={eqBassDb}
+              trebleDb={eqTrebleDb}
+              gains={eqGains}
+              preGainDb={eqPreGainDb}
+              onBassChange={onEqBassChange}
+              onTrebleChange={onEqTrebleChange}
+              onEnsureEnabled={() => { if (!eqEnabled) onEqEnabledChange(true); }}
+            />
           )}
           <div className="now-eq-wrapper" style={{ position: "relative" }}>
             <button

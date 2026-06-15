@@ -22,6 +22,33 @@ export interface EqPreset {
   gains: number[];
 }
 
+// Simple-mode presets are just [bassDb, trebleDb] shelf pairs. Kept separate
+// from the 10-band BUILTIN_PRESETS because simple mode has no per-band gains.
+export interface SimplePreset {
+  id: string;
+  name: string;
+  bassDb: number;
+  trebleDb: number;
+}
+
+export const SIMPLE_PRESETS: SimplePreset[] = [
+  { id: "flat", name: "Flat", bassDb: 0, trebleDb: 0 },
+  { id: "warm", name: "Warm", bassDb: 5, trebleDb: -2 },
+  { id: "bright", name: "Bright", bassDb: -2, trebleDb: 5 },
+  { id: "vshape", name: "V-Shape", bassDb: 6, trebleDb: 5 },
+  { id: "vocal", name: "Vocal", bassDb: -1, trebleDb: 2 },
+];
+
+/** Match current bass/treble against a SIMPLE_PRESETS entry, or "custom". */
+export function simplePresetFor(bassDb: number, trebleDb: number): string {
+  for (const p of SIMPLE_PRESETS) {
+    if (Math.abs(p.bassDb - bassDb) < EPSILON && Math.abs(p.trebleDb - trebleDb) < EPSILON) {
+      return p.id;
+    }
+  }
+  return "custom";
+}
+
 export const BUILTIN_PRESETS: EqPreset[] = [
   { id: "flat",       name: "Flat",        gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
   { id: "bass",       name: "Bass Boost",  gains: [6, 5, 4, 2, 0, 0, 0, 0, 0, 0] },
