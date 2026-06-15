@@ -1,6 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import AutocompleteInput from "./AutocompleteInput";
+import { selectSuggestionPills } from "../utils/tagSuggestions";
 import "./TagEditor.css";
+
+/** Max one-click suggestion pills rendered below the input. */
+const MAX_PILLS = 12;
 
 export interface TagEditorProps {
   /** Currently-applied tag names (rendered as removable chips). */
@@ -23,6 +27,12 @@ export interface TagEditorProps {
   /** Display-only prefix shown before each chip's name (e.g. "#"). Does not
    *  affect the stored tag name passed to onAdd/onRemove. */
   chipPrefix?: string;
+  /** Optional curated tags rendered as one-click "add" pills below the input
+   *  (e.g. Last.fm community tags). Already-applied tags are filtered out and
+   *  the list is de-duplicated case-insensitively and capped. */
+  suggestedPills?: string[];
+  /** Label shown before the suggestion pills (default "Suggested"). */
+  suggestedPillsLabel?: string;
 }
 
 export default function TagEditor({
@@ -36,10 +46,19 @@ export default function TagEditor({
   placeholder,
   autoFocus,
   chipPrefix = "",
+  suggestedPills,
+  suggestedPillsLabel = "Suggested",
 }: TagEditorProps) {
   const [input, setInput] = useState("");
 
   const exclude = new Set(tags.map((t) => t.toLowerCase()));
+
+  // One-click pills: curated suggestions minus already-applied tags, deduped
+  // case-insensitively and capped. Hidden when the editor is read-only.
+  const pills = useMemo(
+    () => (disabled || !suggestedPills?.length ? [] : selectSuggestionPills(suggestedPills, tags, MAX_PILLS)),
+    [suggestedPills, tags, disabled],
+  );
 
   function commit(name: string) {
     const trimmed = name.trim();
@@ -97,6 +116,22 @@ export default function TagEditor({
           inputClassName="tag-editor-input ds-input"
           autoFocus={autoFocus}
         />
+      )}
+      {pills.length > 0 && (
+        <div className="tag-editor-suggested">
+          <span className="tag-editor-suggested-label">{suggestedPillsLabel}</span>
+          {pills.map((name) => (
+            <button
+              type="button"
+              key={name}
+              className="tag-editor-suggested-pill"
+              onClick={() => commit(name)}
+              title={`Add "${name}"`}
+            >
+              <span className="tag-editor-suggested-plus">+</span>{chipPrefix}{name}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

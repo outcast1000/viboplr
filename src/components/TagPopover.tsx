@@ -1,24 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import TagEditor from "./TagEditor";
 import { useTagActions } from "../hooks/useTagActions";
+import { useCommunityTags, type InvokeInfoFetch } from "../hooks/useCommunityTags";
+import { appendCommunityTags } from "../utils/tagSuggestions";
 import type { QueueTrack } from "../types";
 import "./TagPopover.css";
 
 interface TagPopoverProps {
   track: QueueTrack;
   suggestions: string[];
+  /** Fetches Last.fm community tags for the playing track so they can be
+   *  suggested alongside the library pool (only while the popover is open). */
+  invokeInfoFetch?: InvokeInfoFetch;
   /** Notifies the parent of the current tag list so it can render them inline
    *  in the subtitle (kept in sync as the user adds/removes here). */
   onTagsChange?: (tags: string[]) => void;
 }
 
-export default function TagPopover({ track, suggestions, onTagsChange }: TagPopoverProps) {
+export default function TagPopover({ track, suggestions, invokeInfoFetch, onTagsChange }: TagPopoverProps) {
   const [open, setOpen] = useState(false);
   const [resolvedId, setResolvedId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const tagActions = useTagActions();
+
+  // Fold Last.fm track + artist tags into the library pool while the popover
+  // is open (cheap: only fetched on demand).
+  const communityTags = useCommunityTags({
+    title: track.title,
+    artistName: track.artist_name,
+    invokeInfoFetch,
+    enabled: open,
+  });
+  const mergedSuggestions = useMemo(
+    () => appendCommunityTags(suggestions, communityTags),
+    [suggestions, communityTags],
+  );
+  const communityPills = useMemo(
+    () => communityTags.map((t) => t.name),
+    [communityTags],
+  );
 
   // Resolve + load tags whenever the modal opens (cheap: only on demand).
   useEffect(() => {
@@ -103,7 +125,7 @@ export default function TagPopover({ track, suggestions, onTagsChange }: TagPopo
             )}
             <TagEditor
               tags={tags}
-              suggestions={suggestions}
+              suggestions={mergedSuggestions}
               onAdd={handleAdd}
               onRemove={handleRemove}
               variant="popover"
@@ -112,6 +134,8 @@ export default function TagPopover({ track, suggestions, onTagsChange }: TagPopo
               placeholder="Type a tag and press Enter…"
               autoFocus
               chipPrefix="#"
+              suggestedPills={communityPills}
+              suggestedPillsLabel="Last.fm"
             />
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => setOpen(false)}>Done</button>

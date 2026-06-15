@@ -19,6 +19,7 @@ import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
 import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
+import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -175,6 +176,7 @@ interface NowPlayingBarProps {
   getAlbumImage?: (title: string, artistName?: string | null) => string | null;
   getArtistImage?: (name: string) => string | null;
   tagSuggestions?: string[];
+  invokeInfoFetch?: InvokeInfoFetch;
 }
 
 export function NowPlayingBar({
@@ -201,6 +203,7 @@ export function NowPlayingBar({
   getAlbumImage,
   getArtistImage,
   tagSuggestions,
+  invokeInfoFetch,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -576,7 +579,7 @@ export function NowPlayingBar({
                     <><span className="now-sep"> — </span><span className="now-link" onClick={onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined}>{currentTrack.album_title}</span></>
                   )}
                   {!miniMode && (
-                    <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} onTagsChange={setTrackTags} />
+                    <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} onTagsChange={setTrackTags} />
                   )}
                   {trackTags.length > 0 && (
                     <span className="now-tags">

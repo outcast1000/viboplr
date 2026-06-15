@@ -5,12 +5,16 @@ import { emitTrackPatch } from "../trackEvents";
 import AutocompleteInput from "./AutocompleteInput";
 import TagEditor from "./TagEditor";
 import { effectiveTagNames } from "../utils/bulkEditTags";
+import { useCommunityTagsForTracks, type InvokeInfoFetch } from "../hooks/useCommunityTags";
+import { appendCommunityTags } from "../utils/tagSuggestions";
 
 interface BulkEditModalProps {
   tracks: Track[];
   artistOptions: string[];
   albumOptions: string[];
   tagOptions: string[];
+  /** Fetches Last.fm community tags to suggest alongside the library pool. */
+  invokeInfoFetch?: InvokeInfoFetch;
   onClose: () => void;
   onSave: () => void;
 }
@@ -38,8 +42,22 @@ function FieldRow({ label, dirty, onRevert, children }: {
   );
 }
 
-export default function BulkEditModal({ tracks, artistOptions, albumOptions, tagOptions, onClose, onSave }: BulkEditModalProps) {
+export default function BulkEditModal({ tracks, artistOptions, albumOptions, tagOptions, invokeInfoFetch, onClose, onSave }: BulkEditModalProps) {
   const count = tracks.length;
+
+  // Community-tag suggestions across the whole selection: artist-level tags
+  // aggregated over the distinct artists (single-track selections also include
+  // that track's track-level tags). Mixed-artist selections still get useful
+  // shared genres ranked to the top.
+  const communityTags = useCommunityTagsForTracks({ tracks, invokeInfoFetch });
+  const tagSuggestions = useMemo(
+    () => appendCommunityTags(tagOptions, communityTags),
+    [tagOptions, communityTags],
+  );
+  const communityPills = useMemo(
+    () => communityTags.map((t) => t.name),
+    [communityTags],
+  );
 
   // For a single track, show its file name (basename) under the title.
   const singleFileName = useMemo(() => {
@@ -291,12 +309,14 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
           )}
           <TagEditor
             tags={tags.map((t) => t.name)}
-            suggestions={tagOptions}
+            suggestions={tagSuggestions}
             onAdd={(name) => { addTag(name); }}
             onRemove={(name) => { removeTag(name); }}
             variant="inline"
             placeholder={!tagsLoaded ? "Loading tags..." : tags.length === 0 ? "Type and press Enter..." : "Add a tag…"}
             disabled={!tagsLoaded}
+            suggestedPills={communityPills}
+            suggestedPillsLabel="Last.fm"
           />
         </div>
 

@@ -90,3 +90,47 @@
 .tag-editor .track-tag-assigned .track-tag-remove:hover {
   color: var(--text-primary);
 }
+
+/* One-click suggestion pills (e.g. Last.fm community tags). Own row in the
+   inline variant (width:100% forces a wrap); stacks naturally in the column
+   popover variant. Ghost/dashed look distinguishes them from applied chips. */
+.tag-editor-suggested {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+}
+
+.tag-editor-suggested-label {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  margin-right: 2px;
+}
+
+.tag-editor-suggested-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 9px;
+  border-radius: 12px;
+  font-size: var(--fs-2xs);
+  font-family: inherit;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.tag-editor-suggested-pill:hover {
+  background: var(--accent-dim);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.tag-editor-suggested-plus {
+  font-size: var(--fs-xs);
+  line-height: 1;
+  color: var(--accent);
+}

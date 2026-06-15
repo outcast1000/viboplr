@@ -47,7 +47,7 @@
 - **DetailHero.tsx, DetailHeroBackground.tsx, DetailHeroEffect.tsx** — Shared native detail hero (multi-image crossfade background, FX looks, square/circle art, play/enqueue + overflow). Used by all detail pages and the plugin `detail-header` display kind. Images via `useDetailHeroImages.ts`.
 - **AlbumDetail.tsx, TagDetail.tsx** — Detail-page wrappers composing the hero + track list + information sections for albums/tags.
 - **DownloadModal.tsx** — Unified download flow (provider-chain resolution, interactive manual search, progress). See conventions.md "Download Track".
-- **BulkEditModal.tsx** — Multi-track tag/metadata bulk editor (`bulk_update_tracks`).
+- **BulkEditModal.tsx** — Multi-track tag/metadata bulk editor (`bulk_update_tracks`). Tag suggestions fold in Last.fm community tags via `useCommunityTags` + `appendCommunityTags` (artist-level tags only for multi-track selections).
 - **LikeDislikeButtons.tsx** — Shared like (heart) / dislike (X) button pair, reused across surfaces.
 - **SegmentedSeekBar.tsx** — Segmented (non-waveform) seek bar variant for the Now Playing bar.
 - **AutoContinuePopover.tsx, EqPopover.tsx** — Popover controls for auto-continue strategy weights and the equalizer.
@@ -81,6 +81,7 @@
 - **useSkins.ts** — Skin management: load/apply/import/delete, gallery browsing, CSS injection via `<style id="viboplr-skin">`.
 - **useLikeActions.ts** — Like/unlike for tracks (tri-state: -1/0/1), artists, albums, tags (binary: 0/1). Persists via `set_entity_like_state` (durable, ID-less `entity_likes` store) and propagates the new state to same-song copies in `currentTrack`/queue via the `sameSong()` predicate (key match, falling back to title+artist).
 - **useContextMenuActions.ts** — Context menu action handlers (delete, show in folder, YouTube, etc.).
+- **useCommunityTags.ts** — Fetches Last.fm community tags for a track via the `track_tags` information type (the same fetch `TrackDetailView` uses) so any tag-editing surface can suggest community tags, not just library tags. Returns merged track + artist tag names; `enabled` gates the network call (e.g. only while a popover is open), `includeTrackTags=false` returns artist-level tags only (used by multi-track bulk edit). Degrades to `[]` when the Last.fm plugin is absent. Consumed by `TagPopover` and `BulkEditModal`.
 - **useLyrics.ts** — Fetches lyrics for the current track through the plugin info-type provider chain (scoped via the `include` filter on `useInformationTypes`). Used by `NowPlayingView`. Returns synced (LRC) or plain text.
 - **useInformationTypes.ts** — Orchestrates plugin information-type fetching + caching for detail pages (cache decision logic, provider priority, in-flight dedup). Supports an `include` filter to scope fetches (used by `useLyrics`). See `plugins.md` "Information Sections".
 - **useImageResolver.ts** — Bridge between the Rust image-download worker and JS plugin image providers (handles `image-resolve-request` events). See `plugins.md` "Image Provider Chain".

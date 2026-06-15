@@ -3353,6 +3353,7 @@ function App() {
           artistOptions={[...new Set(library.artists.map((a) => a.name))]}
           albumOptions={[...new Set(library.albums.map((a) => a.title))]}
           tagOptions={[...new Set(library.tags.map((t) => t.name))]}
+          invokeInfoFetch={plugins.invokeInfoFetch}
           onClose={() => contextMenuActions.setBulkEditTracks(null)}
           onSave={() => { contextMenuActions.setBulkEditTracks(null); library.loadLibrary(); library.loadTracks(); }}
         />
@@ -3761,6 +3762,7 @@ function App() {
           });
         } : undefined}
         tagSuggestions={tagSuggestionPool}
+        invokeInfoFetch={plugins.invokeInfoFetch}
       />
 
       {contextMenuActions.youtubeFeedback && (
