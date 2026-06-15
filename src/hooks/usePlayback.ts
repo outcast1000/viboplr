@@ -947,6 +947,26 @@ export function usePlayback(
     setPositionSecs(secs);
   }
 
+  // Relative seek (skip forward/back). For a transcoded video the element's
+  // currentTime is relative to the current ffmpeg segment, which restarts at 0
+  // on every seek — so the true position is currentTime + seekOffset. Reading
+  // el.currentTime directly here would make a skip-ahead jump back to the start.
+  function seekBy(deltaSecs: number) {
+    const el = getMediaElement();
+    if (!el) return;
+
+    const transcodeSession = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
+      ? transcodeSessionRef.current
+      : null;
+    const offset = transcodeSession ? transcodeSession.seekOffset : 0;
+    const current = el.currentTime + offset;
+    const duration = transcodeSession?.durationSecs ?? (isFinite(el.duration) ? el.duration : 0);
+    const target = duration > 0
+      ? Math.max(0, Math.min(duration, current + deltaSecs))
+      : Math.max(0, current + deltaSecs);
+    handleSeek(target);
+  }
+
   function isActiveElement(el: HTMLMediaElement): boolean {
     if (currentTrack && isVideoTrack(currentTrack)) {
       return el === videoRef.current;
@@ -1123,7 +1143,7 @@ export function usePlayback(
     audioRefA, audioRefB, videoRef,
     getMediaElement,
     handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop,
-    handleVolume, handleSeek,
+    handleVolume, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,
     isActiveElement,

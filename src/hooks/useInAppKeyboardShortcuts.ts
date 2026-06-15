@@ -94,14 +94,12 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
             return;
           case "ArrowLeft": {
             e.preventDefault();
-            const el = d.getMediaElement();
-            if (el) d.handleSeek(Math.max(0, el.currentTime - 15));
+            playback.seekBy(-15);
             return;
           }
           case "ArrowRight": {
             e.preventDefault();
-            const el = d.getMediaElement();
-            if (el) d.handleSeek(Math.min(el.duration || 0, el.currentTime + 15));
+            playback.seekBy(15);
             return;
           }
           case "ArrowUp":
