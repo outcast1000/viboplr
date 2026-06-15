@@ -13,6 +13,7 @@ import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
+import { IconHeartFilled, IconThumbsDownFilled } from "./Icons";
 import "./PlaylistsView.css";
 
 interface Playlist {
@@ -435,32 +436,59 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   }
 
   // List view
+  const systemPlaylists = filtered.filter((p) => p.system_kind);
+  const regularPlaylists = filtered.filter((p) => !p.system_kind);
+
   return (
     <div className="playlists-view">
       {filtered.length === 0 ? (
         <div className="playlists-empty">No saved playlists</div>
       ) : (
-        <div className="playlists-grid">
-          {filtered.map((pl) => (
-            <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
-              <div className="playlist-card-art">
-                <img src={pl.image_path ? imageUrl(pl.image_path) : playlistDefault} alt="" />
-                <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
-                <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-              </div>
-              <div className="playlist-card-info">
-                <div className="playlist-card-name">{pl.name}</div>
-              </div>
-              <div className="playlist-card-meta">
-                {pl.system_kind
-                  ? (pl.system_kind === "liked" ? "Liked songs" : "Disliked songs")
-                  : `${pl.track_count} tracks · ${formatDate(pl.saved_at)}`}
-              </div>
+        <>
+          {systemPlaylists.length > 0 && (
+            <div className="playlist-shortcuts">
+              {systemPlaylists.map((pl) => (
+                <div
+                  key={pl.id}
+                  className={`playlist-shortcut playlist-shortcut--${pl.system_kind}`}
+                  onClick={() => openPlaylist(pl)}
+                  onContextMenu={(e) => handleContextMenu(e, pl)}
+                >
+                  <div className="playlist-shortcut-art">
+                    {pl.system_kind === "liked"
+                      ? <IconHeartFilled size={26} />
+                      : <IconThumbsDownFilled size={26} />}
+                  </div>
+                  <div className="playlist-shortcut-name">{pl.name}</div>
+                  <button className="playlist-shortcut-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          {regularPlaylists.length > 0 && (
+            <div className="playlists-grid">
+              {regularPlaylists.map((pl) => (
+                <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
+                  <div className="playlist-card-art">
+                    <img src={pl.image_path ? imageUrl(pl.image_path) : playlistDefault} alt="" />
+                    <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
+                    <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
+                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                    </button>
+                  </div>
+                  <div className="playlist-card-info">
+                    <div className="playlist-card-name">{pl.name}</div>
+                  </div>
+                  <div className="playlist-card-meta">
+                    {`${pl.track_count} tracks · ${formatDate(pl.saved_at)}`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
       {deleteModal}
     </div>

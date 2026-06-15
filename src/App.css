@@ -1187,6 +1187,95 @@
   padding: 16px;
 }
 
+/* Spotify-style shortcut tiles for system playlists (Liked / Disliked) */
+.playlist-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px 12px;
+  padding: 16px 16px 0;
+}
+
+.playlist-shortcut {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding-right: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--ds-radius-card);
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.playlist-shortcut:hover {
+  background: var(--bg-hover);
+}
+
+.playlist-shortcut-art {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.playlist-shortcut--liked .playlist-shortcut-art {
+  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+}
+
+.playlist-shortcut--disliked .playlist-shortcut-art {
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-surface));
+  color: var(--text-secondary);
+}
+
+.playlist-shortcut-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-shortcut-play {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
+}
+
+.playlist-shortcut-play svg {
+  width: 20px;
+  height: 20px;
+}
+
+.playlist-shortcut:hover .playlist-shortcut-play {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.playlist-shortcut-play:hover {
+  background: linear-gradient(135deg, #ff8787, #f0731a);
+  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
+  transform: scale(1.08);
+}
+
 .playlist-card {
   cursor: pointer;
   border-radius: 8px;
