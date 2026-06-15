@@ -84,12 +84,10 @@
   100% { transform: scale(1.16) translateX(5%); }
 }
 
-/* B&W look modifier (applied on the hero root by DetailHero). */
+/* B&W look modifier (applied on the hero root by DetailHero). Background only —
+   the foreground art and other elements are intentionally left in full color. */
 .detail-hero.hero-bw .detail-hero-bg {
   filter: grayscale(1) contrast(1.25) brightness(0.92);
-}
-.detail-hero.hero-bw .detail-hero-art img {
-  filter: grayscale(1) contrast(1.1);
 }
 
 @media (prefers-reduced-motion: reduce) {
