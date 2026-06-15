@@ -234,6 +234,7 @@
 }
 
 .queue-item {
+  position: relative;
   display: flex;
   align-items: center;
   padding: 8px 12px 8px 8px;
@@ -241,6 +242,19 @@
   transition: background 0.1s;
   font-size: var(--fs-sm);
   gap: 6px;
+}
+
+.queue-item-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.queue-item:hover .row-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .queue-item:hover {
@@ -447,36 +461,6 @@
   justify-content: center;
   background: var(--bg-secondary);
   color: var(--text-tertiary);
-}
-
-.queue-item-actions {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.queue-item-action {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--fs-base);
-  padding: 0;
-  opacity: 0;
-  transition: opacity 0.15s;
-  line-height: 0;
-  display: flex;
-  align-items: center;
-}
-
-.queue-item:hover .queue-item-action {
-  opacity: 1;
-}
-
-.queue-item-action:hover {
-  color: var(--accent);
 }
 
 .queue-info-bar {

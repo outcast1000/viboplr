@@ -22,7 +22,7 @@ function needsTranscode(track: { format: string | null }): boolean {
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { emitTrackPatch } from "./trackEvents";
-import { parseUrlScheme, trackToQueueEntry, isRemoteScheme, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, isRemoteScheme, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
@@ -2944,6 +2944,8 @@ function App() {
             getTagImage={tagImageCache.getImage}
             onPlayTracks={queueHook.playTracks}
             onEnqueueTrack={(t) => contextMenuActions.handleEnqueue([t])}
+            onPlayNext={(t) => queueHook.playNextInQueue(trackToQueueTrack(t))}
+            onLocateTrack={(t) => library.handleTrackClick(t.key)}
             onPlayAlbum={playActions.playAlbum}
             onPlayArtist={playActions.playArtist}
             onPlayTag={playActions.playTag}

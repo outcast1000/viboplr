@@ -728,9 +728,29 @@
 
 .entity-table-name {
   flex: 3;
+  position: relative;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* In table rows the name cell hosts the hover-reveal action overlay, so it
+   must not clip the buttons; the inner wrapper keeps the name's ellipsis. */
+.entity-table-row .entity-table-name {
+  overflow: visible;
+}
+
+.entity-table-name-main {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-table-row:hover .row-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .entity-table-secondary {
@@ -763,6 +783,7 @@
 }
 
 .entity-list-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -775,6 +796,19 @@
 
 .entity-list-item:hover {
   background: var(--bg-hover);
+}
+
+.entity-list-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.entity-list-item:hover .row-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .entity-list-item.highlighted {
@@ -804,6 +838,65 @@
 
 .entity-list-img.circular {
   border-radius: 50%;
+}
+
+/* Hover-reveal action tray — shared by the queue panel, the library table
+   (over the title/name column), the library list rows and the history rows.
+   A frosted, right-anchored tray floats over the row holding the action
+   buttons; row content stays fully legible (the tray's blur frosts whatever
+   is behind it). Each surface only toggles `opacity`/`pointer-events` on
+   `:hover` to reveal it. */
+.row-hover-actions {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 9px;
+  border-radius: 12px;
+  background: rgba(var(--bg-surface-rgb), 0.62);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+  z-index: 2;
+}
+
+.row-hover-action {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--overlay-inverse), 0.1);
+  color: var(--text-primary);
+  transition: background 0.12s ease, color 0.12s ease, transform 0.12s ease;
+}
+
+.row-hover-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+.row-hover-action:hover {
+  background: var(--accent);
+  color: var(--bg-primary);
+  transform: scale(1.08);
+}
+
+.row-hover-action--play {
+  background: var(--accent);
+  color: var(--bg-primary);
 }
 
 .entity-list-img img {

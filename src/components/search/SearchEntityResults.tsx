@@ -6,6 +6,20 @@ import { TagCardArt } from "../TagCardArt";
 import { LikeDislikeButtons } from "../LikeDislikeButtons";
 import { LoadMoreSentinel } from "./searchShared";
 
+/** Hover-reveal Play/Enqueue overlay shared by the album/artist/tag table + list rows. */
+function EntityRowActions({ onPlay, onEnqueue }: { onPlay: () => void; onEnqueue: () => void }) {
+  return (
+    <span className="row-hover-actions">
+      <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlay(); }}>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+      </button>
+      <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueue(); }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </span>
+  );
+}
+
 function computeIdSelection(
   current: Set<number>,
   clickedIndex: number,
@@ -63,7 +77,7 @@ export function SearchTagResults({
 }) {
   const ids = tags.map(t => t.id);
   function handleClick(e: React.MouseEvent, index: number) {
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
       onSelectionChange(new Set());
       onTagClick(tags[index].id);
@@ -75,7 +89,7 @@ export function SearchTagResults({
   }
   function handleMouseDown(e: React.MouseEvent, id: number) {
     if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const startX = e.clientX, startY = e.clientY;
     let dragging = false;
     function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
@@ -96,23 +110,17 @@ export function SearchTagResults({
       {viewMode === "basic" && (
         <div className="entity-table">
           <div className="entity-table-header">
-            <span className="row-lead-actions-head" />
             <span className="entity-table-like"></span>
             <span className={`entity-table-name sortable${sortField === "name" ? " sorted" : ""}`} onClick={() => onSort("name")}>Name{sortIndicator("name")}</span>
             <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
           </div>
           {tags.map((t, i) => (
             <div key={t.id} className={`entity-table-row${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
-              <span className="row-lead-actions">
-                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlayTag(t.id); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueTag(t.id); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-              </span>
               <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} onToggleDislike={() => onToggleDislike(t.id)} variant="inline" size={12} />
-              <span className="entity-table-name">{t.name}</span>
+              <span className="entity-table-name">
+                <span className="entity-table-name-main">{t.name}</span>
+                <EntityRowActions onPlay={() => onPlayTag(t.id)} onEnqueue={() => onEnqueueTag(t.id)} />
+              </span>
               <span className="entity-table-count">{t.track_count}</span>
             </div>
           ))}
@@ -124,20 +132,15 @@ export function SearchTagResults({
         <div className="entity-list">
           {tags.map((t, i) => (
             <div key={t.id} className={`entity-list-item${selectedIds.has(t.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, t.id)} onContextMenu={e => handleCtxMenu(e, t)}>
-              <span className="row-lead-actions">
-                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlayTag(t.id); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueTag(t.id); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-              </span>
-              <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} onToggleDislike={() => onToggleDislike(t.id)} variant="inline" size={12} />
-              <TagCardArt tag={t} imagePath={getTagImage(t.name)} className="entity-list-img" />
-              <div className="entity-list-info">
-                <span className="entity-list-name">{t.name}</span>
-                <span className="entity-list-secondary">{t.track_count} tracks</span>
+              <div className="entity-list-content">
+                <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} onToggleDislike={() => onToggleDislike(t.id)} variant="inline" size={12} />
+                <TagCardArt tag={t} imagePath={getTagImage(t.name)} className="entity-list-img" />
+                <div className="entity-list-info">
+                  <span className="entity-list-name">{t.name}</span>
+                  <span className="entity-list-secondary">{t.track_count} tracks</span>
+                </div>
               </div>
+              <EntityRowActions onPlay={() => onPlayTag(t.id)} onEnqueue={() => onEnqueueTag(t.id)} />
             </div>
           ))}
           {tags.length === 0 && <div className="empty">No tags found.</div>}
@@ -204,7 +207,7 @@ export function SearchAlbumResults({
 }) {
   const ids = albums.map(a => a.id);
   function handleClick(e: React.MouseEvent, index: number) {
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
       onSelectionChange(new Set());
       const a = albums[index];
@@ -217,7 +220,7 @@ export function SearchAlbumResults({
   }
   function handleMouseDown(e: React.MouseEvent, id: number) {
     if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const startX = e.clientX, startY = e.clientY;
     let dragging = false;
     function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
@@ -238,7 +241,6 @@ export function SearchAlbumResults({
       {viewMode === "basic" && (
         <div className="entity-table">
           <div className="entity-table-header">
-            <span className="row-lead-actions-head" />
             <span className="entity-table-like"></span>
             <span className={`entity-table-name sortable${sortField === "name" ? " sorted" : ""}`} onClick={() => onSort("name")}>Name{sortIndicator("name")}</span>
             <span className={`entity-table-secondary sortable${sortField === "artist" ? " sorted" : ""}`} onClick={() => onSort("artist")}>Artist{sortIndicator("artist")}</span>
@@ -247,16 +249,11 @@ export function SearchAlbumResults({
           </div>
           {albums.map((a, i) => (
             <div key={a.id} className={`entity-table-row${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
-              <span className="row-lead-actions">
-                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlayAlbum(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueAlbum(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-              </span>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
-              <span className="entity-table-name">{a.title}</span>
+              <span className="entity-table-name">
+                <span className="entity-table-name-main">{a.title}</span>
+                <EntityRowActions onPlay={() => onPlayAlbum(a.id)} onEnqueue={() => onEnqueueAlbum(a.id)} />
+              </span>
               <span className="entity-table-secondary">{a.artist_name ?? ""}</span>
               <span className="entity-table-year">{a.year ?? ""}</span>
               <span className="entity-table-count">{a.track_count}</span>
@@ -270,23 +267,18 @@ export function SearchAlbumResults({
         <div className="entity-list">
           {albums.map((a, i) => (
             <div key={a.id} className={`entity-list-item${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a)}>
-              <span className="row-lead-actions">
-                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlayAlbum(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueAlbum(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-              </span>
-              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
-              <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
-              <div className="entity-list-info">
-                <span className="entity-list-name">{a.title}</span>
-                <span className="entity-list-secondary">
-                  {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
-                  {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
-                </span>
+              <div className="entity-list-content">
+                <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
+                <AlbumCardArt album={a} imagePath={getAlbumImage(a.title, a.artist_name)} />
+                <div className="entity-list-info">
+                  <span className="entity-list-name">{a.title}</span>
+                  <span className="entity-list-secondary">
+                    {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
+                    {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
+                  </span>
+                </div>
               </div>
+              <EntityRowActions onPlay={() => onPlayAlbum(a.id)} onEnqueue={() => onEnqueueAlbum(a.id)} />
             </div>
           ))}
           {albums.length === 0 && <div className="empty">No albums found.</div>}
@@ -355,7 +347,7 @@ export function SearchArtistResults({
 }) {
   const ids = artists.map(a => a.id);
   function handleClick(e: React.MouseEvent, index: number) {
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
       onSelectionChange(new Set());
       onArtistClick(artists[index].id);
@@ -367,7 +359,7 @@ export function SearchArtistResults({
   }
   function handleMouseDown(e: React.MouseEvent, id: number) {
     if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const startX = e.clientX, startY = e.clientY;
     let dragging = false;
     function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
@@ -388,23 +380,17 @@ export function SearchArtistResults({
       {viewMode === "basic" && (
         <div className="entity-table">
           <div className="entity-table-header">
-            <span className="row-lead-actions-head" />
             <span className="entity-table-like"></span>
             <span className={`entity-table-name sortable${sortField === "name" ? " sorted" : ""}`} onClick={() => onSort("name")}>Name{sortIndicator("name")}</span>
             <span className={`entity-table-count sortable${sortField === "tracks" ? " sorted" : ""}`} onClick={() => onSort("tracks")}>Tracks{sortIndicator("tracks")}</span>
           </div>
           {artists.map((a, i) => (
             <div key={a.id} className={`entity-table-row${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
-              <span className="row-lead-actions">
-                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlayArtist(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueArtist(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-              </span>
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
-              <span className="entity-table-name">{a.name}</span>
+              <span className="entity-table-name">
+                <span className="entity-table-name-main">{a.name}</span>
+                <EntityRowActions onPlay={() => onPlayArtist(a.id)} onEnqueue={() => onEnqueueArtist(a.id)} />
+              </span>
               <span className="entity-table-count">{a.track_count}</span>
             </div>
           ))}
@@ -416,20 +402,15 @@ export function SearchArtistResults({
         <div className="entity-list">
           {artists.map((a, i) => (
             <div key={a.id} className={`entity-list-item${selectedIds.has(a.id) ? " selected" : ""}`} onClick={e => handleClick(e, i)} onMouseDown={e => handleMouseDown(e, a.id)} onContextMenu={e => handleCtxMenu(e, a.id)}>
-              <span className="row-lead-actions">
-                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlayArtist(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueArtist(a.id); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-              </span>
-              <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
-              <ArtistCardArt artist={a} imagePath={getArtistImage(a.name)} className="entity-list-img circular" />
-              <div className="entity-list-info">
-                <span className="entity-list-name">{a.name}</span>
-                <span className="entity-list-secondary">{a.track_count} tracks</span>
+              <div className="entity-list-content">
+                <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
+                <ArtistCardArt artist={a} imagePath={getArtistImage(a.name)} className="entity-list-img circular" />
+                <div className="entity-list-info">
+                  <span className="entity-list-name">{a.name}</span>
+                  <span className="entity-list-secondary">{a.track_count} tracks</span>
+                </div>
               </div>
+              <EntityRowActions onPlay={() => onPlayArtist(a.id)} onEnqueue={() => onEnqueueArtist(a.id)} />
             </div>
           ))}
           {artists.length === 0 && <div className="empty">No artists found.</div>}

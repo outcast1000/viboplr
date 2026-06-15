@@ -127,6 +127,8 @@ interface TrackListProps {
   onDeleteTracks?: (trackIds: number[]) => void;
   onPlay?: (track: Track) => void;
   onEnqueue?: (track: Track) => void;
+  onPlayNext?: (track: Track) => void;
+  onLocateTrack?: (track: Track) => void;
   trackPopularity?: Record<number, number>;
   emptyMessage?: string;
   hasMore?: boolean;
@@ -139,7 +141,7 @@ export function TrackList({
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
-  onDeleteTracks, onPlay, onEnqueue, trackPopularity,
+  onDeleteTracks, onPlay, onEnqueue, onPlayNext, onLocateTrack, trackPopularity,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
@@ -209,7 +211,7 @@ export function TrackList({
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRowRef.current) return;
-    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .track-row-action')) {
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .row-hover-action')) {
       return;
     }
     const newSelection = computeSelection(
@@ -222,7 +224,7 @@ export function TrackList({
 
   function handleRowMouseDown(e: React.MouseEvent, index: number) {
     if (e.button !== 0 || !onTrackDragStart) return;
-    if ((e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .track-row-action')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .row-hover-action')) return;
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -384,6 +386,33 @@ export function TrackList({
     );
   }
 
+  function renderRowActions(t: Track) {
+    return (
+      <span className="row-hover-actions">
+        {onPlay && (
+          <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlay(t); }}>
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+          </button>
+        )}
+        {onEnqueue && (
+          <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueue(t); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        )}
+        {onPlayNext && (
+          <button type="button" className="row-hover-action" title="Insert After" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlayNext(t); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h11M4 12h11M4 19h7"/><path d="M18 9v6l4-3z" fill="currentColor" stroke="none"/></svg>
+          </button>
+        )}
+        {onLocateTrack && (
+          <button type="button" className="row-hover-action" title="Locate" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          </button>
+        )}
+      </span>
+    );
+  }
+
   function renderCell(col: ColumnConfig, t: Track, i: number) {
     switch (col.id) {
       case "like":
@@ -416,16 +445,19 @@ export function TrackList({
       case "title":
         return (
           <span key="title" className="col-title">
-            <span className="col-title-text">{t.title}</span>
-            {t.youtube_url && (
-              <span
-                className="track-youtube-link"
-                title="Open on YouTube"
-                onClick={(e) => { e.stopPropagation(); openUrl(t.youtube_url!); }}
-              >
-                <IconYoutube size={16} />
-              </span>
-            )}
+            <span className="col-title-main">
+              <span className="col-title-text">{t.title}</span>
+              {t.youtube_url && (
+                <span
+                  className="track-youtube-link"
+                  title="Open on YouTube"
+                  onClick={(e) => { e.stopPropagation(); openUrl(t.youtube_url!); }}
+                >
+                  <IconYoutube size={16} />
+                </span>
+              )}
+            </span>
+            {hasRowActions && renderRowActions(t)}
           </span>
         );
       case "artist":
@@ -482,7 +514,6 @@ export function TrackList({
   return (
     <div className="track-list" ref={trackListRef}>
       <div className="track-header" onContextMenu={handleHeaderContextMenu}>
-        {hasRowActions && <span className="row-lead-actions-head" />}
         {visibleColumns.map(col => renderHeaderCell(col))}
       </div>
       {tracks.map((t, i) => (
@@ -502,20 +533,6 @@ export function TrackList({
             }
           }}
         >
-          {hasRowActions && (
-            <span className="row-lead-actions">
-              {onPlay && (
-                <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); onPlay(t); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-              )}
-              {onEnqueue && (
-                <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueue(t); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-              )}
-            </span>
-          )}
           {visibleColumns.map(col => renderCell(col, t, i))}
         </div>
       ))}

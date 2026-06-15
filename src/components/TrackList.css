@@ -145,10 +145,30 @@
 
 .col-title {
   flex: 3;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The title cell hosts the hover-reveal action overlay, so it must not clip
+   the buttons (which sit taller than the text line). The inner wrapper keeps
+   the ellipsis behaviour for the title text itself. */
+.track-row > .col-title {
+  overflow: visible;
+}
+
+.col-title-main {
+  flex: 1;
   display: flex;
   align-items: center;
   min-width: 0;
   overflow: hidden;
+}
+
+.track-row:hover .row-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .col-title-text {

@@ -80,6 +80,8 @@ interface SearchViewProps {
   getTagImage: (name: string) => string | null;
   onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   onEnqueueTrack: (track: Track) => void;
+  onPlayNext: (track: Track) => void;
+  onLocateTrack: (track: Track) => void;
   onPlayAlbum: (albumId: number) => void;
   onPlayArtist: (artistId: number) => void;
   onPlayTag: (tagId: number) => void;
@@ -131,6 +133,8 @@ export function SearchView({
   getTagImage,
   onPlayTracks,
   onEnqueueTrack,
+  onPlayNext,
+  onLocateTrack,
   onPlayAlbum,
   onPlayArtist,
   onPlayTag,
@@ -581,7 +585,7 @@ export function SearchView({
 
   function handleTrackItemClick(e: React.MouseEvent, index: number) {
     if (didDragRef.current) return;
-    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn, .row-hover-action')) return;
     const newSelection = computeSelection(
       selectedTrackIds, index, results.tracks, lastClickedTrackRef.current,
       e.metaKey || e.ctrlKey, e.shiftKey,
@@ -602,7 +606,7 @@ export function SearchView({
 
   function handleTrackItemMouseDown(e: React.MouseEvent, index: number) {
     if (e.button !== 0 || !onTrackDragStart) return;
-    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn, .row-hover-action')) return;
     const startX = e.clientX;
     const startY = e.clientY;
     didDragRef.current = false;
@@ -915,6 +919,8 @@ export function SearchView({
             onDoubleClick={onPlayTracks}
             onPlay={(t) => onPlayTracks([t], 0)}
             onEnqueue={(t) => onEnqueueTrack(t)}
+            onPlayNext={(t) => onPlayNext(t)}
+            onLocateTrack={(t) => onLocateTrack(t)}
             onContextMenu={onTrackContextMenu}
             onArtistClick={onArtistClick}
             onAlbumClick={onAlbumClick}
@@ -942,40 +948,48 @@ export function SearchView({
                   onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
                   onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
                 >
-                  <span className="row-lead-actions">
-                    <button type="button" className="track-row-action track-row-action-play" title="Play" onClick={(e) => { e.stopPropagation(); setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}>
+                  <div className="entity-list-content">
+                    <LikeDislikeButtons
+                      liked={t.liked}
+                      onToggleLike={() => handleTrackLike(t)}
+                      onToggleDislike={() => handleTrackDislike(t)}
+                      variant="inline"
+                      size={12}
+                    />
+                    {isLocalVideo(t) ? (
+                      <VideoRowThumb trackId={t.id!} alt={t.title} className="entity-list-img" />
+                    ) : t.album_title ? (
+                      <AlbumCardArt album={{ id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album} imagePath={getAlbumImage(t.album_title, t.artist_name)} />
+                    ) : (
+                      <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
+                    )}
+                    <div className="entity-list-info">
+                      <span className="entity-list-name">{t.title}</span>
+                      <span className="entity-list-secondary">
+                        {t.artist_name && (
+                          <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
+                        )}
+                        {t.album_title && <> {"\u00B7"} {
+                          <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
+                        }</>}
+                      </span>
+                    </div>
+                    <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
+                  </div>
+                  <span className="row-hover-actions">
+                    <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}>
                       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                     </button>
-                    <button type="button" className="track-row-action track-row-action-enqueue" title="Enqueue" onClick={(e) => { e.stopPropagation(); onEnqueueTrack(t); }}>
+                    <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueueTrack(t); }}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                     </button>
+                    <button type="button" className="row-hover-action" title="Insert After" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlayNext(t); }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h11M4 12h11M4 19h7"/><path d="M18 9v6l4-3z" fill="currentColor" stroke="none"/></svg>
+                    </button>
+                    <button type="button" className="row-hover-action" title="Locate" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    </button>
                   </span>
-                  <LikeDislikeButtons
-                    liked={t.liked}
-                    onToggleLike={() => handleTrackLike(t)}
-                    onToggleDislike={() => handleTrackDislike(t)}
-                    variant="inline"
-                    size={12}
-                  />
-                  {isLocalVideo(t) ? (
-                    <VideoRowThumb trackId={t.id!} alt={t.title} className="entity-list-img" />
-                  ) : t.album_title ? (
-                    <AlbumCardArt album={{ id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album} imagePath={getAlbumImage(t.album_title, t.artist_name)} />
-                  ) : (
-                    <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
-                  )}
-                  <div className="entity-list-info">
-                    <span className="entity-list-name">{t.title}</span>
-                    <span className="entity-list-secondary">
-                      {t.artist_name && (
-                        <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
-                      )}
-                      {t.album_title && <> {"\u00B7"} {
-                        <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
-                      }</>}
-                    </span>
-                  </div>
-                  <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
                 </div>
               ))}
               {results.tracks.length === 0 && (

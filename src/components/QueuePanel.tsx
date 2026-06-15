@@ -574,72 +574,76 @@ export function QueuePanel({
             onDoubleClick={() => handleDoubleClick(t, i)}
             onContextMenu={(e) => handleContextMenu(e, i)}
           >
-            <div className="queue-item-art-wrapper">
-              <QueueItemThumb
-                localThumb={resolveImageUrl(queueItemLocalThumb({
-                  mainPlaylistDir,
-                  uri: t.path,
-                  thumbInfo,
-                })) ?? null}
-                fallback={getTrackImage(t)}
-              />
+            <div className="queue-item-content">
+              <div className="queue-item-art-wrapper">
+                <QueueItemThumb
+                  localThumb={resolveImageUrl(queueItemLocalThumb({
+                    mainPlaylistDir,
+                    uri: t.path,
+                    thumbInfo,
+                  })) ?? null}
+                  fallback={getTrackImage(t)}
+                />
+              </div>
+              <div
+                className="queue-item-info"
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  tooltipTimerRef.current = setTimeout(() => setTooltip({ track: t, anchorX: rect.left, anchorY: rect.top }), 400);
+                }}
+                onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
+              >
+                <div className="queue-item-line1">
+                  {i === queueIndex && <SpinningDisc size={13} playing={!!isPlaying} />}
+                  {t.liked === 1 && <IconHeartFilled size={11} className="queue-item-like" />}
+                  {t.liked === -1 && <IconThumbsDownFilled size={11} className="queue-item-dislike" />}
+                  <span className="queue-item-title">{t.title}</span>
+                  <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
+                </div>
+                <div className="queue-item-line2">
+                  <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+                  {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
+                </div>
+                {resolvingStatus?.key === t.key ? (
+                  <div className="queue-item-status">
+                    <span className="queue-item-status-spinner" />
+                    {resolvingStatus.error && (
+                      <>
+                        <span className="queue-resolving-error">{resolvingStatus.error}</span>
+                        <span className="queue-resolving-sep">·</span>
+                      </>
+                    )}
+                    <span className="queue-resolving-trying">Trying {resolvingStatus.trying}…</span>
+                  </div>
+                ) : resolveFailures?.[t.key] ? (
+                  <div className="queue-item-status queue-item-status-failed">
+                    <svg className="queue-resolving-fail-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span className="queue-resolving-error">Couldn't play · {resolveFailures[t.key]}</span>
+                  </div>
+                ) : null}
+              </div>
             </div>
-            <div
-              className="queue-item-info"
-              onMouseEnter={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                tooltipTimerRef.current = setTimeout(() => setTooltip({ track: t, anchorX: rect.left, anchorY: rect.top }), 400);
-              }}
-              onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
-            >
-              <div className="queue-item-line1">
-                {i === queueIndex && <SpinningDisc size={13} playing={!!isPlaying} />}
-                {t.liked === 1 && <IconHeartFilled size={11} className="queue-item-like" />}
-                {t.liked === -1 && <IconThumbsDownFilled size={11} className="queue-item-dislike" />}
-                <span className="queue-item-title">{t.title}</span>
-                <div className="queue-item-actions">
-                  {i !== queueIndex && (
-                    <button
-                      className="queue-item-action"
-                      onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
-                      title="Play"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-                    </button>
-                  )}
-                  {onLocateTrack && (
-                    <button
-                      className="queue-item-action"
-                      onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
-                      title="Track Details"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                    </button>
-                  )}
-                </div>
-                <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
-              </div>
-              <div className="queue-item-line2">
-                <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
-                {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
-              </div>
-              {resolvingStatus?.key === t.key ? (
-                <div className="queue-item-status">
-                  <span className="queue-item-status-spinner" />
-                  {resolvingStatus.error && (
-                    <>
-                      <span className="queue-resolving-error">{resolvingStatus.error}</span>
-                      <span className="queue-resolving-sep">·</span>
-                    </>
-                  )}
-                  <span className="queue-resolving-trying">Trying {resolvingStatus.trying}…</span>
-                </div>
-              ) : resolveFailures?.[t.key] ? (
-                <div className="queue-item-status queue-item-status-failed">
-                  <svg className="queue-resolving-fail-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  <span className="queue-resolving-error">Couldn't play · {resolveFailures[t.key]}</span>
-                </div>
-              ) : null}
+            <div className="row-hover-actions">
+              {i !== queueIndex && (
+                <button
+                  className="row-hover-action row-hover-action--play"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
+                  title="Play"
+                >
+                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                </button>
+              )}
+              {onLocateTrack && (
+                <button
+                  className="row-hover-action"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
+                  title="Track Details"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </button>
+              )}
             </div>
           </div>
         ))}
