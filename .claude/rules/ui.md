@@ -260,7 +260,7 @@ Overlay visibility uses a self-contained idle timer mirroring `FullscreenControl
 - **Synced (LRC):** centered karaoke highlighting — active line bright/bigger/bolder — with smooth auto-scroll, spring line animation, and tap-a-line-to-seek. Auto-scroll stops on unsynced lyrics.
 - **Plain (unsynced):** same typography as synced but no spring/scale animation (no active line to drive it); scrolls proportionally to playback position when it overflows.
 
-**Up next:** a floating list in the bottom-right (audio mode) shows upcoming queue tracks (art + title + artist) with click-to-jump, reusing the queue's `setQueueIndex` + `handlePlay` action and the album→artist image chain.
+The audio view does not show an "up next" panel — the Queue Panel (column 3) is the surface for upcoming tracks and queue-jumps. (The video theater mode keeps its own auto-hiding "up next" chip via `VideoAmbientOverlay`, described above.)
 
 ## Detail Pages
 

@@ -37,7 +37,7 @@
 - **AddServerModal.tsx, EditCollectionModal.tsx** — Collection modals.
 - **TrackPropertiesModal.tsx** — Tabbed modal (Info, Tags, Similar, Artist, Album).
 - **FullscreenControls.tsx** — Video fullscreen overlay.
-- **NowPlayingView.tsx** — Lean-back current-track view (the `nowplaying` main view). Audio: blurred-art backdrop + album art + centered lyrics + floating "up next" list. Video: shared `<video>` repositioned to fill the column (theater mode, `.video-container--theater`) with a `VideoAmbientOverlay`. Lyrics via `useLyrics`. See `ui.md` "Now Playing View".
+- **NowPlayingView.tsx** — Lean-back current-track view (the `nowplaying` main view). Audio: blurred-art backdrop + album art + centered lyrics (no up-next panel — the Queue Panel owns upcoming tracks). Video: shared `<video>` repositioned to fill the column (theater mode, `.video-container--theater`) with a `VideoAmbientOverlay`. Lyrics via `useLyrics`. See `ui.md` "Now Playing View".
 - **VideoAmbientOverlay.tsx** — Ambient layers over the theater-mode video in NowPlayingView: sampled color glow (`extractDominantColor`), auto-hiding up-next chip, auto-hiding title/artist intro. Idle-timer visibility mirrors FullscreenControls. Pure helpers in `utils/videoOverlay.ts`.
 - **FilmReel.tsx** — Animated film-reel icon (video counterpart to `SpinningDisc`) used by the playback-aware sidebar Now Playing icon.
 - **HomeView.tsx, HomeHero.tsx, HomeShelf.tsx** — Home landing surface: `HomeView` composes the page and owns the inline shelf-visibility popover; radio-station hero carousel (`HomeHero`); horizontal shelves (`HomeShelf`, with the `resolveImagePath` helper). State owned by `useHome.ts`. See `ui.md` "Home View".
