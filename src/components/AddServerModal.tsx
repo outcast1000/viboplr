@@ -4,13 +4,14 @@ import { invoke } from "@tauri-apps/api/core";
 interface AddServerModalProps {
   onAdded: () => void;
   onClose: () => void;
+  initialName?: string;
   initialUrl?: string;
   initialUsername?: string;
   initialPassword?: string;
 }
 
-export function AddServerModal({ onAdded, onClose, initialUrl = "", initialUsername = "", initialPassword = "" }: AddServerModalProps) {
-  const [name, setName] = useState("");
+export function AddServerModal({ onAdded, onClose, initialName = "", initialUrl = "", initialUsername = "", initialPassword = "" }: AddServerModalProps) {
+  const [name, setName] = useState(initialName);
   const [url, setUrl] = useState(initialUrl);
   const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState(initialPassword);

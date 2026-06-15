@@ -682,7 +682,7 @@ function App() {
   } | null>(null);
   const [detailTrack, setDetailTrack] = useState<Track | null>(null);
   const [showAddServer, setShowAddServer] = useState(false);
-  const [deepLinkServer, setDeepLinkServer] = useState<{ url: string; username: string; password: string } | null>(null);
+  const [deepLinkServer, setDeepLinkServer] = useState<{ name?: string; url: string; username: string; password: string } | null>(null);
   const [deepLinkInstall, setDeepLinkInstall] = useState<{ kind: "plugin" | "skin"; url: string } | null>(null);
   const [mixtapePreviewPath, setMixtapePreviewPath] = useState<string | null>(null);
   const [mixtapeExportTracks, setMixtapeExportTracks] = useState<ExportTrack[] | null>(null);
@@ -1519,6 +1519,23 @@ function App() {
           const url = params.get("url");
           if (url) setDeepLinkInstall({ kind: "skin", url });
           break;
+        }
+        // Handle viboplr://add-collection (e.g. from the server-directory site)
+        if (raw.startsWith("viboplr://add-collection?") || raw.startsWith("viboplr://add-collection/?")) {
+          const params = new URLSearchParams(raw.split("?")[1]);
+          const kind = params.get("kind") || "subsonic";
+          const url = params.get("url");
+          if (kind === "subsonic" && url) {
+            setDeepLinkServer({
+              name: params.get("name") || "",
+              url,
+              username: params.get("username") || "",
+              password: params.get("password") || "",
+            });
+            setShowAddServer(true);
+            break;
+          }
+          // Non-subsonic kinds fall through to plugin-registered collection handlers
         }
         // Forward other viboplr:// deep links to plugins
         if (raw.startsWith("viboplr://")) {
@@ -2736,6 +2753,7 @@ function App() {
             library.loadLibrary();
           }}
           onClose={() => { setShowAddServer(false); setDeepLinkServer(null); }}
+          initialName={deepLinkServer?.name}
           initialUrl={deepLinkServer?.url}
           initialUsername={deepLinkServer?.username}
           initialPassword={deepLinkServer?.password}
