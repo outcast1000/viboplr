@@ -56,11 +56,19 @@ fn scan_dev_plugin(dir: &std::path::Path) -> Option<serde_json::Value> {
 pub fn plugin_list_installed(
     state: State<'_, AppState>,
     dev_plugin_dir: Option<String>,
+    enabled_ids: Option<Vec<String>>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let user_plugins_dir = state.app_dir.join("plugins");
     if !user_plugins_dir.exists() {
         std::fs::create_dir_all(&user_plugins_dir).map_err(|e| e.to_string())?;
     }
+
+    // Only read `index.js` for plugins the frontend will actually activate.
+    // `None` (first launch — no saved enabled set yet) means "read all", so the
+    // auto-enable-all-builtins path still has bundled code without extra IPC.
+    let code_filter: Option<std::collections::HashSet<String>> =
+        enabled_ids.map(|ids| ids.into_iter().collect());
+    let code_filter_ref = code_filter.as_ref();
 
     let mut seen_ids = std::collections::HashSet::new();
     let mut plugins = Vec::new();
@@ -76,7 +84,7 @@ pub fn plugin_list_installed(
     }
 
     // User plugins take precedence over native (loaded next).
-    for p in scan_plugins_dir(&user_plugins_dir, false) {
+    for p in scan_plugins_dir(&user_plugins_dir, false, code_filter_ref) {
         if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
             if seen_ids.contains(id) {
                 continue; // dev plugin overrides user
@@ -88,7 +96,7 @@ pub fn plugin_list_installed(
 
     // Native/builtin plugins (skipped if dev or user has same id)
     if let Some(ref native_dir) = state.native_plugins_dir {
-        for p in scan_plugins_dir(native_dir, true) {
+        for p in scan_plugins_dir(native_dir, true, code_filter_ref) {
             if let Some(id) = p.get("id").and_then(|v| v.as_str()) {
                 if seen_ids.contains(id) {
                     continue;

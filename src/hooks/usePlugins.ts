@@ -151,6 +151,13 @@ export function usePlugins(
   hostCallbacks?: PluginHostCallbacks,
   debugMode?: boolean,
   devPluginPath?: string | null,
+  // Gate the initial plugin load until the app's cold-start critical path
+  // (store restore, main-playlist read, window show, library load) is done.
+  // Nothing in first paint needs plugins — they feed info sections, image
+  // providers, home shelves, and resolvers, all consumed lazily — so loading
+  // them up front just contends with startup on the single Tauri IPC channel.
+  // Pass `true` once startup has settled to kick the (still background) load.
+  startupReady: boolean = true,
 ) {
   const [pluginStates, setPluginStates] = useState<PluginState[]>([]);
   const [sidebarItems, setSidebarItems] = useState<PluginSidebarItem[]>([]);
@@ -1163,17 +1170,24 @@ export function usePlugins(
         deactivatePlugin(id);
       }
 
-      const installed = await invoke<InstalledPlugin[]>("plugin_list_installed", {
-        devPluginDir: debugMode ? (devPluginPath || null) : null,
-      });
-      const appVersion = await getVersion().catch(() => "0.0.0");
-      appVersionRef.current = appVersion;
+      // Read the enabled set first so we can tell the backend which plugins'
+      // index.js it actually needs to read. Disabled plugins never activate, so
+      // slurping their source up front is pure startup cost. `null` (first
+      // launch) means "read all" — the auto-enable path below needs every
+      // builtin's code without a second IPC round-trip.
       const enabled =
         (await store.get<string[]>("enabledPlugins")) ?? null;
       const enabledSet =
         enabled !== null
           ? new Set(enabled)
           : new Set<string>();
+
+      const installed = await invoke<InstalledPlugin[]>("plugin_list_installed", {
+        devPluginDir: debugMode ? (devPluginPath || null) : null,
+        enabledIds: enabled,
+      });
+      const appVersion = await getVersion().catch(() => "0.0.0");
+      appVersionRef.current = appVersion;
 
       // Auto-enable all built-in plugins on first launch only
       // (when no enabledPlugins key exists in the store yet).
@@ -1374,13 +1388,23 @@ export function usePlugins(
     }
   }, [activatePlugin, deactivatePlugin, debugMode, devPluginPath]);
 
-  // Initialize on mount, and reload when debugMode changes
+  // Kick the initial load once startup has settled (startupReady flips true).
+  // Loading earlier just contends with the cold-start critical path on the
+  // single IPC channel; deferring it keeps first paint fast while still loading
+  // every plugin in the background a beat later. Because debugMode/devPluginPath
+  // are restored before the gate opens, the first load already sees their final
+  // values — no redundant second full reload on debug startup.
   const initialLoadDone = useRef(false);
   useEffect(() => {
-    loadPlugins();
+    if (!startupReady || initialLoadDone.current) return;
     initialLoadDone.current = true;
+    loadPlugins();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startupReady]);
+
+  // Deactivate all on unmount.
+  useEffect(() => {
     return () => {
-      // Deactivate all on unmount
       for (const id of loadedPluginsRef.current.keys()) {
         deactivatePlugin(id);
       }
@@ -1388,7 +1412,7 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reload plugins when debugMode changes (after initial load)
+  // Reload plugins when debugMode / devPluginPath changes (after initial load).
   useEffect(() => {
     if (initialLoadDone.current) {
       loadPlugins();

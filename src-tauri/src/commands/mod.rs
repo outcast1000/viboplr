@@ -591,7 +591,16 @@ pub struct DownloadPathResult {
 
 
 
-fn scan_plugins_dir(dir: &std::path::Path, builtin: bool) -> Vec<serde_json::Value> {
+// `code_filter`: when `Some(set)`, the heavy `index.js` read is performed only
+// for plugins whose id is in `set` (the enabled set) — disabled plugins never
+// activate, so slurping their source up front is pure startup cost. When `None`
+// (e.g. first launch, before an enabled set exists), every plugin's code is read
+// so the auto-enable-all-builtins path still has it without extra IPC.
+fn scan_plugins_dir(
+    dir: &std::path::Path,
+    builtin: bool,
+    code_filter: Option<&std::collections::HashSet<String>>,
+) -> Vec<serde_json::Value> {
     let mut plugins = Vec::new();
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
@@ -623,8 +632,18 @@ fn scan_plugins_dir(dir: &std::path::Path, builtin: bool) -> Vec<serde_json::Val
                             .to_string();
                         // Bundle index.js content alongside the manifest so the
                         // frontend can activate plugins without a second IPC
-                        // round-trip per plugin.
-                        let code = std::fs::read_to_string(path.join("index.js")).ok();
+                        // round-trip per plugin — but only for plugins that will
+                        // actually activate (see `code_filter` above). Disabled
+                        // plugins ship `code: null`; the frontend never reads it
+                        // for them because it doesn't activate them.
+                        let want_code = code_filter
+                            .map(|set| set.contains(&dir_name))
+                            .unwrap_or(true);
+                        let code = if want_code {
+                            std::fs::read_to_string(path.join("index.js")).ok()
+                        } else {
+                            None
+                        };
                         plugins.push(serde_json::json!({
                             "id": dir_name,
                             "manifest": manifest,

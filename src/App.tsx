@@ -370,7 +370,12 @@ function App() {
     },
   }), [queueHook, pluginTrackToQueueTrack]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath);
+  // Defer plugin loading until the cold-start critical path has settled
+  // (window shown + state restored). `!appRestoring` flips true at that point;
+  // plugins then load in the background without contending with startup on the
+  // single IPC channel. debugMode/devPluginPath are restored before this flips,
+  // so the deferred first load already sees their final values.
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
   const dependencies = useDependencies(plugins.pluginStates);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
