@@ -90,6 +90,7 @@ pub fn load_playlist(
 
 #[tauri::command]
 pub fn save_playlist_record(
+    app: AppHandle,
     state: State<'_, AppState>,
     name: String,
     source: Option<String>,
@@ -117,6 +118,10 @@ pub fn save_playlist_record(
 
     db.save_playlist_tracks(playlist_id, &track_tuples)
         .map_err(|e| e.to_string())?;
+
+    // Notify any mounted Playlists view to reload (queue "Save as Playlist",
+    // plugin saves, etc. all flow through here).
+    let _ = app.emit("playlists-changed", ());
 
     // Background image download
     let app_dir = state.app_dir.clone();
@@ -198,7 +203,7 @@ pub fn get_playlist_tracks(state: State<'_, AppState>, playlist_id: i64) -> Resu
 }
 
 #[tauri::command]
-pub fn delete_playlist_record(state: State<'_, AppState>, playlist_id: i64) -> Result<(), String> {
+pub fn delete_playlist_record(app: AppHandle, state: State<'_, AppState>, playlist_id: i64) -> Result<(), String> {
     // Collect image paths before deleting DB rows (cascade deletes tracks)
     let playlist_image = state.db.get_playlists().ok()
         .and_then(|ps| ps.into_iter().find(|p| p.id == playlist_id))
@@ -218,6 +223,7 @@ pub fn delete_playlist_record(state: State<'_, AppState>, playlist_id: i64) -> R
     for path in track_images {
         let _ = std::fs::remove_file(&path);
     }
+    let _ = app.emit("playlists-changed", ());
     Ok(())
 }
 

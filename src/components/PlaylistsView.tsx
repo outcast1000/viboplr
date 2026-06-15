@@ -123,7 +123,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   }, [loadPlaylists]);
 
   useEffect(() => {
-    const un = listen("entity-likes-changed", () => {
+    const unLikes = listen("entity-likes-changed", () => {
       loadPlaylists().catch(console.error);
       setSelectedPlaylist(prev => {
         if (prev && prev.system_kind) {
@@ -134,7 +134,15 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
         return prev;
       });
     });
-    return () => { un.then(f => f()).catch(console.error); };
+    // Reload when a playlist is saved/deleted anywhere (queue "Save as Playlist",
+    // plugin saves, etc.) so a mounted Playlists view stays current.
+    const unPlaylists = listen("playlists-changed", () => {
+      loadPlaylists().catch(console.error);
+    });
+    return () => {
+      unLikes.then(f => f()).catch(console.error);
+      unPlaylists.then(f => f()).catch(console.error);
+    };
   }, [loadPlaylists]);
 
   const openPlaylist = useCallback(async (pl: Playlist) => {
