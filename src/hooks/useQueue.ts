@@ -227,6 +227,70 @@ export function useQueue(
     });
   }
 
+  // Remove `indices` from the queue and, when the currently-playing track is
+  // among them, keep playback going instead of dropping it on the floor. The
+  // progression mirrors the user's mental model: play the nearest surviving
+  // track AFTER the deleted one, else (Normal mode) hand off to auto-continue
+  // via `fetchContinuation`, else fall back to the nearest surviving track
+  // BEFORE it, else `onStop` when the queue is now empty. When the current
+  // track is NOT removed this is just `removeMultiple` with index fix-up.
+  async function removeAndAdvance(
+    indices: number[],
+    fetchContinuation: () => Promise<QueueTrack | null>,
+    onStop: () => void,
+  ) {
+    const q = queueRef.current;
+    const idx = queueIndexRef.current;
+    const mode = queueModeRef.current;
+    const removeSet = new Set(indices);
+    const survivors = q.filter((_, i) => !removeSet.has(i));
+    const removedBefore = (orig: number) => indices.filter(i => i < orig).length;
+
+    if (!removeSet.has(idx)) {
+      // Current track survives — plain removal + index shift (same as removeMultiple).
+      setQueue(survivors);
+      setQueueIndex(prev => prev - removedBefore(prev));
+      return;
+    }
+
+    let nextOrig = -1;
+    for (let i = idx + 1; i < q.length; i++) { if (!removeSet.has(i)) { nextOrig = i; break; } }
+    let prevOrig = -1;
+    for (let i = idx - 1; i >= 0; i--) { if (!removeSet.has(i)) { prevOrig = i; break; } }
+
+    if (nextOrig !== -1) {
+      const ni = nextOrig - removedBefore(nextOrig);
+      setQueue(survivors);
+      setQueueIndex(ni);
+      handlePlay(survivors[ni], "user");
+      return;
+    }
+
+    if (mode === "normal") {
+      const cont = await fetchContinuation();
+      if (cont) {
+        const newQueue = [...survivors, cont];
+        setQueue(newQueue);
+        setQueueIndex(newQueue.length - 1);
+        handlePlay(cont, "user");
+        return;
+      }
+    }
+
+    if (prevOrig !== -1) {
+      const pi = prevOrig - removedBefore(prevOrig);
+      setQueue(survivors);
+      setQueueIndex(pi);
+      handlePlay(survivors[pi], "user");
+      return;
+    }
+
+    // Nothing left to play.
+    setQueue(survivors);
+    setQueueIndex(survivors.length ? 0 : -1);
+    onStop();
+  }
+
   function moveToTop(indices: number[]) {
     const sorted = [...indices].sort((a, b) => a - b);
     setQueue(prev => {
@@ -440,7 +504,7 @@ export function useQueue(
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
+    removeFromQueue, removeMultiple, removeAndAdvance, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,

@@ -858,6 +858,10 @@ function App() {
   // Context menu actions
   const showNativeMenuRef = useRef<((state: import("./types/contextMenu").ContextMenuState) => void) | null>(null);
   const handleExportAsMixtapeRef = useRef<((trackIds: number[], defaultTitle?: string) => void) | null>(null);
+  // Assigned after handleNext/refs are defined; the wrapper below keeps the deps
+  // object stable while reaching the live implementation.
+  const currentTrackDeletedRef = useRef<(indices: number[]) => void>(() => {});
+
   const contextMenuActions = useContextMenuActions({
     library: {
       tracks: library.tracks,
@@ -891,6 +895,7 @@ function App() {
         videoFrameQueueRef.current?.evict(id);
       }
     },
+    onCurrentTrackDeleted: (indices) => currentTrackDeletedRef.current(indices),
     onShowMenu: (state) => showNativeMenuRef.current?.(state),
   });
 
@@ -2151,6 +2156,31 @@ function App() {
   }, []);
 
   mediaSessionNextRef.current = () => handleNext();
+
+  // Deleting the currently-playing track: advance to the nearest surviving track
+  // after it, else (Normal mode) auto-continue, else the nearest surviving track
+  // before it, else stop — and remove the deleted entries from the queue. The
+  // stray media error from the file vanishing under the player is cleared too
+  // (a surviving track's handlePlay also resets it; the stop path needs this).
+  const handleCurrentTrackDeleted = useCallback(async (removeIndices: number[]) => {
+    playback.clearPlaybackError();
+    if (removeIndices.length === 0) {
+      // Playing track isn't represented in the queue — just stop dead playback.
+      handleStopRef.current();
+    } else {
+      await queueHook.removeAndAdvance(
+        removeIndices,
+        async () => {
+          const ac = autoContinueRef.current;
+          const track = currentTrackRef.current;
+          return ac.enabled && track ? await ac.fetchTrack(track) : null;
+        },
+        () => handleStopRef.current(),
+      );
+    }
+    playback.clearPlaybackError();
+  }, [queueHook, playback]);
+  currentTrackDeletedRef.current = (indices) => { void handleCurrentTrackDeleted(indices); };
 
   useGlobalShortcuts({
     togglePlayPause: playback.handlePause,

@@ -30,6 +30,13 @@ interface UseContextMenuActionsDeps {
     addToQueue: (track: QueueTrack) => void;
   };
   playback: { currentTrack: QueueTrack | null; handleStop: () => void };
+  /**
+   * Called when the currently-playing track is among those deleted. Receives the
+   * queue indices to remove and is responsible for both advancing playback
+   * (next / auto-continue / previous / stop) and removing the entries from the
+   * queue. When absent, the delete falls back to a plain stop + queue removal.
+   */
+  onCurrentTrackDeleted?: (queueIndices: number[]) => void;
   playActions: {
     playAlbum: (albumId: number) => void;
     playArtist: (artistId: number) => void;
@@ -42,7 +49,7 @@ interface UseContextMenuActionsDeps {
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
-  const { library, queueHook, playback, playActions, queueCollapsed, setQueueCollapsed, onTracksDeleted, onShowMenu } = deps;
+  const { library, queueHook, playback, playActions, queueCollapsed, setQueueCollapsed, onTracksDeleted, onCurrentTrackDeleted, onShowMenu } = deps;
 
   const [contextMenu, setContextMenuState] = useState<ContextMenuState | null>(null);
   const contextMenuRef = useRef<ContextMenuState | null>(null);
@@ -385,15 +392,21 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       if (result.deletedIds.length > 0) {
         library.setTracks(prev => prev.filter(t => t.id == null || !new Set(result.deletedIds).has(t.id)));
         emitTracksDeleted(result.deletedIds);
-        if (playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path)) {
-          playback.handleStop();
-        }
         const queueIndicesToRemove: number[] = [];
         queueHook.queue.forEach((t, i) => {
           if (t.path && deletedPaths.has(t.path)) queueIndicesToRemove.push(i);
         });
-        if (queueIndicesToRemove.length > 0) {
-          queueHook.removeMultiple(queueIndicesToRemove);
+        const currentDeleted = !!(playback.currentTrack?.path && deletedPaths.has(playback.currentTrack.path));
+        if (currentDeleted && onCurrentTrackDeleted) {
+          // Deleting the playing track shouldn't dead-stop the player: advance to
+          // the next surviving track (or auto-continue / previous / stop) AND drop
+          // the deleted entries from the queue in one consistent step.
+          onCurrentTrackDeleted(queueIndicesToRemove);
+        } else {
+          if (currentDeleted) playback.handleStop();
+          if (queueIndicesToRemove.length > 0) {
+            queueHook.removeMultiple(queueIndicesToRemove);
+          }
         }
         library.loadLibrary();
         onTracksDeleted?.(result.deletedIds);
