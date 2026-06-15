@@ -2936,12 +2936,9 @@ function App() {
               track={playback.currentTrack}
               positionSecs={playback.positionSecs}
               lyrics={nowPlayingLyrics}
-              queue={queueHook.queue}
-              queueIndex={queueHook.queueIndex}
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
               onSeek={playback.handleSeek}
-              onPlayQueueIndex={(index) => { queueHook.setQueueIndex(index); playback.handlePlay(queueHook.queue[index]); }}
             />
           )}
 

@@ -12,17 +12,12 @@ interface NowPlayingViewProps {
   track: QueueTrack | null;
   positionSecs: number;
   lyrics: UseLyricsResult;
-  /** The full queue + current index, used to show the up-next peek. */
-  queue: QueueTrack[];
-  queueIndex: number;
   /** Image-provider chain lookups (album → artist fallback). Called during render
       so the async cache-resolve re-render is picked up, same as HomeShelf/cards. */
   getAlbumImage: (name: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
   /** Seek playback to an absolute position (seconds) — wired to tap-to-seek on synced lines. */
   onSeek?: (secs: number) => void;
-  /** Jump playback to a queue index — wired to up-next item clicks. */
-  onPlayQueueIndex?: (index: number) => void;
 }
 
 /** Resolve a local image path to a webview-usable src (remote URLs pass through). */
@@ -144,66 +139,14 @@ function NowPlayingLyrics({
   );
 }
 
-/** "Up next" peek: the upcoming queue tracks, click to jump. */
-function UpNext({
-  items,
-  getAlbumImage,
-  getArtistImage,
-  onPlayIndex,
-}: {
-  items: { t: QueueTrack; i: number }[];
-  getAlbumImage: (name: string, artistName?: string | null) => string | null;
-  getArtistImage: (name: string) => string | null;
-  onPlayIndex?: (index: number) => void;
-}) {
-  if (items.length === 0) return null;
-  return (
-    <div className="np-upnext">
-      <div className="np-upnext-title">Up next</div>
-      <div className="np-upnext-list">
-        {items.map(({ t, i }) => {
-          const albumPath = t.image_url
-            ? null
-            : t.album_title
-            ? getAlbumImage(t.album_title, t.artist_name)
-            : null;
-          const artistPath = !t.image_url && !albumPath && t.artist_name ? getArtistImage(t.artist_name) : null;
-          const src = toSrc(t.image_url ?? albumPath ?? artistPath);
-          return (
-            <button
-              key={t.key}
-              className="np-upnext-row"
-              onClick={() => onPlayIndex?.(i)}
-              title={`Play ${t.title}`}
-            >
-              {src ? (
-                <img className="np-upnext-art" src={src} alt="" />
-              ) : (
-                <span className="np-upnext-art np-upnext-art--placeholder">{getInitials(t.title)}</span>
-              )}
-              <span className="np-upnext-info">
-                <span className="np-upnext-track-title">{t.title}</span>
-                {t.artist_name && <span className="np-upnext-track-artist">{t.artist_name}</span>}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export function NowPlayingView({
   style,
   track,
   positionSecs,
   lyrics,
-  queue,
-  queueIndex,
   getAlbumImage,
   getArtistImage,
   onSeek,
-  onPlayQueueIndex,
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
 
@@ -231,16 +174,6 @@ export function NowPlayingView({
       .catch((e) => console.error("Failed to resolve now-playing track:", e));
     return () => { cancelled = true; };
   }, [track?.title, track?.artist_name, track?.album_title]);
-
-  // Up-next: the tracks after the current one (capped). Indices are absolute
-  // into `queue` so clicks can jump directly.
-  const upNext = useMemo(() => {
-    if (queueIndex < 0) return [];
-    return queue
-      .map((t, i) => ({ t, i }))
-      .filter(({ i }) => i > queueIndex)
-      .slice(0, 30);
-  }, [queue, queueIndex]);
 
   // Resolve art via the image-provider plugin chain: explicit url → album → artist.
   let albumImageSrc: string | null = null;
@@ -318,13 +251,6 @@ export function NowPlayingView({
       {track && trackTags.length > 0 && (
         <div className="np-tags">{trackTags.join(" · ")}</div>
       )}
-      {/* Floats in the bottom-right corner, over the stage. */}
-      <UpNext
-        items={upNext}
-        getAlbumImage={getAlbumImage}
-        getArtistImage={getArtistImage}
-        onPlayIndex={onPlayQueueIndex}
-      />
     </div>
   );
 }
