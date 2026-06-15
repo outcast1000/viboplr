@@ -2600,6 +2600,15 @@ function App() {
 
   const localCollections = library.collections.filter(c => c.kind === "local" && c.enabled).map(c => ({ id: c.id, name: c.name, path: c.path ?? "" }));
 
+  // The video "theater" overlay fills the main content area while the Now Playing
+  // view is active. But navigating to a track detail (e.g. via the queue "locate"
+  // button or the Now Playing bar title) sets selectedTrack and renders the detail
+  // page inside .content — which the opaque, absolutely-positioned theater overlay
+  // would otherwise hide entirely ("nothing happens"). So theater mode only applies
+  // when no detail page is open; otherwise the video reverts to its docked layout.
+  const detailPageOpen = library.selectedTrack !== null || !!library.fallbackTrackName;
+  const videoTheater = view === "nowplaying" && !detailPageOpen;
+
   // Arrow key navigation helpers for search bars
   function scrollHighlightedIntoView(selector: string) {
     requestAnimationFrame(() => {
@@ -3187,7 +3196,7 @@ function App() {
           </div>
         )}
         <div
-          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}${view === "nowplaying" ? " video-container--theater" : ""}`}
+          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}${videoTheater ? " video-container--theater" : ""}`}
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -3195,7 +3204,7 @@ function App() {
           }}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
-            ...(view === "nowplaying"
+            ...(videoTheater
               ? {}
               : videoLayout.isHorizontal
               ? { height: videoLayout.isCollapsed ? 0 : videoLayout.videoSize }
@@ -3252,7 +3261,7 @@ function App() {
             onNavigateToArtistByName={library.navigateToArtistByName}
             onNavigateToAlbumByName={(name, artistName) => library.navigateToAlbumByName(name, artistName ?? undefined)}
           />
-          {view === "nowplaying" && playback.currentTrack && isVideoTrack(playback.currentTrack) && (
+          {videoTheater && playback.currentTrack && isVideoTrack(playback.currentTrack) && (
             <VideoAmbientOverlay
               currentTrack={playback.currentTrack}
               playing={playback.playing}
