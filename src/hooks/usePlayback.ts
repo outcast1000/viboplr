@@ -676,6 +676,13 @@ export function usePlayback(
       const resolved = resolvePromise
         ? await resolvePromise
         : await resolveTrackSrcRef.current(track);
+      // A newer play request started while this one's (often slow) stream
+      // resolution was in flight. Bail BEFORE playWithSrc — otherwise this
+      // superseded request would stop the now-current track's audio and
+      // setCurrentTrack back to this (old) track. resolveTrackSrc also returns
+      // an empty-src sentinel when it detects it was superseded; treat that the
+      // same way rather than feeding "" into playWithSrc.
+      if (!isCurrentPlayGeneration(generation, playGenerationRef.current) || !resolved.src) return;
       // Resolution may have discovered the real local file for a path-less /
       // remote track (e.g. a Home track-row that only carried title+artist).
       // Merge that metadata in so playWithSrc routes video → <video> and the
