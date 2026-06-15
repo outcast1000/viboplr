@@ -62,9 +62,11 @@ export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> 
 // Internal priority for image providers (keyed by "pluginId:entity")
 export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
   "tidal-browse:artist": 100,
-  "deezer:artist": 200,
-  "itunes:artist": 300,
-  "audiodb:artist": 400,
+  // TheAudioDB is the most accurate bundled artist source in practice, so it
+  // leads the bundled chain. Deezer follows (broad coverage, now name-gated).
+  // iTunes contributes no artist images (musicArtist has no artwork field).
+  "audiodb:artist": 200,
+  "deezer:artist": 300,
   "musicbrainz:artist": 500,
   "google-image-search:artist": 900,
   "tidal-browse:album": 100,

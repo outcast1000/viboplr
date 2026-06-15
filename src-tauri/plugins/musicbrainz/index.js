@@ -3,6 +3,23 @@ function activate(api) {
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
+  // Normalize a name the way the backend does (strip_diacritics + unicode_lower):
+  // NFD decompose, drop combining marks, lowercase, and strip punctuation/whitespace
+  // while preserving letters/numbers of all scripts (so non-latin names survive).
+  function normName(s) {
+    if (!s) return "";
+    return String(s)
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, "");
+  }
+  function nameMatches(query, candidate) {
+    var q = normName(query);
+    var c = normName(candidate);
+    return q.length > 0 && q === c;
+  }
+
   async function resolveWikimediaThumbnail(commonsUrl) {
     var parts = commonsUrl.split("File:");
     var filename = parts[parts.length - 1];
@@ -34,6 +51,11 @@ function activate(api) {
 
     var artist = artists[0];
     if (!artist.score || artist.score < 80) return { status: "not_found" };
+
+    // The score gate still lets fuzzy matches through (e.g. "Bush" -> Kate Bush,
+    // "Wolf Alice" -> Alice Cooper). Require a normalized name match so the chain
+    // continues instead of fetching a confidently-wrong image.
+    if (!nameMatches(name, artist.name)) return { status: "not_found" };
 
     var mbid = artist.id;
     if (!mbid) return { status: "not_found" };
