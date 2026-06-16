@@ -364,15 +364,16 @@ export function usePlugins(
             return invoke<number>("plugin_apply_tags_bulk", { assignments });
           },
           async bulkUpdateTracks(trackIds, fields) {
-            return invoke<string[]>("bulk_update_tracks", {
-              trackIds,
-              fields: {
-                artist_name: fields.artist_name ?? null,
-                album_title: fields.album_title ?? null,
-                year: fields.year ?? null,
-                tag_names: fields.tag_names ?? null,
-              },
-            });
+            // Forward only the keys the plugin actually provided. The backend
+            // treats an omitted key as "leave unchanged" and a present `null` as
+            // "clear to NULL", so coercing undefined → null here would wipe fields
+            // the plugin never meant to touch.
+            const out: Record<string, unknown> = {};
+            if (fields.artist_name !== undefined) out.artist_name = fields.artist_name;
+            if (fields.album_title !== undefined) out.album_title = fields.album_title;
+            if (fields.year !== undefined) out.year = fields.year;
+            if (fields.tag_names !== undefined) out.tag_names = fields.tag_names;
+            return invoke<string[]>("bulk_update_tracks", { trackIds, fields: out });
           },
           onTrackAdded: (handler) =>
             subscribeEvent(

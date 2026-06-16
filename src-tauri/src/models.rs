@@ -1,6 +1,50 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Tri-state update for a nullable field. Distinguishes "leave unchanged"
+/// from "clear to NULL" from "set to a value" — so a bulk edit can blank a
+/// field (sent over the wire as JSON `null`) without it being confused with
+/// an omitted (untouched) field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldUpdate<T> {
+    Unchanged,
+    Clear,
+    Set(T),
+}
+
+impl<T> FieldUpdate<T> {
+    /// Build from a serde "double option" (see `double_option` in commands):
+    /// - `None`          (key absent)         => `Unchanged`
+    /// - `Some(None)`    (key present, null)  => `Clear`
+    /// - `Some(Some(v))` (key present, value) => `Set(v)`
+    pub fn from_double_opt(v: Option<Option<T>>) -> Self {
+        match v {
+            None => FieldUpdate::Unchanged,
+            Some(None) => FieldUpdate::Clear,
+            Some(Some(x)) => FieldUpdate::Set(x),
+        }
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> FieldUpdate<U> {
+        match self {
+            FieldUpdate::Unchanged => FieldUpdate::Unchanged,
+            FieldUpdate::Clear => FieldUpdate::Clear,
+            FieldUpdate::Set(x) => FieldUpdate::Set(f(x)),
+        }
+    }
+}
+
+impl FieldUpdate<String> {
+    /// Borrow the inner value as `&str` without consuming the update.
+    pub fn as_str_update(&self) -> FieldUpdate<&str> {
+        match self {
+            FieldUpdate::Unchanged => FieldUpdate::Unchanged,
+            FieldUpdate::Clear => FieldUpdate::Clear,
+            FieldUpdate::Set(s) => FieldUpdate::Set(s.as_str()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackQuery {

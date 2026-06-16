@@ -1,6 +1,30 @@
 // Auto-split from db.rs. Shared types/helpers live in db/mod.rs;
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
+use crate::models::FieldUpdate;
+
+/// Set a single `tracks` column to `value` for every id in `track_ids`,
+/// chunked to stay under SQLite's bound-parameter limit. `column` is always a
+/// trusted string literal at the call sites (never user input), so the
+/// interpolation is safe.
+fn update_track_column<T: rusqlite::types::ToSql + Copy>(
+    conn: &rusqlite::Connection,
+    track_ids: &[i64],
+    column: &str,
+    value: T,
+) -> SqlResult<()> {
+    for chunk in track_ids.chunks(500) {
+        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!("UPDATE tracks SET {} = ?1 WHERE id IN ({})", column, placeholders);
+        let mut params: Vec<&dyn rusqlite::types::ToSql> = Vec::with_capacity(chunk.len() + 1);
+        params.push(&value);
+        for id in chunk {
+            params.push(id);
+        }
+        conn.execute(&sql, params.as_slice())?;
+    }
+    Ok(())
+}
 
 /// How tag edits are applied in bulk_update_tracks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -224,11 +248,11 @@ impl Database {
     pub fn bulk_update_tracks(
         &self,
         track_ids: &[i64],
-        artist_name: Option<&str>,
-        album_title: Option<&str>,
-        year: Option<i32>,
+        artist_name: FieldUpdate<&str>,
+        album_title: FieldUpdate<&str>,
+        year: FieldUpdate<i32>,
         title: Option<&str>,
-        track_number: Option<i32>,
+        track_number: FieldUpdate<i32>,
         tag_names: Option<&[String]>,
         tag_mode: TagMode,
     ) -> SqlResult<Vec<(i64, String, Option<i64>)>> {
@@ -246,32 +270,41 @@ impl Database {
             conn.execute_batch("BEGIN")?;
 
             let inner = (|| -> SqlResult<Vec<(i64, String, Option<i64>)>> {
-                // Step 1: Artist
-                let new_artist_id: Option<i64> = if let Some(name) = artist_name {
-                    let existing: Option<i64> = conn.query_row(
-                        "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
-                        params![name],
-                        |row| row.get(0),
-                    ).optional()?;
-                    let aid = match existing {
-                        Some(id) => id,
-                        None => {
-                            conn.execute("INSERT INTO artists (name) VALUES (?1)", params![name])?;
-                            conn.last_insert_rowid()
-                        }
-                    };
-                    for chunk in track_ids.chunks(500) {
-                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                        let sql = format!("UPDATE tracks SET artist_id = ?1 WHERE id IN ({})", placeholders);
-                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(aid)];
-                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
-                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
-                        conn.execute(&sql, param_refs.as_slice())?;
+                // Step 1: Artist. Set artist_id to a (found/created) artist, or
+                // clear it to NULL. `ArtistOutcome::Assigned(target)` records what
+                // every track's artist became (`None` = cleared); `Unchanged` means
+                // the field was not touched at all.
+                #[derive(Clone, Copy)]
+                enum ArtistOutcome { Unchanged, Assigned(Option<i64>) }
+                let artist_outcome = match artist_name {
+                    FieldUpdate::Unchanged => ArtistOutcome::Unchanged,
+                    FieldUpdate::Clear => {
+                        update_track_column(&conn, track_ids, "artist_id", None::<i64>)?;
+                        ArtistOutcome::Assigned(None)
                     }
+                    FieldUpdate::Set(name) => {
+                        let existing: Option<i64> = conn.query_row(
+                            "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                            params![name],
+                            |row| row.get(0),
+                        ).optional()?;
+                        let aid = match existing {
+                            Some(id) => id,
+                            None => {
+                                conn.execute("INSERT INTO artists (name) VALUES (?1)", params![name])?;
+                                conn.last_insert_rowid()
+                            }
+                        };
+                        update_track_column(&conn, track_ids, "artist_id", aid)?;
+                        ArtistOutcome::Assigned(Some(aid))
+                    }
+                };
 
-                    // When artist changed but album title NOT changed, reassign each
-                    // track's album to one under the new artist (find or create).
-                    if album_title.is_none() {
+                // Step 1b: When the artist changed (set or cleared) but the album
+                // title was NOT touched, move each track's album to one under the
+                // new artist target (find or create). `target_aid` may be NULL.
+                if let ArtistOutcome::Assigned(target_aid) = artist_outcome {
+                    if matches!(album_title, FieldUpdate::Unchanged) {
                         // Collect (track_id, album_title, album_year) for tracks that have albums
                         let mut track_albums: Vec<(i64, String, Option<i32>)> = Vec::new();
                         for chunk in track_ids.chunks(500) {
@@ -298,8 +331,8 @@ impl Database {
                             } else {
                                 let existing: Option<i64> = conn.query_row(
                                     "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-                                     AND artist_id = ?2",
-                                    params![title, aid],
+                                     AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+                                    params![title, target_aid],
                                     |row| row.get(0),
                                 ).optional()?;
                                 let id = match existing {
@@ -307,7 +340,7 @@ impl Database {
                                     None => {
                                         conn.execute(
                                             "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                            params![title, aid, album_year],
+                                            params![title, target_aid, album_year],
                                         )?;
                                         conn.last_insert_rowid()
                                     }
@@ -321,76 +354,32 @@ impl Database {
                             )?;
                         }
                     }
+                }
 
-                    Some(aid)
-                } else {
-                    None
-                };
-
-                // Step 2: Album
-                if let Some(title) = album_title {
-                    if let Some(aid) = new_artist_id {
-                        // All tracks share the new artist — create one album
-                        let album_year = year.or_else(|| {
-                            // Try to get year from first track's current album
-                            conn.query_row(
-                                "SELECT al.year FROM tracks t JOIN albums al ON t.album_id = al.id WHERE t.id = ?1 AND al.year IS NOT NULL",
-                                params![track_ids[0]],
-                                |row| row.get(0),
-                            ).optional().ok().flatten()
-                        });
-                        let existing_album: Option<i64> = conn.query_row(
-                            "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-                             AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-                            params![title, aid],
-                            |row| row.get(0),
-                        ).optional()?;
-                        let album_id = match existing_album {
-                            Some(id) => id,
-                            None => {
-                                conn.execute(
-                                    "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                    params![title, aid, album_year],
-                                )?;
-                                conn.last_insert_rowid()
-                            }
-                        };
-                        for chunk in track_ids.chunks(500) {
-                            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                            let sql = format!("UPDATE tracks SET album_id = ?1 WHERE id IN ({})", placeholders);
-                            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(album_id)];
-                            all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
-                            let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
-                            conn.execute(&sql, param_refs.as_slice())?;
-                        }
-                    } else {
-                        // Artist was NOT changed — group tracks by their current artist_id
-                        let mut artist_groups: std::collections::HashMap<Option<i64>, Vec<i64>> = std::collections::HashMap::new();
-                        for chunk in track_ids.chunks(500) {
-                            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                            let sql = format!("SELECT id, artist_id FROM tracks WHERE id IN ({})", placeholders);
-                            let mut stmt = conn.prepare(&sql)?;
-                            let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
-                            let rows = stmt.query_map(params.as_slice(), |row| {
-                                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
-                            })?;
-                            for row in rows {
-                                let (tid, aid) = row?;
-                                artist_groups.entry(aid).or_default().push(tid);
-                            }
-                        }
-                        for (aid, tids) in &artist_groups {
-                            let album_year = year.or_else(|| {
-                                conn.query_row(
+                // Step 2: Album. Set to a (found/created) album, or clear to NULL.
+                // The album-creation year follows the `year` field: Set → that
+                // year, Clear → none, Unchanged → inherit the track's old album year.
+                match album_title {
+                    FieldUpdate::Unchanged => {}
+                    FieldUpdate::Clear => {
+                        update_track_column(&conn, track_ids, "album_id", None::<i64>)?;
+                    }
+                    FieldUpdate::Set(title) => match artist_outcome {
+                        ArtistOutcome::Assigned(target_aid) => {
+                            // All tracks now share `target_aid` (possibly NULL) — one album.
+                            let album_year = match year {
+                                FieldUpdate::Set(y) => Some(y),
+                                FieldUpdate::Clear => None,
+                                FieldUpdate::Unchanged => conn.query_row(
                                     "SELECT al.year FROM tracks t JOIN albums al ON t.album_id = al.id WHERE t.id = ?1 AND al.year IS NOT NULL",
-                                    params![tids[0]],
+                                    params![track_ids[0]],
                                     |row| row.get(0),
-                                ).optional().ok().flatten()
-                            });
+                                ).optional().ok().flatten(),
+                            };
                             let existing_album: Option<i64> = conn.query_row(
                                 "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
                                  AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-                                params![title, *aid],
+                                params![title, target_aid],
                                 |row| row.get(0),
                             ).optional()?;
                             let album_id = match existing_album {
@@ -398,57 +387,79 @@ impl Database {
                                 None => {
                                     conn.execute(
                                         "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-                                        params![title, *aid, album_year],
+                                        params![title, target_aid, album_year],
                                     )?;
                                     conn.last_insert_rowid()
                                 }
                             };
-                            for chunk in tids.chunks(500) {
+                            update_track_column(&conn, track_ids, "album_id", album_id)?;
+                        }
+                        ArtistOutcome::Unchanged => {
+                            // Artist was NOT changed — group tracks by their current artist_id
+                            let mut artist_groups: std::collections::HashMap<Option<i64>, Vec<i64>> = std::collections::HashMap::new();
+                            for chunk in track_ids.chunks(500) {
                                 let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                                let sql = format!("UPDATE tracks SET album_id = ?1 WHERE id IN ({})", placeholders);
-                                let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(album_id)];
-                                all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
-                                let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
-                                conn.execute(&sql, param_refs.as_slice())?;
+                                let sql = format!("SELECT id, artist_id FROM tracks WHERE id IN ({})", placeholders);
+                                let mut stmt = conn.prepare(&sql)?;
+                                let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+                                let rows = stmt.query_map(params.as_slice(), |row| {
+                                    Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?))
+                                })?;
+                                for row in rows {
+                                    let (tid, aid) = row?;
+                                    artist_groups.entry(aid).or_default().push(tid);
+                                }
+                            }
+                            for (aid, tids) in &artist_groups {
+                                let album_year = match year {
+                                    FieldUpdate::Set(y) => Some(y),
+                                    FieldUpdate::Clear => None,
+                                    FieldUpdate::Unchanged => conn.query_row(
+                                        "SELECT al.year FROM tracks t JOIN albums al ON t.album_id = al.id WHERE t.id = ?1 AND al.year IS NOT NULL",
+                                        params![tids[0]],
+                                        |row| row.get(0),
+                                    ).optional().ok().flatten(),
+                                };
+                                let existing_album: Option<i64> = conn.query_row(
+                                    "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+                                     AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+                                    params![title, *aid],
+                                    |row| row.get(0),
+                                ).optional()?;
+                                let album_id = match existing_album {
+                                    Some(id) => id,
+                                    None => {
+                                        conn.execute(
+                                            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
+                                            params![title, *aid, album_year],
+                                        )?;
+                                        conn.last_insert_rowid()
+                                    }
+                                };
+                                update_track_column(&conn, tids, "album_id", album_id)?;
                             }
                         }
-                    }
+                    },
                 }
 
-                // Step 3: Year
-                if let Some(y) = year {
-                    for chunk in track_ids.chunks(500) {
-                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                        let sql = format!("UPDATE tracks SET year = ?1 WHERE id IN ({})", placeholders);
-                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(y)];
-                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
-                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
-                        conn.execute(&sql, param_refs.as_slice())?;
-                    }
+                // Step 3: Year (on the track row)
+                match year {
+                    FieldUpdate::Unchanged => {}
+                    FieldUpdate::Clear => update_track_column(&conn, track_ids, "year", None::<i32>)?,
+                    FieldUpdate::Set(y) => update_track_column(&conn, track_ids, "year", y)?,
                 }
 
-                // Step 3b: Title (single-value, applied to all given ids)
+                // Step 3b: Title (single-value, applied to all given ids). Title is
+                // never cleared — a track always needs one.
                 if let Some(t) = title {
-                    for chunk in track_ids.chunks(500) {
-                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                        let sql = format!("UPDATE tracks SET title = ?1 WHERE id IN ({})", placeholders);
-                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(t.to_string())];
-                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
-                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
-                        conn.execute(&sql, param_refs.as_slice())?;
-                    }
+                    update_track_column(&conn, track_ids, "title", t)?;
                 }
 
                 // Step 3c: Track number
-                if let Some(n) = track_number {
-                    for chunk in track_ids.chunks(500) {
-                        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-                        let sql = format!("UPDATE tracks SET track_number = ?1 WHERE id IN ({})", placeholders);
-                        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(n)];
-                        all_params.extend(chunk.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>));
-                        let param_refs: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
-                        conn.execute(&sql, param_refs.as_slice())?;
-                    }
+                match track_number {
+                    FieldUpdate::Unchanged => {}
+                    FieldUpdate::Clear => update_track_column(&conn, track_ids, "track_number", None::<i32>)?,
+                    FieldUpdate::Set(n) => update_track_column(&conn, track_ids, "track_number", n)?,
                 }
 
                 // Step 4: Tags (replace / add / remove)

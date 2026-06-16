@@ -501,6 +501,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* Mirrors `.modal-field label` (this is a <div>, not a <label>, so the
+     element rule no longer applies). */
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
 }
 
 .bulk-edit-dirty-dot {
@@ -527,6 +534,40 @@
 .bulk-edit-revert:hover {
   color: var(--accent);
   background: var(--bg-hover);
+}
+
+.bulk-edit-field-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* The header is uppercased; keep the controls in their natural casing. */
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.bulk-edit-clear {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--ds-radius);
+}
+
+.bulk-edit-clear:hover {
+  color: var(--error);
+  background: var(--bg-hover);
+}
+
+.bulk-edit-cleared-tag {
+  font-size: var(--fs-2xs);
+  color: var(--warning);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--ds-radius);
+  white-space: nowrap;
 }
 
 .bulk-edit-tagmode {

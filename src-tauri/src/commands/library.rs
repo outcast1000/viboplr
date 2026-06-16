@@ -507,14 +507,20 @@ pub fn bulk_update_tracks(
     track_ids: Vec<i64>,
     fields: BulkUpdateFields,
 ) -> Result<Vec<String>, String> {
+    // Resolve each nullable field to its tri-state: Unchanged / Clear / Set.
+    let artist_u = crate::models::FieldUpdate::from_double_opt(fields.artist_name);
+    let album_u = crate::models::FieldUpdate::from_double_opt(fields.album_title);
+    let year_u = crate::models::FieldUpdate::from_double_opt(fields.year);
+    let track_number_u = crate::models::FieldUpdate::from_double_opt(fields.track_number);
+
     // Perform DB updates
     let track_info = state.db.bulk_update_tracks(
         &track_ids,
-        fields.artist_name.as_deref(),
-        fields.album_title.as_deref(),
-        fields.year,
+        artist_u.as_str_update(),
+        album_u.as_str_update(),
+        year_u,
         fields.title.as_deref(),
-        fields.track_number,
+        track_number_u,
         fields.tag_names.as_deref(),
         crate::db::collections::TagMode::from_opt(fields.tag_mode.as_deref()),
     ).map_err(|e| e.to_string())?;
@@ -560,10 +566,10 @@ pub fn bulk_update_tracks(
 
         let updates = crate::tag_writer::TagUpdates {
             title: fields.title.clone(),
-            track_number: fields.track_number.map(|n| n as u32),
-            artist: fields.artist_name.clone(),
-            album: fields.album_title.clone(),
-            year: fields.year.map(|y| y as u32),
+            track_number: track_number_u.map(|n| n as u32),
+            artist: artist_u.clone(),
+            album: album_u.clone(),
+            year: year_u.map(|y| y as u32),
             genre,
         };
 

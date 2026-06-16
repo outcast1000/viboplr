@@ -23,20 +23,32 @@ interface TagEntry {
   name: string;
 }
 
-function FieldRow({ label, dirty, onRevert, children }: {
+function FieldRow({ label, dirty, cleared, onClear, onRevert, children }: {
   label: string;
   dirty: boolean;
+  /** When in the "will be cleared" state (set to empty on save). */
+  cleared?: boolean;
+  /** Provided only for clearable fields — renders the Clear button. */
+  onClear?: () => void;
   onRevert: () => void;
   children: React.ReactNode;
 }) {
   return (
     <div className="modal-field">
-      <label className="bulk-edit-field-label">
+      {/* Not a <label>: it holds interactive buttons and has no associated input.
+          In WKWebView a button nested in a <label> can have its click swallowed. */}
+      <div className="bulk-edit-field-label">
         <span>{label}{dirty && <span className="bulk-edit-dirty-dot" aria-label="modified" />}</span>
-        {dirty && (
-          <button type="button" className="bulk-edit-revert" onClick={onRevert} title="Revert this field">↺</button>
-        )}
-      </label>
+        <span className="bulk-edit-field-actions">
+          {cleared && <span className="bulk-edit-cleared-tag">Will be cleared</span>}
+          {onClear && !cleared && (
+            <button type="button" className="bulk-edit-clear" onClick={onClear} title="Clear this field (set to empty)">Clear</button>
+          )}
+          {dirty && (
+            <button type="button" className="bulk-edit-revert" onClick={onRevert} title="Revert this field">↺</button>
+          )}
+        </span>
+      </div>
       {children}
     </div>
   );
@@ -143,6 +155,13 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
 
   const hasDirtyFields = dirtyArtist || dirtyAlbum || dirtyYear || dirtyTags || dirtyTitle || dirtyTrackNumber;
 
+  // A field is "cleared" when explicitly marked dirty while empty — this is what
+  // distinguishes "set to null" from "leave unchanged" (which stays non-dirty).
+  const clearedArtist = dirtyArtist && artist === "";
+  const clearedAlbum = dirtyAlbum && album === "";
+  const clearedYear = dirtyYear && year === "";
+  const clearedTrackNumber = dirtyTrackNumber && trackNumber === "";
+
   function addTag(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -242,11 +261,12 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
                 spellCheck={false}
               />
             </FieldRow>
-            <FieldRow label="Track #" dirty={dirtyTrackNumber} onRevert={() => { setTrackNumber(tracks[0].track_number != null ? String(tracks[0].track_number) : ""); setDirtyTrackNumber(false); }}>
+            <FieldRow label="Track #" dirty={dirtyTrackNumber} cleared={clearedTrackNumber} onClear={() => { setTrackNumber(""); setDirtyTrackNumber(true); }} onRevert={() => { setTrackNumber(tracks[0].track_number != null ? String(tracks[0].track_number) : ""); setDirtyTrackNumber(false); }}>
               <input
                 className="ds-input"
                 type="number"
                 value={trackNumber}
+                placeholder={clearedTrackNumber ? "Will be cleared" : undefined}
                 onChange={(e) => { setTrackNumber(e.target.value); setDirtyTrackNumber(true); }}
                 style={{ width: 120 }}
                 autoComplete="off"
@@ -257,30 +277,30 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
           </>
         )}
 
-        <FieldRow label="Artist" dirty={dirtyArtist} onRevert={() => { setArtist(shared.artist); setDirtyArtist(false); }}>
+        <FieldRow label="Artist" dirty={dirtyArtist} cleared={clearedArtist} onClear={() => { setArtist(""); setDirtyArtist(true); }} onRevert={() => { setArtist(shared.artist); setDirtyArtist(false); }}>
           <AutocompleteInput
             value={artist}
             onChange={(v) => { setArtist(v); setDirtyArtist(true); }}
             suggestions={artistOptions}
-            placeholder={shared.artistPlaceholder}
+            placeholder={clearedArtist ? "Will be cleared" : shared.artistPlaceholder}
           />
         </FieldRow>
 
-        <FieldRow label="Album" dirty={dirtyAlbum} onRevert={() => { setAlbum(shared.album); setDirtyAlbum(false); }}>
+        <FieldRow label="Album" dirty={dirtyAlbum} cleared={clearedAlbum} onClear={() => { setAlbum(""); setDirtyAlbum(true); }} onRevert={() => { setAlbum(shared.album); setDirtyAlbum(false); }}>
           <AutocompleteInput
             value={album}
             onChange={(v) => { setAlbum(v); setDirtyAlbum(true); }}
             suggestions={albumOptions}
-            placeholder={shared.albumPlaceholder}
+            placeholder={clearedAlbum ? "Will be cleared" : shared.albumPlaceholder}
           />
         </FieldRow>
 
-        <FieldRow label="Year" dirty={dirtyYear} onRevert={() => { setYear(shared.year); setDirtyYear(false); }}>
+        <FieldRow label="Year" dirty={dirtyYear} cleared={clearedYear} onClear={() => { setYear(""); setDirtyYear(true); }} onRevert={() => { setYear(shared.year); setDirtyYear(false); }}>
           <input
             className="ds-input"
             type="number"
             value={year}
-            placeholder={shared.yearPlaceholder}
+            placeholder={clearedYear ? "Will be cleared" : shared.yearPlaceholder}
             onChange={(e) => { setYear(e.target.value); setDirtyYear(true); }}
             style={{ width: 120 }}
             autoComplete="off"

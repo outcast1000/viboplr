@@ -108,14 +108,31 @@ pub struct AppState {
     pub p2p_node: Arc<tokio::sync::RwLock<Option<P2pNode>>>,
 }
 
+/// Deserialize into a "double option" so the field can be in three states:
+/// absent (`None`), present-and-null (`Some(None)`), or present-with-value
+/// (`Some(Some(v))`). Plain `Option<T>` collapses the first two, which is why
+/// nullable bulk-edit fields use this — a cleared field must be distinguishable
+/// from an untouched one. Pair with `#[serde(default)]`.
+fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(de).map(Some)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BulkUpdateFields {
-    pub artist_name: Option<String>,
-    pub album_title: Option<String>,
-    pub year: Option<i32>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub artist_name: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub album_title: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub year: Option<Option<i32>>,
     pub tag_names: Option<Vec<String>>,
     pub title: Option<String>,
-    pub track_number: Option<i32>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub track_number: Option<Option<i32>>,
     pub tag_mode: Option<String>,
 }
 
