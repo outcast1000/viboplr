@@ -19,6 +19,7 @@ interface HistoryViewProps {
   highlightedIndex: number;
   onPlayTrack: (tracks: Track[], index: number) => void;
   onEnqueueTrack: (tracks: Track[]) => void;
+  onLocateTrack: (track: Track) => void;
   onArtistClick: (artistId: number, name?: string) => void;
   onPlayArtist: (artistId: number) => void;
   onEnqueueArtist: (artistId: number) => void;
@@ -30,8 +31,11 @@ const PLAY_ICON = (
 const ENQUEUE_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
 );
+const DETAILS_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+);
 
-function RowActions({ onPlay, onEnqueue }: { onPlay: () => void; onEnqueue: () => void }) {
+function RowActions({ onPlay, onEnqueue, onDetails }: { onPlay: () => void; onEnqueue: () => void; onDetails: () => void }) {
   return (
     <span className="row-hover-actions">
       <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlay(); }}>
@@ -39,6 +43,9 @@ function RowActions({ onPlay, onEnqueue }: { onPlay: () => void; onEnqueue: () =
       </button>
       <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueue(); }}>
         {ENQUEUE_ICON}
+      </button>
+      <button type="button" className="row-hover-action" title="Details" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDetails(); }}>
+        {DETAILS_ICON}
       </button>
     </span>
   );
@@ -74,7 +81,7 @@ function timespanSinceTs(ts: Timespan): number | null {
 }
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onArtistClick, onPlayArtist, onEnqueueArtist }, ref) {
+  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onLocateTrack, onArtistClick, onPlayArtist, onEnqueueArtist }, ref) {
   const [activeTab, setActiveTab] = useState<HistoryTab>("recent");
   const [tracksTimespan, setTracksTimespan] = useState<Timespan>("30-days");
   const [artistsTimespan, setArtistsTimespan] = useState<Timespan>("30-days");
@@ -238,6 +245,17 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }
   }
 
+  async function detailsTrackById(historyTrackId: number) {
+    try {
+      const track = await invoke<Track | null>("reconnect_history_track", { historyTrackId });
+      if (track) {
+        onLocateTrack(track);
+      }
+    } catch (e) {
+      console.error("Failed to reconnect track:", e);
+    }
+  }
+
   async function handleArtistDoubleClick(historyArtistId: number) {
     try {
       const artistId = await invoke<number | null>("reconnect_history_artist", { historyArtistId });
@@ -355,7 +373,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                       <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
                     </div>
                   </div>
-                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} />
+                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} onDetails={() => handleArtistDoubleClick(a.history_artist_id)} />
                 </div>
               ))}
             </div>
@@ -384,7 +402,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                         <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                       </div>
                     </div>
-                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} />
+                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} onDetails={() => detailsTrackById(t.history_track_id)} />
                   </div>
                 );
               })}
@@ -412,7 +430,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                         <span className="history-artist">{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</span>
                       </div>
                     </div>
-                    <RowActions onPlay={() => playTrackById(entry.history_track_id)} onEnqueue={() => enqueueTrackById(entry.history_track_id)} />
+                    <RowActions onPlay={() => playTrackById(entry.history_track_id)} onEnqueue={() => enqueueTrackById(entry.history_track_id)} onDetails={() => detailsTrackById(entry.history_track_id)} />
                   </div>
                 );
               })}
@@ -444,7 +462,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                         <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
                       </div>
                     </div>
-                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} />
+                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} onDetails={() => detailsTrackById(t.history_track_id)} />
                   </div>
                 );
               })}
@@ -473,7 +491,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                       <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
                     </div>
                   </div>
-                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} />
+                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} onDetails={() => handleArtistDoubleClick(a.history_artist_id)} />
                 </div>
               ))}
               {currentArtists && currentArtists.length === 0 && (

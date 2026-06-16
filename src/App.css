@@ -702,7 +702,7 @@
   gap: 4px;
   padding: 8px 16px;
   border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s;
   font-size: var(--fs-sm);
 }
@@ -789,7 +789,7 @@
   gap: 12px;
   padding: 6px 16px;
   border-radius: 6px;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.15s;
   font-size: var(--fs-base);
 }
@@ -3261,5 +3261,38 @@
 }
 
 .album-card-enqueue-btn:hover {
+  background: rgba(var(--overlay-inverse), 0.8);
+}
+
+.album-card-details-btn {
+  position: absolute;
+  bottom: 16px;
+  right: 164px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(var(--overlay-inverse), 0.6);
+  color: rgb(var(--overlay-base));
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.2s, transform 0.2s 0.03s;
+  z-index: 1;
+}
+
+.album-card-details-btn svg { width: 18px; height: 18px; }
+
+.album-card:hover .album-card-details-btn,
+.artist-card:hover .album-card-details-btn,
+.tag-card:hover .album-card-details-btn {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.album-card-details-btn:hover {
   background: rgba(var(--overlay-inverse), 0.8);
 }

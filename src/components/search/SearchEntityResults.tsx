@@ -6,8 +6,13 @@ import { TagCardArt } from "../TagCardArt";
 import { LikeDislikeButtons } from "../LikeDislikeButtons";
 import { LoadMoreSentinel } from "./searchShared";
 
-/** Hover-reveal Play/Enqueue overlay shared by the album/artist/tag table + list rows. */
-function EntityRowActions({ onPlay, onEnqueue }: { onPlay: () => void; onEnqueue: () => void }) {
+/** Info (Details) glyph shared by the row + tile overlay buttons. */
+const DETAILS_ICON = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+);
+
+/** Hover-reveal Play/Enqueue/Details overlay shared by the album/artist/tag table + list rows. */
+function EntityRowActions({ onPlay, onEnqueue, onDetails }: { onPlay: () => void; onEnqueue: () => void; onDetails: () => void }) {
   return (
     <span className="row-hover-actions">
       <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlay(); }}>
@@ -15,6 +20,9 @@ function EntityRowActions({ onPlay, onEnqueue }: { onPlay: () => void; onEnqueue
       </button>
       <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueue(); }}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button type="button" className="row-hover-action" title="Details" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDetails(); }}>
+        {DETAILS_ICON}
       </button>
     </span>
   );
@@ -77,19 +85,14 @@ export function SearchTagResults({
 }) {
   const ids = tags.map(t => t.id);
   function handleClick(e: React.MouseEvent, index: number) {
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
-    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
-      onSelectionChange(new Set());
-      onTagClick(tags[index].id);
-      return;
-    }
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .album-card-details-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
     onSelectionChange(sel);
     lastClickedRef.current = index;
   }
   function handleMouseDown(e: React.MouseEvent, id: number) {
     if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .album-card-details-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const startX = e.clientX, startY = e.clientY;
     let dragging = false;
     function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
@@ -119,7 +122,7 @@ export function SearchTagResults({
               <LikeDislikeButtons liked={t.liked} onToggleLike={() => onToggleLike(t.id)} onToggleDislike={() => onToggleDislike(t.id)} variant="inline" size={12} />
               <span className="entity-table-name">
                 <span className="entity-table-name-main">{t.name}</span>
-                <EntityRowActions onPlay={() => onPlayTag(t.id)} onEnqueue={() => onEnqueueTag(t.id)} />
+                <EntityRowActions onPlay={() => onPlayTag(t.id)} onEnqueue={() => onEnqueueTag(t.id)} onDetails={() => onTagClick(t.id)} />
               </span>
               <span className="entity-table-count">{t.track_count}</span>
             </div>
@@ -140,7 +143,7 @@ export function SearchTagResults({
                   <span className="entity-list-secondary">{t.track_count} tracks</span>
                 </div>
               </div>
-              <EntityRowActions onPlay={() => onPlayTag(t.id)} onEnqueue={() => onEnqueueTag(t.id)} />
+              <EntityRowActions onPlay={() => onPlayTag(t.id)} onEnqueue={() => onEnqueueTag(t.id)} onDetails={() => onTagClick(t.id)} />
             </div>
           ))}
           {tags.length === 0 && <div className="empty">No tags found.</div>}
@@ -162,6 +165,9 @@ export function SearchTagResults({
                   <button className="album-card-enqueue-btn" onClick={e => { e.stopPropagation(); onEnqueueTag(t.id); }} title="Enqueue">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                   </button>
+                  <button className="album-card-details-btn" onClick={e => { e.stopPropagation(); onTagClick(t.id); }} title="Details">
+                    {DETAILS_ICON}
+                  </button>
                 </div>
                 <div className="tag-card-body">
                   <div className="tag-card-name" title={t.name}>{t.name}</div>
@@ -180,7 +186,7 @@ export function SearchTagResults({
 }
 
 export function SearchAlbumResults({
-  albums, viewMode, getAlbumImage, onAlbumClick, onToggleLike, onToggleDislike,
+  albums, viewMode, getAlbumImage, onAlbumClick, onArtistClick, onToggleLike, onToggleDislike,
   onContextMenu, onMultiContextMenu, onPlayAlbum, onEnqueueAlbum, hasMore, loadingMore, onLoadMore,
   onSort, sortField, sortIndicator, selectedIds, onSelectionChange, lastClickedRef, onDragStart,
 }: {
@@ -188,6 +194,7 @@ export function SearchAlbumResults({
   viewMode: ViewMode;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   onAlbumClick: (id: number, artistId?: number | null) => void;
+  onArtistClick: (artistId: number, name?: string) => void;
   onToggleLike: (id: number) => void;
   onToggleDislike: (id: number) => void;
   onContextMenu: (e: React.MouseEvent, id: number) => void;
@@ -207,20 +214,14 @@ export function SearchAlbumResults({
 }) {
   const ids = albums.map(a => a.id);
   function handleClick(e: React.MouseEvent, index: number) {
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
-    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
-      onSelectionChange(new Set());
-      const a = albums[index];
-      onAlbumClick(a.id, a.artist_id);
-      return;
-    }
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .album-card-details-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
     onSelectionChange(sel);
     lastClickedRef.current = index;
   }
   function handleMouseDown(e: React.MouseEvent, id: number) {
     if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .album-card-details-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const startX = e.clientX, startY = e.clientY;
     let dragging = false;
     function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
@@ -252,9 +253,13 @@ export function SearchAlbumResults({
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
               <span className="entity-table-name">
                 <span className="entity-table-name-main">{a.title}</span>
-                <EntityRowActions onPlay={() => onPlayAlbum(a.id)} onEnqueue={() => onEnqueueAlbum(a.id)} />
+                <EntityRowActions onPlay={() => onPlayAlbum(a.id)} onEnqueue={() => onEnqueueAlbum(a.id)} onDetails={() => onAlbumClick(a.id, a.artist_id)} />
               </span>
-              <span className="entity-table-secondary">{a.artist_name ?? ""}</span>
+              <span className="entity-table-secondary">
+                {a.artist_name && (
+                  <span className="track-link" onClick={e => { e.stopPropagation(); onArtistClick(a.artist_id ?? 0, a.artist_name!); }}>{a.artist_name}</span>
+                )}
+              </span>
               <span className="entity-table-year">{a.year ?? ""}</span>
               <span className="entity-table-count">{a.track_count}</span>
             </div>
@@ -273,12 +278,12 @@ export function SearchAlbumResults({
                 <div className="entity-list-info">
                   <span className="entity-list-name">{a.title}</span>
                   <span className="entity-list-secondary">
-                    {a.artist_name && <>{a.artist_name} {"\u00B7"} </>}
+                    {a.artist_name && <><span className="track-link" onClick={e => { e.stopPropagation(); onArtistClick(a.artist_id ?? 0, a.artist_name!); }}>{a.artist_name}</span> {"\u00B7"} </>}
                     {a.year ? `${a.year} \u00B7 ` : ""}{a.track_count} tracks
                   </span>
                 </div>
               </div>
-              <EntityRowActions onPlay={() => onPlayAlbum(a.id)} onEnqueue={() => onEnqueueAlbum(a.id)} />
+              <EntityRowActions onPlay={() => onPlayAlbum(a.id)} onEnqueue={() => onEnqueueAlbum(a.id)} onDetails={() => onAlbumClick(a.id, a.artist_id)} />
             </div>
           ))}
           {albums.length === 0 && <div className="empty">No albums found.</div>}
@@ -299,6 +304,9 @@ export function SearchAlbumResults({
                   </button>
                   <button className="album-card-enqueue-btn" onClick={e => { e.stopPropagation(); onEnqueueAlbum(a.id); }} title="Enqueue">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
+                  <button className="album-card-details-btn" onClick={e => { e.stopPropagation(); onAlbumClick(a.id, a.artist_id); }} title="Details">
+                    {DETAILS_ICON}
                   </button>
                 </div>
                 <div className="album-card-body">
@@ -347,19 +355,14 @@ export function SearchArtistResults({
 }) {
   const ids = artists.map(a => a.id);
   function handleClick(e: React.MouseEvent, index: number) {
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
-    if (!e.metaKey && !e.ctrlKey && !e.shiftKey) {
-      onSelectionChange(new Set());
-      onArtistClick(artists[index].id);
-      return;
-    }
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .album-card-details-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
     onSelectionChange(sel);
     lastClickedRef.current = index;
   }
   function handleMouseDown(e: React.MouseEvent, id: number) {
     if (e.button !== 0 || !selectedIds.has(id) || selectedIds.size < 2) return;
-    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
+    if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .album-card-play-btn, .album-card-enqueue-btn, .album-card-details-btn, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
     const startX = e.clientX, startY = e.clientY;
     let dragging = false;
     function onMove(ev: MouseEvent) { if (!dragging && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) >= 5) { dragging = true; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); onDragStart([...selectedIds]); } }
@@ -389,7 +392,7 @@ export function SearchArtistResults({
               <LikeDislikeButtons liked={a.liked} onToggleLike={() => onToggleLike(a.id)} onToggleDislike={() => onToggleDislike(a.id)} variant="inline" size={12} />
               <span className="entity-table-name">
                 <span className="entity-table-name-main">{a.name}</span>
-                <EntityRowActions onPlay={() => onPlayArtist(a.id)} onEnqueue={() => onEnqueueArtist(a.id)} />
+                <EntityRowActions onPlay={() => onPlayArtist(a.id)} onEnqueue={() => onEnqueueArtist(a.id)} onDetails={() => onArtistClick(a.id)} />
               </span>
               <span className="entity-table-count">{a.track_count}</span>
             </div>
@@ -410,7 +413,7 @@ export function SearchArtistResults({
                   <span className="entity-list-secondary">{a.track_count} tracks</span>
                 </div>
               </div>
-              <EntityRowActions onPlay={() => onPlayArtist(a.id)} onEnqueue={() => onEnqueueArtist(a.id)} />
+              <EntityRowActions onPlay={() => onPlayArtist(a.id)} onEnqueue={() => onEnqueueArtist(a.id)} onDetails={() => onArtistClick(a.id)} />
             </div>
           ))}
           {artists.length === 0 && <div className="empty">No artists found.</div>}
@@ -431,6 +434,9 @@ export function SearchArtistResults({
                   </button>
                   <button className="album-card-enqueue-btn" onClick={e => { e.stopPropagation(); onEnqueueArtist(a.id); }} title="Enqueue">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                  </button>
+                  <button className="album-card-details-btn" onClick={e => { e.stopPropagation(); onArtistClick(a.id); }} title="Details">
+                    {DETAILS_ICON}
                   </button>
                 </div>
                 <div className="artist-card-body">

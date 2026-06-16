@@ -1057,6 +1057,7 @@ export function SearchView({
             viewMode={viewModes.albums}
             getAlbumImage={getAlbumImage}
             onAlbumClick={onAlbumClick}
+            onArtistClick={onArtistClick}
             onToggleLike={handleAlbumLike}
             onToggleDislike={handleAlbumDislike}
             onContextMenu={onAlbumContextMenu}
