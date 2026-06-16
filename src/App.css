@@ -2999,6 +2999,21 @@
   text-align: right;
 }
 
+.eq-barvis-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--border);
+}
+
+.eq-barvis-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 .now-playing-eq-btn.active {
   color: var(--accent);
 }

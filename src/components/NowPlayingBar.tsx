@@ -140,6 +140,8 @@ interface NowPlayingBarProps {
   onEqTrebleChange: (db: number) => void;
   onEqResetAll: () => void;
   onEqSaveAs: () => void;
+  eqShowBarControl: boolean;
+  onEqShowBarControlChange: (v: boolean) => void;
   onToggleQueueMode: () => void;
   onRandomize: () => void;
   queueLength: number;
@@ -191,6 +193,7 @@ export function NowPlayingBar({
   onSeek, onVolume, onMute,
   eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqCustomPresets,
   onEqEnabledChange, onEqModeChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqBassChange, onEqTrebleChange, onEqResetAll, onEqSaveAs,
+  eqShowBarControl, onEqShowBarControlChange,
   onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onTrackClick,
@@ -673,7 +676,7 @@ export function NowPlayingBar({
 
         {/* Audio group: equalizer (+ inline knobs) · mute · volume */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">
-          {!isVideo && (
+          {!isVideo && eqShowBarControl && (
             <EqBarControl
               mode={eqMode}
               enabled={eqEnabled}
@@ -720,6 +723,8 @@ export function NowPlayingBar({
                 onTrebleChange={onEqTrebleChange}
                 onResetAll={onEqResetAll}
                 onSaveAs={onEqSaveAs}
+                showBarControl={eqShowBarControl}
+                onShowBarControlChange={onEqShowBarControlChange}
                 onClose={() => setEqOpen(false)}
                 anchorRef={eqAnchorRef}
               />

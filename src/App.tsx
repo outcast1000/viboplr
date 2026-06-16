@@ -215,6 +215,8 @@ function App() {
   const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = useState(true);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
   const [eqCustomPresets, setEqCustomPresets] = useState<{ id: string; name: string; gains: number[] }[]>([]);
+  const [eqShowBarControlSimple, setEqShowBarControlSimple] = useState(true);
+  const [eqShowBarControlAdvanced, setEqShowBarControlAdvanced] = useState(false);
   const [eqSaveAsOpen, setEqSaveAsOpen] = useState(false);
   const [debugLogging, setDebugLogging] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
@@ -1637,7 +1639,7 @@ function App() {
         if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
 
-        const [savedEqEnabled, savedEqMode, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb, savedEqBassDb, savedEqTrebleDb] = await Promise.all([
+        const [savedEqEnabled, savedEqMode, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb, savedEqBassDb, savedEqTrebleDb, savedEqShowBarSimple, savedEqShowBarAdvanced] = await Promise.all([
           store.get<boolean>("eqEnabled"),
           store.get<string>("eqMode"),
           store.get<string>("eqPreset"),
@@ -1646,6 +1648,8 @@ function App() {
           store.get<number>("eqPreGainDb"),
           store.get<number>("eqBassDb"),
           store.get<number>("eqTrebleDb"),
+          store.get<boolean>("eqShowBarControlSimple"),
+          store.get<boolean>("eqShowBarControlAdvanced"),
         ]);
         if (typeof savedEqEnabled === "boolean") playback.setEqEnabled(savedEqEnabled);
         if (savedEqMode === "simple" || savedEqMode === "advanced") playback.setEqMode(savedEqMode);
@@ -1663,6 +1667,8 @@ function App() {
         if (typeof savedEqTrebleDb === "number" && Number.isFinite(savedEqTrebleDb)) {
           playback.setEqTrebleDb(savedEqTrebleDb);
         }
+        if (typeof savedEqShowBarSimple === "boolean") setEqShowBarControlSimple(savedEqShowBarSimple);
+        if (typeof savedEqShowBarAdvanced === "boolean") setEqShowBarControlAdvanced(savedEqShowBarAdvanced);
 
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
@@ -1876,6 +1882,16 @@ function App() {
     if (!restoredRef.current) return;
     store.set("eqMode", playback.eqMode);
   }, [playback.eqMode]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqShowBarControlSimple", eqShowBarControlSimple);
+  }, [eqShowBarControlSimple]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("eqShowBarControlAdvanced", eqShowBarControlAdvanced);
+  }, [eqShowBarControlAdvanced]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -3688,6 +3704,8 @@ function App() {
           playback.setEqPreGainDb(0);
         }}
         onEqSaveAs={() => setEqSaveAsOpen(true)}
+        eqShowBarControl={playback.eqMode === "simple" ? eqShowBarControlSimple : eqShowBarControlAdvanced}
+        onEqShowBarControlChange={playback.eqMode === "simple" ? setEqShowBarControlSimple : setEqShowBarControlAdvanced}
         onToggleQueueMode={queueHook.toggleQueueMode}
         onRandomize={queueHook.randomizeQueue}
         queueLength={queueHook.queue.length}

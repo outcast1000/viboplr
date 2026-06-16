@@ -27,6 +27,8 @@ interface Props {
   onTrebleChange: (db: number) => void;
   onResetAll: () => void;
   onSaveAs: () => void;
+  showBarControl: boolean;
+  onShowBarControlChange: (v: boolean) => void;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }
@@ -37,7 +39,8 @@ const CURVE_HEIGHT = 190;
 export function EqPopover({
   enabled, mode, preset, gains, preGainDb, bassDb, trebleDb, customPresets,
   onEnabledChange, onModeChange, onPresetChange, onGainChange, onPreGainChange,
-  onBassChange, onTrebleChange, onResetAll, onSaveAs, onClose, anchorRef,
+  onBassChange, onTrebleChange, onResetAll, onSaveAs,
+  showBarControl, onShowBarControlChange, onClose, anchorRef,
 }: Props) {
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -205,6 +208,21 @@ export function EqPopover({
           <span className="eq-pregain-readout">{formatDb(preGainDb)} dB</span>
         </div>
       )}
+
+      {/* Visibility of the inline EQ control in the now-playing bar — stored per mode */}
+      <div className="eq-barvis-row">
+        <span className="eq-barvis-label">Show {simple ? "Simple" : "Advanced"} controls in player bar</span>
+        <button
+          className={`eq-enable-toggle ${showBarControl ? "on" : ""}`}
+          onClick={() => onShowBarControlChange(!showBarControl)}
+          role="switch"
+          aria-checked={showBarControl}
+          title={showBarControl ? "Hide inline controls in the player bar" : "Show inline controls in the player bar"}
+        >
+          <span className="eq-enable-track" aria-hidden="true"><span className="eq-enable-thumb" /></span>
+          <span className="eq-enable-label">{showBarControl ? "On" : "Off"}</span>
+        </button>
+      </div>
     </div>
   );
 }
