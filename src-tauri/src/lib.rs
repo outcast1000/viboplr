@@ -34,465 +34,250 @@ use image_provider::AlbumImageProvider;
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{Emitter, Manager};
 
+// Single source of truth for the IPC command registry. The common command list
+// lives here once; build-profile-specific commands (e.g. the debug-only
+// `clear_database`) are passed in as extra trailing paths so the two
+// `get_invoke_handler` variants below can't drift apart.
+macro_rules! invoke_handler {
+    ($($extra:path),* $(,)?) => {
+        tauri::generate_handler![
+            commands::get_profile_info,
+            commands::add_collection,
+            commands::remove_collection,
+            commands::update_collection,
+            commands::get_collections,
+            commands::get_collection_stats,
+            commands::find_track_in_collection,
+            commands::resync_collection,
+            commands::get_artists,
+            commands::get_artist_by_id,
+            commands::get_albums,
+            commands::get_album_by_id,
+            commands::get_tracks,
+            commands::search_all,
+            commands::search_entity,
+            commands::get_track_count,
+            commands::get_track_by_id,
+            commands::find_track_by_metadata,
+            commands::find_track_id_by_path,
+            commands::find_artist_by_name,
+            commands::find_album_by_name,
+            commands::get_tracks_by_ids,
+            commands::get_tracks_by_paths,
+            commands::get_tracks_by_artist,
+            commands::get_track_path,
+            commands::resolve_subsonic_location,
+            commands::toggle_liked,
+            commands::set_entity_like_state,
+            commands::get_liked_tracks,
+            commands::get_track_like_states,
+            commands::rebuild_search_index,
+            commands::show_in_folder,
+            commands::show_in_folder_path,
+            commands::open_folder,
+            commands::delete_tracks,
+            commands::bulk_update_tracks,
+            commands::get_tags,
+            commands::get_tag_by_id,
+            commands::find_tag_by_name,
+            commands::get_tags_for_track,
+            commands::get_tag_counts_for_tracks,
+            commands::apply_tag_to_tracks,
+            commands::remove_tag_from_tracks,
+            commands::get_tracks_by_tag,
+            commands::get_top_artists_for_tag,
+            commands::delete_tag,
+            commands::get_entity_image,
+            commands::set_entity_image,
+            commands::paste_entity_image,
+            commands::paste_entity_image_from_clipboard,
+            commands::remove_entity_image,
+            commands::fetch_artist_image,
+            commands::fetch_album_image,
+            commands::fetch_tag_image,
+            commands::clear_image_failures,
+            commands::save_entity_image_from_provider,
+            commands::extract_embedded_album_image,
+            commands::record_play,
+            commands::get_history_recent,
+            commands::get_history_most_played,
+            commands::get_history_most_played_since,
+            commands::get_history_most_played_artists,
+            commands::get_history_most_played_artists_since,
+            commands::search_history_artists,
+            commands::search_history_tracks,
+            commands::reconnect_history_track,
+            commands::reconnect_history_artist,
+            commands::get_track_rank,
+            commands::get_artist_rank,
+            commands::get_track_play_history,
+            commands::get_track_play_stats,
+            commands::get_auto_continue_track,
+            commands::build_radio_for_track,
+            commands::pick_radio_seeds,
+            commands::save_playlist_entries,
+            commands::load_playlist,
+            commands::save_playlist_record,
+            commands::get_playlists,
+            commands::get_playlist_tracks,
+            commands::ensure_auto_playlists,
+            commands::delete_playlist_record,
+            commands::export_playlist_m3u,
+            commands::update_playlist_image,
+            commands::paste_clipboard_to_playlist_images,
+            commands::copy_to_playlist_images,
+            commands::download_url_to_playlist_images,
+            commands::generate_playlist_composite,
+            commands::get_startup_timings,
+            commands::test_collection_connection,
+            commands::subsonic_test_connection,
+            commands::search_youtube,
+            commands::check_dependencies,
+            commands::dependency_install,
+            commands::dependency_uninstall_managed,
+            commands::dependency_check_updates,
+            commands::plugin_exec,
+            commands::yt_dlp_check,
+            commands::ffmpeg_check,
+            commands::yt_dlp_stream_audio,
+            commands::ffmpeg_convert_audio,
+            commands::get_video_frames,
+            commands::extract_video_frames,
+            commands::get_track_audio_properties,
+            commands::get_audio_properties_by_path,
+            commands::replace_track_tags,
+            commands::get_download_status,
+            commands::cancel_download,
+            commands::enqueue_download,
+            commands::download_resolve_response,
+            commands::resolve_subsonic_download_url,
+            commands::sync_download_providers,
+            commands::get_download_providers,
+            commands::get_active_download_providers,
+            commands::update_download_provider_priority,
+            commands::update_download_provider_active,
+            commands::reset_download_provider_priorities,
+            commands::download_preview,
+            commands::confirm_track_upgrade,
+            commands::cancel_track_upgrade,
+            commands::save_track_as_copy,
+            commands::check_dest_conflict,
+            commands::cancel_direct_download,
+            commands::download_to_path,
+            commands::add_downloaded_track,
+            commands::get_cached_waveform,
+            commands::cache_waveform,
+            commands::list_user_skins,
+            commands::read_user_skin,
+            commands::save_user_skin,
+            commands::delete_user_skin,
+            commands::import_skin_file,
+            commands::fetch_skin_gallery,
+            commands::install_gallery_skin,
+            commands::open_devtools,
+            commands::open_devtools_for_window,
+            commands::plugin_get_dir,
+            commands::plugin_list_installed,
+            commands::plugin_read_file,
+            commands::plugin_storage_get,
+            commands::plugin_storage_set,
+            commands::plugin_storage_delete,
+            commands::plugin_scheduler_register,
+            commands::plugin_scheduler_unregister,
+            commands::plugin_scheduler_complete,
+
+            commands::plugin_getenv,
+            commands::plugin_record_history_plays_batch,
+            commands::plugin_apply_tags,
+            commands::plugin_apply_tags_bulk,
+            commands::info_sync_types,
+            commands::info_get_types_for_entity,
+            commands::info_get_value,
+            commands::info_get_values_for_entity,
+            commands::info_upsert_value,
+            commands::info_delete_value,
+            commands::sync_image_providers,
+            commands::get_image_providers,
+            commands::get_all_provider_config,
+            commands::update_image_provider_priority,
+            commands::update_image_provider_active,
+            commands::update_info_type_priority,
+            commands::update_info_type_active,
+            commands::reset_provider_priorities,
+            commands::image_resolve_response,
+            commands::plugin_fetch,
+            commands::plugin_cache_image,
+            commands::plugin_cache_get_path,
+            commands::plugin_cache_delete_dir,
+            commands::plugin_cache_list_dirs,
+            commands::plugin_files_write_text,
+            commands::plugin_files_read_text,
+            commands::plugin_files_download,
+            commands::plugin_files_get_path,
+            commands::plugin_files_exists,
+            commands::plugin_files_list,
+            commands::plugin_files_remove,
+            commands::plugin_files_copy,
+            commands::plugin_files_move,
+            commands::fetch_plugin_gallery,
+            commands::install_gallery_plugin_by_update_url,
+            commands::delete_user_plugin,
+            commands::open_profile_folder,
+            commands::open_logs_folder,
+            commands::get_app_paths,
+            commands::write_frontend_log,
+            commands::preview_mixtape,
+            commands::export_mixtape,
+            commands::export_mixtape_playlist_only,
+            commands::export_mixtape_full,
+            commands::import_mixtape,
+            commands::cancel_mixtape_operation,
+            commands::cleanup_temp_mixtapes,
+            commands::main_playlist_write,
+            commands::main_playlist_read,
+            commands::main_playlist_clear,
+            commands::main_playlist_gc,
+            commands::main_playlist_set_cover,
+            commands::main_playlist_set_thumb,
+            commands::main_playlist_remove_thumb,
+            commands::main_playlist_touch_thumbs,
+            commands::main_playlist_dir,
+            commands::check_for_extension_updates,
+            commands::download_and_install_plugin_update,
+            commands::download_and_install_skin_update,
+            commands::install_plugin_from_url,
+            commands::set_cursor_tracker,
+            browse_window::open_browse_window,
+            browse_window::browse_window_eval,
+            browse_window::close_browse_window,
+            browse_window::browse_window_set_visible,
+            browse_window::browse_window_send,
+            commands::start_transcode,
+            commands::stop_transcode,
+            commands::p2p_start,
+            commands::p2p_stop,
+            commands::p2p_get_status,
+            commands::p2p_get_multiaddrs,
+            commands::p2p_search_peer,
+            commands::p2p_stream_from_peer,
+            commands::p2p_download_from_peer,
+            commands::p2p_get_shared_collections,
+            commands::p2p_set_shared_collections,
+            commands::p2p_reserve_relay,
+            commands::p2p_get_diagnostics,
+            $($extra,)*
+        ]
+    };
+}
+
 #[cfg(debug_assertions)]
 fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![
-        commands::get_profile_info,
-        commands::add_collection,
-        commands::remove_collection,
-        commands::update_collection,
-        commands::get_collections,
-        commands::get_collection_stats,
-        commands::find_track_in_collection,
-        commands::resync_collection,
-        commands::get_artists,
-        commands::get_artist_by_id,
-        commands::get_albums,
-        commands::get_album_by_id,
-        commands::get_tracks,
-        commands::search_all,
-        commands::search_entity,
-        commands::get_track_count,
-        commands::get_track_by_id,
-        commands::find_track_by_metadata,
-        commands::find_track_id_by_path,
-        commands::find_artist_by_name,
-        commands::find_album_by_name,
-        commands::get_tracks_by_ids,
-        commands::get_tracks_by_paths,
-        commands::get_tracks_by_artist,
-        commands::get_track_path,
-        commands::resolve_subsonic_location,
-        commands::toggle_liked,
-        commands::set_entity_like_state,
-        commands::get_liked_tracks,
-        commands::get_track_like_states,
-        commands::rebuild_search_index,
-        commands::show_in_folder,
-        commands::show_in_folder_path,
-        commands::open_folder,
-        commands::delete_tracks,
-        commands::bulk_update_tracks,
-        commands::clear_database,
-        commands::get_tags,
-        commands::get_tag_by_id,
-        commands::find_tag_by_name,
-        commands::get_tags_for_track,
-        commands::get_tag_counts_for_tracks,
-        commands::apply_tag_to_tracks,
-        commands::remove_tag_from_tracks,
-        commands::get_tracks_by_tag,
-        commands::get_top_artists_for_tag,
-        commands::delete_tag,
-        commands::get_entity_image,
-        commands::set_entity_image,
-        commands::paste_entity_image,
-        commands::paste_entity_image_from_clipboard,
-        commands::remove_entity_image,
-        commands::fetch_artist_image,
-        commands::fetch_album_image,
-        commands::fetch_tag_image,
-        commands::clear_image_failures,
-        commands::save_entity_image_from_provider,
-        commands::extract_embedded_album_image,
-        commands::record_play,
-        commands::get_history_recent,
-        commands::get_history_most_played,
-        commands::get_history_most_played_since,
-        commands::get_history_most_played_artists,
-        commands::get_history_most_played_artists_since,
-        commands::search_history_artists,
-        commands::search_history_tracks,
-        commands::reconnect_history_track,
-        commands::reconnect_history_artist,
-        commands::get_track_rank,
-        commands::get_artist_rank,
-        commands::get_track_play_history,
-        commands::get_track_play_stats,
-        commands::get_auto_continue_track,
-        commands::build_radio_for_track,
-        commands::pick_radio_seeds,
-        commands::save_playlist_entries,
-        commands::load_playlist,
-        commands::save_playlist_record,
-        commands::get_playlists,
-        commands::get_playlist_tracks,
-        commands::ensure_auto_playlists,
-        commands::delete_playlist_record,
-        commands::export_playlist_m3u,
-        commands::update_playlist_image,
-        commands::paste_clipboard_to_playlist_images,
-        commands::copy_to_playlist_images,
-        commands::download_url_to_playlist_images,
-        commands::generate_playlist_composite,
-        commands::get_startup_timings,
-        commands::test_collection_connection,
-        commands::subsonic_test_connection,
-        commands::search_youtube,
-        commands::check_dependencies,
-        commands::dependency_install,
-        commands::dependency_uninstall_managed,
-        commands::dependency_check_updates,
-        commands::plugin_exec,
-        commands::yt_dlp_check,
-        commands::ffmpeg_check,
-        commands::yt_dlp_stream_audio,
-        commands::ffmpeg_convert_audio,
-        commands::get_video_frames,
-        commands::extract_video_frames,
-        commands::get_track_audio_properties,
-        commands::get_audio_properties_by_path,
-        commands::replace_track_tags,
-        commands::get_download_status,
-        commands::cancel_download,
-        commands::enqueue_download,
-        commands::download_resolve_response,
-        commands::resolve_subsonic_download_url,
-        commands::sync_download_providers,
-        commands::get_download_providers,
-        commands::get_active_download_providers,
-        commands::update_download_provider_priority,
-        commands::update_download_provider_active,
-        commands::reset_download_provider_priorities,
-        commands::download_preview,
-        commands::confirm_track_upgrade,
-        commands::cancel_track_upgrade,
-        commands::save_track_as_copy,
-        commands::check_dest_conflict,
-        commands::cancel_direct_download,
-        commands::download_to_path,
-        commands::add_downloaded_track,
-        commands::get_cached_waveform,
-        commands::cache_waveform,
-        commands::list_user_skins,
-        commands::read_user_skin,
-        commands::save_user_skin,
-        commands::delete_user_skin,
-        commands::import_skin_file,
-        commands::fetch_skin_gallery,
-        commands::install_gallery_skin,
-        commands::open_devtools,
-        commands::open_devtools_for_window,
-        commands::plugin_get_dir,
-        commands::plugin_list_installed,
-        commands::plugin_read_file,
-        commands::plugin_storage_get,
-        commands::plugin_storage_set,
-        commands::plugin_storage_delete,
-        commands::plugin_scheduler_register,
-        commands::plugin_scheduler_unregister,
-        commands::plugin_scheduler_complete,
-
-        commands::plugin_getenv,
-        commands::plugin_record_history_plays_batch,
-        commands::plugin_apply_tags,
-        commands::plugin_apply_tags_bulk,
-        commands::info_sync_types,
-        commands::info_get_types_for_entity,
-        commands::info_get_value,
-        commands::info_get_values_for_entity,
-        commands::info_upsert_value,
-        commands::info_delete_value,
-        commands::sync_image_providers,
-        commands::get_image_providers,
-        commands::get_all_provider_config,
-        commands::update_image_provider_priority,
-        commands::update_image_provider_active,
-        commands::update_info_type_priority,
-        commands::update_info_type_active,
-        commands::reset_provider_priorities,
-        commands::image_resolve_response,
-        commands::plugin_fetch,
-        commands::plugin_cache_image,
-        commands::plugin_cache_get_path,
-        commands::plugin_cache_delete_dir,
-        commands::plugin_cache_list_dirs,
-        commands::plugin_files_write_text,
-        commands::plugin_files_read_text,
-        commands::plugin_files_download,
-        commands::plugin_files_get_path,
-        commands::plugin_files_exists,
-        commands::plugin_files_list,
-        commands::plugin_files_remove,
-        commands::plugin_files_copy,
-        commands::plugin_files_move,
-        commands::fetch_plugin_gallery,
-        commands::install_gallery_plugin_by_update_url,
-        commands::delete_user_plugin,
-        commands::open_profile_folder,
-        commands::open_logs_folder,
-        commands::get_app_paths,
-        commands::write_frontend_log,
-        commands::preview_mixtape,
-        commands::export_mixtape,
-        commands::export_mixtape_playlist_only,
-        commands::export_mixtape_full,
-        commands::import_mixtape,
-        commands::cancel_mixtape_operation,
-        commands::cleanup_temp_mixtapes,
-        commands::main_playlist_write,
-        commands::main_playlist_read,
-        commands::main_playlist_clear,
-        commands::main_playlist_gc,
-        commands::main_playlist_set_cover,
-        commands::main_playlist_set_thumb,
-        commands::main_playlist_remove_thumb,
-        commands::main_playlist_touch_thumbs,
-        commands::main_playlist_dir,
-        commands::check_for_extension_updates,
-        commands::download_and_install_plugin_update,
-        commands::download_and_install_skin_update,
-        commands::install_plugin_from_url,
-        commands::set_cursor_tracker,
-        browse_window::open_browse_window,
-        browse_window::browse_window_eval,
-        browse_window::close_browse_window,
-        browse_window::browse_window_set_visible,
-        browse_window::browse_window_send,
-        commands::start_transcode,
-        commands::stop_transcode,
-        commands::p2p_start,
-        commands::p2p_stop,
-        commands::p2p_get_status,
-        commands::p2p_get_multiaddrs,
-        commands::p2p_search_peer,
-        commands::p2p_stream_from_peer,
-        commands::p2p_download_from_peer,
-        commands::p2p_get_shared_collections,
-        commands::p2p_set_shared_collections,
-        commands::p2p_reserve_relay,
-        commands::p2p_get_diagnostics,
-    ]
+    invoke_handler![commands::clear_database]
 }
 
 #[cfg(not(debug_assertions))]
 fn get_invoke_handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
-    tauri::generate_handler![
-        commands::get_profile_info,
-        commands::add_collection,
-        commands::remove_collection,
-        commands::update_collection,
-        commands::get_collections,
-        commands::get_collection_stats,
-        commands::find_track_in_collection,
-        commands::resync_collection,
-        commands::get_artists,
-        commands::get_artist_by_id,
-        commands::get_albums,
-        commands::get_album_by_id,
-        commands::get_tracks,
-        commands::search_all,
-        commands::search_entity,
-        commands::get_track_count,
-        commands::get_track_by_id,
-        commands::find_track_by_metadata,
-        commands::find_track_id_by_path,
-        commands::find_artist_by_name,
-        commands::find_album_by_name,
-        commands::get_tracks_by_ids,
-        commands::get_tracks_by_paths,
-        commands::get_tracks_by_artist,
-        commands::get_track_path,
-        commands::resolve_subsonic_location,
-        commands::toggle_liked,
-        commands::set_entity_like_state,
-        commands::get_liked_tracks,
-        commands::get_track_like_states,
-        commands::rebuild_search_index,
-        commands::show_in_folder,
-        commands::show_in_folder_path,
-        commands::open_folder,
-        commands::delete_tracks,
-        commands::bulk_update_tracks,
-        commands::get_tags,
-        commands::get_tag_by_id,
-        commands::find_tag_by_name,
-        commands::get_tags_for_track,
-        commands::get_tag_counts_for_tracks,
-        commands::apply_tag_to_tracks,
-        commands::remove_tag_from_tracks,
-        commands::get_tracks_by_tag,
-        commands::get_top_artists_for_tag,
-        commands::delete_tag,
-        commands::get_entity_image,
-        commands::set_entity_image,
-        commands::paste_entity_image,
-        commands::paste_entity_image_from_clipboard,
-        commands::remove_entity_image,
-        commands::fetch_artist_image,
-        commands::fetch_album_image,
-        commands::fetch_tag_image,
-        commands::clear_image_failures,
-        commands::save_entity_image_from_provider,
-        commands::extract_embedded_album_image,
-        commands::record_play,
-        commands::get_history_recent,
-        commands::get_history_most_played,
-        commands::get_history_most_played_since,
-        commands::get_history_most_played_artists,
-        commands::get_history_most_played_artists_since,
-        commands::search_history_artists,
-        commands::search_history_tracks,
-        commands::reconnect_history_track,
-        commands::reconnect_history_artist,
-        commands::get_track_rank,
-        commands::get_artist_rank,
-        commands::get_track_play_history,
-        commands::get_track_play_stats,
-        commands::get_auto_continue_track,
-        commands::build_radio_for_track,
-        commands::pick_radio_seeds,
-        commands::save_playlist_entries,
-        commands::load_playlist,
-        commands::save_playlist_record,
-        commands::get_playlists,
-        commands::get_playlist_tracks,
-        commands::ensure_auto_playlists,
-        commands::delete_playlist_record,
-        commands::export_playlist_m3u,
-        commands::update_playlist_image,
-        commands::paste_clipboard_to_playlist_images,
-        commands::copy_to_playlist_images,
-        commands::download_url_to_playlist_images,
-        commands::generate_playlist_composite,
-        commands::get_startup_timings,
-        commands::test_collection_connection,
-        commands::subsonic_test_connection,
-        commands::search_youtube,
-        commands::check_dependencies,
-        commands::dependency_install,
-        commands::dependency_uninstall_managed,
-        commands::dependency_check_updates,
-        commands::plugin_exec,
-        commands::yt_dlp_check,
-        commands::ffmpeg_check,
-        commands::yt_dlp_stream_audio,
-        commands::ffmpeg_convert_audio,
-        commands::get_video_frames,
-        commands::extract_video_frames,
-        commands::get_track_audio_properties,
-        commands::get_audio_properties_by_path,
-        commands::replace_track_tags,
-        commands::get_download_status,
-        commands::cancel_download,
-        commands::enqueue_download,
-        commands::download_resolve_response,
-        commands::resolve_subsonic_download_url,
-        commands::sync_download_providers,
-        commands::get_download_providers,
-        commands::get_active_download_providers,
-        commands::update_download_provider_priority,
-        commands::update_download_provider_active,
-        commands::reset_download_provider_priorities,
-        commands::download_preview,
-        commands::confirm_track_upgrade,
-        commands::cancel_track_upgrade,
-        commands::save_track_as_copy,
-        commands::check_dest_conflict,
-        commands::cancel_direct_download,
-        commands::download_to_path,
-        commands::add_downloaded_track,
-        commands::get_cached_waveform,
-        commands::cache_waveform,
-        commands::list_user_skins,
-        commands::read_user_skin,
-        commands::save_user_skin,
-        commands::delete_user_skin,
-        commands::import_skin_file,
-        commands::fetch_skin_gallery,
-        commands::install_gallery_skin,
-        commands::open_devtools,
-        commands::open_devtools_for_window,
-        commands::plugin_get_dir,
-        commands::plugin_list_installed,
-        commands::plugin_read_file,
-        commands::plugin_storage_get,
-        commands::plugin_storage_set,
-        commands::plugin_storage_delete,
-        commands::plugin_scheduler_register,
-        commands::plugin_scheduler_unregister,
-        commands::plugin_scheduler_complete,
-
-        commands::plugin_getenv,
-        commands::plugin_record_history_plays_batch,
-        commands::plugin_apply_tags,
-        commands::plugin_apply_tags_bulk,
-        commands::info_sync_types,
-        commands::info_get_types_for_entity,
-        commands::info_get_value,
-        commands::info_get_values_for_entity,
-        commands::info_upsert_value,
-        commands::info_delete_value,
-        commands::sync_image_providers,
-        commands::get_image_providers,
-        commands::get_all_provider_config,
-        commands::update_image_provider_priority,
-        commands::update_image_provider_active,
-        commands::update_info_type_priority,
-        commands::update_info_type_active,
-        commands::reset_provider_priorities,
-        commands::image_resolve_response,
-        commands::plugin_fetch,
-        commands::plugin_cache_image,
-        commands::plugin_cache_get_path,
-        commands::plugin_cache_delete_dir,
-        commands::plugin_cache_list_dirs,
-        commands::plugin_files_write_text,
-        commands::plugin_files_read_text,
-        commands::plugin_files_download,
-        commands::plugin_files_get_path,
-        commands::plugin_files_exists,
-        commands::plugin_files_list,
-        commands::plugin_files_remove,
-        commands::plugin_files_copy,
-        commands::plugin_files_move,
-        commands::fetch_plugin_gallery,
-        commands::install_gallery_plugin_by_update_url,
-        commands::delete_user_plugin,
-        commands::open_profile_folder,
-        commands::open_logs_folder,
-        commands::get_app_paths,
-        commands::write_frontend_log,
-        commands::preview_mixtape,
-        commands::export_mixtape,
-        commands::export_mixtape_playlist_only,
-        commands::export_mixtape_full,
-        commands::import_mixtape,
-        commands::cancel_mixtape_operation,
-        commands::cleanup_temp_mixtapes,
-        commands::main_playlist_write,
-        commands::main_playlist_read,
-        commands::main_playlist_clear,
-        commands::main_playlist_gc,
-        commands::main_playlist_set_cover,
-        commands::main_playlist_set_thumb,
-        commands::main_playlist_remove_thumb,
-        commands::main_playlist_touch_thumbs,
-        commands::main_playlist_dir,
-        commands::check_for_extension_updates,
-        commands::download_and_install_plugin_update,
-        commands::download_and_install_skin_update,
-        commands::install_plugin_from_url,
-        commands::set_cursor_tracker,
-        browse_window::open_browse_window,
-        browse_window::browse_window_eval,
-        browse_window::close_browse_window,
-        browse_window::browse_window_set_visible,
-        browse_window::browse_window_send,
-        commands::start_transcode,
-        commands::stop_transcode,
-        commands::p2p_start,
-        commands::p2p_stop,
-        commands::p2p_get_status,
-        commands::p2p_get_multiaddrs,
-        commands::p2p_search_peer,
-        commands::p2p_stream_from_peer,
-        commands::p2p_download_from_peer,
-        commands::p2p_get_shared_collections,
-        commands::p2p_set_shared_collections,
-        commands::p2p_reserve_relay,
-        commands::p2p_get_diagnostics,
-    ]
+    invoke_handler![]
 }
 
 pub(crate) fn download_image_from_url(
@@ -524,6 +309,93 @@ pub(crate) fn base64_decode_and_save(data: &str, dest: &std::path::Path) -> Resu
         .decode(data)
         .map_err(|e| format!("Base64 decode error: {}", e))?;
     image_provider::write_image(dest, &bytes)
+}
+
+/// Resolve an entity image through the JS plugin bridge and persist it.
+///
+/// Shared by the artist/album/tag arms of the image-download worker: registers a
+/// one-shot channel, emits `image-resolve-request`, then on the response saves the
+/// base64/url payload to `dest` and emits the entity's `*-image-ready` event, or
+/// records the failure and emits `*-image-error`. The per-entity payload shapes
+/// (which JSON keys identify the entity) and event names are supplied by the caller
+/// via closures so the resolve/save/emit flow lives in exactly one place.
+#[allow(clippy::too_many_arguments)]
+fn resolve_image_via_bridge(
+    app_handle: &tauri::AppHandle,
+    worker_db: &Database,
+    worker_registry: &ImageResolveRegistry,
+    entity: &str,
+    label: &str,
+    slug: &str,
+    dest: &std::path::Path,
+    ready_event: &str,
+    error_event: &str,
+    timeout_msg: &str,
+    make_request: impl Fn(&str) -> serde_json::Value,
+    make_ready: impl Fn(&str, &str) -> serde_json::Value,
+    make_error: impl Fn(&str) -> serde_json::Value,
+) {
+    let request_id = format!(
+        "{}-{}-{}",
+        entity,
+        slug,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
+
+    log::info!("Requesting image resolve for {}: {}", entity, label);
+    let _ = app_handle.emit("image-resolve-request", make_request(&request_id));
+
+    match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+        Ok(result) => {
+            worker_registry.pending.lock().unwrap().remove(&request_id);
+
+            if let Some(error) = result.error {
+                log::warn!("All providers failed for {} {}: {}", entity, label, error);
+                let _ = worker_db.record_image_failure(entity, slug);
+                let _ = app_handle.emit(error_event, make_error(&error));
+            } else if let Some(data) = result.data {
+                match base64_decode_and_save(&data, dest) {
+                    Ok(()) => {
+                        let path = dest.to_string_lossy().to_string();
+                        log::info!("Saved {} image from base64 data: {}", entity, label);
+                        let _ = app_handle.emit(ready_event, make_ready(&path, "plugin"));
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to decode/save base64 image for {} {}: {}", entity, label, e);
+                        let _ = worker_db.record_image_failure(entity, slug);
+                        let _ = app_handle.emit(error_event, make_error(&e));
+                    }
+                }
+            } else if let Some(url) = result.url {
+                match download_image_from_url(&url, result.headers.as_ref(), dest) {
+                    Ok(()) => {
+                        let path = dest.to_string_lossy().to_string();
+                        log::info!("Downloaded {} image from {}: {}", entity, url, label);
+                        let _ = app_handle.emit(ready_event, make_ready(&path, "plugin"));
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to download {} image from {}: {}", entity, url, e);
+                        let _ = worker_db.record_image_failure(entity, slug);
+                        let _ = app_handle.emit(error_event, make_error(&e));
+                    }
+                }
+            } else {
+                log::warn!("Empty resolve result for {} {}", entity, label);
+                let _ = worker_db.record_image_failure(entity, slug);
+            }
+        }
+        Err(_) => {
+            worker_registry.pending.lock().unwrap().remove(&request_id);
+            log::warn!("Image resolve timeout for {} {}", entity, label);
+            let _ = worker_db.record_image_failure(entity, slug);
+            let _ = app_handle.emit(error_event, make_error(timeout_msg));
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -803,78 +675,14 @@ pub fn run() {
                                 continue;
                             }
 
-                            log::info!("Requesting image resolve for artist: {}", name);
-
-                            // Create a one-shot channel for this request
-                            let request_id = format!("artist-{}-{}", slug, std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
-                            let (tx, rx) = std::sync::mpsc::channel();
-
-                            // Register the sender
-                            worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
-
-                            // Emit event to frontend
-                            let _ = app_handle.emit("image-resolve-request", serde_json::json!({
-                                "request_id": request_id,
-                                "entity": "artist",
-                                "name": name,
-                            }));
-
-                            // Wait for response with 30s timeout
-                            match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-                                Ok(result) => {
-                                    // Clean up registry
-                                    worker_registry.pending.lock().unwrap().remove(&request_id);
-
-                                    if let Some(error) = result.error {
-                                        log::warn!("All providers failed for artist {}: {}", name, error);
-                                        let _ = worker_db.record_image_failure("artist", &slug);
-                                        let _ = app_handle.emit("artist-image-error",
-                                            serde_json::json!({ "name": name, "error": error }));
-                                    } else if let Some(data) = result.data {
-                                        match base64_decode_and_save(&data, &dest) {
-                                            Ok(()) => {
-                                                let path = dest.to_string_lossy().to_string();
-                                                log::info!("Saved artist image from base64 data: {}", name);
-                                                let _ = app_handle.emit("artist-image-ready",
-                                                    serde_json::json!({ "path": &path, "name": name, "source": "plugin" }));
-                                            }
-                                            Err(e) => {
-                                                log::warn!("Failed to decode/save base64 image for artist {}: {}", name, e);
-                                                let _ = worker_db.record_image_failure("artist", &slug);
-                                                let _ = app_handle.emit("artist-image-error",
-                                                    serde_json::json!({ "name": name, "error": e }));
-                                            }
-                                        }
-                                    } else if let Some(url) = result.url {
-                                        match download_image_from_url(&url, result.headers.as_ref(), &dest) {
-                                            Ok(()) => {
-                                                let path = dest.to_string_lossy().to_string();
-                                                log::info!("Downloaded artist image from {}: {}", url, name);
-                                                let _ = app_handle.emit("artist-image-ready",
-                                                    serde_json::json!({ "path": &path, "name": name, "source": "plugin" }));
-                                            }
-                                            Err(e) => {
-                                                log::warn!("Failed to download artist image from {}: {}", url, e);
-                                                let _ = worker_db.record_image_failure("artist", &slug);
-                                                let _ = app_handle.emit("artist-image-error",
-                                                    serde_json::json!({ "name": name, "error": e }));
-                                            }
-                                        }
-                                    } else {
-                                        log::warn!("Empty resolve result for artist {}", name);
-                                        let _ = worker_db.record_image_failure("artist", &slug);
-                                    }
-                                }
-                                Err(_) => {
-                                    // Timeout or channel closed
-                                    worker_registry.pending.lock().unwrap().remove(&request_id);
-                                    log::warn!("Image resolve timeout for artist {}", name);
-                                    let _ = worker_db.record_image_failure("artist", &slug);
-                                    let _ = app_handle.emit("artist-image-error",
-                                        serde_json::json!({ "name": name, "error": "Resolve timeout" }));
-                                }
-                            }
+                            resolve_image_via_bridge(
+                                &app_handle, &worker_db, &worker_registry,
+                                "artist", name, &slug, &dest,
+                                "artist-image-ready", "artist-image-error", "Resolve timeout",
+                                |request_id| serde_json::json!({ "request_id": request_id, "entity": "artist", "name": name }),
+                                |path, source| serde_json::json!({ "path": path, "name": name, "source": source }),
+                                |error| serde_json::json!({ "name": name, "error": error }),
+                            );
                         }
                         ImageDownloadRequest::Album { title, artist_name, force } => {
                             let slug = entity_image::entity_image_slug("album", title, artist_name.as_deref());
@@ -904,79 +712,14 @@ pub fn run() {
                             }
 
                             // Fall through to bridge for external providers
-                            log::info!("Requesting image resolve for album: {}", title);
-
-                            // Create a one-shot channel for this request
-                            let request_id = format!("album-{}-{}", slug, std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
-                            let (tx, rx) = std::sync::mpsc::channel();
-
-                            // Register the sender
-                            worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
-
-                            // Emit event to frontend
-                            let _ = app_handle.emit("image-resolve-request", serde_json::json!({
-                                "request_id": request_id,
-                                "entity": "album",
-                                "title": title,
-                                "artist_name": artist_name,
-                            }));
-
-                            // Wait for response with 30s timeout
-                            match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-                                Ok(result) => {
-                                    // Clean up registry
-                                    worker_registry.pending.lock().unwrap().remove(&request_id);
-
-                                    if let Some(error) = result.error {
-                                        log::warn!("All providers failed for album {}: {}", title, error);
-                                        let _ = worker_db.record_image_failure("album", &slug);
-                                        let _ = app_handle.emit("album-image-error",
-                                            serde_json::json!({ "title": title, "artist_name": artist_name, "error": error }));
-                                    } else if let Some(data) = result.data {
-                                        match base64_decode_and_save(&data, &dest) {
-                                            Ok(()) => {
-                                                let path = dest.to_string_lossy().to_string();
-                                                log::info!("Saved album image from base64 data: {}", title);
-                                                let _ = app_handle.emit("album-image-ready",
-                                                    serde_json::json!({ "path": &path, "title": title, "artist_name": artist_name, "source": "plugin" }));
-                                            }
-                                            Err(e) => {
-                                                log::warn!("Failed to decode/save base64 image for album {}: {}", title, e);
-                                                let _ = worker_db.record_image_failure("album", &slug);
-                                                let _ = app_handle.emit("album-image-error",
-                                                    serde_json::json!({ "title": title, "artist_name": artist_name, "error": e }));
-                                            }
-                                        }
-                                    } else if let Some(url) = result.url {
-                                        match download_image_from_url(&url, result.headers.as_ref(), &dest) {
-                                            Ok(()) => {
-                                                let path = dest.to_string_lossy().to_string();
-                                                log::info!("Downloaded album image from {}: {}", url, title);
-                                                let _ = app_handle.emit("album-image-ready",
-                                                    serde_json::json!({ "path": &path, "title": title, "artist_name": artist_name, "source": "plugin" }));
-                                            }
-                                            Err(e) => {
-                                                log::warn!("Failed to download album image from {}: {}", url, e);
-                                                let _ = worker_db.record_image_failure("album", &slug);
-                                                let _ = app_handle.emit("album-image-error",
-                                                    serde_json::json!({ "title": title, "artist_name": artist_name, "error": e }));
-                                            }
-                                        }
-                                    } else {
-                                        log::warn!("Empty resolve result for album {}", title);
-                                        let _ = worker_db.record_image_failure("album", &slug);
-                                    }
-                                }
-                                Err(_) => {
-                                    // Timeout or channel closed
-                                    worker_registry.pending.lock().unwrap().remove(&request_id);
-                                    log::warn!("Image resolve timeout for album {}", title);
-                                    let _ = worker_db.record_image_failure("album", &slug);
-                                    let _ = app_handle.emit("album-image-error",
-                                        serde_json::json!({ "title": title, "artist_name": artist_name, "error": "Resolve timeout" }));
-                                }
-                            }
+                            resolve_image_via_bridge(
+                                &app_handle, &worker_db, &worker_registry,
+                                "album", title, &slug, &dest,
+                                "album-image-ready", "album-image-error", "Resolve timeout",
+                                |request_id| serde_json::json!({ "request_id": request_id, "entity": "album", "title": title, "artist_name": artist_name }),
+                                |path, source| serde_json::json!({ "path": path, "title": title, "artist_name": artist_name, "source": source }),
+                                |error| serde_json::json!({ "title": title, "artist_name": artist_name, "error": error }),
+                            );
                         }
                         ImageDownloadRequest::Tag { name, force } => {
                             let slug = entity_image::entity_image_slug("tag", name, None);
@@ -989,71 +732,15 @@ pub fn run() {
                                 continue;
                             }
 
-                            // Use plugin image provider chain
                             let dest = worker_app_dir.join("tag_images").join(format!("{}.jpg", slug));
-                            let request_id = format!("tag-{}-{}", slug, std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis());
-                            let (tx, rx) = std::sync::mpsc::channel();
-                            worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
-
-                            log::info!("Requesting plugin image resolve for tag: {}", name);
-                            let _ = app_handle.emit("image-resolve-request", serde_json::json!({
-                                "request_id": request_id,
-                                "entity": "tag",
-                                "name": name,
-                            }));
-
-                            match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-                                Ok(result) => {
-                                    worker_registry.pending.lock().unwrap().remove(&request_id);
-                                    if let Some(error) = result.error {
-                                        log::warn!("All providers failed for tag {}: {}", name, error);
-                                        let _ = worker_db.record_image_failure("tag", &slug);
-                                        let _ = app_handle.emit("tag-image-error",
-                                            serde_json::json!({ "name": name, "error": error }));
-                                    } else if let Some(data) = result.data {
-                                        match base64_decode_and_save(&data, &dest) {
-                                            Ok(()) => {
-                                                let path = dest.to_string_lossy().to_string();
-                                                log::info!("Saved tag image from base64 data: {}", name);
-                                                let _ = app_handle.emit("tag-image-ready",
-                                                    serde_json::json!({ "path": &path, "name": name, "source": "plugin" }));
-                                            }
-                                            Err(e) => {
-                                                log::warn!("Failed to decode/save base64 image for tag {}: {}", name, e);
-                                                let _ = worker_db.record_image_failure("tag", &slug);
-                                                let _ = app_handle.emit("tag-image-error",
-                                                    serde_json::json!({ "name": name, "error": e }));
-                                            }
-                                        }
-                                    } else if let Some(url) = result.url {
-                                        match download_image_from_url(&url, result.headers.as_ref(), &dest) {
-                                            Ok(()) => {
-                                                let path = dest.to_string_lossy().to_string();
-                                                log::info!("Downloaded tag image from {}: {}", url, name);
-                                                let _ = app_handle.emit("tag-image-ready",
-                                                    serde_json::json!({ "path": &path, "name": name, "source": "plugin" }));
-                                            }
-                                            Err(e) => {
-                                                log::warn!("Failed to download tag image from {}: {}", url, e);
-                                                let _ = worker_db.record_image_failure("tag", &slug);
-                                                let _ = app_handle.emit("tag-image-error",
-                                                    serde_json::json!({ "name": name, "error": e }));
-                                            }
-                                        }
-                                    } else {
-                                        log::warn!("Empty resolve result for tag {}", name);
-                                        let _ = worker_db.record_image_failure("tag", &slug);
-                                    }
-                                }
-                                Err(_) => {
-                                    worker_registry.pending.lock().unwrap().remove(&request_id);
-                                    log::warn!("Timeout waiting for tag image resolve: {}", name);
-                                    let _ = worker_db.record_image_failure("tag", &slug);
-                                    let _ = app_handle.emit("tag-image-error",
-                                        serde_json::json!({ "name": name, "error": "timeout" }));
-                                }
-                            }
+                            resolve_image_via_bridge(
+                                &app_handle, &worker_db, &worker_registry,
+                                "tag", name, &slug, &dest,
+                                "tag-image-ready", "tag-image-error", "timeout",
+                                |request_id| serde_json::json!({ "request_id": request_id, "entity": "tag", "name": name }),
+                                |path, source| serde_json::json!({ "path": path, "name": name, "source": source }),
+                                |error| serde_json::json!({ "name": name, "error": error }),
+                            );
                         }
                     }
 
