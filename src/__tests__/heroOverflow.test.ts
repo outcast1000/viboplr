@@ -44,35 +44,23 @@ describe("buildHeroOverflowItems", () => {
     ]);
   });
 
-  it("renders YouTube section with Find/Set when no url is set (track)", () => {
+  it("renders only Find in YouTube for the YouTube section (track)", () => {
     const items = buildHeroOverflowItems({
       entityKind: "track",
       imageActions: { onRefresh: noop },
-      youtube: { url: null, onFind: noop, onSetUrl: noop },
-      pluginItems: [],
-    });
-
-    expect(items.map(i => i.kind === "divider" ? "---" : i.label)).toEqual([
-      "Retrieve image",
-      "---",
-      "Find in YouTube",
-      "Set YouTube URL",
-    ]);
-  });
-
-  it("renders YouTube section with Edit/Remove when url is set (track)", () => {
-    const items = buildHeroOverflowItems({
-      entityKind: "track",
-      imageActions: { onRefresh: noop },
-      youtube: { url: "https://youtu.be/x", onFind: noop, onSetUrl: noop, onClear: noop },
+      youtube: { onFind: noop },
       pluginItems: [],
     });
 
     const labels = items.map(i => i.kind === "divider" ? "---" : i.label);
-    expect(labels).toContain("Find in YouTube");
-    expect(labels).toContain("Edit YouTube URL");
-    expect(labels).toContain("Remove YouTube URL");
+    expect(labels).toEqual([
+      "Retrieve image",
+      "---",
+      "Find in YouTube",
+    ]);
     expect(labels).not.toContain("Set YouTube URL");
+    expect(labels).not.toContain("Edit YouTube URL");
+    expect(labels).not.toContain("Remove YouTube URL");
   });
 
   it("invokes the action onClick when activated", () => {
@@ -99,7 +87,7 @@ describe("buildHeroOverflowItems", () => {
     const noImageOnly = buildHeroOverflowItems({
       entityKind: "track",
       imageActions: {},
-      youtube: { url: null, onFind: noop, onSetUrl: noop },
+      youtube: { onFind: noop },
       pluginItems: [],
     });
     expect(noImageOnly.some(i => i.kind === "divider")).toBe(false);

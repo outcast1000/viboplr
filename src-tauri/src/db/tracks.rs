@@ -257,7 +257,6 @@ impl Database {
             "ORDER BY ar.name, al.title, t.track_number, t.title, t.id".to_string()
         };
 
-        let youtube_filter = if opts.has_youtube_url { "AND t.youtube_url IS NOT NULL AND t.youtube_url != ''" } else { "" };
         let media_type_filter = match opts.media_type.as_deref() {
             Some("audio") => "AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))",
             Some("video") => "AND LOWER(t.format) IN ('mp4','m4v','mov','webm')",
@@ -265,7 +264,7 @@ impl Database {
         };
         let limit = opts.limit.unwrap_or(100);
         let offset = opts.offset.unwrap_or(0);
-        let sql = format!("{} WHERE 1=1 {} {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, youtube_filter, media_type_filter, order_by);
+        let sql = format!("{} WHERE 1=1 {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, media_type_filter, order_by);
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![limit, offset], |row| track_from_row(row))?;
         rows.collect()
@@ -421,9 +420,6 @@ impl Database {
         if opts.liked_only {
             sql.push_str(" AND t.liked = 1");
         }
-        if opts.has_youtube_url {
-            sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
-        }
         match opts.media_type.as_deref() {
             Some("audio") => sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
             Some("video") => sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),
@@ -523,24 +519,6 @@ impl Database {
     }
 
     // --- Liked tracks ---
-
-    pub fn set_track_youtube_url(&self, track_id: i64, url: &str) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE tracks SET youtube_url = ?2 WHERE id = ?1",
-            params![track_id, url],
-        )?;
-        Ok(())
-    }
-
-    pub fn clear_track_youtube_url(&self, track_id: i64) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE tracks SET youtube_url = NULL WHERE id = ?1",
-            params![track_id],
-        )?;
-        Ok(())
-    }
 
     pub fn toggle_liked(&self, table: &str, id: i64, liked: i32) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();

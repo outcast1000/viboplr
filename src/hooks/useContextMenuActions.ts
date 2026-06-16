@@ -7,7 +7,7 @@ import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { store } from "../store";
 import { trashLabel } from "../utils";
-import { emitTrackPatch, emitTracksDeleted } from "../trackEvents";
+import { emitTracksDeleted } from "../trackEvents";
 
 interface UseContextMenuActionsDeps {
   library: {
@@ -53,9 +53,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
 
   const [contextMenu, setContextMenuState] = useState<ContextMenuState | null>(null);
   const contextMenuRef = useRef<ContextMenuState | null>(null);
-  const [youtubeFeedback, setYoutubeFeedback] = useState<{
-    trackId: number; url: string; videoTitle: string;
-  } | null>(null);
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string; network?: boolean } | null>(null);
@@ -422,19 +419,14 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  async function watchOnYoutube(trackId: number, title: string, artistName: string | null, youtubeUrl: string | null, durationSecs: number | null = null) {
-    if (youtubeUrl) {
-      await openUrl(youtubeUrl);
-      return;
-    }
-
+  async function watchOnYoutube(title: string, artistName: string | null, durationSecs: number | null = null) {
     try {
       const result = await invoke<{ url: string; video_title: string | null }>(
         "search_youtube", { title, artistName, durationSecs }
       );
       await openUrl(result.url);
-      setYoutubeFeedback({ trackId, url: result.url, videoTitle: result.video_title ?? title });
-    } catch {
+    } catch (e) {
+      console.error("YouTube search failed, falling back to search page:", e);
       const q = encodeURIComponent(`${title} ${artistName ?? ""}`);
       await openUrl(`https://www.youtube.com/results?search_query=${q}`);
     }
@@ -445,20 +437,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (!cm || cm.target.kind !== "track" || cm.target.trackId == null) return;
     const { trackId, title, artistName } = cm.target;
     const track = library.tracks.find(t => t.id === trackId);
-    await watchOnYoutube(trackId, title, artistName, track?.youtube_url ?? null, track?.duration_secs ?? null);
-  }
-
-  async function handleYoutubeFeedback(correct: boolean) {
-    if (!youtubeFeedback) return;
-    if (correct) {
-      await invoke("set_track_youtube_url", {
-        trackId: youtubeFeedback.trackId,
-        url: youtubeFeedback.url,
-      });
-      library.setTracks(prev => prev.map(t => t.id === youtubeFeedback.trackId ? { ...t, youtube_url: youtubeFeedback.url } : t));
-      emitTrackPatch(youtubeFeedback.trackId, { youtube_url: youtubeFeedback.url });
-    }
-    setYoutubeFeedback(null);
+    await watchOnYoutube(title, artistName, track?.duration_secs ?? null);
   }
 
   function handleInfoTrackContextMenu(e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null }) {
@@ -577,7 +556,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   return {
     contextMenu,
     setContextMenu,
-    youtubeFeedback,
     bulkEditTracks,
     setBulkEditTracks,
     deleteConfirm,
@@ -607,7 +585,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleDeleteConfirm,
     watchOnYoutube,
     handleWatchOnYoutube,
-    handleYoutubeFeedback,
     handleQueueRemove,
     handleQueueKeepOnly,
     handleQueueMoveToTop,

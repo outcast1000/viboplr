@@ -26,7 +26,6 @@ export interface PersistedSettings {
   sidebarCollapsed: boolean | undefined;
   queueCollapsed: boolean | undefined;
   queueWidth: number | null | undefined;
-  filterYoutubeOnly: boolean | undefined;
   mediaTypeFilter: string | undefined;
   trackLikedFirst: boolean | undefined;
   lastDownloadDest: string | null | undefined;
@@ -46,7 +45,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
-    filterYoutubeOnly, mediaTypeFilter, trackLikedFirst,
+    mediaTypeFilter, trackLikedFirst,
     lastDownloadDest, searchViewModes, downloadsCollectionId,
     minimizeToMiniPlayer,
   ] = await Promise.all([
@@ -66,7 +65,6 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     store.get<boolean>("sidebarCollapsed"),
     store.get<boolean>("queueCollapsed"),
     store.get<number | null>("queueWidth"),
-    store.get<boolean>("filterYoutubeOnly"),
     store.get<string>("mediaTypeFilter"),
     store.get<boolean>("trackLikedFirst"),
     store.get<string | null>("lastDownloadDest"),
@@ -79,7 +77,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
-    filterYoutubeOnly, mediaTypeFilter, trackLikedFirst,
+    mediaTypeFilter, trackLikedFirst,
     lastDownloadDest, searchViewModes, downloadsCollectionId,
     minimizeToMiniPlayer,
   };

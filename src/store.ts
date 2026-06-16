@@ -39,7 +39,6 @@ const STORE_DEFAULTS = {
   tagSortField: null,
   tagSortDir: "asc",
   tagLikedFirst: false,
-  filterYoutubeOnly: false,
   mediaTypeFilter: "all",
   trackLikedFirst: false,
   trackVideoHistory: true,

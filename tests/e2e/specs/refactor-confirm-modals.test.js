@@ -1,5 +1,5 @@
 // E2E coverage for the App.tsx modal extraction: the inline modal JSX blocks were
-// pulled into components/modals/ConfirmModals.tsx + YoutubeFeedbackModal.tsx as
+// pulled into components/modals/ConfirmModals.tsx as
 // presentational leaf components. These are normally rendered by App.tsx in
 // response to user actions; here we mount them directly in the live Vite webview
 // and assert they render their props and fire their callbacks.
@@ -52,7 +52,6 @@ async function mountModal(page, moduleUrl, exportName, dataProps, callbackNames,
 }
 
 const CONFIRM = '/src/components/modals/ConfirmModals.tsx';
-const YT = '/src/components/modals/YoutubeFeedbackModal.tsx';
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript({ path: tauriMockPath });
@@ -130,14 +129,5 @@ test('DeepLinkInstallModal renders kind/url and fires onInstall', async ({ page 
   expect(r.html).toContain('Install Plugin');
   expect(r.html).toContain('example.com/p.json');
   expect(r.calls).toContain('onInstall');
-  expect(r.errors, r.errors.join('; ')).toHaveLength(0);
-});
-
-test('YoutubeFeedbackModal renders video title and fires onRespond', async ({ page }) => {
-  const r = await mountModal(page, YT, 'YoutubeFeedbackModal',
-    { url: 'https://youtu.be/abc', videoTitle: 'Some Music Video' },
-    ['onRespond'], 'Yes');
-  expect(r.html).toContain('Some Music Video');
-  expect(r.calls).toContain('onRespond');
   expect(r.errors, r.errors.join('; ')).toHaveLength(0);
 });

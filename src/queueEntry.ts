@@ -133,7 +133,6 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     collection_id: null,
     collection_name: null,
     liked: entry.liked ?? 0,
-    youtube_url: null,
     added_at: null,
     modified_at: null,
     image_url: entry.image_url,

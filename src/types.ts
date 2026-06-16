@@ -39,7 +39,6 @@ export interface Track {
   collection_id: number | null;
   collection_name: string | null;
   liked: number;
-  youtube_url: string | null;
   added_at: number | null;
   modified_at: number | null;
   /** Image URL for display in the queue (file path or HTTP URL, set by caller) */

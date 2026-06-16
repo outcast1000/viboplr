@@ -66,7 +66,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [trackShuffleKey, setTrackShuffleKey] = useState(0);
 
   // Track filters
-  const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
   const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "audio" | "video">("all");
   const [trackLikedFirst, setTrackLikedFirst] = useState(false);
 
@@ -84,7 +83,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
   useEffect(() => { if (restoredRef.current) store.set("trackViewMode", trackViewMode); }, [trackViewMode]);
-  useEffect(() => { if (restoredRef.current) store.set("filterYoutubeOnly", filterYoutubeOnly); }, [filterYoutubeOnly]);
   useEffect(() => { if (restoredRef.current) store.set("mediaTypeFilter", mediaTypeFilter); }, [mediaTypeFilter]);
   useEffect(() => { if (restoredRef.current) store.set("trackLikedFirst", trackLikedFirst); }, [trackLikedFirst]);
 
@@ -132,7 +130,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             sortDir,
             limit: PAGE_SIZE,
             offset,
-            hasYoutubeUrl: filterYoutubeOnly,
             mediaType: mediaTypeFilter !== "all" ? mediaTypeFilter : undefined,
           },
         });
@@ -171,7 +168,6 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             sortDir,
             limit: PAGE_SIZE,
             offset,
-            hasYoutubeUrl: filterYoutubeOnly,
             mediaType: mediaTypeFilter !== "all" ? mediaTypeFilter : undefined,
           },
         });
@@ -188,7 +184,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     } catch (e) {
       console.error("Failed to load tracks:", e);
     }
-  }, [debouncedTrackQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, filterYoutubeOnly, mediaTypeFilter]);
+  }, [debouncedTrackQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, mediaTypeFilter]);
 
   useEffect(() => { loadTracks(); }, [loadTracks]);
 
@@ -483,7 +479,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     navigateToArtistByName, navigateToAlbumByName, navigateToTagByName, navigateToTrackByName,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,
-    filterYoutubeOnly, setFilterYoutubeOnly, mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,
+    mediaTypeFilter, setMediaTypeFilter, trackLikedFirst, setTrackLikedFirst,
     trackViewMode, setTrackViewMode,
   };
 }

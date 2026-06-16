@@ -54,8 +54,6 @@ pub struct TrackQuery {
     pub query: Option<String>,
     #[serde(default)]
     pub liked_only: bool,
-    #[serde(default)]
-    pub has_youtube_url: bool,
     pub media_type: Option<String>,
     pub sort_field: Option<String>,
     pub sort_dir: Option<String>,
@@ -132,7 +130,6 @@ pub struct Track {
     pub collection_id: Option<i64>,
     pub collection_name: Option<String>,
     pub liked: i32,
-    pub youtube_url: Option<String>,
     pub added_at: Option<i64>,
     pub modified_at: Option<i64>,
 }

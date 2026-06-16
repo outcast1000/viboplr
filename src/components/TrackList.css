@@ -318,20 +318,6 @@
   text-decoration: underline;
 }
 
-.track-youtube-link {
-  display: inline-flex;
-  align-items: center;
-  margin-left: 8px;
-  opacity: 0.6;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.track-youtube-link:hover {
-  opacity: 1;
-  color: var(--error);
-}
-
 .playback-error-track {
   font-weight: 600;
   margin-bottom: 4px;

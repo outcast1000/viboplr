@@ -21,7 +21,6 @@ function needsTranscode(track: { format: string | null }): boolean {
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { emitTrackPatch } from "./trackEvents";
 import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, isRemoteScheme, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
@@ -101,7 +100,6 @@ import {
   PluginLoadingModal,
   DeepLinkInstallModal,
 } from "./components/modals/ConfirmModals";
-import { YoutubeFeedbackModal } from "./components/modals/YoutubeFeedbackModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
@@ -1627,7 +1625,6 @@ function App() {
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
           sidebarCollapsed: savedSidebarCollapsed, queueCollapsed: savedQueueCollapsed, queueWidth: savedQueueWidth,
-          filterYoutubeOnly: savedFilterYoutubeOnly,
           mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
           downloadsCollectionId: savedDownloadsCollectionId,
@@ -1726,7 +1723,6 @@ function App() {
           console.error("Failed to restore main playlist:", e);
         }
         if (savedTrackViewMode && ["basic", "list", "tiles"].includes(savedTrackViewMode)) library.setTrackViewMode(savedTrackViewMode as ViewMode);
-        if (savedFilterYoutubeOnly) library.setFilterYoutubeOnly(true);
         if (savedMediaTypeFilter && ["all", "audio", "video"].includes(savedMediaTypeFilter)) library.setMediaTypeFilter(savedMediaTypeFilter as "all" | "audio" | "video");
         if (savedTrackLikedFirst) library.setTrackLikedFirst(true);
         if (savedVideoLayout) {
@@ -2021,7 +2017,7 @@ function App() {
           track_number: null, duration_secs: queueTrack.duration_secs,
           format: queueTrack.format, file_size: null, collection_id: null,
           collection_name: null, liked: queueTrack.liked ?? 0,
-          youtube_url: null, added_at: null, modified_at: null,
+          added_at: null, modified_at: null,
           image_url: queueTrack.image_url,
         });
         if (queueTrack.album_title) {
@@ -2863,15 +2859,10 @@ function App() {
                     queueHook.playTracks([track], 0);
                   }
                 }}
-                onWatchOnYoutube={track.id != null ? () => contextMenuActions.watchOnYoutube(track.id!, track.title, track.artist_name, track.youtube_url) : undefined}
+                onWatchOnYoutube={track.id != null ? () => contextMenuActions.watchOnYoutube(track.title, track.artist_name, track.duration_secs) : undefined}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleDislike={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
-                onUpdateTrack={(update) => {
-                  const libId = parseLibraryId(library.selectedTrack!);
-                  library.setTracks(prev => prev.map(t => t.key === library.selectedTrack ? { ...t, ...update } : t));
-                  if (libId != null) emitTrackPatch(libId, update);
-                }}
               />
             );
           })()}
@@ -2895,7 +2886,6 @@ function App() {
               collection_id: null,
               collection_name: null,
               liked: 0,
-              youtube_url: null,
               added_at: null,
               modified_at: null,
             };
@@ -2915,11 +2905,10 @@ function App() {
                 isCurrentTrack={false}
                 onPlay={() => queueHook.playTracks([syntheticTrack], 0)}
                 onPlayAt={() => {}}
-                onWatchOnYoutube={syntheticTrack.artist_name ? () => contextMenuActions.watchOnYoutube(0, syntheticTrack.title, syntheticTrack.artist_name, null) : undefined}
+                onWatchOnYoutube={syntheticTrack.artist_name ? () => contextMenuActions.watchOnYoutube(syntheticTrack.title, syntheticTrack.artist_name, syntheticTrack.duration_secs) : undefined}
                 onToggleLike={() => {}}
                 onToggleDislike={() => {}}
                 onShowInFolder={() => {}}
-                onUpdateTrack={() => {}}
               />
             );
           })()}
@@ -3434,7 +3423,6 @@ function App() {
               collection_id: null,
               collection_name: null,
               liked: 0,
-              youtube_url: null,
               added_at: null,
               modified_at: null,
             };
@@ -3863,14 +3851,6 @@ function App() {
         tagSuggestions={tagSuggestionPool}
         invokeInfoFetch={plugins.invokeInfoFetch}
       />
-
-      {contextMenuActions.youtubeFeedback && (
-        <YoutubeFeedbackModal
-          url={contextMenuActions.youtubeFeedback.url}
-          videoTitle={contextMenuActions.youtubeFeedback.videoTitle}
-          onRespond={contextMenuActions.handleYoutubeFeedback}
-        />
-      )}
 
       {retrieve.modal && (
         <RetrieveModal

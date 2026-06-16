@@ -31,7 +31,6 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
     collection_id: null,
     collection_name: null,
     liked: 0,
-    youtube_url: null,
     added_at: null,
     modified_at: null,
     ...overrides,
@@ -478,7 +477,6 @@ describe("trackToQueueTrack", () => {
       collection_id: 1,
       collection_name: "Music",
       liked: 1,
-      youtube_url: "https://youtube.com/watch?v=abc",
       added_at: 1000,
       modified_at: 2000,
       image_url: "/path/to/image.jpg",
@@ -495,11 +493,10 @@ describe("trackToQueueTrack", () => {
     expect(qt.format).toBe("mp3");
     expect(qt.image_url).toBe("/path/to/image.jpg");
     expect(qt.liked).toBe(1);
-    // Verify no DB IDs, collection_id, or youtube_url exist on the result
+    // Verify no DB IDs or collection_id exist on the result
     expect("id" in qt).toBe(false);
     expect("album_id" in qt).toBe(false);
     expect("artist_id" in qt).toBe(false);
     expect("collection_id" in qt).toBe(false);
-    expect("youtube_url" in qt).toBe(false);
   });
 });

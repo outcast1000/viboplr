@@ -7,7 +7,7 @@ import { buildSearchUrl, getProvidersForContext } from "../searchProviders";
 import { formatDuration } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { useDetailActions } from "../contexts/DetailViewContext";
-import { IconFolder, IconLastfm, IconYoutube } from "./Icons";
+import { IconFolder, IconLastfm } from "./Icons";
 import { store } from "../store";
 
 import { InformationSections } from "./InformationSections";
@@ -77,7 +77,6 @@ interface TrackDetailViewProps {
   onWatchOnYoutube?: () => void;
   onToggleLike: () => void;
   onToggleDislike: () => void;
-  onUpdateTrack: (update: Partial<Track>) => void;
 }
 
 export function TrackDetailView({
@@ -85,7 +84,6 @@ export function TrackDetailView({
   positionSecs, isCurrentTrack,
   onPlay, onPlayAt, onShowInFolder, onWatchOnYoutube,
   onToggleLike, onToggleDislike,
-  onUpdateTrack,
 }: TrackDetailViewProps) {
   const actions = useDetailActions();
   const isLibrary = trackId != null;
@@ -94,7 +92,6 @@ export function TrackDetailView({
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; url?: string } | null>(null);
-  const [youtubeUrlEdit, setYoutubeUrlEdit] = useState<string | null>(null);
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
@@ -135,7 +132,6 @@ export function TrackDetailView({
     setPlayHistory([]);
     setAudioProps(null);
     setTrackInfo(null);
-    setYoutubeUrlEdit(null);
 
     if (isLibrary) {
       invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
@@ -262,17 +258,7 @@ export function TrackDetailView({
           },
         })),
     } : {},
-    youtube: {
-      url: track.youtube_url,
-      onFind: () => onWatchOnYoutube?.(),
-      onSetUrl: () => setYoutubeUrlEdit(track.youtube_url ?? ""),
-      onClear: track.youtube_url && isLibrary ? async () => {
-        try {
-          await invoke("clear_track_youtube_url", { trackId });
-          onUpdateTrack({ youtube_url: null });
-        } catch (e) { console.error("Failed to clear YouTube URL:", e); }
-      } : undefined,
-    },
+    youtube: { onFind: () => onWatchOnYoutube?.() },
     pluginItems: [],
   });
 
@@ -469,53 +455,6 @@ export function TrackDetailView({
         />
       </div>
 
-      {isLibrary && youtubeUrlEdit !== null && (
-        <div className="youtube-modal-overlay">
-          <div className="youtube-modal" onClick={e => e.stopPropagation()}>
-            <div className="youtube-modal-icon"><IconYoutube size={24} /></div>
-            <div className="youtube-modal-text">Set YouTube URL for "<strong>{track.title}</strong>"</div>
-            <input
-              className="youtube-modal-input"
-              value={youtubeUrlEdit}
-              onChange={e => setYoutubeUrlEdit(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  const url = youtubeUrlEdit.trim();
-                  if (url) {
-                    invoke("set_track_youtube_url", { trackId, url });
-                    onUpdateTrack({ youtube_url: url });
-                  } else {
-                    invoke("clear_track_youtube_url", { trackId });
-                    onUpdateTrack({ youtube_url: null });
-                  }
-                  setYoutubeUrlEdit(null);
-                }
-                if (e.key === "Escape") setYoutubeUrlEdit(null);
-              }}
-              placeholder="https://www.youtube.com/watch?v=..."
-              autoFocus
-            />
-            <div className="youtube-modal-actions">
-              <button className="youtube-modal-btn" onClick={() => setYoutubeUrlEdit(null)}>Cancel</button>
-              {track.youtube_url && (
-                <button className="youtube-modal-btn" onClick={async () => {
-                  await invoke("clear_track_youtube_url", { trackId });
-                  onUpdateTrack({ youtube_url: null });
-                  setYoutubeUrlEdit(null);
-                }}>Clear</button>
-              )}
-              <button className="youtube-modal-btn yes" onClick={async () => {
-                const url = youtubeUrlEdit.trim();
-                if (url) {
-                  await invoke("set_track_youtube_url", { trackId, url });
-                  onUpdateTrack({ youtube_url: url });
-                }
-                setYoutubeUrlEdit(null);
-              }}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

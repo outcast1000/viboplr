@@ -92,7 +92,7 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         specs.push({ kind: "item", text: "Find in YouTube", action: () => {
           const track = d.queueHook.queue[target.indices[0]];
           if (track) {
-            d.contextMenuActions.watchOnYoutube(parseLibraryId(track.key) ?? 0, track.title, track.artist_name, null, track.duration_secs ?? null);
+            d.contextMenuActions.watchOnYoutube(track.title, track.artist_name, track.duration_secs ?? null);
           }
         }});
 

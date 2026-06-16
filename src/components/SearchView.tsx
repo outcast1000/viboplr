@@ -40,7 +40,6 @@ interface SearchSettings {
   albumSortChain?: SortKey[];
   tagSortChain?: SortKey[];
   mediaTypeFilter: MediaTypeFilter;
-  filterYoutubeOnly: boolean;
   sortBarCollapsed: boolean;
 }
 type MediaTypeFilter = "all" | "audio" | "video";
@@ -176,14 +175,13 @@ export function SearchView({
   const [albumSortChain, setAlbumSortChain] = useState<SortKey[]>([]);
   const [tagSortChain, setTagSortChain] = useState<SortKey[]>([]);
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaTypeFilter>("all");
-  const [filterYoutubeOnly, setFilterYoutubeOnly] = useState(false);
   const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const trackListRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const queryRef = useRef("");
-  const sortRef = useRef({ trackSortChain, mediaTypeFilter, filterYoutubeOnly });
-  sortRef.current = { trackSortChain, mediaTypeFilter, filterYoutubeOnly };
+  const sortRef = useRef({ trackSortChain, mediaTypeFilter });
+  sortRef.current = { trackSortChain, mediaTypeFilter };
   const artistSortRef = useRef({ artistSortChain });
   artistSortRef.current = { artistSortChain };
   const albumSortRef = useRef({ albumSortChain });
@@ -209,7 +207,6 @@ export function SearchView({
     return {
       sortChain: s.trackSortChain.length > 0 ? s.trackSortChain : undefined,
       mediaType: s.mediaTypeFilter !== "all" ? s.mediaTypeFilter : undefined,
-      hasYoutubeUrl: s.filterYoutubeOnly || undefined,
     };
   }
 
@@ -239,7 +236,6 @@ export function SearchView({
       if (saved) {
         setActiveTab(saved.activeTab ?? "tracks");
         setMediaTypeFilter(saved.mediaTypeFilter ?? "all");
-        setFilterYoutubeOnly(saved.filterYoutubeOnly ?? false);
         setSortBarCollapsed(saved.sortBarCollapsed ?? true);
 
         if (saved.trackSortChain) {
@@ -348,7 +344,7 @@ export function SearchView({
   useEffect(() => {
     if (!restoredRef.current) return;
     refetchTracks();
-  }, [trackSortChain, mediaTypeFilter, filterYoutubeOnly]);
+  }, [trackSortChain, mediaTypeFilter]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -368,11 +364,11 @@ export function SearchView({
   useEffect(() => {
     if (!restoredRef.current) return;
     store.set("searchSettings", {
-      activeTab, mediaTypeFilter, filterYoutubeOnly,
+      activeTab, mediaTypeFilter,
       trackSortChain, artistSortChain, albumSortChain, tagSortChain,
       sortBarCollapsed,
     });
-  }, [activeTab, mediaTypeFilter, filterYoutubeOnly,
+  }, [activeTab, mediaTypeFilter,
       trackSortChain, artistSortChain, albumSortChain, tagSortChain,
       sortBarCollapsed]);
 
@@ -827,7 +823,6 @@ export function SearchView({
                 <button className={`sort-btn${mediaTypeFilter === "all" ? " active" : ""}`} onClick={() => setMediaTypeFilter("all")}>All</button>
                 <button className={`sort-btn${mediaTypeFilter === "audio" ? " active" : ""}`} onClick={() => setMediaTypeFilter("audio")}>Audio</button>
                 <button className={`sort-btn${mediaTypeFilter === "video" ? " active" : ""}`} onClick={() => setMediaTypeFilter("video")}>Video</button>
-                <button className={`sort-btn${filterYoutubeOnly ? " active" : ""}`} onClick={() => setFilterYoutubeOnly(v => !v)}>YouTube</button>
               </div>
             </div>
           </div>

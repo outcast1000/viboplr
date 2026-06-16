@@ -116,10 +116,6 @@ impl Database {
             "tracks" => {
                 let mut where_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER);
                 let mut count_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE);
-                if opts.has_youtube_url {
-                    where_clauses.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
-                    count_clauses.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''");
-                }
                 match opts.media_type.as_deref() {
                     Some("audio") => {
                         let f = " AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))";
@@ -264,7 +260,6 @@ impl Database {
                          JOIN tracks_fts ON tracks_fts.rowid = t.id \
                          WHERE tracks_fts MATCH ?1 \
                          AND t.collection_id IN (SELECT id FROM collections WHERE enabled = 1)".to_string();
-                if opts.has_youtube_url { count_sql.push_str(" AND t.youtube_url IS NOT NULL AND t.youtube_url != ''"); }
                 match opts.media_type.as_deref() {
                     Some("audio") => count_sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
                     Some("video") => count_sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),

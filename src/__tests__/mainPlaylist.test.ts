@@ -19,7 +19,7 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
     artist_id: null, artist_name: "A", album_id: null, album_title: "Al",
     year: null, track_number: null, duration_secs: 200, format: "mp3",
     file_size: null, collection_id: null, collection_name: null,
-    liked: 0, youtube_url: null, added_at: null, modified_at: null,
+    liked: 0, added_at: null, modified_at: null,
     image_url: undefined, ...overrides,
   };
 }

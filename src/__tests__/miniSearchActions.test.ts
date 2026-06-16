@@ -8,7 +8,7 @@ function makeTrack(): Track {
     artist_name: "Artist", album_id: 3, album_title: "Album", year: 2020,
     duration_secs: 100, format: "mp3", collection_id: 1, collection_name: "Local",
     liked: 0, track_number: null, disc_number: null, play_count: 0, last_played_at: null,
-    youtube_url: null, added_at: null, file_size: null, bitrate: null, sample_rate: null,
+    added_at: null, file_size: null, bitrate: null, sample_rate: null,
     bit_depth: null, channels: null,
   } as unknown as Track;
 }

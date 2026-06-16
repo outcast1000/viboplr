@@ -18,10 +18,7 @@ export interface HeroImageActions {
 }
 
 export interface HeroYoutubeActions {
-  url: string | null | undefined;
-  onFind: () => void;
-  onSetUrl: () => void;
-  onClear?: () => void;              // only when url exists
+  onFind: () => void;                // "Find in YouTube" — search + open
 }
 
 export interface HeroOverflowArgs {
@@ -47,18 +44,8 @@ export function buildHeroOverflowItems(args: HeroOverflowArgs): HeroOverflowItem
 
   // YouTube (track only)
   if (args.entityKind === "track" && args.youtube) {
-    const ytItems: HeroOverflowItem[] = [];
-    ytItems.push({ kind: "action", id: "youtube-find", label: "Find in YouTube", onClick: args.youtube.onFind, iconKey: "youtube" });
-    if (args.youtube.url) {
-      ytItems.push({ kind: "action", id: "youtube-edit", label: "Edit YouTube URL", onClick: args.youtube.onSetUrl });
-      if (args.youtube.onClear) {
-        ytItems.push({ kind: "action", id: "youtube-clear", label: "Remove YouTube URL", onClick: args.youtube.onClear, danger: true });
-      }
-    } else {
-      ytItems.push({ kind: "action", id: "youtube-set", label: "Set YouTube URL", onClick: args.youtube.onSetUrl });
-    }
-    if (out.length > 0 && ytItems.length > 0) out.push({ kind: "divider" });
-    out.push(...ytItems);
+    if (out.length > 0) out.push({ kind: "divider" });
+    out.push({ kind: "action", id: "youtube-find", label: "Find in YouTube", onClick: args.youtube.onFind, iconKey: "youtube" });
   }
 
   // Plugin items

@@ -8,7 +8,7 @@ function makeTrack(id: number): Track {
     artist_id: null, artist_name: null, album_id: null, album_title: null,
     year: null, track_number: null, duration_secs: null, format: null,
     file_size: null, collection_id: null, collection_name: null,
-    liked: 0, youtube_url: null, added_at: null, modified_at: null,
+    liked: 0, added_at: null, modified_at: null,
   };
 }
 

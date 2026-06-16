@@ -2,10 +2,8 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { parseLibraryId } from "../queueEntry";
-import { IconYoutube } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { SpinningDisc } from "./SpinningDisc";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./TrackList.css";
 
@@ -211,7 +209,7 @@ export function TrackList({
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRowRef.current) return;
-    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .row-hover-action')) {
+    if (e.target !== e.currentTarget && (e.target as HTMLElement).closest('.track-link, .col-like, .row-hover-action')) {
       return;
     }
     const newSelection = computeSelection(
@@ -224,7 +222,7 @@ export function TrackList({
 
   function handleRowMouseDown(e: React.MouseEvent, index: number) {
     if (e.button !== 0 || !onTrackDragStart) return;
-    if ((e.target as HTMLElement).closest('.track-link, .col-like, .track-youtube-link, .row-hover-action')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .row-hover-action')) return;
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -447,15 +445,6 @@ export function TrackList({
           <span key="title" className="col-title">
             <span className="col-title-main">
               <span className="col-title-text">{t.title}</span>
-              {t.youtube_url && (
-                <span
-                  className="track-youtube-link"
-                  title="Open on YouTube"
-                  onClick={(e) => { e.stopPropagation(); openUrl(t.youtube_url!); }}
-                >
-                  <IconYoutube size={16} />
-                </span>
-              )}
             </span>
             {hasRowActions && renderRowActions(t)}
           </span>

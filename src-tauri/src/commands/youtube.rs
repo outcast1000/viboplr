@@ -1,30 +1,7 @@
 // Auto-split from commands.rs. See commands/mod.rs for shared types & helpers.
 use super::*;
 
-// --- YouTube URL commands ---
-
-#[tauri::command]
-pub fn set_track_youtube_url(
-    state: State<'_, AppState>,
-    track_id: i64,
-    url: String,
-) -> Result<(), String> {
-    state
-        .db
-        .set_track_youtube_url(track_id, &url)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn clear_track_youtube_url(
-    state: State<'_, AppState>,
-    track_id: i64,
-) -> Result<(), String> {
-    state
-        .db
-        .clear_track_youtube_url(track_id)
-        .map_err(|e| e.to_string())
-}
+// --- YouTube search command ---
 
 #[tauri::command]
 pub fn search_youtube(title: String, artist_name: Option<String>, duration_secs: Option<f64>) -> Result<YouTubeResult, String> {

@@ -38,7 +38,7 @@ const TRACK_SELECT: &str =
        ELSE t.path \
      END, \
      t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
-     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, t.youtube_url, \
+     t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, \
      t.added_at, t.modified_at \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
      LEFT JOIN collections co ON t.collection_id = co.id";
@@ -68,9 +68,8 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         collection_id: row.get(12)?,
         collection_name: row.get(13)?,
         liked: row.get::<_, i32>(14).unwrap_or(0),
-        youtube_url: row.get(15)?,
-        added_at: row.get(16)?,
-        modified_at: row.get(17)?,
+        added_at: row.get(15)?,
+        modified_at: row.get(16)?,
     })
 }
 
@@ -323,7 +322,6 @@ impl Database {
                 collection_id INTEGER REFERENCES collections(id),
                 liked         INTEGER NOT NULL DEFAULT 0,
                 year          INTEGER,
-                youtube_url   TEXT,
                 UNIQUE(collection_id, path)
             );
 
@@ -592,6 +590,22 @@ impl Database {
                  ALTER TABLE image_providers_new RENAME TO image_providers;
                  COMMIT;",
             )?;
+        }
+
+        // 5. Drop the legacy tracks.youtube_url column. The "save this YouTube
+        //    link" feature was removed; Find-in-YouTube now always searches
+        //    fresh. Detected by schema presence (idempotent): only runs when the
+        //    column still exists. DROP COLUMN needs SQLite >= 3.35 (bundled).
+        let has_youtube_url_col: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = 'youtube_url'",
+                [], |r| r.get::<_, i64>(0),
+            )? > 0
+        };
+        if has_youtube_url_col {
+            let conn = self.conn.lock().unwrap();
+            conn.execute("ALTER TABLE tracks DROP COLUMN youtube_url", [])?;
         }
 
         Ok(())

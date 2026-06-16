@@ -226,7 +226,6 @@ const TRACKS = TRACK_DATA.map(([collId, title, artistId, artistName, albumId, al
   collection_id: collId,
   collection_name: collId === 1 ? 'Local Music' : 'Navidrome',
   liked: (i % 5 === 0) ? 1 : 0,
-  youtube_url: null,
   added_at: 1700000000 + i * 1000,
   modified_at: 1700000000 + i * 1000,
   relative_path: null,
