@@ -46,9 +46,10 @@ Each entry documents the gold standard implementation for a repeated user action
 
 ### Download Track
 
-- **Canonical:** `useContextMenuActions.ts` -> `handleDownloadTrack()` / `handleDownloadMulti()`; the unified `DownloadModal` flow is wired in `App.tsx`
+- **Canonical:** `useDownloadActions.ts` -> `handleDownloadTrack()` / `handleDownloadMulti()` (composed + re-exported by `useContextMenuActions`, so callers still reach them via `contextMenuActions.*`); the unified `DownloadModal` flow is wired in `App.tsx`
 - **Flow:** Resolve download URL via provider chain (`resolveTrackDownload`) -> `invoke("enqueue_download", ...)` -> progress via `download-progress` events -> success via `download-complete` -> error via `download-error` -> `addLog()` on both outcomes
-- **Multi-track:** `useContextMenuActions.ts` -> `handleDownloadMulti()` loops tracks with `isBatchLast` flag on the final item
+- **Payload:** both paths build the `enqueue_download` payload via the single `buildDownloadRequest()` helper in `useDownloadActions.ts` — do not hand-inline the field list. Single-track first checks for an existing local copy via `invoke("find_track_by_metadata", ...)` (never JS-side string compare) and raises the re-download confirm only for a *local* match.
+- **Multi-track:** `useDownloadActions.ts` -> `handleDownloadMulti()` loops tracks with `isBatchLast` flag on the final item
 
 ### Tag Operations
 

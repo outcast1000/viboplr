@@ -1,10 +1,11 @@
 import { useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Album, Artist, Tag } from "../types";
+import type { Track, Album, Artist, Tag, QueueTrack } from "../types";
 import type { PlaylistContext } from "./useQueue";
+import { trackToQueueTrack } from "../queueEntry";
 
 interface PlayActionsArgs {
-  playTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
+  playTracks: (tracks: QueueTrack[], index: number, context?: PlaylistContext | null) => void;
   enqueueTracks: (tracks: Track[]) => void;
   setPlaylistContext: (fn: (prev: PlaylistContext | null) => PlaylistContext | null) => void;
   albums: Album[];
@@ -165,5 +166,33 @@ export function usePlayActions({
     }
   }, [enqueueTracks]);
 
-  return { playAlbum, playArtist, playTag, enqueueAlbum, enqueueArtist, enqueueTag };
+  // Build a radio station from a seed track and play it. Play-only (no enqueue):
+  // it replaces the queue with a freshly generated station under a "Radio: …"
+  // context. Tracks are mapped to QueueTracks (fresh keys, DB ids stripped).
+  const startRadio = useCallback(async (seed: { title: string; artistName: string | null; coverPath: string | null }) => {
+    if (!seed.title) return;
+    console.log(`Building radio from "${seed.title}"...`);
+    try {
+      const tracks = await invoke<Track[]>("build_radio_for_track", {
+        seedTitle: seed.title,
+        seedArtist: seed.artistName,
+        targetCount: 30,
+      });
+      if (tracks.length < 2) {
+        console.log("Radio: not enough tracks to generate a station");
+        return;
+      }
+      const queueTracks = tracks.map(trackToQueueTrack);
+      playTracks(queueTracks, 0, {
+        name: `Radio: ${seed.title}`,
+        imagePath: seed.coverPath ?? null,
+        source: "radio",
+      });
+      console.log(`Radio started · ${tracks.length} tracks`);
+    } catch (e) {
+      console.error("Failed to start radio:", e);
+    }
+  }, [playTracks]);
+
+  return { playAlbum, playArtist, playTag, enqueueAlbum, enqueueArtist, enqueueTag, startRadio };
 }

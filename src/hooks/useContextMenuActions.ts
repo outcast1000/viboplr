@@ -1,10 +1,12 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album, QueueTrack } from "../types";
-import { parseLibraryId, isLocalTrack, isNetworkSharePath, trackToQueueTrack } from "../queueEntry";
+import { parseLibraryId, isLocalTrack, isNetworkSharePath } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
+import { useQueueDragToInsert, type PendingEnqueue } from "./useQueueDragToInsert";
+import { useDownloadActions } from "./useDownloadActions";
 import { store } from "../store";
 import { trashLabel } from "../utils";
 import { emitTracksDeleted } from "../trackEvents";
@@ -41,6 +43,7 @@ interface UseContextMenuActionsDeps {
     playAlbum: (albumId: number) => void;
     playArtist: (artistId: number) => void;
     playTag: (tagId: number) => void;
+    startRadio: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
   };
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
@@ -58,9 +61,21 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string; network?: boolean } | null>(null);
   const [deleteError, setDeleteError] = useState<{ message: string; failures: { title: string; reason: string }[] } | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
-  const [downloadConfirm, setDownloadConfirm] = useState<{ track: QueueTrack; localTitle: string; localTrackId: number } | null>(null);
-  const [pendingEnqueue, setPendingEnqueue] = useState<{ all: QueueTrack[]; duplicates: QueueTrack[]; unique: QueueTrack[]; position?: number } | null>(null);
-  const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
+  const [pendingEnqueue, setPendingEnqueue] = useState<PendingEnqueue | null>(null);
+
+  // Drag-to-queue and download actions live in focused hooks; this hook composes
+  // them and re-exports their surface so every context-menu consumer keeps
+  // reaching them via `contextMenuActions.*`.
+  const { externalDropTarget, handleTrackDragStart } = useQueueDragToInsert({
+    queueHook, queueCollapsed, setQueueCollapsed, setPendingEnqueue,
+  });
+  const {
+    downloadConfirm,
+    handleDownloadTrack,
+    handleDownloadConfirm,
+    handleDownloadConfirmDismiss,
+    handleDownloadMulti,
+  } = useDownloadActions();
 
   function setContextMenu(state: ContextMenuState | null) {
     contextMenuRef.current = state;
@@ -236,77 +251,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     queueHook.moveToBottom(cm.target.indices);
   }
 
-  function handleTrackDragStart(dragTracks: Track[]) {
-    let ghost: HTMLDivElement | null = null;
-    const dropTargetRef = { current: null as number | null };
-
-    function findQueueIndex(el: Element | null): number | null {
-      while (el) {
-        const idx = el.getAttribute("data-queue-index");
-        if (idx !== null) return parseInt(idx, 10);
-        el = el.parentElement;
-      }
-      return null;
-    }
-
-    function onMouseMove(ev: MouseEvent) {
-      if (!ghost) {
-        ghost = document.createElement("div");
-        ghost.className = "queue-drag-ghost";
-        ghost.textContent = `${dragTracks.length} track${dragTracks.length > 1 ? "s" : ""}`;
-        document.body.appendChild(ghost);
-      }
-      ghost.style.left = `${ev.clientX + 12}px`;
-      ghost.style.top = `${ev.clientY - 10}px`;
-
-      const target = document.elementFromPoint(ev.clientX, ev.clientY);
-      const queuePanel = target?.closest(".queue-panel");
-      if (queuePanel) {
-        const overIndex = findQueueIndex(target);
-        if (overIndex !== null) {
-          const el = target!.closest("[data-queue-index]") as HTMLElement | null;
-          if (el) {
-            const rect = el.getBoundingClientRect();
-            const midY = rect.top + rect.height / 2;
-            const dt = ev.clientY < midY ? overIndex : overIndex + 1;
-            dropTargetRef.current = dt;
-            setExternalDropTarget(dt);
-          }
-        } else {
-          // Over queue panel but not on an item — drop at end
-          dropTargetRef.current = queueHook.queue.length;
-          setExternalDropTarget(queueHook.queue.length);
-        }
-      } else {
-        dropTargetRef.current = null;
-        setExternalDropTarget(null);
-      }
-    }
-
-    function onMouseUp() {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-      if (ghost) { ghost.remove(); ghost = null; }
-
-      if (dropTargetRef.current !== null) {
-        const pos = dropTargetRef.current;
-        const { duplicates, unique } = queueHook.findDuplicates(dragTracks);
-        if (duplicates.length > 0) {
-          setPendingEnqueue({ all: dragTracks, duplicates, unique, position: pos });
-          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
-        } else {
-          queueHook.insertAtPosition(dragTracks, pos);
-          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
-        }
-      }
-
-      setExternalDropTarget(null);
-    }
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }
-
   async function handleShowInFolder() {
     const cm = contextMenuRef.current;
     if (cm && cm.target.kind === "track" && cm.target.trackId != null) {
@@ -446,78 +390,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } });
   }
 
-  function findLocalCopy(track: QueueTrack): Track | undefined {
-    const title = track.title.toLowerCase();
-    const artist = (track.artist_name || "").toLowerCase();
-    return library.tracks.find(t =>
-      t.path?.startsWith("file://") &&
-      t.title.toLowerCase() === title &&
-      (t.artist_name || "").toLowerCase() === artist
-    );
-  }
-
-  const enqueueDownload = useCallback(async (track: QueueTrack) => {
-    try {
-      await invoke("enqueue_download", {
-        title: track.title,
-        artistName: track.artist_name,
-        albumTitle: track.album_title,
-        uri: track.path ?? null,
-        durationSecs: track.duration_secs ?? null,
-        destCollectionId: null,
-        destCollectionPath: null,
-        format: null,
-        pathPattern: null,
-        isBatchLast: false,
-      });
-    } catch (e) {
-      console.error("Failed to enqueue download:", e);
-    }
-  }, []);
-
-  const handleDownloadTrack = useCallback(async (track: QueueTrack) => {
-    const localCopy = findLocalCopy(track);
-    if (localCopy) {
-      setDownloadConfirm({ track, localTitle: localCopy.title, localTrackId: localCopy.id! });
-      return;
-    }
-    enqueueDownload(track);
-  }, [enqueueDownload, library.tracks]);
-
-  const handleDownloadConfirm = useCallback(() => {
-    if (!downloadConfirm) return;
-    const { track } = downloadConfirm;
-    setDownloadConfirm(null);
-    enqueueDownload(track);
-  }, [downloadConfirm, enqueueDownload]);
-
-  const handleDownloadConfirmDismiss = useCallback(() => {
-    setDownloadConfirm(null);
-  }, []);
-
-  const handleDownloadMulti = useCallback(async (tracks: QueueTrack[]) => {
-    for (let i = 0; i < tracks.length; i++) {
-      const track = tracks[i];
-      const isLast = i === tracks.length - 1;
-      try {
-        await invoke("enqueue_download", {
-          title: track.title,
-          artistName: track.artist_name,
-          albumTitle: track.album_title,
-          uri: track.path ?? null,
-          durationSecs: track.duration_secs ?? null,
-          destCollectionId: null,
-          destCollectionPath: null,
-          format: null,
-          pathPattern: null,
-          isBatchLast: isLast,
-        });
-      } catch (e) {
-        console.error("Failed to enqueue download:", e);
-      }
-    }
-  }, []);
-
   function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) {
     e.preventDefault();
     const target: ContextMenuTarget = info.kind === "artist"
@@ -527,31 +399,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       : { kind: "track", trackId: info.id, isLocal: false, title: info.name, artistName: info.artistName ?? null };
     showMenu({ x: e.clientX, y: e.clientY, target });
   }
-
-  const startRadio = useCallback(async (seed: { title: string; artistName: string | null; coverPath: string | null }) => {
-    if (!seed.title) return;
-    console.log(`Building radio from "${seed.title}"...`);
-    try {
-      const tracks = await invoke<Track[]>("build_radio_for_track", {
-        seedTitle: seed.title,
-        seedArtist: seed.artistName,
-        targetCount: 30,
-      });
-      if (tracks.length < 2) {
-        console.log("Radio: not enough tracks to generate a station");
-        return;
-      }
-      const queueTracks = tracks.map(trackToQueueTrack);
-      queueHook.playTracks(queueTracks, 0, {
-        name: `Radio: ${seed.title}`,
-        imagePath: seed.coverPath ?? null,
-        source: "radio",
-      });
-      console.log(`Radio started · ${tracks.length} tracks`);
-    } catch (e) {
-      console.error("Failed to start radio:", e);
-    }
-  }, [queueHook]);
 
   return {
     contextMenu,
@@ -576,7 +423,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleMultiTagContextMenu,
     fetchMultiEntityTracks,
     handleContextPlay,
-    startRadio,
+    startRadio: playActions.startRadio,
     handleContextEnqueue,
     handleEnqueue,
     handleShowInFolder,
