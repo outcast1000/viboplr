@@ -86,7 +86,7 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
             });
           }
         };
-        specs.push({ kind: "item", text: "Locate Track", action: locateTrack });
+        specs.push({ kind: "item", text: "Details", action: locateTrack });
 
         // Find in YouTube — works by metadata, any track type
         specs.push({ kind: "item", text: "Find in YouTube", action: () => {
