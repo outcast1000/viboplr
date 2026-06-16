@@ -62,6 +62,14 @@
   color: var(--text-primary);
 }
 
+/* Entity panel (inlineSuggestions): applied tags are solid/filled so they read
+   as committed, distinct from the dashed "+" Last.fm suggestion pills. */
+.tag-editor--entity .track-tag-chip.track-tag-assigned {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: transparent;
+}
+
 .tag-editor .track-tag-assigned {
   display: inline-flex;
   align-items: center;
@@ -88,6 +96,53 @@
 }
 
 .tag-editor .track-tag-assigned .track-tag-remove:hover {
+  color: var(--text-primary);
+}
+
+/* Clickable chip label (navigate to the tag). Overrides the default
+   `cursor: default` on .track-tag-name at matching specificity. */
+.tag-editor .track-tag-assigned .track-tag-name--link {
+  cursor: pointer;
+}
+
+.tag-editor .track-tag-assigned .track-tag-name--link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Partial chips: a tag applied to only some of the target tracks. Distinguished
+   by reduced opacity (NOT the dashed-ghost look of suggestion pills, which read
+   as "addable") plus an n/m count and a reveal-on-hover fill control. */
+.tag-editor .track-tag-partial {
+  opacity: 0.7;
+}
+
+.tag-editor .track-tag-partial:hover {
+  opacity: 1;
+}
+
+.tag-editor .track-tag-count {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  padding: 0 1px;
+}
+
+.tag-editor .track-tag-assigned .track-tag-fill {
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  padding: 0 2px;
+}
+
+.tag-editor .track-tag-assigned:hover .track-tag-fill {
+  opacity: 1;
+}
+
+.tag-editor .track-tag-assigned .track-tag-fill:hover {
   color: var(--text-primary);
 }
 
@@ -133,4 +188,26 @@
   font-size: var(--fs-xs);
   line-height: 1;
   color: var(--accent);
+}
+
+/* Inline add area: the Last.fm pills and the input share one row. */
+.tag-editor-add-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+/* Pills fill the left (wrapping internally when many); the edit box keeps a
+   fixed width pinned top-right, aligned with the Last.fm row. */
+.tag-editor-add-row .tag-editor-suggested {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tag-editor-add-row .tag-editor-input.ds-input {
+  flex: 0 0 auto;
+  width: 220px;
 }

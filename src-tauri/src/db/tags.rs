@@ -163,4 +163,108 @@ impl Database {
         })?;
         rows.collect()
     }
+
+    /// Aggregate tag membership across a set of track IDs. Returns one row per
+    /// distinct tag: `(tag_id, tag_name, count among the given tracks)`. Chunked
+    /// at 500 ids to stay under SQLite's bound-parameter limit; counts are summed
+    /// across chunks. Callers pass an already collection-filtered id set (the
+    /// detail page's track list), so the count is the n-of-m denominator.
+    pub fn get_tag_counts_for_tracks(&self, track_ids: &[i64]) -> SqlResult<Vec<(i64, String, i64)>> {
+        if track_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut acc: std::collections::HashMap<i64, (String, i64)> = std::collections::HashMap::new();
+        for chunk in track_ids.chunks(500) {
+            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT tg.id, tg.name, COUNT(*) AS cnt \
+                 FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id \
+                 WHERE tt.track_id IN ({}) \
+                 GROUP BY tg.id",
+                placeholders
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let bound: Vec<&dyn rusqlite::types::ToSql> =
+                chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+            let rows = stmt.query_map(bound.as_slice(), |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+            })?;
+            for row in rows {
+                let (id, name, cnt) = row?;
+                let entry = acc.entry(id).or_insert_with(|| (name, 0));
+                entry.1 += cnt;
+            }
+        }
+        let mut result: Vec<(i64, String, i64)> =
+            acc.into_iter().map(|(id, (name, cnt))| (id, name, cnt)).collect();
+        result.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()).then(a.0.cmp(&b.0)));
+        Ok(result)
+    }
+
+    /// Apply one tag to every track in `track_ids` (DB-only). Reuses
+    /// `apply_tags_bulk` for the row writes + per-track FTS refresh, then
+    /// recomputes counts. Returns the canonical (existing-cased) tag name so the
+    /// frontend can reconcile a case/diacritic merge. No-op for an empty id set.
+    pub fn apply_tag_to_tracks(&self, track_ids: &[i64], tag_name: &str) -> SqlResult<String> {
+        if track_ids.is_empty() {
+            return Ok(tag_name.to_string());
+        }
+        let assignments: Vec<(i64, Vec<String>)> =
+            track_ids.iter().map(|id| (*id, vec![tag_name.to_string()])).collect();
+        self.apply_tags_bulk(&assignments)?;
+        self.recompute_counts()?;
+        let conn = self.conn.lock().unwrap();
+        let canonical: Option<String> = conn.query_row(
+            "SELECT name FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+            params![tag_name],
+            |row| row.get(0),
+        ).optional()?;
+        Ok(canonical.unwrap_or_else(|| tag_name.to_string()))
+    }
+
+    /// Remove one tag from every track in `track_ids` that carries it (DB-only),
+    /// in a single transaction, refreshing each touched track's FTS row, then
+    /// recomputing counts (which reaps the tag row if its count hits zero).
+    /// Chunked at 500 ids. No-op when the id set is empty or the tag is unknown.
+    pub fn remove_tag_from_tracks(&self, track_ids: &[i64], tag_name: &str) -> SqlResult<()> {
+        if track_ids.is_empty() {
+            return Ok(());
+        }
+        let tag_id: Option<i64> = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                params![tag_name],
+                |row| row.get(0),
+            ).optional()?
+        };
+        let tag_id = match tag_id {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+        {
+            let mut conn = self.conn.lock().unwrap();
+            let tx = conn.transaction()?;
+            for chunk in track_ids.chunks(500) {
+                let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                let sql = format!(
+                    "DELETE FROM track_tags WHERE tag_id = ?1 AND track_id IN ({})",
+                    placeholders
+                );
+                let mut bound: Vec<&dyn rusqlite::types::ToSql> = Vec::with_capacity(chunk.len() + 1);
+                bound.push(&tag_id);
+                for id in chunk {
+                    bound.push(id);
+                }
+                tx.execute(&sql, bound.as_slice())?;
+            }
+            for id in track_ids {
+                Self::update_fts_for_track_inner(&tx, *id)?;
+            }
+            tx.commit()?;
+        }
+        self.recompute_counts()?;
+        Ok(())
+    }
 }

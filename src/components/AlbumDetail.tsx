@@ -12,6 +12,7 @@ import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import { DetailHero } from "./DetailHero";
+import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
@@ -237,6 +238,10 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           trackPopularity={trackPopularity}
           emptyMessage="No tracks found."
         />
+      )}
+
+      {isLibrary && sortedTracks.length > 0 && (
+        <EntityTagPanel tracks={sortedTracks} />
       )}
 
       <div className="section-wide">

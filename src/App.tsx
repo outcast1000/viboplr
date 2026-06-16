@@ -2404,6 +2404,7 @@ function App() {
     navigateToArtist: library.handleArtistClick,
     navigateToAlbum: library.handleAlbumClick,
     navigateToTag: library.handleTagClick,
+    navigateToTagByName: library.navigateToTagByName,
     playTracks: queueHook.playTracks,
     playEntityAll: handlePlayEntityAll,
     playAlbum: playActions.playAlbum,
@@ -2451,11 +2452,13 @@ function App() {
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
     searchProviders,
+    tagSuggestionPool,
+    refreshLibraryTags: library.loadLibrary,
     retrieve: {
       openInfo: retrieve.openInfo,
     },
   }), [
-    library.handleArtistClick, library.handleAlbumClick, library.handleTagClick,
+    library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
     queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
     likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,
@@ -2469,6 +2472,7 @@ function App() {
     artistImageCache.invalidate, albumImageCache.invalidate, tagImageCache.invalidate,
     artistImageCache.requestFetch, albumImageCache.requestFetch, tagImageCache.requestFetch,
     plugins.invokeInfoFetch, plugins.pluginNames, searchProviders,
+    tagSuggestionPool, library.loadLibrary,
     beginRetrieveImage, retrieve.openInfo,
   ]);
 

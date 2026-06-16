@@ -9,6 +9,7 @@ export interface DetailViewActions {
   navigateToArtist: (id: number, name?: string) => void;
   navigateToAlbum: (id: number, artistId?: number | null, name?: string, artistName?: string) => void;
   navigateToTag: (id: number) => void;
+  navigateToTagByName: (name: string) => void;
 
   playTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   playEntityAll: (kind: "artist" | "album" | "tag", name: string, artistName?: string, opts?: { tracks?: Track[]; entityId?: number }) => void;
@@ -42,6 +43,10 @@ export interface DetailViewActions {
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   pluginNames: Map<string, string>;
   searchProviders: SearchProviderConfig[];
+  /** Ranked library tag pool (buildTagSuggestionPool output) for tag editors. */
+  tagSuggestionPool: string[];
+  /** Refresh library tag state after an entity-wide tag write (counts, removals). */
+  refreshLibraryTags: () => void;
   /** Opens the centered Retrieve modal for a user-triggered info-section refresh. */
   retrieve: {
     openInfo: (args: OpenInfoArgs) => void;
@@ -74,7 +79,7 @@ interface DetailViewProviderProps {
 
 export function DetailViewProvider({ actions, state, children }: DetailViewProviderProps) {
   const stableActions = useMemo(() => actions, [
-    actions.navigateToArtist, actions.navigateToAlbum, actions.navigateToTag,
+    actions.navigateToArtist, actions.navigateToAlbum, actions.navigateToTag, actions.navigateToTagByName,
     actions.playTracks, actions.playEntityAll, actions.playAlbum, actions.enqueueTracks,
     actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,
@@ -83,6 +88,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.getArtistImage, actions.getAlbumImage, actions.getTagImage,
     actions.invalidateImage, actions.requestFetchImage, actions.autoFetchImage,
     actions.invokeInfoFetch, actions.pluginNames, actions.searchProviders,
+    actions.tagSuggestionPool, actions.refreshLibraryTags,
     actions.retrieve,
   ]);
 

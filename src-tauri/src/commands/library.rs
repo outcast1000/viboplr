@@ -284,6 +284,41 @@ pub fn get_tags_for_track(
 }
 
 #[tauri::command]
+pub fn get_tag_counts_for_tracks(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+) -> Result<Vec<(i64, String, i64)>, String> {
+    state
+        .db
+        .get_tag_counts_for_tracks(&track_ids)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn apply_tag_to_tracks(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+    tag_name: String,
+) -> Result<String, String> {
+    state
+        .db
+        .apply_tag_to_tracks(&track_ids, &tag_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn remove_tag_from_tracks(
+    state: State<'_, AppState>,
+    track_ids: Vec<i64>,
+    tag_name: String,
+) -> Result<(), String> {
+    state
+        .db
+        .remove_tag_from_tracks(&track_ids, &tag_name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_tracks_by_tag(
     state: State<'_, AppState>,
     tag_id: i64,

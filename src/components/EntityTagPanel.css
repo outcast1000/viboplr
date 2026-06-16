@@ -1,0 +1,11 @@
+.entity-tag-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.entity-tag-panel-hint {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}

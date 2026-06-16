@@ -18,6 +18,7 @@ import { VideoFrameCard } from "./VideoFrameCard";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { DetailHero } from "./DetailHero";
+import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import "./TrackDetailView.css";
 
@@ -89,7 +90,6 @@ export function TrackDetailView({
   const actions = useDetailActions();
   const isLibrary = trackId != null;
 
-  const [trackTags, setTrackTags] = useState<Array<{ id: number; name: string }>>([]);
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
@@ -131,7 +131,6 @@ export function TrackDetailView({
 
   // Fetch all data when trackId changes
   useEffect(() => {
-    setTrackTags([]);
     setPlayStats(null);
     setPlayHistory([]);
     setAudioProps(null);
@@ -139,7 +138,6 @@ export function TrackDetailView({
     setYoutubeUrlEdit(null);
 
     if (isLibrary) {
-      invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId }).then(setTrackTags).catch(e => console.error("Failed to load track tags:", e));
       invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
         .then(setAudioProps).catch(e => console.error("Failed to load audio properties:", e));
     }
@@ -348,6 +346,7 @@ export function TrackDetailView({
           <VideoFilmstrip framesState={videoFrames} onFrameClick={onPlayAt} />
         </div>
       )}
+      {isLibrary && <EntityTagPanel tracks={[{ ...track, id: trackId }]} />}
       <div className="section-wide">
         <InformationSections
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
@@ -421,16 +420,6 @@ export function TrackDetailView({
                     <div className="track-details-row">
                       <span className="track-details-label">Added</span>
                       <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
-                    </div>
-                  )}
-                  {isLibrary && trackTags.length > 0 && (
-                    <div className="track-detail-tags-inline">
-                      <span className="track-detail-label">Tags</span>
-                      <div className="track-detail-tags-readonly">
-                        {trackTags.map((t) => (
-                          <span key={t.id} className="track-detail-tag-chip">{t.name}</span>
-                        ))}
-                      </div>
                     </div>
                   )}
                 </div>

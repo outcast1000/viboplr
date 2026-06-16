@@ -33,6 +33,17 @@ export interface TagEditorProps {
   suggestedPills?: string[];
   /** Label shown before the suggestion pills (default "Suggested"). */
   suggestedPillsLabel?: string;
+  /** Tags present on only SOME of the target tracks, rendered as muted chips
+   *  with an `n / m` count and (when onFillToAll is set) a fill-to-all control.
+   *  Providing this also disables Backspace-to-remove (ambiguous with partials). */
+  partialTags?: { name: string; count: number; total: number }[];
+  /** Apply a partial tag to all target tracks (the fill-to-all control). */
+  onFillToAll?: (name: string) => void;
+  /** Make chip labels clickable (e.g. navigate to the tag's detail page). */
+  onChipLabelClick?: (name: string) => void;
+  /** Lay the input and suggestion pills on a single row (pills first, input
+   *  after). Default false: the legacy stacked layout (input, then pills row). */
+  inlineSuggestions?: boolean;
 }
 
 export default function TagEditor({
@@ -48,22 +59,42 @@ export default function TagEditor({
   chipPrefix = "",
   suggestedPills,
   suggestedPillsLabel = "Suggested",
+  partialTags,
+  onFillToAll,
+  onChipLabelClick,
+  inlineSuggestions,
 }: TagEditorProps) {
   const [input, setInput] = useState("");
 
-  const exclude = new Set(tags.map((t) => t.toLowerCase()));
+  // Names already represented (fully applied or partial) — excluded from the
+  // dropdown and pills so they aren't offered for re-add.
+  const appliedNames = useMemo(
+    () => [...tags, ...(partialTags ?? []).map((p) => p.name)],
+    [tags, partialTags],
+  );
+  const exclude = new Set(appliedNames.map((t) => t.toLowerCase()));
 
   // One-click pills: curated suggestions minus already-applied tags, deduped
   // case-insensitively and capped. Hidden when the editor is read-only.
   const pills = useMemo(
-    () => (disabled || !suggestedPills?.length ? [] : selectSuggestionPills(suggestedPills, tags, MAX_PILLS)),
-    [suggestedPills, tags, disabled],
+    () => (disabled || !suggestedPills?.length ? [] : selectSuggestionPills(suggestedPills, appliedNames, MAX_PILLS)),
+    [suggestedPills, appliedNames, disabled],
   );
 
   function commit(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (exclude.has(trimmed.toLowerCase())) {
+    const lower = trimmed.toLowerCase();
+    // Typing a partial tag's name means "apply it to all" — route to fill rather
+    // than silently no-opping (partial names are in the exclude set, so without
+    // this the only way to promote a partial tag would be the hover fill control).
+    const partialMatch = partialTags?.find((p) => p.name.toLowerCase() === lower);
+    if (partialMatch && onFillToAll) {
+      onFillToAll(partialMatch.name);
+      setInput("");
+      return;
+    }
+    if (exclude.has(lower)) {
       setInput("");
       return;
     }
@@ -76,21 +107,58 @@ export default function TagEditor({
     if (e.key === ",") {
       e.preventDefault();
       commit(input);
-    } else if (e.key === "Backspace" && input === "" && tags.length > 0) {
+    } else if (e.key === "Backspace" && input === "" && tags.length > 0 && partialTags === undefined) {
       onRemove(tags[tags.length - 1]);
     }
   }
 
+  const inputEl = (
+    <AutocompleteInput
+      value={input}
+      onChange={setInput}
+      suggestions={suggestions}
+      exclude={exclude}
+      onCommit={commit}
+      onKeyDownExtra={handleKeyDownExtra}
+      placeholder={placeholder ?? "Add a tag…"}
+      inputClassName="tag-editor-input ds-input"
+      autoFocus={autoFocus}
+    />
+  );
+  const pillsEl = pills.length > 0 ? (
+    <div className="tag-editor-suggested">
+      <span className="tag-editor-suggested-label">{suggestedPillsLabel}</span>
+      {pills.map((name) => (
+        <button
+          type="button"
+          key={name}
+          className="tag-editor-suggested-pill"
+          onClick={() => commit(name)}
+          title={`Add "${name}"`}
+        >
+          <span className="tag-editor-suggested-plus">+</span>{chipPrefix}{name}
+        </button>
+      ))}
+    </div>
+  ) : null;
+  const showAddArea = !disabled;
+
   return (
-    <div className={`tag-editor tag-editor--${variant}`}>
+    <div className={`tag-editor tag-editor--${variant}${inlineSuggestions ? " tag-editor--entity" : ""}`}>
       <div className="tag-editor-chips">
         {tags.map((name) => (
-          <span key={name} className="track-tag-chip track-tag-assigned">
-            <span className="track-tag-name">{chipPrefix}{name}</span>
+          <span key={`full:${name}`} className="track-tag-chip track-tag-assigned">
+            <span
+              className={onChipLabelClick ? "track-tag-name track-tag-name--link" : "track-tag-name"}
+              onClick={onChipLabelClick ? (e) => { e.stopPropagation(); onChipLabelClick(name); } : undefined}
+              title={onChipLabelClick ? `Open "${name}"` : undefined}
+            >
+              {chipPrefix}{name}
+            </span>
             {!disabled && (
               <span
                 className="track-tag-remove"
-                onClick={() => onRemove(name)}
+                onClick={(e) => { e.stopPropagation(); onRemove(name); }}
                 title="Remove tag"
               >
                 &times;
@@ -98,41 +166,56 @@ export default function TagEditor({
             )}
           </span>
         ))}
-        {tags.length === 0 && disabled && (
+        {(partialTags ?? []).map((pt) => (
+          <span key={`partial:${pt.name}`} className="track-tag-chip track-tag-assigned track-tag-partial">
+            <span
+              className={onChipLabelClick ? "track-tag-name track-tag-name--link" : "track-tag-name"}
+              onClick={onChipLabelClick ? (e) => { e.stopPropagation(); onChipLabelClick(pt.name); } : undefined}
+              title={onChipLabelClick ? `Open "${pt.name}"` : undefined}
+            >
+              {chipPrefix}{pt.name}
+            </span>
+            <span className="track-tag-count" title={`On ${pt.count} of ${pt.total} tracks`}>
+              {pt.count}/{pt.total}
+            </span>
+            {!disabled && onFillToAll && (
+              <span
+                className="track-tag-fill"
+                onClick={(e) => { e.stopPropagation(); onFillToAll(pt.name); }}
+                title="Apply to all tracks"
+              >
+                &uarr;
+              </span>
+            )}
+            {!disabled && (
+              <span
+                className="track-tag-remove"
+                onClick={(e) => { e.stopPropagation(); onRemove(pt.name); }}
+                title="Remove from all tracks"
+              >
+                &times;
+              </span>
+            )}
+          </span>
+        ))}
+        {tags.length === 0 && (partialTags?.length ?? 0) === 0 && disabled && (
           <span className="tag-editor-empty">No tags</span>
         )}
       </div>
-      {disabled ? (
-        disabledHint ? <span className="tag-editor-hint">{disabledHint}</span> : null
-      ) : (
-        <AutocompleteInput
-          value={input}
-          onChange={setInput}
-          suggestions={suggestions}
-          exclude={exclude}
-          onCommit={commit}
-          onKeyDownExtra={handleKeyDownExtra}
-          placeholder={placeholder ?? "Add a tag…"}
-          inputClassName="tag-editor-input ds-input"
-          autoFocus={autoFocus}
-        />
+      {disabled && disabledHint && (
+        <span className="tag-editor-hint">{disabledHint}</span>
       )}
-      {pills.length > 0 && (
-        <div className="tag-editor-suggested">
-          <span className="tag-editor-suggested-label">{suggestedPillsLabel}</span>
-          {pills.map((name) => (
-            <button
-              type="button"
-              key={name}
-              className="tag-editor-suggested-pill"
-              onClick={() => commit(name)}
-              title={`Add "${name}"`}
-            >
-              <span className="tag-editor-suggested-plus">+</span>{chipPrefix}{name}
-            </button>
-          ))}
+      {showAddArea && (inlineSuggestions ? (
+        <div className="tag-editor-add-row">
+          {pillsEl}
+          {inputEl}
         </div>
-      )}
+      ) : (
+        <>
+          {inputEl}
+          {pillsEl}
+        </>
+      ))}
     </div>
   );
 }

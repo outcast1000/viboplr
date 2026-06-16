@@ -94,7 +94,7 @@ impl Database {
         Self::update_fts_for_track_inner(&conn, track_id)
     }
 
-    fn update_fts_for_track_inner(conn: &Connection, track_id: i64) -> SqlResult<()> {
+    pub(super) fn update_fts_for_track_inner(conn: &Connection, track_id: i64) -> SqlResult<()> {
         conn.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![track_id])?;
         conn.execute(
             "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path)

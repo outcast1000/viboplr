@@ -952,6 +952,109 @@ mod tests {
     }
 
     #[test]
+    fn test_get_tag_counts_for_tracks_full_and_partial() {
+        let db = test_db();
+        let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);
+        let t2 = insert_track(&db, "b.mp3", "Beta", None, None);
+        let t3 = insert_track(&db, "c.mp3", "Gamma", None, None);
+        // jazz on all three (full); bebop on two (partial)
+        db.apply_tags_bulk(&[
+            (t1, vec!["jazz".to_string(), "bebop".to_string()]),
+            (t2, vec!["jazz".to_string(), "bebop".to_string()]),
+            (t3, vec!["jazz".to_string()]),
+        ]).unwrap();
+
+        let counts = db.get_tag_counts_for_tracks(&[t1, t2, t3]).unwrap();
+        let by_name: std::collections::HashMap<String, i64> =
+            counts.iter().map(|(_, n, c)| (n.clone(), *c)).collect();
+        assert_eq!(by_name.get("jazz"), Some(&3)); // full
+        assert_eq!(by_name.get("bebop"), Some(&2)); // partial: 2 of 3
+
+        // Empty id set → empty result
+        assert!(db.get_tag_counts_for_tracks(&[]).unwrap().is_empty());
+
+        // Denominator follows the passed set: only t3 → jazz=1, bebop absent
+        let sub = db.get_tag_counts_for_tracks(&[t3]).unwrap();
+        assert_eq!(sub.iter().find(|(_, n, _)| n == "jazz").map(|(_, _, c)| *c), Some(1));
+        assert!(!sub.iter().any(|(_, n, _)| n == "bebop"));
+    }
+
+    #[test]
+    fn test_apply_tag_to_tracks_fills_and_refreshes_count() {
+        let db = test_db();
+        let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);
+        let t2 = insert_track(&db, "b.mp3", "Beta", None, None);
+        db.apply_tags_bulk(&[(t1, vec!["jazz".to_string()])]).unwrap(); // jazz on t1 only
+
+        // Fill to all
+        assert_eq!(db.apply_tag_to_tracks(&[t1, t2], "jazz").unwrap(), "jazz");
+        let counts = db.get_tag_counts_for_tracks(&[t1, t2]).unwrap();
+        assert_eq!(counts.iter().find(|(_, n, _)| n == "jazz").map(|(_, _, c)| *c), Some(2));
+
+        // recompute_counts ran → the tag's stored track_count is current
+        assert_eq!(db.find_tag_by_name("jazz").unwrap().unwrap().track_count, 2);
+
+        // Idempotent: re-applying does not duplicate
+        db.apply_tag_to_tracks(&[t1, t2], "jazz").unwrap();
+        assert_eq!(db.get_tags_for_track(t1).unwrap().iter().filter(|t| t.name == "jazz").count(), 1);
+
+        // Case/diacritic merge: "Jazz" folds into existing "jazz", returns canonical casing
+        assert_eq!(db.apply_tag_to_tracks(&[t1], "Jazz").unwrap(), "jazz");
+
+        // Empty id set → no-op, echoes the name
+        assert_eq!(db.apply_tag_to_tracks(&[], "whatever").unwrap(), "whatever");
+    }
+
+    #[test]
+    fn test_remove_tag_from_tracks_reaps_zero_count_tag() {
+        let db = test_db();
+        let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);
+        let t2 = insert_track(&db, "b.mp3", "Beta", None, None);
+        db.rebuild_fts().unwrap();
+        db.apply_tag_to_tracks(&[t1, t2], "jazz").unwrap();
+        db.apply_tag_to_tracks(&[t1], "bebop").unwrap();
+
+        // Remove jazz from both → its last usage is gone, recompute_counts reaps the row
+        db.remove_tag_from_tracks(&[t1, t2], "jazz").unwrap();
+        assert!(db.find_tag_by_name("jazz").unwrap().is_none(), "zero-count tag reaped");
+
+        // bebop survives on t1
+        let counts = db.get_tag_counts_for_tracks(&[t1, t2]).unwrap();
+        assert_eq!(counts.iter().find(|(_, n, _)| n == "bebop").map(|(_, _, c)| *c), Some(1));
+
+        // FTS no longer matches the removed tag
+        let hits = db.get_tracks(&TrackQuery { query: Some("jazz".to_string()), limit: Some(100), ..Default::default() }).unwrap();
+        assert_eq!(hits.len(), 0);
+
+        // Unknown tag and empty id set are both no-ops
+        db.remove_tag_from_tracks(&[t1, t2], "nonexistent").unwrap();
+        db.remove_tag_from_tracks(&[], "bebop").unwrap();
+    }
+
+    #[test]
+    fn test_tag_commands_cross_chunk_boundary() {
+        // 600 tracks crosses the 500-id chunk boundary in get_tag_counts_for_tracks'
+        // IN-list and remove_tag_from_tracks' multi-chunk DELETE.
+        let db = test_db();
+        let ids: Vec<i64> = (0..600)
+            .map(|i| insert_track(&db, &format!("t{i}.mp3"), &format!("T{i}"), None, None))
+            .collect();
+
+        db.apply_tag_to_tracks(&ids, "bulk").unwrap();
+        let counts = db.get_tag_counts_for_tracks(&ids).unwrap();
+        assert_eq!(
+            counts.iter().find(|(_, n, _)| n == "bulk").map(|(_, _, c)| *c),
+            Some(600),
+            "counts summed correctly across chunks"
+        );
+        assert_eq!(db.find_tag_by_name("bulk").unwrap().unwrap().track_count, 600);
+
+        db.remove_tag_from_tracks(&ids, "bulk").unwrap();
+        assert!(db.get_tag_counts_for_tracks(&ids).unwrap().is_empty(), "multi-chunk delete removed all rows");
+        assert!(db.find_tag_by_name("bulk").unwrap().is_none(), "reaped after cross-chunk removal");
+    }
+
+    #[test]
     fn test_update_fts_for_track_reflects_tag_changes() {
         let db = test_db();
         let track_id = insert_track(&db, "music/song.mp3", "Melody", None, None);
