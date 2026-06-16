@@ -13,21 +13,14 @@ import "./App.css";
 import type { Track, QueueTrack, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
-const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
-
-function needsTranscode(track: { format: string | null }): boolean {
-  return TRANSCODE_VIDEO_FORMATS.includes(track.format?.toLowerCase() ?? "");
-}
-
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, isRemoteScheme, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
 import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
-import { withResolverLog } from "./utils/resolverLog";
 import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
 import type { SearchProviderConfig } from "./searchProviders";
 import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
@@ -36,6 +29,8 @@ import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
+import { useStreamResolution } from "./hooks/useStreamResolution";
+import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
 import { useQueue } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
 import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
@@ -51,7 +46,7 @@ import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
-import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY, type PluginHostCallbacks } from "./hooks/usePlugins";
+import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useRetrieveModal } from "./hooks/useRetrieveModal";
 import { RetrieveModal } from "./components/RetrieveModal";
@@ -60,7 +55,7 @@ import { useExtensions } from "./hooks/useExtensions";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { PluginTrack, DownloadProvider, DownloadResolveResult } from "./types/plugin";
+import type { PluginTrack } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
 import { useMiniSearch } from "./hooks/useMiniSearch";
@@ -104,7 +99,6 @@ import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { FirstRunPluginModal } from "./components/FirstRunPluginModal";
-import type { DownloadTrack } from "./components/DownloadModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { PromptModal } from "./components/PromptModal";
@@ -128,49 +122,6 @@ function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<V
   return null;
 }
 
-async function resolveTrackDownload(
-  providers: DownloadProvider[],
-  uri: string | null,
-  title: string,
-  artistName: string | null,
-  albumName: string | null,
-  durationSecs: number | null,
-  format: string,
-  provider?: string | null,
-): Promise<DownloadResolveResult | null> {
-  const targetProviders = provider
-    ? providers.filter(p => p.id === provider)
-    : providers;
-
-  if (uri) {
-    for (const p of targetProviders) {
-      try {
-        const result = await Promise.race([
-          p.resolveByUri(uri, format),
-          new Promise<null>((r) => setTimeout(() => r(null), 10000)),
-        ]);
-        if (result) return result;
-      } catch {
-        continue;
-      }
-    }
-  }
-
-  for (const p of targetProviders) {
-    try {
-      const result = await Promise.race([
-        p.resolveByMetadata(title, artistName, albumName, durationSecs, format),
-        new Promise<null>((r) => setTimeout(() => r(null), 10000)),
-      ]);
-      if (result) return result;
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
-
 function App() {
   const restoredRef = useRef(false);
   const handleEnqueueRef = useRef<(tracks: Track[]) => void>(() => {});
@@ -181,13 +132,6 @@ function App() {
   const [showFirstRunPluginModal, setShowFirstRunPluginModal] = useState(false);
   const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
-  const [downloadModal, setDownloadModal] = useState<{
-    tracks: DownloadTrack[];
-    providerId: string;
-    providerName: string;
-    confirmed?: boolean;
-    resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
-  } | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -244,12 +188,6 @@ function App() {
   });
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
-  const [resolvingStatus, setResolvingStatus] = useState<{ key: string; error: string | null; trying: string | null } | null>(null);
-  // Persistent per-track resolve failures, keyed by QueueTrack.key. Survives track
-  // changes so the failed row keeps explaining what happened until a later retry succeeds.
-  const [resolveFailures, setResolveFailures] = useState<Record<string, string>>({});
-  const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; sourceUrl: string | null; id: string | null } | null>(null);
-  const resolveGenerationRef = useRef(0);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef);
   const waveformPeaks = useWaveform(
@@ -261,12 +199,6 @@ function App() {
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
     playback.currentAssetUrl,
   );
-  useEffect(() => {
-    if (transcodeSessionRef.current && (!playback.currentTrack || !needsTranscode(playback.currentTrack))) {
-      invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
-      transcodeSessionRef.current = null;
-    }
-  }, [playback.currentTrack]);
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
@@ -379,6 +311,20 @@ function App() {
   const dependencies = useDependencies(plugins.pluginStates);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
+  // Playback source-resolution engine. The refs it drives are created above (so
+  // usePlayback can consume them); this wires the resolver chain + transcode
+  // lifecycle and exposes the render-facing resolution state.
+  const { resolvingStatus, resolveFailures, resolvedSource } = useStreamResolution({
+    resolveTrackSrcRef,
+    transcodeSessionRef,
+    resolveStreamByUriRef,
+    streamResolversRef,
+    resolveStreamByUri: plugins.resolveStreamByUri,
+    requireDep: dependencies.requireDep,
+    queue: queueHook.queue,
+    currentTrack: playback.currentTrack,
+  });
+
   // Centered, cancelable "Retrieve" modal for user-triggered image/info fetches
   // (preview → Apply). Automatic background image fetching is unaffected.
   const retrieve = useRetrieveModal(plugins.invokeImageFetch, plugins.invokeInfoFetch);
@@ -458,139 +404,6 @@ function App() {
     };
     buildResolvers();
   }, [plugins.pluginStates, plugins.invokeStreamResolve, streamResolverOrderVersion]);
-
-  // Build ordered download provider list from active plugins
-  const downloadProviders = useMemo(() => {
-    const providers: DownloadProvider[] = [];
-
-    // Built-in subsonic provider
-    providers.push({
-      id: "__builtin:subsonic",
-      name: "Subsonic",
-      source: "__builtin",
-      resolveByUri: (uri, format) =>
-        withResolverLog(
-          { kind: "download:uri", provider: "__builtin:subsonic", input: { uri, format } },
-          async () => {
-            if (!uri.startsWith("subsonic://")) return null;
-            const rest = uri.substring(11);
-            const lastSlash = rest.lastIndexOf("/");
-            if (lastSlash < 0) throw new Error(`malformed subsonic uri (no '/'): ${uri}`);
-            const collectionId = parseInt(rest.substring(0, lastSlash), 10);
-            const trackId = rest.substring(lastSlash + 1);
-            if (!trackId || isNaN(collectionId)) throw new Error(`malformed subsonic uri (bad id): ${uri}`);
-            const target = await invoke<{ url: string; ext: string }>("resolve_subsonic_download_url", {
-              collectionId, remoteTrackId: trackId, format,
-            });
-            return { url: target.url, headers: null, metadata: null, ext: target.ext };
-          },
-        ).catch(() => null),
-      resolveByMetadata: () =>
-        withResolverLog(
-          { kind: "download:metadata", provider: "__builtin:subsonic", input: {} },
-          async () => null,
-        ),
-    });
-
-    // Plugin providers
-    for (const ps of plugins.pluginStates) {
-      if (ps.status !== "active") continue;
-      const dps = ps.manifest.contributes?.downloadProviders;
-      if (!dps) continue;
-      for (const dp of dps) {
-        providers.push({
-          id: `${ps.id}:${dp.id}`,
-          name: dp.name,
-          source: ps.id,
-          resolveByUri: (uri, format) =>
-            plugins.invokeDownloadResolveByUri(ps.id, dp.id, uri, format),
-          resolveByMetadata: (title, artistName, albumName, durationSecs, format) =>
-            plugins.invokeDownloadResolveByMetadata(ps.id, dp.id, title, artistName, albumName, durationSecs, format),
-        });
-      }
-    }
-
-    return providers;
-  }, [plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata]);
-
-  const downloadProvidersRef = useRef<DownloadProvider[]>([]);
-  downloadProvidersRef.current = downloadProviders;
-
-  // Respond to backend download-resolve-request events by walking the plugin
-  // download-provider chain. (Inlined from the former useDownloads hook.)
-  useEffect(() => {
-    const unlisten = listen<{
-      id: number;
-      title: string;
-      artist_name: string | null;
-      album_title: string | null;
-      duration_secs: number | null;
-      uri: string | null;
-      format: string;
-      provider: string | null;
-    }>("download-resolve-request", async (event) => {
-      const { id, title, artist_name, album_title, duration_secs, uri, format, provider } = event.payload;
-      const result = await resolveTrackDownload(
-        downloadProvidersRef.current,
-        uri, title, artist_name, album_title, duration_secs, format, provider,
-      );
-      await invoke("download_resolve_response", { id, result: result ?? null });
-    });
-    return () => { unlisten.then((fn) => fn()); };
-  }, []);
-
-  const [providerPriorities, setProviderPriorities] = useState<Map<string, number>>(new Map());
-
-  const refreshProviderPriorities = useCallback(async () => {
-    try {
-      const rows = await invoke<[string, string, string, number][]>("get_active_download_providers");
-      const map = new Map<string, number>();
-      for (const [pluginId, providerId, , priority] of rows) {
-        map.set(`${pluginId}:${providerId}`, priority);
-      }
-      setProviderPriorities(map);
-    } catch (e) {
-      console.error("Failed to load download provider priorities:", e);
-    }
-  }, []);
-
-  const downloadProviderEntries = useMemo(() => {
-    return downloadProviders
-      .filter(p => p.source !== "__builtin")
-      .map(p => {
-        const parts = p.id.split(":");
-        const pluginId = parts[0];
-        const providerId = parts.slice(1).join(":");
-        return {
-          id: p.id,
-          name: p.name,
-          priority: providerPriorities.get(p.id) ?? Number.MAX_SAFE_INTEGER,
-          interactive: plugins.hasInteractiveDownload(pluginId, providerId),
-        };
-      })
-      .sort((a, b) => a.priority - b.priority);
-  }, [downloadProviders, providerPriorities, plugins.hasInteractiveDownload]);
-
-  // Sync download providers to DB for backend ordering
-  useEffect(() => {
-    const providerData: [string, string, string, number][] = [];
-    for (const ps of plugins.pluginStates) {
-      if (ps.status !== "active") continue;
-      const dps = ps.manifest.contributes?.downloadProviders;
-      if (!dps) continue;
-      for (const dp of dps) {
-        const dlPriority = DEFAULT_DOWNLOAD_PROVIDER_PRIORITY[`${ps.id}:${dp.id}`] ?? 999;
-        providerData.push([ps.id, dp.id, dp.name, dlPriority]);
-      }
-    }
-    if (providerData.length > 0) {
-      invoke("sync_download_providers", { providers: providerData })
-        .then(() => refreshProviderPriorities())
-        .catch(console.error);
-    } else {
-      refreshProviderPriorities();
-    }
-  }, [plugins.pluginStates, refreshProviderPriorities]);
 
 
   // Plugin event: track started
@@ -903,6 +716,23 @@ function App() {
   // actions reach the dedup-aware handleEnqueue through this ref (updated each render).
   handleEnqueueRef.current = contextMenuActions.handleEnqueue;
 
+  // Download-orchestration engine: ordered provider list, priorities, the backend
+  // resolve-request bridge, the download modal, and every download trigger.
+  const {
+    downloadModal,
+    setDownloadModal,
+    downloadProviders,
+    downloadProviderEntries,
+    handleDownloadFromProvider,
+    openDownloadForCurrentTrack,
+  } = useDownloadOrchestration({
+    plugins,
+    contextMenu: contextMenuActions.contextMenu,
+    libraryTracks: library.tracks,
+    queue: queueHook.queue,
+    handleDownloadTrackFallback: contextMenuActions.handleDownloadTrack,
+  });
+
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
     const idSet = new Set(trackIds);
     const selected = library.tracks.filter(t => t.id != null && idSet.has(t.id));
@@ -914,90 +744,6 @@ function App() {
     const network = selected.some(t => t.id != null && localIds.includes(t.id) && isNetworkSharePath(t.path));
     contextMenuActions.setDeleteConfirm({ trackIds: localIds, title, network });
   }, [library.tracks, contextMenuActions.setDeleteConfirm]);
-
-  const handleDownloadFromProvider = useCallback((providerId: string, interactive: boolean) => {
-    const ctx = contextMenuActions.contextMenu;
-    if (!ctx) return;
-    const target = ctx.target;
-
-    // Collect tracks for batch downloads
-    let batchTracks: QueueTrack[] | null = null;
-    if (target.kind === "multi-track") {
-      const idSet = new Set(target.trackIds);
-      batchTracks = library.tracks.filter(t => t.id != null && idSet.has(t.id));
-    } else if (target.kind === "queue-multi" && target.indices.length > 1) {
-      batchTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-    }
-
-    if (batchTracks && batchTracks.length > 0) {
-      const providerEntry = downloadProviderEntries.find(e => e.id === providerId);
-      setDownloadModal({
-        tracks: batchTracks.map(t => ({
-          title: t.title,
-          artistName: t.artist_name ?? null,
-          albumTitle: t.album_title ?? null,
-          uri: t.path ?? null,
-          durationSecs: t.duration_secs ?? null,
-          trackId: parseLibraryId(t.key),
-        })),
-        providerId,
-        providerName: providerEntry?.name ?? providerId,
-        confirmed: !interactive,
-      });
-      return;
-    }
-
-    // Single track
-    let trackId: number | null = null;
-    let title = "";
-    let artistName: string | null = null;
-
-    if (target.kind === "track") {
-      trackId = target.trackId ?? null;
-      title = target.title ?? "";
-      artistName = target.artistName ?? null;
-    } else if (target.kind === "queue-multi" && target.indices.length === 1) {
-      const queueTrack = queueHook.queue[target.indices[0]];
-      if (queueTrack) {
-        trackId = parseLibraryId(queueTrack.key);
-        title = queueTrack.title;
-        artistName = queueTrack.artist_name ?? null;
-      }
-    } else {
-      return;
-    }
-
-    if (interactive) {
-      const track = trackId != null ? library.tracks.find(t => t.id === trackId) : null;
-      setDownloadModal({
-        tracks: [{
-          title: track?.title ?? title,
-          artistName: track?.artist_name ?? artistName,
-          albumTitle: track?.album_title ?? null,
-          uri: track?.path ?? null,
-          durationSecs: track?.duration_secs ?? null,
-          trackId,
-        }],
-        providerId,
-        providerName: downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId,
-      });
-    } else {
-      // Non-interactive: silent enqueue (no modal)
-      const track = trackId != null ? library.tracks.find(t => t.id === trackId) : null;
-      invoke("enqueue_download", {
-        title: track?.title ?? title,
-        artistName: track?.artist_name ?? artistName,
-        albumTitle: track?.album_title ?? null,
-        uri: track?.path ?? null,
-        durationSecs: track?.duration_secs ?? null,
-        destCollectionId: null,
-        format: null,
-        provider: providerId,
-      }).catch((e: unknown) => {
-        console.error("Failed to enqueue download:", e);
-      });
-    }
-  }, [contextMenuActions.contextMenu, downloadProviderEntries, library.tracks, queueHook.queue]);
 
   const buildAndShowNativeMenu = useCallback((cm: { x: number; y: number; target: import("./types/contextMenu").ContextMenuTarget }) => {
     contextMenuActions.setContextMenu(cm);
@@ -1067,7 +813,7 @@ function App() {
         // user gets a destination/quality step and per-track progress + errors.
         const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null }>; providerId: string; providerName: string };
         if (p.providerId && p.tracks && p.tracks.length > 0) {
-          const provider = downloadProvidersRef.current.find(dp => dp.id === p.providerId);
+          const provider = downloadProviders.find(dp => dp.id === p.providerId);
           const isSingle = p.tracks.length === 1;
           setDownloadModal({
             tracks: p.tracks.map(t => ({
@@ -1127,184 +873,12 @@ function App() {
   });
 
   useEffect(() => {
-    resolveStreamByUriRef.current = plugins.resolveStreamByUri;
-  }, [plugins.resolveStreamByUri]);
-
-  // Resolve a queue track's url to a playable source
-  useEffect(() => {
-    const resolveUrl = (url: string): Promise<string> => {
-      if (url.startsWith("http://") || url.startsWith("https://")) return Promise.resolve(url);
-      const parsed = parseUrlScheme(url);
-      if (parsed.scheme === "file") return Promise.resolve(convertFileSrc(parsed.path));
-      if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null).then(r => resolveUrl(r));
-      if (parsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: url });
-      return Promise.reject(new Error(`Unplayable URL scheme: ${url}`));
-    };
-
-    const nativeResolverName = (url: string): string => {
-      if (url.startsWith("http://") || url.startsWith("https://")) return "Direct URL";
-      const parsed = parseUrlScheme(url);
-      if (parsed.scheme === "file") return "Local";
-      if (parsed.scheme === "plugin") return parsed.protocol.charAt(0).toUpperCase() + parsed.protocol.slice(1);
-      if (parsed.scheme === "subsonic") return "Subsonic";
-      return "Unknown";
-    };
-
-    resolveTrackSrcRef.current = async (track: QueueTrack) => {
-      const generation = ++resolveGenerationRef.current;
-      setResolvedSource(null);
-      const url = track.path;
-
-      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; patch?: Partial<QueueTrack>; resolve: () => Promise<string> }
-      const chain: ResolverEntry[] = [];
-
-      // Pre-resolution: check if a local copy exists for remote OR path-less tracks
-      if (!url || isRemoteScheme(url)) {
-        try {
-          const localMatch = await invoke<Track | null>("find_track_by_metadata", {
-            title: stripRemasterSuffix(track.title) ?? track.title,
-            artistName: track.artist_name ?? null,
-            albumName: stripRemasterSuffix(track.album_title),
-          });
-          if (localMatch && localMatch.path?.startsWith("file://")) {
-            const localPath = localMatch.path.substring(7);
-            chain.push({
-              name: "Library",
-              id: null,
-              sourceUrl: localPath,
-              // Carry the matched file's path + format so the play path can
-              // re-classify a path-less track (e.g. a Home track-row) as video.
-              patch: { path: localMatch.path, format: localMatch.format },
-              resolve: () => Promise.resolve(convertFileSrc(localPath)),
-            });
-          }
-        } catch (e) {
-          console.error("Pre-resolution local copy check failed:", e);
-        }
-      }
-
-      // Native resolver first (if track has a known URL)
-      if (url) {
-        if (url.startsWith("http://") || url.startsWith("https://")) {
-          chain.push({ name: "Direct URL", id: null, sourceUrl: url, resolve: () => Promise.resolve(url) });
-        } else {
-          chain.push({
-            name: nativeResolverName(url),
-            id: null,
-            sourceUrl: url,
-            resolve: async () => {
-              const parsed = parseUrlScheme(url);
-              if (parsed.scheme === "file" && needsTranscode(track)) {
-                if (transcodeSessionRef.current) {
-                  invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
-                }
-                try {
-                  const result = await invoke<{ url: string; sessionId: string; durationSecs: number | null }>("start_transcode", { path: parsed.path });
-                  transcodeSessionRef.current = {
-                    sessionId: result.sessionId,
-                    baseUrl: result.url.replace(/\?seek=.*$/, ""),
-                    durationSecs: result.durationSecs ?? null,
-                    seekOffset: 0,
-                  };
-                  return result.url;
-                } catch (e) {
-                  const msg = e instanceof Error ? e.message : String(e);
-                  if (msg.includes("ffmpeg is not installed")) {
-                    dependencies.requireDep("ffmpeg", "Video playback");
-                  }
-                  throw e;
-                }
-              }
-              return resolveUrl(url);
-            },
-          });
-        }
-      }
-
-      // Append user-configured stream resolvers
-      for (const sr of streamResolversRef.current) {
-        const entry: ResolverEntry = {
-          name: sr.name,
-          id: sr.id,
-          sourceUrl: null,
-          resolve: async () => {
-            const result = await Promise.race([
-              sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
-            ]);
-            if (!result) throw new Error("No result");
-            if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
-            return resolveUrl(result.url);
-          },
-        };
-        chain.push(entry);
-      }
-
-      if (chain.length === 0) {
-        throw new Error(`No playback source for: ${track.title}`);
-      }
-
-      let lastError: string | null = null;
-      for (const entry of chain) {
-        if (resolveGenerationRef.current !== generation) return { src: "" };
-        if (lastError || chain.length > 1) {
-          setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
-        }
-        try {
-          const src = await entry.resolve();
-          if (resolveGenerationRef.current !== generation) return { src: "" };
-          setResolvingStatus(null);
-          // Resolved successfully — clear any prior persistent failure for this track.
-          setResolveFailures(prev => {
-            if (!(track.key in prev)) return prev;
-            const next = { ...prev };
-            delete next[track.key];
-            return next;
-          });
-          setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id });
-          if (lastError) {
-            console.debug(`Playing from ${entry.name} (original unavailable)`);
-          }
-          return { src, patch: entry.patch };
-        } catch (e) {
-          console.error(`Stream resolver "${entry.name}" failed:`, e);
-          lastError = entry.name === "Library" ? "Not in library" : `${entry.name} failed`;
-          continue;
-        }
-      }
-
-      if (resolveGenerationRef.current === generation) {
-        setResolvingStatus(null);
-      }
-      // Record a persistent failure for this track so the queue row keeps
-      // explaining what happened even after playback moves to another track.
-      setResolveFailures(prev => ({ ...prev, [track.key]: lastError ?? "no source found" }));
-      throw new Error(`No playback source found for: ${track.title}`);
-    };
-  }, []);
-
-  useEffect(() => {
     if (playback.playbackError && playback.failedTrack) {
       const t = playback.failedTrack;
       const src = t.path?.startsWith("subsonic://") ? "Subsonic" : isLocalTrack(t) ? "Local" : "Remote";
       console.debug(`Playback failed (${src}): ${t.artist_name ? t.artist_name + " — " : ""}${t.title}: ${playback.playbackError}`);
     }
   }, [playback.playbackError, playback.failedTrack]);
-
-  // Prune persistent resolve failures for tracks no longer in the queue, so the
-  // map stays bounded and a recycled key can't inherit a stale error.
-  useEffect(() => {
-    setResolveFailures(prev => {
-      const keys = Object.keys(prev);
-      if (keys.length === 0) return prev;
-      const live = new Set(queueHook.queue.map(t => t.key));
-      const stale = keys.filter(k => !live.has(k));
-      if (stale.length === 0) return prev;
-      const next = { ...prev };
-      for (const k of stale) delete next[k];
-      return next;
-    });
-  }, [queueHook.queue]);
 
 
   // Paste image onto artist/album
@@ -3763,91 +3337,7 @@ function App() {
         }}
         getAlbumImage={albumImageCache.getImage}
         getArtistImage={artistImageCache.getImage}
-        onDownloadTrack={playback.currentTrack ? async () => {
-          const track = playback.currentTrack!;
-          const trackUri = track.path ?? "";
-          const trackPayload = {
-            title: track.title,
-            artistName: track.artist_name ?? null,
-            albumTitle: track.album_title ?? null,
-            uri: track.path ?? null,
-            durationSecs: track.duration_secs ?? null,
-            trackId: parseLibraryId(track.key),
-          };
-
-          // If playing via a fallback stream resolver (e.g. YouTube), prefer that
-          // plugin's download provider over the original scheme's provider
-          const resolverPluginId = resolvedSource?.id?.split(":")[0] ?? null;
-          const resolverDownloadProvider = resolverPluginId
-            ? downloadProviders.find(p => p.source === resolverPluginId)
-            : null;
-
-          // Direct URI resolution: for remote schemes, skip interactive search
-          if (isRemoteScheme(trackUri) && !resolverDownloadProvider) {
-            const scheme = trackUri.substring(0, trackUri.indexOf("://"));
-            const directProvider = scheme === "subsonic"
-              ? downloadProviders.find(p => p.id === "__builtin:subsonic")
-              : downloadProviders.find(p => p.source !== "__builtin");
-            if (directProvider) {
-              setDownloadModal({
-                tracks: [trackPayload],
-                providerId: directProvider.id,
-                providerName: directProvider.name,
-                resolveByUri: directProvider.resolveByUri,
-              });
-              return;
-            }
-          }
-
-          // If playing via a fallback resolver that has a download provider,
-          // use its resolveByMetadata (which checks cache before re-downloading)
-          if (resolverDownloadProvider) {
-            setDownloadModal({
-              tracks: [trackPayload],
-              providerId: resolverDownloadProvider.id,
-              providerName: resolverDownloadProvider.name,
-              resolveByUri: (_uri, format) =>
-                resolverDownloadProvider.resolveByMetadata(
-                  track.title, track.artist_name ?? null, track.album_title ?? null,
-                  track.duration_secs ?? null, format,
-                ),
-            });
-            return;
-          }
-
-          // Fallback: interactive search via plugin providers
-          let entries = downloadProviderEntries;
-          try {
-            const rows = await invoke<[string, string, string, number][]>("get_active_download_providers");
-            const freshPriorities = new Map<string, number>();
-            for (const [pid, provId, , prio] of rows) freshPriorities.set(`${pid}:${provId}`, prio);
-            setProviderPriorities(freshPriorities);
-            entries = downloadProviders
-              .filter(p => p.source !== "__builtin")
-              .map(p => {
-                const parts = p.id.split(":");
-                return {
-                  id: p.id,
-                  name: p.name,
-                  priority: freshPriorities.get(p.id) ?? Number.MAX_SAFE_INTEGER,
-                  interactive: plugins.hasInteractiveDownload(parts[0], parts.slice(1).join(":")),
-                };
-              })
-              .sort((a, b) => a.priority - b.priority);
-          } catch (e) {
-            console.error("Failed to load download provider priorities:", e);
-          }
-          const provider = entries.find(e => e.interactive) ?? entries[0];
-          if (!provider) {
-            contextMenuActions.handleDownloadTrack(track);
-            return;
-          }
-          setDownloadModal({
-            tracks: [trackPayload],
-            providerId: provider.id,
-            providerName: provider.name,
-          });
-        } : undefined}
+        onDownloadTrack={playback.currentTrack ? () => openDownloadForCurrentTrack(playback.currentTrack!, resolvedSource) : undefined}
         tagSuggestions={tagSuggestionPool}
         invokeInfoFetch={plugins.invokeInfoFetch}
       />
