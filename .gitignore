@@ -38,3 +38,4 @@ benchmarks/report.html
 test-results/
 src-tauri/Cargo.lock
 
+src-tauri/.impeccable/
