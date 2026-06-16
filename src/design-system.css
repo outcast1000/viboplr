@@ -300,7 +300,7 @@
 .ds-like-btn:hover { color: var(--error); }
 .ds-like-btn.liked { color: var(--error); }
 .ds-dislike-btn:hover { color: var(--error); }
-.ds-dislike-btn.disliked { color: var(--error); }
+.ds-dislike-btn.disliked { color: var(--warning); }
 
 .ds-like-btn:disabled,
 .ds-dislike-btn:disabled {
@@ -335,7 +335,7 @@
 .ds-like-inline:hover { color: var(--error); }
 .ds-like-inline.liked { color: var(--error); }
 .ds-dislike-inline:hover { color: var(--error); }
-.ds-dislike-inline.disliked { color: var(--error); }
+.ds-dislike-inline.disliked { color: var(--warning); }
 
 .ds-like-inline:disabled,
 .ds-dislike-inline:disabled {
@@ -390,7 +390,7 @@
 .ds-dislike-overlay:hover { color: var(--error); }
 .ds-dislike-overlay.disliked {
   opacity: 1;
-  color: var(--error);
+  color: var(--warning);
 }
 
 .ds-like-overlay:disabled,
@@ -831,11 +831,11 @@
 }
 .ds-like-control .ds-like-status { display: inline-flex; }
 
-/* Within the like control, both like and dislike read as the red accent
-   (the variant classes only define .liked red, not .disliked, so the hand
-   would otherwise stay grey). */
-.ds-like-control .liked,
-.ds-like-control .disliked { color: var(--error); }
+/* Within the like control, like reads as the red accent while dislike reads as
+   the amber warning accent, so the two ratings are visually distinct (red heart
+   = liked, amber thumbs-down = disliked). */
+.ds-like-control .liked { color: var(--error); }
+.ds-like-control .disliked { color: var(--warning); }
 
 /* Overlay variant: the button sits in the card corner like the old buttons. */
 .ds-like-control--overlay {

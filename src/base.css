@@ -199,7 +199,7 @@ body {
   color: var(--text-primary);
 }
 .g-btn.disliked {
-  color: var(--text-secondary);
+  color: var(--warning);
   background: rgba(var(--overlay-base), 0.08);
   border-color: rgba(var(--overlay-base), 0.12);
 }

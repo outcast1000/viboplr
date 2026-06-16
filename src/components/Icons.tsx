@@ -83,12 +83,8 @@ export const IconHeartOutline = ({ size = 14, className }: IconProps) => (
   </svg>
 );
 
-export const IconThumbsDown = ({ size = 14, className }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>
-  </svg>
-);
-
+// Filled thumbs-down, used as the "dislike" rating icon. A distinct silhouette
+// from the like heart, paired with the amber (--warning) accent.
 export const IconThumbsDownFilled = ({ size = 14, className }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
     <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10zm7-13v11h5.33A2.31 2.31 0 0 0 24.66 10.67V4A2.31 2.31 0 0 0 22.33 2H17z"/>

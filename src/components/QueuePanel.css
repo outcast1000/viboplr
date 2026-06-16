@@ -402,11 +402,16 @@
   min-width: 0;
 }
 
-.queue-item-like,
-.queue-item-dislike {
+.queue-item-like {
   flex-shrink: 0;
   align-self: center;
   color: var(--error);
+}
+
+.queue-item-dislike {
+  flex-shrink: 0;
+  align-self: center;
+  color: var(--warning);
 }
 
 
