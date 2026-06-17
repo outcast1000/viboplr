@@ -202,6 +202,13 @@ pub fn get_playlist_tracks(state: State<'_, AppState>, playlist_id: i64) -> Resu
     state.db.get_playlist_tracks(playlist_id).map_err(|e| e.to_string())
 }
 
+/// Playlist ids whose track titles/artists match `query`. Backs the Playlists
+/// view search (name/description are matched on the frontend).
+#[tauri::command]
+pub fn search_playlist_track_ids(state: State<'_, AppState>, query: String) -> Result<Vec<i64>, String> {
+    state.db.search_playlist_track_ids(&query).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn delete_playlist_record(app: AppHandle, state: State<'_, AppState>, playlist_id: i64) -> Result<(), String> {
     // Collect image paths before deleting DB rows (cascade deletes tracks)

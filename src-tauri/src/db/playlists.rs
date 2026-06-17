@@ -121,6 +121,71 @@ impl Database {
         rows.collect()
     }
 
+    /// Playlist ids with at least one track whose title or artist matches
+    /// `query` (case- and diacritic-insensitive, via the shared SQL functions).
+    /// Covers materialized `playlist_tracks` rows (user + auto playlists) and the
+    /// live `entity_likes` projection that backs the protected liked/disliked
+    /// system playlists. Name/description matching stays on the frontend (the
+    /// list already holds that data); this is only the track-content half.
+    pub fn search_playlist_track_ids(&self, query: &str) -> SqlResult<Vec<i64>> {
+        let q = query.trim();
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+
+        // Materialized rows (user + auto playlists).
+        {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT playlist_id FROM playlist_tracks
+                 WHERE strip_diacritics(unicode_lower(title))
+                         LIKE '%' || strip_diacritics(unicode_lower(?1)) || '%'
+                    OR strip_diacritics(unicode_lower(COALESCE(artist_name, '')))
+                         LIKE '%' || strip_diacritics(unicode_lower(?1)) || '%'",
+            )?;
+            let rows = stmt.query_map(params![q], |r| r.get::<_, i64>(0))?;
+            for r in rows {
+                ids.insert(r?);
+            }
+        }
+
+        // Protected liked/disliked: membership is projected from entity_likes,
+        // whose entity_key is already strip_diacritics(lowercase(artist+title)),
+        // so matching the normalized query against it covers title and artist.
+        let (mut liked_match, mut disliked_match) = (false, false);
+        {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT liked FROM entity_likes
+                 WHERE kind = 'track' AND liked != 0
+                   AND entity_key LIKE '%' || strip_diacritics(unicode_lower(?1)) || '%'",
+            )?;
+            let rows = stmt.query_map(params![q], |r| r.get::<_, i32>(0))?;
+            for r in rows {
+                match r? {
+                    1 => liked_match = true,
+                    -1 => disliked_match = true,
+                    _ => {}
+                }
+            }
+        }
+        if liked_match || disliked_match {
+            let mut stmt = conn.prepare(
+                "SELECT id, system_kind FROM playlists
+                 WHERE system_kind IN ('liked', 'disliked')",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+            for r in rows {
+                let (id, kind) = r?;
+                if (kind == "liked" && liked_match) || (kind == "disliked" && disliked_match) {
+                    ids.insert(id);
+                }
+            }
+        }
+
+        Ok(ids.into_iter().collect())
+    }
+
     pub fn delete_playlist(&self, playlist_id: i64) -> SqlResult<()> {
         // Only the protected `liked`/`disliked` system playlists are
         // undeletable. Auto-playlists (`auto:*`) are user-deletable (they

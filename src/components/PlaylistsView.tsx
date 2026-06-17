@@ -11,6 +11,7 @@ import { nextExternalKey } from "../queueEntry";
 import type { ExportTrack } from "./MixtapeExportModal";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
+import { ViewSearchBar } from "./ViewSearchBar";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
 import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
@@ -68,6 +69,7 @@ function playlistTrackToMinimalTrack(t: PlaylistTrack): QueueTrack {
 
 interface PlaylistsViewProps {
   searchQuery: string;
+  onSearchChange: (query: string) => void;
   onPlayTracks: (tracks: any[], startIndex: number, context?: PlaylistContext | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
   onExportAsMixtape?: (tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => void;
@@ -79,7 +81,7 @@ function isLocalPath(source: string | null): boolean {
   return !!source && source.startsWith("file://");
 }
 
-export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
+export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
@@ -329,9 +331,30 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     return out;
   }, [selectedPlaylist, tracks, resolvedImages, trackImageKey, imageUrl]);
 
-  // Filter by search query
-  const filtered = (searchQuery
-    ? playlists.filter((p) => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  // Track-content matches come from the backend (covers materialized rows and the
+  // liked/disliked entity_likes projection); name/description match client-side.
+  const [trackMatchIds, setTrackMatchIds] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q) { setTrackMatchIds(new Set()); return; }
+    let cancelled = false;
+    invoke<number[]>("search_playlist_track_ids", { query: q })
+      .then((ids) => { if (!cancelled) setTrackMatchIds(new Set(ids)); })
+      .catch((e) => {
+        console.error("Failed to search playlist tracks:", e);
+        if (!cancelled) setTrackMatchIds(new Set());
+      });
+    return () => { cancelled = true; };
+  }, [searchQuery]);
+
+  // Filter by search query: playlist name + description (client-side, instant) and
+  // track titles/artists (backend, via trackMatchIds).
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = (q
+    ? playlists.filter((p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.description?.toLowerCase().includes(q) ?? false) ||
+        trackMatchIds.has(p.id))
     : playlists
   ).slice().sort((a, b) => playlistRank(a) - playlistRank(b));
 
@@ -512,9 +535,15 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   const regularPlaylists = filtered.filter((p) => !p.system_kind);
 
   return (
-    <div className="playlists-view">
+    <>
+      <ViewSearchBar
+        query={searchQuery}
+        onQueryChange={onSearchChange}
+        placeholder="Search playlists..."
+      />
+      <div className="playlists-view">
       {filtered.length === 0 ? (
-        <div className="playlists-empty">No saved playlists</div>
+        <div className="playlists-empty">{searchQuery.trim() ? "No matching playlists" : "No saved playlists"}</div>
       ) : (
         <>
           {protectedSystem.length > 0 && (
@@ -606,6 +635,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
         </>
       )}
       {deleteModal}
-    </div>
+      </div>
+    </>
   );
 }

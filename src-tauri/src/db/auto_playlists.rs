@@ -730,4 +730,53 @@ mod tests {
         assert_eq!(tracks[0].title, "T");
         assert_eq!(tracks[0].source.as_deref(), Some("file:///x"));
     }
+
+    #[test]
+    fn test_search_playlist_track_ids_matches_tracks_and_likes() {
+        let db = test_db();
+
+        // A user playlist with materialized track rows.
+        let pid = db.save_playlist("My Mix", None, None, None, None).unwrap();
+        db.save_playlist_tracks(pid, &[
+            ("Paranoid Android", Some("Radiohead"), Some("OK Computer"), Some(383.0), None, None),
+            ("Karma Police", Some("Radiohead"), Some("OK Computer"), Some(261.0), None, None),
+        ]).unwrap();
+
+        // An unrelated playlist that must not match the queries below.
+        let other = db.save_playlist("Other", None, None, None, None).unwrap();
+        db.save_playlist_tracks(other, &[
+            ("Blue Monday", Some("New Order"), None, Some(450.0), None, None),
+        ]).unwrap();
+
+        // Liked Songs system playlist + a liked track (projected from entity_likes).
+        db.ensure_system_playlists().unwrap();
+        let liked_pid: i64 = {
+            let conn = db.conn.lock().unwrap();
+            conn.query_row("SELECT id FROM playlists WHERE system_kind='liked'", [], |r| r.get(0)).unwrap()
+        };
+        db.set_entity_like(
+            "track",
+            &build_entity_key("track", "Idioteque", Some("Radiohead")),
+            1,
+            Some(r#"{"title":"Idioteque","artist_name":"Radiohead"}"#),
+            100,
+        ).unwrap();
+
+        // Match by artist: hits the materialized user mix AND the liked projection.
+        let by_artist: std::collections::HashSet<i64> =
+            db.search_playlist_track_ids("radiohead").unwrap().into_iter().collect();
+        assert!(by_artist.contains(&pid), "user mix matches by artist");
+        assert!(by_artist.contains(&liked_pid), "liked songs matches via entity_likes");
+        assert!(!by_artist.contains(&other), "unrelated playlist excluded");
+
+        // Match by track title — case-insensitive substring.
+        let by_title: std::collections::HashSet<i64> =
+            db.search_playlist_track_ids("KARMA").unwrap().into_iter().collect();
+        assert!(by_title.contains(&pid));
+        assert!(!by_title.contains(&liked_pid));
+
+        // No match / blank query → empty.
+        assert!(db.search_playlist_track_ids("nonexistent zzz").unwrap().is_empty());
+        assert!(db.search_playlist_track_ids("   ").unwrap().is_empty());
+    }
 }

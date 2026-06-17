@@ -120,6 +120,7 @@ macro_rules! invoke_handler {
             commands::save_playlist_record,
             commands::get_playlists,
             commands::get_playlist_tracks,
+            commands::search_playlist_track_ids,
             commands::ensure_auto_playlists,
             commands::delete_playlist_record,
             commands::export_playlist_m3u,

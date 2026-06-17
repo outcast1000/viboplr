@@ -2219,12 +2219,6 @@ function App() {
     onEnter: () => { if (highlightedListIndex >= 0) historyRef.current?.playItem(highlightedListIndex); },
   };
 
-  const playlistsSearchNav = {
-    onArrowDown: () => {},
-    onArrowUp: () => {},
-    onEnter: () => {},
-  };
-
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
@@ -2625,22 +2619,15 @@ function App() {
 
           {/* Playlists view */}
           {view === "playlists" && (
-            <>
-              <ViewSearchBar
-                query={viewSearch.getQuery("playlists")}
-                onQueryChange={(q) => viewSearch.setQuery("playlists", q)}
-                placeholder="Search playlists..."
-                {...playlistsSearchNav}
-              />
-              <PlaylistsView
-                searchQuery={viewSearch.getQuery("playlists")}
-                onPlayTracks={queueHook.playTracks}
-                onEnqueueTracks={queueHook.enqueueTracks}
-                onExportAsMixtape={handleExportAsMixtapeDirect}
-                pluginMenuItems={plugins.menuItems}
-                onPluginAction={plugins.dispatchContextMenuAction}
-              />
-            </>
+            <PlaylistsView
+              searchQuery={viewSearch.getQuery("playlists")}
+              onSearchChange={(q) => viewSearch.setQuery("playlists", q)}
+              onPlayTracks={queueHook.playTracks}
+              onEnqueueTracks={queueHook.enqueueTracks}
+              onExportAsMixtape={handleExportAsMixtapeDirect}
+              pluginMenuItems={plugins.menuItems}
+              onPluginAction={plugins.dispatchContextMenuAction}
+            />
           )}
 
           {/* Collections view */}
