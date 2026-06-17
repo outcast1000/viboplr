@@ -79,18 +79,6 @@ function isLocalPath(source: string | null): boolean {
   return !!source && source.startsWith("file://");
 }
 
-function playlistContext(pl: Playlist): PlaylistContext {
-  const metadata: Record<string, string> | null = pl.metadata ? JSON.parse(pl.metadata) : null;
-  return {
-    name: pl.name,
-    imagePath: pl.image_path,
-    source: pl.source ?? "playlist",
-    description: pl.description,
-    metadata,
-    remote: false,
-  };
-}
-
 export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
@@ -98,6 +86,27 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [refreshingAuto, setRefreshingAuto] = useState(false);
+  const artistImages = useImageCache("artist");
+
+  // Build the queue's PlaylistContext. Auto-playlists ("Made for you") store no
+  // image_path, so fall back to the mix's first-artist image — the same raw path
+  // autoCoverSrc resolves for the card — otherwise the queue banner cover is blank.
+  const playlistContext = useCallback((pl: Playlist): PlaylistContext => {
+    const metadata: Record<string, string> | null = pl.metadata ? JSON.parse(pl.metadata) : null;
+    let imagePath = pl.image_path;
+    if (!imagePath) {
+      const artist = firstArtist(pl.metadata);
+      imagePath = artist ? artistImages.getImage(artist) : null;
+    }
+    return {
+      name: pl.name,
+      imagePath,
+      source: pl.source ?? "playlist",
+      description: pl.description,
+      metadata,
+      remote: false,
+    };
+  }, [artistImages]);
 
   const loadPlaylists = useCallback(async () => {
     const rows = await invoke<Playlist[]>("get_playlists");
@@ -181,7 +190,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     if (rows.length > 0) {
       onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, playlistContext(pl));
     }
-  }, [onPlayTracks]);
+  }, [onPlayTracks, playlistContext]);
 
   const handleEnqueuePlaylist = useCallback(async (pl: Playlist) => {
     const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
@@ -255,7 +264,6 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
 
   // Auto-playlist covers come from the mix's first artist (recorded in metadata),
   // resolved through the canonical artist-image chain (cached → fetch → ready event).
-  const artistImages = useImageCache("artist");
   const autoCoverSrc = useCallback((pl: Playlist): string => {
     if (pl.image_path) return convertFileSrc(pl.image_path);
     const artist = firstArtist(pl.metadata);
