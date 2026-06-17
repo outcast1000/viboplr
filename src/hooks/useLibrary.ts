@@ -476,6 +476,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     fallbackArtistName, setFallbackArtistName,
     fallbackAlbumName, setFallbackAlbumName,
     fallbackTrackName, setFallbackTrackName,
+    clearFallback,
     navigateToArtistByName, navigateToAlbumByName, navigateToTagByName, navigateToTrackByName,
     loadLibrary, loadTracks,
     hasMore, loadingMore, loadMore,

@@ -1313,11 +1313,10 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
-        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedFallbackTrack, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
+        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
           store.get<boolean>("loggingEnabled"),
           store.get<boolean>("debugLogging"),
           store.get<boolean>("debugMode"),
-          store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName"),
           store.get<string | null>("devPluginPath"),
           store.get<boolean>("autoUpdateManagedDeps"),
         ]);
@@ -1327,9 +1326,7 @@ function App() {
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         if (savedDebugMode) setDebugMode(true);
         if (savedDevPluginPath) setDevPluginPath(savedDevPluginPath);
-        if (savedFallbackTrack) {
-          library.setFallbackTrackName(savedFallbackTrack);
-        }
+        // Startup always lands on Home — track detail / fallback state is intentionally not restored.
 
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
@@ -1610,15 +1607,6 @@ function App() {
       .catch(() => { if (!cancelled) setDetailTrack(null); });
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
-
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    if (detailTrack) {
-      store.set("fallbackTrackName", { name: detailTrack.title, artistName: detailTrack.artist_name ?? undefined, albumTitle: detailTrack.album_title ?? undefined });
-    } else {
-      store.set("fallbackTrackName", null);
-    }
-  }, [detailTrack]);
 
   // Resolve image for current track: video frame → album → artist
   useEffect(() => {
@@ -2262,6 +2250,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         onShowSearch={() => {
           pushAndScroll();
@@ -2270,6 +2259,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         onShowHistory={() => {
           pushAndScroll();
@@ -2278,6 +2268,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         onShowNowPlaying={() => {
           pushAndScroll();
@@ -2286,6 +2277,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         onShowPlaylists={() => {
           pushAndScroll();
@@ -2294,6 +2286,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         onShowCollections={() => {
           pushAndScroll();
@@ -2302,6 +2295,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         onShowSettings={() => {
           pushAndScroll();
@@ -2310,6 +2304,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         onShowExtensions={() => {
           pushAndScroll();
@@ -2318,6 +2313,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
         updateAvailable={updater.updateState.available !== null}
         extensionUpdateCount={extensionsHook.updateCount}
@@ -2329,6 +2325,7 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
+          library.clearFallback();
         }}
       />
       <button
