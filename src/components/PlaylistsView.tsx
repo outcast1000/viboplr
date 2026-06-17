@@ -14,7 +14,7 @@ import { DetailHero } from "./DetailHero";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
 import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
-import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist } from "../utils/autoPlaylist";
+import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists } from "../utils/autoPlaylist";
 import { useImageCache } from "../hooks/useImageCache";
 import "./PlaylistsView.css";
 
@@ -363,6 +363,12 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
     if (isAuto(selectedPlaylist)) detailMeta.push(`Updated ${formatDate(selectedPlaylist.saved_at)}`);
     else if (!selectedPlaylist.system_kind) detailMeta.push(`Saved ${formatDate(selectedPlaylist.saved_at)}`);
 
+    // Prefer a user-authored description; otherwise describe the playlist by its
+    // most-featured artists (top 3-4 by track count) so no playlist is blank.
+    const featured = featuredArtists(tracks, 4);
+    const detailDescription = selectedPlaylist.description?.trim()
+      || (featured.length > 0 ? `Featuring ${featured.join(", ")}` : undefined);
+
     const detailOverflowItems: HeroOverflowItem[] = [
       { kind: "action", id: "export-m3u", label: "Export as M3U", onClick: () => handleExport(selectedPlaylist) },
     ];
@@ -427,6 +433,7 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
           title={selectedPlaylist.name}
           entityLabel="album"
           meta={detailMeta}
+          description={detailDescription}
           onPlay={tracks.length > 0 ? () => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, playlistContext(selectedPlaylist)) : undefined}
           onEnqueue={tracks.length > 0 ? () => onEnqueueTracks(tracks.map(playlistTrackToMinimalTrack)) : undefined}
           overflowItems={detailOverflowItems}

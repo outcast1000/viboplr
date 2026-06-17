@@ -74,6 +74,27 @@ export function firstArtist(metadata: string | null | undefined): string | null 
   }
 }
 
+/**
+ * Top featured artists across a playlist's tracks, ranked by track count
+ * descending and capped at `max`. Used to give a playlist a "Featuring …"
+ * description. Ties keep first-seen order; blank artist names are skipped.
+ */
+export function featuredArtists(
+  tracks: Array<{ artist_name: string | null }>,
+  max = 4,
+): string[] {
+  const counts = new Map<string, number>();
+  for (const t of tracks) {
+    const name = t.artist_name?.trim();
+    if (!name) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([name]) => name);
+}
+
 /** Short human label describing what an auto-playlist is, for card subtitles. */
 export function autoRecipeLabel(recipe: AutoRecipe): string {
   switch (recipe) {

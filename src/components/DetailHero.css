@@ -181,6 +181,15 @@
   color: var(--hero-text-primary);
 }
 
+.detail-hero-description {
+  max-width: 640px;
+  margin-bottom: 14px;
+  font-size: var(--fs-sm);
+  color: var(--hero-text-secondary);
+  text-shadow: var(--hero-text-shadow-sm);
+  line-height: 1.4;
+}
+
 .detail-hero-actions {
   display: flex;
   gap: 10px;

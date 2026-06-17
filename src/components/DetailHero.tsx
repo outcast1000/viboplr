@@ -40,6 +40,9 @@ interface DetailHeroProps {
 
   meta: Array<string | DetailHeroChip>;
 
+  // Optional one-line description shown under the meta chips (e.g. featured artists).
+  description?: string;
+
   onPlay?: () => void;
   onEnqueue?: () => void;
   playDisabled?: boolean;
@@ -57,6 +60,7 @@ export function DetailHero({
   eyebrow, title,
   liked, onToggleLike, onToggleDislike, likeDisabled, entityLabel,
   meta,
+  description,
   onPlay, onEnqueue, playDisabled, enqueueDisabled,
   overflowItems,
   titleLine,
@@ -140,6 +144,7 @@ export function DetailHero({
               })}
             </div>
           )}
+          {description && <div className="detail-hero-description">{description}</div>}
           <div className="detail-hero-actions">
             <button
               className="ds-btn ds-btn--primary"

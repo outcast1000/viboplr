@@ -6,6 +6,7 @@ import {
   parseRecipe,
   autoRecipeLabel,
   firstArtist,
+  featuredArtists,
 } from "../utils/autoPlaylist";
 
 const p = (system_kind: string | null, metadata: string | null = null) => ({ system_kind, metadata });
@@ -83,5 +84,33 @@ describe("autoRecipeLabel", () => {
     expect(autoRecipeLabel("decade")).toBe("Decade mix");
     expect(autoRecipeLabel("discovery")).toBe("For you");
     expect(autoRecipeLabel("unknown")).toBe("Auto playlist");
+  });
+});
+
+describe("featuredArtists", () => {
+  const t = (artist_name: string | null) => ({ artist_name });
+
+  it("ranks by track count descending and caps at max", () => {
+    const tracks = [
+      t("A"), t("A"), t("A"),
+      t("B"), t("B"),
+      t("C"),
+      t("D"),
+      t("E"),
+    ];
+    expect(featuredArtists(tracks, 4)).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("skips blank/null artist names", () => {
+    expect(featuredArtists([t(null), t(""), t("  "), t("A")])).toEqual(["A"]);
+  });
+
+  it("returns empty for no artists", () => {
+    expect(featuredArtists([])).toEqual([]);
+    expect(featuredArtists([t(null)])).toEqual([]);
+  });
+
+  it("keeps first-seen order on ties", () => {
+    expect(featuredArtists([t("X"), t("Y"), t("Z")], 4)).toEqual(["X", "Y", "Z"]);
   });
 });
