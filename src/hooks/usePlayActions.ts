@@ -182,10 +182,24 @@ export function usePlayActions({
         console.log("Radio: not enough tracks to generate a station");
         return;
       }
+      // Resolve a cover for the queue banner. Callers may pass one (e.g. the
+      // queue track's image_url, or a Home station's resolved cover); when they
+      // don't (library track context menu), derive it from the seed track's
+      // album image, falling back to the artist image — same chain Home uses.
+      let coverPath = seed.coverPath ?? null;
+      if (!coverPath) {
+        const seedTrack = tracks[0];
+        if (seedTrack?.album_title) {
+          coverPath = await invoke<string | null>("get_entity_image", { kind: "album", name: seedTrack.album_title, artistName: seedTrack.artist_name ?? null }).catch(() => null);
+        }
+        if (!coverPath && seedTrack?.artist_name) {
+          coverPath = await invoke<string | null>("get_entity_image", { kind: "artist", name: seedTrack.artist_name, artistName: null }).catch(() => null);
+        }
+      }
       const queueTracks = tracks.map(trackToQueueTrack);
       playTracks(queueTracks, 0, {
         name: `Radio: ${seed.title}`,
-        imagePath: seed.coverPath ?? null,
+        imagePath: coverPath,
         source: "radio",
       });
       console.log(`Radio started · ${tracks.length} tracks`);
