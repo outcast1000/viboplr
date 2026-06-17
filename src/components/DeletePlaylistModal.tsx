@@ -1,3 +1,5 @@
+import { ConfirmModal } from "./ConfirmModal";
+
 interface DeletePlaylistModalProps {
   playlistName: string;
   onConfirm: () => void;
@@ -6,21 +8,14 @@ interface DeletePlaylistModalProps {
 
 export function DeletePlaylistModal({ playlistName, onConfirm, onClose }: DeletePlaylistModalProps) {
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Delete Playlist</h2>
-        <p className="delete-confirm-warning">
-          Are you sure you want to delete <strong>{playlistName}</strong>? This cannot be undone.
-        </p>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="ds-btn ds-btn--danger" onClick={onConfirm}>
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      title="Delete Playlist"
+      messageClassName="delete-confirm-warning"
+      message={<>Are you sure you want to delete <strong>{playlistName}</strong>? This cannot be undone.</>}
+      destructive
+      confirmLabel="Delete"
+      onCancel={onClose}
+      onConfirm={onConfirm}
+    />
   );
 }

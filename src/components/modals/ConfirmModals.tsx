@@ -1,7 +1,12 @@
-// Presentational modal leaf components extracted from App.tsx.
-// These render only — all state and side-effecting logic stay in App.tsx and
-// are passed in as primitive props + callbacks, so the components are decoupled
-// from the app's hooks.
+// Named modal leaf components used by App.tsx. These are presentational only —
+// all state/side-effecting logic stays in App.tsx and is passed in as primitive
+// props + callbacks. Confirm-style leaves delegate to the shared ConfirmModal,
+// error/dismiss leaves to AlertModal, so the `.ds-modal` shell lives in one place.
+// The remaining leaves (DownloadAgain, PluginLoading, DeepLinkInstall) have shapes
+// the shared shells don't cover (3 actions / spinner / small-variant + custom body)
+// and stay bespoke.
+import { ConfirmModal } from "../ConfirmModal";
+import { AlertModal } from "../AlertModal";
 
 interface DeleteTracksModalProps {
   title: string;
@@ -16,27 +21,20 @@ interface DeleteTracksModalProps {
 export function DeleteTracksModal({ title, trackCount, trashLabel, network, onCancel, onConfirm }: DeleteTracksModalProps) {
   const plural = trackCount > 1;
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">
-          {network ? `Permanently delete ${title}?` : `Move ${title} to ${trashLabel}?`}
-        </h2>
-        {network ? (
-          <p className="delete-confirm-warning">
-            {plural ? "These files are" : "This file is"} on a network share, which has no {trashLabel}.
-            {plural ? " They" : " It"} will be <strong>permanently deleted</strong> and removed from your library. This cannot be undone.
-          </p>
-        ) : (
-          <p className="delete-confirm-warning">This will move the file{plural ? "s" : ""} to {trashLabel} and remove from library.</p>
-        )}
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onCancel}>Cancel</button>
-          <button className="ds-btn ds-btn--danger" onClick={onConfirm} autoFocus>
-            {network ? "Delete permanently" : `Move to ${trashLabel}`}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      title={network ? `Permanently delete ${title}?` : `Move ${title} to ${trashLabel}?`}
+      messageClassName="delete-confirm-warning"
+      message={network ? (
+        <>{plural ? "These files are" : "This file is"} on a network share, which has no {trashLabel}.{plural ? " They" : " It"} will be <strong>permanently deleted</strong> and removed from your library. This cannot be undone.</>
+      ) : (
+        <>This will move the file{plural ? "s" : ""} to {trashLabel} and remove from library.</>
+      )}
+      destructive
+      autoFocusConfirm
+      confirmLabel={network ? "Delete permanently" : `Move to ${trashLabel}`}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -49,22 +47,18 @@ interface DeleteTagsModalProps {
 
 export function DeleteTagsModal({ tagCount, firstTagName, onCancel, onConfirm }: DeleteTagsModalProps) {
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">
-          {tagCount === 1 ? `Delete tag "${firstTagName}"?` : `Delete ${tagCount} tags?`}
-        </h2>
-        <p className="delete-confirm-warning">
-          {tagCount === 1
-            ? "This will remove the tag from all tracks. The tracks themselves will not be deleted."
-            : "This will remove these tags from all tracks. The tracks themselves will not be deleted."}
-        </p>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onCancel}>Cancel</button>
-          <button className="ds-btn ds-btn--danger" onClick={onConfirm} autoFocus>Delete</button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      title={tagCount === 1 ? `Delete tag "${firstTagName}"?` : `Delete ${tagCount} tags?`}
+      messageClassName="delete-confirm-warning"
+      message={tagCount === 1
+        ? "This will remove the tag from all tracks. The tracks themselves will not be deleted."
+        : "This will remove these tags from all tracks. The tracks themselves will not be deleted."}
+      destructive
+      autoFocusConfirm
+      confirmLabel="Delete"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -76,23 +70,16 @@ interface DeleteErrorModalProps {
 
 export function DeleteErrorModal({ message, failures, onDismiss }: DeleteErrorModalProps) {
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Delete Failed</h2>
-        <p className="delete-confirm-warning">{message}</p>
-        <ul className="delete-failure-list">
-          {failures.map((f, i) => (
-            <li key={i}>
-              <span className="delete-failure-title">{f.title}</span>
-              <span className="delete-failure-reason">{f.reason}</span>
-            </li>
-          ))}
-        </ul>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onDismiss}>OK</button>
-        </div>
-      </div>
-    </div>
+    <AlertModal title="Delete Failed" message={message} messageClassName="delete-confirm-warning" onDismiss={onDismiss}>
+      <ul className="delete-failure-list">
+        {failures.map((f, i) => (
+          <li key={i}>
+            <span className="delete-failure-title">{f.title}</span>
+            <span className="delete-failure-reason">{f.reason}</span>
+          </li>
+        ))}
+      </ul>
+    </AlertModal>
   );
 }
 
@@ -103,15 +90,7 @@ interface FolderErrorModalProps {
 
 export function FolderErrorModal({ message, onDismiss }: FolderErrorModalProps) {
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Open Containing Folder</h2>
-        <p className="delete-confirm-warning">{message}</p>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onDismiss}>OK</button>
-        </div>
-      </div>
-    </div>
+    <AlertModal title="Open Containing Folder" message={message} messageClassName="delete-confirm-warning" onDismiss={onDismiss} />
   );
 }
 
@@ -148,16 +127,15 @@ interface RemoveCollectionModalProps {
 
 export function RemoveCollectionModal({ name, onCancel, onConfirm }: RemoveCollectionModalProps) {
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Remove &ldquo;{name}&rdquo;?</h2>
-        <p className="delete-confirm-warning">This will permanently remove this collection and all its tracks from the library.</p>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onCancel}>Cancel</button>
-          <button className="ds-btn ds-btn--danger" onClick={onConfirm}>Remove</button>
-        </div>
-      </div>
-    </div>
+    <ConfirmModal
+      title={`Remove “${name}”?`}
+      messageClassName="delete-confirm-warning"
+      message="This will permanently remove this collection and all its tracks from the library."
+      destructive
+      confirmLabel="Remove"
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+    />
   );
 }
 
@@ -168,15 +146,7 @@ interface NavErrorModalProps {
 
 export function NavErrorModal({ message, onDismiss }: NavErrorModalProps) {
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Navigation Error</h2>
-        <p>{message}</p>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--primary" onClick={onDismiss}>OK</button>
-        </div>
-      </div>
-    </div>
+    <AlertModal title="Navigation Error" message={message} dismissVariant="primary" onDismiss={onDismiss} />
   );
 }
 
