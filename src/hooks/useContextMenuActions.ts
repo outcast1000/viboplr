@@ -225,10 +225,19 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
+  // Remove queue entries. When the currently-playing track is among them,
+  // route through `onCurrentTrackDeleted` so playback advances to the next
+  // surviving track (it falls back to plain index-fixup removal when the
+  // current track survives — same behavior as `removeMultiple`).
+  function removeQueueIndices(indices: number[]) {
+    if (onCurrentTrackDeleted) onCurrentTrackDeleted(indices);
+    else queueHook.removeMultiple(indices);
+  }
+
   function handleQueueRemove() {
     const cm = contextMenuRef.current;
     if (!cm || cm.target.kind !== "queue-multi") return;
-    queueHook.removeMultiple(cm.target.indices);
+    removeQueueIndices(cm.target.indices);
   }
 
   function handleQueueKeepOnly() {
@@ -236,7 +245,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (!cm || cm.target.kind !== "queue-multi") return;
     const keepSet = new Set(cm.target.indices);
     const toRemove = queueHook.queue.map((_, i) => i).filter(i => !keepSet.has(i));
-    queueHook.removeMultiple(toRemove);
+    removeQueueIndices(toRemove);
   }
 
   function handleQueueMoveToTop() {
