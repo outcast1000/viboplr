@@ -404,17 +404,24 @@ export function PlaylistsView({ searchQuery, onPlayTracks, onEnqueueTracks, onEx
       ? heroBgImages
       : autoArtistImg ? [convertFileSrc(autoArtistImg)] : [];
 
+    // Liked / Disliked Songs carry no image_path; give them the same branded
+    // gradient + icon cover as their list shortcut instead of the generic disc.
+    const detailArt = isProtectedSystem(selectedPlaylist) && !selectedPlaylist.image_path ? (
+      <div className={`playlist-hero-system-cover playlist-hero-system-cover--${selectedPlaylist.system_kind}`}>
+        {selectedPlaylist.system_kind === "liked"
+          ? <IconHeartFilled size={88} />
+          : <IconThumbsDownFilled size={88} />}
+      </div>
+    ) : (
+      <img src={detailArtSrc} alt={selectedPlaylist.name} />
+    );
+
     return (
       <div className="playlists-view">
         <DetailHero
           bgImages={detailBgImages}
           onBack={goBack}
-          art={
-            <img
-              src={detailArtSrc}
-              alt={selectedPlaylist.name}
-            />
-          }
+          art={detailArt}
           artShape="square"
           eyebrow={isAuto(selectedPlaylist) ? "Made for you" : selectedPlaylist.system_kind ? "System playlist" : "Playlist"}
           title={selectedPlaylist.name}

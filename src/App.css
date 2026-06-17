@@ -1383,6 +1383,25 @@
   color: var(--text-secondary);
 }
 
+/* Branded cover for the Liked / Disliked Songs detail hero (no stored image). */
+.playlist-hero-system-cover {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.playlist-hero-system-cover--liked {
+  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+}
+
+.playlist-hero-system-cover--disliked {
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-surface));
+  color: var(--text-secondary);
+}
+
 .playlist-shortcut-name {
   flex: 1;
   min-width: 0;
