@@ -573,7 +573,16 @@ export function usePlayback(
     const outgoingGain = activeSlotRef.current === "A" ? xfadeGainBRef.current : xfadeGainARef.current;
     if (incomingGain) incomingGain.gain.value = 0;
     if (outgoingGain) outgoingGain.gain.value = 1;
-    incoming.play().catch(console.error);
+    // If the incoming element's play() rejects (WKWebView intermittently throws
+    // AbortError/NotAllowedError when a racing load()/pause() interrupts it), the
+    // crossfade machinery would otherwise fade the outgoing track to silence with
+    // nothing taking its place — a silent stop mid-track-change. Recover by
+    // cancelling the fade and re-playing the next track via the explicit path.
+    incoming.play().catch((e) => {
+      console.error("Crossfade incoming play failed, recovering:", e);
+      cancelCrossfade();
+      handlePlay(nextTrack, "auto");
+    });
 
     advanceIndexRef.current();
 
@@ -625,9 +634,15 @@ export function usePlayback(
       activeEl.load();
     }
 
-    // Play the preloaded element immediately
+    // Play the preloaded element immediately. If play() rejects (WKWebView can
+    // throw AbortError/NotAllowedError when the load()/pause() above races it),
+    // recover via the explicit play path instead of leaving the swap silent —
+    // currentTrack has already advanced, so handlePlay re-plays the same track.
     inactiveEl.volume = effectiveVolume();
-    inactiveEl.play().catch(console.error);
+    inactiveEl.play().catch((e) => {
+      console.error("Gapless next play failed, recovering:", e);
+      handlePlay(nextTrack, "auto");
+    });
 
     // Swap active slot
     const newSlot = activeSlotRef.current === "A" ? "B" : "A";
