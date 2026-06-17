@@ -79,7 +79,7 @@ interface SearchViewProps {
   getTagImage: (name: string) => string | null;
   onPlayTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   onEnqueueTrack: (track: Track) => void;
-  onPlayNext: (track: Track) => void;
+  onStartRadio: (track: Track) => void;
   onLocateTrack: (track: Track) => void;
   onPlayAlbum: (albumId: number) => void;
   onPlayArtist: (artistId: number) => void;
@@ -132,7 +132,7 @@ export function SearchView({
   getTagImage,
   onPlayTracks,
   onEnqueueTrack,
-  onPlayNext,
+  onStartRadio,
   onLocateTrack,
   onPlayAlbum,
   onPlayArtist,
@@ -914,7 +914,7 @@ export function SearchView({
             onDoubleClick={onPlayTracks}
             onPlay={(t) => onPlayTracks([t], 0)}
             onEnqueue={(t) => onEnqueueTrack(t)}
-            onPlayNext={(t) => onPlayNext(t)}
+            onStartRadio={(t) => onStartRadio(t)}
             onLocateTrack={(t) => onLocateTrack(t)}
             onContextMenu={onTrackContextMenu}
             onArtistClick={onArtistClick}
@@ -978,8 +978,8 @@ export function SearchView({
                     <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueueTrack(t); }}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                     </button>
-                    <button type="button" className="row-hover-action" title="Insert After" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlayNext(t); }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h11M4 12h11M4 19h7"/><path d="M18 9v6l4-3z" fill="currentColor" stroke="none"/></svg>
+                    <button type="button" className="row-hover-action" title="Start radio" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onStartRadio(t); }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
                     </button>
                     <button type="button" className="row-hover-action" title="Details" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>

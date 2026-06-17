@@ -75,6 +75,7 @@ interface TrackDetailViewProps {
   onPlayAt: (secs: number) => void;
   onShowInFolder: () => void;
   onWatchOnYoutube?: () => void;
+  onStartRadio?: () => void;
   onToggleLike: () => void;
   onToggleDislike: () => void;
 }
@@ -82,7 +83,7 @@ interface TrackDetailViewProps {
 export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
   positionSecs, isCurrentTrack,
-  onPlay, onPlayAt, onShowInFolder, onWatchOnYoutube,
+  onPlay, onPlayAt, onShowInFolder, onWatchOnYoutube, onStartRadio,
   onToggleLike, onToggleDislike,
 }: TrackDetailViewProps) {
   const actions = useDetailActions();
@@ -258,6 +259,7 @@ export function TrackDetailView({
           },
         })),
     } : {},
+    radio: onStartRadio ? { onStart: onStartRadio } : undefined,
     youtube: { onFind: () => onWatchOnYoutube?.() },
     pluginItems: [],
   });

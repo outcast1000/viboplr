@@ -2,6 +2,20 @@
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
 
+// Video container formats as stored in `tracks.format`. Auto-continue and radio
+// share these clauses so their audio/video filtering can't drift apart.
+const VIDEO_FORMAT_CLAUSE: &str = " AND LOWER(t.format) IN ('mp4','m4v','mov','webm')";
+const AUDIO_FORMAT_CLAUSE: &str =
+    " AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))";
+
+/// True when a `tracks.format` value names a video container.
+fn is_video_format(format: Option<&str>) -> bool {
+    matches!(
+        format.map(|f| f.to_lowercase()).as_deref(),
+        Some("mp4") | Some("m4v") | Some("mov") | Some("webm")
+    )
+}
+
 impl Database {
 
     // --- Play history ---
@@ -15,8 +29,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let format_clause = match format_filter {
-            Some("video") => " AND LOWER(t.format) IN ('mp4','m4v','mov','webm')",
-            Some("audio") => " AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))",
+            Some("video") => VIDEO_FORMAT_CLAUSE,
+            Some("audio") => AUDIO_FORMAT_CLAUSE,
             _ => "",
         };
 
@@ -146,6 +160,15 @@ impl Database {
             (seed, pool)
         };
 
+        // Keep the station coherent with the seed's media type — mirror
+        // auto-continue's same-format behavior so an audio seed never queues
+        // video tracks (and a video seed never queues audio).
+        let format_clause = if is_video_format(seed.format.as_deref()) {
+            VIDEO_FORMAT_CLAUSE
+        } else {
+            AUDIO_FORMAT_CLAUSE
+        };
+
         let mut result: Vec<Track> = vec![seed.clone()];
         let mut excluded: Vec<i64> = vec![seed.id];
         let mut stalls = 0u32;
@@ -157,8 +180,8 @@ impl Database {
             };
             let prefer_tag_first = coin == 1;
 
-            let try_artist = || self.pick_same_artist_radio(&seed, &excluded);
-            let try_tag = || self.pick_same_tag_pool_radio(&seed, &tag_pool, &excluded);
+            let try_artist = || self.pick_same_artist_radio(&seed, format_clause, &excluded);
+            let try_tag = || self.pick_same_tag_pool_radio(&seed, &tag_pool, format_clause, &excluded);
 
             let pick = if prefer_tag_first {
                 match try_tag()? {
@@ -188,7 +211,7 @@ impl Database {
         Ok(result)
     }
 
-    fn pick_same_artist_radio(&self, seed: &Track, excluded: &[i64]) -> SqlResult<Option<Track>> {
+    fn pick_same_artist_radio(&self, seed: &Track, format_clause: &str, excluded: &[i64]) -> SqlResult<Option<Track>> {
         let aid = match seed.artist_id {
             Some(id) => id,
             None => return Ok(None),
@@ -201,13 +224,13 @@ impl Database {
             format!(" AND t.id NOT IN ({})", ids.join(","))
         };
         let sql = format!(
-            "{} WHERE t.artist_id = ?1 AND t.liked != -1 {}{} ORDER BY RANDOM() LIMIT 1",
-            TRACK_SELECT, ENABLED_COLLECTION_FILTER, exclude_clause
+            "{} WHERE t.artist_id = ?1 AND t.liked != -1 {}{}{} ORDER BY RANDOM() LIMIT 1",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, exclude_clause
         );
         conn.query_row(&sql, params![aid], |row| track_from_row(row)).optional()
     }
 
-    fn pick_same_tag_pool_radio(&self, _seed: &Track, tag_pool: &[i64], excluded: &[i64]) -> SqlResult<Option<Track>> {
+    fn pick_same_tag_pool_radio(&self, _seed: &Track, tag_pool: &[i64], format_clause: &str, excluded: &[i64]) -> SqlResult<Option<Track>> {
         if tag_pool.is_empty() {
             return Ok(None);
         }
@@ -220,10 +243,10 @@ impl Database {
             format!(" AND t.id NOT IN ({})", ids.join(","))
         };
         let sql = format!(
-            "{} WHERE t.liked != -1 {}{} AND t.id IN (\
+            "{} WHERE t.liked != -1 {}{}{} AND t.id IN (\
                 SELECT DISTINCT track_id FROM track_tags WHERE tag_id IN ({})\
             ) ORDER BY RANDOM() LIMIT 1",
-            TRACK_SELECT, ENABLED_COLLECTION_FILTER, exclude_clause, tag_list.join(",")
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, exclude_clause, tag_list.join(",")
         );
         conn.query_row(&sql, [], |row| track_from_row(row)).optional()
     }

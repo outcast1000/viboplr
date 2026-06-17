@@ -14,6 +14,7 @@ interface PlayActionsArgs {
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
   getTagImage: (name: string) => string | null;
+  notify: (message: string) => void;
 }
 
 export type InfoRow = [number, string, string, string, number];
@@ -105,6 +106,7 @@ export function usePlayActions({
   getAlbumImage,
   getArtistImage,
   getTagImage,
+  notify,
 }: PlayActionsArgs) {
   const playAlbum = useCallback(async (albumId: number, opts?: { tracks?: Track[]; startIndex?: number }) => {
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks", { opts: { albumId } });
@@ -178,8 +180,9 @@ export function usePlayActions({
         seedArtist: seed.artistName,
         targetCount: 30,
       });
-      if (tracks.length < 2) {
-        console.log("Radio: not enough tracks to generate a station");
+      if (tracks.length === 0) {
+        // Seed isn't in the library, so there's nothing to play or seed from.
+        notify(`Couldn't start radio — "${seed.title}" isn't in your library.`);
         return;
       }
       // Resolve a cover for the queue banner. Callers may pass one (e.g. the
@@ -203,10 +206,16 @@ export function usePlayActions({
         source: "radio",
       });
       console.log(`Radio started · ${tracks.length} tracks`);
+      // Play whatever we found (even just the seed), but let the user know when
+      // the station is small rather than silently playing one or two tracks.
+      if (tracks.length < 10) {
+        notify(`Radio: only found ${tracks.length} ${tracks.length === 1 ? "track" : "tracks"} similar to "${seed.title}".`);
+      }
     } catch (e) {
       console.error("Failed to start radio:", e);
+      notify("Failed to start radio.");
     }
-  }, [playTracks]);
+  }, [playTracks, notify]);
 
   return { playAlbum, playArtist, playTag, enqueueAlbum, enqueueArtist, enqueueTag, startRadio };
 }

@@ -21,9 +21,14 @@ export interface HeroYoutubeActions {
   onFind: () => void;                // "Find in YouTube" — search + open
 }
 
+export interface HeroRadioActions {
+  onStart: () => void;               // "Start radio" — build a station from this track
+}
+
 export interface HeroOverflowArgs {
   entityKind: "track" | "album" | "artist" | "tag";
   imageActions: HeroImageActions;
+  radio?: HeroRadioActions;           // honored only when entityKind === "track"
   youtube?: HeroYoutubeActions;       // honored only when entityKind === "track"
   pluginItems: HeroOverflowItem[];
 }
@@ -42,10 +47,15 @@ export function buildHeroOverflowItems(args: HeroOverflowArgs): HeroOverflowItem
     out.push({ kind: "action", id: `web-search-${s.id}`, label: `Search ${s.label}`, onClick: s.onClick });
   }
 
-  // YouTube (track only)
-  if (args.entityKind === "track" && args.youtube) {
-    if (out.length > 0) out.push({ kind: "divider" });
-    out.push({ kind: "action", id: "youtube-find", label: "Find in YouTube", onClick: args.youtube.onFind, iconKey: "youtube" });
+  // Track-only playback/external actions (radio + YouTube), grouped together.
+  if (args.entityKind === "track") {
+    const trackActions: HeroOverflowItem[] = [];
+    if (args.radio)   trackActions.push({ kind: "action", id: "start-radio",  label: "Start radio",      onClick: args.radio.onStart, iconKey: "radio" });
+    if (args.youtube) trackActions.push({ kind: "action", id: "youtube-find", label: "Find in YouTube",  onClick: args.youtube.onFind, iconKey: "youtube" });
+    if (trackActions.length > 0) {
+      if (out.length > 0) out.push({ kind: "divider" });
+      out.push(...trackActions);
+    }
   }
 
   // Plugin items

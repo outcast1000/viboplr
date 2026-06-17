@@ -15,7 +15,7 @@ import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
@@ -33,6 +33,8 @@ import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
 import { useQueue } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
+import { useToasts } from "./hooks/useToasts";
+import { Toasts } from "./components/Toasts";
 import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
 import { useImageCache } from "./hooks/useImageCache";
@@ -608,6 +610,8 @@ function App() {
     return () => window.removeEventListener("retrieve:image-applied", onApplied);
   }, [artistImageCache, albumImageCache, tagImageCache]);
 
+  const { toasts, notify, dismiss: dismissToast } = useToasts();
+
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
     enqueueTracks: (tracks: Track[]) => handleEnqueueRef.current(tracks),
@@ -618,6 +622,7 @@ function App() {
     getAlbumImage: albumImageCache.getImage,
     getArtistImage: artistImageCache.getImage,
     getTagImage: tagImageCache.getImage,
+    notify,
   });
 
   // Mini search drives both useMiniMode's window resize (via onOpen/ClosePanel)
@@ -855,6 +860,7 @@ function App() {
     },
     showNotification: (message) => {
       console.debug("[plugin]", message);
+      notify(message);
     },
   };
 
@@ -1313,10 +1319,11 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
-        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
+        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedFallbackTrack, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
           store.get<boolean>("loggingEnabled"),
           store.get<boolean>("debugLogging"),
           store.get<boolean>("debugMode"),
+          store.get<{ name: string; artistName?: string; albumTitle?: string } | null>("fallbackTrackName"),
           store.get<string | null>("devPluginPath"),
           store.get<boolean>("autoUpdateManagedDeps"),
         ]);
@@ -1326,7 +1333,9 @@ function App() {
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
         if (savedDebugMode) setDebugMode(true);
         if (savedDevPluginPath) setDevPluginPath(savedDevPluginPath);
-        // Startup always lands on Home — track detail / fallback state is intentionally not restored.
+        if (savedFallbackTrack) {
+          library.setFallbackTrackName(savedFallbackTrack);
+        }
 
         await timeAsync("window.restore", async () => {
           // Size/position already restored by Rust setup — just set React state and show
@@ -1607,6 +1616,15 @@ function App() {
       .catch(() => { if (!cancelled) setDetailTrack(null); });
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    if (detailTrack) {
+      store.set("fallbackTrackName", { name: detailTrack.title, artistName: detailTrack.artist_name ?? undefined, albumTitle: detailTrack.album_title ?? undefined });
+    } else {
+      store.set("fallbackTrackName", null);
+    }
+  }, [detailTrack]);
 
   // Resolve image for current track: video frame → album → artist
   useEffect(() => {
@@ -2250,7 +2268,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         onShowSearch={() => {
           pushAndScroll();
@@ -2259,7 +2276,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         onShowHistory={() => {
           pushAndScroll();
@@ -2268,7 +2284,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         onShowNowPlaying={() => {
           pushAndScroll();
@@ -2277,7 +2292,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         onShowPlaylists={() => {
           pushAndScroll();
@@ -2286,7 +2300,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         onShowCollections={() => {
           pushAndScroll();
@@ -2295,7 +2308,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         onShowSettings={() => {
           pushAndScroll();
@@ -2304,7 +2316,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         onShowExtensions={() => {
           pushAndScroll();
@@ -2313,7 +2324,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
         updateAvailable={updater.updateState.available !== null}
         extensionUpdateCount={extensionsHook.updateCount}
@@ -2325,7 +2335,6 @@ function App() {
           library.setSelectedAlbum(null);
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
-          library.clearFallback();
         }}
       />
       <button
@@ -2431,6 +2440,7 @@ function App() {
                   }
                 }}
                 onWatchOnYoutube={track.id != null ? () => contextMenuActions.watchOnYoutube(track.title, track.artist_name, track.duration_secs) : undefined}
+                onStartRadio={() => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleDislike={() => likeActions.handleToggleDislike(track)}
                 onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
@@ -2477,6 +2487,7 @@ function App() {
                 onPlay={() => queueHook.playTracks([syntheticTrack], 0)}
                 onPlayAt={() => {}}
                 onWatchOnYoutube={syntheticTrack.artist_name ? () => contextMenuActions.watchOnYoutube(syntheticTrack.title, syntheticTrack.artist_name, syntheticTrack.duration_secs) : undefined}
+                onStartRadio={syntheticTrack.artist_name ? () => contextMenuActions.startRadio({ title: syntheticTrack.title, artistName: syntheticTrack.artist_name, coverPath: albumImg ?? artistImg ?? null }) : undefined}
                 onToggleLike={() => {}}
                 onToggleDislike={() => {}}
                 onShowInFolder={() => {}}
@@ -2549,7 +2560,7 @@ function App() {
             getTagImage={tagImageCache.getImage}
             onPlayTracks={queueHook.playTracks}
             onEnqueueTrack={(t) => contextMenuActions.handleEnqueue([t])}
-            onPlayNext={(t) => queueHook.playNextInQueue(trackToQueueTrack(t))}
+            onStartRadio={(t) => contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null })}
             onLocateTrack={(t) => library.handleTrackClick(t.key)}
             onPlayAlbum={playActions.playAlbum}
             onPlayArtist={playActions.playArtist}
@@ -3348,6 +3359,8 @@ function App() {
           onSetKeepOpen={retrieve.setKeepOpen}
         />
       )}
+
+      <Toasts toasts={toasts} onDismiss={dismissToast} />
 
     </div>
     </VideoFrameQueueProvider>

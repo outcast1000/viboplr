@@ -984,6 +984,39 @@
   color: var(--warning);
 }
 
+/* Non-blocking transient notifications (radio size notices, plugin showNotification). */
+.toast-stack {
+  position: fixed;
+  bottom: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  max-width: 420px;
+  padding: 10px 16px;
+  border-radius: var(--ds-radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(var(--overlay-inverse), 0.25);
+  font-size: var(--fs-sm);
+  text-align: center;
+  cursor: pointer;
+  animation: fade-in 0.18s ease-out;
+}
+
+.toast:hover {
+  background: var(--bg-hover);
+}
+
 .queue-duplicate-actions {
   display: flex;
   flex-direction: column;

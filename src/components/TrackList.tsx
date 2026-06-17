@@ -125,7 +125,8 @@ interface TrackListProps {
   onDeleteTracks?: (trackIds: number[]) => void;
   onPlay?: (track: Track) => void;
   onEnqueue?: (track: Track) => void;
-  onPlayNext?: (track: Track) => void;
+  /** When provided, the hover overlay shows a "Start radio" button. */
+  onStartRadio?: (track: Track) => void;
   onLocateTrack?: (track: Track) => void;
   trackPopularity?: Record<number, number>;
   emptyMessage?: string;
@@ -139,7 +140,7 @@ export function TrackList({
   sortField, trackListRef, columns, onColumnsChange,
   onDoubleClick, onContextMenu, onArtistClick, onAlbumClick,
   onSort, sortIndicator, onToggleLike, onToggleDislike, onTrackDragStart,
-  onDeleteTracks, onPlay, onEnqueue, onPlayNext, onLocateTrack, trackPopularity,
+  onDeleteTracks, onPlay, onEnqueue, onStartRadio, onLocateTrack, trackPopularity,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
 }: TrackListProps) {
@@ -397,9 +398,9 @@ export function TrackList({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
         )}
-        {onPlayNext && (
-          <button type="button" className="row-hover-action" title="Insert After" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlayNext(t); }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h11M4 12h11M4 19h7"/><path d="M18 9v6l4-3z" fill="currentColor" stroke="none"/></svg>
+        {onStartRadio && (
+          <button type="button" className="row-hover-action" title="Start radio" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onStartRadio(t); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
           </button>
         )}
         {onLocateTrack && (

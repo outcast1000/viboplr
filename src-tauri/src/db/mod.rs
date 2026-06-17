@@ -757,6 +757,26 @@ mod tests {
     }
 
     #[test]
+    fn test_build_radio_sparse_seed_returns_only_seed() {
+        // Seed artist has only the one track and no tags, so the curated
+        // neighborhood is empty — radio returns just the seed (the frontend then
+        // plays the single song and notifies that the station is small). We do
+        // NOT pad the station with unrelated random tracks.
+        let db = test_db();
+        let seed_artist = db.get_or_create_artist("Joy Division").unwrap();
+        insert_track(&db, "jd/shadowplay.mp3", "Shadowplay", Some(seed_artist), None);
+        // Unrelated tracks by other artists with no shared tags must not leak in.
+        for i in 0..20 {
+            let aid = db.get_or_create_artist(&format!("Other {i}")).unwrap();
+            insert_track(&db, &format!("other/{i}.mp3"), &format!("Song {i}"), Some(aid), None);
+        }
+
+        let station = db.build_radio_for_track("Shadowplay", Some("Joy Division"), 10).unwrap();
+        assert_eq!(station.len(), 1, "sparse seed yields only the seed track");
+        assert_eq!(station[0].title, "Shadowplay");
+    }
+
+    #[test]
     fn test_get_track_format_by_remote() {
         let db = test_db();
         let cid = db
@@ -3152,6 +3172,41 @@ mod tests {
         let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
         assert!(ids.contains(&cross_artist_jazz),
             "expected radio to include the cross-artist Jazz track via artist-aggregated tag pool, got ids: {:?}", ids);
+    }
+
+    #[test]
+    fn test_build_radio_audio_seed_excludes_video() {
+        // An audio seed must not queue same-artist video tracks — radio mirrors
+        // auto-continue's same-format policy.
+        let db = test_db();
+        let cid = test_collection(&db);
+        let aid = db.get_or_create_artist("Mixed Artist").unwrap();
+        let alb = db.get_or_create_album("Mixed Album", Some(aid), None).unwrap();
+        db.upsert_track("file://seed.mp3", "Audio Seed", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        let audio_sibling = db.upsert_track("file://sibling.flac", "Audio Sibling", Some(aid), Some(alb), None, Some(180.0), Some("flac"), Some(1024), None, Some(cid), None).unwrap();
+        let video_sibling = db.upsert_track("file://clip.mp4", "Video Sibling", Some(aid), Some(alb), None, Some(180.0), Some("mp4"), Some(1024), None, Some(cid), None).unwrap();
+
+        let result = db.build_radio_for_track("Audio Seed", Some("Mixed Artist"), 30).unwrap();
+        let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&audio_sibling), "audio sibling should be in the station, got {:?}", ids);
+        assert!(!ids.contains(&video_sibling), "video sibling must be excluded from an audio station, got {:?}", ids);
+    }
+
+    #[test]
+    fn test_build_radio_video_seed_excludes_audio() {
+        // Conversely, a video seed yields a video-only station.
+        let db = test_db();
+        let cid = test_collection(&db);
+        let aid = db.get_or_create_artist("Mixed Artist").unwrap();
+        let alb = db.get_or_create_album("Mixed Album", Some(aid), None).unwrap();
+        db.upsert_track("file://seed.mp4", "Video Seed", Some(aid), Some(alb), None, Some(180.0), Some("mp4"), Some(1024), None, Some(cid), None).unwrap();
+        let video_sibling = db.upsert_track("file://clip2.mov", "Video Sibling", Some(aid), Some(alb), None, Some(180.0), Some("mov"), Some(1024), None, Some(cid), None).unwrap();
+        let audio_sibling = db.upsert_track("file://song.mp3", "Audio Sibling", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+        let result = db.build_radio_for_track("Video Seed", Some("Mixed Artist"), 30).unwrap();
+        let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&video_sibling), "video sibling should be in a video station, got {:?}", ids);
+        assert!(!ids.contains(&audio_sibling), "audio sibling must be excluded from a video station, got {:?}", ids);
     }
 
     #[test]
