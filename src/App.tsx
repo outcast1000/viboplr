@@ -144,6 +144,9 @@ function App() {
   }, []);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const historyRef = useRef<HistoryViewHandle>(null);
+  // Set by applyNavState (back/forward) so the scroll-reset effect skips one run
+  // and lets the nav restore set the saved scroll position instead.
+  const suppressScrollResetRef = useRef(false);
 
   // Core hooks
   const peekNextRef = useRef<() => QueueTrack | null>(() => null);
@@ -484,6 +487,12 @@ function App() {
   // Reset scroll position when view or selections change
   const currentSearchQuery = viewSearch.getQuery(library.view);
   useEffect(() => {
+    // Skip when this change came from a back/forward nav restore — applyNavState
+    // restores the saved scroll position itself, and resetting would clobber it.
+    if (suppressScrollResetRef.current) {
+      suppressScrollResetRef.current = false;
+      return;
+    }
     // Use rAF to ensure the new view's DOM has rendered
     requestAnimationFrame(() => {
       const sc = getScrollEl();
@@ -946,6 +955,9 @@ function App() {
   });
 
   const applyNavState = useCallback((s: NavState) => {
+    // This nav restore sets its own scroll position below — suppress the
+    // "reset to 0 on view/selection change" effect so it doesn't clobber it.
+    suppressScrollResetRef.current = true;
     library.setView(s.view);
     library.setSelectedArtist(s.selectedArtist);
     library.setSelectedAlbum(s.selectedAlbum);
@@ -2044,6 +2056,8 @@ function App() {
     navigateToAlbum: library.handleAlbumClick,
     navigateToTag: library.handleTagClick,
     navigateToTagByName: library.navigateToTagByName,
+    goBack,
+    canGoBack,
     playTracks: queueHook.playTracks,
     playEntityAll: handlePlayEntityAll,
     playAlbum: playActions.playAlbum,
@@ -2099,6 +2113,7 @@ function App() {
     },
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
+    goBack, canGoBack,
     queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
     likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,

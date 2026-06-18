@@ -134,6 +134,7 @@ export function TagDetail({ name }: TagDetailProps) {
       <DetailHero
         bgImages={heroImages}
         bgClassName="detail-hero-bg"
+        onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
           tagImagePath
             ? <img src={convertFileSrc(tagImagePath)} alt={name} />

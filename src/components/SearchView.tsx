@@ -1008,7 +1008,7 @@ export function SearchView({
                     onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
                     onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
                   >
-                    <div className="album-card-art-wrapper">
+                    <div className="album-card-art-wrapper" onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}>
                     {isLocalVideo(t) ? (
                       <VideoRowThumb trackId={t.id!} alt={t.title} className="album-card-art" />
                     ) : t.album_title ? (

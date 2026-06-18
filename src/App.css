@@ -426,6 +426,7 @@
 
 .album-card-art-wrapper {
   position: relative;
+  cursor: pointer;
 }
 
 .album-card-play-btn {
@@ -3279,72 +3280,4 @@
 }
 .first-run-status.is-failed {
   color: var(--error);
-}
-
-
-/* Tile enqueue button — sits left of the play button on cards. */
-.album-card-enqueue-btn {
-  position: absolute;
-  bottom: 16px;
-  right: 116px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(var(--overlay-inverse), 0.6);
-  color: rgb(var(--overlay-base));
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s 0.03s;
-  z-index: 1;
-}
-
-.album-card-enqueue-btn svg { width: 18px; height: 18px; }
-
-.album-card:hover .album-card-enqueue-btn,
-.artist-card:hover .album-card-enqueue-btn,
-.tag-card:hover .album-card-enqueue-btn {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.album-card-enqueue-btn:hover {
-  background: rgba(var(--overlay-inverse), 0.8);
-}
-
-.album-card-details-btn {
-  position: absolute;
-  bottom: 16px;
-  right: 164px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(var(--overlay-inverse), 0.6);
-  color: rgb(var(--overlay-base));
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s 0.03s;
-  z-index: 1;
-}
-
-.album-card-details-btn svg { width: 18px; height: 18px; }
-
-.album-card:hover .album-card-details-btn,
-.artist-card:hover .album-card-details-btn,
-.tag-card:hover .album-card-details-btn {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.album-card-details-btn:hover {
-  background: rgba(var(--overlay-inverse), 0.8);
 }

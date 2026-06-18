@@ -11,6 +11,11 @@ export interface DetailViewActions {
   navigateToTag: (id: number) => void;
   navigateToTagByName: (name: string) => void;
 
+  /** Navigate back through history (mirrors the caption-bar back arrow). */
+  goBack: () => void;
+  /** Whether there is history to go back to (gates the hero back button). */
+  canGoBack: boolean;
+
   playTracks: (tracks: Track[], index: number, context?: PlaylistContext | null) => void;
   playEntityAll: (kind: "artist" | "album" | "tag", name: string, artistName?: string, opts?: { tracks?: Track[]; entityId?: number }) => void;
   playAlbum: (albumId: number, opts?: { tracks?: Track[]; startIndex?: number }) => void;
@@ -83,6 +88,7 @@ interface DetailViewProviderProps {
 export function DetailViewProvider({ actions, state, children }: DetailViewProviderProps) {
   const stableActions = useMemo(() => actions, [
     actions.navigateToArtist, actions.navigateToAlbum, actions.navigateToTag, actions.navigateToTagByName,
+    actions.goBack, actions.canGoBack,
     actions.playTracks, actions.playEntityAll, actions.playAlbum, actions.enqueueTracks,
     actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,

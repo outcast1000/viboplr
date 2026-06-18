@@ -297,6 +297,7 @@ export function TrackDetailView({
       <DetailHero
         bgImages={heroImages}
         bgClassName="detail-hero-bg"
+        onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
           videoFrames.frames ? (
             <VideoFrameCard

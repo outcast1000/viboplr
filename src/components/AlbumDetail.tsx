@@ -213,6 +213,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
       <DetailHero
         bgImages={heroImages}
         bgClassName="detail-hero-bg"
+        onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
           albumImagePath ? (
             <img src={convertFileSrc(albumImagePath)} alt={name} />

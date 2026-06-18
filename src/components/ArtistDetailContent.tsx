@@ -209,6 +209,7 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
       <DetailHero
         bgImages={heroImages}
         bgClassName="detail-hero-bg"
+        onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
           artistImagePath
             ? <img src={convertFileSrc(artistImagePath)} alt={name} />
