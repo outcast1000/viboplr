@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import type { HomeShelfItem, HomeShelfResult, HomeShelfDisplayKind } from "../types/plugin";
 import type { ResolvedShelf, RadioStation } from "../hooks/useHome";
-import { useHome, shelfKey } from "../hooks/useHome";
+import { useHome, DEFAULT_SHELF_ORDER } from "../hooks/useHome";
 import { useImageCache } from "../hooks/useImageCache";
 import { HomeHero } from "./HomeHero";
 import { HomeShelf } from "./HomeShelf";
-import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
+import { CustomizeHomeModal } from "./CustomizeHomeModal";
 import { store } from "../store";
 import "./HomeView.css";
 
@@ -33,20 +33,36 @@ export function HomeView(props: HomeViewProps) {
   const artistImages = useImageCache("artist");
 
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
+  // User-defined order of the built-in shelves; plugin shelves always follow.
+  const [shelfOrder, setShelfOrder] = useState<string[]>(DEFAULT_SHELF_ORDER);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // Restore visibility on mount
+  // Restore visibility + order on mount
   useEffect(() => {
     (async () => {
       const v = (await store.get<Record<string, boolean>>("homeShelfVisibility")) ?? {};
       setVisibility(v);
+      const ord = await store.get<string[]>("homeShelfOrder");
+      // Append any built-in ids missing from a saved order (e.g. shelves added in
+      // a later release) so they don't silently disappear.
+      if (ord && ord.length) {
+        const merged = [...ord, ...DEFAULT_SHELF_ORDER.filter((id) => !ord.includes(id))];
+        setShelfOrder(merged);
+      }
     })();
   }, []);
 
-  // Persist
+  // Persist visibility
   useEffect(() => {
     if (!props.restoredRef.current) return;
     store.set("homeShelfVisibility", visibility);
   }, [visibility, props.restoredRef]);
+
+  // Persist order
+  useEffect(() => {
+    if (!props.restoredRef.current) return;
+    store.set("homeShelfOrder", shelfOrder);
+  }, [shelfOrder, props.restoredRef]);
 
   const { radioStations, shelves, refresh } = useHome({
     isVisible: props.isVisible,
@@ -54,39 +70,36 @@ export function HomeView(props: HomeViewProps) {
     invokePluginShelf: props.invokePluginShelf,
     pluginsLoaded: props.pluginsLoaded,
     visibility,
+    shelfOrder,
     restoredRef: props.restoredRef,
   });
 
-  const allShelfDescriptors = [
-    { id: "builtin:recently-played", title: "Recently played" },
-    { id: "builtin:most-played-30d", title: "Most played · 30 days" },
-    { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days" },
-    { id: "builtin:recently-added", title: "Recently added" },
-    { id: "builtin:liked-albums", title: "Liked albums" },
-    { id: "builtin:liked-artists", title: "Liked artists" },
-    { id: "builtin:jump-back-in", title: "Jump back in" },
-    ...props.pluginShelves.map(p => ({ id: shelfKey(p.pluginId, p.shelfId), title: p.title })),
-  ];
+  function toggleShelf(id: string) {
+    setVisibility((prev) => ({ ...prev, [id]: prev[id] === false }));
+  }
 
-  function openShelvesMenu(e: React.MouseEvent<HTMLButtonElement>) {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const specs: MenuItemSpec[] = allShelfDescriptors.map((s) => ({
-      kind: "check",
-      text: s.title,
-      checked: visibility[s.id] !== false,
-      action: () => setVisibility((prev) => ({ ...prev, [s.id]: prev[s.id] === false })),
-    }));
-    showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
-      console.error("Failed to show shelves menu:", err)
-    );
+  function resetCustomization() {
+    setShelfOrder(DEFAULT_SHELF_ORDER);
+    setVisibility({});
   }
 
   return (
     <div className="home-view" style={props.style}>
       <div className="home-view-header">
         <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={refresh} title="Refresh">⟳ Refresh</button>
-        <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={openShelvesMenu} title="Shelves">⚙ Shelves</button>
+        <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setCustomizeOpen(true)} title="Customize">⚙ Customize</button>
       </div>
+
+      {customizeOpen && (
+        <CustomizeHomeModal
+          builtInOrder={shelfOrder}
+          visibility={visibility}
+          onReorder={setShelfOrder}
+          onToggle={toggleShelf}
+          onReset={resetCustomization}
+          onClose={() => setCustomizeOpen(false)}
+        />
+      )}
 
       <HomeHero
         stations={radioStations}

@@ -14,6 +14,22 @@ const PLUGIN_TIMEOUT_MS = 5_000;
 const SNAPSHOT_KEY = "homeSnapshot";
 const RADIO_STATION_COUNT = 7;
 
+// Canonical built-in shelves in their default order — the single source of truth
+// for the standard shelf set (id + title + order). `buildBuiltInResolvers` builds
+// its resolver array in this same order; the Customize Home modal and the default
+// reset both read from here.
+export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string }[] = [
+  { id: "builtin:recently-played", title: "Recently played" },
+  { id: "builtin:most-played-30d", title: "Most played · 30 days" },
+  { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days" },
+  { id: "builtin:recently-added", title: "Recently added" },
+  { id: "builtin:liked-albums", title: "Liked albums" },
+  { id: "builtin:liked-artists", title: "Liked artists" },
+  { id: "builtin:jump-back-in", title: "Jump back in" },
+];
+
+export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
+
 // A radio station shown in the hero carousel: a seed track plus its resolved
 // cover (album image, falling back to artist image).
 export interface RadioStation {
@@ -60,6 +76,26 @@ export interface ShelfResolver {
   displayKind: HomeShelfDisplayKind;
   limit: number;
   fetch: (limit: number) => Promise<HomeShelfResult>;
+}
+
+// Sort key for a shelf given the user's built-in order. Built-ins are ranked by
+// their position in `builtinOrder`; an unknown/new built-in (not yet in the saved
+// order, e.g. added in a later release) sorts just after the listed built-ins;
+// plugin shelves always come after all built-ins. Stable sorts preserve the input
+// order among same-rank items (so plugins and unknown built-ins keep their order).
+function rankShelf(item: { id: string; pluginId?: string }, builtinOrder: string[]): number {
+  if (item.pluginId) return builtinOrder.length + 1;
+  const idx = builtinOrder.indexOf(item.id);
+  return idx >= 0 ? idx : builtinOrder.length;
+}
+
+// Reorder resolved shelves so the built-in ones follow `builtinOrder`. Pure —
+// used both when refreshing and to re-sort live when the user reorders shelves.
+export function orderResolvedShelves(
+  shelves: ResolvedShelf[],
+  builtinOrder: string[],
+): ResolvedShelf[] {
+  return [...shelves].sort((a, b) => rankShelf(a, builtinOrder) - rankShelf(b, builtinOrder));
 }
 
 export async function resolveShelves(
@@ -112,6 +148,9 @@ export interface UseHomeOptions {
   ) => Promise<HomeShelfResult>;
   pluginsLoaded: boolean;
   visibility: Record<string, boolean>;
+  // User-defined order of the built-in shelves (ids). Plugin shelves always
+  // follow the built-ins regardless. Defaults to DEFAULT_SHELF_ORDER.
+  shelfOrder: string[];
   restoredRef: React.RefObject<boolean>;
 }
 
@@ -120,7 +159,7 @@ export function shelfKey(pluginId: string | undefined, shelfId: string): string 
 }
 
 export function useHome(opts: UseHomeOptions) {
-  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, restoredRef } = opts;
+  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, shelfOrder, restoredRef } = opts;
 
   const [radioStations, setRadioStations] = useState<RadioStation[]>([]);
   const [shelves, setShelves] = useState<ResolvedShelf[]>([]);
@@ -349,9 +388,10 @@ export function useHome(opts: UseHomeOptions) {
         fetch: (limit) => invokePluginShelf(p.pluginId, p.shelfId, limit),
       }));
 
-      const all = [...builtIns, ...pluginResolvers].filter(r =>
-        visibility[r.id] !== false,
-      );
+      const all = [...builtIns, ...pluginResolvers]
+        .filter(r => visibility[r.id] !== false)
+        // Apply the user's built-in order; plugin shelves stay after the built-ins.
+        .sort((a, b) => rankShelf(a, shelfOrder) - rankShelf(b, shelfOrder));
       // Remember which resolvers we attempted this cycle so a later mount can
       // distinguish an already-seen shelf from a freshly-installed plugin shelf.
       const attemptedKeys = all.map((r) => r.id);
@@ -418,7 +458,7 @@ export function useHome(opts: UseHomeOptions) {
     } finally {
       if (gen === refreshGenRef.current) setIsLoading(false);
     }
-  }, [buildBuiltInResolvers, fetchRadioStations, invokePluginShelf, pluginShelves, visibility]);
+  }, [buildBuiltInResolvers, fetchRadioStations, invokePluginShelf, pluginShelves, visibility, shelfOrder]);
 
   // Hydrate from the persisted snapshot once, before the first refresh paints anything.
   // This makes a cold launch of Home land on real content instead of an empty state.
@@ -467,6 +507,16 @@ export function useHome(opts: UseHomeOptions) {
       return next;
     });
   }, [pluginsLoaded, pluginShelves]);
+
+  // Reorder the already-resolved shelves in place when the user changes the
+  // built-in order. Reordering is pure presentation, so this never refetches.
+  useEffect(() => {
+    setShelves((prev) => {
+      const next = orderResolvedShelves(prev, shelfOrder);
+      if (next.every((s, i) => s.id === prev[i]?.id)) return prev;
+      return next;
+    });
+  }, [shelfOrder]);
 
   // Refresh on mount when the cached snapshot is older than 24h (or absent), OR
   // when a visible plugin shelf has never been fetched (e.g. a plugin was just
