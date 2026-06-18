@@ -13,7 +13,7 @@
 
 ## Components (src/components/)
 
-- **CaptionBar.tsx** — Custom caption bar: window controls, brand logo, back/forward nav, `CentralSearchDropdown`, mini player button. Full-width drag region (`data-tauri-drag-region`).
+- **CaptionBar.tsx** — Custom caption bar: window controls, brand logo, `CentralSearchDropdown`, mini player button. Full-width drag region (`data-tauri-drag-region`).
 - **Sidebar.tsx** — Navigation sidebar with animated active indicator. Items: Home (Cmd+0), Library (Cmd+1), History (Cmd+2), Now Playing (Cmd+3), Playlists, plugin sidebar items. Bottom: Collections, Extensions (with update count badge), Settings (with update badge). Collapsible via Cmd+B. The Now Playing icon is playback-aware: `SpinningDisc` for audio, `FilmReel` for video, both frozen when paused.
 - **TrackList.tsx** — Table/list/tile view for tracks with column sorting, multi-selection (Click, Cmd+Click, Shift+Click), and drag-to-queue.
 - **NowPlayingBar.tsx** — Footer playback controls. Full mode: seek bar (waveform or segmented), track info with like/dislike, transport controls, queue mode, auto-continue, volume. Mini mode: compact draggable bar with art, title/artist, play controls. Rank badges for top-100 tracks. Scrobble indicator checkmark. Album art resolved async via `currentTrack` effect in `App.tsx` — same priority chain as queue (see `queue.md` "Image Resolution" section).
@@ -74,7 +74,7 @@
 - **useInAppKeyboardShortcuts.ts** — In-window keyboard shortcuts (the `window` keydown handler; see "Keyboard Shortcuts" below). Takes a single `deps` object refreshed into a ref each render, so its one installed listener never reads stale closures. App.tsx owns the deps; the hook owns the dispatch.
 - **useViewSearchState.ts** — Per-view independent search state, persists across view switches.
 - **useCentralSearch.ts** — Global search with parallel artist/album/track queries.
-- **useNavigationHistory.ts** — Back/forward navigation with per-view search query persistence.
+- **useNavigationHistory.ts** — Single-direction back navigation (history stack only, no forward) with per-view search query persistence and scroll restoration. History is pushed **only on detail-page entry** — the `onBeforeNavigate` hook fired by `useLibrary`'s `handle*Click` / `navigateTo*ByName` paths (plus plugin navigate-to-entity). Top-level view switches (sidebar, Cmd+1/2/3) do **not** push. Because a detail page is only reachable through a push point, the top of the stack is always the page's immediate origin, so the first back is always correct. The only back affordance is the detail-page back button (`DetailHero` `onBack`, gated on `canGoBack`); there is no caption-bar back/forward UI and no global keyboard/mouse nav shortcuts.
 - **useSessionLog.ts** — Session logging via `addLog()`.
 - **useAppUpdater.ts** — App update checking and installation.
 - **usePasteImage.ts** — Clipboard image paste handling for entity images.
@@ -102,7 +102,6 @@
 
 No modifier (when not in text input): Space (play/pause), arrows (seek/volume).
 Cmd/Ctrl: 0 (Home), 1 (Library), 2 (History), 3 (Now Playing), K (search), F (fullscreen), L (like), P (playlist panel), M (mute), Shift+M (mini), B (sidebar), Left/Right (prev/next track).
-Alt: Left/Right (nav history back/forward).
 Track list: arrows (navigate), Enter (play), Shift+Enter (enqueue).
 Mini mode: any printable character (when no input is focused) opens the mini-player quick-search panel; Space/arrows remain player controls.
 

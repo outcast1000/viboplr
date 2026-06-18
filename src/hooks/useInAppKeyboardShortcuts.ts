@@ -29,8 +29,6 @@ export interface KeyboardShortcutDeps {
   currentTrack: QueueTrack | null;
   // Stable refs / callbacks owned by App.tsx.
   goBack: () => void;
-  goForward: () => void;
-  pushState: () => void;
   toggleLike: (track: QueueTrack) => void;
   focusSearch: () => void;
   handleNext: () => void;
@@ -79,12 +77,6 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
         return;
       }
 
-      // Alt+Arrow: navigation history
-      if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        if (e.key === "ArrowLeft") { e.preventDefault(); d.goBack(); return; }
-        if (e.key === "ArrowRight") { e.preventDefault(); d.goForward(); return; }
-      }
-
       // Non-modifier shortcuts (only when not typing in an input)
       if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInput) {
         switch (e.key) {
@@ -129,7 +121,6 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
       switch (e.key) {
         case "1":
           e.preventDefault();
-          d.pushState();
           library.setView("search");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -138,7 +129,6 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
           break;
         case "2":
           e.preventDefault();
-          d.pushState();
           library.setView("history");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -146,7 +136,6 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
           break;
         case "3":
           e.preventDefault();
-          d.pushState();
           library.setView("nowplaying");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -186,14 +175,6 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
         case "b":
           e.preventDefault();
           d.handleToggleSidebar();
-          break;
-        case "[":
-          e.preventDefault();
-          d.goBack();
-          break;
-        case "]":
-          e.preventDefault();
-          d.goForward();
           break;
       }
     }

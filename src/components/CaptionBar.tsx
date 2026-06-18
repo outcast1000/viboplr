@@ -3,10 +3,6 @@ import { CentralSearchDropdown } from "./CentralSearchDropdown";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
 
 interface CaptionBarProps {
-  canGoBack: boolean;
-  canGoForward: boolean;
-  onGoBack: () => void;
-  onGoForward: () => void;
   centralSearch: {
     query: string;
     setQuery: (q: string) => void;
@@ -30,10 +26,6 @@ interface CaptionBarProps {
 }
 
 export function CaptionBar({
-  canGoBack,
-  canGoForward,
-  onGoBack,
-  onGoForward,
   centralSearch,
   searchInputRef,
   getAlbumImage,
@@ -63,26 +55,6 @@ export function CaptionBar({
           </svg>
           <span className="caption-brand-text">iboPLR</span>
         </div>
-        <button
-          className="g-btn g-btn-sm"
-          disabled={!canGoBack}
-          onClick={onGoBack}
-          title="Go back (Alt+Left)"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="15 18 9 12 15 6" />
-          </svg>
-        </button>
-        <button
-          className="g-btn g-btn-sm"
-          disabled={!canGoForward}
-          onClick={onGoForward}
-          title="Go forward (Alt+Right)"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9 6 15 12 9 18" />
-          </svg>
-        </button>
         <CentralSearchDropdown
           query={centralSearch.query}
           onQueryChange={centralSearch.setQuery}

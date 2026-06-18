@@ -23,12 +23,9 @@ export function useNavigationHistory(
 ): {
   pushState: () => void;
   goBack: () => void;
-  goForward: () => void;
   canGoBack: boolean;
-  canGoForward: boolean;
 } {
   const historyRef = useRef<NavState[]>([]);
-  const futureRef = useRef<NavState[]>([]);
   const currentRef = useRef<Omit<NavState, "scrollTop">>(current);
   currentRef.current = current;
   const [, rerender] = useState(0);
@@ -43,7 +40,6 @@ export function useNavigationHistory(
     const newHistory = [...historyRef.current, s];
     historyRef.current = newHistory.length > MAX_HISTORY
       ? newHistory.slice(newHistory.length - MAX_HISTORY) : newHistory;
-    futureRef.current = [];
     rerender(n => n + 1);
   }, [snap]);
 
@@ -51,29 +47,14 @@ export function useNavigationHistory(
     if (historyRef.current.length === 0) return;
     const newHistory = [...historyRef.current];
     const target = newHistory.pop()!;
-    const s = snap();
     historyRef.current = newHistory;
-    futureRef.current = [...futureRef.current, s];
     apply(target);
     rerender(n => n + 1);
-  }, [apply, snap]);
-
-  const goForward = useCallback(() => {
-    if (futureRef.current.length === 0) return;
-    const newFuture = [...futureRef.current];
-    const target = newFuture.pop()!;
-    const s = snap();
-    futureRef.current = newFuture;
-    historyRef.current = [...historyRef.current, s];
-    apply(target);
-    rerender(n => n + 1);
-  }, [apply, snap]);
+  }, [apply]);
 
   return {
     pushState,
     goBack,
-    goForward,
     canGoBack: historyRef.current.length > 0,
-    canGoForward: futureRef.current.length > 0,
   };
 }

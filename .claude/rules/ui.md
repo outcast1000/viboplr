@@ -97,7 +97,6 @@ Dynamic states: `.sidebar-collapsed` (56px), `.queue-open` (adds col 3), `.queue
 Contents left-to-right:
 - Window controls (macOS left)
 - Brand logo ("iboPLR" with gradient)
-- Back/Forward navigation buttons
 - `CentralSearchDropdown` (global search with results preview)
 - Spacer (draggable)
 - Help button (keyboard shortcuts)

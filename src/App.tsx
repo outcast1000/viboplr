@@ -976,7 +976,7 @@ function App() {
 
   const getScrollTop = useCallback(() => getScrollEl()?.scrollTop ?? 0, [getScrollEl]);
 
-  const { pushState, goBack, goForward, canGoBack, canGoForward } = useNavigationHistory(
+  const { pushState, goBack, canGoBack } = useNavigationHistory(
     {
       view: library.view,
       selectedArtist: library.selectedArtist,
@@ -1003,8 +1003,6 @@ function App() {
 
   const goBackRef = useRef(goBack);
   goBackRef.current = goBack;
-  const goForwardRef = useRef(goForward);
-  goForwardRef.current = goForward;
   const pushStateRef = useRef(pushAndScroll);
   pushStateRef.current = pushAndScroll;
 
@@ -1767,8 +1765,6 @@ function App() {
     handlePause: playback.handlePause,
     currentTrack: playback.currentTrack,
     goBack: () => goBackRef.current(),
-    goForward: () => goForwardRef.current(),
-    pushState: () => pushStateRef.current(),
     toggleLike: (t) => handleToggleLikeRef.current(t),
     focusSearch: () => searchInputRef.current?.focus(),
     handleNext: () => handleNext(),
@@ -1778,15 +1774,6 @@ function App() {
     openMiniSearch: (initialChar) => miniSearch.open(initialChar),
   });
 
-  // Mouse side buttons for navigation history
-  useEffect(() => {
-    function handleMouseUp(e: MouseEvent) {
-      if (e.button === 3) { e.preventDefault(); goBackRef.current(); }
-      if (e.button === 4) { e.preventDefault(); goForwardRef.current(); }
-    }
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => window.removeEventListener("mouseup", handleMouseUp);
-  }, []);
 
   // onEnded handler — uses refs to avoid stale closures from useCallback([])
   const autoContinueRef = useRef(autoContinue);
@@ -2335,7 +2322,6 @@ function App() {
         nowPlayingActive={playback.playing}
         collapsed={sidebarCollapsed}
         onShowHome={() => {
-          pushAndScroll();
           library.setView("home");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2343,7 +2329,6 @@ function App() {
           library.setSelectedTrack(null);
         }}
         onShowSearch={() => {
-          pushAndScroll();
           library.setView("search");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2351,7 +2336,6 @@ function App() {
           library.setSelectedTrack(null);
         }}
         onShowHistory={() => {
-          pushAndScroll();
           library.setView("history");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2359,7 +2343,6 @@ function App() {
           library.setSelectedTrack(null);
         }}
         onShowNowPlaying={() => {
-          pushAndScroll();
           library.setView("nowplaying");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2367,7 +2350,6 @@ function App() {
           library.setSelectedTrack(null);
         }}
         onShowPlaylists={() => {
-          pushAndScroll();
           library.setView("playlists");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2375,7 +2357,6 @@ function App() {
           library.setSelectedTrack(null);
         }}
         onShowCollections={() => {
-          pushAndScroll();
           library.setView("collections");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2383,7 +2364,6 @@ function App() {
           library.setSelectedTrack(null);
         }}
         onShowSettings={() => {
-          pushAndScroll();
           library.setView("settings");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2391,7 +2371,6 @@ function App() {
           library.setSelectedTrack(null);
         }}
         onShowExtensions={() => {
-          pushAndScroll();
           library.setView("extensions");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
@@ -2462,10 +2441,6 @@ function App() {
 
       {/* Caption bar - full width */}
       <CaptionBar
-        canGoBack={canGoBack}
-        canGoForward={canGoForward}
-        onGoBack={goBack}
-        onGoForward={goForward}
         centralSearch={centralSearch}
         searchInputRef={searchInputRef}
         getAlbumImage={albumImageCache.getImage}
@@ -2475,7 +2450,6 @@ function App() {
         resyncProgress={resyncProgress}
         resyncComplete={resyncComplete}
         onNavigateToCollections={() => {
-          pushAndScroll();
           library.setView("collections");
           library.setSelectedArtist(null);
           library.setSelectedAlbum(null);
