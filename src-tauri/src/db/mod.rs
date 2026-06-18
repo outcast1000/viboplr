@@ -3217,6 +3217,62 @@ mod tests {
     }
 
     #[test]
+    fn test_pick_never_played_tracks() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let aid = db.get_or_create_artist("A").unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        let played = db.upsert_track("file://p.mp3", "Played", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.upsert_track("file://u.mp3", "Unplayed", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+        // Both unplayed initially.
+        assert_eq!(db.pick_never_played_tracks(10).unwrap().len(), 2);
+
+        // After a play is recorded, only the unplayed one remains.
+        db.record_history_play(played).unwrap();
+        let never = db.pick_never_played_tracks(10).unwrap();
+        assert_eq!(never.len(), 1);
+        assert_eq!(never[0].title, "Unplayed");
+    }
+
+    #[test]
+    fn test_pick_forgotten_favorites() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let aid = db.get_or_create_artist("A").unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        db.upsert_track("file://old.mp3", "OldFave", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        let recent = db.upsert_track("file://recent.mp3", "RecentFave", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+        // Seed an old favorite directly: 3 plays, all > 30 days ago.
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count) VALUES ('a','A',0,0,0)",
+                [],
+            ).unwrap();
+            let ha: i64 = conn.query_row("SELECT id FROM history_artists WHERE canonical_name='a'", [], |r| r.get(0)).unwrap();
+            conn.execute(
+                "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count) VALUES (?1,'oldfave','OldFave',0,0,0)",
+                params![ha],
+            ).unwrap();
+            let ht: i64 = conn.query_row("SELECT id FROM history_tracks WHERE canonical_title='oldfave'", [], |r| r.get(0)).unwrap();
+            let old_ts: i64 = conn.query_row("SELECT strftime('%s','now') - 200*24*60*60", [], |r| r.get(0)).unwrap();
+            for _ in 0..3 {
+                conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, ?2)", params![ht, old_ts]).unwrap();
+            }
+        }
+        // The recently-played favorite must be excluded (played just now, several times).
+        db.record_history_play(recent).unwrap();
+        db.record_history_play(recent).unwrap();
+
+        let forgotten = db.pick_forgotten_favorites(10).unwrap();
+        let titles: Vec<&str> = forgotten.iter().map(|t| t.title.as_str()).collect();
+        assert!(titles.contains(&"OldFave"), "old repeat-played track should be a forgotten favorite");
+        assert!(!titles.contains(&"RecentFave"), "recently played track must be excluded");
+    }
+
+    #[test]
     fn test_pick_radio_seeds_excludes_disliked() {
         let db = test_db();
         let cid = test_collection(&db);

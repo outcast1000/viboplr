@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "../hooks/useHome";
+import { shelfDescriptionFor } from "../hooks/useHome";
 import type { HomeShelfItem } from "../types/plugin";
 import type { Track } from "../types";
 import { isVideoTrack } from "../utils";
@@ -95,7 +96,12 @@ export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, o
   return (
     <section className="home-shelf">
       <div className="home-shelf-header">
-        <h2 className="home-shelf-title">{shelf.title}</h2>
+        <div className="home-shelf-heading">
+          <h2 className="home-shelf-title">{shelf.title}</h2>
+          {shelfDescriptionFor(shelf.id) && (
+            <p className="home-shelf-desc">{shelfDescriptionFor(shelf.id)}</p>
+          )}
+        </div>
         <div className="home-shelf-arrows">
           <button className="ds-btn ds-btn--ghost ds-btn--sm" aria-label="Scroll left" onClick={() => scroll(-1)}>‹</button>
           <button className="ds-btn ds-btn--ghost ds-btn--sm" aria-label="Scroll right" onClick={() => scroll(1)}>›</button>

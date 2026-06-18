@@ -313,6 +313,62 @@ impl Database {
         Ok(chosen)
     }
 
+    /// Library tracks that have never been played (no matching history play),
+    /// randomly sampled. History is name-based, so a track counts as played only
+    /// when a history_track for its canonical artist+title has plays.
+    pub fn pick_never_played_tracks(&self, limit: u32) -> SqlResult<Vec<Track>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "{} \
+             LEFT JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
+             LEFT JOIN history_tracks ht ON ht.history_artist_id = ha.id \
+                  AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
+             LEFT JOIN history_plays hp ON hp.history_track_id = ht.id \
+             WHERE 1=1 {} \
+             GROUP BY t.id \
+             HAVING COUNT(hp.id) = 0 \
+             ORDER BY RANDOM() \
+             LIMIT ?1",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], |row| track_from_row(row))?;
+        rows.collect()
+    }
+
+    /// Tracks played repeatedly in the past but not heard in the last 30 days,
+    /// ranked by total play count — the Home "Forgotten favorites" shelf.
+    pub fn pick_forgotten_favorites(&self, limit: u32) -> SqlResult<Vec<Track>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let now_ts: i64 = conn.query_row("SELECT strftime('%s', 'now')", [], |row| {
+            let s: String = row.get(0)?;
+            Ok(s.parse::<i64>().unwrap_or(0))
+        })?;
+        let cutoff = now_ts - 30 * 24 * 60 * 60;
+        let sql = format!(
+            "{} \
+             LEFT JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
+             LEFT JOIN history_tracks ht ON ht.history_artist_id = ha.id \
+                  AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
+             LEFT JOIN history_plays hp ON hp.history_track_id = ht.id \
+             WHERE 1=1 {} \
+             GROUP BY t.id \
+             HAVING COUNT(hp.id) >= 2 AND MAX(hp.played_at) < ?1 \
+             ORDER BY COUNT(hp.id) DESC \
+             LIMIT ?2",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![cutoff, limit], |row| track_from_row(row))?;
+        rows.collect()
+    }
+
     // --- Decoupled history ---
 
     #[cfg(test)]

@@ -29,6 +29,7 @@ export interface CustomizeHomeModalProps {
 
 export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
   const titleById = new Map(BUILTIN_SHELF_DESCRIPTORS.map((d) => [d.id, d.title]));
+  const descById = new Map(BUILTIN_SHELF_DESCRIPTORS.map((d) => [d.id, d.description]));
 
   // Drag-reorder state for built-in rows. Refs drive the drag (no re-render churn);
   // the state mirrors are only for the dragging/drag-over visual styling.
@@ -145,7 +146,10 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
                 onMouseDown={(e) => handleHandleMouseDown(e, id)}
                 title="Drag to reorder"
               >⠿</span>
-              <span className="customize-home-title">{titleById.get(id) ?? id}</span>
+              <div className="customize-home-text">
+                <span className="customize-home-title">{titleById.get(id) ?? id}</span>
+                {descById.get(id) && <span className="customize-home-desc">{descById.get(id)}</span>}
+              </div>
               <Toggle
                 checked={props.visibility[id] !== false}
                 onChange={() => props.onToggle(id)}

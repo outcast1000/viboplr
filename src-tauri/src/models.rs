@@ -240,12 +240,13 @@ pub struct HistoryMostPlayed {
     pub rank: i64,
 }
 
-/// Lightweight liked-track row read from the durable entity_likes table (the
+/// Lightweight liked-entity row read from the durable entity_likes table (the
 /// "Liked Table"), used by the Home "Recently liked" / "Random liked" shelves
-/// and Liked-Track radio seeds. Captures non-library likes too (metadata-keyed).
+/// (tracks, artists, albums) and Liked-Track radio seeds. `name` is the entity's
+/// display name (track/album title, or artist name). Captures non-library likes too.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LikedTrackInfo {
-    pub title: String,
+pub struct LikedEntityInfo {
+    pub name: String,
     pub artist_name: Option<String>,
     pub album_title: Option<String>,
     pub image_url: Option<String>,

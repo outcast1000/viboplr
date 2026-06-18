@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Album, Artist, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, LikedTrackInfo } from "../types";
+import type { Track, Album, Artist, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, LikedEntityInfo } from "../types";
 import type {
   HomeShelfDisplayKind,
   HomeShelfResult,
@@ -23,22 +23,33 @@ export const RADIO_SHELF_ID = "builtin:radio";
 // for the standard shelf set (id + title + order). `buildBuiltInResolvers` builds
 // its resolver array in this same order; the Customize Home modal and the default
 // reset both read from here. Radio leads so it is the default carousel.
-export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string }[] = [
-  { id: RADIO_SHELF_ID, title: "Radio" },
-  { id: "builtin:recently-played", title: "Recently played" },
-  { id: "builtin:most-played-30d", title: "Most played · 30 days" },
-  { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days" },
-  { id: "builtin:recently-added", title: "Recently added" },
-  { id: "builtin:recently-liked", title: "Recently liked" },
-  { id: "builtin:random-liked", title: "Random liked" },
-  { id: "builtin:liked-albums", title: "Liked albums" },
-  { id: "builtin:liked-artists", title: "Liked artists" },
-  { id: "builtin:popular-track-radio", title: "Popular Track radio" },
-  { id: "builtin:liked-track-radio", title: "Liked Track radio" },
-  { id: "builtin:jump-back-in", title: "Jump back in" },
+export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description: string }[] = [
+  { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like." },
+  { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off." },
+  { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month." },
+  { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days", description: "Who you’ve had on repeat lately." },
+  { id: "builtin:recently-added", title: "Recently added", description: "The newest additions to your library." },
+  { id: "builtin:recently-liked", title: "Recently liked", description: "Songs you’ve loved most recently." },
+  { id: "builtin:recently-liked-albums", title: "Recently liked albums", description: "Albums you’ve loved most recently." },
+  { id: "builtin:recently-liked-artists", title: "Recently liked artists", description: "Artists you’ve loved most recently." },
+  { id: "builtin:random-liked", title: "Random liked", description: "A shuffle through your liked songs." },
+  { id: "builtin:liked-albums", title: "Liked albums", description: "Albums you’ve hearted." },
+  { id: "builtin:liked-artists", title: "Liked artists", description: "Artists you’ve hearted." },
+  { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Old favorites you haven’t played in a while." },
+  { id: "builtin:never-played", title: "Never played", description: "Tracks in your library you’ve never played." },
+  { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A different era from your collection each refresh." },
+  { id: "builtin:popular-track-radio", title: "Popular Track radio", description: "Stations from your most-played songs." },
+  { id: "builtin:liked-track-radio", title: "Liked Track radio", description: "Stations from songs you love." },
+  { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently." },
 ];
 
 export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
+
+// One-line description for a built-in shelf id (shown in the shelf header and the
+// Customize modal). Undefined for plugin shelves / unknown ids.
+export function shelfDescriptionFor(id: string): string | undefined {
+  return BUILTIN_SHELF_DESCRIPTORS.find((d) => d.id === id)?.description;
+}
 
 // Merge a persisted shelf order with the canonical default: keep the user's
 // arrangement for shelves they've ordered, drop ids no longer known, and slot any
@@ -384,13 +395,13 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedTrackInfo[]>("pick_liked_tracks", { order: "recent", limit });
+              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "recent", limit });
               if (rows.length === 0) return { status: "empty" };
               return {
                 status: "ok",
                 items: rows.map(r => ({
                   track: {
-                    title: r.title,
+                    title: r.name,
                     artist_name: r.artist_name ?? undefined,
                     album_title: r.album_title ?? undefined,
                     image_url: r.image_url ?? undefined,
@@ -403,19 +414,58 @@ export function useHome(opts: UseHomeOptions) {
           },
         },
         {
+          id: "builtin:recently-liked-albums",
+          title: "Recently liked albums",
+          displayKind: "album-cards",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "album", order: "recent", limit });
+              if (rows.length === 0) return { status: "empty" };
+              // Resolve to library albums by name so cards get a play button + detail nav.
+              const items = await Promise.all(rows.map(async (r) => {
+                const album = await invoke<Album | null>("find_album_by_name", { title: r.name, artistName: r.artist_name ?? null }).catch(() => null);
+                return { libraryId: album?.id, name: r.name, artistName: r.artist_name ?? undefined };
+              }));
+              return { status: "ok", items };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:recently-liked-artists",
+          title: "Recently liked artists",
+          displayKind: "artist-cards",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "artist", order: "recent", limit });
+              if (rows.length === 0) return { status: "empty" };
+              const items = await Promise.all(rows.map(async (r) => {
+                const artist = await invoke<Artist | null>("find_artist_by_name", { name: r.name }).catch(() => null);
+                return { libraryId: artist?.id, name: r.name };
+              }));
+              return { status: "ok", items };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
           id: "builtin:random-liked",
           title: "Random liked",
           displayKind: "track-rows",
           limit: 20,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedTrackInfo[]>("pick_liked_tracks", { order: "random", limit });
+              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit });
               if (rows.length === 0) return { status: "empty" };
               return {
                 status: "ok",
                 items: rows.map(r => ({
                   track: {
-                    title: r.title,
+                    title: r.name,
                     artist_name: r.artist_name ?? undefined,
                     album_title: r.album_title ?? undefined,
                     image_url: r.image_url ?? undefined,
@@ -469,6 +519,84 @@ export function useHome(opts: UseHomeOptions) {
           },
         },
         {
+          id: "builtin:forgotten-favorites",
+          title: "Forgotten favorites",
+          displayKind: "track-rows",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const tracks = await invoke<Track[]>("pick_forgotten_favorites", { limit });
+              if (tracks.length === 0) return { status: "empty" };
+              return {
+                status: "ok",
+                items: tracks.map(t => ({
+                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined },
+                })),
+              };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:never-played",
+          title: "Never played",
+          displayKind: "track-rows",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const tracks = await invoke<Track[]>("pick_never_played_tracks", { limit });
+              if (tracks.length === 0) return { status: "empty" };
+              return {
+                status: "ok",
+                items: tracks.map(t => ({
+                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined },
+                })),
+              };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:discover-by-decade",
+          title: "Discover by decade",
+          displayKind: "album-cards",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const albums = await invoke<Album[]>("get_albums", { artistId: null });
+              const withYear = albums.filter((a) => typeof a.year === "number" && (a.year as number) > 0);
+              if (withYear.length === 0) return { status: "empty" };
+              // Group by decade, then feature one decade (chosen at random) per refresh.
+              const byDecade = new Map<number, Album[]>();
+              for (const a of withYear) {
+                const d = Math.floor((a.year as number) / 10) * 10;
+                const bucket = byDecade.get(d);
+                if (bucket) bucket.push(a);
+                else byDecade.set(d, [a]);
+              }
+              const decades = [...byDecade.keys()];
+              const decade = decades[Math.floor(Math.random() * decades.length)];
+              const picks = [...(byDecade.get(decade) ?? [])];
+              for (let i = picks.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [picks[i], picks[j]] = [picks[j], picks[i]];
+              }
+              return {
+                status: "ok",
+                items: picks.slice(0, limit).map((a) => ({
+                  libraryId: a.id,
+                  name: a.title,
+                  artistName: a.artist_name ?? undefined,
+                })),
+              };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
           id: "builtin:popular-track-radio",
           title: "Popular Track radio",
           displayKind: "playlist-cards",
@@ -497,12 +625,12 @@ export function useHome(opts: UseHomeOptions) {
           limit: 12,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedTrackInfo[]>("pick_liked_tracks", { order: "random", limit });
+              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit });
               if (rows.length === 0) return { status: "empty" };
               const items = await Promise.all(
                 rows.map(async (r, i) => {
                   const cover = r.image_url ?? await resolveCover(r.album_title, r.artist_name);
-                  return radioStationItem(`radio:liked:${i}`, { title: r.title, artist_name: r.artist_name, album_title: r.album_title }, cover);
+                  return radioStationItem(`radio:liked:${i}`, { title: r.name, artist_name: r.artist_name, album_title: r.album_title }, cover);
                 }),
               );
               return { status: "ok", items };

@@ -120,9 +120,10 @@ export interface HistoryMostPlayed {
   rank: number;
 }
 
-// A liked track read from the durable entity_likes table (Home liked shelves).
-export interface LikedTrackInfo {
-  title: string;
+// A liked entity (track/artist/album) read from the durable entity_likes table
+// (Home liked shelves). `name` is the entity's display name.
+export interface LikedEntityInfo {
+  name: string;
   artist_name: string | null;
   album_title: string | null;
   image_url: string | null;

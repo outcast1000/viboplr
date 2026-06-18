@@ -433,15 +433,28 @@ pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String
     state.db.get_liked_tracks().map_err(|e| e.to_string())
 }
 
-/// Liked tracks from the durable entity_likes table for the Home liked shelves.
-/// `order` is "recent" (newest first) or "random".
+/// Liked entities ("track" | "artist" | "album") from the durable entity_likes
+/// table for the Home liked shelves. `order` is "recent" (newest first) or "random".
 #[tauri::command]
-pub fn pick_liked_tracks(
+pub fn pick_liked_entities(
     state: State<'_, AppState>,
+    kind: String,
     order: String,
     limit: u32,
-) -> Result<Vec<LikedTrackInfo>, String> {
-    state.db.pick_liked_tracks(&order, limit).map_err(|e| e.to_string())
+) -> Result<Vec<LikedEntityInfo>, String> {
+    state.db.pick_liked_entities(&kind, &order, limit).map_err(|e| e.to_string())
+}
+
+/// Library tracks with no recorded plays — for the Home "Never played" shelf.
+#[tauri::command]
+pub fn pick_never_played_tracks(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
+    state.db.pick_never_played_tracks(limit).map_err(|e| e.to_string())
+}
+
+/// Often-played tracks not heard recently — for the Home "Forgotten favorites" shelf.
+#[tauri::command]
+pub fn pick_forgotten_favorites(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
+    state.db.pick_forgotten_favorites(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

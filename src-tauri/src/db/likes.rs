@@ -63,32 +63,34 @@ impl Database {
         Ok(out)
     }
 
-    /// List liked tracks straight from the durable entity_likes table, newest-first
+    /// List liked entities of a given `kind` ("track" | "artist" | "album")
+    /// straight from the durable entity_likes table, newest-first
     /// (`order == "recent"`, by updated_at) or shuffled (`order == "random"`).
     /// Reads display fields from each row's stored metadata JSON; rows without a
-    /// usable title are skipped. Captures non-library likes too.
-    pub fn pick_liked_tracks(&self, order: &str, limit: u32) -> SqlResult<Vec<LikedTrackInfo>> {
+    /// usable name are skipped. Captures non-library likes too.
+    pub fn pick_liked_entities(&self, kind: &str, order: &str, limit: u32) -> SqlResult<Vec<LikedEntityInfo>> {
         let conn = self.conn.lock().unwrap();
         let order_clause = if order == "random" { "RANDOM()" } else { "updated_at DESC" };
         let sql = format!(
             "SELECT metadata FROM entity_likes \
-             WHERE kind = 'track' AND liked = 1 AND metadata IS NOT NULL \
-             ORDER BY {} LIMIT ?1",
+             WHERE kind = ?1 AND liked = 1 AND metadata IS NOT NULL \
+             ORDER BY {} LIMIT ?2",
             order_clause
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+        let rows = stmt.query_map(params![kind, limit], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
         for meta in rows {
             let meta = meta?;
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&meta) else { continue };
-            let title = v.get("title").and_then(|x| x.as_str()).unwrap_or("");
-            if title.is_empty() {
+            let str_field = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
+            // Metadata stores both "name" and "title" (= the entity's primary name).
+            let name = str_field("name").or_else(|| str_field("title")).unwrap_or_default();
+            if name.is_empty() {
                 continue;
             }
-            let str_field = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
-            out.push(LikedTrackInfo {
-                title: title.to_string(),
+            out.push(LikedEntityInfo {
+                name,
                 artist_name: str_field("artist_name"),
                 album_title: str_field("album_title"),
                 image_url: str_field("image_url"),
@@ -288,34 +290,38 @@ mod tests {
     }
 
     #[test]
-    fn test_pick_liked_tracks_recent_order_and_parsing() {
+    fn test_pick_liked_entities_recent_order_and_parsing() {
         let db = test_db();
         // liked, with metadata, at increasing updated_at
-        db.set_entity_like("track", "track:a:one", 1, Some(r#"{"title":"One","artist_name":"A","album_title":"AlbA","image_url":"/c/a.jpg"}"#), 100).unwrap();
-        db.set_entity_like("track", "track:b:two", 1, Some(r#"{"title":"Two","artist_name":"B"}"#), 200).unwrap();
+        db.set_entity_like("track", "track:a:one", 1, Some(r#"{"name":"One","title":"One","artist_name":"A","album_title":"AlbA","image_url":"/c/a.jpg"}"#), 100).unwrap();
+        db.set_entity_like("track", "track:b:two", 1, Some(r#"{"name":"Two","title":"Two","artist_name":"B"}"#), 200).unwrap();
         // a dislike must be excluded
-        db.set_entity_like("track", "track:c:three", -1, Some(r#"{"title":"Three"}"#), 300).unwrap();
-        // a like with no usable title must be skipped
+        db.set_entity_like("track", "track:c:three", -1, Some(r#"{"name":"Three"}"#), 300).unwrap();
+        // a like with no usable name must be skipped
         db.set_entity_like("track", "track:d:four", 1, Some(r#"{"artist_name":"D"}"#), 400).unwrap();
-        // a non-track like must not leak in
+        // a like of a different kind must not leak into the track query
         db.set_entity_like("artist", "artist:e", 1, Some(r#"{"name":"E"}"#), 500).unwrap();
 
-        let rows = db.pick_liked_tracks("recent", 10).unwrap();
-        assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), vec!["Two", "One"]);
-        let one = rows.iter().find(|r| r.title == "One").unwrap();
+        let rows = db.pick_liked_entities("track", "recent", 10).unwrap();
+        assert_eq!(rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["Two", "One"]);
+        let one = rows.iter().find(|r| r.name == "One").unwrap();
         assert_eq!(one.artist_name.as_deref(), Some("A"));
         assert_eq!(one.album_title.as_deref(), Some("AlbA"));
         assert_eq!(one.image_url.as_deref(), Some("/c/a.jpg"));
+
+        // kind filter selects the artist like only
+        let artists = db.pick_liked_entities("artist", "recent", 10).unwrap();
+        assert_eq!(artists.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["E"]);
     }
 
     #[test]
-    fn test_pick_liked_tracks_limit() {
+    fn test_pick_liked_entities_limit() {
         let db = test_db();
         for i in 0..5 {
-            db.set_entity_like("track", &format!("track:a:{i}"), 1, Some(&format!(r#"{{"title":"T{i}"}}"#)), 100 + i).unwrap();
+            db.set_entity_like("track", &format!("track:a:{i}"), 1, Some(&format!(r#"{{"name":"T{i}"}}"#)), 100 + i).unwrap();
         }
-        assert_eq!(db.pick_liked_tracks("recent", 3).unwrap().len(), 3);
-        assert_eq!(db.pick_liked_tracks("random", 3).unwrap().len(), 3);
+        assert_eq!(db.pick_liked_entities("track", "recent", 3).unwrap().len(), 3);
+        assert_eq!(db.pick_liked_entities("track", "random", 3).unwrap().len(), 3);
     }
 
     #[test]

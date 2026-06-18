@@ -6,13 +6,19 @@
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 12px;
 }
+.home-shelf-heading { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .home-shelf-title {
   font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text-primary);
   margin: 0;
 }
-.home-shelf-arrows { display: flex; gap: 4px; }
+.home-shelf-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin: 0;
+}
+.home-shelf-arrows { display: flex; gap: 4px; flex-shrink: 0; }
 .home-shelf-scroller {
   display: grid;
   grid-auto-flow: column;
