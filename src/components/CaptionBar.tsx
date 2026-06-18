@@ -18,7 +18,6 @@ interface CaptionBarProps {
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
   onToggleMiniMode: () => void;
-  onToggleHelp: () => void;
   minimizeToMiniPlayer: boolean;
   resyncProgress: ResyncProgress | null;
   resyncComplete: ResyncComplete | null;
@@ -31,7 +30,6 @@ export function CaptionBar({
   getAlbumImage,
   getArtistImage,
   onToggleMiniMode,
-  onToggleHelp,
   minimizeToMiniPlayer,
   resyncProgress,
   resyncComplete,
@@ -96,13 +94,6 @@ export function CaptionBar({
           </button>
         )}
         <div className="caption-spacer" />
-        <button
-          className="g-btn g-btn-sm"
-          onClick={onToggleHelp}
-          title="Keyboard shortcuts"
-        >
-          {"?"}
-        </button>
         <button
           className="g-btn g-btn-rect"
           onClick={onToggleMiniMode}

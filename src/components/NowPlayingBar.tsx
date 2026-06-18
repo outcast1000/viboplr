@@ -51,27 +51,6 @@ function SourceIcon({ s = 11, isLocal }: { s?: number; isLocal: boolean }) {
   return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>;
 }
 
-const shortcuts = [
-  { keys: "Space", action: "Play / Pause" },
-  { keys: "\u2190", action: "Seek Back 15s" },
-  { keys: "\u2192", action: "Seek Forward 15s" },
-  { keys: "\u2191", action: "Volume Up 10%" },
-  { keys: "\u2193", action: "Volume Down 10%" },
-  { keys: `${mod}\u2190`, action: "Previous Track" },
-  { keys: `${mod}\u2192`, action: "Next Track" },
-  { keys: `${mod}L`, action: "Like / Unlike" },
-  { keys: `${mod}P`, action: "Toggle Playlist" },
-  { keys: `${mod}1`, action: "All Tracks" },
-  { keys: `${mod}2`, action: "Artists" },
-  { keys: `${mod}3`, action: "Albums" },
-  { keys: `${mod}4`, action: "Tags" },
-  { keys: `${mod}5`, action: "Liked" },
-  { keys: `${mod}6`, action: "History" },
-  { keys: `${mod}M`, action: "Mute / Unmute" },
-  { keys: `${mod}\u21E7M`, action: "Mini Player" },
-];
-
-
 function SlideText({ text, className }: { text: string; className?: string }) {
   const [key, setKey] = useState(0);
   const prevRef = useRef(text);
@@ -157,8 +136,6 @@ interface NowPlayingBarProps {
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   onNavigateToTagByName?: (name: string) => void;
-  showHelp: boolean;
-  onToggleHelp: () => void;
   playbackError?: string | null;
   resolvedSource?: { name: string; url: string; sourceUrl?: string | null; id?: string | null } | null;
   loadingTrack?: QueueTrack | null;
@@ -199,7 +176,6 @@ export function NowPlayingBar({
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
-  showHelp, onToggleHelp,
   playbackError, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
   onContextMenu,
@@ -754,24 +730,6 @@ export function NowPlayingBar({
         </div>
       </div>
       </div>
-      {showHelp && (
-        <div className="shortcuts-overlay" onClick={onToggleHelp}>
-          <div className="shortcuts-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="shortcuts-header">
-              <span>Keyboard Shortcuts</span>
-              <button className="ctrl-btn" onClick={onToggleHelp}>{"\u2715"}</button>
-            </div>
-            <div className="shortcuts-list">
-              {shortcuts.map((s) => (
-                <div key={s.keys} className="shortcut-row">
-                  <kbd className="shortcut-keys">{s.keys}</kbd>
-                  <span className="shortcut-action">{s.action}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
       {sourceTooltipOpen && sourceAnchor && currentTrack && (() => {
         const path = currentTrack.path ?? "";
         const isSubsonic = path.startsWith("subsonic://");

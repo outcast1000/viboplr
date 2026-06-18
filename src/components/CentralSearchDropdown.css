@@ -50,10 +50,12 @@
 }
 
 .central-search-container {
-  flex: 1 1 500px;
-  max-width: 500px;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: clamp(220px, 38vw, 500px);
   min-width: 0;
-  position: relative;
 }
 
 .central-search-dropdown {

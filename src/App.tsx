@@ -563,8 +563,6 @@ function App() {
   const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
 
-  const [showHelp, setShowHelp] = useState(false);
-
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [queueWidth, setQueueWidth] = useState(300);
@@ -2446,7 +2444,6 @@ function App() {
         getAlbumImage={albumImageCache.getImage}
         getArtistImage={artistImageCache.getImage}
         onToggleMiniMode={mini.toggleMiniMode}
-        onToggleHelp={() => setShowHelp(h => !h)}
         resyncProgress={resyncProgress}
         resyncComplete={resyncComplete}
         onNavigateToCollections={() => {
@@ -3336,8 +3333,6 @@ function App() {
         onNavigateToArtistByName={library.navigateToArtistByName}
         onNavigateToAlbumByName={library.navigateToAlbumByName}
         onNavigateToTagByName={library.navigateToTagByName}
-        showHelp={showHelp}
-        onToggleHelp={() => setShowHelp(h => !h)}
         resolvedSource={resolvedSource}
         loadingTrack={playback.loadingTrack}
         playbackError={playback.playbackError}

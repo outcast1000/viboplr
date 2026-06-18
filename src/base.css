@@ -266,8 +266,3 @@ body {
 .anim-heart-bounce-subtle {
   animation: heart-bounce-subtle 300ms ease-out;
 }
-
-/* Modal scale-in animation */
-.shortcuts-modal {
-  animation: scale-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
-}
