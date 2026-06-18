@@ -32,10 +32,11 @@ export function EntityTagPanel({ tracks }: EntityTagPanelProps) {
     { onMutated: actions.refreshLibraryTags },
   );
 
-  const communityTags = useCommunityTagsForTracks({
+  const { tags: communityTags, loading: communityLoading } = useCommunityTagsForTracks({
     tracks,
     invokeInfoFetch: actions.invokeInfoFetch,
     enabled: hasTracks,
+    pluginsLoaded: actions.pluginsLoaded,
   });
 
   const suggestions = useMemo(
@@ -64,6 +65,7 @@ export function EntityTagPanel({ tracks }: EntityTagPanelProps) {
           placeholder={placeholder}
           suggestedPills={communityTags.map((t) => t.name)}
           suggestedPillsLabel="Last.fm"
+          suggestedPillsLoading={communityLoading}
         />
       )}
     </div>

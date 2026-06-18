@@ -80,6 +80,9 @@ pub enum DepStatus {
 pub struct ConsumerInfo {
     pub name: String,
     pub reason: String,
+    /// Whether this consumer marks the dependency as required (plugin consumers
+    /// only; internal consumers are always treated as required → true).
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

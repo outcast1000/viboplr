@@ -33,6 +33,10 @@ export interface TagEditorProps {
   suggestedPills?: string[];
   /** Label shown before the suggestion pills (default "Suggested"). */
   suggestedPillsLabel?: string;
+  /** When true and no pills are available yet, show a loading indicator in the
+   *  pills area instead of nothing — so users know suggestions are still being
+   *  fetched (e.g. Last.fm community tags) rather than absent. */
+  suggestedPillsLoading?: boolean;
   /** Tags present on only SOME of the target tracks, rendered as muted chips
    *  with an `n / m` count and (when onFillToAll is set) a fill-to-all control.
    *  Providing this also disables Backspace-to-remove (ambiguous with partials). */
@@ -59,6 +63,7 @@ export default function TagEditor({
   chipPrefix = "",
   suggestedPills,
   suggestedPillsLabel = "Suggested",
+  suggestedPillsLoading,
   partialTags,
   onFillToAll,
   onChipLabelClick,
@@ -139,6 +144,12 @@ export default function TagEditor({
           <span className="tag-editor-suggested-plus">+</span>{chipPrefix}{name}
         </button>
       ))}
+    </div>
+  ) : (suggestedPillsLoading && !disabled) ? (
+    <div className="tag-editor-suggested tag-editor-suggested--loading">
+      <span className="tag-editor-suggested-label">{suggestedPillsLabel}</span>
+      <span className="ds-spinner ds-spinner--sm" aria-label={`Finding ${suggestedPillsLabel} tags`} />
+      <span className="tag-editor-suggested-loading-text">finding tags…</span>
     </div>
   ) : null;
   const showAddArea = !disabled;

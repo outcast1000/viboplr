@@ -179,6 +179,7 @@ interface NowPlayingBarProps {
   getArtistImage?: (name: string) => string | null;
   tagSuggestions?: string[];
   invokeInfoFetch?: InvokeInfoFetch;
+  pluginsLoaded?: boolean;
 }
 
 export function NowPlayingBar({
@@ -207,6 +208,7 @@ export function NowPlayingBar({
   getArtistImage,
   tagSuggestions,
   invokeInfoFetch,
+  pluginsLoaded,
 }: NowPlayingBarProps) {
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -582,7 +584,7 @@ export function NowPlayingBar({
                     <><span className="now-sep"> — </span><span className="now-link" onClick={onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined}>{currentTrack.album_title}</span></>
                   )}
                   {!miniMode && (
-                    <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} onTagsChange={setTrackTags} />
+                    <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} pluginsLoaded={pluginsLoaded} onTagsChange={setTrackTags} />
                   )}
                   {trackTags.length > 0 && (
                     <span className="now-tags">

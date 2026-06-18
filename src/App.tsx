@@ -57,7 +57,7 @@ import { useExtensions } from "./hooks/useExtensions";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { PluginTrack } from "./types/plugin";
+import type { PluginTrack, PluginBadge } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
 import { useMiniSearch } from "./hooks/useMiniSearch";
@@ -312,6 +312,49 @@ function App() {
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
   const dependencies = useDependencies(plugins.pluginStates);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
+
+  // Host-owned "missing required dependency" indicator: cross-reference each
+  // enabled plugin's manifest binaryDependencies (required) against the host's
+  // dependency status, and put an error dot on that plugin's sidebar item(s).
+  // The plugins themselves no longer check — they only declare in the manifest.
+  const depBadgeMap = useMemo(() => {
+    const m = new Map<string, PluginBadge>();
+    if (dependencies.deps.length === 0) return m;
+    const installed = new Set(
+      dependencies.deps.filter((d) => d.status === "installed").map((d) => d.name),
+    );
+    for (const ps of plugins.pluginStates) {
+      if (!ps.enabled) continue;
+      const missing = (ps.manifest.binaryDependencies ?? []).some(
+        (bd) => bd.required && !installed.has(bd.name),
+      );
+      if (!missing) continue;
+      for (const item of plugins.sidebarItems) {
+        if (item.pluginId === ps.id) {
+          m.set(`${item.pluginId}:${item.id}`, { type: "dot", variant: "error", tooltip: "Missing required dependency — open Settings → Dependencies" });
+        }
+      }
+    }
+    return m;
+  }, [dependencies.deps, plugins.pluginStates, plugins.sidebarItems]);
+
+  // Merge host dependency dots over plugin-set badges (host dot wins on conflict).
+  const mergedBadgeMap = useMemo(() => {
+    if (depBadgeMap.size === 0) return plugins.badgeMap;
+    const m = new Map(plugins.badgeMap);
+    for (const [k, v] of depBadgeMap) m.set(k, v);
+    return m;
+  }, [plugins.badgeMap, depBadgeMap]);
+
+  // Populate host dependency status once, after startup settles and plugins have
+  // loaded (so every enabled plugin's declarations are included). Cache-only and
+  // off the critical path — drives the sidebar dot + Settings "needed by" list.
+  const depsCheckedRef = useRef(false);
+  useEffect(() => {
+    if (appRestoring || !plugins.pluginsLoaded || depsCheckedRef.current) return;
+    depsCheckedRef.current = true;
+    dependencies.checkAll().catch(console.error);
+  }, [appRestoring, plugins.pluginsLoaded, dependencies]);
 
   // Playback source-resolution engine. The refs it drives are created above (so
   // usePlayback can consume them); this wires the resolver chain + transcode
@@ -1587,6 +1630,7 @@ function App() {
       const queueTrack = queueHook.queue.find(t => t.key === library.selectedTrack)
         ?? (playback.currentTrack?.key === library.selectedTrack ? playback.currentTrack : null);
       if (queueTrack) {
+        // Render a synthetic (id-less) track immediately so the hero shows without delay…
         setDetailTrack({
           id: null, key: queueTrack.key, path: queueTrack.path,
           title: queueTrack.title, artist_id: null, artist_name: queueTrack.artist_name,
@@ -1603,6 +1647,28 @@ function App() {
         if (queueTrack.artist_name) {
           artistImageCache.getImage(queueTrack.artist_name);
         }
+        // …but resolve the real library row so tags, audio properties, and
+        // library-only actions work for now-playing / restored / external tracks
+        // that exist in the library. Try the exact path first (same source, exact
+        // match — local file:// / subsonic:// round-trip via the backend's
+        // PATH_EXPR), then fall back to metadata (catches a same-song different
+        // copy in the library, e.g. a stream you also own locally). Genuinely
+        // external tracks resolve to nothing → the synthetic track stays.
+        (async () => {
+          let found: Track | null = null;
+          if (queueTrack.path) {
+            const id = await invoke<number | null>("find_track_id_by_path", { path: queueTrack.path });
+            if (id != null) found = await invoke<Track>("get_track_by_id", { trackId: id });
+          }
+          if (!found) {
+            found = await invoke<Track | null>("find_track_by_metadata", {
+              title: queueTrack.title,
+              artistName: queueTrack.artist_name ?? null,
+              albumName: queueTrack.album_title ?? null,
+            });
+          }
+          if (!cancelled && found) setDetailTrack(found);
+        })().catch(e => console.error("Failed to resolve library track for detail view:", e));
       } else {
         setDetailTrack(null);
       }
@@ -2023,6 +2089,7 @@ function App() {
       else tagImageCache.requestFetch(name);
     },
     invokeInfoFetch: plugins.invokeInfoFetch,
+    pluginsLoaded: plugins.pluginsLoaded,
     pluginNames: plugins.pluginNames,
     searchProviders,
     tagSuggestionPool,
@@ -2044,7 +2111,7 @@ function App() {
     artistImageCache.getImage, albumImageCache.getImage, tagImageCache.getImage,
     artistImageCache.invalidate, albumImageCache.invalidate, tagImageCache.invalidate,
     artistImageCache.requestFetch, albumImageCache.requestFetch, tagImageCache.requestFetch,
-    plugins.invokeInfoFetch, plugins.pluginNames, searchProviders,
+    plugins.invokeInfoFetch, plugins.pluginsLoaded, plugins.pluginNames, searchProviders,
     tagSuggestionPool, library.loadLibrary,
     beginRetrieveImage, retrieve.openInfo,
   ]);
@@ -2319,7 +2386,7 @@ function App() {
         updateAvailable={updater.updateState.available !== null}
         extensionUpdateCount={extensionsHook.updateCount}
         pluginNavItems={plugins.sidebarItems}
-        badgeMap={plugins.badgeMap}
+        badgeMap={mergedBadgeMap}
         onPluginView={(pluginId, viewId) => {
           library.setView(`plugin:${pluginId}:${viewId}`);
           library.setSelectedArtist(null);
@@ -2413,7 +2480,7 @@ function App() {
             const isCurrentTrack = playback.currentTrack?.key === library.selectedTrack;
             return (
               <TrackDetailView
-                trackId={parseLibraryId(library.selectedTrack!)}
+                trackId={track.id}
                 track={track}
                 albumImagePath={
                   (track.album_title ? albumImageCache.getImage(track.album_title, track.artist_name) : null)
@@ -2434,7 +2501,7 @@ function App() {
                 onStartRadio={() => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleDislike={() => likeActions.handleToggleDislike(track)}
-                onShowInFolder={async () => { const libId = parseLibraryId(library.selectedTrack!); if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
+                onShowInFolder={async () => { const libId = track.id; if (libId == null) return; try { await invoke("show_in_folder", { trackId: libId }); } catch (e) { console.error("Failed to open containing folder:", e); contextMenuActions.setFolderError(String(e)); } }}
               />
             );
           })()}
@@ -3000,6 +3067,7 @@ function App() {
 
       {contextMenuActions.bulkEditTracks && (
         <BulkEditModal
+          pluginsLoaded={plugins.pluginsLoaded}
           tracks={contextMenuActions.bulkEditTracks}
           artistOptions={[...new Set(library.artists.map((a) => a.name))]}
           albumOptions={[...new Set(library.albums.map((a) => a.title))]}
@@ -3332,6 +3400,7 @@ function App() {
         onDownloadTrack={playback.currentTrack ? () => openDownloadForCurrentTrack(playback.currentTrack!, resolvedSource) : undefined}
         tagSuggestions={tagSuggestionPool}
         invokeInfoFetch={plugins.invokeInfoFetch}
+        pluginsLoaded={plugins.pluginsLoaded}
       />
 
       {retrieve.modal && (

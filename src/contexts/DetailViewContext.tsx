@@ -41,6 +41,9 @@ export interface DetailViewActions {
   autoFetchImage: (kind: "artist" | "album" | "tag", name: string, artistName?: string) => void;
 
   invokeInfoFetch: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
+  /** Whether the plugin system finished its async startup load — lets tag
+   *  surfaces re-fetch Last.fm community tags once the plugin is ready. */
+  pluginsLoaded: boolean;
   pluginNames: Map<string, string>;
   searchProviders: SearchProviderConfig[];
   /** Ranked library tag pool (buildTagSuggestionPool output) for tag editors. */
@@ -87,7 +90,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.handleTrackDragStart,
     actions.getArtistImage, actions.getAlbumImage, actions.getTagImage,
     actions.invalidateImage, actions.requestFetchImage, actions.autoFetchImage,
-    actions.invokeInfoFetch, actions.pluginNames, actions.searchProviders,
+    actions.invokeInfoFetch, actions.pluginsLoaded, actions.pluginNames, actions.searchProviders,
     actions.tagSuggestionPool, actions.refreshLibraryTags,
     actions.retrieve,
   ]);

@@ -100,6 +100,7 @@ pub async fn check_dependencies(
                     .map(|pd| dependencies::ConsumerInfo {
                         name: pd.plugin_name.clone(),
                         reason: pd.reason.clone(),
+                        required: pd.required,
                     })
                     .collect();
 
@@ -108,7 +109,8 @@ pub async fn check_dependencies(
                     description: def.description.to_string(),
                     status,
                     internal_consumers: def.internal_consumers.iter().map(|(n, r)| {
-                        dependencies::ConsumerInfo { name: n.to_string(), reason: r.to_string() }
+                        // Internal (host) consumers always need the dependency.
+                        dependencies::ConsumerInfo { name: n.to_string(), reason: r.to_string(), required: true }
                     }).collect(),
                     plugin_consumers,
                     install: def.install.clone(),

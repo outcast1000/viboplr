@@ -953,7 +953,9 @@ function DependenciesSection({
               {allConsumers.length > 0 && (
                 <div style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)", display: "flex", flexDirection: "column", gap: 2 }}>
                   {allConsumers.map((c) => (
-                    <span key={c.name}>{c.name} — {c.reason}</span>
+                    <span key={c.name}>
+                      {c.name} {c.required ? "(required)" : "(optional)"} — {c.reason}
+                    </span>
                   ))}
                 </div>
               )}
@@ -1019,8 +1021,8 @@ interface SettingsPanelProps {
       status: "installed" | "notFound" | "error";
       version?: string;
       origin?: "managed" | "system";
-      internalConsumers: Array<{ name: string; reason: string }>;
-      pluginConsumers: Array<{ name: string; reason: string }>;
+      internalConsumers: Array<{ name: string; reason: string; required: boolean }>;
+      pluginConsumers: Array<{ name: string; reason: string; required: boolean }>;
       install: { macos: string; windows: string; linux: string; url: string };
       managedAvailable: boolean;
       latestVersion?: string;

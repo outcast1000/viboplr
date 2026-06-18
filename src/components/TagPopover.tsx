@@ -14,12 +14,14 @@ interface TagPopoverProps {
   /** Fetches Last.fm community tags for the playing track so they can be
    *  suggested alongside the library pool (only while the popover is open). */
   invokeInfoFetch?: InvokeInfoFetch;
+  /** Whether plugins finished loading — re-fetches community tags once ready. */
+  pluginsLoaded?: boolean;
   /** Notifies the parent of the current tag list so it can render them inline
    *  in the subtitle (kept in sync as the user adds/removes here). */
   onTagsChange?: (tags: string[]) => void;
 }
 
-export default function TagPopover({ track, suggestions, invokeInfoFetch, onTagsChange }: TagPopoverProps) {
+export default function TagPopover({ track, suggestions, invokeInfoFetch, pluginsLoaded, onTagsChange }: TagPopoverProps) {
   const [open, setOpen] = useState(false);
   const [resolvedId, setResolvedId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -27,11 +29,12 @@ export default function TagPopover({ track, suggestions, invokeInfoFetch, onTags
 
   // Fold Last.fm track + artist tags into the library pool while the popover
   // is open (cheap: only fetched on demand).
-  const communityTags = useCommunityTags({
+  const { tags: communityTags, loading: communityLoading } = useCommunityTags({
     title: track.title,
     artistName: track.artist_name,
     invokeInfoFetch,
     enabled: open,
+    pluginsLoaded,
   });
   const mergedSuggestions = useMemo(
     () => appendCommunityTags(suggestions, communityTags),
@@ -136,6 +139,7 @@ export default function TagPopover({ track, suggestions, invokeInfoFetch, onTags
               chipPrefix="#"
               suggestedPills={communityPills}
               suggestedPillsLabel="Last.fm"
+              suggestedPillsLoading={communityLoading}
             />
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => setOpen(false)}>Done</button>

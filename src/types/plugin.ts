@@ -704,8 +704,27 @@ export interface ExecResult {
   stderr: string;
 }
 
+/** Read-only view of a host-managed external binary (e.g. yt-dlp, ffmpeg). */
+export interface PluginDependencyStatus {
+  name: string;
+  /** Whether the binary is currently available (managed copy or on PATH). */
+  installed: boolean;
+  /** Installed version string, or null if not installed / unknown. */
+  version: string | null;
+  /** Where the installed copy came from. */
+  origin: "managed" | "system" | null;
+  /** Latest released version from the host's TTL cache, or null if the host
+   *  hasn't checked yet this run. Never triggers a fetch — the host owns when
+   *  releases are checked; plugins must not check GitHub themselves. */
+  latest: string | null;
+}
+
 export interface PluginSystemAPI {
   exec(program: string, args?: string[], opts?: { cwd?: string }): Promise<ExecResult>;
+  /** Read the host's cached status for a registered dependency. Cache-only:
+   *  never hits the network. `latest` is null until the host's background
+   *  check populates it (~30s after startup, then daily, or via Settings). */
+  getDependency(name: string): Promise<PluginDependencyStatus | null>;
 }
 
 export interface PluginEnvAPI {

@@ -33,28 +33,54 @@ interface TrackTagsValue {
  * Degrades gracefully to `[]` when the Last.fm plugin is absent, when
  * `invokeInfoFetch` is undefined, or when there is no artist to query.
  */
+export interface CommunityTagsResult {
+  tags: CommunityTagLike[];
+  /** True while a Last.fm fetch is in flight, so surfaces can show feedback
+   *  ("finding tags…") instead of an indistinguishable empty state. */
+  loading: boolean;
+}
+
 export function useCommunityTags(opts: {
   title: string | null | undefined;
   artistName: string | null | undefined;
   invokeInfoFetch: InvokeInfoFetch | undefined;
   enabled?: boolean;
   includeTrackTags?: boolean;
-}): CommunityTagLike[] {
+  /** Whether the plugin system has finished its initial (background) load.
+   *  Plugins activate asynchronously after startup, so a fetch fired before
+   *  the Last.fm plugin is ready returns an error and would otherwise never
+   *  retry (`invokeInfoFetch`'s reference is stable). Passing this re-fires the
+   *  fetch once plugins load. Default `true` (callers that don't pass it keep
+   *  the old eager behavior). */
+  pluginsLoaded?: boolean;
+}): CommunityTagsResult {
   const {
     title,
     artistName,
     invokeInfoFetch,
     enabled = true,
     includeTrackTags = true,
+    pluginsLoaded = true,
   } = opts;
   const [tags, setTags] = useState<CommunityTagLike[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!enabled || !invokeInfoFetch || !title || !artistName) {
       setTags([]);
+      setLoading(false);
+      return;
+    }
+    // Plugins still loading: stay in the loading state (shows "finding tags…")
+    // and re-run once `pluginsLoaded` flips true rather than fetching into a
+    // not-yet-registered handler. `pluginsLoaded` always settles true after the
+    // initial load (even when Last.fm is absent), so this never hangs.
+    if (!pluginsLoaded) {
+      setLoading(true);
       return;
     }
     let cancelled = false;
+    setLoading(true);
     const entity: InfoEntity = { kind: "track", name: title, id: 0, artistName };
     invokeInfoFetch("lastfm", "track_tags", entity)
       .then((result) => {
@@ -72,13 +98,16 @@ export function useCommunityTags(opts: {
         if (cancelled) return;
         console.error("Failed to load community tags:", e);
         setTags([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [title, artistName, invokeInfoFetch, enabled, includeTrackTags]);
+  }, [title, artistName, invokeInfoFetch, enabled, includeTrackTags, pluginsLoaded]);
 
-  return tags;
+  return { tags, loading };
 }
 
 interface TrackLike {
@@ -100,8 +129,11 @@ export function useCommunityTagsForTracks(opts: {
   tracks: TrackLike[];
   invokeInfoFetch: InvokeInfoFetch | undefined;
   enabled?: boolean;
-}): CommunityTagLike[] {
-  const { tracks, invokeInfoFetch, enabled = true } = opts;
+  /** See `useCommunityTags` — re-fires the fetch once plugins finish their
+   *  async startup load. Default `true`. */
+  pluginsLoaded?: boolean;
+}): CommunityTagsResult {
+  const { tracks, invokeInfoFetch, enabled = true, pluginsLoaded = true } = opts;
   const singleTrack = tracks.length === 1;
 
   // First track per distinct artist, capped — these are the representatives we
@@ -125,13 +157,20 @@ export function useCommunityTagsForTracks(opts: {
   const repsKey = reps.map((r) => r.artistName.toLowerCase()).join("|");
 
   const [tags, setTags] = useState<CommunityTagLike[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!enabled || !invokeInfoFetch || reps.length === 0) {
       setTags([]);
+      setLoading(false);
+      return;
+    }
+    if (!pluginsLoaded) {
+      setLoading(true);
       return;
     }
     let cancelled = false;
+    setLoading(true);
     Promise.all(
       reps.map((r) =>
         invokeInfoFetch("lastfm", "track_tags", {
@@ -155,13 +194,15 @@ export function useCommunityTagsForTracks(opts: {
         lists.push(singleTrack ? [...(val.tags ?? []), ...artistTags] : artistTags);
       }
       setTags(rankCommunityTags(lists));
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
     });
     return () => {
       cancelled = true;
     };
     // repsKey captures the representative set; singleTrack changes the merge.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [repsKey, singleTrack, invokeInfoFetch, enabled]);
+  }, [repsKey, singleTrack, invokeInfoFetch, enabled, pluginsLoaded]);
 
-  return tags;
+  return { tags, loading };
 }

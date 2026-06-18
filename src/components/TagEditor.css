@@ -163,6 +163,12 @@
   margin-right: 2px;
 }
 
+.tag-editor-suggested-loading-text {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
 .tag-editor-suggested-pill {
   display: inline-flex;
   align-items: center;

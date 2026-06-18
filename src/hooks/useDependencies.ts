@@ -13,6 +13,8 @@ export interface InstallInstructions {
 export interface ConsumerInfo {
   name: string;
   reason: string;
+  /** Whether this consumer marks the dependency as required (vs optional). */
+  required: boolean;
 }
 
 export interface DependencyInfo {
@@ -103,11 +105,14 @@ export function useDependencies(pluginStates: PluginState[]) {
   }, []);
 
   const getPluginDeps = useCallback(() => {
-    const result: { name: string; pluginName: string; reason: string }[] = [];
+    const result: { name: string; pluginName: string; reason: string; required: boolean }[] = [];
     for (const ps of pluginStates) {
+      // Only enabled plugins' declarations count — a disabled plugin's missing
+      // dependency isn't actionable and shouldn't drive the "needed by" list.
+      if (!ps.enabled) continue;
       if (ps.manifest.binaryDependencies) {
         for (const bd of ps.manifest.binaryDependencies) {
-          result.push({ name: bd.name, pluginName: ps.manifest.name, reason: bd.reason });
+          result.push({ name: bd.name, pluginName: ps.manifest.name, reason: bd.reason, required: !!bd.required });
         }
       }
     }

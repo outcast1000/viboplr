@@ -524,6 +524,9 @@ pub struct PluginDepDeclaration {
     pub name: String,
     pub plugin_name: String,
     pub reason: String,
+    /// Whether the declaring plugin marks this dependency as required (vs optional).
+    #[serde(default)]
+    pub required: bool,
 }
 
 

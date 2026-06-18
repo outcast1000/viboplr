@@ -15,6 +15,8 @@ interface BulkEditModalProps {
   tagOptions: string[];
   /** Fetches Last.fm community tags to suggest alongside the library pool. */
   invokeInfoFetch?: InvokeInfoFetch;
+  /** Whether plugins finished loading — re-fetches community tags once ready. */
+  pluginsLoaded?: boolean;
   onClose: () => void;
   onSave: () => void;
 }
@@ -54,14 +56,14 @@ function FieldRow({ label, dirty, cleared, onClear, onRevert, children }: {
   );
 }
 
-export default function BulkEditModal({ tracks, artistOptions, albumOptions, tagOptions, invokeInfoFetch, onClose, onSave }: BulkEditModalProps) {
+export default function BulkEditModal({ tracks, artistOptions, albumOptions, tagOptions, invokeInfoFetch, pluginsLoaded, onClose, onSave }: BulkEditModalProps) {
   const count = tracks.length;
 
   // Community-tag suggestions across the whole selection: artist-level tags
   // aggregated over the distinct artists (single-track selections also include
   // that track's track-level tags). Mixed-artist selections still get useful
   // shared genres ranked to the top.
-  const communityTags = useCommunityTagsForTracks({ tracks, invokeInfoFetch });
+  const { tags: communityTags, loading: communityLoading } = useCommunityTagsForTracks({ tracks, invokeInfoFetch, pluginsLoaded });
   const tagSuggestions = useMemo(
     () => appendCommunityTags(tagOptions, communityTags),
     [tagOptions, communityTags],
@@ -337,6 +339,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
             disabled={!tagsLoaded}
             suggestedPills={communityPills}
             suggestedPillsLabel="Last.fm"
+            suggestedPillsLoading={communityLoading}
           />
         </div>
 

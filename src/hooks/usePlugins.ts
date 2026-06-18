@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -121,6 +121,32 @@ interface LoadedPlugin {
   schedulerHandlers: Map<string, () => void>;
 }
 
+/** Max time a single plugin's activate() may block the sequential load before
+ *  the host moves on. The plugin keeps initializing in the background; this
+ *  just stops one slow/hung activate() (e.g. one that awaits network) from
+ *  freezing startup and everything queued behind it. */
+const ACTIVATE_TIMEOUT_MS = 3000;
+
+/** Per-plugin activation timing, logged as a summary after the load loop so we
+ *  can see how long each plugin takes and where the time goes. */
+interface PluginActivationTiming {
+  plugin: string;
+  /** Total time spent in activatePlugin for this plugin. */
+  totalMs: number;
+  /** Reading index.js over IPC (0 when the listing bundled the code). */
+  codeMs: number;
+  /** new Function() + running the factory to get exports. */
+  compileMs: number;
+  /** The plugin's own activate() body (its registration / storage / network). */
+  activateMs: number;
+  /** Wall-time spent inside invoke() (IPC) during activate() — debug only, else 0. */
+  ipcMs: number;
+  /** Number of invoke() calls the plugin made during activate() — debug only. */
+  ipcCount: number;
+  /** Whether the code came bundled in plugin_list_installed (no extra IPC). */
+  bundled: boolean;
+}
+
 type EventHandlers = {
   [K in PluginEventName]: Array<{
     pluginId: string;
@@ -221,9 +247,29 @@ export function usePlugins(
   }>());
   const [dynamicShelvesVersion, setDynamicShelvesVersion] = useState(0);
 
+  // Active IPC-timing bucket for the plugin currently inside its activate()
+  // window (set only in debug mode). tapInvoke attributes each invoke()'s
+  // wall-time to it; when null it's a pure passthrough (negligible overhead).
+  const ipcTapRef = useRef<{ ms: number; count: number } | null>(null);
+  const tapInvoke = useCallback(
+    <T,>(cmd: string, args?: InvokeArgs, options?: InvokeOptions): Promise<T> => {
+      const bucket = ipcTapRef.current;
+      if (!bucket) return invoke<T>(cmd, args, options);
+      const t = performance.now();
+      return invoke<T>(cmd, args, options).finally(() => {
+        bucket.ms += performance.now() - t;
+        bucket.count += 1;
+      });
+    },
+    [],
+  );
+
   // Build the curated API for a specific plugin
   const buildAPI = useCallback(
     (pluginId: string, loaded: LoadedPlugin): ViboplrPluginAPI => {
+      // Shadow the module `invoke` so all of this plugin's API IPC is routed
+      // through the tap and attributed to it during its activate() window.
+      const invoke = tapInvoke;
       const trackUnsubscribe = (fn: () => void) => {
         loaded.unsubscribers.push(fn);
       };
@@ -936,6 +982,30 @@ export function usePlugins(
               cwd: opts?.cwd ?? null,
             });
           },
+          async getDependency(name: string) {
+            // Cache-only: forceRefresh: false means the host serves its cached
+            // status (installed/origin) and cached latest version — it never
+            // hits GitHub here. The host owns *when* the latest cache refreshes
+            // (background thread ~30s after startup + daily, or Settings). So
+            // `latest` may be null until that runs; plugins must never check
+            // releases themselves. See the "host owns dependency checks" rule.
+            const list = await invoke<Array<{
+              name: string;
+              status: "installed" | "notFound" | "error";
+              version?: string;
+              origin?: "managed" | "system";
+              latestVersion?: string | null;
+            }>>("check_dependencies", { names: [name], pluginDeps: null, forceRefresh: false });
+            const d = list[0];
+            if (!d) return null;
+            return {
+              name: d.name,
+              installed: d.status === "installed",
+              version: d.version ?? null,
+              origin: d.origin ?? null,
+              latest: d.latestVersion ?? null,
+            };
+          },
         },
 
         env: {
@@ -980,7 +1050,7 @@ export function usePlugins(
         },
       };
     },
-    [currentTrackRef, playingRef, positionRef],
+    [currentTrackRef, playingRef, positionRef, tapInvoke],
   );
 
   // Listen for scheduler due events from the Rust backend
@@ -1085,8 +1155,19 @@ export function usePlugins(
 
   // Load and activate a single plugin
   const activatePlugin = useCallback(
-    async (installed: InstalledPlugin): Promise<PluginState> => {
+    async (installed: InstalledPlugin): Promise<{ state: PluginState; timing: PluginActivationTiming }> => {
       const { id, manifest, builtin, dev, devPath } = installed;
+      // Phase timers: codeMs = reading index.js (IPC, 0 when bundled),
+      // compileMs = new Function + factory call, activateMs = the plugin's own
+      // activate() body (its storage/network/registration work). Together they
+      // explain where a slow plugin spends its activation budget.
+      const t0 = performance.now();
+      const bundled = installed.code != null;
+      let codeMs = 0;
+      let compileMs = 0;
+      let activateMs = 0;
+      let ipcMs = 0;
+      let ipcCount = 0;
 
       const loaded: LoadedPlugin = {
         id,
@@ -1109,12 +1190,14 @@ export function usePlugins(
 
       try {
         // Prefer code bundled with the manifest listing (saves an IPC round-trip).
+        const tCode = performance.now();
         const code =
           installed.code ??
           (await invoke<string>("plugin_read_file", {
             pluginId: id,
             path: "index.js",
           }));
+        codeMs = performance.now() - tCode;
 
         const api = buildAPI(id, loaded);
         const pluginSandbox = Object.create(null);
@@ -1141,26 +1224,76 @@ export function usePlugins(
         pluginSandbox.isFinite = isFinite;
         Object.freeze(pluginSandbox);
 
+        const tCompile = performance.now();
         const factory = new Function("api", "window", "globalThis", "self", "document", code);
         const pluginExports = factory(api, pluginSandbox, pluginSandbox, pluginSandbox, undefined);
+        compileMs = performance.now() - tCompile;
 
-        if (pluginExports && typeof pluginExports.activate === "function") {
-          await pluginExports.activate(api);
+        const tActivate = performance.now();
+        // Attribute IPC made during activate() to this plugin (debug only).
+        const tap = debugMode ? { ms: 0, count: 0 } : null;
+        if (tap) ipcTapRef.current = tap;
+        // Race activate() against a timeout so a slow/hung activate() (e.g. one
+        // that awaits network) can't freeze the sequential load. On timeout we
+        // proceed; the plugin keeps initializing in the background and its
+        // handlers register whenever they finish (loaded is registered below,
+        // so late registrations are live).
+        let timedOut = false;
+        const activatePromise = Promise.resolve(
+          pluginExports && typeof pluginExports.activate === "function"
+            ? pluginExports.activate(api)
+            : undefined,
+        );
+        // A rejection AFTER we've moved on would otherwise be unhandled; a
+        // rejection BEFORE the timeout still surfaces via the race → outer catch.
+        activatePromise.catch((err) => {
+          if (timedOut) {
+            console.warn(`[plugin:${id}] activate() failed after timeout:`, err instanceof Error ? err.message : String(err));
+          }
+        });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            activatePromise,
+            new Promise<void>((resolve) => {
+              timer = setTimeout(() => {
+                timedOut = true;
+                resolve();
+              }, ACTIVATE_TIMEOUT_MS);
+            }),
+          ]);
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+          if (tap) {
+            ipcTapRef.current = null;
+            ipcMs = tap.ms;
+            ipcCount = tap.count;
+          }
         }
+        if (timedOut) {
+          console.warn(`[plugin:${id}] activate() exceeded ${ACTIVATE_TIMEOUT_MS}ms; continuing in background`);
+        }
+        activateMs = performance.now() - tActivate;
         if (pluginExports && typeof pluginExports.deactivate === "function") {
           loaded.deactivate = pluginExports.deactivate;
         }
 
         loadedPluginsRef.current.set(id, loaded);
 
-        return { id, manifest, status: "active", enabled: true, builtin, dev, devPath };
+        return {
+          state: { id, manifest, status: "active", enabled: true, builtin, dev, devPath },
+          timing: { plugin: id, totalMs: performance.now() - t0, codeMs, compileMs, activateMs, ipcMs, ipcCount, bundled },
+        };
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.error(`[plugin:${id}] activation error:`, error);
-        return { id, manifest, status: "error", error, enabled: true, builtin, dev, devPath };
+        return {
+          state: { id, manifest, status: "error", error, enabled: true, builtin, dev, devPath },
+          timing: { plugin: id, totalMs: performance.now() - t0, codeMs, compileMs, activateMs, ipcMs, ipcCount, bundled },
+        };
       }
     },
-    [buildAPI],
+    [buildAPI, debugMode],
   );
 
   // Load all plugins
@@ -1283,9 +1416,12 @@ export function usePlugins(
       // store.restore / main_playlist.read by ~1s in measured runs.
       // The win from F4 here is the bundled `code` field in plugin_list_installed,
       // which removes one IPC per plugin even on the sequential path.
+      const timings: PluginActivationTiming[] = [];
+      const loopStart = performance.now();
       for (const plugin of toActivate) {
-        const state = await activatePlugin(plugin);
+        const { state, timing } = await activatePlugin(plugin);
         states.push(state);
+        timings.push(timing);
 
         if (state.status === "active" && plugin.manifest.contributes) {
           const contrib = plugin.manifest.contributes;
@@ -1345,6 +1481,34 @@ export function usePlugins(
             }
           }
         }
+      }
+
+      if (debugMode && timings.length > 0) {
+        const wallMs = performance.now() - loopStart;
+        const sumMs = timings.reduce((s, t) => s + t.totalMs, 0);
+        const r1 = (n: number) => (Math.round(n * 10) / 10).toString();
+        // Plain-text aligned table: Safari's Web Inspector renders console.table
+        // poorly (and it isn't copy-pasteable), so format it ourselves.
+        const cols: Array<{ h: string; w: number; v: (t: PluginActivationTiming) => string }> = [
+          { h: "plugin", w: 22, v: (t) => t.plugin },
+          { h: "total", w: 8, v: (t) => r1(t.totalMs) },
+          { h: "code", w: 7, v: (t) => r1(t.codeMs) },
+          { h: "compile", w: 8, v: (t) => r1(t.compileMs) },
+          { h: "activate", w: 9, v: (t) => r1(t.activateMs) },
+          { h: "ipcMs", w: 8, v: (t) => r1(t.ipcMs) },
+          { h: "ipc#", w: 5, v: (t) => t.ipcCount.toString() },
+          { h: "syncMs", w: 8, v: (t) => r1(Math.max(0, t.activateMs - t.ipcMs)) },
+          { h: "bundled", w: 7, v: (t) => (t.bundled ? "yes" : "no") },
+        ];
+        const pad = (s: string, w: number, left = false) => (left ? s.padEnd(w) : s.padStart(w));
+        const header = cols.map((c, i) => pad(c.h, c.w, i === 0)).join("  ");
+        const lines = [...timings]
+          .sort((a, b) => b.totalMs - a.totalMs)
+          .map((t) => cols.map((c, i) => pad(c.v(t), c.w, i === 0)).join("  "));
+        console.log(
+          `[plugin-timing] activated ${timings.length} plugins sequentially in ${r1(wallMs)}ms (sum of activations ${r1(sumMs)}ms)\n` +
+            [header, ...lines].join("\n"),
+        );
       }
 
       if (allInfoTypes.length > 0) {
