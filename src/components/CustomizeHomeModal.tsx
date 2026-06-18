@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { BUILTIN_SHELF_DESCRIPTORS } from "../hooks/useHome";
+import { BUILTIN_SHELF_DESCRIPTORS, isShelfVisible } from "../hooks/useHome";
 import "./CustomizeHomeModal.css";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
@@ -151,7 +151,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
                 {descById.get(id) && <span className="customize-home-desc">{descById.get(id)}</span>}
               </div>
               <Toggle
-                checked={props.visibility[id] !== false}
+                checked={isShelfVisible(id, props.visibility)}
                 onChange={() => props.onToggle(id)}
               />
             </div>

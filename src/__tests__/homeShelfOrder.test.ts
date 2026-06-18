@@ -3,6 +3,7 @@ import {
   orderResolvedShelves,
   mergeShelfOrder,
   buildRadioShelf,
+  isShelfVisible,
   RADIO_SHELF_ID,
   DEFAULT_SHELF_ORDER,
   type ResolvedShelf,
@@ -81,6 +82,26 @@ describe("mergeShelfOrder", () => {
 
   it("returns the default order unchanged", () => {
     expect(mergeShelfOrder(DEFAULT_SHELF_ORDER)).toEqual(DEFAULT_SHELF_ORDER);
+  });
+});
+
+describe("isShelfVisible", () => {
+  it("honors an explicit user setting over the default", () => {
+    // A default-hidden shelf turned on, and a default-visible shelf turned off.
+    expect(isShelfVisible("builtin:never-played", { "builtin:never-played": true })).toBe(true);
+    expect(isShelfVisible(RADIO_SHELF_ID, { [RADIO_SHELF_ID]: false })).toBe(false);
+  });
+
+  it("falls back to the built-in default when unset", () => {
+    expect(isShelfVisible(RADIO_SHELF_ID, {})).toBe(true); // curated: on
+    expect(isShelfVisible("builtin:never-played", {})).toBe(false); // curated: off
+    expect(isShelfVisible("builtin:liked-albums", {})).toBe(true);
+    expect(isShelfVisible("builtin:liked-artists", {})).toBe(false);
+  });
+
+  it("defaults unknown (plugin) shelves to visible", () => {
+    expect(isShelfVisible("acme:shelf", {})).toBe(true);
+    expect(isShelfVisible("acme:shelf", { "acme:shelf": false })).toBe(false);
   });
 });
 

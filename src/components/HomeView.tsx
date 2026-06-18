@@ -8,6 +8,7 @@ import {
   buildRadioShelf,
   mergeShelfOrder,
   orderResolvedShelves,
+  isShelfVisible,
 } from "../hooks/useHome";
 import { useImageCache } from "../hooks/useImageCache";
 import { HeroCarousel } from "./HeroCarousel";
@@ -78,10 +79,12 @@ export function HomeView(props: HomeViewProps) {
   });
 
   function toggleShelf(id: string) {
-    setVisibility((prev) => ({ ...prev, [id]: prev[id] === false }));
+    // Store the explicit opposite of the current effective visibility, so toggling
+    // works whether the shelf was on/off by default or by a prior explicit setting.
+    setVisibility((prev) => ({ ...prev, [id]: !isShelfVisible(id, prev) }));
   }
 
-  const radioVisible = visibility[RADIO_SHELF_ID] !== false;
+  const radioVisible = isShelfVisible(RADIO_SHELF_ID, visibility);
 
   function resetCustomization() {
     setShelfOrder(DEFAULT_SHELF_ORDER);

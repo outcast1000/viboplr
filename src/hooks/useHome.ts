@@ -20,27 +20,30 @@ const RADIO_STATION_COUNT = 7;
 export const RADIO_SHELF_ID = "builtin:radio";
 
 // Canonical built-in shelves in their default order — the single source of truth
-// for the standard shelf set (id + title + order). `buildBuiltInResolvers` builds
-// its resolver array in this same order; the Customize Home modal and the default
-// reset both read from here. Radio leads so it is the default carousel.
-export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description: string }[] = [
-  { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like." },
-  { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off." },
-  { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month." },
-  { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days", description: "Who you’ve had on repeat lately." },
-  { id: "builtin:recently-added", title: "Recently added", description: "The newest additions to your library." },
-  { id: "builtin:recently-liked", title: "Recently liked", description: "Songs you’ve loved most recently." },
-  { id: "builtin:recently-liked-albums", title: "Recently liked albums", description: "Albums you’ve loved most recently." },
-  { id: "builtin:recently-liked-artists", title: "Recently liked artists", description: "Artists you’ve loved most recently." },
-  { id: "builtin:random-liked", title: "Random liked", description: "A shuffle through your liked songs." },
-  { id: "builtin:liked-albums", title: "Liked albums", description: "Albums you’ve hearted." },
-  { id: "builtin:liked-artists", title: "Liked artists", description: "Artists you’ve hearted." },
-  { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Old favorites you haven’t played in a while." },
-  { id: "builtin:never-played", title: "Never played", description: "Tracks in your library you’ve never played." },
-  { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A different era from your collection each refresh." },
-  { id: "builtin:popular-track-radio", title: "Popular Track radio", description: "Stations from your most-played songs." },
-  { id: "builtin:liked-track-radio", title: "Liked Track radio", description: "Stations from songs you love." },
-  { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently." },
+// for the standard shelf set (id + title + default order + default visibility).
+// The Customize Home modal, the default order, and reset all read from here. The
+// curated default shows a focused set (defaultVisible: true) with Radio leading
+// as the carousel; the rest are registered but off by default (opt-in).
+export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description: string; defaultVisible: boolean }[] = [
+  // Visible by default — the curated Home.
+  { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like.", defaultVisible: true },
+  { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently.", defaultVisible: true },
+  { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off.", defaultVisible: true },
+  { id: "builtin:recently-added", title: "Recently added", description: "The newest additions to your library.", defaultVisible: true },
+  { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: true },
+  { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A different era from your collection each refresh.", defaultVisible: true },
+  { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Old favorites you haven’t played in a while.", defaultVisible: true },
+  { id: "builtin:liked-albums", title: "Liked albums", description: "Albums you’ve hearted.", defaultVisible: true },
+  // Off by default — opt in via Customize.
+  { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days", description: "Who you’ve had on repeat lately.", defaultVisible: false },
+  { id: "builtin:recently-liked", title: "Recently liked", description: "Songs you’ve loved most recently.", defaultVisible: false },
+  { id: "builtin:recently-liked-albums", title: "Recently liked albums", description: "Albums you’ve loved most recently.", defaultVisible: false },
+  { id: "builtin:recently-liked-artists", title: "Recently liked artists", description: "Artists you’ve loved most recently.", defaultVisible: false },
+  { id: "builtin:random-liked", title: "Random liked", description: "A shuffle through your liked songs.", defaultVisible: false },
+  { id: "builtin:liked-artists", title: "Liked artists", description: "Artists you’ve hearted.", defaultVisible: false },
+  { id: "builtin:never-played", title: "Never played", description: "Tracks in your library you’ve never played.", defaultVisible: false },
+  { id: "builtin:popular-track-radio", title: "Popular Track radio", description: "Stations from your most-played songs.", defaultVisible: false },
+  { id: "builtin:liked-track-radio", title: "Liked Track radio", description: "Stations from songs you love.", defaultVisible: false },
 ];
 
 export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
@@ -49,6 +52,15 @@ export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) =
 // Customize modal). Undefined for plugin shelves / unknown ids.
 export function shelfDescriptionFor(id: string): string | undefined {
   return BUILTIN_SHELF_DESCRIPTORS.find((d) => d.id === id)?.description;
+}
+
+// Effective visibility for a shelf: an explicit user setting (true/false) wins;
+// otherwise fall back to the built-in default (plugin shelves default to visible).
+export function isShelfVisible(id: string, visibility: Record<string, boolean>): boolean {
+  const explicit = visibility[id];
+  if (explicit !== undefined) return explicit;
+  const d = BUILTIN_SHELF_DESCRIPTORS.find((x) => x.id === id);
+  return d ? d.defaultVisible : true;
 }
 
 // Merge a persisted shelf order with the canonical default: keep the user's
@@ -685,7 +697,7 @@ export function useHome(opts: UseHomeOptions) {
       }));
 
       const all = [...builtIns, ...pluginResolvers]
-        .filter(r => visibility[r.id] !== false)
+        .filter(r => isShelfVisible(r.id, visibility))
         // Apply the user's built-in order; plugin shelves stay after the built-ins.
         .sort((a, b) => rankShelf(a, shelfOrder) - rankShelf(b, shelfOrder));
       // Remember which resolvers we attempted this cycle so a later mount can
