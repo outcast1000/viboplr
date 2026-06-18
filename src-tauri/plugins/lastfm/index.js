@@ -4,6 +4,7 @@
 function activate(api) {
   var BASE_URL = "https://ws.audioscrobbler.com/2.0/";
   var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
+  var AUTO_IMPORT_TASK = "auto-import";
 
   var state = {
     apiKey: null,
@@ -14,7 +15,6 @@ function activate(api) {
     importCancelled: false,
     autoImportEnabled: false,
     autoImportIntervalMins: 60,
-    autoImportTimerId: null,
     lastImportAt: null,
     importProgress: null,
     importResult: null,
@@ -739,6 +739,9 @@ function activate(api) {
         intervalMins: state.autoImportIntervalMins,
         lastImportAt: state.lastImportAt,
       });
+      // Advance the scheduler's last_run so the next auto-import waits a full
+      // interval. Harmless no-op if the task isn't registered (manual import).
+      api.scheduler.complete(AUTO_IMPORT_TASK).catch(console.error);
       renderSettings();
     }
 
@@ -750,32 +753,39 @@ function activate(api) {
   }
 
   // ===== Auto Import =====
+  //
+  // Auto-import is driven by the host scheduler (api.scheduler), NOT a raw
+  // setInterval. The persisted plugin_schedules row survives app restarts and
+  // plugin reloads, and the onDue handler below is auto-cleaned by the host on
+  // deactivate — so reloading the plugin can never orphan a timer / spawn dupes.
 
-  function startAutoImport() {
-    if (state.autoImportTimerId) return;
-    state.autoImportEnabled = true;
-    state.autoImportTimerId = setInterval(function () {
-      if (!state.sessionKey || state.importing) return;
-      importHistory(state.lastImportAt);
-    }, state.autoImportIntervalMins * 60 * 1000);
+  // Fires when the scheduled interval elapses (or ~5s after startup if the task
+  // was just (re)registered with no prior run — giving an automatic catch-up).
+  api.scheduler.onDue(AUTO_IMPORT_TASK, function () {
+    if (!state.sessionKey || state.importing) return;
+    importHistory(state.lastImportAt); // finishImport() calls scheduler.complete()
+  });
+
+  function persistAutoImportConfig() {
     api.storage.set("lastfm_auto_import", {
-      enabled: true,
+      enabled: state.autoImportEnabled,
       intervalMins: state.autoImportIntervalMins,
       lastImportAt: state.lastImportAt,
     });
   }
 
+  function startAutoImport() {
+    state.autoImportEnabled = true;
+    api.scheduler
+      .register(AUTO_IMPORT_TASK, state.autoImportIntervalMins * 60 * 1000)
+      .catch(console.error);
+    persistAutoImportConfig();
+  }
+
   function stopAutoImport() {
     state.autoImportEnabled = false;
-    if (state.autoImportTimerId) {
-      clearInterval(state.autoImportTimerId);
-      state.autoImportTimerId = null;
-    }
-    api.storage.set("lastfm_auto_import", {
-      enabled: false,
-      intervalMins: state.autoImportIntervalMins,
-      lastImportAt: state.lastImportAt,
-    });
+    api.scheduler.unregister(AUTO_IMPORT_TASK).catch(console.error);
+    persistAutoImportConfig();
   }
 
   // ===== Settings Panel =====
@@ -941,17 +951,13 @@ function activate(api) {
   api.ui.onAction("lastfm-set-interval", function (data) {
     if (data && data.value) {
       state.autoImportIntervalMins = parseInt(data.value, 10) || 60;
-      // Restart timer with new interval
       if (state.autoImportEnabled) {
-        stopAutoImport();
-        startAutoImport();
-      } else {
-        api.storage.set("lastfm_auto_import", {
-          enabled: state.autoImportEnabled,
-          intervalMins: state.autoImportIntervalMins,
-          lastImportAt: state.lastImportAt,
-        });
+        // Re-register updates interval_ms in place (upsert) — no stop/start needed.
+        api.scheduler
+          .register(AUTO_IMPORT_TASK, state.autoImportIntervalMins * 60 * 1000)
+          .catch(console.error);
       }
+      persistAutoImportConfig();
       renderSettings();
     }
   });
@@ -982,7 +988,12 @@ function activate(api) {
       state.autoImportIntervalMins = config.intervalMins || 60;
       state.lastImportAt = config.lastImportAt || null;
       if (config.enabled && state.sessionKey) {
+        // Re-register (idempotent upsert) and re-attach is handled by onDue above;
+        // a due/never-run task fires a catch-up import ~5s after startup.
         startAutoImport();
+      } else {
+        // Clear any stale persisted schedule so a disabled toggle never fires.
+        api.scheduler.unregister(AUTO_IMPORT_TASK).catch(console.error);
       }
     }
     renderSettings();
@@ -994,7 +1005,9 @@ function activate(api) {
 }
 
 function deactivate() {
-  // Auto-import timer is cleaned up by the plugin system unsubscribers
+  // The auto-import onDue handler is registered via api.scheduler.onDue, so the
+  // host clears it automatically on deactivate. The persisted plugin_schedules
+  // row is intentionally left in place so auto-import survives reloads/restarts.
 }
 
 return { activate: activate, deactivate: deactivate };
