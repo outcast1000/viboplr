@@ -29,6 +29,17 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Set (or clear, with `None`) an album's year. Durable across rescans —
+    /// `get_or_create_album` only writes `year` on INSERT, never on conflict.
+    pub fn set_album_year(&self, album_id: i64, year: Option<i32>) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE albums SET year = ?2 WHERE id = ?1",
+            params![album_id, year],
+        )?;
+        Ok(())
+    }
+
     // --- Albums ---
 
     pub fn find_album_by_name(&self, title: &str, artist_name: Option<&str>) -> SqlResult<Option<Album>> {

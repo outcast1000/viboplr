@@ -6,13 +6,15 @@ interface Props {
   defaultValue?: string;
   placeholder?: string;
   okLabel?: string;
+  /** Allow submitting an empty value (e.g. to clear a field). Default false. */
+  allowEmpty?: boolean;
   onSubmit: (value: string) => void;
   onCancel: () => void;
 }
 
 export function PromptModal({
   title, label, defaultValue = "", placeholder,
-  okLabel = "Save", onSubmit, onCancel,
+  okLabel = "Save", allowEmpty = false, onSubmit, onCancel,
 }: Props) {
   const [value, setValue] = useState(defaultValue);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +34,7 @@ export function PromptModal({
 
   function submit() {
     const trimmed = value.trim();
-    if (!trimmed) return;
+    if (!trimmed && !allowEmpty) return;
     onSubmit(trimmed);
   }
 
@@ -57,7 +59,7 @@ export function PromptModal({
           <button
             className="ds-btn ds-btn--primary"
             onClick={submit}
-            disabled={value.trim().length === 0}
+            disabled={!allowEmpty && value.trim().length === 0}
           >
             {okLabel}
           </button>

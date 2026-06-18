@@ -62,6 +62,7 @@ macro_rules! invoke_handler {
             commands::find_track_id_by_path,
             commands::find_artist_by_name,
             commands::find_album_by_name,
+            commands::set_album_year,
             commands::get_tracks_by_ids,
             commands::get_tracks_by_paths,
             commands::get_tracks_by_artist,

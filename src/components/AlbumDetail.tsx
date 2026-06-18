@@ -9,6 +9,7 @@ import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
 import { TrackList } from "./TrackList";
+import { PromptModal } from "./PromptModal";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import { DetailHero } from "./DetailHero";
@@ -37,6 +38,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     trackPopularity,
     handleToggleLike: handleToggleAlbumLike,
     handleToggleDislike: handleToggleAlbumDislike,
+    reload,
   } = useEntityDetail({ kind: "album", name, artistName, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike });
 
   const album = entity as Album | null;
@@ -44,6 +46,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(ALBUM_DETAIL_COLUMNS);
   const trackListRef = useRef<HTMLDivElement>(null);
   const [belowTabOrder, setBelowTabOrder] = useState<string[]>([]);
+  const [editingYear, setEditingYear] = useState(false);
 
   useEffect(() => {
     store.get<string[]>("albumDetailBelowTabOrder").then(saved => {
@@ -148,6 +151,25 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     } catch (e) { console.error("Failed to remove album image:", e); }
   }, [actions.invalidateImage, name, artistName]);
 
+  const handleSubmitYear = useCallback(async (value: string) => {
+    setEditingYear(false);
+    if (!album?.id) return;
+    // Empty input clears the year (mirrors the Bulk Edit / Track Properties flow).
+    let year: number | null;
+    if (value.trim() === "") {
+      year = null;
+    } else {
+      const parsed = parseInt(value, 10);
+      if (!Number.isFinite(parsed) || parsed < 1 || parsed > 9999) return;
+      year = parsed;
+    }
+    if (year === (album.year ?? null)) return;
+    try {
+      await invoke("set_album_year", { albumId: album.id, year });
+      reload();
+    } catch (e) { console.error("Failed to set album year:", e); }
+  }, [album?.id, album?.year, reload]);
+
   const handleSearchImageGoogle = useCallback(() => {
     const q = encodeURIComponent(displayArtist ? `${displayArtist} ${name}` : name);
     openUrl(`https://www.google.com/search?tbm=isch&q=${q}`).catch(e => console.error("Failed to open image search:", e));
@@ -172,7 +194,9 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           },
         })),
     },
-    pluginItems: [],
+    pluginItems: isLibrary && album
+      ? [{ kind: "action", id: "edit-year", label: "Edit year…", onClick: () => setEditingYear(true) }]
+      : [],
   });
 
   const handleEnqueueAll = useCallback(() => {
@@ -261,6 +285,18 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           onEntityContextMenu={actions.handleEntityContextMenu}
         />
       </div>
+
+      {editingYear && (
+        <PromptModal
+          title="Edit album year"
+          label="Enter a four-digit year, or leave blank to clear it."
+          defaultValue={album?.year ? String(album.year) : ""}
+          placeholder="e.g. 2001"
+          allowEmpty
+          onSubmit={handleSubmitYear}
+          onCancel={() => setEditingYear(false)}
+        />
+      )}
     </div>
   );
 }

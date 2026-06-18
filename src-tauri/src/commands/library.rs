@@ -125,6 +125,18 @@ pub fn find_album_by_name(
 }
 
 #[tauri::command]
+pub fn set_album_year(
+    state: State<'_, AppState>,
+    album_id: i64,
+    year: Option<i32>,
+) -> Result<(), String> {
+    state
+        .db
+        .set_album_year(album_id, year)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn find_track_by_metadata(
     state: State<'_, AppState>,
     title: String,
