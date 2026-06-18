@@ -71,6 +71,7 @@ macro_rules! invoke_handler {
             commands::toggle_liked,
             commands::set_entity_like_state,
             commands::get_liked_tracks,
+            commands::pick_liked_tracks,
             commands::get_track_like_states,
             commands::rebuild_search_index,
             commands::show_in_folder,

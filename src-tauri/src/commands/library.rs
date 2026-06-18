@@ -433,6 +433,17 @@ pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String
     state.db.get_liked_tracks().map_err(|e| e.to_string())
 }
 
+/// Liked tracks from the durable entity_likes table for the Home liked shelves.
+/// `order` is "recent" (newest first) or "random".
+#[tauri::command]
+pub fn pick_liked_tracks(
+    state: State<'_, AppState>,
+    order: String,
+    limit: u32,
+) -> Result<Vec<LikedTrackInfo>, String> {
+    state.db.pick_liked_tracks(&order, limit).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<(), String> {
     state.db.rebuild_fts().map_err(|e| e.to_string())?;

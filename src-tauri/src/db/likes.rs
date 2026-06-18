@@ -63,6 +63,40 @@ impl Database {
         Ok(out)
     }
 
+    /// List liked tracks straight from the durable entity_likes table, newest-first
+    /// (`order == "recent"`, by updated_at) or shuffled (`order == "random"`).
+    /// Reads display fields from each row's stored metadata JSON; rows without a
+    /// usable title are skipped. Captures non-library likes too.
+    pub fn pick_liked_tracks(&self, order: &str, limit: u32) -> SqlResult<Vec<LikedTrackInfo>> {
+        let conn = self.conn.lock().unwrap();
+        let order_clause = if order == "random" { "RANDOM()" } else { "updated_at DESC" };
+        let sql = format!(
+            "SELECT metadata FROM entity_likes \
+             WHERE kind = 'track' AND liked = 1 AND metadata IS NOT NULL \
+             ORDER BY {} LIMIT ?1",
+            order_clause
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for meta in rows {
+            let meta = meta?;
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&meta) else { continue };
+            let title = v.get("title").and_then(|x| x.as_str()).unwrap_or("");
+            if title.is_empty() {
+                continue;
+            }
+            let str_field = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
+            out.push(LikedTrackInfo {
+                title: title.to_string(),
+                artist_name: str_field("artist_name"),
+                album_title: str_field("album_title"),
+                image_url: str_field("image_url"),
+            });
+        }
+        Ok(out)
+    }
+
     /// Read the current like state (0 if no row).
     pub fn get_entity_like_state(&self, kind: &str, entity_key: &str) -> SqlResult<i32> {
         let conn = self.conn.lock().unwrap();
@@ -251,6 +285,37 @@ mod tests {
             conn.query_row("SELECT COUNT(*) FROM entity_likes", [], |r| r.get(0)).unwrap()
         };
         assert_eq!(count, 0, "neutral state should leave no row");
+    }
+
+    #[test]
+    fn test_pick_liked_tracks_recent_order_and_parsing() {
+        let db = test_db();
+        // liked, with metadata, at increasing updated_at
+        db.set_entity_like("track", "track:a:one", 1, Some(r#"{"title":"One","artist_name":"A","album_title":"AlbA","image_url":"/c/a.jpg"}"#), 100).unwrap();
+        db.set_entity_like("track", "track:b:two", 1, Some(r#"{"title":"Two","artist_name":"B"}"#), 200).unwrap();
+        // a dislike must be excluded
+        db.set_entity_like("track", "track:c:three", -1, Some(r#"{"title":"Three"}"#), 300).unwrap();
+        // a like with no usable title must be skipped
+        db.set_entity_like("track", "track:d:four", 1, Some(r#"{"artist_name":"D"}"#), 400).unwrap();
+        // a non-track like must not leak in
+        db.set_entity_like("artist", "artist:e", 1, Some(r#"{"name":"E"}"#), 500).unwrap();
+
+        let rows = db.pick_liked_tracks("recent", 10).unwrap();
+        assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), vec!["Two", "One"]);
+        let one = rows.iter().find(|r| r.title == "One").unwrap();
+        assert_eq!(one.artist_name.as_deref(), Some("A"));
+        assert_eq!(one.album_title.as_deref(), Some("AlbA"));
+        assert_eq!(one.image_url.as_deref(), Some("/c/a.jpg"));
+    }
+
+    #[test]
+    fn test_pick_liked_tracks_limit() {
+        let db = test_db();
+        for i in 0..5 {
+            db.set_entity_like("track", &format!("track:a:{i}"), 1, Some(&format!(r#"{{"title":"T{i}"}}"#)), 100 + i).unwrap();
+        }
+        assert_eq!(db.pick_liked_tracks("recent", 3).unwrap().len(), 3);
+        assert_eq!(db.pick_liked_tracks("random", 3).unwrap().len(), 3);
     }
 
     #[test]

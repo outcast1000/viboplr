@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Track, Album, Artist, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
+import type { Track, Album, Artist, HistoryEntry, HistoryMostPlayed, HistoryArtistStats, LikedTrackInfo } from "../types";
 import type {
   HomeShelfDisplayKind,
   HomeShelfResult,
@@ -29,8 +29,12 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string }[] = [
   { id: "builtin:most-played-30d", title: "Most played · 30 days" },
   { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days" },
   { id: "builtin:recently-added", title: "Recently added" },
+  { id: "builtin:recently-liked", title: "Recently liked" },
+  { id: "builtin:random-liked", title: "Random liked" },
   { id: "builtin:liked-albums", title: "Liked albums" },
   { id: "builtin:liked-artists", title: "Liked artists" },
+  { id: "builtin:popular-track-radio", title: "Popular Track radio" },
+  { id: "builtin:liked-track-radio", title: "Liked Track radio" },
   { id: "builtin:jump-back-in", title: "Jump back in" },
 ];
 
@@ -50,29 +54,64 @@ export function mergeShelfOrder(saved: string[], def: string[] = DEFAULT_SHELF_O
   return result;
 }
 
-// Build the radio shelf from resolved stations. It is a playlist-cards shelf whose
-// items each carry a `__radioSeed` sentinel on their first track, so the existing
-// App.tsx shelf click/play handlers route them to startRadio (no special-casing).
+// Minimal seed metadata a radio station card needs.
+interface RadioSeedLike {
+  title: string;
+  artist_name?: string | null;
+  album_title?: string | null;
+}
+
+// Build one radio-station card (a playlist-cards item) carrying the `__radioSeed`
+// sentinel on its first track, so the existing App.tsx shelf click/play handlers
+// route it to startRadio (no special-casing). Shared by the Radio shelf and the
+// Popular/Liked track-radio shelves.
+function radioStationItem(id: string, seed: RadioSeedLike, coverUrl: string | null): HomeShelfItem {
+  return {
+    id,
+    name: seed.title,
+    subtitle: seed.artist_name ?? undefined,
+    coverUrl: coverUrl ?? undefined,
+    tracks: [
+      {
+        title: seed.title,
+        artist_name: seed.artist_name ?? undefined,
+        album_title: seed.album_title ?? undefined,
+        image_url: coverUrl ?? undefined,
+        __radioSeed: {
+          title: seed.title,
+          artist_name: seed.artist_name ?? null,
+          album_title: seed.album_title ?? null,
+          image_url: coverUrl ?? null,
+        },
+      },
+    ],
+  } as unknown as HomeShelfItem;
+}
+
+// Resolve a cover image (album image first, artist image fallback) for a seed.
+// Cache-only lookups via get_entity_image, so it stays well within the shelf budget.
+async function resolveCover(
+  albumTitle: string | null | undefined,
+  artistName: string | null | undefined,
+): Promise<string | null> {
+  if (albumTitle) {
+    const a = await invoke<string | null>("get_entity_image", { kind: "album", name: albumTitle, artistName: artistName ?? null }).catch(() => null);
+    if (a) return a;
+  }
+  if (artistName) {
+    const ar = await invoke<string | null>("get_entity_image", { kind: "artist", name: artistName, artistName: null }).catch(() => null);
+    if (ar) return ar;
+  }
+  return null;
+}
+
+// Build the radio shelf from resolved stations.
 export function buildRadioShelf(stations: RadioStation[]): ResolvedShelf {
   return {
     id: RADIO_SHELF_ID,
     title: "Radio",
     displayKind: "playlist-cards",
-    items: stations.map((s, i) => ({
-      id: `radio:${i}`,
-      name: s.seed.title,
-      subtitle: s.seed.artist_name ?? undefined,
-      coverUrl: s.coverUrl ?? undefined,
-      tracks: [
-        {
-          title: s.seed.title,
-          artist_name: s.seed.artist_name ?? undefined,
-          album_title: s.seed.album_title ?? undefined,
-          image_url: s.coverUrl ?? undefined,
-          __radioSeed: s.seed,
-        },
-      ],
-    })) as unknown as HomeShelfItem[],
+    items: stations.map((s, i) => radioStationItem(`radio:${i}`, s.seed, s.coverUrl)),
   };
 }
 
@@ -226,17 +265,7 @@ export function useHome(opts: UseHomeOptions) {
     try {
       const seeds = await invoke<Track[]>("pick_radio_seeds", { count: RADIO_STATION_COUNT });
       if (seeds.length === 0) return [];
-      const covers = await Promise.all(seeds.map(async (seed) => {
-        if (seed.album_title) {
-          const a = await invoke<string | null>("get_entity_image", { kind: "album", name: seed.album_title, artistName: seed.artist_name ?? null }).catch(() => null);
-          if (a) return a;
-        }
-        if (seed.artist_name) {
-          const ar = await invoke<string | null>("get_entity_image", { kind: "artist", name: seed.artist_name, artistName: null }).catch(() => null);
-          if (ar) return ar;
-        }
-        return null;
-      }));
+      const covers = await Promise.all(seeds.map((seed) => resolveCover(seed.album_title, seed.artist_name)));
       return seeds.map((seed, i) => ({ seed, coverUrl: covers[i] }));
     } catch (e) {
       console.error("Failed to pick radio stations:", e);
@@ -349,6 +378,56 @@ export function useHome(opts: UseHomeOptions) {
           },
         },
         {
+          id: "builtin:recently-liked",
+          title: "Recently liked",
+          displayKind: "track-rows",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const rows = await invoke<LikedTrackInfo[]>("pick_liked_tracks", { order: "recent", limit });
+              if (rows.length === 0) return { status: "empty" };
+              return {
+                status: "ok",
+                items: rows.map(r => ({
+                  track: {
+                    title: r.title,
+                    artist_name: r.artist_name ?? undefined,
+                    album_title: r.album_title ?? undefined,
+                    image_url: r.image_url ?? undefined,
+                  },
+                })),
+              };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:random-liked",
+          title: "Random liked",
+          displayKind: "track-rows",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const rows = await invoke<LikedTrackInfo[]>("pick_liked_tracks", { order: "random", limit });
+              if (rows.length === 0) return { status: "empty" };
+              return {
+                status: "ok",
+                items: rows.map(r => ({
+                  track: {
+                    title: r.title,
+                    artist_name: r.artist_name ?? undefined,
+                    album_title: r.album_title ?? undefined,
+                    image_url: r.image_url ?? undefined,
+                  },
+                })),
+              };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
           id: "builtin:liked-albums",
           title: "Liked albums",
           displayKind: "album-cards",
@@ -384,6 +463,49 @@ export function useHome(opts: UseHomeOptions) {
                   name: a.name,
                 })),
               };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:popular-track-radio",
+          title: "Popular Track radio",
+          displayKind: "playlist-cards",
+          limit: 12,
+          fetch: async (limit) => {
+            try {
+              const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+              const tracks = await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit });
+              if (tracks.length === 0) return { status: "empty" };
+              const items = await Promise.all(
+                tracks.map(async (t, i) => {
+                  const cover = await resolveCover(null, t.display_artist);
+                  return radioStationItem(`radio:pop:${i}`, { title: t.display_title, artist_name: t.display_artist }, cover);
+                }),
+              );
+              return { status: "ok", items };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:liked-track-radio",
+          title: "Liked Track radio",
+          displayKind: "playlist-cards",
+          limit: 12,
+          fetch: async (limit) => {
+            try {
+              const rows = await invoke<LikedTrackInfo[]>("pick_liked_tracks", { order: "random", limit });
+              if (rows.length === 0) return { status: "empty" };
+              const items = await Promise.all(
+                rows.map(async (r, i) => {
+                  const cover = r.image_url ?? await resolveCover(r.album_title, r.artist_name);
+                  return radioStationItem(`radio:liked:${i}`, { title: r.title, artist_name: r.artist_name, album_title: r.album_title }, cover);
+                }),
+              );
+              return { status: "ok", items };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
