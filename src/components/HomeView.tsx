@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
 import type { HomeShelfItem, HomeShelfResult, HomeShelfDisplayKind } from "../types/plugin";
-import type { ResolvedShelf, RadioStation } from "../hooks/useHome";
-import { useHome, DEFAULT_SHELF_ORDER } from "../hooks/useHome";
+import type { ResolvedShelf } from "../hooks/useHome";
+import {
+  useHome,
+  DEFAULT_SHELF_ORDER,
+  RADIO_SHELF_ID,
+  buildRadioShelf,
+  mergeShelfOrder,
+  orderResolvedShelves,
+} from "../hooks/useHome";
 import { useImageCache } from "../hooks/useImageCache";
-import { HomeHero } from "./HomeHero";
+import { HeroCarousel } from "./HeroCarousel";
 import { HomeShelf } from "./HomeShelf";
 import { CustomizeHomeModal } from "./CustomizeHomeModal";
 import { store } from "../store";
@@ -22,7 +29,6 @@ export interface HomeViewProps {
   invokePluginShelf: (pluginId: string, shelfId: string, limit: number) => Promise<HomeShelfResult>;
   pluginsLoaded: boolean;
   restoredRef: React.RefObject<boolean>;
-  onPlayStation: (station: RadioStation) => void;
   onShelfItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onShelfItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
   onShelfItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
@@ -43,12 +49,9 @@ export function HomeView(props: HomeViewProps) {
       const v = (await store.get<Record<string, boolean>>("homeShelfVisibility")) ?? {};
       setVisibility(v);
       const ord = await store.get<string[]>("homeShelfOrder");
-      // Append any built-in ids missing from a saved order (e.g. shelves added in
-      // a later release) so they don't silently disappear.
-      if (ord && ord.length) {
-        const merged = [...ord, ...DEFAULT_SHELF_ORDER.filter((id) => !ord.includes(id))];
-        setShelfOrder(merged);
-      }
+      // Merge with defaults so brand-new built-ins (e.g. Radio) land in their
+      // default position instead of disappearing or being tacked on the end.
+      if (ord && ord.length) setShelfOrder(mergeShelfOrder(ord));
     })();
   }, []);
 
@@ -78,10 +81,22 @@ export function HomeView(props: HomeViewProps) {
     setVisibility((prev) => ({ ...prev, [id]: prev[id] === false }));
   }
 
+  const radioVisible = visibility[RADIO_SHELF_ID] !== false;
+
   function resetCustomization() {
     setShelfOrder(DEFAULT_SHELF_ORDER);
     setVisibility({});
   }
+
+  // Radio is a shelf like any other (a playlist-cards shelf of stations). Fold it
+  // in and order everything by the user's shelf order; whichever shelf lands first
+  // is promoted to the hero carousel, the rest render as normal rows.
+  const radioShelf = radioVisible && radioStations.length ? buildRadioShelf(radioStations) : null;
+  const ordered = orderResolvedShelves(radioShelf ? [radioShelf, ...shelves] : shelves, shelfOrder);
+  const [heroShelf, ...rowShelves] = ordered;
+
+  const albumImageFor = (name: string, artistName?: string) => albumImages.getImage(name, artistName ?? null);
+  const artistImageFor = (name: string) => artistImages.getImage(name);
 
   return (
     <div className="home-view" style={props.style}>
@@ -101,17 +116,22 @@ export function HomeView(props: HomeViewProps) {
         />
       )}
 
-      <HomeHero
-        stations={radioStations}
-        onPlayStation={props.onPlayStation}
-      />
+      {heroShelf && (
+        <HeroCarousel
+          shelf={heroShelf}
+          albumImageFor={albumImageFor}
+          artistImageFor={artistImageFor}
+          onItemClick={props.onShelfItemClick}
+          onItemPlay={props.onShelfItemPlay}
+        />
+      )}
 
-      {shelves.map((shelf) => (
+      {rowShelves.map((shelf) => (
         <HomeShelf
           key={shelf.id}
           shelf={shelf}
-          albumImageFor={(name, artistName) => albumImages.getImage(name, artistName ?? null)}
-          artistImageFor={(name) => artistImages.getImage(name)}
+          albumImageFor={albumImageFor}
+          artistImageFor={artistImageFor}
           onItemClick={props.onShelfItemClick}
           onItemContextMenu={props.onShelfItemContextMenu}
           onItemPlay={props.onShelfItemPlay}

@@ -2575,11 +2575,6 @@ function App() {
             pluginsLoaded={plugins.pluginsLoaded}
             invokePluginShelf={plugins.invokeHomeShelf}
             restoredRef={restoredRef}
-            onPlayStation={(s) => contextMenuActions.startRadio({
-              title: s.seed.title,
-              artistName: s.seed.artist_name,
-              coverPath: s.coverUrl ?? s.seed.image_url ?? null,
-            })}
             onShelfItemClick={handleHomeShelfItemClick}
             onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}

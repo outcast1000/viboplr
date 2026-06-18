@@ -16,7 +16,8 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
 }
 
 export interface CustomizeHomeModalProps {
-  // Current order of the built-in shelves (ids). Only built-in shelves are
+  // Current order of the built-in shelves (ids), including Radio. The first
+  // visible shelf becomes the Home hero carousel. Only built-in shelves are
   // configurable here; plugin shelves are not surfaced.
   builtInOrder: string[];
   visibility: Record<string, boolean>;
@@ -126,7 +127,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
     <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Customize Home</h2>
-        <p className="customize-home-hint">Drag to reorder. Toggle to show or hide.</p>
+        <p className="customize-home-hint">Drag to reorder. The first shown shelf becomes the carousel.</p>
 
         <div className="customize-home-list">
           {props.builtInOrder.map((id) => (

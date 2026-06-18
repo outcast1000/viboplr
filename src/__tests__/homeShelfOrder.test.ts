@@ -1,8 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { orderResolvedShelves, type ResolvedShelf } from "../hooks/useHome";
+import {
+  orderResolvedShelves,
+  mergeShelfOrder,
+  buildRadioShelf,
+  RADIO_SHELF_ID,
+  DEFAULT_SHELF_ORDER,
+  type ResolvedShelf,
+  type RadioStation,
+} from "../hooks/useHome";
+import type { Track } from "../types";
 
 function shelf(id: string, pluginId?: string): ResolvedShelf {
   return { id, pluginId, title: id, displayKind: "album-cards", items: [] };
+}
+
+function station(title: string, artist: string | null, cover: string | null): RadioStation {
+  return { seed: { title, artist_name: artist } as Track, coverUrl: cover };
 }
 
 const ids = (shelves: ResolvedShelf[]) => shelves.map((s) => s.id);
@@ -42,5 +55,49 @@ describe("orderResolvedShelves", () => {
     const copy = ids(shelves);
     orderResolvedShelves(shelves, ["builtin:a", "builtin:b"]);
     expect(ids(shelves)).toEqual(copy);
+  });
+});
+
+describe("mergeShelfOrder", () => {
+  it("inserts a brand-new built-in at its default position (Radio leads)", () => {
+    // A profile saved before Radio existed (the 7 non-radio ids in default order).
+    const saved = DEFAULT_SHELF_ORDER.filter((id) => id !== RADIO_SHELF_ID);
+    expect(mergeShelfOrder(saved)).toEqual(DEFAULT_SHELF_ORDER);
+  });
+
+  it("keeps the user's arrangement and only fills in missing ids", () => {
+    const merged = mergeShelfOrder(["builtin:liked-albums", "builtin:recently-played"]);
+    // The two saved ids keep their relative order...
+    expect(merged.indexOf("builtin:liked-albums")).toBeLessThan(merged.indexOf("builtin:recently-played"));
+    // ...and every default id is present.
+    for (const id of DEFAULT_SHELF_ORDER) expect(merged).toContain(id);
+  });
+
+  it("drops ids no longer known", () => {
+    const merged = mergeShelfOrder(["builtin:gone", ...DEFAULT_SHELF_ORDER]);
+    expect(merged).not.toContain("builtin:gone");
+    expect([...merged].sort()).toEqual([...DEFAULT_SHELF_ORDER].sort());
+  });
+
+  it("returns the default order unchanged", () => {
+    expect(mergeShelfOrder(DEFAULT_SHELF_ORDER)).toEqual(DEFAULT_SHELF_ORDER);
+  });
+});
+
+describe("buildRadioShelf", () => {
+  it("produces a playlist-cards shelf routed via the __radioSeed sentinel", () => {
+    const shelf = buildRadioShelf([station("Song A", "Artist A", "/covers/a.jpg")]);
+    expect(shelf.id).toBe(RADIO_SHELF_ID);
+    expect(shelf.displayKind).toBe("playlist-cards");
+    expect(shelf.items).toHaveLength(1);
+
+    const item = shelf.items[0] as unknown as {
+      name: string; coverUrl?: string; tracks: Array<{ __radioSeed?: Track }>;
+    };
+    expect(item.name).toBe("Song A");
+    expect(item.coverUrl).toBe("/covers/a.jpg");
+    // The first track carries the seed sentinel that App.tsx reads to start radio.
+    expect(item.tracks[0].__radioSeed).toBeTruthy();
+    expect(item.tracks[0].__radioSeed!.title).toBe("Song A");
   });
 });

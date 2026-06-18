@@ -14,11 +14,17 @@ const PLUGIN_TIMEOUT_MS = 5_000;
 const SNAPSHOT_KEY = "homeSnapshot";
 const RADIO_STATION_COUNT = 7;
 
+// Id of the radio shelf. Unlike the other built-ins it isn't a resolver — its
+// items are the radio stations (see buildRadioShelf). Whichever shelf is first
+// in the order renders as the Home hero carousel, so by default that's Radio.
+export const RADIO_SHELF_ID = "builtin:radio";
+
 // Canonical built-in shelves in their default order — the single source of truth
 // for the standard shelf set (id + title + order). `buildBuiltInResolvers` builds
 // its resolver array in this same order; the Customize Home modal and the default
-// reset both read from here.
+// reset both read from here. Radio leads so it is the default carousel.
 export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string }[] = [
+  { id: RADIO_SHELF_ID, title: "Radio" },
   { id: "builtin:recently-played", title: "Recently played" },
   { id: "builtin:most-played-30d", title: "Most played · 30 days" },
   { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days" },
@@ -29,6 +35,46 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string }[] = [
 ];
 
 export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
+
+// Merge a persisted shelf order with the canonical default: keep the user's
+// arrangement for shelves they've ordered, drop ids no longer known, and slot any
+// brand-new built-in (e.g. Radio for a profile saved before it existed) into its
+// default position rather than tacking it on the end.
+export function mergeShelfOrder(saved: string[], def: string[] = DEFAULT_SHELF_ORDER): string[] {
+  const savedSet = new Set(saved);
+  const result = saved.filter((id) => def.includes(id));
+  for (let i = 0; i < def.length; i++) {
+    if (savedSet.has(def[i])) continue;
+    result.splice(Math.min(i, result.length), 0, def[i]);
+  }
+  return result;
+}
+
+// Build the radio shelf from resolved stations. It is a playlist-cards shelf whose
+// items each carry a `__radioSeed` sentinel on their first track, so the existing
+// App.tsx shelf click/play handlers route them to startRadio (no special-casing).
+export function buildRadioShelf(stations: RadioStation[]): ResolvedShelf {
+  return {
+    id: RADIO_SHELF_ID,
+    title: "Radio",
+    displayKind: "playlist-cards",
+    items: stations.map((s, i) => ({
+      id: `radio:${i}`,
+      name: s.seed.title,
+      subtitle: s.seed.artist_name ?? undefined,
+      coverUrl: s.coverUrl ?? undefined,
+      tracks: [
+        {
+          title: s.seed.title,
+          artist_name: s.seed.artist_name ?? undefined,
+          album_title: s.seed.album_title ?? undefined,
+          image_url: s.coverUrl ?? undefined,
+          __radioSeed: s.seed,
+        },
+      ],
+    })) as unknown as HomeShelfItem[],
+  };
+}
 
 // A radio station shown in the hero carousel: a seed track plus its resolved
 // cover (album image, falling back to artist image).
