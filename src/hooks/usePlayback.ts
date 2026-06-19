@@ -1131,11 +1131,26 @@ export function usePlayback(
     // "Cannot request fullscreen without transient activation" rejection.
     if (fullscreenPendingRef.current) return;
     fullscreenPendingRef.current = true;
-    const settle = () => { fullscreenPendingRef.current = false; };
-    document.addEventListener("fullscreenchange", settle, { once: true });
-    const onError = (e: unknown) => {
-      document.removeEventListener("fullscreenchange", settle);
+    // Clear the guard exactly once, on whichever fires first: the transition's
+    // `fullscreenchange`, a promise rejection, or a fail-safe timeout. The timeout
+    // matters — if `fullscreenchange` never arrives (e.g. the macOS fullscreen
+    // animation is interrupted/cancelled) the guard would otherwise stay stuck at
+    // `true`, silently turning every later toggle into a no-op until some unrelated
+    // fullscreenchange happened to clear it. 2s comfortably outlasts a real
+    // transition, so by then it's either done (already cleared) or genuinely wedged.
+    let cleared = false;
+    let failSafe: ReturnType<typeof setTimeout>;
+    const clear = () => {
+      if (cleared) return;
+      cleared = true;
+      clearTimeout(failSafe);
+      document.removeEventListener("fullscreenchange", clear);
       fullscreenPendingRef.current = false;
+    };
+    document.addEventListener("fullscreenchange", clear, { once: true });
+    failSafe = setTimeout(clear, 2000);
+    const onError = (e: unknown) => {
+      clear();
       console.error("Failed to toggle fullscreen:", e);
     };
     if (document.fullscreenElement) {
