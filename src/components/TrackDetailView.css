@@ -208,6 +208,16 @@
   flex-shrink: 0;
 }
 
+/* Like/dislike sits between the art and the text, matching the Now Playing
+   bar's .now-like-col placement. */
+.fs-like-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .fs-info-text {
   display: flex;
   flex-direction: column;
@@ -270,15 +280,24 @@
 .fs-right {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
   flex: 1;
   justify-content: flex-end;
+}
+
+/* Transparent control clusters mirroring the Now Playing bar's .now-group
+   layout/order — same clustering and spacing, but no pill background so the
+   buttons stay transparent over the video. */
+.fs-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .fs-volume {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .fs-volume .volume-icon {
@@ -286,7 +305,7 @@
 }
 
 .fs-volume .volume-slider {
-  width: 80px;
+  width: 90px;
 }
 
 /* Video splitter */
