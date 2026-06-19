@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
-import { formatDuration, isVideoTrack } from "../utils";
+import { formatDuration } from "../utils";
 import { queueItemLocalThumb, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { useImageCache } from "../hooks/useImageCache";
+import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { SpinningDisc } from "./SpinningDisc";
 import { IconHeartFilled, IconThumbsDownFilled } from "./Icons";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
@@ -230,53 +230,32 @@ export function QueuePanel({
     return () => { canceled = true; };
   }, [playlistContext?.imagePath]);
 
-  // Fallback image resolution for tracks missing image_url
-  const [resolvedImages, setResolvedImages] = useState<Record<string, string | null>>({});
-  const resolvingRef = useRef<Set<string>>(new Set());
-
-  const getTrackImageKey = useCallback((t: QueueTrack) => `${t.artist_name ?? ""}::${t.title}`, []);
+  // Image resolution for queue items missing an explicit image_url, priority
+  // video frame -> album -> artist. Album/artist go through useImageCache, which
+  // fetches on a cache miss AND refreshes this view when the backend emits
+  // {album,artist}-image-ready. Video first-frames go through the shared
+  // VideoFrameQueue: useQueueVideoFrames extracts on demand and re-renders on
+  // completion. So unlike the previous cache-only pass, a queue thumbnail now
+  // populates as soon as the image lands instead of staying a placeholder.
+  const albumImages = useImageCache("album");
+  const artistImages = useImageCache("artist");
+  const videoFrames = useQueueVideoFrames(queue);
 
   const getTrackImage = useCallback((t: QueueTrack): string | null => {
     if (t.image_url) return resolveImageUrl(t.image_url) ?? null;
-    const resolved = resolvedImages[getTrackImageKey(t)];
-    if (resolved) return convertFileSrc(resolved);
-    return null;
-  }, [resolvedImages, getTrackImageKey]);
-
-  useEffect(() => {
-    for (const t of queue) {
-      if (t.image_url) continue;
-      const key = getTrackImageKey(t);
-      if (key in resolvedImages || resolvingRef.current.has(key)) continue;
-      resolvingRef.current.add(key);
-      (async () => {
-        try {
-          if (isVideoTrack(t) && t.path) {
-            const trackId = await invoke<number | null>("find_track_id_by_path", { path: t.path });
-            if (trackId) {
-              const frames = await invoke<{ status: string; paths?: string[] } | null>("get_video_frames", { trackId });
-              if (frames?.status === "ok" && frames.paths?.[0]) {
-                setResolvedImages(prev => ({ ...prev, [key]: frames.paths![0] }));
-                return;
-              }
-            }
-          }
-          if (t.album_title) {
-            const albumPath = await invoke<string | null>("get_entity_image", { kind: "album", name: t.album_title, artistName: t.artist_name ?? null });
-            if (albumPath) { setResolvedImages(prev => ({ ...prev, [key]: albumPath })); return; }
-          }
-          if (t.artist_name) {
-            const artistPath = await invoke<string | null>("get_entity_image", { kind: "artist", name: t.artist_name, artistName: null });
-            if (artistPath) { setResolvedImages(prev => ({ ...prev, [key]: artistPath })); return; }
-          }
-          setResolvedImages(prev => ({ ...prev, [key]: null }));
-        } catch (e) {
-          console.error("Failed to resolve queue image:", e);
-          setResolvedImages(prev => ({ ...prev, [key]: null }));
-        }
-      })();
+    // Video frame URLs from the queue are already converted — use as-is.
+    const vf = videoFrames[shelfVideoKey(t.artist_name, t.title)];
+    if (vf) return vf;
+    if (t.album_title) {
+      const a = albumImages.getImage(t.album_title, t.artist_name ?? null);
+      if (a) return resolveImageUrl(a) ?? null;
     }
-  }, [queue, resolvedImages, getTrackImageKey]);
+    if (t.artist_name) {
+      const ar = artistImages.getImage(t.artist_name);
+      if (ar) return resolveImageUrl(ar) ?? null;
+    }
+    return null;
+  }, [videoFrames, albumImages, artistImages]);
 
   // Scroll to currently playing track when panel opens or un-collapses
   useEffect(() => {

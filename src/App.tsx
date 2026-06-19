@@ -1701,31 +1701,55 @@ function App() {
     }
   }, [detailTrack]);
 
-  // Resolve image for current track: video frame → album → artist
+  // Resolve image for current track: video frame → album → artist. Album/artist
+  // come from useImageCache (which also fires the fetch; the listener below patches
+  // currentTrack on {album,artist}-image-ready). Video first-frames go through the
+  // shared VideoFrameQueue — extract on demand and patch currentTrack when the frame
+  // lands, since there is no backend event for frame completion. If the video has no
+  // extractable frame, fall back to album/artist like the non-video path.
   useEffect(() => {
     const track = playback.currentTrack;
     if (!track || track.image_url) return;
     let cancelled = false;
-    (async () => {
-      if (isVideoTrack(track) && track.path) {
-        const trackId = await invoke<number | null>("find_track_id_by_path", { path: track.path });
-        if (trackId && !cancelled) {
-          const frames = await invoke<{ status: string; paths?: string[] } | null>("get_video_frames", { trackId });
-          if (!cancelled && frames?.status === "ok" && frames.paths?.[0]) {
-            playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: frames.paths![0] } : prev);
-            return;
-          }
-        }
-      }
-      if (cancelled) return;
+    let unsubFrames: (() => void) | null = null;
+    // Only stamp if the current track is still this one (guards against the track
+    // changing while a fetch/extraction was in flight).
+    const stamp = (img: string) => playback.setCurrentTrack(prev =>
+      prev && !prev.image_url && prev.path === track.path ? { ...prev, image_url: img } : prev);
+    const applyEntityFallback = () => {
       const img = (track.album_title && albumImageCache.getImage(track.album_title, track.artist_name ?? undefined))
         || (track.artist_name && artistImageCache.getImage(track.artist_name))
         || null;
-      if (img) {
-        playback.setCurrentTrack(prev => prev && !prev.image_url ? { ...prev, image_url: img } : prev);
+      if (img) stamp(img);
+    };
+    (async () => {
+      if (isVideoTrack(track) && track.path) {
+        const trackId = await invoke<number | null>("find_track_id_by_path", { path: track.path });
+        if (cancelled) return;
+        const fq = videoFrameQueueRef.current;
+        if (trackId != null && fq) {
+          // Returns true once the frame entry has settled (ready -> stamp, or
+          // unavailable -> entity fallback); false while still loading.
+          const resolveFromEntry = (): boolean => {
+            const entry = fq.getEntry(trackId);
+            if (entry.status === "ready" && entry.frames[0]) { stamp(entry.frames[0]); return true; }
+            if (entry.status === "unavailable") { applyEntityFallback(); return true; }
+            return false;
+          };
+          if (resolveFromEntry()) return;
+          unsubFrames = fq.subscribe(() => {
+            if (cancelled) return;
+            if (resolveFromEntry()) { unsubFrames?.(); unsubFrames = null; }
+          });
+          if (cancelled) { unsubFrames(); unsubFrames = null; return; }
+          fq.enqueue(trackId);
+          return; // video resolves via the queue
+        }
       }
+      if (cancelled) return;
+      applyEntityFallback();
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (unsubFrames) { unsubFrames(); unsubFrames = null; } };
   }, [playback.currentTrack, albumImageCache.getImage, artistImageCache.getImage, albumImageCache.cache, artistImageCache.cache]);
 
   // When a backend image fetch completes, update currentTrack if it's still missing artwork
