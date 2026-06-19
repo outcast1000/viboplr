@@ -90,6 +90,48 @@
   pointer-events: auto;
 }
 
+/* Docked preview: hover-revealed action cluster in the video's top-right corner
+   (the docked .fs-controls strip is hidden outside :fullscreen, so these are the
+   only on-video affordances over the preview). Mirrors .video-ambient-fs. */
+.video-dock-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.video-container:hover .video-dock-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.video-dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ds-radius, 6px);
+  background: rgba(var(--overlay-inverse), 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.video-dock-btn:hover {
+  background: rgba(var(--overlay-inverse), 0.72);
+}
+/* In real fullscreen the .fs-controls overlay owns the controls. */
+.video-container:fullscreen .video-dock-actions {
+  display: none;
+}
+
 .fs-seek-bar {
   width: 100%;
   height: 28px;

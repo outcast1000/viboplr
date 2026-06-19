@@ -2843,6 +2843,39 @@ function App() {
             onClick={playback.handlePause}
             onDoubleClick={playback.toggleFullscreen}
           />
+          {!videoTheater && (
+            <div className="video-dock-actions">
+              <button
+                className="video-dock-btn"
+                onClick={() => {
+                  library.setView("nowplaying");
+                  library.setSelectedArtist(null);
+                  library.setSelectedAlbum(null);
+                  library.setSelectedTag(null);
+                  library.setSelectedTrack(null);
+                }}
+                title="Now Playing"
+                aria-label="Switch to Now Playing"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="6" width="18" height="12" rx="2" />
+                </svg>
+              </button>
+              <button
+                className="video-dock-btn"
+                onClick={playback.toggleFullscreen}
+                title="Fullscreen (F)"
+                aria-label="Enter fullscreen"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              </button>
+            </div>
+          )}
           <FullscreenControls
             waveformPeaks={waveformPeaks}
             currentTrack={playback.currentTrack}
