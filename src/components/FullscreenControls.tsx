@@ -41,6 +41,7 @@ interface FullscreenControlsProps {
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   onToggleFullscreen: () => void;
+  onShowNowPlaying?: () => void;
   showQueue: boolean;
   onToggleQueue: () => void;
   onNavigateToArtistByName: (name: string) => void;
@@ -59,7 +60,7 @@ export function FullscreenControls({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
-  onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onNavigateToArtistByName, onNavigateToAlbumByName,
+  onToggleLike, onToggleDislike, onToggleFullscreen, onShowNowPlaying, showQueue, onToggleQueue, onNavigateToArtistByName, onNavigateToAlbumByName,
 }: FullscreenControlsProps) {
   const [visible, setVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -283,6 +284,13 @@ export function FullscreenControls({
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
+          {onShowNowPlaying && !isFullscreen && (
+            <button className="g-btn g-btn-sm" onClick={onShowNowPlaying} title="Open in Now Playing">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="6" width="18" height="12" rx="2"/>
+              </svg>
+            </button>
+          )}
           <button
             className="g-btn g-btn-sm"
             onClick={onToggleFullscreen}

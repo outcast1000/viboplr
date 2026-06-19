@@ -2877,6 +2877,13 @@ function App() {
             onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
             onToggleDislike={() => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); }}
             onToggleFullscreen={playback.toggleFullscreen}
+            onShowNowPlaying={videoTheater ? undefined : () => {
+              library.setView("nowplaying");
+              library.setSelectedArtist(null);
+              library.setSelectedAlbum(null);
+              library.setSelectedTag(null);
+              library.setSelectedTrack(null);
+            }}
             showQueue={!queueCollapsed}
             onToggleQueue={handleToggleQueueCollapsed}
             onNavigateToArtistByName={library.navigateToArtistByName}
