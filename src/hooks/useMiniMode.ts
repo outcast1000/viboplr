@@ -362,6 +362,13 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
         const pos = await win.outerPosition();
         await store.set("miniWindowX", pos.x / factor);
         await store.set("miniWindowY", pos.y / factor);
+        // Re-render to the full-mode layout, then hide the window before resizing
+        // so the intermediate setMinSize/setSize/setPosition steps don't play as a
+        // visible multi-step resize animation. Mirrors the enter-mini path above.
+        setMiniExpanded(false);
+        setMiniMode(false);
+        store.set("miniMode", false);
+        await win.hide();
         await win.setAlwaysOnTop(false);
         await win.setResizable(true);
         await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
@@ -392,9 +399,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
             }
           }
         }
-        setMiniExpanded(false);
-        setMiniMode(false);
-        store.set("miniMode", false);
+        await win.show();
+        await win.setFocus();
       }
     } catch (err) {
       console.error("toggleMiniMode failed:", err);
