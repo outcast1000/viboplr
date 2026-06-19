@@ -62,6 +62,13 @@ export function useExtensions(props: UseExtensionsProps) {
   // flight. Drives the shared PluginLoadingModal so the user knows something is
   // happening — these operations otherwise run silently with no on-screen change.
   const [busyMessage, setBusyMessage] = useState<string | null>(null);
+  // Result of the last user-initiated check/update, shown via the shared
+  // AlertModal once the busy spinner clears. Without this, a check that finds
+  // nothing (or an update that succeeds/fails) gives the user no visible outcome.
+  const [resultModal, setResultModal] = useState<
+    { title: string; message: string } | null
+  >(null);
+  const dismissResult = useCallback(() => setResultModal(null), []);
 
   // Listen for background update events
   useEffect(() => {
@@ -73,7 +80,8 @@ export function useExtensions(props: UseExtensionsProps) {
       },
     );
     const unlisten2 = listen<string>("extension-update-installed", () => {
-      checkForUpdates();
+      // Background re-check — silent so it never pops a modal unprompted.
+      checkForUpdates({ silent: true });
     });
     return () => {
       unlisten.then((f) => f());
@@ -81,27 +89,54 @@ export function useExtensions(props: UseExtensionsProps) {
     };
   }, []);
 
-  const checkForUpdates = useCallback(async () => {
-    setChecking(true);
-    setBusyMessage("Checking for extension updates…");
-    try {
-      const result = await invoke<ExtensionUpdate[]>(
-        "check_for_extension_updates",
-      );
-      setUpdates(result);
-      setLastChecked(Date.now());
-    } catch (e) {
-      console.error("Failed to check for updates:", e);
-    } finally {
-      setChecking(false);
-      setBusyMessage(null);
-    }
-  }, []);
+  const checkForUpdates = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      setChecking(true);
+      if (!silent) setBusyMessage("Checking for extension updates…");
+      try {
+        const result = await invoke<ExtensionUpdate[]>(
+          "check_for_extension_updates",
+        );
+        setUpdates(result);
+        setLastChecked(Date.now());
+        if (!silent) {
+          const n = result.filter((u) => u.status === "available").length;
+          setResultModal(
+            n > 0
+              ? {
+                  title: "Updates Available",
+                  message: `${n} extension update${n !== 1 ? "s are" : " is"} available. Use "Update All" or open an extension to install.`,
+                }
+              : {
+                  title: "Up to Date",
+                  message: "All your extensions are up to date.",
+                },
+          );
+        }
+      } catch (e) {
+        console.error("Failed to check for updates:", e);
+        if (!silent) {
+          setResultModal({
+            title: "Check Failed",
+            message: "Couldn't check for updates. Please try again later.",
+          });
+        }
+      } finally {
+        setChecking(false);
+        if (!silent) setBusyMessage(null);
+      }
+    },
+    [],
+  );
 
-  const updateExtension = useCallback(
-    async (id: string) => {
+  // Installs a single update; returns whether it succeeded. No busy/result UI —
+  // callers own the user-facing feedback so single-update and Update-All can
+  // present one coherent message instead of one per item.
+  const performUpdate = useCallback(
+    async (id: string): Promise<boolean> => {
       const update = updates.find((u) => u.id === id);
-      if (!update || update.status !== "available") return;
+      if (!update || update.status !== "available") return false;
 
       setInstalling((prev) => new Set(prev).add(id));
       try {
@@ -118,8 +153,10 @@ export function useExtensions(props: UseExtensionsProps) {
           });
         }
         setUpdates((prev) => prev.filter((u) => u.id !== id));
+        return true;
       } catch (e) {
         console.error("Failed to update extension:", e);
+        return false;
       } finally {
         setInstalling((prev) => {
           const next = new Set(prev);
@@ -131,20 +168,56 @@ export function useExtensions(props: UseExtensionsProps) {
     [updates, onReloadPlugin],
   );
 
+  const updateExtension = useCallback(
+    async (id: string) => {
+      const name = updates.find((u) => u.id === id)?.name ?? "the extension";
+      setBusyMessage(`Updating ${name}…`);
+      let ok = false;
+      try {
+        ok = await performUpdate(id);
+      } finally {
+        setBusyMessage(null);
+      }
+      setResultModal(
+        ok
+          ? { title: "Update Complete", message: `${name} was updated successfully.` }
+          : {
+              title: "Update Failed",
+              message: `Couldn't update ${name}. Please try again later.`,
+            },
+      );
+    },
+    [updates, performUpdate],
+  );
+
   const updateAll = useCallback(async () => {
     const available = updates.filter((u) => u.status === "available");
     if (available.length === 0) return;
+    let succeeded = 0;
+    const failed: string[] = [];
     try {
       for (let i = 0; i < available.length; i++) {
         setBusyMessage(
           `Updating ${available[i].name} (${i + 1}/${available.length})…`,
         );
-        await updateExtension(available[i].id);
+        if (await performUpdate(available[i].id)) succeeded++;
+        else failed.push(available[i].name);
       }
     } finally {
       setBusyMessage(null);
     }
-  }, [updates, updateExtension]);
+    if (failed.length === 0) {
+      setResultModal({
+        title: "Updates Complete",
+        message: `${succeeded} extension${succeeded !== 1 ? "s were" : " was"} updated successfully.`,
+      });
+    } else {
+      setResultModal({
+        title: "Some Updates Failed",
+        message: `${succeeded} of ${available.length} updated. Failed: ${failed.join(", ")}.`,
+      });
+    }
+  }, [updates, performUpdate]);
 
   const installFromGallery = useCallback(
     async (
@@ -384,6 +457,8 @@ export function useExtensions(props: UseExtensionsProps) {
     installing,
     checking,
     busyMessage,
+    resultModal,
+    dismissResult,
     lastChecked,
     checkForUpdates,
     updateExtension,

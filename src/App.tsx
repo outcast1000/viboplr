@@ -97,6 +97,7 @@ import {
   PluginLoadingModal,
   DeepLinkInstallModal,
 } from "./components/modals/ConfirmModals";
+import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
@@ -3275,6 +3276,15 @@ function App() {
 
       {extensionsHook.busyMessage && (
         <PluginLoadingModal message={extensionsHook.busyMessage} />
+      )}
+
+      {extensionsHook.resultModal && (
+        <AlertModal
+          title={extensionsHook.resultModal.title}
+          message={extensionsHook.resultModal.message}
+          dismissVariant="primary"
+          onDismiss={extensionsHook.dismissResult}
+        />
       )}
 
       {showSavePlaylistModal && (
