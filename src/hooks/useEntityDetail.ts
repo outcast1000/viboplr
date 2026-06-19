@@ -30,6 +30,8 @@ export interface EntityDetailReturn {
   trackPopularity: Record<number, number>;
   handleToggleLike: () => void;
   handleToggleDislike: () => void;
+  handleToggleAlbumLike: (albumId: number) => void;
+  handleToggleAlbumDislike: (albumId: number) => void;
   reload: () => void;
 }
 
@@ -247,6 +249,21 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     setEntity(prev => prev ? { ...prev, liked: prev.liked === -1 ? 0 : -1 } : null);
   }, [entity, kind, onEntityDislike]);
 
+  // Albums shown on the artist-detail page live in this hook's local state
+  // (loaded via get_albums), separate from library.albums — so they need their
+  // own optimistic patch to reflect a like/dislike immediately.
+  const handleToggleAlbumLike = useCallback((albumId: number) => {
+    if (!onEntityLike) return;
+    onEntityLike("album", albumId);
+    setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: a.liked === 1 ? 0 : 1 } : a));
+  }, [onEntityLike]);
+
+  const handleToggleAlbumDislike = useCallback((albumId: number) => {
+    if (!onEntityDislike) return;
+    onEntityDislike("album", albumId);
+    setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: a.liked === -1 ? 0 : -1 } : a));
+  }, [onEntityDislike]);
+
   const reload = useCallback(() => {
     setLoadKey(k => k + 1);
   }, []);
@@ -263,6 +280,8 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     trackPopularity,
     handleToggleLike,
     handleToggleDislike,
+    handleToggleAlbumLike,
+    handleToggleAlbumDislike,
     reload,
   };
 }

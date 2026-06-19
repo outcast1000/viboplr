@@ -367,19 +367,10 @@
   color: var(--text-secondary);
   cursor: pointer;
   border: none;
-  opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
-}
-
-.ds-card:hover .ds-like-overlay,
-.ds-card:hover .ds-dislike-overlay,
-.album-card:hover .ds-like-overlay,
-.album-card:hover .ds-dislike-overlay,
-.artist-card:hover .ds-like-overlay,
-.artist-card:hover .ds-dislike-overlay,
-.tag-card:hover .ds-like-overlay,
-.tag-card:hover .ds-dislike-overlay {
+  /* Always visible (even when neutral) so the liked status reads at a glance
+     across every card — no hover required. */
   opacity: 1;
+  transition: opacity 0.15s, color 0.15s;
 }
 
 .ds-like-overlay:hover { color: var(--error); }
@@ -837,10 +828,11 @@
 .ds-like-control .liked { color: var(--error); }
 .ds-like-control .disliked { color: var(--warning); }
 
-/* Overlay variant: the button sits in the card corner like the old buttons. */
+/* Overlay variant: the button sits in the top-left card corner, consistently
+   across every entity tile (the ⋯ overflow menu owns the top-right corner). */
 .ds-like-control--overlay {
   position: absolute;
   top: 6px;
-  right: 6px;
+  left: 6px;
   z-index: 1;
 }

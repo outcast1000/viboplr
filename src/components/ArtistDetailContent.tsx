@@ -10,6 +10,7 @@ import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
 import { AlbumCardArt } from "./AlbumCardArt";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
@@ -39,6 +40,8 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
     trackPopularity,
     handleToggleLike: handleToggleArtistLike,
     handleToggleDislike: handleToggleArtistDislike,
+    handleToggleAlbumLike,
+    handleToggleAlbumDislike,
   } = useEntityDetail({ kind: "artist", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike });
 
   const artist = entity as Artist | null;
@@ -242,6 +245,13 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
                   <div key={a.id} className="album-card" onClick={() => actions.navigateToAlbum(a.id)} onContextMenu={(e) => actions.handleAlbumContextMenu(e, a.id)}>
                     <div className="album-card-art-wrapper">
                       <AlbumCardArt album={a} imagePath={actions.getAlbumImage(a.title, a.artist_name)} />
+                      <LikeDislikeButtons
+                        liked={a.liked}
+                        onToggleLike={() => handleToggleAlbumLike(a.id)}
+                        onToggleDislike={() => handleToggleAlbumDislike(a.id)}
+                        variant="overlay"
+                        size={12}
+                      />
                       <button className="album-card-play-btn" title="Play album" onClick={(e) => {
                         e.stopPropagation();
                         actions.playAlbum(a.id);
