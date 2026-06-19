@@ -357,28 +357,50 @@
 
 .ds-like-overlay,
 .ds-dislike-overlay {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: rgba(var(--overlay-inverse), 0.5);
+  /* No persistent chip — the bare icon sits on the artwork with a soft shadow
+     for legibility. A circular backdrop only appears on direct hover (below). */
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: rgb(var(--overlay-base));
+  filter: drop-shadow(0 1px 3px rgba(var(--overlay-inverse), 0.7));
   cursor: pointer;
   border: none;
-  /* Always visible (even when neutral) so the liked status reads at a glance
-     across every card — no hover required. */
-  opacity: 1;
-  transition: opacity 0.15s, color 0.15s;
+  /* Hidden when neutral to keep cards uncluttered — revealed on card hover
+     (below) and kept visible whenever a like/dislike value is set. */
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, transform 0.15s;
 }
 
+.ds-card:hover .ds-like-overlay,
+.ds-card:hover .ds-dislike-overlay,
+.album-card:hover .ds-like-overlay,
+.album-card:hover .ds-dislike-overlay,
+.artist-card:hover .ds-like-overlay,
+.artist-card:hover .ds-dislike-overlay,
+.tag-card:hover .ds-like-overlay,
+.tag-card:hover .ds-dislike-overlay {
+  opacity: 1;
+}
+
+/* Direct hover over the icon: backdrop chip + slight grow + accent color give
+   a clear "over" affordance. */
+.ds-like-overlay:hover,
+.ds-dislike-overlay:hover {
+  background: rgba(var(--overlay-inverse), 0.55);
+  transform: scale(1.12);
+}
 .ds-like-overlay:hover { color: var(--error); }
+.ds-dislike-overlay:hover { color: var(--error); }
+
 .ds-like-overlay.liked {
   opacity: 1;
   color: var(--error);
 }
-.ds-dislike-overlay:hover { color: var(--error); }
 .ds-dislike-overlay.disliked {
   opacity: 1;
   color: var(--warning);
