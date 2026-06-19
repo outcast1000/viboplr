@@ -1420,6 +1420,10 @@ function App() {
     if (track) {
       playback.setCurrentTrack(track);
       playback.setDurationSecs(track.duration_secs ?? 0);
+      // Restore lands paused (no autoplay). For a video track that means an
+      // empty <video> until the user presses play — load the first frame so the
+      // theater/preview surface isn't black. No-op for audio / non-local video.
+      playback.loadRestoredVideoPreview(track).catch(console.error);
       pendingRestoreTrackRef.current = null;
     }
     if (queue) {

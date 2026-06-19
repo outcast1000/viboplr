@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack, ResolvedTrackSource } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
-import { parseUrlScheme } from "../queueEntry";
+import { parseUrlScheme, isLocalTrack } from "../queueEntry";
 import { store } from "../store";
 import {
   BANDS,
@@ -87,6 +87,11 @@ export function usePlayback(
   const pendingSrcRef = useRef<string | null>(null);
   const pendingAutoPlayRef = useRef(true);
   const pendingSeekRef = useRef(0);
+  // Key of a video whose <video> element currently holds only a restored
+  // first-frame preview (src loaded, never played) — see loadRestoredVideoPreview.
+  // While set, handlePause routes the first play through handlePlay so stream
+  // resolution + the transcode fallback run, instead of a bare el.play().
+  const previewLoadedKeyRef = useRef<string | null>(null);
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -378,6 +383,35 @@ export function usePlayback(
     }
   }, [currentTrack]);
 
+  // Paint the first frame of a video that was restored in the paused state on
+  // startup. The restore path only sets currentTrack (no src resolution), so a
+  // restored-paused video would show an empty/black <video> until the user
+  // pressed play. Resolve the local source and load it without autoplay so the
+  // element decodes a frame. Scoped to local (file://) video: remote/plugin
+  // resolution can be slow (e.g. yt-dlp) and shouldn't run eagerly for a track
+  // the user may never resume. Real playback still flows through handlePlay.
+  async function loadRestoredVideoPreview(track: QueueTrack) {
+    if (!isVideoTrack(track) || !isLocalTrack(track)) return;
+    let resolved: ResolvedTrackSource;
+    try {
+      resolved = await resolveTrackSrcRef.current(track);
+    } catch (e) {
+      console.error("Failed to resolve restored video preview:", e);
+      return;
+    }
+    if (!resolved.src) return;
+    const el = videoRef.current;
+    // Bail if the element vanished, this track is no longer current, or the user
+    // already started playback (which sets src via handlePlay/playWithSrc) — don't
+    // clobber a live session with a paused preview.
+    if (!el || el.src) return;
+    if (currentTrack && currentTrack.key !== track.key) return;
+    el.src = resolved.src;
+    el.preload = "auto";
+    el.volume = effectiveVolume();
+    previewLoadedKeyRef.current = track.key;
+  }
+
   // Persist state
   // Resume playback if the browser auto-paused it when the page became hidden (e.g. window minimized)
   useEffect(() => {
@@ -668,6 +702,8 @@ export function usePlayback(
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
     const generation = ++playGenerationRef.current;
+    // A real playback session supersedes any restored preview frame.
+    previewLoadedKeyRef.current = null;
     if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
     // Pause the outgoing audio synchronously so its `ended` event can't fire
@@ -847,8 +883,10 @@ export function usePlayback(
     const el = getMediaElement();
     if (!el) return;
     if (el.paused) {
-      // If no source loaded (e.g. restored track), do a full play
-      if (!el.src || el.readyState === 0) {
+      // If no source loaded (e.g. restored track), or the element only holds a
+      // restored first-frame preview (loadRestoredVideoPreview set src but never
+      // played), do a full play so stream resolution + transcode fallback run.
+      if (!el.src || el.readyState === 0 || previewLoadedKeyRef.current) {
         if (currentTrack) handlePlay(currentTrack);
         return;
       }
@@ -1173,6 +1211,7 @@ export function usePlayback(
     audioRefA, audioRefB, videoRef,
     getMediaElement,
     handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop,
+    loadRestoredVideoPreview,
     handleVolume, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,
