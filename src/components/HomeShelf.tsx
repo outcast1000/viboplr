@@ -1,13 +1,27 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { useRef } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "../hooks/useHome";
 import { shelfDescriptionFor } from "../hooks/useHome";
-import type { HomeShelfItem } from "../types/plugin";
-import type { Track } from "../types";
-import { isVideoTrack } from "../utils";
-import { useVideoFrameQueue } from "../hooks/useVideoFrameQueueContext";
+import type { HomeShelfItem, PluginTrack } from "../types/plugin";
+import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import "./HomeView.css";
+
+// First track's album image, falling back to its artist image — the on-demand
+// (fetch + refresh) cover for a playlist card with no explicit coverUrl. Used for
+// radio stations (seed track) and plugin playlists that didn't ship a cover.
+function playlistFallbackImage(
+  tracks: PluginTrack[] | undefined,
+  albumImageFor: (name: string, artistName?: string) => string | null,
+  artistImageFor: (name: string) => string | null,
+): string | null {
+  const seed = tracks?.[0];
+  if (!seed) return null;
+  return (
+    (seed.album_title ? albumImageFor(seed.album_title, seed.artist_name ?? undefined) : null) ??
+    (seed.artist_name ? artistImageFor(seed.artist_name) : null)
+  );
+}
 
 // Resolve any image path (http URL, data URI, or local filesystem path with
 // optional `#v=...` cache-busting fragment) to a value usable in <img src>.
@@ -36,56 +50,7 @@ export interface HomeShelfProps {
 
 export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay }: HomeShelfProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const frameQueue = useVideoFrameQueue();
-  // metadata key (artist::title) -> resolved library track id
-  const [trackIds, setTrackIds] = useState<Record<string, number>>({});
-  const resolvingRef = useRef<Set<string>>(new Set());
-
-  // Resolve metadata -> library track id, then enqueue extraction for video tracks.
-  useEffect(() => {
-    if (shelf.displayKind !== "track-rows") return;
-    for (const item of shelf.items) {
-      const track = (item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } }).track;
-      if (track.image_url) continue;
-      const key = `${track.artist_name ?? ""}::${track.title}`;
-      if (key in trackIds || resolvingRef.current.has(key)) continue;
-      resolvingRef.current.add(key);
-      (async () => {
-        try {
-          const lib = await invoke<Track | null>("find_track_by_metadata", {
-            title: track.title,
-            artistName: track.artist_name ?? null,
-            albumName: track.album_title ?? null,
-          });
-          if (!lib || lib.id == null || !isVideoTrack(lib)) return;
-          const id = lib.id;
-          setTrackIds(prev => ({ ...prev, [key]: id }));
-          frameQueue.enqueue(id);
-        } catch (e) {
-          console.error("Failed to resolve home shelf track id:", e);
-        } finally {
-          resolvingRef.current.delete(key);
-        }
-      })();
-    }
-  }, [shelf, trackIds, frameQueue]);
-
-  // Read the queue's stable ready-frame snapshot, then project it to our
-  // metadata keys. Both layers must be referentially stable: useSyncExternalStore
-  // gets the queue's cached snapshot (stable per-change), and useMemo recomputes
-  // the projection only when the snapshot or trackIds change.
-  const readyFrames = useSyncExternalStore(
-    (cb) => frameQueue.subscribe(cb),
-    () => frameQueue.getReadyFrameSnapshot(),
-  );
-  const videoFrames = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const [key, id] of Object.entries(trackIds)) {
-      const url = readyFrames[id];
-      if (url) out[key] = url;
-    }
-    return out;
-  }, [readyFrames, trackIds]);
+  const videoFrames = useShelfVideoFrames(shelf);
 
   const scroll = (dir: 1 | -1) => {
     const el = scrollerRef.current;
@@ -173,8 +138,8 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     );
   }
   if (shelf.displayKind === "playlist-cards") {
-    const it = item as { id: string; name: string; coverUrl?: string; subtitle?: string };
-    const src = resolveImagePath(it.coverUrl ?? null);
+    const it = item as { id: string; name: string; coverUrl?: string; subtitle?: string; tracks?: PluginTrack[] };
+    const src = resolveImagePath(it.coverUrl ?? playlistFallbackImage(it.tracks, ctx.albumImageFor, ctx.artistImageFor));
     return (
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
@@ -191,7 +156,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   // track-rows
   const it = item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } };
   const explicit = it.track.image_url ?? null;
-  const videoKey = `${it.track.artist_name ?? ""}::${it.track.title}`;
+  const videoKey = shelfVideoKey(it.track.artist_name, it.track.title);
   // videoFrame is already a converted file URL from VideoFrameQueue — do NOT pass through resolveImagePath.
   const videoFrame = !explicit ? ctx.videoFrames[videoKey] ?? null : null;
   const albumPath = !explicit && !videoFrame && it.track.album_title
