@@ -337,6 +337,7 @@ pub async fn add_downloaded_track(
         scanner::process_media_file(&db, &file_path, Some(collection_id), collection_root.as_deref());
         let _ = db.rebuild_fts();
         let _ = db.recompute_counts();
+        let _ = db.reconcile_track_likes_from_entity_likes();
         Ok::<(), String>(())
     })
     .await
@@ -471,6 +472,7 @@ pub async fn confirm_track_upgrade(
         crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref());
         let _ = db.rebuild_fts();
         let _ = db.recompute_counts();
+        let _ = db.reconcile_track_likes_from_entity_likes();
 
         Ok(())
     }).await.map_err(|e| e.to_string())?
@@ -534,6 +536,7 @@ pub async fn save_track_as_copy(
         crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref());
         let _ = db.rebuild_fts();
         let _ = db.recompute_counts();
+        let _ = db.reconcile_track_likes_from_entity_likes();
 
         Ok(())
     }).await.map_err(|e| e.to_string())?

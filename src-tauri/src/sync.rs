@@ -150,6 +150,9 @@ pub fn sync_collection(
 
     db.rebuild_fts().map_err(|e| e.to_string())?;
     db.recompute_counts().map_err(|e| e.to_string())?;
+    // Seed tracks.liked for freshly-synced rows that were liked before they
+    // existed in the library (durable entity_likes is the source of truth).
+    let _ = db.reconcile_track_likes_from_entity_likes();
     db.update_collection_synced(collection_id, start.elapsed().as_secs_f64())
         .map_err(|e| e.to_string())?;
 

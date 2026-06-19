@@ -135,6 +135,29 @@ impl Database {
         }
     }
 
+    /// Reverse-reconcile the `tracks.liked` mirror from the durable `entity_likes`
+    /// store (the source of truth). Sets each track's `liked` to its matching
+    /// `entity_likes` row's value, or `0` when no liked row matches — a true
+    /// two-way sync that repairs the divergence introduced when a like is set
+    /// while the track is not yet in the library, or after a delete + re-add /
+    /// re-scan (which reinserts the row with `liked = 0`). Only rows whose value
+    /// actually changes are written. Idempotent; safe to run on every startup and
+    /// after every track ingest.
+    ///
+    /// The track `entity_key` (see `build_entity_key`) is rebuilt inline with the
+    /// registered `strip_diacritics` / `unicode_lower` scalar functions, matching
+    /// `norm_segment`'s normalization (lowercase, then strip diacritics).
+    pub fn reconcile_track_likes_from_entity_likes(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        let durable = "COALESCE((SELECT el.liked FROM entity_likes el \
+            WHERE el.kind = 'track' AND el.entity_key = 'track:' \
+              || strip_diacritics(unicode_lower(COALESCE((SELECT name FROM artists WHERE id = tracks.artist_id), ''))) \
+              || ':' || strip_diacritics(unicode_lower(tracks.title))), 0)";
+        let sql = format!("UPDATE tracks SET liked = {d} WHERE liked <> {d}", d = durable);
+        conn.execute(&sql, [])?;
+        Ok(())
+    }
+
     /// Create the two protected system playlists if missing. Idempotent.
     pub fn ensure_system_playlists(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
@@ -445,6 +468,39 @@ mod tests {
         assert_eq!(db.get_entity_like_state("artist", "artist:bjork").unwrap(), 1);
         assert_eq!(db.get_entity_like_state("album", "album:bjork:homogenic").unwrap(), 1);
         assert_eq!(db.get_entity_like_state("tag", "tag:electronic").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_reconcile_track_likes_from_entity_likes() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Björk").unwrap();
+        let cid = db.add_collection("local", "L", Some("/m"), None, None, None, None, None).unwrap().id;
+        let joga = db.upsert_track("joga.mp3", "Jóga", Some(artist), None, None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+        let hunter = db.upsert_track("hunter.mp3", "Hunter", Some(artist), None, None, Some(200.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+
+        // (1) A durable like with a matching library track sets tracks.liked.
+        db.set_entity_like("track", &build_entity_key("track", "Jóga", Some("Björk")), 1, None, 100).unwrap();
+        // (2) A track currently marked liked but with NO durable row must be cleared to 0.
+        db.toggle_liked("tracks", hunter, 1).unwrap();
+
+        db.reconcile_track_likes_from_entity_likes().unwrap();
+        assert_eq!(db.get_track_by_id(joga).unwrap().liked, 1, "matching durable like should set mirror to 1");
+        assert_eq!(db.get_track_by_id(hunter).unwrap().liked, 0, "no durable row should clear stale mirror to 0");
+
+        // (3) A durable dislike propagates to the mirror too.
+        db.set_entity_like("track", &build_entity_key("track", "Hunter", Some("Björk")), -1, None, 101).unwrap();
+        db.reconcile_track_likes_from_entity_likes().unwrap();
+        assert_eq!(db.get_track_by_id(hunter).unwrap().liked, -1, "durable dislike should mirror to -1");
+
+        // (4) Case/diacritic-insensitive: a durable like keyed from the ASCII/upper
+        // spelling still matches the diacritic track row via the normalized key.
+        let db2 = test_db();
+        let a2 = db2.get_or_create_artist("Björk").unwrap();
+        let c2 = db2.add_collection("local", "L", Some("/m"), None, None, None, None, None).unwrap().id;
+        let t2 = db2.upsert_track("joga.mp3", "Jóga", Some(a2), None, None, Some(180.0), Some("mp3"), None, None, Some(c2), None).unwrap();
+        db2.set_entity_like("track", &build_entity_key("track", "JOGA", Some("BJORK")), 1, None, 100).unwrap();
+        db2.reconcile_track_likes_from_entity_likes().unwrap();
+        assert_eq!(db2.get_track_by_id(t2).unwrap().liked, 1, "ASCII/upper durable key should match diacritic track via normalization");
     }
 
     #[test]

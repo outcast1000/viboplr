@@ -403,9 +403,15 @@ pub fn set_entity_like_state(
     db.set_entity_like(&kind, &entity_key, like_state, Some(&metadata), now_ts)
         .map_err(|e| e.to_string())?;
 
-    db.mirror_entity_like_to_library(
+    // The durable entity_likes row (the source of truth) is now committed.
+    // Mirroring into the library `liked` columns is best-effort: a failure here
+    // must NOT surface as a failed like — otherwise a like that was actually
+    // saved would look lost to the user. Log and continue.
+    if let Err(e) = db.mirror_entity_like_to_library(
         &kind, &entity.title, entity.artist_name.as_deref(), entity.album_title.as_deref(), like_state,
-    ).map_err(|e| e.to_string())?;
+    ) {
+        log::warn!("Failed to mirror like into library (durable like is saved): {}", e);
+    }
 
     let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": kind }));
 

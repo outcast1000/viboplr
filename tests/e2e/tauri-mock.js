@@ -290,6 +290,26 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       if (match === undefined) return null;
       return match;
     }
+    // Durable like store mock: mirrors backend entity_likes — upsert on ±1,
+    // DELETE on 0; reads return the stored value or 0. Keyed by normalized
+    // (artist, title) like build_entity_key (diacritic stripping is omitted in
+    // the mock; lowercase is enough for the ASCII test fixtures).
+    case 'set_entity_like_state': {
+      const store = (window.__TEST_LIKES__ = window.__TEST_LIKES__ || {});
+      const { kind, entity, likeState } = args;
+      const norm = (s) => (s || '').toLowerCase();
+      const key = `${kind}:${norm(entity && entity.artistName)}:${norm(entity && entity.title)}`;
+      if (likeState === 0) delete store[key];
+      else store[key] = likeState;
+      return likeState;
+    }
+    case 'get_track_like_states': {
+      const store = (window.__TEST_LIKES__ = window.__TEST_LIKES__ || {});
+      const norm = (s) => (s || '').toLowerCase();
+      return (args.tracks || []).map(
+        (t) => store[`track:${norm(t.artistName)}:${norm(t.title)}`] ?? 0
+      );
+    }
     case 'search_youtube':
       return { url: 'https://www.youtube.com/watch?v=mock123', video_title: args.title };
     case 'yt_dlp_check':

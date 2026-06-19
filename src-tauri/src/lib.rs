@@ -880,6 +880,9 @@ pub fn run() {
                                 if let Err(e) = dl_worker_db.recompute_counts() {
                                     log::error!("Failed to recompute counts after batch download: {}", e);
                                 }
+                                if let Err(e) = dl_worker_db.reconcile_track_likes_from_entity_likes() {
+                                    log::error!("Failed to reconcile track likes after batch download: {}", e);
+                                }
                             }
                         }
                         Err(e) => {

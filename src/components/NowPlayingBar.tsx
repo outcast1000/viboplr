@@ -132,6 +132,7 @@ interface NowPlayingBarProps {
   onCloseAutoContinuePopover: () => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
+  likeDisabled?: boolean;
   onTrackClick: (trackKey: string) => void;
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
@@ -174,7 +175,7 @@ export function NowPlayingBar({
   eqShowBarControl, onEqShowBarControlChange,
   onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
-  onToggleLike, onToggleDislike, onTrackClick,
+  onToggleLike, onToggleDislike, likeDisabled, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
   playbackError, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
@@ -408,6 +409,7 @@ export function NowPlayingBar({
                     liked={currentTrack.liked}
                     onToggleLike={onToggleLike}
                     onToggleDislike={onToggleDislike}
+                    disabled={likeDisabled}
                     variant="glass"
                     size={12}
                   />
@@ -501,6 +503,7 @@ export function NowPlayingBar({
                 liked={currentTrack.liked}
                 onToggleLike={onToggleLike}
                 onToggleDislike={onToggleDislike}
+                disabled={likeDisabled}
                 variant="glass"
                 size={13}
                 showKeyboardHint={`(${mod}L)`}

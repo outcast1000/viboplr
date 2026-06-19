@@ -604,6 +604,12 @@ function App() {
     onReloadAllPlugins: plugins.reloadAllPlugins,
   });
 
+  const { toasts, notify, dismiss: dismissToast } = useToasts();
+  // True while a now-playing-bar like/dislike write is in flight, used to
+  // disable the bar's like control as a visual cue (the hook already guards the
+  // double-click race functionally).
+  const [likeBusy, setLikeBusy] = useState(false);
+
   // Like actions
   const likeActions = useLikeActions({
     library: {
@@ -626,6 +632,7 @@ function App() {
     plugins: {
       dispatchEvent: plugins.dispatchEvent,
     },
+    notify,
   });
 
   // Collection actions
@@ -660,8 +667,6 @@ function App() {
     window.addEventListener("retrieve:image-applied", onApplied);
     return () => window.removeEventListener("retrieve:image-applied", onApplied);
   }, [artistImageCache, albumImageCache, tagImageCache]);
-
-  const { toasts, notify, dismiss: dismissToast } = useToasts();
 
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
@@ -1819,6 +1824,84 @@ function App() {
   addToQueueRef.current = queueHook.addToQueue;
   const queueRef = useRef(queueHook.queue);
   queueRef.current = queueHook.queue;
+
+  // Keep the now-playing track's like state in sync with the durable
+  // entity_likes store. currentTrack is seeded verbatim from the queue entry
+  // (often liked:0 for external/restored/plugin copies) and is otherwise never
+  // reconciled after playback starts — a stale value would drive the like
+  // toggle the wrong way and can delete a real like. Re-read the authoritative
+  // state whenever the track *identity* changes (NOT on .liked changes, so an
+  // optimistic like is never reverted by a read of the not-yet-committed row).
+  useEffect(() => {
+    const track = playback.currentTrack;
+    if (!track) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const states = await invoke<number[]>("get_track_like_states", {
+          tracks: [{ title: track.title, artistName: track.artist_name ?? null }],
+        });
+        if (cancelled) return;
+        const durable = states[0] ?? 0;
+        playback.setCurrentTrack(prev =>
+          prev && prev.path === track.path && prev.title === track.title && prev.liked !== durable
+            ? { ...prev, liked: durable } : prev);
+      } catch (e) {
+        console.error("Failed to reconcile current track like state:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+    // Identity-only deps: must NOT include .liked (see comment above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playback.currentTrack?.path, playback.currentTrack?.title, playback.currentTrack?.artist_name, playback.setCurrentTrack]);
+
+  // Re-reconcile like state when the durable store changes from any surface
+  // (e.g. liking the now-playing song from the Library list, or a same-song
+  // copy whose metadata differs only by case/diacritics so the in-memory
+  // sameSong propagation missed it). Reads authoritative state for currentTrack
+  // + the queue and patches any drift. Our own writes also fire this event —
+  // reconciling to the just-written value is a harmless no-op.
+  useEffect(() => {
+    const idOf = (title: string | null, artist: string | null) =>
+      `${(title ?? "").toLowerCase()} ${(artist ?? "").toLowerCase()}`;
+    const unlisten = listen("entity-likes-changed", async () => {
+      const items: { title: string; artistName: string | null }[] = [];
+      const seen = new Set<string>();
+      const push = (t: QueueTrack | null) => {
+        if (!t) return;
+        const id = idOf(t.title, t.artist_name ?? null);
+        if (seen.has(id)) return;
+        seen.add(id);
+        items.push({ title: t.title, artistName: t.artist_name ?? null });
+      };
+      push(currentTrackRef.current);
+      queueRef.current.forEach(push);
+      if (items.length === 0) return;
+      try {
+        const states = await invoke<number[]>("get_track_like_states", { tracks: items });
+        const byId = new Map<string, number>();
+        items.forEach((it, i) => byId.set(idOf(it.title, it.artistName), states[i] ?? 0));
+        const lookup = (t: QueueTrack) => byId.get(idOf(t.title, t.artist_name ?? null));
+        playback.setCurrentTrack(prev => {
+          if (!prev) return prev;
+          const v = lookup(prev);
+          return v != null && v !== prev.liked ? { ...prev, liked: v } : prev;
+        });
+        queueHook.setQueue(prev => {
+          let changed = false;
+          const next = prev.map(t => {
+            const v = lookup(t);
+            if (v != null && v !== t.liked) { changed = true; return { ...t, liked: v }; }
+            return t;
+          });
+          return changed ? next : prev;
+        });
+      } catch (e) {
+        console.error("Failed to reconcile like states after change:", e);
+      }
+    });
+    return () => { unlisten.then(f => f()); };
+  }, [playback.setCurrentTrack, queueHook.setQueue]);
 
   prefetchNextRef.current = () => {
     const ac = autoContinueRef.current;
@@ -3393,8 +3476,19 @@ function App() {
         onAdjustAutoContinueWeight={autoContinue.adjustWeight}
         onResetAutoContinueWeights={autoContinue.resetWeights}
         onCloseAutoContinuePopover={() => autoContinue.setShowPopover(false)}
-        onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
-        onToggleDislike={() => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); }}
+        onToggleLike={() => {
+          const t = playback.currentTrack;
+          if (!t) return;
+          setLikeBusy(true);
+          likeActions.handleToggleLike(t).finally(() => setLikeBusy(false));
+        }}
+        onToggleDislike={() => {
+          const t = playback.currentTrack;
+          if (!t) return;
+          setLikeBusy(true);
+          likeActions.handleToggleDislike(t).finally(() => setLikeBusy(false));
+        }}
+        likeDisabled={likeBusy}
         onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
         onNavigateToArtistByName={library.navigateToArtistByName}
         onNavigateToAlbumByName={library.navigateToAlbumByName}

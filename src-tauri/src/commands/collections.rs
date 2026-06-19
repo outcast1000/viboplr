@@ -42,6 +42,7 @@ pub fn add_collection(
                 });
                 let _ = db.rebuild_fts();
                 let _ = db.recompute_counts();
+                let _ = db.reconcile_track_likes_from_entity_likes();
                 let _ = db.update_collection_synced(collection_id, start.elapsed().as_secs_f64());
                 let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
                 let new_tracks = (track_count_after - track_count_before).max(0);

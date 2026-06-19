@@ -239,6 +239,11 @@ impl Database {
         timer.time("db: run_migrations", || db.run_migrations())?;
         // Crash safety: keep denormalized counts consistent on every startup.
         timer.time("db: recompute_counts", || db.recompute_counts())?;
+        // Repair any tracks.liked mirror drift from the durable entity_likes
+        // store (e.g. a like set while a track was not yet in the library, or a
+        // delete + re-add). Idempotent; runs every startup (NOT gated by the
+        // one-time, opposite-direction backfill marker).
+        timer.time("db: reconcile_track_likes", || db.reconcile_track_likes_from_entity_likes())?;
         Ok(db)
     }
 
