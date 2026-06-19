@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveShelves, findUnattemptedShelfKeys, type ShelfResolver } from "../hooks/useHome";
+import {
+  resolveShelves,
+  findUnattemptedShelfKeys,
+  findUnattemptedBuiltInKeys,
+  RADIO_SHELF_ID,
+  type ShelfResolver,
+} from "../hooks/useHome";
 
 function makeResolver(name: string, fn: () => Promise<unknown>): ShelfResolver {
   return { id: name, title: name, displayKind: "album-cards", limit: 5, fetch: fn as ShelfResolver["fetch"] };
@@ -56,5 +62,34 @@ describe("findUnattemptedShelfKeys", () => {
     const attempted = new Set<string>();
     const result = findUnattemptedShelfKeys(shelves, {}, attempted);
     expect(result).toEqual(["spotify:discover", "tidal:mixes"]);
+  });
+});
+
+describe("findUnattemptedBuiltInKeys", () => {
+  // After a refresh with defaults, attemptedKeys holds the default-visible shelves.
+  // "builtin:recently-liked" is off by default, so it was never attempted.
+  it("flags a default-off built-in the user just enabled via Customize", () => {
+    const attempted = new Set(["builtin:recently-played", "builtin:liked-albums"]);
+    const visibility = { "builtin:recently-liked": true };
+    const result = findUnattemptedBuiltInKeys(visibility, attempted);
+    expect(result).toContain("builtin:recently-liked");
+  });
+
+  it("does not flag a default-off shelf the user has not enabled", () => {
+    const attempted = new Set(["builtin:recently-played"]);
+    // No explicit visibility -> default-off shelves stay hidden, so not fetched.
+    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:recently-liked");
+  });
+
+  it("does not flag a built-in that was already attempted last refresh", () => {
+    const attempted = new Set(["builtin:recently-played"]);
+    // recently-played is on by default and was attempted; should not re-trigger.
+    expect(findUnattemptedBuiltInKeys({}, attempted)).not.toContain("builtin:recently-played");
+  });
+
+  it("never flags the Radio shelf (its data is fetched independently)", () => {
+    const attempted = new Set<string>();
+    const visibility = { [RADIO_SHELF_ID]: true };
+    expect(findUnattemptedBuiltInKeys(visibility, attempted)).not.toContain(RADIO_SHELF_ID);
   });
 });

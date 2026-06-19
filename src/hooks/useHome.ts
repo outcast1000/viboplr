@@ -169,6 +169,21 @@ export function findUnattemptedShelfKeys(
     .filter((id) => visibility[id] !== false && !attempted.has(id));
 }
 
+// Built-in shelves (excluding Radio, which isn't a resolver — its data is the
+// independently-fetched radio stations) that are visible but were not attempted
+// in the last refresh. This is the built-in counterpart to findUnattemptedShelfKeys:
+// a default-off shelf the user just enabled via Customize has never been fetched,
+// so its id won't be in `attempted`. Without this, enabling a shelf would leave it
+// blank until the 24h staleness window elapsed or the user hit ⟳ Refresh.
+export function findUnattemptedBuiltInKeys(
+  visibility: Record<string, boolean>,
+  attempted: Set<string>,
+): string[] {
+  return BUILTIN_SHELF_DESCRIPTORS
+    .map((d) => d.id)
+    .filter((id) => id !== RADIO_SHELF_ID && isShelfVisible(id, visibility) && !attempted.has(id));
+}
+
 export interface ResolvedShelf {
   id: string;
   pluginId?: string;
@@ -837,7 +852,8 @@ export function useHome(opts: UseHomeOptions) {
     if (!isVisible || !restoredRef.current || !hydrated || !pluginsLoaded) return;
     const age = Date.now() - savedAtRef.current;
     const hasNewShelves =
-      findUnattemptedShelfKeys(pluginShelves, visibility, attemptedKeysRef.current).length > 0;
+      findUnattemptedShelfKeys(pluginShelves, visibility, attemptedKeysRef.current).length > 0 ||
+      findUnattemptedBuiltInKeys(visibility, attemptedKeysRef.current).length > 0;
     if (savedAtRef.current === 0 || age >= STALE_MS || hasNewShelves) refresh();
   }, [isVisible, refresh, restoredRef, hydrated, pluginsLoaded, pluginShelves, visibility]);
 
