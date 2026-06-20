@@ -81,6 +81,50 @@
     </div>
   </section>
 
+  <!-- Feature: Home -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Home</span>
+          <h2>A home screen that knows your library</h2>
+          <p>Open Viboplr to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Radio-station carousel seeded from your library</div>
+            <div class="feature-list-item">&ldquo;Recently played&rdquo; &amp; &ldquo;Most played&rdquo; shelves</div>
+            <div class="feature-list-item">&ldquo;Jump back in&rdquo; &amp; &ldquo;Recently added&rdquo;</div>
+            <div class="feature-list-item">Extra shelves contributed by plugins<span class="feature-tag">plugin</span></div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <img src="assets/screenshots/home.webp" alt="Viboplr home view with radio stations and shelves" loading="lazy" width="2560" height="1600">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature: Now Playing -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Now Playing</span>
+          <h2>Lean back and watch the words</h2>
+          <p>A full-screen now-playing view with synced, karaoke-style lyrics that highlight line by line. Playing a video? It expands into a theater mode with an ambient glow sampled from the artwork.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Synced (LRC) karaoke lyrics with tap-to-seek</div>
+            <div class="feature-list-item">Plain-lyrics fallback with auto-scroll</div>
+            <div class="feature-list-item">Video theater mode with ambient glow</div>
+            <div class="feature-list-item">Lyrics from multiple providers<span class="feature-tag">plugin</span></div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <img src="assets/screenshots/now-playing.webp" alt="Viboplr now playing lean-back view with album art" loading="lazy" width="2560" height="1600">
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Feature: Library -->
   <section class="feature-section">
     <div class="container">
@@ -125,6 +169,28 @@
     </div>
   </section>
 
+  <!-- Feature: Radio -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Radio</span>
+          <h2>Rediscover your own music</h2>
+          <p>Start an endless station from any track, artist, or tag and Viboplr builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">One-click radio from any track, artist, or tag</div>
+            <div class="feature-list-item">Auto-continue with weighted strategies</div>
+            <div class="feature-list-item">Mix by same artist, tag, most-played, or liked</div>
+            <div class="feature-list-item">Similar tracks, artists &amp; bios via Last.fm<span class="feature-tag">plugin</span></div>
+          </div>
+        </div>
+        <div class="feature-image">
+          <img src="assets/screenshots/discovery.webp" alt="Viboplr track detail view with metadata" loading="lazy" width="2560" height="1600">
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Feature: Servers -->
   <section class="feature-section">
     <div class="container">
@@ -132,12 +198,12 @@
         <div class="feature-content">
           <span class="feature-label">Servers</span>
           <h2>Local meets streaming, seamlessly</h2>
-          <p>Connect to Subsonic and Navidrome servers alongside your local folders. Add TIDAL Hi-Fi for lossless streaming. One unified library, one player, zero friction.</p>
+          <p>Point Viboplr at local folders and Subsonic or Navidrome servers for one unified library. Add streaming services through plugins &mdash; they slot straight into the same player, queue, and search.</p>
           <div class="feature-list">
             <div class="feature-list-item">Subsonic &amp; Navidrome support</div>
-            <div class="feature-list-item">TIDAL Hi-Fi integration</div>
             <div class="feature-list-item">Unified library across all sources</div>
-            <div class="feature-list-item">Seamless switching between local &amp; remote</div>
+            <div class="feature-list-item">TIDAL Hi-Fi lossless streaming<span class="feature-tag">plugin</span></div>
+            <div class="feature-list-item">Spotify &amp; YouTube browse and playback<span class="feature-tag">plugin</span></div>
           </div>
         </div>
         <div class="feature-image">
@@ -234,28 +300,6 @@
     </div>
   </section>
 
-  <!-- Feature: Discovery -->
-  <section class="feature-section">
-    <div class="container">
-      <div class="feature-row reveal">
-        <div class="feature-content">
-          <span class="feature-label">Discovery</span>
-          <h2>Rediscover your own music</h2>
-          <p>Smart auto-continue picks the next track using weighted strategies. Last.fm integration surfaces similar artists, similar tracks, artist bios, and community tags &mdash; all cached locally for instant access.</p>
-          <div class="feature-list">
-            <div class="feature-list-item">Auto-continue with weighted strategies</div>
-            <div class="feature-list-item">Similar tracks &amp; artists via Last.fm</div>
-            <div class="feature-list-item">Artist bios &amp; album descriptions</div>
-            <div class="feature-list-item">Community tag suggestions &amp; scrobble history</div>
-          </div>
-        </div>
-        <div class="feature-image">
-          <img src="assets/screenshots/discovery.webp" alt="Viboplr track detail view with metadata" loading="lazy" width="2560" height="1600">
-        </div>
-      </div>
-    </div>
-  </section>
-
   <!-- Feature: Plugins -->
   <section class="feature-section">
     <div class="container">
@@ -263,12 +307,12 @@
         <div class="feature-content">
           <span class="feature-label">Plugins</span>
           <h2>Extend it your way</h2>
-          <p>A JavaScript plugin system that lets you add custom sidebar views, context menu actions, and event hooks. Built-in plugins ship with the app, and user plugins can override or extend anything.</p>
+          <p>A JavaScript plugin system powers streaming, lyrics, artwork, scrobbling, and downloads. Built-in plugins ship with the app; install more from the in-app gallery, or build your own with custom views, home shelves, context-menu actions, and event hooks.</p>
           <div class="feature-list">
-            <div class="feature-list-item">Custom sidebar views &amp; context menu actions</div>
-            <div class="feature-list-item">Event hooks for playback lifecycle</div>
-            <div class="feature-list-item">Per-plugin key-value storage</div>
-            <div class="feature-list-item">Structured view rendering (no raw HTML)</div>
+            <div class="feature-list-item">Streaming, lyrics, artwork &amp; scrobbling plugins</div>
+            <div class="feature-list-item">One-click install from the in-app gallery</div>
+            <div class="feature-list-item">Custom sidebar views, home shelves &amp; context actions</div>
+            <div class="feature-list-item">Per-plugin storage; structured views (no raw HTML)</div>
           </div>
         </div>
         <div class="feature-image">

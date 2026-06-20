@@ -34,3 +34,4 @@ Detailed rules are in `.claude/rules/`:
 - `queue.md` — queue state, QueueTrack type, playback progression, mutations, persistence, duplicate detection
 - `ui.md` — layout, entities, detail pages, information sections, context menus, skins
 - `testing.md` — test frameworks, commands, patterns for Rust/TS/E2E
+- `site.md` — the public `docs/` marketing site, `features.json`→`features.html` generation, core-vs-plugin presentation

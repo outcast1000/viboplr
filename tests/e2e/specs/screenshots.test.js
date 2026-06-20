@@ -240,4 +240,27 @@ test.describe('Screenshots', () => {
     await waitForImages(page);
     await page.screenshot({ path: path.join(outDir, 'detail-track-sunset.png'), type: 'png' });
   });
+
+  test('14 - home', async ({ page }) => {
+    await setup(page);
+    await sidebarNavigate(page, 'Home');
+    await page.locator('.home-shelf').first().waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(700);
+    await waitForImages(page);
+    await page.screenshot({ path: path.join(outDir, 'home.png'), type: 'png' });
+  });
+
+  test('15 - now-playing', async ({ page }) => {
+    await setup(page);
+    await goToLibraryTracks(page);
+    // Play a track so the Now Playing view has content
+    const firstTitle = page.locator('.track-row .col-title').first();
+    await firstTitle.dblclick();
+    await page.waitForTimeout(500);
+    await sidebarNavigate(page, 'Now Playing');
+    await page.locator('.now-playing-view').waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(700);
+    await waitForImages(page);
+    await page.screenshot({ path: path.join(outDir, 'now-playing.png'), type: 'png' });
+  });
 });

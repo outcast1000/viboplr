@@ -591,6 +591,21 @@ p {
   flex-shrink: 0;
 }
 
+/* "plugin" badge on feature bullets that are provided by a plugin, not core */
+.feature-tag {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-light);
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+}
+
 .feature-image {
   aspect-ratio: 4 / 3;
   background: var(--color-bg-alt);

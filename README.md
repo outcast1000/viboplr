@@ -18,13 +18,17 @@ Viboplr plays audio and video from local folders and remote music services. It a
 - **Queue Management**: Drag-and-drop reorder, play next, shuffle
 - **Crossfade**: Configurable smooth transitions between tracks
 - **Auto-Continue**: Automatic playback continuation when queue ends (by artist, tag, most played, liked, or random)
+- **Radio**: Start an endless station from any track, artist, or tag
+- **Likes**: Tri-state like/dislike for tracks (plus likes for artists, albums, and tags), durable across library, queue, and now playing
 - **Mini Player**: Compact mode with essential controls
 - **Waveform Seek Bar**: Visual waveform display for seeking
 
 ### Views
+- **Home**: Default landing page — radio-station carousel plus shelves (recently played, most played, jump back in, recently added)
+- **Now Playing**: Lean-back full-screen view with synced karaoke lyrics; video tracks expand into a theater mode with ambient glow
 - **Artists / Albums / Tags**: Browsable with breadcrumb navigation and card art
 - **History**: Tabbed view — All Time, Last 30 Days, Recent, Artists — with arrow key navigation
-- **Playlists**: Save, load, and manage playlists with cover art and thumbnail tracking
+- **Playlists**: Save, load, and manage playlists with cover art and thumbnail tracking; export/import as M3U8 or `.mixtape`
 - **Collections**: Manage local folders and remote service connections
 
 ### Service Orchestration
@@ -42,7 +46,8 @@ Viboplr plays audio and video from local folders and remote music services. It a
 
 ### Plugins
 - **Plugin System**: The primary extension mechanism — JavaScript plugins provide streaming, metadata, lyrics, image resolution, downloads, context menu items, sidebar views, event hooks, settings panels, and scheduler tasks
-- **15+ Built-in Plugins**: Ship with plugins for popular music services, metadata databases, lyric providers, and image sources
+- **Built-in Plugins**: Last.fm (scrobbling, history import, similar artists/tracks, bios, community tags), lyrics (LRCLIB, Lyrics.ovh, Google), and artwork (TheAudioDB, Deezer, iTunes, MusicBrainz, Google Images)
+- **Gallery Plugins**: Streaming and more, installed from the in-app gallery — Spotify, TIDAL (Hi-Fi), YouTube (play + download), Genius (song explanations), and P2P sharing
 - **Native & User Plugins**: Built-in plugins bundled with the app; user plugins in profile directory (user plugins override native)
 - **Structured Views**: Plugins render via data model (track lists, card grids, stats, text) — no raw HTML injection
 - **Plugin Management**: Enable/disable plugins, reorder providers, and configure settings via Settings tabs
