@@ -2,7 +2,8 @@ import { createContext, useContext, useMemo } from "react";
 import type { Track, QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import type { SearchProviderConfig } from "../searchProviders";
+import type { PluginContextMenuTarget } from "../types/plugin";
+import type { HeroOverflowItem } from "../utils/heroOverflow";
 import type { OpenInfoArgs } from "../hooks/useRetrieveModal";
 
 export interface DetailViewActions {
@@ -50,7 +51,9 @@ export interface DetailViewActions {
    *  surfaces re-fetch Last.fm community tags once the plugin is ready. */
   pluginsLoaded: boolean;
   pluginNames: Map<string, string>;
-  searchProviders: SearchProviderConfig[];
+  /** Build detail-page ⋯ overflow items from plugin context-menu items for an
+   *  entity (e.g. the search-providers "Search" submenu). */
+  buildPluginOverflowItems: (target: PluginContextMenuTarget) => HeroOverflowItem[];
   /** Ranked library tag pool (buildTagSuggestionPool output) for tag editors. */
   tagSuggestionPool: string[];
   /** Refresh library tag state after an entity-wide tag write (counts, removals). */
@@ -96,7 +99,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.handleTrackDragStart,
     actions.getArtistImage, actions.getAlbumImage, actions.getTagImage,
     actions.invalidateImage, actions.requestFetchImage, actions.autoFetchImage,
-    actions.invokeInfoFetch, actions.pluginsLoaded, actions.pluginNames, actions.searchProviders,
+    actions.invokeInfoFetch, actions.pluginsLoaded, actions.pluginNames, actions.buildPluginOverflowItems,
     actions.tagSuggestionPool, actions.refreshLibraryTags,
     actions.retrieve,
   ]);

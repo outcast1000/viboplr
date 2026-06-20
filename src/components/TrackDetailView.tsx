@@ -3,7 +3,6 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, QueueTrack } from "../types";
-import { buildSearchUrl, getProvidersForContext } from "../searchProviders";
 import { formatDuration } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { useDetailActions } from "../contexts/DetailViewContext";
@@ -238,8 +237,6 @@ export function TrackDetailView({
       .catch(e => console.error("Failed to open image search:", e));
   }, [heroImageKind, heroImageEntityName, track.artist_name]);
 
-  const trackProviders = getProvidersForContext(actions.searchProviders, "track");
-
   const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
     entityKind: "track",
     imageActions: heroImageKind ? {
@@ -248,20 +245,16 @@ export function TrackDetailView({
       onPasteFromClipboard: handlePasteImage,
       onRemove: (heroImageKind === "album" ? !!albumImagePath : !!artistImagePath) ? handleRemoveImage : undefined,
       onSearchImage: handleSearchImageGoogle,
-      webSearches: trackProviders
-        .filter(p => p.trackUrl)
-        .map(p => ({
-          id: p.id,
-          label: p.name,
-          onClick: () => {
-            const url = buildSearchUrl(p.trackUrl!, { artist: track.artist_name ?? "", title: track.title });
-            if (url) openUrl(url).catch(e => console.error("Failed to open search URL:", e));
-          },
-        })),
     } : {},
     radio: onStartRadio ? { onStart: onStartRadio } : undefined,
     youtube: { onFind: () => onWatchOnYoutube?.() },
-    pluginItems: [],
+    pluginItems: actions.buildPluginOverflowItems({
+      kind: "track",
+      trackId: track.id ?? undefined,
+      title: track.title,
+      artistName: track.artist_name ?? undefined,
+      isLocal: isLocalTrack(track),
+    }),
   });
 
   const eyebrow = track.album_title ? `Track · ${track.album_title}` : "Track";

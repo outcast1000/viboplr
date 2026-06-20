@@ -5,7 +5,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials } from "../utils";
 import type { Artist, ColumnConfig, QueueTrack } from "../types";
 
-import { buildSearchUrl } from "../searchProviders";
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
@@ -185,18 +184,12 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
       onPasteFromClipboard: handlePasteImage,
       onRemove: artistImagePath ? handleRemoveImage : undefined,
       onSearchImage: handleSearchImageGoogle,
-      webSearches: actions.searchProviders
-        .filter(p => p.artistUrl)
-        .map(p => ({
-          id: p.id,
-          label: p.name,
-          onClick: () => {
-            const url = buildSearchUrl(p.artistUrl!, { artist: name });
-            if (url) openUrl(url).catch(e => console.error("Failed to open search URL:", e));
-          },
-        })),
     },
-    pluginItems: [],
+    pluginItems: actions.buildPluginOverflowItems({
+      kind: "artist",
+      artistId: artist?.id ?? undefined,
+      artistName: name,
+    }),
   });
 
   const handleEnqueueAll = useCallback(() => {

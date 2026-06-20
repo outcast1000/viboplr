@@ -23,8 +23,7 @@ import { resolveImageUrl } from "./utils/resolveImageUrl";
 import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
-import type { SearchProviderConfig } from "./searchProviders";
-import { DEFAULT_PROVIDERS, loadProviders, saveProviders } from "./searchProviders";
+import { buildPluginOverflowItems } from "./utils/heroOverflow";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -575,7 +574,6 @@ function App() {
 
   const [deleteTagConfirm, setDeleteTagConfirm] = useState<{ id: number; name: string }[] | null>(null);
 
-  const [searchProviders, setSearchProviders] = useState<SearchProviderConfig[]>(DEFAULT_PROVIDERS);
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -824,7 +822,7 @@ function App() {
     contextMenuActions.setContextMenu(cm);
     const specs = buildContextMenuSpecs(cm.target, {
       contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries,
-      plugins, searchProviders, handleDownloadFromProvider, artistImageCache,
+      plugins, handleDownloadFromProvider, artistImageCache,
       albumImageCache, tagImageCache, beginRetrieveImage,
       setSearchInitialQuery, setSearchQueryKey,
       setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef,
@@ -834,7 +832,7 @@ function App() {
       return;
     }
     showNativeMenu(cm.x, cm.y, specs);
-  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, searchProviders, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef]);
+  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
@@ -1478,7 +1476,6 @@ function App() {
       restoredRef.current = true;
       setAppRestoring(false);
       await Promise.all([
-        timeAsync("loadProviders", () => loadProviders(store).then(setSearchProviders)).catch(e => console.error("Failed to load providers:", e)),
         timeAsync("loadLibrary", () => library.loadLibrary()),
       ]);
     })();
@@ -2106,11 +2103,6 @@ function App() {
     }
   }
 
-  function handleSaveProviders(providers: SearchProviderConfig[]) {
-    setSearchProviders(providers);
-    saveProviders(store, providers);
-  }
-
   function handleCrossfadeChange(secs: number) {
     setCrossfadeSecs(secs);
     store.set("crossfadeSecs", secs);
@@ -2275,7 +2267,11 @@ function App() {
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginsLoaded: plugins.pluginsLoaded,
     pluginNames: plugins.pluginNames,
-    searchProviders,
+    buildPluginOverflowItems: (target) => buildPluginOverflowItems(
+      plugins.menuItems.filter(item => item.targets.includes(target.kind)),
+      target,
+      plugins.dispatchContextMenuAction,
+    ),
     tagSuggestionPool,
     refreshLibraryTags: library.loadLibrary,
     retrieve: {
@@ -2296,7 +2292,8 @@ function App() {
     artistImageCache.getImage, albumImageCache.getImage, tagImageCache.getImage,
     artistImageCache.invalidate, albumImageCache.invalidate, tagImageCache.invalidate,
     artistImageCache.requestFetch, albumImageCache.requestFetch, tagImageCache.requestFetch,
-    plugins.invokeInfoFetch, plugins.pluginsLoaded, plugins.pluginNames, searchProviders,
+    plugins.invokeInfoFetch, plugins.pluginsLoaded, plugins.pluginNames,
+    plugins.menuItems, plugins.dispatchContextMenuAction,
     tagSuggestionPool, library.loadLibrary,
     beginRetrieveImage, retrieve.openInfo,
   ]);
@@ -2941,12 +2938,10 @@ function App() {
           {/* Settings view */}
           {view === "settings" && (
             <SettingsPanel
-              searchProviders={searchProviders}
               onSeedDatabase={handleSeedDatabase}
               onClearDatabase={handleClearDatabase}
               clearing={clearing}
               onClearImageFailures={handleClearImageFailures}
-              onSaveProviders={handleSaveProviders}
               crossfadeSecs={crossfadeSecs}
               onCrossfadeChange={handleCrossfadeChange}
               trackVideoHistory={trackVideoHistory}

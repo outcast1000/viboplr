@@ -4,7 +4,6 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Album, ColumnConfig, QueueTrack } from "../types";
 
-import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
 import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
@@ -59,7 +58,6 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     store.set("albumDetailBelowTabOrder", order);
   }, []);
 
-  const albumProviders = getProvidersForContext(actions.searchProviders, "album");
   const displayArtist = album?.artist_name ?? artistName;
   const albumImagePath = actions.getAlbumImage(name, artistName ?? null);
 
@@ -183,20 +181,18 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
       onPasteFromClipboard: handlePasteImage,
       onRemove: albumImagePath ? handleRemoveImage : undefined,
       onSearchImage: handleSearchImageGoogle,
-      webSearches: albumProviders
-        .filter(p => p.albumUrl)
-        .map(p => ({
-          id: p.id,
-          label: p.name,
-          onClick: () => {
-            const url = buildSearchUrl(p.albumUrl!, { artist: displayArtist ?? "", title: name });
-            if (url) openUrl(url).catch(e => console.error("Failed to open search URL:", e));
-          },
-        })),
     },
-    pluginItems: isLibrary && album
-      ? [{ kind: "action", id: "edit-year", label: "Edit year…", onClick: () => setEditingYear(true) }]
-      : [],
+    pluginItems: [
+      ...(isLibrary && album
+        ? [{ kind: "action" as const, id: "edit-year", label: "Edit year…", onClick: () => setEditingYear(true) }]
+        : []),
+      ...actions.buildPluginOverflowItems({
+        kind: "album",
+        albumId: album?.id ?? undefined,
+        albumTitle: name,
+        artistName: displayArtist ?? undefined,
+      }),
+    ],
   });
 
   const handleEnqueueAll = useCallback(() => {

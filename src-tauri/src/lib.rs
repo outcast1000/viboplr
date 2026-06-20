@@ -403,6 +403,42 @@ fn resolve_image_via_bridge(
     }
 }
 
+/// One-time migration: web search moved from a core feature into the
+/// `search-providers` plugin. Copy any customized legacy `searchProviders` list
+/// from app-state.json into the plugin's storage so the user's custom providers
+/// and enabled flags carry over. Read-only on the legacy side; guarded by a
+/// marker row so it runs once and never resurrects a list the user later
+/// cleared in-plugin.
+fn seed_search_providers_from_legacy(db: &Database, app_dir: &std::path::Path) {
+    let already = db
+        .plugin_storage_get("__core__", "search_providers_migrated")
+        .ok()
+        .flatten()
+        .is_some();
+    if already {
+        return;
+    }
+    let existing = db
+        .plugin_storage_get("search-providers", "providers")
+        .ok()
+        .flatten();
+    if existing.is_none() {
+        let store_path = app_dir.join("app-state.json");
+        if let Ok(data) = std::fs::read_to_string(&store_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                if let Some(v) = json.get("searchProviders") {
+                    if !v.is_null() {
+                        if let Ok(s) = serde_json::to_string(v) {
+                            let _ = db.plugin_storage_set("search-providers", "providers", &s);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let _ = db.plugin_storage_set("__core__", "search_providers_migrated", "1");
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let timer = timing::init_timer();
@@ -600,6 +636,12 @@ pub fn run() {
             }
 
             let db = Arc::new(timer.time("Database::new", || Database::new(&app_dir).expect("Failed to init database")));
+
+            // One-time migration: web search moved from core into the
+            // `search-providers` plugin (see seed_search_providers_from_legacy).
+            timer.time("migrate_search_providers", || {
+                seed_search_providers_from_legacy(&db, &app_dir);
+            });
 
             timer.time("create_image_dirs", || {
                 let _ = std::fs::create_dir_all(app_dir.join("artist_images"));
@@ -1309,4 +1351,75 @@ pub fn run() {
                 _ => {}
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_state(dir: &std::path::Path, json: &str) {
+        std::fs::write(dir.join("app-state.json"), json).unwrap();
+    }
+
+    #[test]
+    fn test_seed_migrates_legacy_search_providers() {
+        let db = Database::new_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        write_state(
+            dir.path(),
+            r#"{"searchProviders":[{"id":"custom-1","name":"Mine","enabled":true,"trackUrl":"https://x/{title}"}]}"#,
+        );
+
+        seed_search_providers_from_legacy(&db, dir.path());
+
+        let stored = db
+            .plugin_storage_get("search-providers", "providers")
+            .unwrap();
+        assert!(stored.is_some());
+        assert!(stored.unwrap().contains("Mine"));
+        // marker is set so a second run is a no-op
+        assert!(db
+            .plugin_storage_get("__core__", "search_providers_migrated")
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn test_seed_is_skipped_when_already_migrated() {
+        let db = Database::new_in_memory().unwrap();
+        db.plugin_storage_set("__core__", "search_providers_migrated", "1")
+            .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        write_state(
+            dir.path(),
+            r#"{"searchProviders":[{"id":"x","name":"Y","enabled":true}]}"#,
+        );
+
+        seed_search_providers_from_legacy(&db, dir.path());
+
+        // marker present from the start → never copies
+        assert!(db
+            .plugin_storage_get("search-providers", "providers")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn test_seed_skips_null_legacy_but_sets_marker() {
+        let db = Database::new_in_memory().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        write_state(dir.path(), r#"{"searchProviders":null}"#);
+
+        seed_search_providers_from_legacy(&db, dir.path());
+
+        assert!(db
+            .plugin_storage_get("search-providers", "providers")
+            .unwrap()
+            .is_none());
+        // marker still set so it does not re-run on every startup
+        assert!(db
+            .plugin_storage_get("__core__", "search_providers_migrated")
+            .unwrap()
+            .is_some());
+    }
 }

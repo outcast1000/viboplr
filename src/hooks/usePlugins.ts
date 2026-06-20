@@ -11,6 +11,7 @@ import type {
   PluginState,
   PluginSidebarItem,
   PluginMenuItem,
+  PluginDynamicMenuItem,
   PluginSettingsPanel,
   PluginViewData,
   PluginContextMenuTarget,
@@ -246,6 +247,10 @@ export function usePlugins(
     icon?: string;
   }>());
   const [dynamicShelvesVersion, setDynamicShelvesVersion] = useState(0);
+  // Runtime-registered context-menu items, keyed `${pluginId}:${itemId}`
+  // (mirrors dynamicHomeShelvesRef). Merged with the static manifest items.
+  const dynamicMenuItemsRef = useRef(new Map<string, PluginMenuItem>());
+  const [dynamicMenuItemsVersion, setDynamicMenuItemsVersion] = useState(0);
 
   // Active IPC-timing bucket for the plugin currently inside its activate()
   // window (set only in debug mode). tapInvoke attributes each invoke()'s
@@ -496,6 +501,31 @@ export function usePlugins(
         contextMenu: {
           onAction: (actionId, handler) => {
             loaded.contextMenuHandlers.set(actionId, handler);
+          },
+          registerItem: (item: PluginDynamicMenuItem): (() => void) => {
+            const key = `${pluginId}:${item.id}`;
+            dynamicMenuItemsRef.current.set(key, {
+              pluginId,
+              id: item.id,
+              label: item.label,
+              targets: item.targets,
+              submenuLabel: item.submenuLabel,
+              order: item.order,
+            });
+            setDynamicMenuItemsVersion((v) => v + 1);
+            const unsub = () => {
+              if (dynamicMenuItemsRef.current.delete(key)) {
+                setDynamicMenuItemsVersion((v) => v + 1);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          unregisterItem: (itemId: string): void => {
+            const key = `${pluginId}:${itemId}`;
+            if (dynamicMenuItemsRef.current.delete(key)) {
+              setDynamicMenuItemsVersion((v) => v + 1);
+            }
           },
         },
 
@@ -1149,6 +1179,17 @@ export function usePlugins(
     if (dynamicShelvesChanged) {
       setDynamicShelvesVersion((v) => v + 1);
     }
+    // Clear dynamically registered context-menu items for this plugin
+    let dynamicMenuItemsChanged = false;
+    for (const key of Array.from(dynamicMenuItemsRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        dynamicMenuItemsRef.current.delete(key);
+        dynamicMenuItemsChanged = true;
+      }
+    }
+    if (dynamicMenuItemsChanged) {
+      setDynamicMenuItemsVersion((v) => v + 1);
+    }
 
     loadedPluginsRef.current.delete(pluginId);
   }, []);
@@ -1309,8 +1350,24 @@ export function usePlugins(
       // slurping their source up front is pure startup cost. `null` (first
       // launch) means "read all" — the auto-enable path below needs every
       // builtin's code without a second IPC round-trip.
-      const enabled =
+      const storedEnabled =
         (await store.get<string[]>("enabledPlugins")) ?? null;
+      // One-time: enable the built-in search-providers plugin for existing users
+      // (web search moved out of core into this plugin). First-launch users get
+      // it via the auto-enable path below. Guarded by a flag so a later opt-out
+      // is respected. Must run BEFORE plugin_list_installed so the plugin's
+      // source is slurped (enabledIds) and it activates in this pass.
+      let enabled = storedEnabled;
+      if (storedEnabled !== null) {
+        const seeded = await store.get<boolean>("searchProvidersPluginSeeded");
+        if (!seeded) {
+          if (!storedEnabled.includes("search-providers")) {
+            enabled = storedEnabled.concat(["search-providers"]);
+            await store.set("enabledPlugins", enabled);
+          }
+          await store.set("searchProvidersPluginSeeded", true);
+        }
+      }
       const enabledSet =
         enabled !== null
           ? new Set(enabled)
@@ -1334,6 +1391,9 @@ export function usePlugins(
           }
         }
         await store.set("enabledPlugins", Array.from(enabledSet));
+        // First launch already enables search-providers above; mark it seeded so
+        // the upgrade force-enable never re-adds it after a later user opt-out.
+        await store.set("searchProvidersPluginSeeded", true);
       }
 
       enabledPluginsRef.current = enabledSet;
@@ -2006,11 +2066,24 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [homeShelves, dynamicShelvesVersion]);
 
+  const allMenuItems = useMemo(() => {
+    const seen = new Set(menuItems.map((m) => `${m.pluginId}:${m.id}`));
+    const merged = [...menuItems];
+    for (const entry of dynamicMenuItemsRef.current.values()) {
+      const key = `${entry.pluginId}:${entry.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(entry);
+    }
+    return merged;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuItems, dynamicMenuItemsVersion]);
+
   return {
     pluginStates,
     pluginNames,
     sidebarItems,
-    menuItems,
+    menuItems: allMenuItems,
     settingsPanels,
     homeShelves: allHomeShelves,
     pluginsLoaded,

@@ -7,11 +7,17 @@ interface Props {
 }
 
 function toSpecs(items: HeroOverflowItem[]): MenuItemSpec[] {
-  return items.map((item): MenuItemSpec =>
-    item.kind === "divider"
-      ? { kind: "separator" }
-      : { kind: "item", text: item.label, action: item.onClick }
-  );
+  return items.map((item): MenuItemSpec => {
+    if (item.kind === "divider") return { kind: "separator" };
+    if (item.kind === "submenu") {
+      return {
+        kind: "submenu",
+        text: item.label,
+        items: item.items.map((s) => ({ kind: "item" as const, text: s.label, action: s.onClick })),
+      };
+    }
+    return { kind: "item", text: item.label, action: item.onClick };
+  });
 }
 
 export function HeroOverflowMenu({ items, triggerLabel = "More options" }: Props) {

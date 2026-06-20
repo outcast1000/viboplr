@@ -392,11 +392,29 @@ export interface PluginCollectionsAPI {
   getLocalCollections(): Promise<Array<{ id: number; name: string; path: string | null }>>;
 }
 
+/**
+ * A context-menu item registered at runtime via api.contextMenu.registerItem.
+ * Unlike the static manifest items, these can be added/removed while the plugin
+ * runs (mirrors api.home.registerShelf). When `submenuLabel` is set, the host
+ * groups all items sharing that label (per target kind) into one native submenu.
+ */
+export interface PluginDynamicMenuItem {
+  id: string; // action id — dispatch routes to the handler registered via onAction
+  label: string; // text only (native menu items have no icon)
+  targets: PluginTargetKind[];
+  submenuLabel?: string;
+  order?: number;
+}
+
 export interface PluginContextMenuAPI {
   onAction(
     actionId: string,
     handler: (target: PluginContextMenuTarget) => void,
   ): void;
+  /** Register a context-menu item at runtime. Returns an unsubscriber. */
+  registerItem(item: PluginDynamicMenuItem): () => void;
+  /** Remove a runtime-registered context-menu item by id. */
+  unregisterItem(itemId: string): void;
 }
 
 export type PluginBadgeVariant = "accent" | "error" | "success" | "warning" | "muted";
@@ -831,6 +849,9 @@ export interface PluginMenuItem {
   id: string;
   label: string;
   targets: PluginTargetKind[];
+  /** When set, the host groups same-label items (per target) into one submenu. */
+  submenuLabel?: string;
+  order?: number;
 }
 
 export interface PluginSettingsPanel {

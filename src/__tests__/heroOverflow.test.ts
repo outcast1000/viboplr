@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildHeroOverflowItems } from "../utils/heroOverflow";
+import { buildHeroOverflowItems, buildPluginOverflowItems } from "../utils/heroOverflow";
+import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 
 const noop = () => {};
 
@@ -13,7 +14,6 @@ describe("buildHeroOverflowItems", () => {
         onPasteFromClipboard: noop,
         onRemove: noop,
         onSearchImage: noop,
-        webSearches: [{ id: "google", label: "Google", onClick: noop }],
       },
       pluginItems: [{ kind: "action", id: "scrobble", label: "Scrobble album", onClick: noop }],
     });
@@ -25,7 +25,6 @@ describe("buildHeroOverflowItems", () => {
       "Paste image",
       "Remove image",
       "Search image",
-      "Search Google",
       "---",
       "Scrobble album",
     ]);
@@ -91,5 +90,48 @@ describe("buildHeroOverflowItems", () => {
       pluginItems: [],
     });
     expect(noImageOnly.some(i => i.kind === "divider")).toBe(false);
+  });
+});
+
+describe("buildPluginOverflowItems", () => {
+  const target: PluginContextMenuTarget = { kind: "track", title: "Song", artistName: "Artist" };
+  const dispatch = vi.fn();
+
+  it("groups submenuLabel items into one submenu and keeps others flat", () => {
+    const matching: PluginMenuItem[] = [
+      { pluginId: "search-providers", id: "search:track:b", label: "Bing", targets: ["track"], submenuLabel: "Search", order: 1 },
+      { pluginId: "search-providers", id: "search:track:a", label: "Apple", targets: ["track"], submenuLabel: "Search", order: 0 },
+      { pluginId: "scrobbler", id: "scrobble", label: "Scrobble", targets: ["track"] },
+    ];
+    const out = buildPluginOverflowItems(matching, target, dispatch);
+
+    // flat item first, then the grouped submenu
+    expect(out.map(i => (i.kind === "submenu" ? `submenu:${i.label}` : i.kind === "action" ? i.label : "---"))).toEqual([
+      "Scrobble",
+      "submenu:Search",
+    ]);
+    const submenu = out.find(i => i.kind === "submenu");
+    expect(submenu?.kind).toBe("submenu");
+    if (submenu && submenu.kind === "submenu") {
+      // sorted by order: Apple (0) before Bing (1)
+      expect(submenu.items.map(s => s.label)).toEqual(["Apple", "Bing"]);
+    }
+  });
+
+  it("dispatches to the owning plugin when a leaf is clicked", () => {
+    const matching: PluginMenuItem[] = [
+      { pluginId: "search-providers", id: "search:track:g", label: "Google", targets: ["track"], submenuLabel: "Search" },
+    ];
+    const out = buildPluginOverflowItems(matching, target, dispatch);
+    const submenu = out[0];
+    expect(submenu.kind).toBe("submenu");
+    if (submenu.kind === "submenu") {
+      submenu.items[0].onClick();
+      expect(dispatch).toHaveBeenCalledWith("search-providers", "search:track:g", target);
+    }
+  });
+
+  it("returns [] when nothing matches", () => {
+    expect(buildPluginOverflowItems([], target, dispatch)).toEqual([]);
   });
 });

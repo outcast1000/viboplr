@@ -23,7 +23,6 @@ const STORE_DEFAULTS = {
   fullWindowHeight: null,
   fullWindowX: null,
   fullWindowY: null,
-  searchProviders: null,
   autoContinueEnabled: false,
   autoContinueWeights: { random: 40, sameArtist: 20, sameTag: 20, mostPlayed: 10, liked: 10 },
   autoContinueSameFormat: false,

@@ -2,13 +2,11 @@
 // Pure: given a context-menu target and the app dependencies it needs, returns
 // the MenuItemSpec[] to display (or null when there's nothing to show). App.tsx
 // keeps a thin useCallback wrapper that owns setContextMenu + showNativeMenu.
-import { openUrl } from "@tauri-apps/plugin-opener";
 import type { MenuItemSpec } from "../nativeMenu";
 import type { ContextMenuTarget } from "../types/contextMenu";
 import { toPluginTarget } from "../types/contextMenu";
+import { buildPluginMenuSpecs } from "./pluginMenuGroups";
 import { parseLibraryId, isLocalTrack } from "../queueEntry";
-import { getProvidersForContext, buildSearchUrl } from "../searchProviders";
-import type { SearchProviderConfig } from "../searchProviders";
 import type { useContextMenuActions } from "../hooks/useContextMenuActions";
 import type { useLibrary } from "../hooks/useLibrary";
 import type { usePlugins } from "../hooks/usePlugins";
@@ -23,7 +21,6 @@ export interface ContextMenuDeps {
   library: ReturnType<typeof useLibrary>;
   downloadProviderEntries: { id: string; name: string; interactive: boolean }[];
   plugins: ReturnType<typeof usePlugins>;
-  searchProviders: SearchProviderConfig[];
   handleDownloadFromProvider: (providerId: string, interactive: boolean) => void;
   artistImageCache: ReturnType<typeof useImageCache>;
   albumImageCache: ReturnType<typeof useImageCache>;
@@ -142,29 +139,13 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         }
       }
 
-      // Search providers — single track only
-      if (count === 1) {
-        const contextProviders = getProvidersForContext(d.searchProviders, "track");
-        if (contextProviders.length > 0) {
-          const params = { title: target.firstTrack.title, artist: target.firstTrack.artistName ?? undefined };
-          const searchItems: MenuItemSpec[] = contextProviders.map(provider => ({
-            kind: "item" as const,
-            text: provider.name,
-            action: () => openUrl(buildSearchUrl(provider.trackUrl!, params)),
-          }));
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "submenu", text: "Search", items: searchItems });
-        }
-      }
-
       // Plugin actions
       const pluginTargetKind = count === 1 ? "track" : "multi-track";
       const matching = d.plugins.menuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "multi-track"));
-      if (matching.length > 0) {
+      const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), d.plugins.dispatchContextMenuAction);
+      if (pluginSpecs.length > 0) {
         specs.push({ kind: "separator" });
-        matching.forEach(item => {
-          specs.push({ kind: "item", text: item.label, action: () => d.plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
-        });
+        specs.push(...pluginSpecs);
       }
     } else if (target.kind === "multi-album" || target.kind === "multi-artist" || target.kind === "multi-tag") {
       const count = target.kind === "multi-album" ? target.albumIds.length
@@ -185,7 +166,6 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       }
     } else {
       const isMulti = target.kind === "multi-track";
-      const context = isMulti ? "track" : target.kind;
       const hasId = target.kind === "artist" ? !!target.artistId
                   : target.kind === "album" ? !!target.albumId
                   : target.kind === "track" ? !!target.trackId
@@ -276,29 +256,12 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         specs.push({ kind: "separator" });
         specs.push({ kind: "submenu", text: `Download ${target.trackIds.length} tracks`, items: dlItems });
       }
-      if (!isMulti && target.kind !== "tag") {
-        const contextProviders = getProvidersForContext(d.searchProviders, context as "artist" | "album" | "track");
-        if (contextProviders.length > 0) {
-          const urlKey = context === "artist" ? "artistUrl" : context === "album" ? "albumUrl" : "trackUrl";
-          const params = target.kind === "artist"
-            ? { artist: target.name }
-            : { title: target.title, artist: target.artistName ?? undefined };
-          const searchItems: MenuItemSpec[] = contextProviders.map(provider => ({
-            kind: "item" as const,
-            text: provider.name,
-            action: () => openUrl(buildSearchUrl(provider[urlKey]!, params)),
-          }));
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "submenu", text: "Search", items: searchItems });
-        }
-      }
       const targetKind = target.kind as string;
       const matching = d.plugins.menuItems.filter(item => item.targets.includes(targetKind as "track" | "album" | "artist" | "multi-track"));
-      if (matching.length > 0) {
+      const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), d.plugins.dispatchContextMenuAction);
+      if (pluginSpecs.length > 0) {
         specs.push({ kind: "separator" });
-        matching.forEach(item => {
-          specs.push({ kind: "item", text: item.label, action: () => d.plugins.dispatchContextMenuAction(item.pluginId, item.id, toPluginTarget(target)) });
-        });
+        specs.push(...pluginSpecs);
       }
       if (isMulti && d.handleExportAsMixtapeRef.current) {
         specs.push({ kind: "separator" });
