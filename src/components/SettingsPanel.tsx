@@ -719,7 +719,6 @@ const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", s
 const navIcons = {
   general: <svg {...iconProps}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/></svg>,
   providers: <svg {...iconProps}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
-  about: <svg {...iconProps}><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>,
   debug: <svg {...iconProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
 };
 
@@ -1051,7 +1050,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "resolvers" | "information" | "search" | "about" | "debug";
+type SettingsTab = "general" | "resolvers" | "information" | "search" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -1184,7 +1183,6 @@ export function SettingsPanel({
     { key: "resolvers", label: "Resolvers", icon: navIcons.providers },
     { key: "information", label: "Information", icon: navIcons.providers },
     { key: "search", label: "Search", icon: navIcons.providers },
-    { key: "about", label: "About", icon: navIcons.about },
     { key: "debug", label: "Debug", icon: navIcons.debug },
   ];
 
@@ -1208,6 +1206,54 @@ export function SettingsPanel({
       <div className="settings-content-body">
             {settingsTab === "general" && (
               <>
+                <div className="settings-group">
+                  <div className="settings-group-title">ViboPLR</div>
+                  <div className="settings-card">
+                    <div className="settings-about-content">
+                    <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl(LINKS.homepage).catch(console.error)}>
+                      <svg width="32" height="32" viewBox="0 0 512 512" fill="none">
+                        <defs><linearGradient id="aboutVGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
+                        <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#aboutVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
+                        <circle cx="256" cy="400" r="16" fill="url(#aboutVGrad)" opacity="0.6"/>
+                      </svg>
+                    </div>
+                    <div className="settings-about-info">
+                      <span className="settings-about-name">Viboplr</span>
+                      <span className="settings-about-version">v{appVersion} &middot; <a href="#" className="settings-about-link" onClick={(e) => { e.preventDefault(); openUrl(LINKS.homepage).catch(console.error); }}>viboplr.com</a></span>
+                    </div>
+                    <div className="settings-about-actions">
+                      {updateState.available && !updateState.downloading && (
+                        <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onInstallUpdate}>
+                          Update to v{updateState.available.version}
+                        </button>
+                      )}
+                      {updateState.downloading && (
+                        <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>Downloading...</span>
+                      )}
+                      {!updateState.available && !updateState.downloading && (
+                        <>
+                          {updateState.upToDate && (
+                            <span className="update-up-to-date">Up to date</span>
+                          )}
+                          {!updateState.upToDate && (
+                            <button
+                              className="ds-btn ds-btn--secondary ds-btn--sm"
+                              onClick={onCheckForUpdates}
+                              disabled={updateState.checking}
+                            >
+                              {updateState.checking ? "Checking..." : "Check for Updates"}
+                            </button>
+                          )}
+                        </>
+                      )}
+                      <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.supportPage).catch(console.error)}>
+                        Support
+                      </button>
+                    </div>
+                  </div>
+                  </div>
+                </div>
+
                 <div className="settings-group">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
@@ -1419,87 +1465,6 @@ export function SettingsPanel({
                     )}
                   </div>
                 </>
-            )}
-
-            {settingsTab === "about" && (
-              <>
-                <div className="settings-group">
-                  <div className="settings-group-title">ViboPLR</div>
-                  <div className="settings-card">
-                    <div className="settings-about-content">
-                    <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl(LINKS.homepage).catch(console.error)}>
-                      <svg width="32" height="32" viewBox="0 0 512 512" fill="none">
-                        <defs><linearGradient id="aboutVGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
-                        <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#aboutVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
-                        <circle cx="256" cy="400" r="16" fill="url(#aboutVGrad)" opacity="0.6"/>
-                      </svg>
-                    </div>
-                    <div className="settings-about-info">
-                      <span className="settings-about-name">Viboplr</span>
-                      <span className="settings-about-version">v{appVersion} &middot; <a href="#" className="settings-about-link" onClick={(e) => { e.preventDefault(); openUrl(LINKS.homepage).catch(console.error); }}>viboplr.com</a></span>
-                    </div>
-                    <div className="settings-about-actions">
-                      {updateState.available && !updateState.downloading && (
-                        <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onInstallUpdate}>
-                          Update to v{updateState.available.version}
-                        </button>
-                      )}
-                      {updateState.downloading && (
-                        <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>Downloading...</span>
-                      )}
-                      {!updateState.available && !updateState.downloading && (
-                        <>
-                          {updateState.upToDate && (
-                            <span className="update-up-to-date">Up to date</span>
-                          )}
-                          {!updateState.upToDate && (
-                            <button
-                              className="ds-btn ds-btn--secondary ds-btn--sm"
-                              onClick={onCheckForUpdates}
-                              disabled={updateState.checking}
-                            >
-                              {updateState.checking ? "Checking..." : "Check for Updates"}
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  </div>
-                </div>
-
-                <div className="settings-group">
-                  <div className="settings-group-title">Support</div>
-                  <div className="settings-card">
-                    <div className="settings-support">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" className="settings-support-icon">
-                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                      </svg>
-                      <div className="settings-support-info">
-                        <span className="settings-support-title">Support development</span>
-                        <span className="settings-support-text">Free and open source. Consider supporting development.</span>
-                      </div>
-                      <div className="settings-support-actions">
-                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.support.sponsor).catch(console.error)}>
-                          Sponsor
-                        </button>
-                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.support.koFi).catch(console.error)}>
-                          Ko-fi
-                        </button>
-                      </div>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Report an issue or request a feature</span>
-                        <span className="settings-description">Found a bug or have an idea? Let us know on GitHub.</span>
-                      </div>
-                      <div className="settings-row-control">
-                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => openUrl(LINKS.issues).catch(console.error)}>Open</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </>
             )}
 
             {settingsTab === "debug" && (
