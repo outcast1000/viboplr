@@ -183,11 +183,9 @@ function parseProviderConfig(
 function ProviderPrioritySection({
   pluginStates,
   onStreamResolverOrderChanged,
-  filter,
 }: {
   pluginStates?: PluginState[];
   onStreamResolverOrderChanged?: () => void;
-  filter: "resolvers" | "information";
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
@@ -195,12 +193,6 @@ function ProviderPrioritySection({
   const [streamResolvers, setStreamResolvers] = useState<Array<{ id: string; name: string; source: string; enabled: boolean }>>([]);
 
   // Manual mouse-event drag (HTML5 DnD is unreliable in WKWebView with user-select:none)
-  const dragRef = useRef<{
-    entity: string;
-    row: ProviderRow;
-    sourceIndex: number;
-  } | null>(null);
-  const dragOverIndexRef = useRef<number | null>(null);
   const didDragRef = useRef(false);
   const ghostRef = useRef<HTMLDivElement | null>(null);
 
@@ -350,25 +342,28 @@ function ProviderPrioritySection({
     }
   };
 
-  const handlePillMouseDown = (
+  // Generic vertical drag-to-reorder. Grabbed by a row's handle; reorders within
+  // the row's own [data-vlist] container. `onReorder(from, to)` applies the move.
+  const startRowDrag = (
     e: React.MouseEvent,
-    entity: string,
-    row: ProviderRow,
-    index: number,
+    sourceIndex: number,
     displayName: string,
+    onReorder: (from: number, to: number) => void,
   ) => {
     if (e.button !== 0) return;
+    e.preventDefault();
     const startX = e.clientX;
     const startY = e.clientY;
-    dragRef.current = { entity, row, sourceIndex: index };
-    dragOverIndexRef.current = null;
+    const handle = e.currentTarget as HTMLElement;
+    const sourceRow = handle.closest("[data-row-index]") as HTMLElement | null;
+    const list = handle.closest("[data-vlist]") as HTMLElement | null;
+    if (!sourceRow || !list) return;
+    let overIndex: number | null = null;
     didDragRef.current = false;
 
-    const sourcePill = e.currentTarget as HTMLElement;
-
-    function findPillIndex(el: Element | null): number | null {
-      while (el) {
-        const idx = el.getAttribute("data-pill-index");
+    function findRowIndex(el: Element | null): number | null {
+      while (el && el !== list) {
+        const idx = el.getAttribute("data-row-index");
         if (idx !== null) return parseInt(idx, 10);
         el = el.parentElement;
       }
@@ -376,56 +371,35 @@ function ProviderPrioritySection({
     }
 
     function clearDropIndicators() {
-      document.querySelectorAll(".provider-pill-drop-before, .provider-pill-drop-after").forEach(el => {
-        el.classList.remove("provider-pill-drop-before", "provider-pill-drop-after");
+      list!.querySelectorAll(".provider-vrow-drop-above, .provider-vrow-drop-below").forEach(el => {
+        el.classList.remove("provider-vrow-drop-above", "provider-vrow-drop-below");
       });
     }
 
-    function showGhost(x: number, y: number) {
+    function onMouseMove(ev: MouseEvent) {
+      if (!didDragRef.current) {
+        if (Math.abs(ev.clientX - startX) < 5 && Math.abs(ev.clientY - startY) < 5) return;
+        didDragRef.current = true;
+        sourceRow!.classList.add("provider-vrow-dragging");
+      }
       if (!ghostRef.current) {
         const ghost = document.createElement("div");
-        ghost.className = "provider-pill-ghost";
+        ghost.className = "provider-vrow-ghost";
         ghost.textContent = displayName;
         document.body.appendChild(ghost);
         ghostRef.current = ghost;
       }
-      ghostRef.current.style.left = `${x + 12}px`;
-      ghostRef.current.style.top = `${y - 10}px`;
-    }
-
-    function removeGhost() {
-      if (ghostRef.current) {
-        ghostRef.current.remove();
-        ghostRef.current = null;
-      }
-    }
-
-    function onMouseMove(ev: MouseEvent) {
-      if (!dragRef.current) return;
-      if (!didDragRef.current) {
-        const dx = ev.clientX - startX;
-        const dy = ev.clientY - startY;
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-        didDragRef.current = true;
-        sourcePill.classList.add("provider-pill-dragging");
-      }
-      showGhost(ev.clientX, ev.clientY);
-      const target = document.elementFromPoint(ev.clientX, ev.clientY);
-      const overIdx = target ? findPillIndex(target) : null;
-      dragOverIndexRef.current = overIdx;
+      ghostRef.current.style.left = `${ev.clientX + 12}px`;
+      ghostRef.current.style.top = `${ev.clientY - 10}px`;
 
       clearDropIndicators();
-      if (overIdx !== null && overIdx !== dragRef.current.sourceIndex) {
-        const pillsContainer = sourcePill.closest(".provider-priority-pills");
-        if (pillsContainer) {
-          const targetPill = pillsContainer.querySelector(`[data-pill-index="${overIdx}"]`);
-          if (targetPill) {
-            if (overIdx < dragRef.current.sourceIndex) {
-              targetPill.classList.add("provider-pill-drop-before");
-            } else {
-              targetPill.classList.add("provider-pill-drop-after");
-            }
-          }
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      const overIdx = list!.contains(target) ? findRowIndex(target) : null;
+      overIndex = overIdx;
+      if (overIdx !== null && overIdx !== sourceIndex) {
+        const targetRow = list!.querySelector(`[data-row-index="${overIdx}"]`);
+        if (targetRow) {
+          targetRow.classList.add(overIdx < sourceIndex ? "provider-vrow-drop-above" : "provider-vrow-drop-below");
         }
       }
     }
@@ -433,16 +407,12 @@ function ProviderPrioritySection({
     function onMouseUp() {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
-      removeGhost();
+      if (ghostRef.current) { ghostRef.current.remove(); ghostRef.current = null; }
       clearDropIndicators();
-      sourcePill.classList.remove("provider-pill-dragging");
-      const drag = dragRef.current;
-      const targetIdx = dragOverIndexRef.current;
-      if (didDragRef.current && drag && targetIdx !== null && targetIdx !== drag.sourceIndex) {
-        applyReorder(drag.row, drag.sourceIndex, targetIdx);
+      sourceRow!.classList.remove("provider-vrow-dragging");
+      if (didDragRef.current && overIndex !== null && overIndex !== sourceIndex) {
+        onReorder(sourceIndex, overIndex);
       }
-      dragRef.current = null;
-      dragOverIndexRef.current = null;
       setTimeout(() => { didDragRef.current = false; }, 0);
     }
 
@@ -527,13 +497,55 @@ function ProviderPrioritySection({
     album: "Album",
     track: "Track",
     tag: "Tag",
-    download: "Download",
   };
 
   const infoEntities = ["artist", "album", "track", "tag"];
-  const filteredEntries = [...entityData.entries()].filter(([entity]) =>
-    filter === "information" ? infoEntities.includes(entity) : entity === "download"
-  );
+  const infoEntries = [...entityData.entries()].filter(([entity]) => infoEntities.includes(entity));
+  const downloadRow = entityData.get("download")?.[0] ?? null;
+
+  // Shared renderer for one priority list (label + vertical, draggable providers).
+  const renderProviderRow = (row: ProviderRow) => {
+    const isMulti = row.providers.length > 1;
+    return (
+      <div key={`${row.kind}-${row.typeId}`} className="provider-priority-row">
+        <span className="provider-priority-label">{row.label}</span>
+        <div className="provider-vlist" data-vlist>
+          {row.hasLockedFirst && (
+            <div className="provider-vrow provider-vrow-locked" title="Embedded artwork is always tried first">
+              <span className="provider-vrow-lock">{"🔒"}</span>
+              <span className="provider-vrow-name">Embedded</span>
+              <span className="provider-vrow-note">always first</span>
+            </div>
+          )}
+          {row.providers.map((provider, i) => (
+            <div
+              key={provider.pluginId + (provider.providerId ?? "")}
+              className={`provider-vrow${!provider.active ? " provider-vrow-off" : ""}`}
+              data-row-index={i}
+            >
+              {isMulti && (
+                <span
+                  className="provider-vrow-handle"
+                  onMouseDown={(e) => startRowDrag(e, i, provider.displayName, (from, to) => applyReorder(row, from, to))}
+                  title="Drag to reorder"
+                >{"⠿"}</span>
+              )}
+              {isMulti && <span className="provider-vrow-rank">{i + 1}</span>}
+              <span className="provider-vrow-name">{provider.displayName}</span>
+              <button
+                type="button"
+                className={`provider-switch${provider.active ? " on" : ""}`}
+                role="switch"
+                aria-checked={provider.active}
+                onClick={() => handleToggleActive(row, provider)}
+                title={provider.active ? "Enabled — click to disable" : "Disabled — click to enable"}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -545,17 +557,13 @@ function ProviderPrioritySection({
     );
   }
 
-  if (filter === "information" && filteredEntries.length === 0) {
-    return null;
-  }
-
   return (
     <>
-      {filteredEntries.length > 0 && (
+      {infoEntries.length > 0 && (
         <div className="settings-group">
-          <div className="settings-group-title">{filter === "resolvers" ? "Download" : "Priority"}</div>
+          <div className="settings-group-title">Images &amp; Information</div>
           <div className="provider-priority-container">
-            {filteredEntries.map(([entity, rows]) => (
+            {infoEntries.map(([entity, rows]) => (
               <div key={entity} className="provider-entity-group">
                 <button
                   className="provider-entity-header"
@@ -568,46 +576,7 @@ function ProviderPrioritySection({
                 </button>
                 {!collapsedEntities.has(entity) && (
                   <div className="provider-entity-rows">
-                    {rows.map(row => {
-                      const isMulti = row.providers.length > 1;
-                      return (
-                        <div key={`${row.kind}-${row.typeId}`} className="provider-priority-row">
-                          <span className="provider-priority-label">{row.label}</span>
-                          <div className="provider-priority-pills">
-                            {row.hasLockedFirst && (
-                              <>
-                                <span className="provider-pill provider-pill-locked">
-                                  <span className="provider-pill-lock">{"\uD83D\uDD12"}</span>
-                                  Embedded
-                                </span>
-                                {row.providers.length > 0 && (
-                                  <span className="provider-pill-arrow">{"\u2192"}</span>
-                                )}
-                              </>
-                            )}
-                            {row.providers.map((provider, i) => (
-                              <React.Fragment key={provider.pluginId}>
-                                {i > 0 && (
-                                  <span className="provider-pill-arrow">{"\u2192"}</span>
-                                )}
-                                <span
-                                  className={`provider-pill${!provider.active ? " provider-pill-disabled" : ""}${isMulti ? " provider-pill-draggable" : ""}`}
-                                  data-pill-index={i}
-                                  onMouseDown={isMulti ? (e) => handlePillMouseDown(e, entity, row, i, provider.displayName) : undefined}
-                                  onClick={() => { if (!didDragRef.current) handleToggleActive(row, provider); }}
-                                  title={`${provider.displayName} (priority ${provider.priority})${!provider.active ? " - disabled" : ""}\nClick to ${provider.active ? "disable" : "enable"}`}
-                                >
-                                  {isMulti && (
-                                    <span className="provider-pill-handle">{"\u2630"}</span>
-                                  )}
-                                  {provider.displayName}
-                                </span>
-                              </React.Fragment>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {rows.map(renderProviderRow)}
                   </div>
                 )}
               </div>
@@ -615,83 +584,44 @@ function ProviderPrioritySection({
           </div>
         </div>
       )}
-      {filter === "resolvers" && streamResolvers.length > 0 && (
+      {streamResolvers.length > 0 && (
         <div className="settings-group">
-          <div className="settings-group-title">Stream</div>
+          <div className="settings-group-title">Streaming</div>
           <div className="provider-priority-container">
             <div className="provider-entity-group">
               <div className="provider-entity-rows">
                 <div className="provider-priority-row">
                   <span className="provider-priority-label">Source priority</span>
-                  <div className="provider-priority-pills">
-                    {streamResolvers.map((fp, idx) => (
-                      <React.Fragment key={fp.id}>
-                        {idx > 0 && (
-                          <span className="provider-pill-arrow">{"→"}</span>
-                        )}
-                        <span
-                          className={`provider-pill${fp.enabled ? "" : " provider-pill-disabled"}${streamResolvers.length > 1 ? " provider-pill-draggable" : ""}`}
-                          data-pill-index={idx}
-                          onMouseDown={streamResolvers.length > 1 ? (e) => {
-                            if (e.button !== 0) return;
-                            dragRef.current = { entity: "__streamResolver", row: { kind: "info", typeId: "__streamResolver", label: "Stream Resolvers", entity: "__streamResolver", sortOrder: 0, providers: [], hasLockedFirst: false }, sourceIndex: idx };
-                            dragOverIndexRef.current = null;
-                            didDragRef.current = false;
-
-                            const findPillIndex = (el: Element | null): number | null => {
-                              while (el) {
-                                const i = el.getAttribute("data-pill-index");
-                                if (i !== null) return parseInt(i, 10);
-                                el = el.parentElement;
-                              }
-                              return null;
-                            };
-
-                            const onMouseMove = (ev: MouseEvent) => {
-                              if (!dragRef.current) return;
-                              if (!didDragRef.current) didDragRef.current = true;
-                              if (!ghostRef.current) {
-                                const ghost = document.createElement("div");
-                                ghost.className = "provider-pill-ghost";
-                                ghost.textContent = fp.name;
-                                document.body.appendChild(ghost);
-                                ghostRef.current = ghost;
-                              }
-                              ghostRef.current.style.left = `${ev.clientX + 12}px`;
-                              ghostRef.current.style.top = `${ev.clientY - 10}px`;
-                              const target = document.elementFromPoint(ev.clientX, ev.clientY);
-                              dragOverIndexRef.current = target ? findPillIndex(target) : null;
-                            };
-
-                            const onMouseUp = () => {
-                              window.removeEventListener("mousemove", onMouseMove);
-                              window.removeEventListener("mouseup", onMouseUp);
-                              if (ghostRef.current) { ghostRef.current.remove(); ghostRef.current = null; }
-                              const drag = dragRef.current;
-                              const targetIdx = dragOverIndexRef.current;
-                              if (didDragRef.current && drag && drag.entity === "__streamResolver" && targetIdx !== null && targetIdx !== drag.sourceIndex) {
-                                handleStreamResolverReorder(drag.sourceIndex, targetIdx);
-                              }
-                              dragRef.current = null;
-                              dragOverIndexRef.current = null;
-                              setTimeout(() => { didDragRef.current = false; }, 0);
-                            };
-
-                            window.addEventListener("mousemove", onMouseMove);
-                            window.addEventListener("mouseup", onMouseUp);
-                          } : undefined}
-                          onClick={() => {
-                            if (!didDragRef.current) handleStreamResolverToggle(fp.id);
-                          }}
-                          title={`${fp.name} (${fp.source})${fp.enabled ? "" : " — disabled"}`}
+                  <div className="provider-vlist" data-vlist>
+                    {streamResolvers.map((fp, idx) => {
+                      const isMulti = streamResolvers.length > 1;
+                      return (
+                        <div
+                          key={fp.id}
+                          className={`provider-vrow${fp.enabled ? "" : " provider-vrow-off"}`}
+                          data-row-index={idx}
                         >
-                          {streamResolvers.length > 1 && (
-                            <span className="provider-pill-handle">{"☰"}</span>
+                          {isMulti && (
+                            <span
+                              className="provider-vrow-handle"
+                              onMouseDown={(e) => startRowDrag(e, idx, fp.name, handleStreamResolverReorder)}
+                              title="Drag to reorder"
+                            >{"⠿"}</span>
                           )}
-                          {fp.name}
-                        </span>
-                      </React.Fragment>
-                    ))}
+                          {isMulti && <span className="provider-vrow-rank">{idx + 1}</span>}
+                          <span className="provider-vrow-name">{fp.name}</span>
+                          <span className="provider-vrow-source">{fp.source}</span>
+                          <button
+                            type="button"
+                            className={`provider-switch${fp.enabled ? " on" : ""}`}
+                            role="switch"
+                            aria-checked={fp.enabled}
+                            onClick={() => handleStreamResolverToggle(fp.id)}
+                            title={fp.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -699,6 +629,20 @@ function ProviderPrioritySection({
           </div>
         </div>
       )}
+
+      {downloadRow && (
+        <div className="settings-group">
+          <div className="settings-group-title">Downloads</div>
+          <div className="provider-priority-container">
+            <div className="provider-entity-group">
+              <div className="provider-entity-rows">
+                {renderProviderRow(downloadRow)}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="settings-actions-row provider-priority-actions">
         <button className="ds-btn ds-btn--secondary" onClick={handleReset}>Reset to Defaults</button>
       </div>
@@ -719,6 +663,7 @@ const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", s
 const navIcons = {
   general: <svg {...iconProps}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/></svg>,
   providers: <svg {...iconProps}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+  search: <svg {...iconProps}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   debug: <svg {...iconProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
 };
 
@@ -1050,7 +995,7 @@ interface ProviderFormData {
   trackUrl: string;
 }
 
-type SettingsTab = "general" | "resolvers" | "information" | "search" | "debug";
+type SettingsTab = "general" | "providers" | "search" | "debug";
 
 export function SettingsPanel({
   searchProviders,
@@ -1180,9 +1125,8 @@ export function SettingsPanel({
 
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
-    { key: "resolvers", label: "Resolvers", icon: navIcons.providers },
-    { key: "information", label: "Information", icon: navIcons.providers },
-    { key: "search", label: "Search", icon: navIcons.providers },
+    { key: "providers", label: "Providers", icon: navIcons.providers },
+    { key: "search", label: "Search", icon: navIcons.search },
     { key: "debug", label: "Debug", icon: navIcons.debug },
   ];
 
@@ -1363,12 +1307,8 @@ export function SettingsPanel({
               </>
             )}
 
-            {settingsTab === "resolvers" && (
-                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} filter="resolvers" />
-            )}
-
-            {settingsTab === "information" && (
-                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} filter="information" />
+            {settingsTab === "providers" && (
+                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
             )}
 
             {settingsTab === "search" && (
