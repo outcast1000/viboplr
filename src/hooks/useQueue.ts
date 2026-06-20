@@ -20,6 +20,9 @@ export interface PlaylistContext {
 export function useQueue(
   restoredRef: React.RefObject<boolean>,
   handlePlay: (track: QueueTrack, source?: "user" | "auto") => void,
+  // Fired whenever a play *replaces* the queue (the "Latest play" capture point).
+  // Not fired by enqueue / play-next / auto-continue, which extend the queue.
+  onPlay?: (tracks: QueueTrack[], startIndex: number, context: PlaylistContext | null) => void,
 ) {
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -150,6 +153,7 @@ export function useQueue(
     setQueueIndex(startIndex);
     handlePlay(dedupedTracks[startIndex]);
     setPlaylistContext(context ?? null);
+    onPlay?.(dedupedTracks, startIndex, context ?? null);
   }
 
   function findDuplicates(newTracks: QueueTrack[]): { duplicates: QueueTrack[]; unique: QueueTrack[] } {

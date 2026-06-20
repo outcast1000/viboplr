@@ -7,6 +7,7 @@ import type {
   HomeShelfItem,
 } from "../types/plugin";
 import type { RecentlyVisitedEntry } from "../utils/recentlyVisited";
+import { type RecentPlaySession, sessionKey, sessionSubtitle } from "../utils/recentPlays";
 import { store } from "../store";
 
 const STALE_MS = 24 * 60 * 60 * 1000;
@@ -19,6 +20,11 @@ const RADIO_STATION_COUNT = 7;
 // in the order renders as the Home hero carousel, so by default that's Radio.
 export const RADIO_SHELF_ID = "builtin:radio";
 
+// Id of the "Latest play" shelf — recent things that replaced the queue (radio,
+// album, artist, tag, track). Its items carry a `__session` (RecentPlaySession);
+// clicks/plays are intercepted by id in App.tsx and re-resolved to a fresh play.
+export const LATEST_PLAY_SHELF_ID = "builtin:latest-play";
+
 // Canonical built-in shelves in their default order — the single source of truth
 // for the standard shelf set (id + title + default order + default visibility).
 // The Customize Home modal, the default order, and reset all read from here. The
@@ -27,6 +33,7 @@ export const RADIO_SHELF_ID = "builtin:radio";
 export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description: string; defaultVisible: boolean }[] = [
   // Visible by default — the curated Home.
   { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like.", defaultVisible: true },
+  { id: LATEST_PLAY_SHELF_ID, title: "Latest play", description: "Jump back into what you last played.", defaultVisible: true },
   { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently.", defaultVisible: true },
   { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off.", defaultVisible: true },
   { id: "builtin:recently-added", title: "Recently added", description: "The newest additions to your library.", defaultVisible: true },
@@ -312,7 +319,7 @@ export function useHome(opts: UseHomeOptions) {
   }, []);
 
   const buildBuiltInResolvers = useCallback(
-    (recentlyVisited: RecentlyVisitedEntry[]): ShelfResolver[] => {
+    (recentlyVisited: RecentlyVisitedEntry[], recentPlays: RecentPlaySession[]): ShelfResolver[] => {
       return [
         {
           id: "builtin:recently-played",
@@ -690,6 +697,41 @@ export function useHome(opts: UseHomeOptions) {
             }
           },
         },
+        {
+          id: LATEST_PLAY_SHELF_ID,
+          title: "Latest play",
+          // playlist-cards = "click/play plays it"; App.tsx intercepts by shelf id
+          // and re-resolves each `__session` to a fresh play rather than the empty
+          // `tracks` we ship here (we don't snapshot the played tracks).
+          displayKind: "playlist-cards",
+          limit: 12,
+          fetch: async (limit) => {
+            try {
+              const sorted = [...recentPlays].sort((a, b) => b.ts - a.ts).slice(0, limit);
+              const items: HomeShelfItem[] = [];
+              for (const s of sorted) {
+                // Prefer the cover captured at play time; otherwise re-resolve by
+                // name for library entities (cache-only, within the shelf budget).
+                let cover = s.imagePath ?? null;
+                if (!cover) {
+                  if (s.source === "album") cover = await resolveCover(s.name, s.artistName);
+                  else if (s.source === "artist") cover = await resolveCover(null, s.name);
+                }
+                items.push({
+                  id: sessionKey(s),
+                  name: s.name,
+                  subtitle: sessionSubtitle(s),
+                  coverUrl: cover ?? undefined,
+                  tracks: [],
+                  __session: s,
+                } as unknown as HomeShelfItem);
+              }
+              return { status: "ok", items };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
       ];
     },
     [],
@@ -700,8 +742,9 @@ export function useHome(opts: UseHomeOptions) {
     setIsLoading(true);
     try {
       const recentlyVisited = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
+      const recentPlays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
 
-      const builtIns = buildBuiltInResolvers(recentlyVisited);
+      const builtIns = buildBuiltInResolvers(recentlyVisited, recentPlays);
       const pluginResolvers: ShelfResolver[] = pluginShelves.map(p => ({
         id: shelfKey(p.pluginId, p.shelfId),
         pluginId: p.pluginId,

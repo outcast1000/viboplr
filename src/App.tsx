@@ -10,7 +10,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource } from "./types";
+import type { Track, QueueTrack, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
 import { store } from "./store";
@@ -18,6 +18,7 @@ import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
+import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
 import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
@@ -114,6 +115,7 @@ import { HomeView } from "./components/HomeView";
 import { NowPlayingView } from "./components/NowPlayingView";
 import { useLyrics } from "./hooks/useLyrics";
 import type { ResolvedShelf } from "./hooks/useHome";
+import { LATEST_PLAY_SHELF_ID } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
@@ -137,6 +139,9 @@ function App() {
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
+  // "Latest play" ring buffer (things that replaced the queue). Mirrors
+  // recentlyVisitedRef: loaded from the store on mount, written on each play.
+  const recentPlaysRef = useRef<RecentPlaySession[]>([]);
   const contentRef = useRef<HTMLDivElement>(null);
   const getScrollEl = useCallback(() => {
     const el = contentRef.current;
@@ -254,7 +259,16 @@ function App() {
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, undefined, setNavError);
   const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
 
-  const queueHook = useQueue(restoredRef, playback.handlePlay);
+  const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context) => {
+    // Record the "Latest play" session for anything that replaces the queue.
+    // Guarded so the startup queue-restore doesn't masquerade as a fresh play.
+    if (!restoredRef.current) return;
+    const session = buildPlaySession(tracks, startIndex, context, Date.now());
+    if (!session) return;
+    const next = recordPlaySession(recentPlaysRef.current, session);
+    recentPlaysRef.current = next;
+    store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
+  });
   const autoContinue = useAutoContinue(restoredRef);
   const mini = useMiniMode(restoredRef);
   const videoLayout = useVideoLayout(restoredRef);
@@ -1027,7 +1041,48 @@ function App() {
   }, [contextMenuActions, pluginTrackToQueueTrack, queueHook]);
 
   // Home shelf item click handler
+  // Replay a "Latest play" tile. Re-resolves by source rather than replaying a
+  // stored track list: library entities play fresh from the current library,
+  // radio regenerates a new station, and a lone/unresolved track replays itself.
+  const handleReplayLatestPlay = useCallback(async (session: RecentPlaySession) => {
+    try {
+      if (session.source === "album") {
+        const a = await invoke<Album | null>("find_album_by_name", { title: session.name, artistName: session.artistName ?? null });
+        if (a) { playActions.playAlbum(a.id); return; }
+      } else if (session.source === "artist") {
+        const ar = await invoke<Artist | null>("find_artist_by_name", { name: session.name });
+        if (ar) { playActions.playArtist(ar.id); return; }
+      } else if (session.source === "tag") {
+        const t = await invoke<Tag | null>("find_tag_by_name", { name: session.name });
+        if (t) { playActions.playTag(t.id); return; }
+      } else if (session.source === "radio") {
+        // Seed from the stored seed track when present: its artist is required to
+        // re-resolve the station (and this rescues sessions saved before the seed
+        // artist was captured). Fall back to the stored seed title/artist fields.
+        const seedTitle = session.track?.title ?? session.seedTitle ?? null;
+        const seedArtist = session.track?.artist_name ?? session.seedArtist ?? null;
+        if (seedTitle) {
+          await playActions.startRadio({ title: seedTitle, artistName: seedArtist, coverPath: session.imagePath ?? null });
+          return;
+        }
+      }
+      // track / playlist / unresolved library entity → replay the captured lead track.
+      if (session.track) { queueHook.playTracks([session.track], 0); return; }
+      notify(`Couldn't replay “${session.name}”.`);
+    } catch (e) {
+      console.error("Failed to replay latest-play session:", e);
+      notify(`Couldn't replay “${session.name}”.`);
+    }
+  }, [playActions, queueHook, notify]);
+
   const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
+    // The "Latest play" shelf re-resolves each tile to a fresh play (see
+    // handleReplayLatestPlay); it does not navigate or use the empty `tracks`.
+    if (shelf.id === LATEST_PLAY_SHELF_ID) {
+      const sess = (item as { __session?: RecentPlaySession }).__session;
+      if (sess) void handleReplayLatestPlay(sess);
+      return;
+    }
     // A plugin shelf can take over its own card-clicks (e.g. Spotify navigates
     // into its playlist view). If a handler is registered, let it win.
     if (shelf.pluginId && plugins.invokeHomeShelfItemClick(shelf.pluginId, shelf.id.slice(shelf.pluginId.length + 1), item)) {
@@ -1076,9 +1131,15 @@ function App() {
     // track-rows — open the track detail page (synthetic if not in library)
     const it = item as { track: PluginTrack };
     library.navigateToTrackByName(it.track.title, it.track.artist_name ?? undefined, it.track.album_title ?? undefined).catch(console.error);
-  }, [library, playShelfPlaylistItem, plugins]);
+  }, [library, playShelfPlaylistItem, plugins, handleReplayLatestPlay]);
 
   const handleHomeShelfItemPlay = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
+    // "Latest play" tiles replay their session (the shipped `tracks` are empty).
+    if (shelf.id === LATEST_PLAY_SHELF_ID) {
+      const sess = (item as { __session?: RecentPlaySession }).__session;
+      if (sess) void handleReplayLatestPlay(sess);
+      return;
+    }
     const action = resolveShelfPlayAction(shelf.displayKind, item);
     switch (action.kind) {
       case "album-id":
@@ -1124,7 +1185,7 @@ function App() {
       case "none":
         return;
     }
-  }, [playActions, contextMenuActions, pluginTrackToQueueTrack, queueHook]);
+  }, [playActions, contextMenuActions, pluginTrackToQueueTrack, queueHook, handleReplayLatestPlay]);
 
   const handleHomeShelfItemContextMenu = useCallback((_shelf: ResolvedShelf, _item: HomeShelfItem, e: React.MouseEvent) => {
     e.preventDefault();
@@ -1574,6 +1635,8 @@ function App() {
     (async () => {
       const stored = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
       recentlyVisitedRef.current = stored;
+      const plays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
+      recentPlaysRef.current = plays;
     })();
   }, []);
 
