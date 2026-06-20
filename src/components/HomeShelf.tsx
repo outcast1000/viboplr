@@ -107,17 +107,22 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   const onCtx = (e: React.MouseEvent) => { e.preventDefault(); ctx.onItemContextMenu(shelf, item, e); };
 
   if (shelf.displayKind === "album-cards") {
-    const it = item as { libraryId?: number; name: string; artistName?: string; coverUrl?: string };
-    const src = resolveImagePath(it.coverUrl ?? ctx.albumImageFor(it.name, it.artistName));
+    const it = item as { libraryId?: number; name: string; artistName?: string; coverUrl?: string; entityKind?: "album" | "artist" };
+    // Mixed shelves (e.g. builtin:jump-back-in) tag artist items: render them
+    // circular with an artist-image lookup, matching the artist-cards look.
+    const isArtist = it.entityKind === "artist";
+    const src = resolveImagePath(
+      it.coverUrl ?? (isArtist ? ctx.artistImageFor(it.name) : ctx.albumImageFor(it.name, it.artistName)),
+    );
     return (
-      <div key={`${idx}-${it.name}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
+      <div key={`${idx}-${it.name}`} className={`ds-card home-shelf-card${isArtist ? " ds-card--circular" : ""}`} onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
           {src ? <img src={src} alt={it.name} /> : <div className="home-shelf-card-fallback">{it.name[0]?.toUpperCase() ?? "?"}</div>}
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
           <div className="ds-card-title">{it.name}</div>
-          {it.artistName && <div className="ds-card-subtitle">{it.artistName}</div>}
+          {!isArtist && it.artistName && <div className="ds-card-subtitle">{it.artistName}</div>}
         </div>
       </div>
     );

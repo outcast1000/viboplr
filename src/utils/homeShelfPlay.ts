@@ -22,7 +22,12 @@ export function resolveShelfPlayAction(
   item: HomeShelfItem,
 ): ShelfPlayAction {
   if (displayKind === "album-cards") {
-    const it = item as { libraryId?: number; name: string; tracks?: PluginTrack[] };
+    const it = item as { libraryId?: number; name: string; tracks?: PluginTrack[]; entityKind?: "album" | "artist" };
+    // Mixed shelves tag artist items so the play button plays the artist, not an
+    // album row that happens to share the id.
+    if (it.entityKind === "artist") {
+      return it.libraryId ? { kind: "artist-id", id: it.libraryId } : { kind: "none" };
+    }
     if (it.libraryId) return { kind: "album-id", id: it.libraryId };
     if (it.tracks?.length) return { kind: "tracks", tracks: it.tracks, context: { name: it.name } };
     return { kind: "none" };

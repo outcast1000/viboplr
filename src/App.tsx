@@ -1037,7 +1037,17 @@ function App() {
     // button on the card handles playing). Name-based navigation falls back to
     // a synthetic detail page when the entity isn't in the library.
     if (shelf.displayKind === "album-cards") {
-      const it = item as { libraryId?: number; name: string; artistName?: string };
+      const it = item as { libraryId?: number; name: string; artistName?: string; entityKind?: "album" | "artist" };
+      // Mixed shelves (e.g. builtin:jump-back-in) tag artist items so a single
+      // album-cards shelf can route each card to the correct detail page.
+      if (it.entityKind === "artist") {
+        if (it.libraryId) {
+          library.handleArtistClick(it.libraryId, it.name);
+        } else {
+          library.navigateToArtistByName(it.name).catch(console.error);
+        }
+        return;
+      }
       if (it.libraryId) {
         // Route through the canonical handler so the view switches to the
         // detail page (it also pushes nav history + clears other selections).

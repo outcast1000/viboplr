@@ -26,6 +26,21 @@ describe("resolveShelfPlayAction", () => {
     expect(resolveShelfPlayAction("artist-cards", item)).toEqual({ kind: "artist-id", id: 9 });
   });
 
+  it("album-cards item tagged entityKind=artist → artist-id (mixed jump-back-in shelf)", () => {
+    const item = { libraryId: 9, name: "Artist", entityKind: "artist" } as HomeShelfItem;
+    expect(resolveShelfPlayAction("album-cards", item)).toEqual({ kind: "artist-id", id: 9 });
+  });
+
+  it("album-cards item tagged entityKind=artist without libraryId → none", () => {
+    const item = { name: "Artist", entityKind: "artist" } as HomeShelfItem;
+    expect(resolveShelfPlayAction("album-cards", item)).toEqual({ kind: "none" });
+  });
+
+  it("album-cards item tagged entityKind=album → album-id (default path)", () => {
+    const item = { libraryId: 5, name: "Album", entityKind: "album" } as HomeShelfItem;
+    expect(resolveShelfPlayAction("album-cards", item)).toEqual({ kind: "album-id", id: 5 });
+  });
+
   it("artist without libraryId → none", () => {
     const item = { name: "Artist" } as HomeShelfItem;
     expect(resolveShelfPlayAction("artist-cards", item)).toEqual({ kind: "none" });

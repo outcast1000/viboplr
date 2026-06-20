@@ -678,10 +678,10 @@ export function useHome(opts: UseHomeOptions) {
               for (const v of sorted) {
                 if (v.kind === "album") {
                   const a = await invoke<Album | null>("get_album_by_id", { albumId: v.id });
-                  if (a) items.push({ libraryId: a.id, name: a.title, artistName: a.artist_name ?? undefined });
+                  if (a) items.push({ libraryId: a.id, name: a.title, artistName: a.artist_name ?? undefined, entityKind: "album" });
                 } else {
                   const ar = await invoke<Artist | null>("get_artist_by_id", { artistId: v.id });
-                  if (ar) items.push({ libraryId: ar.id, name: ar.name });
+                  if (ar) items.push({ libraryId: ar.id, name: ar.name, entityKind: "artist" });
                 }
               }
               return { status: "ok", items };

@@ -495,6 +495,10 @@ export type HomeShelfItem =
       artistName?: string;
       coverUrl?: string;
       tracks?: PluginTrack[];
+      // Per-item override for mixed album/artist shelves (e.g. builtin:jump-back-in).
+      // When "artist", `libraryId` is an artist id and the card renders, navigates,
+      // and plays as an artist. Absent or "album" = album (default, back-compatible).
+      entityKind?: "album" | "artist";
     }
   | {
       // artist-cards
