@@ -1,10 +1,11 @@
 import { useRef } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "../hooks/useHome";
 import { shelfDescriptionFor } from "../hooks/useHome";
 import type { HomeShelfItem, PluginTrack } from "../types/plugin";
 import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { resolveTrackImage } from "../utils/trackImage";
 import "./HomeView.css";
 
 // First track's album image, falling back to its artist image — the on-demand
@@ -21,18 +22,6 @@ function playlistFallbackImage(
     (seed.album_title ? albumImageFor(seed.album_title, seed.artist_name ?? undefined) : null) ??
     (seed.artist_name ? artistImageFor(seed.artist_name) : null)
   );
-}
-
-// Resolve any image path (http URL, data URI, or local filesystem path with
-// optional `#v=...` cache-busting fragment) to a value usable in <img src>.
-function resolveImagePath(path: string | null | undefined): string | null {
-  if (!path) return null;
-  if (path.startsWith("http") || path.startsWith("data:")) return path;
-  const hashIdx = path.indexOf("#");
-  if (hashIdx >= 0) {
-    return convertFileSrc(path.slice(0, hashIdx)) + path.slice(hashIdx);
-  }
-  return convertFileSrc(path);
 }
 
 export interface HomeShelfProps {
@@ -111,7 +100,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     // Mixed shelves (e.g. builtin:jump-back-in) tag artist items: render them
     // circular with an artist-image lookup, matching the artist-cards look.
     const isArtist = it.entityKind === "artist";
-    const src = resolveImagePath(
+    const src = resolveImageUrl(
       it.coverUrl ?? (isArtist ? ctx.artistImageFor(it.name) : ctx.albumImageFor(it.name, it.artistName)),
     );
     return (
@@ -129,7 +118,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   }
   if (shelf.displayKind === "artist-cards") {
     const it = item as { libraryId?: number; name: string; imageUrl?: string };
-    const src = resolveImagePath(it.imageUrl ?? ctx.artistImageFor(it.name));
+    const src = resolveImageUrl(it.imageUrl ?? ctx.artistImageFor(it.name));
     return (
       <div key={`${idx}-${it.name}`} className="ds-card ds-card--circular home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
@@ -144,7 +133,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   }
   if (shelf.displayKind === "playlist-cards") {
     const it = item as { id: string; name: string; coverUrl?: string; subtitle?: string; tracks?: PluginTrack[] };
-    const src = resolveImagePath(it.coverUrl ?? playlistFallbackImage(it.tracks, ctx.albumImageFor, ctx.artistImageFor));
+    const src = resolveImageUrl(it.coverUrl ?? playlistFallbackImage(it.tracks, ctx.albumImageFor, ctx.artistImageFor));
     return (
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
@@ -160,17 +149,14 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   }
   // track-rows
   const it = item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } };
-  const explicit = it.track.image_url ?? null;
-  const videoKey = shelfVideoKey(it.track.artist_name, it.track.title);
-  // videoFrame is already a converted file URL from VideoFrameQueue — do NOT pass through resolveImagePath.
-  const videoFrame = !explicit ? ctx.videoFrames[videoKey] ?? null : null;
-  const albumPath = !explicit && !videoFrame && it.track.album_title
-    ? ctx.albumImageFor(it.track.album_title, it.track.artist_name)
-    : null;
-  const artistPath = !explicit && !videoFrame && !albumPath && it.track.artist_name
-    ? ctx.artistImageFor(it.track.artist_name)
-    : null;
-  const src = videoFrame ?? resolveImagePath(explicit ?? albumPath ?? artistPath);
+  // Shared chain (image_url → video frame → album → artist), identical to the
+  // queue panel. Video frame URLs from the queue are already converted and used
+  // verbatim; everything else goes through resolveImageUrl inside the helper.
+  const src = resolveTrackImage(it.track, {
+    albumImageFor: ctx.albumImageFor,
+    artistImageFor: ctx.artistImageFor,
+    videoFrame: ctx.videoFrames[shelfVideoKey(it.track.artist_name, it.track.title)] ?? null,
+  });
   return (
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>
       <div className="ds-card-art">

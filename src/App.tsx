@@ -20,6 +20,7 @@ import { tracksFromManifest, contextFromManifest, contextToExportMetadata, conte
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl } from "./utils/resolveImageUrl";
+import { pickEntityImagePath } from "./utils/trackImage";
 import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
@@ -1817,9 +1818,13 @@ function App() {
     const stamp = (img: string) => playback.setCurrentTrack(prev =>
       prev && !prev.image_url && prev.path === track.path ? { ...prev, image_url: img } : prev);
     const applyEntityFallback = () => {
-      const img = (track.album_title && albumImageCache.getImage(track.album_title, track.artist_name ?? undefined))
-        || (track.artist_name && artistImageCache.getImage(track.artist_name))
-        || null;
+      // Same album→artist sequence as the queue/home shelves (pickEntityImagePath),
+      // but we stamp the RAW path — NowPlayingBar converts it via resolveImageUrl
+      // at render, so this must not pre-convert.
+      const img = pickEntityImagePath(track, {
+        albumImageFor: albumImageCache.getImage,
+        artistImageFor: artistImageCache.getImage,
+      });
       if (img) stamp(img);
     };
     (async () => {

@@ -229,6 +229,11 @@ pub struct HistoryEntry {
     pub display_title: String,
     pub display_artist: Option<String>,
     pub play_count: i64,
+    // Resolved on read by matching display_title + display_artist against the
+    // library (history itself stores no album). None when the play has no
+    // matching library track. Powers album-cover lookup on the Home "Recently
+    // played" shelf.
+    pub display_album: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

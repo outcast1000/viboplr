@@ -5,6 +5,7 @@ import { formatDuration } from "../utils";
 import { queueItemLocalThumb, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { resolveTrackImage } from "../utils/trackImage";
 import { useImageCache } from "../hooks/useImageCache";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { SpinningDisc } from "./SpinningDisc";
@@ -241,21 +242,14 @@ export function QueuePanel({
   const artistImages = useImageCache("artist");
   const videoFrames = useQueueVideoFrames(queue);
 
-  const getTrackImage = useCallback((t: QueueTrack): string | null => {
-    if (t.image_url) return resolveImageUrl(t.image_url) ?? null;
-    // Video frame URLs from the queue are already converted — use as-is.
-    const vf = videoFrames[shelfVideoKey(t.artist_name, t.title)];
-    if (vf) return vf;
-    if (t.album_title) {
-      const a = albumImages.getImage(t.album_title, t.artist_name ?? null);
-      if (a) return resolveImageUrl(a) ?? null;
-    }
-    if (t.artist_name) {
-      const ar = artistImages.getImage(t.artist_name);
-      if (ar) return resolveImageUrl(ar) ?? null;
-    }
-    return null;
-  }, [videoFrames, albumImages, artistImages]);
+  const getTrackImage = useCallback((t: QueueTrack): string | null =>
+    resolveTrackImage(t, {
+      albumImageFor: albumImages.getImage,
+      artistImageFor: artistImages.getImage,
+      // Video frame URLs from the queue are already converted — passed verbatim.
+      videoFrame: videoFrames[shelfVideoKey(t.artist_name, t.title)] ?? null,
+    }),
+  [videoFrames, albumImages, artistImages]);
 
   // Scroll to currently playing track when panel opens or un-collapses
   useEffect(() => {

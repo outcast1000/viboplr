@@ -122,6 +122,9 @@ export interface HistoryEntry {
   display_title: string;
   display_artist: string | null;
   play_count: number;
+  // Album resolved from the library by title+artist (history stores none).
+  // Null when no matching library track exists.
+  display_album: string | null;
 }
 
 export interface HistoryMostPlayed {

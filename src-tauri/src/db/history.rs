@@ -588,9 +588,25 @@ impl Database {
 
     pub fn get_history_recent(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
         let conn = self.conn.lock().unwrap();
+        // History stores no album, so resolve one per row by matching the
+        // display title + artist against the library (diacritic-insensitive, the
+        // same normalization find_track_by_metadata uses). Local copies win, then
+        // subsonic, then anything else; the most-recently-added album breaks
+        // further ties. NULL when no enabled library track matches.
         let mut stmt = conn.prepare(
             "SELECT hp.id, ht.id, hp.played_at, ht.display_title, ha.display_name,
-                    ht.play_count
+                    ht.play_count,
+                    (SELECT al.title
+                       FROM tracks t
+                       JOIN artists ar ON t.artist_id = ar.id
+                       JOIN albums al ON t.album_id = al.id
+                       LEFT JOIN collections co ON t.collection_id = co.id
+                      WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(ht.display_title))
+                        AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(ha.display_name))
+                        AND (t.collection_id IS NULL OR co.enabled = 1)
+                      ORDER BY CASE WHEN co.kind = 'local' THEN 0 WHEN co.kind = 'subsonic' THEN 1 ELSE 2 END,
+                               al.id DESC
+                      LIMIT 1) AS display_album
              FROM history_plays hp
              JOIN history_tracks ht ON ht.id = hp.history_track_id
              JOIN history_artists ha ON ha.id = ht.history_artist_id
@@ -605,6 +621,7 @@ impl Database {
                 display_title: row.get(3)?,
                 display_artist: row.get(4)?,
                 play_count: row.get(5)?,
+                display_album: row.get(6)?,
             })
         })?;
         rows.collect()

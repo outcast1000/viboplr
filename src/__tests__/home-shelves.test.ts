@@ -3,9 +3,11 @@ import {
   resolveShelves,
   findUnattemptedShelfKeys,
   findUnattemptedBuiltInKeys,
+  resolveSessionCover,
   RADIO_SHELF_ID,
   type ShelfResolver,
 } from "../hooks/useHome";
+import type { RecentPlaySession } from "../utils/recentPlays";
 
 function makeResolver(name: string, fn: () => Promise<unknown>): ShelfResolver {
   return { id: name, title: name, displayKind: "album-cards", limit: 5, fetch: fn as ShelfResolver["fetch"] };
@@ -91,5 +93,51 @@ describe("findUnattemptedBuiltInKeys", () => {
     const attempted = new Set<string>();
     const visibility = { [RADIO_SHELF_ID]: true };
     expect(findUnattemptedBuiltInKeys(visibility, attempted)).not.toContain(RADIO_SHELF_ID);
+  });
+});
+
+describe("resolveSessionCover", () => {
+  function session(overrides: Partial<RecentPlaySession>): RecentPlaySession {
+    return { source: "track", name: "X", ts: 0, ...overrides };
+  }
+
+  it("prefers the cover captured at play time", async () => {
+    const resolve = vi.fn(async () => "/should/not/be/called.jpg");
+    const cover = await resolveSessionCover(
+      session({ source: "album", name: "Greatest", imagePath: "/captured.jpg" }),
+      resolve,
+    );
+    expect(cover).toBe("/captured.jpg");
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("re-resolves an album session by name when no captured cover", async () => {
+    const resolve = vi.fn(async (album: string | null | undefined) => (album === "Greatest" ? "/album.jpg" : null));
+    const cover = await resolveSessionCover(session({ source: "album", name: "Greatest", artistName: "Artie" }), resolve);
+    expect(cover).toBe("/album.jpg");
+    expect(resolve).toHaveBeenCalledWith("Greatest", "Artie");
+  });
+
+  it("re-resolves an artist session by name", async () => {
+    const resolve = vi.fn(async (_album: string | null | undefined, artist: string | null | undefined) => (artist === "Artie" ? "/artist.jpg" : null));
+    const cover = await resolveSessionCover(session({ source: "artist", name: "Artie" }), resolve);
+    expect(cover).toBe("/artist.jpg");
+    expect(resolve).toHaveBeenCalledWith(null, "Artie");
+  });
+
+  it("falls back to the lead track's album/artist for non-entity sources", async () => {
+    const resolve = vi.fn(async (album: string | null | undefined) => (album === "Tape Album" ? "/track-album.jpg" : null));
+    const cover = await resolveSessionCover(
+      session({ source: "tag", name: "chill", track: { key: "ext:1", path: null, title: "Song", artist_name: "Artie", album_title: "Tape Album", duration_secs: null, format: null, liked: 0 } }),
+      resolve,
+    );
+    expect(cover).toBe("/track-album.jpg");
+    expect(resolve).toHaveBeenCalledWith("Tape Album", "Artie");
+  });
+
+  it("returns null when nothing resolves (placeholder territory)", async () => {
+    const resolve = vi.fn(async () => null);
+    const cover = await resolveSessionCover(session({ source: "playlist", name: "Mix" }), resolve);
+    expect(cover).toBeNull();
   });
 });

@@ -135,6 +135,32 @@ async function resolveCover(
   return null;
 }
 
+// Cover for a "Latest play" tile, in priority order:
+//   1. the cover captured at play time (s.imagePath),
+//   2. name-based re-resolution for the entity the session names (album/artist),
+//   3. the lead track's album → artist image (the session keeps `s.track`
+//      precisely so we can re-resolve imagery without snapshotting tracks).
+// `resolve` is injected (defaults to resolveCover) so this stays unit-testable.
+// Returns null → the shelf renders the first-letter placeholder.
+export async function resolveSessionCover(
+  s: RecentPlaySession,
+  resolve: (albumTitle: string | null | undefined, artistName: string | null | undefined) => Promise<string | null> = resolveCover,
+): Promise<string | null> {
+  if (s.imagePath) return s.imagePath;
+  if (s.source === "album") {
+    const c = await resolve(s.name, s.artistName);
+    if (c) return c;
+  } else if (s.source === "artist") {
+    const c = await resolve(null, s.name);
+    if (c) return c;
+  }
+  if (s.track) {
+    const c = await resolve(s.track.album_title, s.track.artist_name);
+    if (c) return c;
+  }
+  return null;
+}
+
 // Build the radio shelf from resolved stations.
 export function buildRadioShelf(stations: RadioStation[]): ResolvedShelf {
   return {
@@ -339,6 +365,9 @@ export function useHome(opts: UseHomeOptions) {
                   track: {
                     title: h.display_title,
                     artist_name: h.display_artist ?? undefined,
+                    // Library-resolved album (history stores none) → album cover
+                    // via the shared chain, artist-image fallback when absent.
+                    album_title: h.display_album ?? undefined,
                   },
                 });
                 if (items.length >= limit) break;
@@ -710,13 +739,9 @@ export function useHome(opts: UseHomeOptions) {
               const sorted = [...recentPlays].sort((a, b) => b.ts - a.ts).slice(0, limit);
               const items: HomeShelfItem[] = [];
               for (const s of sorted) {
-                // Prefer the cover captured at play time; otherwise re-resolve by
-                // name for library entities (cache-only, within the shelf budget).
-                let cover = s.imagePath ?? null;
-                if (!cover) {
-                  if (s.source === "album") cover = await resolveCover(s.name, s.artistName);
-                  else if (s.source === "artist") cover = await resolveCover(null, s.name);
-                }
+                // Cover chain (cache-only, within the shelf budget): captured
+                // cover → named album/artist → lead track's album/artist.
+                const cover = await resolveSessionCover(s);
                 items.push({
                   id: sessionKey(s),
                   name: s.name,

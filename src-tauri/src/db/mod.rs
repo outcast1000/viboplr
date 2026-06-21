@@ -1217,6 +1217,26 @@ mod tests {
     }
 
     #[test]
+    fn test_history_recent_resolves_album_from_library() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Artie").unwrap();
+        let album = db.get_or_create_album("Greatest Hits", Some(artist), None).unwrap();
+        let with_album = insert_track(&db, "a.mp3", "Song A", Some(artist), Some(album));
+        let without_album = insert_track(&db, "b.mp3", "Song B", Some(artist), None);
+
+        db.record_play(with_album).unwrap();
+        db.record_play(without_album).unwrap();
+
+        let recent = db.get_history_recent(10).unwrap();
+        // History stores no album; get_history_recent resolves it by title+artist.
+        let a = recent.iter().find(|e| e.display_title == "Song A").expect("Song A in history");
+        assert_eq!(a.display_album.as_deref(), Some("Greatest Hits"));
+        // A play whose library track has no album resolves to None (→ artist-image fallback).
+        let b = recent.iter().find(|e| e.display_title == "Song B").expect("Song B in history");
+        assert_eq!(b.display_album, None);
+    }
+
+    #[test]
     fn test_collection_crud() {
         let db = test_db();
         let col = db.add_collection("local", "My Music", Some("/music"), None, None, None, None, None).unwrap();

@@ -3,6 +3,9 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 export function resolveImageUrl(url: string | undefined | null): string | undefined {
   if (!url) return undefined;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  // data: URIs (e.g. a plugin-supplied inline cover) are usable as-is — never
+  // run them through convertFileSrc, which would treat them as a file path.
+  if (url.startsWith("data:")) return url;
   // Plugins can append `#v=N` to a local path to bust the WebView's image
   // cache when the underlying file is rewritten in place (e.g. Spotify's
   // weekly-rotating Discover Weekly cover). Translate to `?v=N` so the URL
