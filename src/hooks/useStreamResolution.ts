@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import type { Track, QueueTrack, ResolvedTrackSource } from "../types";
-import { parseUrlScheme, isRemoteScheme } from "../queueEntry";
+import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource } from "../types";
+import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, type EffectiveSource } from "../queueEntry";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
@@ -31,6 +31,9 @@ interface UseStreamResolutionDeps {
   streamResolversRef: React.MutableRefObject<StreamResolver[]>;
   /** Latest plugin stream-URI resolver (`plugins.resolveStreamByUri`). */
   resolveStreamByUri: (scheme: string, id: string, quality?: string | null) => Promise<string>;
+  /** Maps a custom URL scheme to its owning plugin id (`plugins.streamUriResolverOwner`).
+   *  Lets a native plugin scheme (e.g. `tidal://`) classify to `{ kind: "plugin", pluginId }`. */
+  streamUriResolverOwner: (scheme: string) => string | null;
   /** Surfaces the platform-aware dependency install modal (`dependencies.requireDep`). */
   requireDep: (name: string, feature: string) => Promise<boolean>;
   /** Current queue — drives pruning of stale per-track resolve failures. */
@@ -54,6 +57,7 @@ export function useStreamResolution({
   resolveStreamByUriRef,
   streamResolversRef,
   resolveStreamByUri,
+  streamUriResolverOwner,
   requireDep,
   queue,
   currentTrack,
@@ -62,13 +66,18 @@ export function useStreamResolution({
   // Persistent per-track resolve failures, keyed by QueueTrack.key. Survives track
   // changes so the failed row keeps explaining what happened until a later retry succeeds.
   const [resolveFailures, setResolveFailures] = useState<Record<string, string>>({});
-  const [resolvedSource, setResolvedSource] = useState<{ name: string; url: string; sourceUrl: string | null; id: string | null } | null>(null);
+  const [resolvedSource, setResolvedSource] = useState<ResolvedSource | null>(null);
   const resolveGenerationRef = useRef(0);
 
   // `requireDep` is read inside the build-once resolver below; keep it in a ref so
   // the resolver always calls the latest one without re-building the chain.
   const requireDepRef = useRef(requireDep);
   requireDepRef.current = requireDep;
+
+  // Scheme→owner lookup, read inside the build-once resolver. Kept fresh in a ref
+  // so the chain always sees the current plugin set without rebuilding.
+  const ownerRef = useRef(streamUriResolverOwner);
+  ownerRef.current = streamUriResolverOwner;
 
   useEffect(() => {
     resolveStreamByUriRef.current = resolveStreamByUri;
@@ -100,7 +109,7 @@ export function useStreamResolution({
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; patch?: Partial<QueueTrack>; resolve: () => Promise<string> }
+      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; resolve: () => Promise<string> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote OR path-less tracks
@@ -117,6 +126,8 @@ export function useStreamResolution({
               name: "Library",
               id: null,
               sourceUrl: localPath,
+              // Matched a local file copy → bytes are on disk → nothing to download.
+              effectiveSource: { kind: "local" },
               // Carry the matched file's path + format so the play path can
               // re-classify a path-less track (e.g. a Home track-row) as video.
               patch: { path: localMatch.path, format: localMatch.format },
@@ -131,12 +142,13 @@ export function useStreamResolution({
       // Native resolver first (if track has a known URL)
       if (url) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
-          chain.push({ name: "Direct URL", id: null, sourceUrl: url, resolve: () => Promise.resolve(url) });
+          chain.push({ name: "Direct URL", id: null, sourceUrl: url, effectiveSource: classifyEffectiveSource(url, ownerRef.current), resolve: () => Promise.resolve(url) });
         } else {
           chain.push({
             name: nativeResolverName(url),
             id: null,
             sourceUrl: url,
+            effectiveSource: classifyEffectiveSource(url, ownerRef.current),
             resolve: async () => {
               const parsed = parseUrlScheme(url);
               if (parsed.scheme === "file" && needsTranscode(track)) {
@@ -168,10 +180,15 @@ export function useStreamResolution({
 
       // Append user-configured stream resolvers
       for (const sr of streamResolversRef.current) {
+        // A plugin resolver streams from its own plugin; the built-in Library
+        // resolver streams from whatever the matched row points at (file/subsonic/
+        // plugin), so it's classified from the resolved URL inside resolve().
+        const isBuiltinLibrary = sr.source === "built-in";
         const entry: ResolverEntry = {
           name: sr.name,
           id: sr.id,
           sourceUrl: null,
+          effectiveSource: isBuiltinLibrary ? null : { kind: "plugin", pluginId: sr.source },
           resolve: async () => {
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
@@ -179,6 +196,7 @@ export function useStreamResolution({
             ]);
             if (!result) throw new Error("No result");
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
+            if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
             return resolveUrl(result.url);
           },
         };
@@ -206,7 +224,7 @@ export function useStreamResolution({
             delete next[track.key];
             return next;
           });
-          setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id });
+          setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id, effectiveSource: entry.effectiveSource ?? { kind: "direct-url", uri: src } });
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
           }

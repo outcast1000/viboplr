@@ -204,3 +204,45 @@ export function isRemoteScheme(url: string): boolean {
   if (url.startsWith("http://") || url.startsWith("https://")) return false;
   return true;
 }
+
+/**
+ * Where the bytes a track is playing actually come from — the "effective source"
+ * of the *winning* playback-resolution entry, regardless of the track's original
+ * scheme. This is the single thing that drives the now-playing download button
+ * (visibility + which downloader) and the source label. See `decideDownload`.
+ *
+ * - `local`      — a file on disk (file://). Nothing to download.
+ * - `subsonic`   — a Subsonic/Navidrome server stream. Downloads via the built-in provider.
+ * - `plugin`     — streamed by a plugin (stream resolver win, native plugin scheme,
+ *                  or a plugin-collection library row). Downloads via that plugin's
+ *                  download provider, if it contributes one. `uri` is set when a
+ *                  native scheme URL is available (prefer by-uri resolution over metadata).
+ * - `direct-url` — a raw http(s) URL with no owning plugin. Nothing to download.
+ */
+export type EffectiveSource =
+  | { kind: "local" }
+  | { kind: "subsonic"; uri: string }
+  | { kind: "plugin"; pluginId: string; uri?: string }
+  | { kind: "direct-url"; uri: string };
+
+/**
+ * Classify a resolved playback URI into its `EffectiveSource`. Used for native
+ * scheme entries (the track's own `path`) and for the built-in Library resolver
+ * (the matched library row's `path`). Plugin *stream resolver* wins are classified
+ * directly as `{ kind: "plugin", pluginId }` by the caller (no URI scheme to parse).
+ *
+ * `getSchemeOwner(scheme)` maps a custom URL scheme to the plugin id that
+ * registered `onResolveStreamByUri` for it (so a native `tidal://` maps to the
+ * TIDAL plugin's downloader). Returns null when unknown; the scheme string is then
+ * used as the plugin id, which simply finds no provider and hides the button.
+ */
+export function classifyEffectiveSource(
+  uri: string,
+  getSchemeOwner: (scheme: string) => string | null,
+): EffectiveSource {
+  if (!uri.includes("://") || uri.startsWith("file://")) return { kind: "local" };
+  if (uri.startsWith("http://") || uri.startsWith("https://")) return { kind: "direct-url", uri };
+  if (uri.startsWith("subsonic://")) return { kind: "subsonic", uri };
+  const scheme = uri.substring(0, uri.indexOf("://"));
+  return { kind: "plugin", pluginId: getSchemeOwner(scheme) ?? scheme, uri };
+}

@@ -31,6 +31,7 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 import { usePlayback } from "./hooks/usePlayback";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
+import { decideDownload } from "./utils/downloadPlan";
 import { useQueue } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
 import { useToasts } from "./hooks/useToasts";
@@ -384,6 +385,7 @@ function App() {
     resolveStreamByUriRef,
     streamResolversRef,
     resolveStreamByUri: plugins.resolveStreamByUri,
+    streamUriResolverOwner: plugins.streamUriResolverOwner,
     requireDep: dependencies.requireDep,
     queue: queueHook.queue,
     currentTrack: playback.currentTrack,
@@ -810,8 +812,17 @@ function App() {
     contextMenu: contextMenuActions.contextMenu,
     libraryTracks: library.tracks,
     queue: queueHook.queue,
-    handleDownloadTrackFallback: contextMenuActions.handleDownloadTrack,
   });
+
+  // The single decision for the now-playing download button: whether it shows
+  // (plan != null) and which downloader it opens — derived from the winning
+  // playback source's EffectiveSource. See `decideDownload` / the matrix.
+  const downloadPlan = useMemo(
+    () => (playback.currentTrack && resolvedSource
+      ? decideDownload(resolvedSource.effectiveSource, playback.currentTrack, downloadProviders)
+      : null),
+    [playback.currentTrack, resolvedSource, downloadProviders],
+  );
 
   const handleDeleteTracks = useCallback((trackIds: number[]) => {
     const idSet = new Set(trackIds);
@@ -3707,7 +3718,7 @@ function App() {
         }}
         getAlbumImage={albumImageCache.getImage}
         getArtistImage={artistImageCache.getImage}
-        onDownloadTrack={playback.currentTrack ? () => openDownloadForCurrentTrack(playback.currentTrack!, resolvedSource) : undefined}
+        onDownloadTrack={playback.currentTrack && downloadPlan ? () => openDownloadForCurrentTrack(playback.currentTrack!, downloadPlan) : undefined}
         tagSuggestions={tagSuggestionPool}
         invokeInfoFetch={plugins.invokeInfoFetch}
         pluginsLoaded={plugins.pluginsLoaded}

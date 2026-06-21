@@ -2007,6 +2007,16 @@ export function usePlugins(
     [],
   );
 
+  // Plugin id that owns a custom URL scheme (registered via onResolveStreamByUri).
+  // Mirrors `resolveStreamByUri`'s lookup so a native `tidal://` track can map back
+  // to the TIDAL plugin's download provider. Null when no plugin owns the scheme.
+  const streamUriResolverOwner = useCallback((scheme: string): string | null => {
+    for (const [, lp] of loadedPluginsRef.current) {
+      if (lp.streamUriResolvers.has(scheme)) return lp.id;
+    }
+    return null;
+  }, []);
+
   const invokeHomeShelf = useCallback(
     async (pluginId: string, shelfId: string, limit: number): Promise<HomeShelfResult> => {
       const handler = homeShelfHandlersRef.current.get(`${pluginId}:${shelfId}`);
@@ -2116,6 +2126,7 @@ export function usePlugins(
     hasInteractiveDownload,
     invokeGetQualities,
     resolveStreamByUri,
+    streamUriResolverOwner,
     invokeHomeShelf,
   };
 }

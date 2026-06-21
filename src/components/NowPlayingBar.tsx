@@ -3,11 +3,11 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode } from "../types";
+import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode, ResolvedSource } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
-import { isRemoteScheme, isLocalTrack } from "../queueEntry";
+import { isLocalTrack } from "../queueEntry";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { EqPopover } from "./EqPopover";
 import { EqBarControl } from "./EqBarControl";
@@ -25,22 +25,13 @@ import "./NowPlayingBar.css";
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 const isMac = navigator.platform.includes("Mac");
 
-type ResolvedSource = { name: string; url: string; sourceUrl?: string | null; id?: string | null } | null;
-
-// Decide whether the *effective* playback source is a local file. This accounts for
-// the resolver chain rather than the track's path scheme: a remote track served from a
-// local Library copy plays locally, while a local-path track that fell through to a
-// remote resolver plays remotely. Falls back to the path scheme when no resolver has
-// reported yet.
-function isEffectivelyLocal(track: { path?: string | null }, resolvedSource: ResolvedSource): boolean {
-  if (resolvedSource) {
-    if (resolvedSource.name === "Local") return true;
-    // The Library fallback plays a local file copy; its sourceUrl is the filesystem path.
-    if (resolvedSource.name === "Library") {
-      return !!resolvedSource.sourceUrl && !resolvedSource.sourceUrl.startsWith("http");
-    }
-    return false;
-  }
+// Decide whether the *effective* playback source is a local file, using the winning
+// resolver's classified EffectiveSource rather than the track's path scheme: a remote
+// track served from a local Library copy plays locally, while a local-path track that
+// fell through to a remote resolver plays remotely. Falls back to the path scheme when
+// no resolver has reported yet.
+function isEffectivelyLocal(track: { path?: string | null }, resolvedSource: ResolvedSource | null): boolean {
+  if (resolvedSource) return resolvedSource.effectiveSource.kind === "local";
   return isLocalTrack(track);
 }
 
@@ -138,7 +129,7 @@ interface NowPlayingBarProps {
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   onNavigateToTagByName?: (name: string) => void;
   playbackError?: string | null;
-  resolvedSource?: { name: string; url: string; sourceUrl?: string | null; id?: string | null } | null;
+  resolvedSource?: ResolvedSource | null;
   loadingTrack?: QueueTrack | null;
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
@@ -518,7 +509,10 @@ export function NowPlayingBar({
                     <SlideText text={currentTrack.title} />
                     {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                   </span>
-                  {onDownloadTrack && !currentTrack.path?.startsWith("file://") && (isRemoteScheme(currentTrack.path ?? "") || (resolvedSource && resolvedSource.name !== "Library")) && (
+                  {/* Visibility + which downloader are decided upstream by
+                      `decideDownload` (the EffectiveSource of the winning resolver);
+                      `onDownloadTrack` is only set when a downloader owns the source. */}
+                  {onDownloadTrack && (
                     <button
                       className="now-download-btn"
                       onClick={onDownloadTrack}
@@ -531,8 +525,12 @@ export function NowPlayingBar({
                 <span className="now-subtitle">
                   {(() => {
                         const isLocal = isEffectivelyLocal(currentTrack, resolvedSource ?? null);
-                        const sourceName = resolvedSource?.name && resolvedSource.name !== "Library"
-                          ? resolvedSource.name
+                        const es = resolvedSource?.effectiveSource;
+                        // Prefer the effective source for the local/subsonic cases (so a
+                        // Library row that streams from Subsonic reads "Subsonic", not "Library").
+                        const sourceName = es?.kind === "local" ? "Local"
+                          : es?.kind === "subsonic" ? "Subsonic"
+                          : resolvedSource?.name && resolvedSource.name !== "Library" ? resolvedSource.name
                           : isLocal ? "Local" : "Remote";
                         const openTooltip = (rect: DOMRect) => {
                           if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
@@ -746,10 +744,14 @@ export function NowPlayingBar({
         }
 
         // The resolver names itself (e.g. "YouTube", "TIDAL") — the host does not
-        // special-case individual plugin ids here. "Library" is internal, so it
-        // falls through to the path-derived label instead of being shown.
-        const sourceLabel = resolverName && resolverName !== "Library"
-          ? resolverName
+        // special-case individual plugin ids here. "Library" is internal: its
+        // effective source decides whether it reads "Local" or "Subsonic" (a Library
+        // row can stream from a Subsonic server), else it falls through to a
+        // path-derived label.
+        const es = resolvedSource?.effectiveSource;
+        const sourceLabel = es?.kind === "local" ? "Local"
+          : es?.kind === "subsonic" ? "Subsonic"
+          : resolverName && resolverName !== "Library" ? resolverName
           : pluginProtocol ? pluginProtocol.charAt(0).toUpperCase() + pluginProtocol.slice(1)
             : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
 

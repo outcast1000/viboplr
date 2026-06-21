@@ -66,6 +66,18 @@ export interface ResolvedTrackSource {
   patch?: Partial<QueueTrack>;
 }
 
+/** The winning playback-resolution entry, surfaced to the now-playing UI. `name`
+ * is the display label; `id` is the resolver id (`pluginId:resolverId`, or null
+ * for native entries); `effectiveSource` is where the bytes actually come from and
+ * is the single thing that drives the download button + source label. */
+export interface ResolvedSource {
+  name: string;
+  url: string;
+  sourceUrl: string | null;
+  id: string | null;
+  effectiveSource: import("./queueEntry").EffectiveSource;
+}
+
 export interface SearchAllResults {
   artists: Artist[];
   albums: Album[];
