@@ -60,6 +60,7 @@ interface CollectionsViewProps {
   onRemove: (collection: Collection) => void;
   onAddFolder: () => void;
   onShowAddServer: () => void;
+  onAddMusicSource: () => void;
   onOpenFolder: (path: string) => void;
   onOpenUrl: (url: string) => void;
   statsMap: Map<number, CollectionStats>;
@@ -79,6 +80,7 @@ export function CollectionsView({
   onRemove,
   onAddFolder,
   onShowAddServer,
+  onAddMusicSource,
   onOpenFolder,
   onOpenUrl,
   statsMap,
@@ -187,7 +189,7 @@ export function CollectionsView({
                       Go to Server
                     </button>
                   )}
-                  {(c.kind === "local" || c.kind === "subsonic") && (
+                  {(c.kind === "local" || c.kind === "subsonic" || c.kind === "manifest") && (
                     <button
                       className={`collections-view-action-btn ${resyncProgress?.collectionId === c.id || resyncComplete?.collectionId === c.id ? "collections-view-action-checking" : ""}`}
                       onClick={() => onResync(c.id)}
@@ -239,6 +241,7 @@ export function CollectionsView({
       <div className="collections-view-add-buttons">
         <button className="add-folder-btn" onClick={onAddFolder}>+ Add Folder</button>
         <button className="add-folder-btn" onClick={onShowAddServer}>+ Add Server</button>
+        <button className="add-folder-btn" onClick={onAddMusicSource}>+ Add Music Source</button>
       </div>
     </div>
   );

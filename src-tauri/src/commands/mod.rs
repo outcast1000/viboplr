@@ -274,6 +274,53 @@ pub fn run_collection_resync(
                 }
             });
         }
+        "manifest" => {
+            let manifest_url = match collection.url {
+                Some(u) => u,
+                None => {
+                    resyncing.lock().unwrap().remove(&collection_id);
+                    return;
+                }
+            };
+            let collection_name = collection.name.clone();
+            let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+
+            thread::spawn(move || {
+                let _guard = ResyncGuard { id: collection_id, set: resyncing };
+                match crate::manifest_sync::sync_manifest(&db, &manifest_url, collection_id, |synced, total| {
+                    let _ = app.emit(
+                        "sync-progress",
+                        SyncProgress {
+                            collection: collection_name.clone(),
+                            synced,
+                            total,
+                            collection_id,
+                        },
+                    );
+                }) {
+                    Ok(removed_tracks) => {
+                        let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+                        let new_tracks = (track_count_after - track_count_before).max(0);
+                        let _ = app.emit(
+                            "sync-complete",
+                            serde_json::json!({
+                                "collectionId": collection_id,
+                                "newTracks": new_tracks,
+                                "removedTracks": removed_tracks,
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("Resync failed for manifest collection {}: {}", collection_id, e);
+                        let _ = db.update_collection_sync_error(collection_id, &e);
+                        let _ = app.emit(
+                            "sync-error",
+                            serde_json::json!({ "collectionId": collection_id, "error": e }),
+                        );
+                    }
+                }
+            });
+        }
         _ => {
             resyncing.lock().unwrap().remove(&collection_id);
         }
@@ -950,7 +997,7 @@ pub fn is_collection_due_for_auto_update(collection: &Collection, now_secs: i64)
     if !collection.enabled || !collection.auto_update {
         return false;
     }
-    if !matches!(collection.kind.as_str(), "local" | "subsonic") {
+    if !matches!(collection.kind.as_str(), "local" | "subsonic" | "manifest") {
         return false;
     }
     let interval_secs = collection.auto_update_interval_mins * 60;

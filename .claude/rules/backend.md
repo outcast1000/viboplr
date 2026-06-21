@@ -59,6 +59,7 @@ Frontend: `useDependencies.ts` (install/update/progress/checkUpdates), `Dependen
 All music sources are unified under a Collections abstraction with `kind` discriminator:
 - **`local`** — local folder, scanned for media files
 - **`subsonic`** — Subsonic/Navidrome server, synced via REST API
+- **`manifest`** — a subscribed HTTP JSON catalog (e.g. an artist's published track list). Synced by `manifest_sync.rs` (`sync_manifest` = fetch JSON → `ingest_manifest` upsert+prune, mirroring `sync.rs`). Each track's direct `url` is stored verbatim as `tracks.path` (so the natively-playable `http(s)://` scheme streams the bytes on demand; **no** custom resolver). Added via `add_collection { kind: "manifest", url }` — reached from the `viboplr://add-collection?kind=manifest&url=…` deep link (App.tsx confirms with `AddMusicSourceModal` before subscribing, since a clicked link is untrusted). Defaults to `auto_update` on, daily, so it rides the generic collection auto-update loop in `lib.rs`. Because tracks are real DB rows, they appear in FTS search / Home / browse with no extra wiring.
 - **`seed`** — debug-only fake data
 
 Plugins can register additional collection kinds.

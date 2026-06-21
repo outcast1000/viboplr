@@ -96,6 +96,7 @@ import {
   NavErrorModal,
   PluginLoadingModal,
   DeepLinkInstallModal,
+  AddMusicSourceModal,
 } from "./components/modals/ConfirmModals";
 import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
@@ -565,6 +566,9 @@ function App() {
   const [showAddServer, setShowAddServer] = useState(false);
   const [deepLinkServer, setDeepLinkServer] = useState<{ name?: string; url: string; username: string; password: string } | null>(null);
   const [deepLinkInstall, setDeepLinkInstall] = useState<{ kind: "plugin" | "skin"; url: string } | null>(null);
+  const [deepLinkMusicSource, setDeepLinkMusicSource] = useState<{ name: string; url: string } | null>(null);
+  const [showAddMusicSource, setShowAddMusicSource] = useState(false);
+  const [addSourceError, setAddSourceError] = useState<string | null>(null);
   const [mixtapePreviewPath, setMixtapePreviewPath] = useState<string | null>(null);
   const [mixtapeExportTracks, setMixtapeExportTracks] = useState<ExportTrack[] | null>(null);
   const [mixtapeExportDefaultTitle, setMixtapeExportDefaultTitle] = useState<string>("");
@@ -1239,6 +1243,12 @@ function App() {
               password: params.get("password") || "",
             });
             setShowAddServer(true);
+            break;
+          }
+          if (kind === "manifest" && url) {
+            // Music source published as an HTTP manifest (artist catalog).
+            // Confirm before subscribing — a clicked link is untrusted input.
+            setDeepLinkMusicSource({ name: params.get("name") || "", url });
             break;
           }
           // Non-subsonic kinds fall through to plugin-registered collection handlers
@@ -2619,6 +2629,78 @@ function App() {
         />
       )}
 
+      {deepLinkMusicSource && (
+        <AddMusicSourceModal
+          name={deepLinkMusicSource.name}
+          url={deepLinkMusicSource.url}
+          onCancel={() => setDeepLinkMusicSource(null)}
+          onConfirm={async () => {
+            const { name, url } = deepLinkMusicSource;
+            setDeepLinkMusicSource(null);
+            let fallbackName = url;
+            try {
+              fallbackName = new URL(url).host || url;
+            } catch {
+              // Unparseable URL — fall back to the raw string as the name.
+            }
+            try {
+              await invoke<Collection>("add_collection", {
+                kind: "manifest",
+                name: name.trim() || fallbackName,
+                url,
+              });
+              // Initial sync runs in the background; sync-complete reloads the
+              // library. Reload now too so the new (empty) source shows at once.
+              library.loadLibrary();
+              library.loadTracks();
+            } catch (e) {
+              // The manifest was validated server-side; on failure nothing was
+              // added, so inform the user instead of silently leaving a dead card.
+              console.error("Failed to add music source:", e);
+              setAddSourceError(String(e));
+            }
+          }}
+        />
+      )}
+
+      {showAddMusicSource && (
+        <PromptModal
+          title="Add music source"
+          label="Paste the URL of a music manifest (JSON). Its tracks will appear in your library and search, and refresh automatically."
+          placeholder="https://example.com/manifest.json"
+          okLabel="Add source"
+          onCancel={() => setShowAddMusicSource(false)}
+          onSubmit={async (url) => {
+            setShowAddMusicSource(false);
+            let name = url;
+            try {
+              name = new URL(url).host || url;
+            } catch {
+              // Unparseable URL — fall back to the raw string as the name.
+            }
+            try {
+              await invoke<Collection>("add_collection", { kind: "manifest", name, url });
+              library.loadLibrary();
+              library.loadTracks();
+            } catch (e) {
+              // Manifest is validated before the collection is created, so on
+              // failure nothing was added — tell the user what went wrong.
+              console.error("Failed to add music source:", e);
+              setAddSourceError(String(e));
+            }
+          }}
+        />
+      )}
+
+      {addSourceError && (
+        <AlertModal
+          title="Couldn't add music source"
+          message={addSourceError}
+          dismissVariant="primary"
+          onDismiss={() => setAddSourceError(null)}
+        />
+      )}
+
       {/* Caption bar - full width */}
       <CaptionBar
         centralSearch={centralSearch}
@@ -2860,7 +2942,7 @@ function App() {
           {/* Collections view */}
           {view === "collections" && (
             <CollectionsView
-              collections={library.collections.filter(c => ["local", "subsonic", "seed"].includes(c.kind))}
+              collections={library.collections.filter(c => ["local", "subsonic", "seed", "manifest"].includes(c.kind))}
               downloadsCollectionId={downloadsCollectionId}
               onToggleEnabled={collectionActions.handleToggleCollectionEnabled}
               onCheckConnection={collectionActions.handleCheckConnection}
@@ -2873,6 +2955,7 @@ function App() {
               onRemove={(c) => collectionActions.setRemoveCollectionConfirm(c)}
               onAddFolder={handleAddFolder}
               onShowAddServer={() => setShowAddServer(true)}
+              onAddMusicSource={() => setShowAddMusicSource(true)}
               onOpenFolder={(path) => invoke("open_folder", { folderPath: path }).catch(console.error)}
               onOpenUrl={(url) => openUrl(url)}
               statsMap={new Map(library.collectionStats.map(s => [s.collection_id, s]))}

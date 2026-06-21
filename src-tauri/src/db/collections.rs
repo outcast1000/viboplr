@@ -174,6 +174,17 @@ impl Database {
         Ok(())
     }
 
+    /// Rename a collection. Used by manifest sync to apply the manifest's own
+    /// display name over the provisional name the collection was created with.
+    pub fn set_collection_name(&self, collection_id: i64, name: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE collections SET name = ?2 WHERE id = ?1",
+            params![collection_id, name],
+        )?;
+        Ok(())
+    }
+
     pub fn update_collection_synced(&self, collection_id: i64, duration_secs: f64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

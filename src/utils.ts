@@ -55,6 +55,7 @@ export function collectionKindLabel(kind: string): string {
   switch (kind) {
     case "local": return "Local";
     case "subsonic": return "Server";
+    case "manifest": return "Music source";
     case "seed": return "Test";
     default: return kind;
   }

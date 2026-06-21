@@ -14,6 +14,7 @@ mod plugins;
 mod skins;
 mod subsonic;
 mod sync;
+mod manifest_sync;
 mod tag_writer;
 mod mixtape;
 mod main_playlist;

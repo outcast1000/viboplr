@@ -193,3 +193,37 @@ export function DeepLinkInstallModal({ kind, url, onCancel, onInstall }: DeepLin
     </div>
   );
 }
+
+interface AddMusicSourceModalProps {
+  name: string;
+  url: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+export function AddMusicSourceModal({ name, url, onCancel, onConfirm }: AddMusicSourceModalProps) {
+  let host = url;
+  try {
+    host = new URL(url).host || url;
+  } catch {
+    // Unparseable URL — show the raw string rather than nothing.
+  }
+  return (
+    <div className="ds-modal-overlay">
+      <div className="ds-modal ds-modal--sm" onClick={(e) => e.stopPropagation()}>
+        <div className="ds-modal-title">Add music source</div>
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--text-secondary)", margin: "12px 0" }}>
+          Add the music catalog{name ? <> &ldquo;<strong style={{ color: "var(--text-primary)" }}>{name}</strong>&rdquo;</> : null} from{" "}
+          <strong style={{ color: "var(--text-primary)", wordBreak: "break-all" }}>{host}</strong>?
+        </p>
+        <p style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)", margin: "0 0 12px" }}>
+          Its tracks will appear in your library, search, and Home, and refresh automatically. Only add sources you trust.
+        </p>
+        <div className="ds-modal-actions">
+          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onCancel}>Cancel</button>
+          <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onConfirm}>Add source</button>
+        </div>
+      </div>
+    </div>
+  );
+}

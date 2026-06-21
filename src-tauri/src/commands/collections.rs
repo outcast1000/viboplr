@@ -144,6 +144,69 @@ pub fn add_collection(
 
             Ok(collection)
         }
+        "manifest" => {
+            let manifest_url = url.as_deref().ok_or("URL is required for manifest collections")?;
+
+            // Validate by fetching + parsing the manifest BEFORE creating anything.
+            // A bad / unreachable URL or malformed JSON fails here and propagates to
+            // the UI, so we never leave a dead, empty collection behind.
+            let manifest = crate::manifest_sync::fetch_manifest(manifest_url)?;
+
+            let collection = state
+                .db
+                .add_collection("manifest", &name, None, Some(manifest_url), None, None, None, None)
+                .map_err(|e| e.to_string())?;
+            let collection_id = collection.id;
+            let collection_name = collection.name.clone();
+
+            // Manifest sources are remote and change over time, so subscribe them
+            // to the generic auto-update loop by default (daily). The user can
+            // adjust the cadence or disable it in Settings > Collections.
+            let _ = state
+                .db
+                .update_collection(collection_id, &name, true, 1440, true);
+
+            // Ingest the already-validated manifest in the background (DB work +
+            // progress events) so the command returns promptly.
+            let db = state.db.clone();
+            let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+            thread::spawn(move || {
+                let _ = app.emit(
+                    "sync-progress",
+                    SyncProgress { collection: collection_name.clone(), synced: 0, total: 0, collection_id },
+                );
+                match crate::manifest_sync::ingest_manifest(&db, &manifest, collection_id, |synced, total| {
+                    let _ = app.emit(
+                        "sync-progress",
+                        SyncProgress { collection: collection_name.clone(), synced, total, collection_id },
+                    );
+                }) {
+                    Ok(removed_tracks) => {
+                        let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+                        let new_tracks = (track_count_after - track_count_before).max(0);
+                        let _ = app.emit(
+                            "sync-complete",
+                            serde_json::json!({
+                                "collectionId": collection_id,
+                                "newTracks": new_tracks,
+                                "removedTracks": removed_tracks,
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        log::error!("Sync failed for manifest collection {}: {}", collection_id, e);
+                        let _ = db.update_collection_sync_error(collection_id, &e);
+                        let _ = app.emit(
+                            "sync-error",
+                            serde_json::json!({ "collectionId": collection_id, "error": e }),
+                        );
+                    }
+                }
+            });
+
+            // Re-read so the returned collection reflects the auto-update defaults.
+            state.db.get_collection_by_id(collection_id).map_err(|e| e.to_string())
+        }
         "seed" => {
             #[cfg(debug_assertions)]
             {
@@ -222,7 +285,7 @@ pub fn resync_collection(
         .get_collection_by_id(collection_id)
         .map_err(|e| e.to_string())?;
 
-    if !matches!(collection.kind.as_str(), "local" | "subsonic") {
+    if !matches!(collection.kind.as_str(), "local" | "subsonic" | "manifest") {
         return Err(format!("Resync not supported for '{}' collections", collection.kind));
     }
 
