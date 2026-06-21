@@ -19,7 +19,6 @@ export function MultiTrackDownload({
   confirmed,
   qualityOptions,
   collections,
-  downloadsCollectionId,
   store,
   lastDest,
   onSearch,
@@ -34,7 +33,6 @@ export function MultiTrackDownload({
   confirmed?: boolean;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
-  downloadsCollectionId?: number | null;
   store: AppStore;
   lastDest: string | null;
   onSearch: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
@@ -72,7 +70,6 @@ export function MultiTrackDownload({
       const parsed = parseInt(lastDest, 10);
       if (!isNaN(parsed) && collections.some(c => c.id === parsed)) return parsed;
     }
-    if (downloadsCollectionId != null && collections.some(c => c.id === downloadsCollectionId)) return downloadsCollectionId;
     return collections.length > 0 ? collections[0].id : null;
   });
   const [destPath, setDestPath] = useState<string | null>(null);
@@ -470,12 +467,7 @@ export function MultiTrackDownload({
                 }
               }}
             >
-              {downloadsCollectionId != null && collections.find(c => c.id === downloadsCollectionId) && (
-                <option value={String(downloadsCollectionId)}>
-                  Downloads Folder {"—"} {collections.find(c => c.id === downloadsCollectionId)!.path}
-                </option>
-              )}
-              {collections.filter(c => c.id !== downloadsCollectionId).map(c => (
+              {collections.map(c => (
                 <option key={c.id} value={String(c.id)}>{c.name} {"—"} {c.path}</option>
               ))}
               <option value="__browse__">Browse to folder...</option>

@@ -6,7 +6,6 @@ import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { PluginState } from "../types/plugin";
 import { LINKS } from "../constants/links";
-import type { Collection } from "../types";
 import { store } from "../store";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
@@ -910,10 +909,6 @@ interface SettingsPanelProps {
   onReloadPlugins: () => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
-  // Downloads collection
-  downloadsCollection: Collection | null;
-  onSetDownloadsFolder: () => void;
-  onUnsetDownloadsCollection: () => void;
   dependencies?: {
     deps: Array<{
       name: string;
@@ -973,9 +968,6 @@ export function SettingsPanel({
   onDevPluginPathChange,
   onReloadPlugins,
   onStreamResolverOrderChanged,
-  downloadsCollection,
-  onSetDownloadsFolder,
-  onUnsetDownloadsCollection,
   dependencies,
   autoUpdateManagedDeps,
   onAutoUpdateManagedDepsChange,
@@ -1120,32 +1112,6 @@ export function SettingsPanel({
                         <span className="settings-description">Record playback of video files</span>
                       </div>
                       <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="settings-group">
-                  <div className="settings-group-title">Downloads</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Downloads folder</span>
-                        <span className="settings-description">
-                          {downloadsCollection
-                            ? downloadsCollection.path
-                            : "Select a folder to save streamed tracks"}
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onSetDownloadsFolder}>
-                          {downloadsCollection ? "Change" : "Choose Folder"}
-                        </button>
-                        {downloadsCollection && (
-                          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onUnsetDownloadsCollection}>
-                            Remove
-                          </button>
-                        )}
-                      </div>
                     </div>
                   </div>
                 </div>

@@ -15,7 +15,6 @@ interface DownloadModalProps {
   resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
-  downloadsCollectionId?: number | null;
   store: AppStore;
   lastDest: string | null;
   onSearch: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
@@ -33,7 +32,6 @@ export function DownloadModal({
   resolveByUri,
   qualityOptions,
   collections,
-  downloadsCollectionId,
   store,
   lastDest,
   onSearch,
@@ -55,7 +53,6 @@ export function DownloadModal({
             resolveByUri={resolveByUri}
             qualityOptions={qualityOptions}
             collections={collections}
-            downloadsCollectionId={downloadsCollectionId}
             store={store}
             lastDest={lastDest}
             onSearch={onSearch}
@@ -72,7 +69,6 @@ export function DownloadModal({
             confirmed={confirmed}
             qualityOptions={qualityOptions}
             collections={collections}
-            downloadsCollectionId={downloadsCollectionId}
             store={store}
             lastDest={lastDest}
             onSearch={onSearch}

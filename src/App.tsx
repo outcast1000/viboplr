@@ -178,11 +178,8 @@ function App() {
   const [debugMode, setDebugMode] = useState(false);
   const [devPluginPath, setDevPluginPath] = useState<string | null>(null);
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
-  const [downloadsCollectionId, setDownloadsCollectionId] = useState<number | null>(null);
   const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
-  const downloadsCollectionIdRef = useRef<number | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
-  downloadsCollectionIdRef.current = downloadsCollectionId;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null) => Promise<string>>(
     async () => { throw new Error("Stream URI resolver not ready"); }
@@ -260,7 +257,6 @@ function App() {
   const albumImageCache = useImageCache("album");
 
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, undefined, setNavError);
-  const downloadsCollection = useMemo(() => downloadsCollectionId != null ? library.collections.find(c => c.id === downloadsCollectionId) ?? null : null, [downloadsCollectionId, library.collections]);
 
   const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context) => {
     // Record the "Latest play" session for anything that replaces the queue.
@@ -1358,13 +1354,11 @@ function App() {
           sidebarCollapsed: savedSidebarCollapsed, queueCollapsed: savedQueueCollapsed, queueWidth: savedQueueWidth,
           mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
-          downloadsCollectionId: savedDownloadsCollectionId,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
-        if (savedDownloadsCollectionId != null) setDownloadsCollectionId(savedDownloadsCollectionId);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
 
         const [savedEqEnabled, savedEqMode, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb, savedEqBassDb, savedEqTrebleDb, savedEqShowBarSimple, savedEqShowBarAdvanced] = await Promise.all([
@@ -2173,25 +2167,6 @@ function App() {
     store.set("devPluginPath", path);
   }
 
-  const handleSetDownloadsFolder = async () => {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const selected = await open({ directory: true, title: "Select Downloads Folder" });
-    if (!selected) return;
-    try {
-      const col = await invoke<Collection>("add_collection", { kind: "local", name: "Downloads", path: selected });
-      setDownloadsCollectionId(col.id);
-      store.set("downloadsCollectionId", col.id);
-      library.loadLibrary();
-    } catch (e) {
-      console.error("Failed to set downloads collection:", e);
-    }
-  };
-
-  const handleUnsetDownloadsCollection = async () => {
-    setDownloadsCollectionId(null);
-    store.set("downloadsCollectionId", null);
-  };
-
   function handleToggleSidebar() {
     setSidebarCollapsed(prev => {
       const next = !prev;
@@ -2973,7 +2948,6 @@ function App() {
           {view === "collections" && (
             <CollectionsView
               collections={library.collections.filter(c => ["local", "subsonic", "seed", "manifest"].includes(c.kind))}
-              downloadsCollectionId={downloadsCollectionId}
               onToggleEnabled={collectionActions.handleToggleCollectionEnabled}
               onCheckConnection={collectionActions.handleCheckConnection}
               onResync={collectionActions.handleResyncCollection}
@@ -3080,9 +3054,6 @@ function App() {
               onDevPluginPathChange={handleDevPluginPathChange}
               onReloadPlugins={plugins.reloadAllPlugins}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
-              downloadsCollection={downloadsCollection}
-              onSetDownloadsFolder={handleSetDownloadsFolder}
-              onUnsetDownloadsCollection={handleUnsetDownloadsCollection}
               dependencies={dependencies}
               autoUpdateManagedDeps={autoUpdateManagedDeps}
               onAutoUpdateManagedDepsChange={handleAutoUpdateManagedDepsChange}
@@ -3321,7 +3292,6 @@ function App() {
           resolveByUri={downloadModal.resolveByUri}
           qualityOptions={qualityOptions}
           collections={localCollections}
-          downloadsCollectionId={downloadsCollectionId}
           store={store}
           lastDest={lastDownloadDest}
           onSearch={(query, limit) => {
