@@ -8,12 +8,12 @@
 // single atomic JSON GET, so a successful parse is always a complete view and
 // pruning removed tracks is safe.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
 
+use crate::db::collections::ManifestIngestTrack;
 use crate::db::Database;
 
 #[derive(Debug, Deserialize)]
@@ -71,21 +71,45 @@ fn format_from_url(url: &str) -> Option<String> {
 
 /// Fetch and parse a manifest from an HTTP(S) URL. Public so the add-collection
 /// command can validate a URL up front (and fail) before creating anything.
-pub fn fetch_manifest(url: &str) -> Result<Manifest, String> {
+pub enum FetchOutcome {
+    /// Server returned a fresh manifest; carries the new validators to persist.
+    Fetched {
+        manifest: Manifest,
+        etag: Option<String>,
+        last_modified: Option<String>,
+    },
+    /// Server replied 304 Not Modified — skip ingest entirely.
+    NotModified,
+}
+
+pub fn fetch_manifest(
+    url: &str,
+    prior_etag: Option<&str>,
+    prior_last_modified: Option<&str>,
+) -> Result<FetchOutcome, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(30))
         .user_agent("Viboplr")
         .build()
         .map_err(|e| e.to_string())?;
-    let resp = client
-        .get(url)
-        .send()
-        .map_err(|e| format!("Failed to fetch manifest: {}", e))?;
+    let mut req = client.get(url);
+    if let Some(etag) = prior_etag {
+        req = req.header("If-None-Match", etag);
+    }
+    if let Some(lm) = prior_last_modified {
+        req = req.header("If-Modified-Since", lm);
+    }
+    let resp = req.send().map_err(|e| format!("Failed to fetch manifest: {}", e))?;
+    if resp.status().as_u16() == 304 {
+        return Ok(FetchOutcome::NotModified);
+    }
     if !resp.status().is_success() {
         return Err(format!("Manifest fetch returned HTTP {}", resp.status()));
     }
-    resp.json::<Manifest>()
-        .map_err(|e| format!("Invalid manifest JSON: {}", e))
+    let etag = resp.headers().get("etag").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let last_modified = resp.headers().get("last-modified").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let manifest = resp.json::<Manifest>().map_err(|e| format!("Invalid manifest JSON: {}", e))?;
+    Ok(FetchOutcome::Fetched { manifest, etag, last_modified })
 }
 
 /// Ingest an already-parsed manifest into the given collection: upsert every
@@ -110,103 +134,61 @@ pub fn ingest_manifest(
         let _ = db.set_collection_name(collection_id, name);
     }
 
-    let existing_paths: HashSet<String> = db
-        .get_track_paths_for_collection(collection_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .collect();
-    let mut seen_paths: HashSet<String> = HashSet::new();
-
     let default_artist = manifest.artist.as_deref();
-    let total = manifest.tracks.len() as u64;
-    let mut done: u64 = 0;
-
-    for track in &manifest.tracks {
-        done += 1;
-        // Skip malformed entries — a track needs at least a title and a URL.
-        if track.title.trim().is_empty() || track.url.trim().is_empty() {
-            if done % 20 == 0 || done == total {
-                progress_callback(done, total);
-            }
-            continue;
-        }
-
-        let artist_id = track
-            .artist
-            .as_deref()
-            .or(default_artist)
-            .and_then(|name| db.get_or_create_artist(name).ok());
-
-        let album_id = track
-            .album
-            .as_deref()
-            .and_then(|title| db.get_or_create_album(title, artist_id, track.year).ok());
-
-        let format = track.format.clone().or_else(|| format_from_url(&track.url));
-
-        let path = track.url.clone();
-        seen_paths.insert(path.clone());
-
-        if let Ok(track_db_id) = db.upsert_track(
-            &path,
-            &track.title,
-            artist_id,
-            album_id,
-            track.track_number,
-            track.duration_secs,
-            format.as_deref(),
-            None,
-            None,
-            Some(collection_id),
-            track.year,
-        ) {
-            if let Some(tags) = &track.tags {
-                for tag in tags {
-                    if tag.trim().is_empty() {
-                        continue;
-                    }
-                    if let Ok(tag_id) = db.get_or_create_tag(tag) {
-                        let _ = db.add_track_tag(track_db_id, tag_id);
-                    }
-                }
-            }
-        }
-
-        if done % 20 == 0 || done == total {
-            progress_callback(done, total);
-        }
-    }
-
-    // Prune tracks no longer in the manifest. A successful JSON parse is a
-    // complete snapshot of what's published, so the seen/not-seen diff is
-    // trustworthy (unlike Subsonic's per-album fetch, which can partially fail).
-    let removed: Vec<String> = existing_paths
-        .into_iter()
-        .filter(|p| !seen_paths.contains(p))
+    let items: Vec<ManifestIngestTrack> = manifest
+        .tracks
+        .iter()
+        .map(|t| ManifestIngestTrack {
+            title: t.title.clone(),
+            artist: t.artist.clone().or_else(|| default_artist.map(str::to_string)),
+            album: t.album.clone(),
+            duration_secs: t.duration_secs,
+            track_number: t.track_number,
+            format: t.format.clone().or_else(|| format_from_url(&t.url)),
+            year: t.year,
+            url: t.url.clone(),
+            tags: t.tags.clone().unwrap_or_default(),
+        })
         .collect();
-    let removed_count = removed.len() as u64;
-    db.delete_tracks_by_paths_in_collection(collection_id, &removed)
+
+    // One transaction: upsert + tag replace + incremental FTS + prune.
+    // O(changed rows), not O(whole library) — no full FTS rebuild.
+    let stats = db
+        .manifest_ingest(collection_id, &items, &progress_callback)
         .map_err(|e| e.to_string())?;
 
-    db.rebuild_fts().map_err(|e| e.to_string())?;
+    // Counts + like-state reconcile stay whole-library for correctness; the
+    // conditional fetch in `sync_manifest` skips all of this when unchanged.
     db.recompute_counts().map_err(|e| e.to_string())?;
-    // Seed tracks.liked for freshly-ingested rows liked before they existed.
     let _ = db.reconcile_track_likes_from_entity_likes();
     db.update_collection_synced(collection_id, start.elapsed().as_secs_f64())
         .map_err(|e| e.to_string())?;
 
-    Ok(removed_count)
+    Ok(stats.removed)
 }
 
-/// Fetch a manifest from `url` and ingest it into `collection_id`.
+/// Conditionally fetch a manifest from `url` (sending stored ETag/Last-Modified)
+/// and ingest it into `collection_id`. A 304 Not Modified skips ingest entirely
+/// and just refreshes the sync timestamp. Used by the auto-update/resync path.
 pub fn sync_manifest(
     db: &Arc<Database>,
     url: &str,
     collection_id: i64,
     progress_callback: impl Fn(u64, u64) + Send,
 ) -> Result<u64, String> {
-    let manifest = fetch_manifest(url)?;
-    ingest_manifest(db, &manifest, collection_id, progress_callback)
+    let (prior_etag, prior_lm) = db.get_manifest_http_cache(collection_id).unwrap_or((None, None));
+    match fetch_manifest(url, prior_etag.as_deref(), prior_lm.as_deref())? {
+        FetchOutcome::NotModified => {
+            // Unchanged — refresh last_synced_at so the cadence resets, skip ingest.
+            let _ = db.update_collection_synced(collection_id, 0.0);
+            Ok(0)
+        }
+        FetchOutcome::Fetched { manifest, etag, last_modified } => {
+            let removed = ingest_manifest(db, &manifest, collection_id, progress_callback)?;
+            let _ = db.set_manifest_http_cache(collection_id, etag.as_deref(), last_modified.as_deref());
+            Ok(removed)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -329,6 +311,29 @@ mod tests {
             db.get_track_paths_for_collection(cid).unwrap(),
             vec!["https://h/good.flac".to_string()]
         );
+    }
+
+    #[test]
+    fn test_ingest_populates_fts_search() {
+        let db = test_db();
+        let cid = manifest_collection(&db);
+        let m: Manifest = serde_json::from_str(
+            r#"{ "tracks": [
+                { "title": "Zephyr Drift", "url": "https://h/z.flac", "artist": "Cloudline", "album": "Skies", "tags": ["ambient"] }
+            ] }"#,
+        )
+        .unwrap();
+        ingest_manifest(&db, &m, cid, |_, _| {}).unwrap();
+
+        // Incremental FTS maintenance: the row is findable by title, artist, and tag.
+        assert!(db.search_all("Zephyr", 5, 5, 5).unwrap().tracks.iter().any(|t| t.title == "Zephyr Drift"));
+        assert!(db.search_all("Cloudline", 5, 5, 5).unwrap().artists.iter().any(|a| a.name == "Cloudline"));
+        assert!(db.search_all("ambient", 5, 5, 5).unwrap().tracks.iter().any(|t| t.title == "Zephyr Drift"));
+
+        // And after re-ingesting without it, the pruned track leaves the index.
+        let empty: Manifest = serde_json::from_str(r#"{ "tracks": [] }"#).unwrap();
+        ingest_manifest(&db, &empty, cid, |_, _| {}).unwrap();
+        assert!(db.search_all("Zephyr", 5, 5, 5).unwrap().tracks.is_empty());
     }
 
     // End-to-end against the live demo repo: fetches the real manifest over the

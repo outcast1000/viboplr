@@ -55,7 +55,7 @@
 - **TitleLineInfo.tsx** — Renders the `title_line` information display kind inline in detail headers.
 - **VideoFilmstrip.tsx, VideoFrameCard.tsx, VideoRowThumb.tsx** — Video frame thumbnails (filmstrip + per-row/card art) backed by `useVideoFrames.ts` / `video_frames.rs`.
 - **SpinningDisc.tsx** — Animated spinning-disc icon (audio counterpart to `FilmReel`).
-- **AutocompleteInput.tsx, PromptModal.tsx, ConfirmModal.tsx, DeletePlaylistModal.tsx, SavePlaylistModal.tsx, DependencyModal.tsx, FirstRunPluginModal.tsx, MixtapeExportModal.tsx, MixtapePreviewModal.tsx, PlaybackErrorModal.tsx, HeroOverflowMenu.tsx** — Supporting inputs/modals/menus (see conventions.md for native-menu and modal-dismiss rules).
+- **AutocompleteInput.tsx, PromptModal.tsx, ConfirmModal.tsx, DeletePlaylistModal.tsx, SavePlaylistModal.tsx, DependencyModal.tsx, FirstRunPluginModal.tsx, MixtapeExportModal.tsx, MixtapePreviewModal.tsx, PlaybackErrorModal.tsx, PublishSourceModal.tsx, HeroOverflowMenu.tsx** — Supporting inputs/modals/menus (see conventions.md for native-menu and modal-dismiss rules).
 - **StatusBar.tsx, Icons.tsx, WindowControls.tsx** — Utility components.
 
 ## Hooks (src/hooks/)

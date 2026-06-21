@@ -64,6 +64,8 @@ All music sources are unified under a Collections abstraction with `kind` discri
 
 Plugins can register additional collection kinds.
 
+**Publishing (inverse of `manifest`):** `music_publish.rs` + the `export_music_source` command bundle a whole local collection or an explicit track-id selection into a self-contained, hostable folder (`index.html` + `manifest.json` + `tracks/<copied files>` + `PUBLISH.md`), with track URLs built from a user-supplied base URL. Only local files are bundled (remote/missing tracks are skipped and reported). Reached via Collections → **Publish** (whole local collection) or the **Publish as music source…** track / multi-track context-menu action; UI is `PublishSourceModal`. GitHub support is copy-paste `gh`/`git` commands (no in-app GitHub auth).
+
 Tracks belong to a collection via `collection_id`. Disabled collections are filtered via `ENABLED_COLLECTION_FILTER`. Track paths use URL schemes: `file://` (local), `subsonic://{collection_id}/{subsonic_id}`. Plugins register custom URL schemes (e.g., `{scheme}://{id}`).
 
 **Track type classification:** Use `is_remote()` on `Track` (Rust) or `isLocalTrack()` / `isRemoteTrack()` (TypeScript, from `queueEntry.ts`) to classify tracks. These use an allow-list pattern: only `file://` is local, everything else is remote. Do not add new deny-list checks for specific schemes.

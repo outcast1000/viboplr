@@ -347,6 +347,15 @@ impl Database {
                 tokenize='unicode61 remove_diacritics 2'
             );
 
+            -- HTTP conditional-fetch cache for manifest collections (skip re-ingest
+            -- of unchanged manifests). Keyed by collection; rows are orphaned when a
+            -- collection is removed (harmless).
+            CREATE TABLE IF NOT EXISTS manifest_http_cache (
+                collection_id INTEGER PRIMARY KEY,
+                etag          TEXT,
+                last_modified TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS history_artists (
                 id              INTEGER PRIMARY KEY,
                 canonical_name  TEXT NOT NULL UNIQUE,

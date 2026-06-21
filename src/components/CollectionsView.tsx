@@ -61,6 +61,7 @@ interface CollectionsViewProps {
   onAddFolder: () => void;
   onShowAddServer: () => void;
   onAddMusicSource: () => void;
+  onPublish: (collection: Collection) => void;
   onOpenFolder: (path: string) => void;
   onOpenUrl: (url: string) => void;
   statsMap: Map<number, CollectionStats>;
@@ -81,6 +82,7 @@ export function CollectionsView({
   onAddFolder,
   onShowAddServer,
   onAddMusicSource,
+  onPublish,
   onOpenFolder,
   onOpenUrl,
   statsMap,
@@ -178,6 +180,15 @@ export function CollectionsView({
                       title="Open folder in file manager"
                     >
                       Open Folder
+                    </button>
+                  )}
+                  {c.kind === "local" && !isDownloads && (
+                    <button
+                      className="collections-view-action-btn"
+                      onClick={() => onPublish(c)}
+                      title="Publish as a shareable music source"
+                    >
+                      Publish
                     </button>
                   )}
                   {c.kind === "subsonic" && c.url && (

@@ -150,7 +150,10 @@ pub fn add_collection(
             // Validate by fetching + parsing the manifest BEFORE creating anything.
             // A bad / unreachable URL or malformed JSON fails here and propagates to
             // the UI, so we never leave a dead, empty collection behind.
-            let manifest = crate::manifest_sync::fetch_manifest(manifest_url)?;
+            let (manifest, etag, last_modified) = match crate::manifest_sync::fetch_manifest(manifest_url, None, None)? {
+                crate::manifest_sync::FetchOutcome::Fetched { manifest, etag, last_modified } => (manifest, etag, last_modified),
+                crate::manifest_sync::FetchOutcome::NotModified => return Err("Manifest could not be fetched".to_string()),
+            };
 
             let collection = state
                 .db
@@ -165,6 +168,8 @@ pub fn add_collection(
             let _ = state
                 .db
                 .update_collection(collection_id, &name, true, 1440, true);
+            // Store the HTTP validators so the next resync can do a conditional GET.
+            let _ = state.db.set_manifest_http_cache(collection_id, etag.as_deref(), last_modified.as_deref());
 
             // Ingest the already-validated manifest in the background (DB work +
             // progress events) so the command returns promptly.
@@ -347,4 +352,67 @@ pub fn subsonic_test_connection(
     SubsonicClient::new(&url, &username, &password)
         .map_err(|e| format!("{}", e))?;
     Ok("Connected successfully".to_string())
+}
+
+// --- Publish a music source (export bundle) ---
+
+/// Generate a self-contained, hostable music-source bundle (index.html +
+/// manifest.json + tracks/) from a whole local collection or an explicit set of
+/// track ids. Only local files can be bundled; remote/missing tracks are skipped
+/// and reported in the result.
+#[tauri::command]
+pub fn export_music_source(
+    state: State<'_, AppState>,
+    dest_dir: String,
+    name: String,
+    base_url: String,
+    track_ids: Option<Vec<i64>>,
+    collection_id: Option<i64>,
+) -> Result<crate::music_publish::ExportResult, String> {
+    use crate::music_publish::PublishTrack;
+
+    let tracks: Vec<Track> = if let Some(cid) = collection_id {
+        state.db.get_tracks_for_collection(cid).map_err(|e| e.to_string())?
+    } else if let Some(ids) = track_ids {
+        ids.iter().filter_map(|id| state.db.get_track_by_id(*id).ok()).collect()
+    } else {
+        return Err("No tracks specified to publish".to_string());
+    };
+
+    if tracks.is_empty() {
+        return Err("No tracks to publish".to_string());
+    }
+
+    let mut remote_skipped: Vec<String> = Vec::new();
+    let publish_tracks: Vec<PublishTrack> = tracks
+        .iter()
+        .filter_map(|t| match t.filesystem_path() {
+            Some(p) if !t.is_remote() => Some(PublishTrack {
+                title: t.title.clone(),
+                artist: t.artist_name.clone(),
+                album: t.album_title.clone(),
+                duration_secs: t.duration_secs,
+                track_number: t.track_number,
+                format: t.format.clone(),
+                src_path: p.to_string(),
+                tags: state
+                    .db
+                    .get_tags_for_track(t.id)
+                    .map(|tags| tags.into_iter().map(|tag| tag.name).collect())
+                    .unwrap_or_default(),
+            }),
+            _ => {
+                remote_skipped.push(t.title.clone());
+                None
+            }
+        })
+        .collect();
+
+    if publish_tracks.is_empty() {
+        return Err("None of the selected tracks are local files that can be published".to_string());
+    }
+
+    let mut result = crate::music_publish::export_music_source(&dest_dir, &name, &base_url, &publish_tracks)?;
+    result.skipped.extend(remote_skipped);
+    Ok(result)
 }

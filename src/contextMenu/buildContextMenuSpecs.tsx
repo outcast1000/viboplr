@@ -32,6 +32,7 @@ export interface ContextMenuDeps {
   setDeleteTagConfirm: (tags: { id: number; name: string }[] | null) => void;
   trashLabel: string;
   handleExportAsMixtapeRef: React.MutableRefObject<((trackIds: number[], defaultTitle?: string) => void) | null>;
+  openPublishMusicSourceRef: React.MutableRefObject<((trackIds: number[]) => void) | null>;
 }
 
 /** Build the native context-menu specs for a target. Returns null if empty. */
@@ -266,6 +267,14 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       if (isMulti && d.handleExportAsMixtapeRef.current) {
         specs.push({ kind: "separator" });
         specs.push({ kind: "item", text: "Export as Mixtape", action: () => d.handleExportAsMixtapeRef.current?.(target.trackIds) });
+      }
+      if (d.openPublishMusicSourceRef.current) {
+        if (isMulti) {
+          specs.push({ kind: "item", text: "Publish as music source…", action: () => d.openPublishMusicSourceRef.current?.(target.trackIds) });
+        } else if (target.kind === "track" && target.isLocal && target.trackId != null) {
+          const id = target.trackId;
+          specs.push({ kind: "item", text: "Publish as music source…", action: () => d.openPublishMusicSourceRef.current?.([id]) });
+        }
       }
       if (target.kind === "tag" && target.tagId) {
         specs.push({ kind: "separator" });

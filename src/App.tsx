@@ -106,6 +106,7 @@ import { FirstRunPluginModal } from "./components/FirstRunPluginModal";
 import BulkEditModal from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { PromptModal } from "./components/PromptModal";
+import { PublishSourceModal } from "./components/PublishSourceModal";
 import { MixtapePreviewModal } from "./components/MixtapePreviewModal";
 import { MixtapeExportModal } from "./components/MixtapeExportModal";
 import type { ExportTrack } from "./components/MixtapeExportModal";
@@ -569,6 +570,7 @@ function App() {
   const [deepLinkMusicSource, setDeepLinkMusicSource] = useState<{ name: string; url: string } | null>(null);
   const [showAddMusicSource, setShowAddMusicSource] = useState(false);
   const [addSourceError, setAddSourceError] = useState<string | null>(null);
+  const [publishTarget, setPublishTarget] = useState<{ trackIds?: number[]; collectionId?: number; defaultName?: string; trackCount?: number } | null>(null);
   const [mixtapePreviewPath, setMixtapePreviewPath] = useState<string | null>(null);
   const [mixtapeExportTracks, setMixtapeExportTracks] = useState<ExportTrack[] | null>(null);
   const [mixtapeExportDefaultTitle, setMixtapeExportDefaultTitle] = useState<string>("");
@@ -748,6 +750,7 @@ function App() {
   // Context menu actions
   const showNativeMenuRef = useRef<((state: import("./types/contextMenu").ContextMenuState) => void) | null>(null);
   const handleExportAsMixtapeRef = useRef<((trackIds: number[], defaultTitle?: string) => void) | null>(null);
+  const openPublishMusicSourceRef = useRef<((trackIds: number[]) => void) | null>(null);
   // Assigned after handleNext/refs are defined; the wrapper below keeps the deps
   // object stable while reaching the live implementation.
   const currentTrackDeletedRef = useRef<(indices: number[]) => void>(() => {});
@@ -829,14 +832,14 @@ function App() {
       plugins, handleDownloadFromProvider, artistImageCache,
       albumImageCache, tagImageCache, beginRetrieveImage,
       setSearchInitialQuery, setSearchQueryKey,
-      setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef,
+      setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef,
     });
     if (!specs) {
       contextMenuActions.setContextMenu(null);
       return;
     }
     showNativeMenu(cm.x, cm.y, specs);
-  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef]);
+  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
@@ -2446,6 +2449,7 @@ function App() {
   // Bridge for keyboard shortcuts
   handleToggleLikeRef.current = likeActions.handleToggleLike;
   handleExportAsMixtapeRef.current = handleExportAsMixtape;
+  openPublishMusicSourceRef.current = (ids) => setPublishTarget({ trackIds: ids, trackCount: ids.length });
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
     highlightedListIndex } = library;
@@ -2698,6 +2702,16 @@ function App() {
           message={addSourceError}
           dismissVariant="primary"
           onDismiss={() => setAddSourceError(null)}
+        />
+      )}
+
+      {publishTarget && (
+        <PublishSourceModal
+          trackIds={publishTarget.trackIds}
+          collectionId={publishTarget.collectionId}
+          defaultName={publishTarget.defaultName}
+          trackCount={publishTarget.trackCount}
+          onClose={() => setPublishTarget(null)}
         />
       )}
 
@@ -2956,6 +2970,7 @@ function App() {
               onAddFolder={handleAddFolder}
               onShowAddServer={() => setShowAddServer(true)}
               onAddMusicSource={() => setShowAddMusicSource(true)}
+              onPublish={(c) => setPublishTarget({ collectionId: c.id, defaultName: c.name })}
               onOpenFolder={(path) => invoke("open_folder", { folderPath: path }).catch(console.error)}
               onOpenUrl={(url) => openUrl(url)}
               statsMap={new Map(library.collectionStats.map(s => [s.collection_id, s]))}

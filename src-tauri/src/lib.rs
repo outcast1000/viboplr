@@ -15,6 +15,7 @@ mod skins;
 mod subsonic;
 mod sync;
 mod manifest_sync;
+mod music_publish;
 mod tag_writer;
 mod mixtape;
 mod main_playlist;
@@ -50,6 +51,7 @@ macro_rules! invoke_handler {
             commands::get_collection_stats,
             commands::find_track_in_collection,
             commands::resync_collection,
+            commands::export_music_source,
             commands::get_artists,
             commands::get_artist_by_id,
             commands::get_albums,
