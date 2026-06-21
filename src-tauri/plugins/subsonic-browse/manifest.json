@@ -1,0 +1,31 @@
+{
+  "id": "subsonic-browse",
+  "name": "Subsonic Browse",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Search, stream, and download across multiple Subsonic/Navidrome servers live — no indexing. A discovery layer for servers you visit, separate from your indexed Library.",
+  "minAppVersion": "0.9.4",
+  "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z",
+  "apiUsage": [
+    { "api": "network.fetch", "reason": "Query registered Subsonic/Navidrome servers for search, cover art, streaming, and downloads" },
+    { "api": "storage.set", "reason": "Store the list of registered servers and their credentials locally" },
+    { "api": "playback.playTracks", "reason": "Play tracks found across servers" }
+  ],
+  "contributes": {
+    "sidebarItems": [
+      { "id": "subsonic-browse", "label": "Servers", "icon": "globe" }
+    ],
+    "streamResolvers": [
+      { "id": "subsonic-browse", "name": "Subsonic Servers" }
+    ],
+    "downloadProviders": [
+      { "id": "subsonic-browse", "name": "Subsonic Servers" }
+    ],
+    "settingsPanel": {
+      "id": "subsonic-browse-settings",
+      "label": "Subsonic Servers",
+      "order": 45
+    },
+    "eventHooks": ["track:scrobbled"]
+  }
+}
