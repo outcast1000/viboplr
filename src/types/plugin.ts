@@ -564,6 +564,35 @@ export interface PluginHomeAPI {
   ): () => void;
 }
 
+/** Result of resolving a Now Playing info item for the current track.
+ *  `empty` hides the item for that track (no error indicator); `error` is
+ *  logged and also hides it. See `useNowPlayingInfo`. */
+export type NowPlayingInfoResult =
+  | { status: "ok"; text: string }
+  | { status: "empty" }
+  | { status: "error"; message?: string };
+
+export interface PluginNowPlayingInfoAPI {
+  // Register an info item shown in the cycling now-playing section (mini player
+  // + main bar). Lower `priority` sorts earlier among plugin items.
+  // `defaultEnabled` (default false) decides whether the item is on before the
+  // user customizes the selection. Mirrors api.home.registerShelf. Returns an
+  // unsubscriber.
+  registerItem(descriptor: {
+    id: string;
+    label: string;
+    priority?: number;
+    defaultEnabled?: boolean;
+  }): () => void;
+  unregisterItem(id: string): void;
+  // Resolve the item's text for a given track. Has a fixed host-side timeout;
+  // slow handlers are treated as `error` for that track.
+  onFetch(
+    id: string,
+    handler: (track: PluginTrack) => Promise<NowPlayingInfoResult>,
+  ): () => void;
+}
+
 export type ImageFetchResult =
   | { status: "ok"; url: string; headers?: Record<string, string> }
   | { status: "ok"; data: string }
@@ -811,6 +840,7 @@ export interface ViboplrPluginAPI {
   env: PluginEnvAPI;
   p2p: PluginP2pAPI;
   home: PluginHomeAPI;
+  nowPlayingInfo: PluginNowPlayingInfoAPI;
 }
 
 // -- Gallery types --

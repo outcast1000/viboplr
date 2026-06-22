@@ -236,11 +236,13 @@ interface PlaylistContext {
 
 **Full mode:**
 - Seek bar (waveform visualization or segmented bar) with elapsed | total time
-- Track info: album art, like/dislike buttons, title/artist/album (all clickable to navigate)
+- Track info: album art, like/dislike buttons, title + the dynamic **Now Playing info** line (see below)
 - Controls: previous, play/pause, next, stop
 - Right: queue mode (normal/repeat-all/repeat-one), randomize, auto-continue, equalizer, volume
 
-**Mini mode:** Compact bar with art, title/artist, play controls, close/expand. Draggable window, scroll-to-volume.
+**Mini mode:** Compact bar with art, title + Now Playing info line, play controls, close/expand. Draggable window, scroll-to-volume.
+
+**Now Playing info line** (the line under the title, both mini + full bar): a dynamic, auto-cycling section. Modules and plugins register items (`api.nowPlayingInfo` — see `plugins.md`); built-ins are **Artist · Album**, **Artist**, **Album**, **Plays · Rank** (one item), **Source**, **Quality**, **Duration**, plus the Last.fm plugin's **Scrobbles**. The user toggles which items show via the native context menu (right-click the mini player, or the artist/album area of the main bar); enabled items cycle every ~5s with a slide animation. Rendered by `NowPlayingInfoCycler`; resolution/selection lives in `useNowPlayingInfo`; the selection persists as `nowPlayingInfoSelection`. Each item declares its own default-enabled state (`defaultEnabled`); only **Artist · Album** and **Scrobbles** are on by default — the rest are opt-in.
 
 ## Now Playing View
 

@@ -19,6 +19,8 @@ import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
 import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
+import { NowPlayingInfoCycler } from "./NowPlayingInfoCycler";
+import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
 
@@ -68,7 +70,6 @@ interface NowPlayingBarProps {
   durationSecs: number;
   scrobbled: boolean;
   trackRank: number | null;
-  artistRank: number | null;
   volume: number;
   muted: boolean;
   queueMode: QueueMode;
@@ -134,6 +135,8 @@ interface NowPlayingBarProps {
   onSkipError?: () => void;
   onDownloadTrack?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  nowPlayingInfo: NowPlayingInfoResolved[];
+  onInfoContextMenu?: (e: React.MouseEvent) => void;
   miniSearch?: {
     isOpen: boolean;
     query: string;
@@ -155,7 +158,7 @@ export function NowPlayingBar({
   waveformPeaks,
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
-  trackRank, artistRank,
+  trackRank,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
@@ -171,6 +174,8 @@ export function NowPlayingBar({
   playbackError, resolvedSource, loadingTrack, onSkipError,
   onDownloadTrack,
   onContextMenu,
+  nowPlayingInfo,
+  onInfoContextMenu,
   miniSearch,
   getAlbumImage,
   getArtistImage,
@@ -329,10 +334,13 @@ export function NowPlayingBar({
                         <span className="mini-volume-pct">{muted ? "muted" : `${Math.round(volume * 100)}%`}</span>
                       </div>
                     ) : (
-                      <span className="now-artist">
-                        {currentTrack.artist_name || "Unknown"}
-                        {currentTrack.album_title && ` · ${currentTrack.album_title}`}
-                      </span>
+                      <NowPlayingInfoCycler
+                        plain
+                        className="now-artist"
+                        items={nowPlayingInfo}
+                        sep=" · "
+                        fallbackText={currentTrack.artist_name || "Unknown"}
+                      />
                     )}
                   </>
                 ) : loadingTrack ? (
@@ -371,7 +379,7 @@ export function NowPlayingBar({
               {playbackError
                 ? "Playback failed"
                 : currentTrack
-                  ? <><span className="mini-ultra-track">{currentTrack.title}</span><span className="mini-ultra-sep"> — </span><span className="mini-ultra-artist">{currentTrack.artist_name || "Unknown"}{currentTrack.album_title && ` · ${currentTrack.album_title}`}</span></>
+                  ? <><span className="mini-ultra-track">{currentTrack.title}</span><span className="mini-ultra-sep"> — </span><NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} /></>
                   : loadingTrack
                     ? `Loading ${loadingTrack.title}…`
                     : "No track playing"}
@@ -555,11 +563,15 @@ export function NowPlayingBar({
                           }}
                         ><SourceIcon isLocal={isLocal} /></span>;
                   })()}
-                  <span className="now-link" onClick={currentTrack.artist_name && onNavigateToArtistByName ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined}><SlideText text={currentTrack.artist_name || "Unknown"} /></span>
-                  {artistRank != null && artistRank <= 100 && <span className="now-rank-badge" title={`Artist rank #${artistRank}`}>#{artistRank}</span>}
-                  {currentTrack.album_title && (
-                    <><span className="now-sep"> — </span><span className="now-link" onClick={onNavigateToAlbumByName ? () => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name ?? undefined) : undefined}>{currentTrack.album_title}</span></>
-                  )}
+                  <span className="now-info-cycle" onContextMenu={onInfoContextMenu}>
+                    <NowPlayingInfoCycler
+                      items={nowPlayingInfo}
+                      sep=" — "
+                      fallbackText={currentTrack.artist_name || "Unknown"}
+                      onNavigateToArtistByName={onNavigateToArtistByName}
+                      onNavigateToAlbumByName={onNavigateToAlbumByName}
+                    />
+                  </span>
                   {!miniMode && (
                     <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} pluginsLoaded={pluginsLoaded} onTagsChange={setTrackTags} />
                   )}

@@ -189,6 +189,16 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 
 When a plugin is deactivated or reloaded, `usePlugins` automatically drops all of its registered home-shelf handlers and runtime descriptors.
 
+### api.nowPlayingInfo
+
+Contributes items to the cycling **Now Playing info** section (the line that shows under the title in the mini player and the main bar — see `ui.md` "Now Playing Bar"). The host cycles through the *enabled* items; the user picks which via the native context menu. Mirrors the `api.home` register/onFetch pattern.
+
+- `registerItem({ id, label, priority? })` — add an item at runtime. `label` is the checkbox text in the context menu; `priority` orders it among plugin items (lower first; built-ins always precede plugin items). Returns an unsubscriber.
+- `unregisterItem(id)` — drop a registered item.
+- `onFetch(id, handler)` — `handler(track: PluginTrack) => Promise<NowPlayingInfoResult>` resolves the item's text for the current track. Has a 5-second host-side timeout; slow handlers count as `error` for that track. Returns an unsubscriber.
+
+`NowPlayingInfoResult`: `{ status: "ok", text } | { status: "empty" } | { status: "error", message? }`. `empty`/`error`/timeout simply hide the item for that track (no error indicator). Built-in items contributed by the core app are **Artist · Album**, **Artist**, **Album**, **Plays · Rank** (play count + chart rank from history, in one item), **Source** (Local / Subsonic / Web / scheme), **Quality** (format · sample rate · bit depth, or bitrate — via `get_audio_properties_by_path` for local files), and **Duration**; the Last.fm plugin contributes **Scrobbles**. Each item declares its own `defaultEnabled`; only **Artist · Album** and **Scrobbles** are on by default — everything else is opt-in. When a plugin is deactivated/reloaded, `usePlugins` drops its items + handlers automatically.
+
 ### api.ui
 - `setViewData(viewId, data, opts?)` — render plugin views (see `PluginViewData` types). `opts.scrollKey?: string` enables per-view scroll memory: the host saves/restores the view's scroll position keyed by `scrollKey`. Change it on navigation (new sub-view → opens at top; returning to a prior key → scroll restored); keep it stable across in-place updates so the view doesn't jump.
 - `showNotification(message)` / `navigateToView(viewId)` / `requestAction(action, payload)`

@@ -33,6 +33,7 @@ import type {
   HomeShelfDisplayKind,
   HomeShelfItem,
   HomeShelfResult,
+  NowPlayingInfoResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { withResolverLog } from "../utils/resolverLog";
@@ -251,6 +252,17 @@ export function usePlugins(
   // (mirrors dynamicHomeShelvesRef). Merged with the static manifest items.
   const dynamicMenuItemsRef = useRef(new Map<string, PluginMenuItem>());
   const [dynamicMenuItemsVersion, setDynamicMenuItemsVersion] = useState(0);
+  // Runtime-registered Now Playing info items, keyed `${pluginId}:${itemId}`
+  // (mirrors dynamicHomeShelvesRef). Drives the cycling now-playing section.
+  const nowPlayingInfoItemsRef = useRef(new Map<string, {
+    pluginId: string;
+    itemId: string;
+    label: string;
+    priority: number;
+    defaultEnabled: boolean;
+  }>());
+  const nowPlayingInfoHandlersRef = useRef(new Map<string, (track: PluginTrack) => Promise<NowPlayingInfoResult>>());
+  const [nowPlayingInfoVersion, setNowPlayingInfoVersion] = useState(0);
 
   // Active IPC-timing bucket for the plugin currently inside its activate()
   // window (set only in debug mode). tapInvoke attributes each invoke()'s
@@ -928,6 +940,44 @@ export function usePlugins(
           },
         },
 
+        nowPlayingInfo: {
+          registerItem(descriptor: { id: string; label: string; priority?: number; defaultEnabled?: boolean }): () => void {
+            const key = `${pluginId}:${descriptor.id}`;
+            nowPlayingInfoItemsRef.current.set(key, {
+              pluginId,
+              itemId: descriptor.id,
+              label: descriptor.label,
+              priority: descriptor.priority ?? 100,
+              defaultEnabled: descriptor.defaultEnabled ?? false,
+            });
+            setNowPlayingInfoVersion((v) => v + 1);
+            const unsub = () => {
+              if (nowPlayingInfoItemsRef.current.delete(key)) {
+                setNowPlayingInfoVersion((v) => v + 1);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          unregisterItem(id: string): void {
+            const key = `${pluginId}:${id}`;
+            if (nowPlayingInfoItemsRef.current.delete(key)) {
+              setNowPlayingInfoVersion((v) => v + 1);
+            }
+          },
+          onFetch(id: string, handler: (track: PluginTrack) => Promise<NowPlayingInfoResult>): () => void {
+            const key = `${pluginId}:${id}`;
+            nowPlayingInfoHandlersRef.current.set(key, handler);
+            const unsub = () => {
+              if (nowPlayingInfoHandlersRef.current.get(key) === handler) {
+                nowPlayingInfoHandlersRef.current.delete(key);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+        },
+
         imageProviders: {
           onFetch(
             entity: "artist" | "album",
@@ -1189,6 +1239,22 @@ export function usePlugins(
     }
     if (dynamicMenuItemsChanged) {
       setDynamicMenuItemsVersion((v) => v + 1);
+    }
+    // Clear Now Playing info items + handlers for this plugin
+    for (const key of Array.from(nowPlayingInfoHandlersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        nowPlayingInfoHandlersRef.current.delete(key);
+      }
+    }
+    let nowPlayingInfoChanged = false;
+    for (const key of Array.from(nowPlayingInfoItemsRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        nowPlayingInfoItemsRef.current.delete(key);
+        nowPlayingInfoChanged = true;
+      }
+    }
+    if (nowPlayingInfoChanged) {
+      setNowPlayingInfoVersion((v) => v + 1);
     }
 
     loadedPluginsRef.current.delete(pluginId);
@@ -2026,6 +2092,15 @@ export function usePlugins(
     [],
   );
 
+  const invokeNowPlayingInfo = useCallback(
+    async (pluginId: string, itemId: string, track: PluginTrack): Promise<NowPlayingInfoResult> => {
+      const handler = nowPlayingInfoHandlersRef.current.get(`${pluginId}:${itemId}`);
+      if (!handler) return { status: "error", message: "handler not registered" };
+      return handler(track);
+    },
+    [],
+  );
+
   // Invoke a plugin's registered card-click handler for a shelf, if any.
   // Returns true if a handler took over the click, false otherwise (so the
   // host can fall back to its default action).
@@ -2089,6 +2164,16 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuItems, dynamicMenuItemsVersion]);
 
+  // Runtime-registered Now Playing info items, sorted by priority then label.
+  const nowPlayingInfoItems = useMemo(
+    () =>
+      Array.from(nowPlayingInfoItemsRef.current.values()).sort(
+        (a, b) => a.priority - b.priority || a.label.localeCompare(b.label),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nowPlayingInfoVersion],
+  );
+
   return {
     pluginStates,
     pluginNames,
@@ -2128,5 +2213,7 @@ export function usePlugins(
     resolveStreamByUri,
     streamUriResolverOwner,
     invokeHomeShelf,
+    nowPlayingInfoItems,
+    invokeNowPlayingInfo,
   };
 }

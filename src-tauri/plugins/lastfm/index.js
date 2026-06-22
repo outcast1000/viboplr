@@ -354,6 +354,38 @@ function activate(api) {
     });
   });
 
+  // ===== Now Playing Info =====
+  // Contributes a "Scrobbles" item to the cycling now-playing section. When the
+  // user is connected we show their personal scrobble count for the track
+  // (userplaycount); otherwise the track's total Last.fm scrobbles (playcount).
+  api.nowPlayingInfo.registerItem({ id: "scrobbles", label: "Scrobbles", priority: 100, defaultEnabled: true });
+  api.nowPlayingInfo.onFetch("scrobbles", function (track) {
+    var artistName = track && track.artist_name;
+    var title = track && track.title;
+    if (!artistName || !title) return Promise.resolve({ status: "empty" });
+    var useUser = !!state.username;
+    var params = [["artist", artistName], ["track", title], ["autocorrect", "1"]];
+    if (useUser) params.push(["username", state.username]);
+    var cacheKey = "nowplaying_scrobbles:" + (useUser ? "u:" + state.username.toLowerCase() : "g") + ":"
+      + artistName.toLowerCase() + ":" + title.toLowerCase();
+    return cacheGet(cacheKey).then(function (cached) {
+      if (cached) return cached;
+      return lastfmGet("track.getInfo", params).then(function (data) {
+        cacheSet(cacheKey, data);
+        return data;
+      });
+    }).then(function (data) {
+      if (!data || !data.track) return { status: "empty" };
+      var t = data.track;
+      var count = Number((useUser ? t.userplaycount : t.playcount) || 0);
+      if (!count || count <= 0) return { status: "empty" };
+      return { status: "ok", text: count.toLocaleString() + " scrobbles" };
+    }).catch(function (err) {
+      console.error("[lastfm] now-playing scrobbles error:", err && err.message);
+      return { status: "error" };
+    });
+  });
+
   // ===== Information Types =====
 
   var stripReadMore = function (html) {

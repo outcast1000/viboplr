@@ -51,6 +51,7 @@ import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
+import { useNowPlayingInfo, isNowPlayingItemSelected } from "./hooks/useNowPlayingInfo";
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useRetrieveModal } from "./hooks/useRetrieveModal";
 import { RetrieveModal } from "./components/RetrieveModal";
@@ -213,6 +214,10 @@ function App() {
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
+  // Which Now Playing info items the user has enabled in the cycling section
+  // (mini player + main bar). Empty default → only the combined "Artist · Album"
+  // item shows, so the line looks exactly like before until customized.
+  const [nowPlayingInfoSelection, setNowPlayingInfoSelection] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setTrackRank(null);
@@ -246,6 +251,13 @@ function App() {
     }).catch(console.error);
     return () => { cancelled = true; };
   }, [playback.scrobbled]);
+
+  // Persist the Now Playing info selection (guarded so startup defaults don't
+  // overwrite saved state). Mirrors the homeShelfVisibility persistence.
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("nowPlayingInfoSelection", nowPlayingInfoSelection);
+  }, [nowPlayingInfoSelection]);
 
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
@@ -328,6 +340,31 @@ function App() {
   // so the deferred first load already sees their final values.
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
   const dependencies = useDependencies(plugins.pluginStates);
+
+  // Dynamic, cycling Now Playing info section (mini player + main bar).
+  const { availableItems: nowPlayingInfoAvailable, resolvedItems: nowPlayingInfoResolved } = useNowPlayingInfo({
+    currentTrack: playback.currentTrack,
+    trackRank,
+    artistRank,
+    pluginItems: plugins.nowPlayingInfoItems,
+    invokeNowPlayingInfo: plugins.invokeNowPlayingInfo,
+    selection: nowPlayingInfoSelection,
+  });
+  const toggleNowPlayingInfo = useCallback((id: string) => {
+    setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: !isNowPlayingItemSelected(id, prev, nowPlayingInfoAvailable) }));
+  }, [nowPlayingInfoAvailable]);
+  // Native checkbox submenu listing every registered info item (built-in +
+  // plugin). Shared by the mini-player menu and the main-bar info area.
+  const buildNowPlayingInfoSubmenu = useCallback((): MenuItemSpec => ({
+    kind: "submenu",
+    text: "Now playing info",
+    items: nowPlayingInfoAvailable.map((d) => ({
+      kind: "check" as const,
+      text: d.label,
+      checked: isNowPlayingItemSelected(d.id, nowPlayingInfoSelection, nowPlayingInfoAvailable),
+      action: () => toggleNowPlayingInfo(d.id),
+    })),
+  }), [nowPlayingInfoAvailable, nowPlayingInfoSelection, toggleNowPlayingInfo]);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
   // Host-owned "missing required dependency" indicator: cross-reference each
@@ -1391,6 +1428,9 @@ function App() {
         }
         if (typeof savedEqShowBarSimple === "boolean") setEqShowBarControlSimple(savedEqShowBarSimple);
         if (typeof savedEqShowBarAdvanced === "boolean") setEqShowBarControlAdvanced(savedEqShowBarAdvanced);
+
+        const savedNowPlayingInfo = await store.get<Record<string, boolean>>("nowPlayingInfoSelection");
+        if (savedNowPlayingInfo && typeof savedNowPlayingInfo === "object") setNowPlayingInfoSelection(savedNowPlayingInfo);
 
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
@@ -3549,7 +3589,6 @@ function App() {
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}
         trackRank={trackRank}
-        artistRank={artistRank}
         volume={playback.volume}
         muted={playback.muted}
         queueMode={queueHook.queueMode}
@@ -3676,10 +3715,18 @@ function App() {
             { kind: "check", text: "Compact", checked: mini.miniRestingSize === "compact", action: () => mini.setMiniRestingSize("compact") },
           ];
           specs.push({ kind: "submenu", text: "Height", items: heightItems });
+          if (playback.currentTrack) specs.push(buildNowPlayingInfoSubmenu());
           specs.push({ kind: "separator" });
           specs.push({ kind: "item", text: "Show Main Window", action: mini.toggleMiniMode });
           specs.push({ kind: "item", text: "Exit App", action: () => exit(0) });
           showNativeMenu(e.clientX, e.clientY, specs);
+        }}
+        nowPlayingInfo={nowPlayingInfoResolved}
+        onInfoContextMenu={(e: React.MouseEvent) => {
+          if (!playback.currentTrack) return;
+          e.preventDefault();
+          e.stopPropagation();
+          showNativeMenu(e.clientX, e.clientY, [buildNowPlayingInfoSubmenu()]);
         }}
         miniSearch={{
           isOpen: miniSearch.isOpen,
