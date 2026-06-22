@@ -355,31 +355,25 @@ function activate(api) {
   });
 
   // ===== Now Playing Info =====
-  // Contributes a "Scrobbles" item to the cycling now-playing section. When the
-  // user is connected we show their personal scrobble count for the track
-  // (userplaycount); otherwise the track's total Last.fm scrobbles (playcount).
-  api.nowPlayingInfo.registerItem({ id: "scrobbles", label: "Scrobbles", priority: 100, defaultEnabled: true });
+  // Contributes a single "Scrobbles · Listeners" item to the cycling now-playing
+  // section, showing the track's total Last.fm scrobbles and listeners together.
+  // Reads from the same cached track.getInfo response the track detail page uses,
+  // so the numbers match exactly between the two surfaces.
+  api.nowPlayingInfo.registerItem({ id: "scrobbles", label: "Scrobbles · Listeners (Last.fm)", priority: 100, defaultEnabled: true });
   api.nowPlayingInfo.onFetch("scrobbles", function (track) {
     var artistName = track && track.artist_name;
     var title = track && track.title;
     if (!artistName || !title) return Promise.resolve({ status: "empty" });
-    var useUser = !!state.username;
-    var params = [["artist", artistName], ["track", title], ["autocorrect", "1"]];
-    if (useUser) params.push(["username", state.username]);
-    var cacheKey = "nowplaying_scrobbles:" + (useUser ? "u:" + state.username.toLowerCase() : "g") + ":"
-      + artistName.toLowerCase() + ":" + title.toLowerCase();
-    return cacheGet(cacheKey).then(function (cached) {
-      if (cached) return cached;
-      return lastfmGet("track.getInfo", params).then(function (data) {
-        cacheSet(cacheKey, data);
-        return data;
-      });
-    }).then(function (data) {
+    return fetchTrackInfo(artistName, title).then(function (data) {
       if (!data || !data.track) return { status: "empty" };
       var t = data.track;
-      var count = Number((useUser ? t.userplaycount : t.playcount) || 0);
-      if (!count || count <= 0) return { status: "empty" };
-      return { status: "ok", text: count.toLocaleString() + " scrobbles" };
+      var parts = [];
+      var plays = Number(t.playcount || 0);
+      var listeners = Number(t.listeners || 0);
+      if (plays > 0) parts.push(plays.toLocaleString() + " scrobbles");
+      if (listeners > 0) parts.push(listeners.toLocaleString() + " listeners");
+      if (parts.length === 0) return { status: "empty" };
+      return { status: "ok", text: parts.join(" · ") };
     }).catch(function (err) {
       console.error("[lastfm] now-playing scrobbles error:", err && err.message);
       return { status: "error" };
@@ -411,6 +405,20 @@ function activate(api) {
     return cacheGet(cacheKey).then(function (cached) {
       if (cached) return cached;
       return lastfmGet("album.getInfo", [["artist", artistName], ["album", albumName], ["autocorrect", "1"]]).then(function (data) {
+        cacheSet(cacheKey, data);
+        return data;
+      });
+    });
+  }
+
+  // Shared track.getInfo fetch. The cache key matches the one used by the
+  // `track_info` information type so the detail page and the Now Playing info
+  // items read the same cached response (and report the same numbers).
+  function fetchTrackInfo(artistName, title) {
+    var cacheKey = "track_info:" + artistName.toLowerCase() + ":" + title.toLowerCase();
+    return cacheGet(cacheKey).then(function (cached) {
+      if (cached) return cached;
+      return lastfmGet("track.getInfo", [["artist", artistName], ["track", title], ["autocorrect", "1"]]).then(function (data) {
         cacheSet(cacheKey, data);
         return data;
       });
@@ -569,14 +577,7 @@ function activate(api) {
     if (entity.kind !== "track") return Promise.resolve({ status: "not_found" });
     var artistName = entity.artistName || "";
     if (!artistName) return Promise.resolve({ status: "not_found" });
-    var cacheKey = "track_info:" + artistName.toLowerCase() + ":" + entity.name.toLowerCase();
-    return cacheGet(cacheKey).then(function (cached) {
-      if (cached) return cached;
-      return lastfmGet("track.getInfo", [["artist", artistName], ["track", entity.name], ["autocorrect", "1"]]).then(function (data) {
-        cacheSet(cacheKey, data);
-        return data;
-      });
-    }).then(function (data) {
+    return fetchTrackInfo(artistName, entity.name).then(function (data) {
       if (!data || !data.track) return { status: "not_found" };
       var t = data.track;
       var items = [];
