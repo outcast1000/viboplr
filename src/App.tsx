@@ -1996,7 +1996,7 @@ function App() {
   // reconciling to the just-written value is a harmless no-op.
   useEffect(() => {
     const idOf = (title: string | null, artist: string | null) =>
-      `${(title ?? "").toLowerCase()} ${(artist ?? "").toLowerCase()}`;
+      `${(title ?? "").toLowerCase()}:${(artist ?? "").toLowerCase()}`;
     const unlisten = listen("entity-likes-changed", async () => {
       const items: { title: string; artistName: string | null }[] = [];
       const seen = new Set<string>();

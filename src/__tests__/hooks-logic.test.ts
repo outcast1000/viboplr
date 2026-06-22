@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isPositionOnScreen, clampToNearestMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
-import { isCurrentPlayGeneration } from "../hooks/usePlayback";
+import { isCurrentPlayGeneration, decideHandlePlayOutcome } from "../hooks/usePlayback";
 
 // --- Extracted pure functions from hooks ---
 
@@ -193,5 +193,36 @@ describe("isCurrentPlayGeneration (rapid track-switch abort guard)", () => {
     expect(isCurrentPlayGeneration(gen2, ref)).toBe(false);
     // ...only the last request is allowed to surface an error.
     expect(isCurrentPlayGeneration(gen3, ref)).toBe(true);
+  });
+});
+
+describe("decideHandlePlayOutcome (empty-src / supersession recovery)", () => {
+  it("plays when this request is still current and a src resolved", () => {
+    expect(decideHandlePlayOutcome(true, true, false)).toBe("play");
+  });
+
+  it("bails silently when a NEWER play superseded this one (it owns currentTrack)", () => {
+    // Empty src or not — a newer handlePlay will set currentTrack, so we must not
+    // touch state here.
+    expect(decideHandlePlayOutcome(false, false, false)).toBe("bail");
+    expect(decideHandlePlayOutcome(false, true, false)).toBe("bail");
+  });
+
+  it("retries the resolve when src is empty but THIS play is still current", () => {
+    // The bug: resolveTrackSrc returned the empty-src sentinel because a concurrent
+    // preload/prefetch bumped the *resolve* generation — but no newer *play*
+    // superseded us. Silently bailing here freezes playback on the old track with
+    // the queue already advanced. Recover by re-resolving once.
+    expect(decideHandlePlayOutcome(true, false, false)).toBe("retry");
+  });
+
+  it("fails loudly when src is still empty after the retry and we're still current", () => {
+    // A genuine anomaly: surface it (catch path → error modal) instead of leaving
+    // playback paused with a stale now-playing bar.
+    expect(decideHandlePlayOutcome(true, false, true)).toBe("fail");
+  });
+
+  it("still bails if a newer play arrived during the retry", () => {
+    expect(decideHandlePlayOutcome(false, false, true)).toBe("bail");
   });
 });

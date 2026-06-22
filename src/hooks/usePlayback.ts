@@ -31,6 +31,35 @@ export function isCurrentPlayGeneration(captured: number, current: number): bool
   return captured === current;
 }
 
+export type HandlePlayOutcome = "play" | "bail" | "retry" | "fail";
+
+// Decides what handlePlay should do once its stream resolution settles.
+//
+// `resolveTrackSrc` returns an empty-src sentinel whenever ITS resolve generation
+// was bumped mid-flight — which happens not only on a newer play but also when a
+// concurrent preload/prefetch resolves (or when a reused, already-superseded
+// preload promise is awaited). Conflating "empty src" with "I was superseded by a
+// newer play" is the bug behind the Next-stops-playback freeze: handlePlay pauses
+// the outgoing audio up front, so a silent bail while THIS play is still current
+// leaves the player paused with the now-playing bar stuck on the previous track
+// and the queue index already advanced — and nothing logged.
+//
+//  - playStillCurrent=false → a newer handlePlay bumped playGeneration and owns
+//    currentTrack; bail silently regardless of src.
+//  - has src + still current → play.
+//  - empty src + still current → the resolve (not the play) was superseded; no one
+//    else will set currentTrack, so recover: re-resolve once (`retry`), then if it
+//    is STILL empty surface it via the error path (`fail`) rather than freeze.
+export function decideHandlePlayOutcome(
+  playStillCurrent: boolean,
+  hasSrc: boolean,
+  alreadyRetried: boolean,
+): HandlePlayOutcome {
+  if (!playStillCurrent) return "bail";
+  if (hasSrc) return "play";
+  return alreadyRetried ? "fail" : "retry";
+}
+
 export function usePlayback(
   restoredRef: React.RefObject<boolean>,
   peekNextRef: React.RefObject<() => QueueTrack | null>,
@@ -140,6 +169,39 @@ export function usePlayback(
           `preloaded=${preloadedTrackRef.current?.title ?? "none"} ` +
           `current=${currentTrack?.title ?? "none"}`,
       );
+    }
+  }
+
+  // Diagnostic for the Next-stops-playback class of bug: a play request that does
+  // NOT cleanly start its track. handlePlay pauses the outgoing audio up front, so
+  // any non-"play" outcome means audio is stopped — and if it happened while the
+  // queue index already advanced, the now-playing bar is left stale. Captures the
+  // full generation/element snapshot so a recurrence is explainable from the log
+  // instead of being invisible (the original bug logged nothing at all).
+  //   bail  → superseded by a newer play (expected on rapid skipping): file log only.
+  //   retry → resolve superseded but this play is still current (the regression
+  //           condition): also surfaced in the devtools console.
+  //   fail  → still no source after a fresh resolve: console + the catch's error.
+  function diagnosePlayOutcome(
+    outcome: HandlePlayOutcome,
+    track: QueueTrack,
+    capturedGen: number,
+    reusedPreload: boolean,
+    hadSrc: boolean,
+  ): void {
+    if (outcome === "play") return;
+    const a = audioRefA.current;
+    const b = audioRefB.current;
+    const detail =
+      `track="${track.artist_name ?? "?"} — ${track.title}" key=${track.key} ` +
+      `playGen captured=${capturedGen} current=${playGenerationRef.current} ` +
+      `reusedPreload=${reusedPreload} resolvedSrc=${hadSrc ? "set" : "EMPTY"} ` +
+      `active=${activeSlotRef.current} ` +
+      `A{paused=${a?.paused} ended=${a?.ended}} B{paused=${b?.paused} ended=${b?.ended}} ` +
+      `crossfading=${isCrossfadingRef.current} nowPlaying="${currentTrack?.title ?? "none"}"`;
+    logPlayback(`PLAY ${outcome.toUpperCase()}: ${detail}`);
+    if (outcome === "retry" || outcome === "fail") {
+      console.warn(`[playback] play ${outcome}: ${detail}`);
     }
   }
 
@@ -717,23 +779,53 @@ export function usePlayback(
     if (videoRef.current) videoRef.current.pause();
     // Reuse in-flight preload resolution for the same track instead of starting over
     const inflight = preloadPromiseRef.current;
-    const reusePreload = inflight && inflight.key === track.key;
+    const reusePreload = inflight !== null && inflight.key === track.key;
     const resolvePromise = reusePreload ? inflight.promise : null;
     invalidatePreload();
     setPlaybackError(null);
     setLoadingTrack(track);
 
     try {
-      const resolved = resolvePromise
+      // First resolution: reuse the in-flight preload promise for this track if we
+      // have one, else resolve fresh.
+      let resolved = resolvePromise
         ? await resolvePromise
         : await resolveTrackSrcRef.current(track);
-      // A newer play request started while this one's (often slow) stream
-      // resolution was in flight. Bail BEFORE playWithSrc — otherwise this
-      // superseded request would stop the now-current track's audio and
-      // setCurrentTrack back to this (old) track. resolveTrackSrc also returns
-      // an empty-src sentinel when it detects it was superseded; treat that the
-      // same way rather than feeding "" into playWithSrc.
-      if (!isCurrentPlayGeneration(generation, playGenerationRef.current) || !resolved.src) return;
+      // resolveTrackSrc returns an empty-src sentinel whenever ITS resolve
+      // generation was bumped mid-flight — by a newer play, but ALSO by a
+      // concurrent preload/prefetch or by awaiting an already-superseded reused
+      // preload promise. Only the first case (a newer *play*) is safe to bail on
+      // silently (that play owns currentTrack). An empty src while THIS play is
+      // still current means the *resolve* was superseded but nothing else will
+      // start the track — and we've already paused the outgoing audio, so a silent
+      // return would freeze playback on the previous track with the queue index
+      // already advanced. Recover by re-resolving once.
+      let decision = decideHandlePlayOutcome(
+        isCurrentPlayGeneration(generation, playGenerationRef.current),
+        !!resolved.src,
+        false,
+      );
+      if (decision === "retry") {
+        diagnosePlayOutcome("retry", track, generation, reusePreload, !!resolved.src);
+        resolved = await resolveTrackSrcRef.current(track);
+        decision = decideHandlePlayOutcome(
+          isCurrentPlayGeneration(generation, playGenerationRef.current),
+          !!resolved.src,
+          true,
+        );
+      }
+      // A newer play request superseded this one — it owns currentTrack/audio now.
+      if (decision === "bail") {
+        diagnosePlayOutcome("bail", track, generation, reusePreload, !!resolved.src);
+        return;
+      }
+      // Still no source after a fresh resolve while we're the current play — a
+      // genuine failure. Throw into the catch so the error modal / failed-track UI
+      // surfaces it instead of leaving playback paused with a stale now-playing bar.
+      if (decision === "fail") {
+        diagnosePlayOutcome("fail", track, generation, reusePreload, !!resolved.src);
+        throw new Error(`No playback source resolved for: ${track.title}`);
+      }
       // Resolution may have discovered the real local file for a path-less /
       // remote track (e.g. a Home track-row that only carried title+artist).
       // Merge that metadata in so playWithSrc routes video → <video> and the
