@@ -3722,12 +3722,6 @@ function App() {
           showNativeMenu(e.clientX, e.clientY, specs);
         }}
         nowPlayingInfo={nowPlayingInfoResolved}
-        onInfoContextMenu={(e: React.MouseEvent) => {
-          if (!playback.currentTrack) return;
-          e.preventDefault();
-          e.stopPropagation();
-          showNativeMenu(e.clientX, e.clientY, [buildNowPlayingInfoSubmenu()]);
-        }}
         miniSearch={{
           isOpen: miniSearch.isOpen,
           query: miniSearch.query,

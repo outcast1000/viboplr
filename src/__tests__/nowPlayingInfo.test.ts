@@ -4,6 +4,7 @@ import {
   formatPlays,
   formatSource,
   formatQuality,
+  formatTags,
   nextCycleIndex,
   type NowPlayingInfoDescriptor,
 } from "../hooks/useNowPlayingInfo";
@@ -82,6 +83,19 @@ describe("formatQuality", () => {
 
   it("returns null when nothing is known", () => {
     expect(formatQuality(null, null)).toBeNull();
+  });
+});
+
+describe("formatTags", () => {
+  it("prefixes each tag with # and joins with a separator", () => {
+    expect(formatTags(["rock", "jazz"])).toBe("#rock · #jazz");
+    expect(formatTags(["80s"])).toBe("#80s");
+  });
+
+  it("returns null when there are no tags", () => {
+    expect(formatTags([])).toBeNull();
+    expect(formatTags(null)).toBeNull();
+    expect(formatTags(undefined)).toBeNull();
   });
 });
 

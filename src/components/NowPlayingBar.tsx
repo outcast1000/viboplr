@@ -136,7 +136,6 @@ interface NowPlayingBarProps {
   onDownloadTrack?: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   nowPlayingInfo: NowPlayingInfoResolved[];
-  onInfoContextMenu?: (e: React.MouseEvent) => void;
   miniSearch?: {
     isOpen: boolean;
     query: string;
@@ -175,7 +174,6 @@ export function NowPlayingBar({
   onDownloadTrack,
   onContextMenu,
   nowPlayingInfo,
-  onInfoContextMenu,
   miniSearch,
   getAlbumImage,
   getArtistImage,
@@ -563,14 +561,27 @@ export function NowPlayingBar({
                           }}
                         ><SourceIcon isLocal={isLocal} /></span>;
                   })()}
-                  <span className="now-info-cycle" onContextMenu={onInfoContextMenu}>
-                    <NowPlayingInfoCycler
-                      items={nowPlayingInfo}
-                      sep=" — "
-                      fallbackText={currentTrack.artist_name || "Unknown"}
-                      onNavigateToArtistByName={onNavigateToArtistByName}
-                      onNavigateToAlbumByName={onNavigateToAlbumByName}
-                    />
+                  {/* Static artist · album. The cycling Now Playing info section
+                      (Quality, Source, Plays, Tags, …) lives only in the mini
+                      player now — the full bar keeps a plain, always-visible line. */}
+                  <span className="now-artist-album">
+                    {currentTrack.artist_name ? (
+                      <span
+                        className="now-link"
+                        onClick={() => onNavigateToArtistByName?.(currentTrack.artist_name!)}
+                      >{currentTrack.artist_name}</span>
+                    ) : (
+                      <span>Unknown</span>
+                    )}
+                    {currentTrack.album_title && (
+                      <>
+                        <span className="now-sep"> · </span>
+                        <span
+                          className="now-link"
+                          onClick={() => onNavigateToAlbumByName?.(currentTrack.album_title!, currentTrack.artist_name ?? undefined)}
+                        >{currentTrack.album_title}</span>
+                      </>
+                    )}
                   </span>
                   {!miniMode && (
                     <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} pluginsLoaded={pluginsLoaded} onTagsChange={setTrackTags} />

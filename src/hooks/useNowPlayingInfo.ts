@@ -48,6 +48,7 @@ const BUILTIN_DESCRIPTORS: NowPlayingInfoDescriptor[] = [
   { id: "builtin:source", label: "Source", defaultEnabled: false },
   { id: "builtin:quality", label: "Quality", defaultEnabled: false },
   { id: "builtin:duration", label: "Duration", defaultEnabled: false },
+  { id: "builtin:tags", label: "Tags", defaultEnabled: false },
 ];
 
 /** Whether an item is enabled: the user's explicit choice if any, else the
@@ -98,6 +99,13 @@ export function formatQuality(format: string | null | undefined, props: AudioPro
     parts.push(`${(props.sample_rate / 1000).toFixed(1)} kHz`);
   }
   return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Compact tag line (e.g. "#rock · #jazz"), or null when there are no tags.
+ *  Pure + exported for tests. */
+export function formatTags(names: string[] | null | undefined): string | null {
+  if (!names || names.length === 0) return null;
+  return names.map((t) => `#${t}`).join(" · ");
 }
 
 function withTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
@@ -240,6 +248,30 @@ export function useNowPlayingInfo({
         }
         const text = formatQuality(track.format, props);
         return text ? { id, segments: [{ text }] } : null;
+      }
+      if (id === "builtin:tags") {
+        // Tags only exist for library tracks; resolve the row by metadata, then
+        // read its tags (same path the Now Playing bar's tag chips use).
+        try {
+          const lib = await withTimeout(
+            invoke<{ id: number } | null>("find_track_by_metadata", {
+              title: track.title,
+              artistName: track.artist_name,
+              albumName: track.album_title,
+            }),
+            null,
+          );
+          if (!lib) return null;
+          const rows = await withTimeout(
+            invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId: lib.id }),
+            [] as Array<{ id: number; name: string }>,
+          );
+          const text = formatTags(rows.map((r) => r.name));
+          return text ? { id, segments: [{ text }] } : null;
+        } catch (e) {
+          console.error("Failed to resolve tags for now-playing info:", e);
+          return null;
+        }
       }
       // Plugin item: id is `${pluginId}:${itemId}`.
       const sep = id.indexOf(":");

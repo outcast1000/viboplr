@@ -236,13 +236,13 @@ interface PlaylistContext {
 
 **Full mode:**
 - Seek bar (waveform visualization or segmented bar) with elapsed | total time
-- Track info: album art, like/dislike buttons, title + the dynamic **Now Playing info** line (see below)
+- Track info: album art, like/dislike buttons, title + a **static Artist · Album** line (clickable artist/album links). The full bar does **not** show the cycling Now Playing info section — that lives only in the mini player (see below).
 - Controls: previous, play/pause, next, stop
 - Right: queue mode (normal/repeat-all/repeat-one), randomize, auto-continue, equalizer, volume
 
-**Mini mode:** Compact bar with art, title + Now Playing info line, play controls, close/expand. Draggable window, scroll-to-volume.
+**Mini mode:** Compact bar with art, title + the dynamic **Now Playing info** line (see below), play controls, close/expand. Draggable window, scroll-to-volume.
 
-**Now Playing info line** (the line under the title, both mini + full bar): a dynamic, auto-cycling section. Modules and plugins register items (`api.nowPlayingInfo` — see `plugins.md`); built-ins are **Artist · Album**, **Artist**, **Album**, **Plays · Rank** (one item), **Source**, **Quality**, **Duration**, plus the Last.fm plugin's **Scrobbles**. The user toggles which items show via the native context menu (right-click the mini player, or the artist/album area of the main bar); enabled items cycle every ~5s with a slide animation. Rendered by `NowPlayingInfoCycler`; resolution/selection lives in `useNowPlayingInfo`; the selection persists as `nowPlayingInfoSelection`. Each item declares its own default-enabled state (`defaultEnabled`); only **Artist · Album** and **Scrobbles** are on by default — the rest are opt-in.
+**Now Playing info line** (the line under the title, **mini player only** — the full bar shows a static Artist · Album line instead): a dynamic, auto-cycling section. Modules and plugins register items (`api.nowPlayingInfo` — see `plugins.md`); built-ins are **Artist · Album**, **Artist**, **Album**, **Plays · Rank** (one item), **Source**, **Quality**, **Duration**, **Tags** (`#`-prefixed track tags), plus the Last.fm plugin's **Scrobbles**. The user toggles which items show via the mini player's native right-click context menu; enabled items cycle every ~5s with a slide animation. Rendered by `NowPlayingInfoCycler`; resolution/selection lives in `useNowPlayingInfo`; the selection persists as `nowPlayingInfoSelection`. Each item declares its own default-enabled state (`defaultEnabled`); only **Artist · Album** and **Scrobbles** are on by default — the rest (including **Tags**) are opt-in.
 
 ## Now Playing View
 
