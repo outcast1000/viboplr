@@ -104,14 +104,10 @@ export function useDownloadOrchestration({
           { kind: "download:uri", provider: "__builtin:subsonic", input: { uri, format } },
           async () => {
             if (!uri.startsWith("subsonic://")) return null;
-            const rest = uri.substring(11);
-            const lastSlash = rest.lastIndexOf("/");
-            if (lastSlash < 0) throw new Error(`malformed subsonic uri (no '/'): ${uri}`);
-            const collectionId = parseInt(rest.substring(0, lastSlash), 10);
-            const trackId = rest.substring(lastSlash + 1);
-            if (!trackId || isNaN(collectionId)) throw new Error(`malformed subsonic uri (bad id): ${uri}`);
+            // Subsonic paths are host-based (`subsonic://{host}/{id}`); the
+            // backend resolves the collection by host, so pass the URI through.
             const target = await invoke<{ url: string; ext: string }>("resolve_subsonic_download_url", {
-              collectionId, remoteTrackId: trackId, format,
+              location: uri, format,
             });
             return { url: target.url, headers: null, metadata: null, ext: target.ext };
           },

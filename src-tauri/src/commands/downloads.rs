@@ -80,10 +80,14 @@ pub struct SubsonicDownloadTarget {
 #[tauri::command]
 pub fn resolve_subsonic_download_url(
     state: State<'_, AppState>,
-    collection_id: i64,
-    remote_track_id: String,
+    location: String,
     format: Option<String>,
 ) -> Result<SubsonicDownloadTarget, String> {
+    // Subsonic track paths are host-based (`subsonic://{host}/{id}`), so resolve
+    // the collection by host here — same parse the streaming path uses.
+    let (collection_id, remote_track_id) =
+        resolve_subsonic_location_parts(&state.db, &location)?;
+
     let creds = state.db.get_collection_credentials(collection_id)
         .map_err(|e| format!("Failed to get collection credentials: {}", e))?;
     let client = SubsonicClient::from_stored(

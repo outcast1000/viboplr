@@ -194,38 +194,12 @@ pub fn resolve_subsonic_location(
     state: State<'_, AppState>,
     location: String,
 ) -> Result<String, String> {
-    // Parse: subsonic://{host}/{subsonic_id}
-    let without_scheme = location
-        .strip_prefix("subsonic://")
-        .ok_or("Invalid subsonic location: missing subsonic:// prefix")?;
-    let last_slash = without_scheme
-        .rfind('/')
-        .ok_or("Invalid subsonic location: missing track id")?;
-    let host = &without_scheme[..last_slash];
-    let track_id = &without_scheme[last_slash + 1..];
-
-    if track_id.is_empty() {
-        return Err("Invalid subsonic location: empty track id".to_string());
-    }
-
-    let collections = state.db.get_collections().map_err(|e| e.to_string())?;
-    let collection = collections
-        .iter()
-        .find(|c| {
-            c.kind == "subsonic"
-                && c.url.as_ref().map_or(false, |u| {
-                    let normalized = u
-                        .trim_start_matches("https://")
-                        .trim_start_matches("http://")
-                        .trim_end_matches('/');
-                    normalized == host
-                })
-        })
-        .ok_or_else(|| format!("No subsonic collection found matching host: {}", host))?;
+    // Parse: subsonic://{host}/{subsonic_id} -> (collection id, remote track id)
+    let (collection_id, track_id) = resolve_subsonic_location_parts(&state.db, &location)?;
 
     let creds = state
         .db
-        .get_collection_credentials(collection.id)
+        .get_collection_credentials(collection_id)
         .map_err(|e| e.to_string())?;
     let client = crate::subsonic::SubsonicClient::from_stored(
         &creds.url,
@@ -234,7 +208,7 @@ pub fn resolve_subsonic_location(
         creds.salt.as_deref(),
         &creds.auth_method,
     );
-    Ok(client.stream_url(track_id))
+    Ok(client.stream_url(&track_id))
 }
 
 #[tauri::command]

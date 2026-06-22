@@ -467,6 +467,49 @@ fn resolve_dest_collection(
     Ok((local.id, local.path.clone().unwrap()))
 }
 
+/// Resolves a `subsonic://{host}/{track_id}` location to its owning collection
+/// id and the remote track id, matching the host against each subsonic
+/// collection's stored server URL (scheme + trailing slash normalized away).
+///
+/// Subsonic track paths are host-based, not collection-id-based — see the
+/// path-building SQL in `db/mod.rs`. Shared by the streaming
+/// (`resolve_subsonic_location`) and download (`resolve_subsonic_download_url`)
+/// paths so both parse the URI identically.
+fn resolve_subsonic_location_parts(
+    db: &Database,
+    location: &str,
+) -> Result<(i64, String), String> {
+    let without_scheme = location
+        .strip_prefix("subsonic://")
+        .ok_or("Invalid subsonic location: missing subsonic:// prefix")?;
+    let last_slash = without_scheme
+        .rfind('/')
+        .ok_or("Invalid subsonic location: missing track id")?;
+    let host = &without_scheme[..last_slash];
+    let track_id = &without_scheme[last_slash + 1..];
+
+    if track_id.is_empty() {
+        return Err("Invalid subsonic location: empty track id".to_string());
+    }
+
+    let collections = db.get_collections().map_err(|e| e.to_string())?;
+    let collection = collections
+        .iter()
+        .find(|c| {
+            c.kind == "subsonic"
+                && c.url.as_ref().map_or(false, |u| {
+                    let normalized = u
+                        .trim_start_matches("https://")
+                        .trim_start_matches("http://")
+                        .trim_end_matches('/');
+                    normalized == host
+                })
+        })
+        .ok_or_else(|| format!("No subsonic collection found matching host: {}", host))?;
+
+    Ok((collection.id, track_id.to_string()))
+}
+
 // --- Direct download commands ---
 
 #[cfg(debug_assertions)]
@@ -1093,6 +1136,48 @@ mod tests {
 
         state.db.remove_collection(col.id).unwrap();
         assert!(state.db.get_collections().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_resolve_subsonic_location_parts_matches_by_host() {
+        let db = Database::new_in_memory().unwrap();
+        // Stored with scheme + trailing slash; track paths are host-based.
+        let col = db
+            .add_collection(
+                "subsonic",
+                "Navidrome",
+                None,
+                Some("https://navidrome.j-15.com/"),
+                Some("user"),
+                Some("token"),
+                Some("salt"),
+                Some("token"),
+            )
+            .unwrap();
+
+        // The exact URI shape that regressed: host (with dots) + opaque track id.
+        let (cid, track_id) =
+            resolve_subsonic_location_parts(&db, "subsonic://navidrome.j-15.com/e8s3c5JBsLvr9ZKhMoTrp8")
+                .unwrap();
+        assert_eq!(cid, col.id);
+        assert_eq!(track_id, "e8s3c5JBsLvr9ZKhMoTrp8");
+    }
+
+    #[test]
+    fn test_resolve_subsonic_location_parts_no_match_errors() {
+        let db = Database::new_in_memory().unwrap();
+        db.add_collection(
+            "subsonic", "Navidrome", None, Some("https://navidrome.j-15.com"),
+            Some("user"), Some("token"), Some("salt"), Some("token"),
+        )
+        .unwrap();
+
+        // Unknown host -> no collection match (rather than the old NaN parse throw).
+        assert!(resolve_subsonic_location_parts(&db, "subsonic://other.example.com/abc").is_err());
+        // Empty track id is rejected.
+        assert!(resolve_subsonic_location_parts(&db, "subsonic://navidrome.j-15.com/").is_err());
+        // Missing scheme is rejected.
+        assert!(resolve_subsonic_location_parts(&db, "navidrome.j-15.com/abc").is_err());
     }
 
     #[test]
