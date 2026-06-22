@@ -567,7 +567,14 @@ export function QueuePanel({
                 onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
               >
                 <div className="queue-item-line1">
-                  {i === queueIndex && <SpinningDisc size={13} playing={!!isPlaying} />}
+                  {resolvingStatus?.key === t.key ? (
+                    <span
+                      className="queue-item-resolving-icon"
+                      title={resolvingStatus.error ? `${resolvingStatus.error} · Trying ${resolvingStatus.trying}…` : `Trying ${resolvingStatus.trying}…`}
+                    />
+                  ) : i === queueIndex ? (
+                    <SpinningDisc size={13} playing={!!isPlaying} />
+                  ) : null}
                   {t.liked === 1 && <IconHeartFilled size={11} className="queue-item-like" />}
                   {t.liked === -1 && <IconThumbsDownFilled size={11} className="queue-item-dislike" />}
                   <span className="queue-item-title">{t.title}</span>
@@ -577,18 +584,7 @@ export function QueuePanel({
                   <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
                   {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
                 </div>
-                {resolvingStatus?.key === t.key ? (
-                  <div className="queue-item-status">
-                    <span className="queue-item-status-spinner" />
-                    {resolvingStatus.error && (
-                      <>
-                        <span className="queue-resolving-error">{resolvingStatus.error}</span>
-                        <span className="queue-resolving-sep">·</span>
-                      </>
-                    )}
-                    <span className="queue-resolving-trying">Trying {resolvingStatus.trying}…</span>
-                  </div>
-                ) : resolveFailures?.[t.key] ? (
+                {resolveFailures?.[t.key] && resolvingStatus?.key !== t.key ? (
                   <div className="queue-item-status queue-item-status-failed">
                     <svg className="queue-resolving-fail-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                     <span className="queue-resolving-error">Couldn't play · {resolveFailures[t.key]}</span>
