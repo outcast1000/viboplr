@@ -29,6 +29,10 @@ interface EventListenerOptions {
   setResyncProgress: (v: ResyncProgress | null) => void;
   setResyncComplete: (v: ResyncComplete | null) => void;
   onBulkEditComplete?: () => void;
+  // Fired when a scan/sync changes the library's track population. SearchView keeps
+  // its own results state (independent of the `library` hook), so loadLibrary alone
+  // does not refresh it — this nudges it to re-run its current query.
+  onLibraryChanged?: () => void;
   dispatchPluginEvent?: (event: string, ...args: unknown[]) => void;
 }
 
@@ -44,6 +48,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     setResyncProgress,
     setResyncComplete,
     onBulkEditComplete,
+    onLibraryChanged,
   } = opts;
 
   // Scan events
@@ -85,6 +90,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       }
       loadLibrary();
       loadTracks();
+      onLibraryChanged?.();
       opts.dispatchPluginEvent?.("scan:complete" as any, {
         collectionId: event.payload.collectionId,
         newTracks: event.payload.newTracks ?? 0,
@@ -139,6 +145,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       setTimeout(() => setResyncComplete(null), 3000);
       loadLibrary();
       loadTracks();
+      onLibraryChanged?.();
       opts.dispatchPluginEvent?.("scan:complete" as any, {
         collectionId: event.payload.collectionId,
         newTracks: event.payload.newTracks ?? 0,
@@ -162,6 +169,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       // Caption bar fades after 5s via CSS animation, but resyncComplete state stays.
       loadLibrary();
       loadTracks();
+      onLibraryChanged?.();
     });
 
     return () => {

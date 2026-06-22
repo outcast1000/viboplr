@@ -624,6 +624,10 @@ function App() {
   const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" });
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
+  // Bumped when a scan/sync changes the library's track population, so the
+  // always-mounted SearchView re-runs its current (often empty) query instead of
+  // showing stale results cached from an earlier (possibly empty) startup.
+  const [searchLibraryKey, setSearchLibraryKey] = useState(0);
   const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
@@ -995,6 +999,7 @@ function App() {
     setResyncProgress,
     setResyncComplete,
     onBulkEditComplete: () => setSearchBulkEditKey(k => k + 1),
+    onLibraryChanged: () => setSearchLibraryKey(k => k + 1),
     dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
   });
 
@@ -2896,6 +2901,7 @@ function App() {
             style={{ display: view === "search" ? undefined : "none" }}
             initialQuery={searchInitialQuery}
             initialQueryKey={searchQueryKey}
+            libraryRefreshKey={searchLibraryKey}
             deletedTrackIds={searchDeletedBatch.ids}
             deletedTrackKey={searchDeletedBatch.key}
             deletedTagIds={searchDeletedTagBatch.ids}

@@ -65,6 +65,7 @@ interface SearchViewProps {
   style?: React.CSSProperties;
   initialQuery: string | null;
   initialQueryKey: number;
+  libraryRefreshKey: number;
   deletedTrackIds: number[];
   deletedTrackKey: number;
   deletedTagIds: number[];
@@ -118,6 +119,7 @@ export function SearchView({
   style,
   initialQuery,
   initialQueryKey,
+  libraryRefreshKey,
   deletedTrackIds,
   deletedTrackKey,
   deletedTagIds,
@@ -323,6 +325,15 @@ export function SearchView({
     if (bulkEditKey === 0 || !restoredRef.current || !searched) return;
     doSearch(queryRef.current);
   }, [bulkEditKey]);
+
+  // A scan/sync changed the library's track population. SearchView holds its own
+  // results (independent of the `library` hook), and the empty-query results are
+  // cached from mount — possibly when the library was empty at startup. Re-run the
+  // active query so newly-added tracks appear without the user having to type.
+  useEffect(() => {
+    if (libraryRefreshKey === 0 || !restoredRef.current || !searched) return;
+    doSearch(queryRef.current);
+  }, [libraryRefreshKey]);
 
   useEffect(() => {
     return subscribeTrackEvents(event => {
