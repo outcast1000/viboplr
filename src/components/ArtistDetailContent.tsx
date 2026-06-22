@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials } from "../utils";
@@ -73,9 +73,9 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
     if (kind === "artist") {
       const imgPath = actions.getArtistImage(entityName);
       if (artist && artist.name.toLowerCase() === entityName.toLowerCase()) {
-        return { id: artist.id, imageSrc: imgPath ? convertFileSrc(imgPath) : undefined };
+        return { id: artist.id, imageSrc: imgPath ? resolveImageUrl(imgPath) : undefined };
       }
-      return imgPath ? { imageSrc: convertFileSrc(imgPath) } : undefined;
+      return imgPath ? { imageSrc: resolveImageUrl(imgPath) } : undefined;
     }
     if (kind === "track") {
       const [trackName, trackArtistName] = entityName.includes("|||") ? entityName.split("|||") : [entityName, artist?.name];
@@ -208,7 +208,7 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
         onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
           artistImagePath
-            ? <img src={convertFileSrc(artistImagePath)} alt={name} />
+            ? <img src={artistImageUrl} alt={name} />
             : <span style={{ fontSize: "var(--fs-xl)", fontWeight: 700, color: "var(--accent)" }}>{getInitials(name)}</span>
         }
         artShape="circle"

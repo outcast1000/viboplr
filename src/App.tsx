@@ -19,7 +19,7 @@ import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isL
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
-import { resolveImageUrl } from "./utils/resolveImageUrl";
+import { resolveImageUrl, stripImageVersion } from "./utils/resolveImageUrl";
 import { pickEntityImagePath } from "./utils/trackImage";
 import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
@@ -2379,7 +2379,9 @@ function App() {
     }));
     setMixtapeExportTracks(exportTracks);
     setMixtapeExportDefaultTitle(queueHook.playlistContext?.name || "");
-    setMixtapeExportDefaultCover(queueHook.playlistContext?.imagePath ?? null);
+    // Strip the entity cache's #v=N cache-buster: this becomes a persisted
+    // mixtape cover path, and the backend treats it as a literal filesystem path.
+    setMixtapeExportDefaultCover(stripImageVersion(queueHook.playlistContext?.imagePath ?? null));
     setMixtapeExportDefaultMetadata(contextToExportMetadata(queueHook.playlistContext));
     const ctxSource = queueHook.playlistContext?.source;
     setMixtapeExportDefaultType(ctxSource === "album" ? "album" : ctxSource === "artist" ? "best_of_artist" : "custom");
@@ -3573,7 +3575,7 @@ function App() {
                 ? `${queueHook.playlistContext.name} ${dateStr}`
                 : `Queue ${dateStr}`;
             })()}
-          defaultImage={queueHook.playlistContext?.imagePath ?? null}
+          defaultImage={stripImageVersion(queueHook.playlistContext?.imagePath ?? null)}
           title={editPlaylistMode ? "Edit Playlist" : "Save Playlist"}
           info={editPlaylistMode ? { source: queueHook.playlistContext?.source, description: queueHook.playlistContext?.description, metadata: queueHook.playlistContext?.metadata } : null}
           onSave={handleSavePlaylistConfirm}

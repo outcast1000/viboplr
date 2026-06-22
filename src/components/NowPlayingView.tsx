@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { isVideoTrack, getInitials } from "../utils";
 import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
@@ -18,14 +19,6 @@ interface NowPlayingViewProps {
   getArtistImage: (name: string) => string | null;
   /** Seek playback to an absolute position (seconds) — wired to tap-to-seek on synced lines. */
   onSeek?: (secs: number) => void;
-}
-
-/** Resolve a local image path to a webview-usable src (remote URLs pass through). */
-function toSrc(path: string | null): string | null {
-  if (!path) return null;
-  if (/^(https?:|data:)/.test(path)) return path;
-  if (path.startsWith("file://")) return convertFileSrc(path.substring(7));
-  return convertFileSrc(path);
 }
 
 interface LrcLine {
@@ -179,11 +172,11 @@ export function NowPlayingView({
   let albumImageSrc: string | null = null;
   if (track && !isVideo) {
     if (track.image_url) {
-      albumImageSrc = toSrc(track.image_url);
+      albumImageSrc = resolveImageSrc(track.image_url);
     } else {
       const albumPath = track.album_title ? getAlbumImage(track.album_title, track.artist_name) : null;
       const artistPath = !albumPath && track.artist_name ? getArtistImage(track.artist_name) : null;
-      albumImageSrc = toSrc(albumPath ?? artistPath);
+      albumImageSrc = resolveImageSrc(albumPath ?? artistPath);
     }
   }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { resolveImageSrc } from "../utils/resolveImageUrl";
 import type { QueueTrack } from "../types";
 import { getInitials } from "../utils";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
@@ -18,15 +19,6 @@ interface VideoAmbientOverlayProps {
   onPlayQueueIndex?: (index: number) => void;
   /** Toggle the shared <video> in/out of fullscreen. */
   onToggleFullscreen?: () => void;
-}
-
-/** Resolve a local image path to a webview-usable src (remote URLs pass
- *  through). Mirrors the per-surface helper in NowPlayingView/QueuePanel. */
-function toSrc(path: string | null): string | null {
-  if (!path) return null;
-  if (/^(https?:|data:)/.test(path)) return path;
-  if (path.startsWith("file://")) return convertFileSrc(path.substring(7));
-  return convertFileSrc(path);
 }
 
 export function VideoAmbientOverlay({
@@ -58,7 +50,7 @@ export function VideoAmbientOverlay({
   // Sample the glow color from the (already-resolved) current track image.
   useEffect(() => {
     let cancelled = false;
-    const src = toSrc(currentTrack?.image_url ?? null);
+    const src = resolveImageSrc(currentTrack?.image_url ?? null);
     if (!src) { setGlow(null); return; }
     extractDominantColor(src).then((rgb) => {
       if (!cancelled) setGlow(rgb);
@@ -130,7 +122,7 @@ export function VideoAmbientOverlay({
   const nextTrack = next?.track ?? null;
 
   const nextSrc = nextTrack
-    ? toSrc(
+    ? resolveImageSrc(
         nextTrack.image_url
           ?? (nextTrack.album_title ? getAlbumImage(nextTrack.album_title, nextTrack.artist_name) : null)
           ?? (nextTrack.artist_name ? getArtistImage(nextTrack.artist_name) : null),

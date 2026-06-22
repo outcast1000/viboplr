@@ -20,6 +20,18 @@ export function resolveImageUrl(url: string | undefined | null): string | undefi
 }
 
 /**
+ * Resolve a track/entity image path to a webview-usable `<img src>`. Like
+ * `resolveImageUrl`, but first strips a leading `file://` prefix that some
+ * `image_url`s carry, and returns `null` (not `undefined`) for missing input.
+ * `resolveImageUrl` still handles http/data pass-through and the `#v=N`
+ * cache-buster the entity-image cache appends on re-fetch.
+ */
+export function resolveImageSrc(path: string | null | undefined): string | null {
+  if (!path) return null;
+  return resolveImageUrl(path.startsWith("file://") ? path.substring(7) : path) ?? null;
+}
+
+/**
  * Strip a plugin-appended `#v=N` cache-buster from a local path so it can be
  * passed to the backend (which treats the whole string as a filesystem path
  * and would fail to find a file whose name literally contains `#v=...`).

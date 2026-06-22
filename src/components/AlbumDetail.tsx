@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Album, ColumnConfig, QueueTrack } from "../types";
@@ -99,7 +99,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   const resolveEntity = useCallback((kind: string, entityName: string) => {
     if (kind === "artist") {
       const imgPath = actions.getArtistImage(entityName);
-      return imgPath ? { imageSrc: convertFileSrc(imgPath) } : undefined;
+      return imgPath ? { imageSrc: resolveImageUrl(imgPath) } : undefined;
     }
     if (kind === "track") {
       const [trackName, trackArtistName] = entityName.includes("|||") ? entityName.split("|||") : [entityName, displayArtist];
@@ -212,7 +212,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
         onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
           albumImagePath ? (
-            <img src={convertFileSrc(albumImagePath)} alt={name} />
+            <img src={resolveImageUrl(albumImagePath)} alt={name} />
           ) : (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 48, height: 48, opacity: 0.5 }}>
               <circle cx="12" cy="12" r="10" />

@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import "./CentralSearchDropdown.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -44,7 +44,7 @@ function ArtistImage({ artist, getArtistImage }: {
 }) {
   const path = getArtistImage(artist.name);
   if (path) {
-    return <img className="result-img result-img-round" src={convertFileSrc(path)} alt="" />;
+    return <img className="result-img result-img-round" src={resolveImageUrl(path)} alt="" />;
   }
   const initial = (artist.name[0] ?? "?").toUpperCase();
   return <span className="result-img-fallback result-img-round">{initial}</span>;
@@ -59,7 +59,7 @@ function AlbumImage({ album, getAlbumImage, getArtistImage }: {
   const artistPath = album.artist_name ? getArtistImage(album.artist_name) : null;
   const imagePath = albumPath || artistPath;
   if (imagePath) {
-    return <img className="result-img" src={convertFileSrc(imagePath)} alt="" />;
+    return <img className="result-img" src={resolveImageUrl(imagePath)} alt="" />;
   }
   const initial = (album.title[0] ?? "?").toUpperCase();
   return <span className="result-img-fallback">{initial}</span>;
@@ -74,7 +74,7 @@ function TrackImage({ track, getAlbumImage, getArtistImage }: {
   const artistPath = track.artist_name ? getArtistImage(track.artist_name) : null;
   const imagePath = albumPath || artistPath;
   if (imagePath) {
-    return <img className="result-img" src={convertFileSrc(imagePath)} alt="" />;
+    return <img className="result-img" src={resolveImageUrl(imagePath)} alt="" />;
   }
   const initial = (track.title[0] ?? "?").toUpperCase();
   return <span className="result-img-fallback">{initial}</span>;

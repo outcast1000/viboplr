@@ -9,6 +9,28 @@ export function imageCacheKey(kind: "artist" | "album" | "tag", name: string, ar
   return `${kind}:${name.toLowerCase()}`;
 }
 
+/**
+ * Append a `#v=N` cache-buster to a cached entity-image path once it has been
+ * (re)fetched. Entity images are saved to a deterministic, name-derived path
+ * (`entity_image.rs`), so replacing one overwrites the same filename in place —
+ * the `asset://` URL never changes and the WebView keeps serving the stale
+ * cached bytes (the image only updated after an app restart). Bumping the
+ * version makes the URL change so the WebView reloads. `resolveImageUrl`
+ * translates the `#v=N` into a `?v=N` query for the asset request; consumers
+ * that need the raw filesystem path strip it via `stripImageVersion`.
+ *
+ * `version === 0` (never refreshed) returns the plain path, so the common case
+ * is unchanged. Remote/data URLs are returned as-is (they're already unique).
+ */
+export function imageUrlWithVersion(path: string | null, version: number): string | null {
+  if (!path) return null;
+  if (version <= 0) return path;
+  if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
+    return path;
+  }
+  return `${path}#v=${version}`;
+}
+
 export interface UseImageCacheReturn {
   getImage: (name: string, artistName?: string | null) => string | null;
   invalidate: (name: string, artistName?: string | null) => void;
@@ -23,13 +45,23 @@ export function useImageCache(
   const [cache, setCache] = useState<Record<string, string | null>>({});
   const cacheRef = useRef(cache);
   cacheRef.current = cache;
+  // Per-key cache-bust version, bumped whenever the underlying image file is
+  // (re)written in place (invalidate / requestFetch / *-image-ready). State so a
+  // bump re-renders consumers; ref mirror so the getImage callback reads it
+  // without stale-closure issues.
+  const [versions, setVersions] = useState<Record<string, number>>({});
+  const versionsRef = useRef(versions);
+  versionsRef.current = versions;
+  const bumpVersion = useCallback((key: string) => {
+    setVersions((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
+  }, []);
   const inFlight = useRef(new Set<string>());
 
   const getImage = useCallback((name: string, artistName?: string | null): string | null => {
     const key = imageCacheKey(kind, name, artistName);
 
     if (key in cacheRef.current) {
-      return cacheRef.current[key];
+      return imageUrlWithVersion(cacheRef.current[key], versionsRef.current[key] ?? 0);
     }
 
     if (inFlight.current.has(key)) {
@@ -66,16 +98,18 @@ export function useImageCache(
   const invalidate = useCallback((name: string, artistName?: string | null) => {
     const key = imageCacheKey(kind, name, artistName);
     inFlight.current.delete(key);
+    bumpVersion(key);
     setCache((prev) => {
       const next = { ...prev };
       delete next[key];
       return next;
     });
-  }, [kind]);
+  }, [kind, bumpVersion]);
 
   const requestFetch = useCallback((name: string, artistName?: string | null) => {
     const key = imageCacheKey(kind, name, artistName);
     inFlight.current.delete(key);
+    bumpVersion(key);
     setCache((prev) => {
       const next = { ...prev };
       delete next[key];
@@ -88,11 +122,12 @@ export function useImageCache(
     } else if (kind === "tag") {
       invoke("fetch_tag_image", { tagName: name }).catch(console.error);
     }
-  }, [kind]);
+  }, [kind, bumpVersion]);
 
   const clearAllFailures = useCallback(() => {
     inFlight.current = new Set();
     setCache({});
+    setVersions({});
   }, []);
 
   // Listen for image-ready and image-error events
@@ -114,6 +149,9 @@ export function useImageCache(
         key = imageCacheKey("tag", event.payload.name as string);
       }
 
+      // A ready event means the file at this slug was (re)written — bump the
+      // cache-bust version so a same-path replacement actually reloads.
+      bumpVersion(key);
       setCache((prev) => ({ ...prev, [key]: path }));
     });
 
@@ -137,7 +175,7 @@ export function useImageCache(
       unlistenReady.then((f) => f());
       unlistenError.then((f) => f());
     };
-  }, [kind]);
+  }, [kind, bumpVersion]);
 
   return { getImage, invalidate, requestFetch, clearAllFailures, cache };
 }

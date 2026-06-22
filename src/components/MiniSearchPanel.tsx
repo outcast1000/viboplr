@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import "./MiniSearchPanel.css";
 
 interface MiniSearchPanelProps {
@@ -17,7 +17,7 @@ interface MiniSearchPanelProps {
 
 function ArtistImg({ artist, getArtistImage }: { artist: Artist; getArtistImage: (n: string) => string | null }) {
   const p = getArtistImage(artist.name);
-  if (p) return <img className="mini-result-img mini-result-img-round" src={convertFileSrc(p)} alt="" />;
+  if (p) return <img className="mini-result-img mini-result-img-round" src={resolveImageUrl(p)} alt="" />;
   return <span className="mini-result-img-fallback mini-result-img-round">{(artist.name[0] ?? "?").toUpperCase()}</span>;
 }
 
@@ -25,7 +25,7 @@ function AlbumImg({ album, getAlbumImage, getArtistImage }: {
   album: Album; getAlbumImage: (t: string, a?: string | null) => string | null; getArtistImage: (n: string) => string | null;
 }) {
   const p = getAlbumImage(album.title, album.artist_name) || (album.artist_name ? getArtistImage(album.artist_name) : null);
-  if (p) return <img className="mini-result-img" src={convertFileSrc(p)} alt="" />;
+  if (p) return <img className="mini-result-img" src={resolveImageUrl(p)} alt="" />;
   return <span className="mini-result-img-fallback">{(album.title[0] ?? "?").toUpperCase()}</span>;
 }
 
@@ -34,7 +34,7 @@ function TrackImg({ track, getAlbumImage, getArtistImage }: {
 }) {
   const p = (track.album_title ? getAlbumImage(track.album_title, track.artist_name) : null)
     || (track.artist_name ? getArtistImage(track.artist_name) : null);
-  if (p) return <img className="mini-result-img" src={convertFileSrc(p)} alt="" />;
+  if (p) return <img className="mini-result-img" src={resolveImageUrl(p)} alt="" />;
   return <span className="mini-result-img-fallback">{(track.title[0] ?? "?").toUpperCase()}</span>;
 }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { QueueTrack, QueueMode } from "../types";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
 import { AutoContinuePopover } from "./AutoContinuePopover";
@@ -171,7 +171,7 @@ export function FullscreenControls({
       </div>
       <div className="fs-main">
         <div className="fs-info">
-          {imagePath && <img className="fs-art" src={convertFileSrc(imagePath)} alt="" />}
+          {imagePath && <img className="fs-art" src={resolveImageUrl(imagePath)} alt="" />}
           <div className="fs-like-col">
             {currentTrack && (
               <LikeDislikeButtons

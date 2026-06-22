@@ -14,6 +14,7 @@ import { DetailHero } from "./DetailHero";
 import { ViewSearchBar } from "./ViewSearchBar";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
 import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists } from "../utils/autoPlaylist";
 import { useImageCache } from "../hooks/useImageCache";
@@ -270,7 +271,9 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     if (pl.image_path) return convertFileSrc(pl.image_path);
     const artist = firstArtist(pl.metadata);
     const resolved = artist ? artistImages.getImage(artist) : null;
-    return resolved ? convertFileSrc(resolved) : playlistDefault;
+    // resolveImageUrl (not convertFileSrc) so the #v=N cache-buster on a
+    // re-fetched artist image becomes a ?v=N query and the cover reloads.
+    return resolveImageUrl(resolved) ?? playlistDefault;
   }, [artistImages]);
 
   // Resolve artwork for tracks lacking an explicit image_path, using the same
@@ -426,12 +429,14 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     // no resolved track images to collage.
     const autoArtist = isAuto(selectedPlaylist) ? firstArtist(selectedPlaylist.metadata) : null;
     const autoArtistImg = autoArtist ? artistImages.getImage(autoArtist) : null;
+    // resolveImageUrl handles the entity cache's #v=N cache-buster (→ ?v=N).
+    const autoArtistSrc = resolveImageUrl(autoArtistImg);
     const detailArtSrc = selectedPlaylist.image_path
       ? imageUrl(selectedPlaylist.image_path)
-      : autoArtistImg ? convertFileSrc(autoArtistImg) : playlistDefault;
+      : autoArtistSrc ?? playlistDefault;
     const detailBgImages = heroBgImages.length > 0
       ? heroBgImages
-      : autoArtistImg ? [convertFileSrc(autoArtistImg)] : [];
+      : autoArtistSrc ? [autoArtistSrc] : [];
 
     // Liked / Disliked Songs carry no image_path; give them the same branded
     // gradient + icon cover as their list shortcut instead of the generic disc.

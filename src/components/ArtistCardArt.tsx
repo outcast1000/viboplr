@@ -1,5 +1,5 @@
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Artist } from "../types";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import "./ArtistCardArt.css";
 
 function getInitials(name: string): string {
@@ -16,7 +16,7 @@ export function ArtistCardArt({ artist, imagePath, className }: ArtistCardArtPro
   return (
     <div className={className ?? "artist-card-art"}>
       {imagePath ? (
-        <img className="artist-card-art-img" src={convertFileSrc(imagePath)} alt={artist.name} />
+        <img className="artist-card-art-img" src={resolveImageUrl(imagePath)} alt={artist.name} />
       ) : (
         getInitials(artist.name)
       )}

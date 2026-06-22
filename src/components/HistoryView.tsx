@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import "./HistoryView.css";
 
 export interface HistoryViewHandle {
@@ -63,7 +63,7 @@ function formatRelativeTime(unixSecs: number): string {
 
 function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
   if (imagePath) {
-    return <img className="history-art" src={convertFileSrc(imagePath)} alt="" />;
+    return <img className="history-art" src={resolveImageUrl(imagePath)} alt="" />;
   }
   return <div className="history-art history-art-placeholder" />;
 }

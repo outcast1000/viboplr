@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import type { Tag, ColumnConfig, QueueTrack } from "../types";
 
@@ -14,6 +14,7 @@ import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { DetailHero } from "./DetailHero";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import { TitleLineInfo } from "./TitleLineInfo";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 
 interface TagDetailProps {
   name: string;
@@ -137,7 +138,7 @@ export function TagDetail({ name }: TagDetailProps) {
         onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
           tagImagePath
-            ? <img src={convertFileSrc(tagImagePath)} alt={name} />
+            ? <img src={resolveImageUrl(tagImagePath)} alt={name} />
             : <span style={{ fontSize: "var(--fs-2xl)", fontWeight: 700 }}>{name[0]?.toUpperCase() ?? "#"}</span>
         }
         artShape="square"

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, QueueTrack } from "../types";
@@ -301,7 +301,7 @@ export function TrackDetailView({
               onFrameClick={onPlayAt}
             />
           ) : (albumImagePath || artistImagePath) ? (
-            <img src={convertFileSrc((albumImagePath ?? artistImagePath)!)} alt={track.album_title ?? track.artist_name ?? ""} />
+            <img src={resolveImageUrl(albumImagePath ?? artistImagePath)} alt={track.album_title ?? track.artist_name ?? ""} />
           ) : (
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 48, height: 48, opacity: 0.5 }}>
               <circle cx="12" cy="12" r="10" />
