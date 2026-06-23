@@ -21,11 +21,6 @@
     "downloadProviders": [
       { "id": "subsonic-browse", "name": "Subsonic Servers" }
     ],
-    "settingsPanel": {
-      "id": "subsonic-browse-settings",
-      "label": "Subsonic Servers",
-      "order": 45
-    },
     "eventHooks": ["track:scrobbled"]
   }
 }

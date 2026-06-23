@@ -17,7 +17,6 @@ function activate(api) {
   var SCHEME = "xsonic";                 // custom track scheme (distinct from core's subsonic://)
   var PROVIDER = "subsonic-browse";      // stream/download provider id (matches manifest)
   var VIEW = "subsonic-browse";          // sidebar view id
-  var SETTINGS = "subsonic-browse-settings";
   var SEARCH_TIMEOUT_MS = 8000;          // per-server budget; one slow server can't stall the rest
   var PER_SERVER_LIMIT = 40;
 
@@ -25,12 +24,22 @@ function activate(api) {
   var state = {
     servers: [],            // [{id,name,url,username,password,authMethod}]
     form: { name: "", url: "", username: "", password: "" },
+    editingId: null,        // server id being edited in the Manage tab (null = not editing)
+    addingNew: false,       // in-tab add form open (Manage tab, no server selected)
+    confirmRemoveId: null,  // server id pending a remove confirmation (null = no confirm shown)
     adding: false,
     addStatus: "",
     addError: false,
     query: "",
     searching: false,
     results: [],            // merged songs (ordered); each has .alternates[]
+    albumResults: [],       // merged albums; each has .alternates[]
+    artistResults: [],      // merged artists; each has .alternates[]
+    activeTab: "tracks",    // "tracks" | "albums" | "artists"
+    view: "results",        // "results" | "album" | "artist" | "servers" | "about"
+    nav: [],                // back-stack of prior view states
+    detail: null,           // current detail: { kind, server, title, subtitle, coverId, loading, error, tracks?, albums? }
+    detailTracks: [],       // PluginTracks shown in album detail (for play-by-index)
     statusLine: "",
     downServers: {},        // serverId -> true (unreachable this session)
     alternates: {},         // "serverId/trackId" -> [{serverId,trackId,serverName}] for failover
@@ -247,6 +256,30 @@ function activate(api) {
     return song;
   }
 
+  function mapAlbum(server, a) {
+    return {
+      serverId: server.id,
+      serverName: server.name,
+      albumId: a.id,
+      title: a.name || a.title || "Unknown",
+      artist: a.artist || null,
+      year: typeof a.year === "number" ? a.year : null,
+      coverId: a.coverArt || a.id,
+      songCount: typeof a.songCount === "number" ? a.songCount : null,
+    };
+  }
+
+  function mapArtist(server, ar) {
+    return {
+      serverId: server.id,
+      serverName: server.name,
+      artistId: ar.id,
+      name: ar.name || "Unknown",
+      albumCount: typeof ar.albumCount === "number" ? ar.albumCount : null,
+      coverId: ar.coverArt || ar.id,
+    };
+  }
+
   // Authoritative metadata lookup for a single track — covers cold-cache tracks
   // (e.g. a queue restored after restart) that were never surfaced this session.
   async function fetchSongMeta(server, trackId) {
@@ -276,49 +309,80 @@ function activate(api) {
         if (done) return;
         done = true;
         state.downServers[server.id] = true;
-        resolve({ server: server, ok: false, songs: [], error: "timed out" });
+        resolve({ server: server, ok: false, songs: [], albums: [], artists: [], error: "timed out" });
       }, SEARCH_TIMEOUT_MS);
-      subsonicGet(server, "search3.view", "query=" + enc(query) + "&songCount=" + limit + "&artistCount=0&albumCount=0").then(
+      subsonicGet(server, "search3.view", "query=" + enc(query) + "&songCount=" + limit + "&albumCount=" + limit + "&artistCount=" + limit).then(
         function (r) {
           if (done) return;
           done = true; clearTimeout(timer);
           delete state.downServers[server.id];
-          var songs = (r.searchResult3 && r.searchResult3.song) || [];
-          resolve({ server: server, ok: true, songs: songs.map(function (s) { return mapSong(server, s); }) });
+          var sr = r.searchResult3 || {};
+          resolve({
+            server: server, ok: true,
+            songs: (sr.song || []).map(function (s) { return mapSong(server, s); }),
+            albums: (sr.album || []).map(function (a) { return mapAlbum(server, a); }),
+            artists: (sr.artist || []).map(function (ar) { return mapArtist(server, ar); }),
+          });
         },
         function (err) {
           if (done) return;
           done = true; clearTimeout(timer);
           state.downServers[server.id] = true;
           console.error("subsonic-browse: search failed on " + server.name + ":", err);
-          resolve({ server: server, ok: false, songs: [], error: String((err && err.message) || err) });
+          resolve({ server: server, ok: false, songs: [], albums: [], artists: [], error: String((err && err.message) || err) });
         }
       );
     });
   }
 
-  // Run a query across every server, merge + dedup. Duplicates (same song on
-  // multiple servers) collapse into one row that carries all copies as
-  // `alternates` (enables play-time failover + a "N servers" affordance).
-  async function searchAll(query, limit) {
-    var settled = await Promise.all(state.servers.map(function (s) { return searchServerSafe(s, query, limit); }));
-    var merged = [], byKey = {}, ok = 0, fail = 0, failNames = [];
-    settled.forEach(function (res) {
-      if (res.ok) ok++; else { fail++; failNames.push(res.server.name); }
-      res.songs.forEach(function (song) {
-        var key = songKey(song.title, song.artist);
-        var alt = { serverId: song.serverId, trackId: song.trackId, serverName: song.serverName };
-        if (byKey[key] != null) { merged[byKey[key]].alternates.push(alt); return; }
-        song.alternates = [alt];
-        byKey[key] = merged.length;
-        merged.push(song);
-      });
+  // Merge entities of one kind across servers: the same entity on N servers
+  // collapses into one item carrying all copies as `alternates` (play-time
+  // failover + an "N servers" affordance). `idField` is the per-kind id key
+  // (trackId / albumId / artistId).
+  function mergeByKey(list, keyOf, idField) {
+    var merged = [], byKey = {};
+    list.forEach(function (item) {
+      var key = keyOf(item);
+      var alt = { serverId: item.serverId, serverName: item.serverName };
+      alt[idField] = item[idField];
+      if (typeof item.songCount === "number") alt.songCount = item.songCount;    // per-server album track count
+      if (typeof item.albumCount === "number") alt.albumCount = item.albumCount; // per-server artist album count
+      if (byKey[key] != null) { merged[byKey[key]].alternates.push(alt); return; }
+      item.alternates = [alt];
+      byKey[key] = merged.length;
+      merged.push(item);
     });
-    return { merged: merged, ok: ok, fail: fail, failNames: failNames };
+    return merged;
   }
 
-  function rank(song, q) {
-    var t = (song.title || "").toLowerCase();
+  // First non-down alternate, else the first (so we always return something).
+  function healthyAlt(alternates) {
+    for (var i = 0; i < alternates.length; i++) {
+      if (!state.downServers[alternates[i].serverId]) return alternates[i];
+    }
+    return alternates[0];
+  }
+
+  // Run a query across every server and merge each entity kind independently.
+  async function searchAll(query, limit) {
+    var settled = await Promise.all(state.servers.map(function (s) { return searchServerSafe(s, query, limit); }));
+    var ok = 0, fail = 0, failNames = [], songs = [], albums = [], artists = [];
+    settled.forEach(function (res) {
+      if (res.ok) ok++; else { fail++; failNames.push(res.server.name); }
+      songs = songs.concat(res.songs || []);
+      albums = albums.concat(res.albums || []);
+      artists = artists.concat(res.artists || []);
+    });
+    return {
+      songs: mergeByKey(songs, function (s) { return songKey(s.title, s.artist); }, "trackId"),
+      albums: mergeByKey(albums, function (a) { return norm(a.artist) + "" + norm(a.title); }, "albumId"),
+      artists: mergeByKey(artists, function (ar) { return norm(ar.name); }, "artistId"),
+      ok: ok, fail: fail, failNames: failNames,
+    };
+  }
+
+  function rank(title, q) {
+    var t = (title || "").toLowerCase();
     if (t === q) return 0;
     if (t.indexOf(q) === 0) return 1;
     if (t.indexOf(q) >= 0) return 2;
@@ -328,23 +392,32 @@ function activate(api) {
   async function runSearch(query) {
     state.searching = true;
     state.query = query;
+    state.view = "results";
+    state.nav = [];
     renderBrowse();
     var res = await searchAll(query, PER_SERVER_LIMIT);
     var q = query.toLowerCase();
-    res.merged.sort(function (a, b) {
-      var d = rank(a, q) - rank(b, q);
-      return d !== 0 ? d : (a.title || "").localeCompare(b.title || "");
-    });
-    // Index every copy -> the full alternates list, so the stream resolver can
-    // fail over no matter which server's id ends up encoded in the queue path.
+    function sortByRank(list, titleOf) {
+      list.sort(function (a, b) {
+        var d = rank(titleOf(a), q) - rank(titleOf(b), q);
+        return d !== 0 ? d : titleOf(a).localeCompare(titleOf(b));
+      });
+    }
+    sortByRank(res.songs, function (s) { return s.title || ""; });
+    sortByRank(res.albums, function (a) { return a.title || ""; });
+    sortByRank(res.artists, function (ar) { return ar.name || ""; });
+    // Index every song copy -> the full alternates list, so the stream resolver
+    // can fail over no matter which server's id ends up encoded in the queue path.
     state.alternates = {};
-    res.merged.forEach(function (song) {
+    res.songs.forEach(function (song) {
       song.alternates.forEach(function (alt) {
         state.alternates[alt.serverId + "/" + alt.trackId] = song.alternates;
       });
     });
-    state.results = res.merged;
-    state.statusLine = buildStatus(res, res.merged.length);
+    state.results = res.songs;
+    state.albumResults = res.albums;
+    state.artistResults = res.artists;
+    state.statusLine = buildStatus(res, res.songs.length + res.albums.length + res.artists.length);
     state.searching = false;
     renderBrowse();
   }
@@ -389,8 +462,80 @@ function activate(api) {
     };
   }
 
-  function renderBrowse() {
+  // "N <unit>s" when the servers holding this entity agree on a per-server count;
+  // "⚠ A–B <unit>s" when they differ (likely divergent tagging/editions).
+  function countLabel(alternates, field, unit) {
+    var counts = [];
+    for (var i = 0; i < alternates.length; i++) {
+      var c = alternates[i][field];
+      if (typeof c === "number") counts.push(c);
+    }
+    if (!counts.length) return null;
+    var min = Math.min.apply(null, counts), max = Math.max.apply(null, counts);
+    if (min === max) return min + " " + unit + (min === 1 ? "" : "s");
+    return "⚠ " + min + "–" + max + " " + unit + "s";
+  }
+
+  function cardFromAlbum(album) {
+    var p = album.alternates[0];
+    var server = findServer(p.serverId);
+    var parts = [];
+    if (album.artist) parts.push(album.artist);
+    if (album.alternates.length > 1) parts.push(album.alternates.length + " servers");
+    var cl = countLabel(album.alternates, "songCount", "track");
+    if (cl) parts.push(cl);
+    return {
+      id: p.serverId + "/" + p.albumId,
+      title: album.title,
+      subtitle: parts.join("  ·  "),
+      imageUrl: coverUrl(server, album.coverId),
+      action: "open-album",
+      contextMenuActions: [{ id: "play-playlist", label: "Play" }],
+      targetKind: "album",
+    };
+  }
+
+  function cardFromArtist(artist) {
+    var p = artist.alternates[0];
+    var server = findServer(p.serverId);
+    var parts = [];
+    if (artist.alternates.length > 1) parts.push(artist.alternates.length + " servers");
+    var cl = countLabel(artist.alternates, "albumCount", "album");
+    if (cl) parts.push(cl);
+    return {
+      id: p.serverId + "/" + p.artistId,
+      title: artist.name,
+      subtitle: parts.length ? parts.join("  ·  ") : undefined,
+      imageUrl: coverUrl(server, artist.coverId),
+      action: "open-artist",
+      targetKind: "artist",
+    };
+  }
+
+  // Resolve a card id ("serverId/entityId") back to its merged entity.
+  function findAlbumById(id) {
+    for (var i = 0; i < state.albumResults.length; i++) {
+      var a = state.albumResults[i];
+      for (var j = 0; j < a.alternates.length; j++) {
+        if (a.alternates[j].serverId + "/" + a.alternates[j].albumId === id) return a;
+      }
+    }
+    return null;
+  }
+  function findArtistById(id) {
+    for (var i = 0; i < state.artistResults.length; i++) {
+      var ar = state.artistResults[i];
+      for (var j = 0; j < ar.alternates.length; j++) {
+        if (ar.alternates[j].serverId + "/" + ar.alternates[j].artistId === id) return ar;
+      }
+    }
+    return null;
+  }
+
+  // Results surface: search box + tabs (Tracks/Albums/Artists) + active body.
+  function renderResults() {
     var children = [];
+    children.push(sectionTabs("search"));
     children.push({
       type: "search-input",
       placeholder: "Search all servers…",
@@ -400,51 +545,339 @@ function activate(api) {
       value: state.query,
     });
     if (state.servers.length === 0) {
-      children.push({ type: "text", content: "No servers connected yet. Add one in Settings → Subsonic Servers to search, stream, and download across servers." });
+      children.push({ type: "spacer" });
+      children.push({ type: "text", content: "No servers connected yet. Add one from the Manage tab to search, stream, and download across servers." });
+      children.push({ type: "spacer" });
+      children.push({ type: "button", label: "+ Add a server", action: "switch-section", data: { tabId: "manage" }, className: "ds-btn ds-btn--primary", style: { alignSelf: "flex-start" } });
     } else if (state.searching) {
+      children.push({ type: "spacer" });
       children.push({ type: "loading", message: "Searching " + state.servers.length + " server" + (state.servers.length > 1 ? "s" : "") + "…" });
     } else if (state.query) {
+      // search-input + tabs lead the layout so the renderer hoists both above
+      // the scroll area; everything after scrolls.
+      children.push({
+        type: "tabs",
+        activeTab: state.activeTab,
+        action: "switch-tab",
+        tabs: [
+          { id: "tracks", label: "Tracks", count: state.results.length },
+          { id: "albums", label: "Albums", count: state.albumResults.length },
+          { id: "artists", label: "Artists", count: state.artistResults.length },
+        ],
+      });
+      children.push({ type: "spacer" });
       if (state.statusLine) children.push({ type: "text", content: state.statusLine });
-      if (state.results.length === 0) children.push({ type: "text", content: "No results." });
-      else children.push({ type: "track-row-list", showHeader: true, items: state.results.map(rowFromSong) });
+      if (state.activeTab === "albums") {
+        if (state.albumResults.length === 0) children.push({ type: "text", content: "No albums found." });
+        else children.push({ type: "card-grid", items: state.albumResults.map(cardFromAlbum) });
+      } else if (state.activeTab === "artists") {
+        if (state.artistResults.length === 0) children.push({ type: "text", content: "No artists found." });
+        else children.push({ type: "card-grid", items: state.artistResults.map(cardFromArtist) });
+      } else {
+        if (state.results.length === 0) children.push({ type: "text", content: "No tracks found." });
+        else children.push({ type: "track-row-list", showHeader: true, items: state.results.map(rowFromSong) });
+      }
     } else {
+      children.push({ type: "spacer" });
       children.push({ type: "text", content: state.servers.length + " server" + (state.servers.length > 1 ? "s" : "") + " connected. Type a query to search across all of them at once." });
     }
-    api.ui.setViewData(VIEW, { type: "layout", direction: "vertical", children: children }, { scrollKey: state.query ? "q:" + state.query : "home" });
+    api.ui.setViewData(VIEW, { type: "layout", direction: "vertical", children: children }, { scrollKey: state.query ? "q:" + state.query + ":" + state.activeTab : "home" });
   }
 
-  // ---- Settings (server management) -------------------------------------
-  function renderSettings() {
-    var serverRows = state.servers.map(function (s) {
-      var status = state.downServers[s.id] ? "Unreachable" : "Connected";
-      return {
-        type: "settings-row",
-        label: s.name,
-        description: s.url + "  ·  " + s.username + "  ·  " + status + "  ·  auth: " + s.authMethod,
-        control: { type: "button", label: "Remove", action: "remove-server", variant: "secondary", data: { id: s.id } },
-      };
+  // Top-level Search / Manage tab row, shown at the root of both sections.
+  function sectionTabs(active) {
+    return {
+      type: "tabs",
+      activeTab: active,
+      action: "switch-section",
+      tabs: [{ id: "search", label: "Search" }, { id: "manage", label: "Manage" }, { id: "about", label: "About" }],
+    };
+  }
+
+  function renderBrowse() {
+    if (state.view === "album") return renderAlbumDetail();
+    if (state.view === "artist") return renderArtistDetail();
+    if (state.view === "servers") return renderServersManage();
+    if (state.view === "about") return renderAbout();
+    return renderResults();
+  }
+
+  // ---- Detail sub-views (album / artist) --------------------------------
+  async function getAlbumTracks(server, albumId) {
+    var r = await subsonicGet(server, "getAlbum.view", "id=" + enc(albumId));
+    var a = r.album || {};
+    return { album: a, songs: (a.song || []).map(function (s) { return mapSong(server, s); }) };
+  }
+  async function getArtistAlbums(server, artistId) {
+    var r = await subsonicGet(server, "getArtist.view", "id=" + enc(artistId));
+    var ar = r.artist || {};
+    return { artist: ar, albums: (ar.album || []).map(function (al) { return mapAlbum(server, al); }) };
+  }
+
+  function songToPluginTrack(s) {
+    var server = findServer(s.serverId);
+    return {
+      path: SCHEME + "://" + s.serverId + "/" + s.trackId,
+      title: s.title,
+      artist_name: s.artist,
+      album_title: s.album,
+      duration_secs: s.duration,
+      track_number: s.track,
+      image_url: coverUrl(server, s.coverId),
+    };
+  }
+  // Album/artist-detail tracks come from a single server (one getAlbum call), so
+  // each gets a single-server alternate entry for the stream resolver.
+  function indexSingleServerTracks(songs) {
+    songs.forEach(function (s) {
+      state.alternates[s.serverId + "/" + s.trackId] = [{ serverId: s.serverId, trackId: s.trackId, serverName: s.serverName }];
     });
+  }
 
-    var addChildren = [
-      { type: "settings-row", label: "Name", description: "A label for this server (optional)", control: { type: "text-input", placeholder: "My server", action: "form-name", value: state.form.name } },
-      { type: "settings-row", label: "Server URL", description: "e.g. https://music.example.com", control: { type: "text-input", placeholder: "https://…", action: "form-url", value: state.form.url } },
-      { type: "settings-row", label: "Username", control: { type: "text-input", placeholder: "user", action: "form-username", value: state.form.username } },
-      { type: "settings-row", label: "Password", description: "Stored locally; sent to the server over your connection", control: { type: "text-input", placeholder: "password", action: "form-password", value: state.form.password } },
-      { type: "button", label: state.adding ? "Testing…" : "Test & Add", action: "add-server", variant: "accent", disabled: state.adding },
-    ];
-    if (state.addStatus) addChildren.push({ type: "text", content: state.addStatus });
+  // Resolve an album card id to a fetch/play ref: prefer the merged search entity
+  // (cross-server failover), then the open artist detail's albums, then the id
+  // itself (always "serverId/albumId").
+  function findAlbumRefFromDetail(id) {
+    if (!state.detail || state.detail.kind !== "artist" || !state.detail.albums) return null;
+    for (var i = 0; i < state.detail.albums.length; i++) {
+      var al = state.detail.albums[i];
+      if (al.serverId + "/" + al.albumId === id) return { serverId: al.serverId, albumId: al.albumId, title: al.title, artist: al.artist, coverId: al.coverId };
+    }
+    return null;
+  }
+  function resolveAlbumRef(id) {
+    var album = findAlbumById(id);
+    if (album) { var alt = healthyAlt(album.alternates); return { serverId: alt.serverId, albumId: alt.albumId, title: album.title, artist: album.artist, coverId: album.coverId }; }
+    var fromDetail = findAlbumRefFromDetail(id);
+    if (fromDetail) return fromDetail;
+    var p = parseId(id);
+    return p ? { serverId: p.serverId, albumId: p.trackId } : null;
+  }
 
-    api.ui.setViewData(SETTINGS, {
+  function pushNav() {
+    state.nav.push({ view: state.view, detail: state.detail, activeTab: state.activeTab });
+  }
+  function goBack() {
+    var prev = state.nav.pop();
+    if (prev) { state.view = prev.view; state.detail = prev.detail; state.activeTab = prev.activeTab; }
+    else { state.view = "results"; state.detail = null; }
+    renderBrowse();
+  }
+
+  function openAlbum(id) {
+    var ref = resolveAlbumRef(id);
+    if (!ref) return;
+    var server = findServer(ref.serverId);
+    if (!server) return;
+    pushNav();
+    state.view = "album";
+    state.detail = { kind: "album", server: server, title: ref.title || "Album", subtitle: ref.artist || "", coverId: ref.coverId || null, loading: true, error: null, songs: [] };
+    state.detailTracks = [];
+    renderBrowse();
+    getAlbumTracks(server, ref.albumId).then(
+      function (out) {
+        if (state.view !== "album" || !state.detail) return;
+        state.detail.loading = false;
+        state.detail.title = out.album.name || state.detail.title;
+        state.detail.subtitle = out.album.artist || state.detail.subtitle;
+        state.detail.coverId = out.album.coverArt || state.detail.coverId;
+        state.detail.songs = out.songs;
+        state.detailTracks = out.songs.map(songToPluginTrack);
+        indexSingleServerTracks(out.songs);
+        renderBrowse();
+      },
+      function (e) {
+        console.error("subsonic-browse: getAlbum failed:", e);
+        if (state.view === "album" && state.detail) { state.detail.loading = false; state.detail.error = "Couldn't load this album."; renderBrowse(); }
+      }
+    );
+  }
+
+  function openArtist(id) {
+    var artist = findArtistById(id);
+    var ref;
+    if (artist) { var alt = healthyAlt(artist.alternates); ref = { serverId: alt.serverId, artistId: alt.artistId, name: artist.name, coverId: artist.coverId }; }
+    else { var p = parseId(id); ref = p ? { serverId: p.serverId, artistId: p.trackId } : null; }
+    if (!ref) return;
+    var server = findServer(ref.serverId);
+    if (!server) return;
+    pushNav();
+    state.view = "artist";
+    state.detail = { kind: "artist", server: server, title: ref.name || "Artist", coverId: ref.coverId || null, loading: true, error: null, albums: [] };
+    renderBrowse();
+    getArtistAlbums(server, ref.artistId).then(
+      function (out) {
+        if (state.view !== "artist" || !state.detail) return;
+        state.detail.loading = false;
+        state.detail.title = out.artist.name || state.detail.title;
+        state.detail.coverId = out.artist.coverArt || state.detail.coverId;
+        // Give each album a single-server alternate so its card opens/plays.
+        out.albums.forEach(function (al) { al.alternates = [{ serverId: al.serverId, albumId: al.albumId, serverName: al.serverName, songCount: al.songCount }]; });
+        state.detail.albums = out.albums;
+        renderBrowse();
+      },
+      function (e) {
+        console.error("subsonic-browse: getArtist failed:", e);
+        if (state.view === "artist" && state.detail) { state.detail.loading = false; state.detail.error = "Couldn't load this artist."; renderBrowse(); }
+      }
+    );
+  }
+
+  function renderAlbumDetail() {
+    var d = state.detail || {};
+    var server = d.server;
+    var cover = coverUrl(server, d.coverId);
+    var children = [{
+      type: "detail-header",
+      title: d.title || "Album",
+      subtitle: d.subtitle || "",
+      imageUrl: cover,
+      bgImages: cover ? [cover] : [],
+      artShape: "square",
+      backAction: "back",
+      playAction: "play-detail-all",
+    }];
+    children.push({ type: "spacer" });
+    if (d.loading) children.push({ type: "loading", message: "Loading album…" });
+    else if (d.error) children.push({ type: "text", content: d.error });
+    else {
+      var songs = d.songs || [];
+      if (songs.length === 0) children.push({ type: "text", content: "No tracks." });
+      else children.push({
+        type: "track-row-list", showHeader: true, numbered: true,
+        items: songs.map(function (s) {
+          return {
+            id: s.serverId + "/" + s.trackId,
+            title: s.title,
+            subtitle: s.artist || "",
+            album: s.album || "",
+            imageUrl: coverUrl(server, s.coverId),
+            duration: s.duration != null ? fmtDur(s.duration) : "",
+            action: "play-album-track",
+          };
+        }),
+      });
+    }
+    api.ui.setViewData(VIEW, { type: "layout", direction: "vertical", children: children }, { scrollKey: "album:" + (d.title || "") });
+  }
+
+  function renderArtistDetail() {
+    var d = state.detail || {};
+    var server = d.server;
+    var cover = coverUrl(server, d.coverId);
+    var children = [{
+      type: "detail-header",
+      title: d.title || "Artist",
+      imageUrl: cover,
+      bgImages: cover ? [cover] : [],
+      artShape: "circle",
+      backAction: "back",
+    }];
+    children.push({ type: "spacer" });
+    if (d.loading) children.push({ type: "loading", message: "Loading artist…" });
+    else if (d.error) children.push({ type: "text", content: d.error });
+    else {
+      var albums = d.albums || [];
+      if (albums.length === 0) children.push({ type: "text", content: "No albums." });
+      else children.push({ type: "card-grid", items: albums.map(cardFromAlbum) });
+    }
+    api.ui.setViewData(VIEW, { type: "layout", direction: "vertical", children: children }, { scrollKey: "artist:" + (d.title || "") });
+  }
+
+  // Fetch an album's tracks on demand and play them (card play button).
+  function playAlbumById(id) {
+    var ref = resolveAlbumRef(id);
+    if (!ref) return;
+    var server = findServer(ref.serverId);
+    if (!server) return;
+    getAlbumTracks(server, ref.albumId).then(
+      function (out) {
+        var tracks = out.songs.map(songToPluginTrack);
+        if (tracks.length === 0) return;
+        indexSingleServerTracks(out.songs);
+        api.playback.playTracks(tracks, 0, {
+          name: out.album.name || ref.title || "Album",
+          coverUrl: coverUrl(server, out.album.coverArt || ref.coverId),
+          source: "playlist",
+        });
+      },
+      function (e) { console.error("subsonic-browse: play album failed:", e); }
+    );
+  }
+
+  // ---- Manage tab: server list <-> in-tab add/edit form -----------------
+  // Everything (list, add, edit, remove-confirm) renders under the Manage tab;
+  // the Search/Manage/About tabs stay visible the whole time.
+  function renderServersManage() {
+    var editing = state.editingId ? findServer(state.editingId) : null;
+    var formMode = !!editing || state.addingNew;
+
+    var children = [sectionTabs("manage")];
+
+    if (formMode) {
+      children.push({
+        type: "toolbar",
+        title: editing ? ("Edit · " + editing.name) : "Add a server",
+        buttons: [{ label: "‹ Servers", action: "back-to-list", variant: "secondary" }],
+        status: state.addStatus || undefined,
+        statusVariant: state.addError ? "error" : "success",
+      });
+      children.push({ type: "spacer" });
+      children.push({ type: "section", title: "Connection", children: [
+        { type: "settings-row", label: "Name", description: "A label for this server (optional)", control: { type: "text-input", placeholder: "My server", action: "form-name", value: state.form.name } },
+        { type: "settings-row", label: "Server URL", description: "e.g. https://music.example.com", control: { type: "text-input", placeholder: "https://…", action: "form-url", value: state.form.url } },
+        { type: "settings-row", label: "Username", control: { type: "text-input", placeholder: "user", action: "form-username", value: state.form.username } },
+        { type: "settings-row", label: "Password", description: editing ? "Leave blank to keep the current password" : "Stored locally; sent to the server over your connection", control: { type: "text-input", placeholder: editing ? "•••••• (unchanged)" : "password", action: "form-password", value: state.form.password } },
+      ] });
+      children.push({ type: "spacer" });
+      var btns = [{ type: "button", label: state.adding ? (editing ? "Saving…" : "Testing…") : (editing ? "Save changes" : "Test & Add"), action: "save-server", className: "ds-btn ds-btn--primary", disabled: state.adding, style: { alignSelf: "flex-start" } }];
+      if (editing) btns.push({ type: "button", label: "Remove server", action: "ask-remove", className: "ds-btn ds-btn--danger", disabled: state.adding, data: { id: editing.id }, style: { alignSelf: "flex-start" } });
+      children.push({ type: "layout", direction: "horizontal", children: btns });
+      if (state.confirmRemoveId) {
+        var target = findServer(state.confirmRemoveId);
+        children.push({
+          type: "confirm",
+          title: "Remove server",
+          message: "Remove “" + (target ? target.name : "this server") + "”? Tracks already queued from it keep playing, and nothing on the server itself is deleted.",
+          confirmLabel: "Remove",
+          cancelLabel: "Cancel",
+          confirmVariant: "danger",
+          confirmAction: "confirm-remove",
+          cancelAction: "cancel-remove",
+          data: { id: state.confirmRemoveId },
+        });
+      }
+    } else {
+      children.push({ type: "spacer" });
+      var serverRows = state.servers.map(function (s) {
+        var status = state.downServers[s.id] ? "Unreachable" : "Connected";
+        return { id: s.id, title: s.name, subtitle: hostOf(s.url) + "  ·  " + status, action: "open-server" };
+      });
+      var listNode = serverRows.length
+        ? { type: "track-row-list", items: serverRows }
+        : { type: "text", content: "No servers yet — add one to search, stream, and download across servers." };
+      children.push({ type: "section", title: "Servers (" + state.servers.length + ")", children: [listNode] });
+      children.push({ type: "spacer" });
+      children.push({ type: "button", label: "+ Add a server", action: "add-server-new", className: "ds-btn ds-btn--primary", style: { alignSelf: "flex-start" } });
+      if (state.addStatus) children.push({ type: "text", content: state.addStatus });
+    }
+
+    api.ui.setViewData(VIEW, { type: "layout", direction: "vertical", children: children }, { scrollKey: formMode ? (editing ? "manage-edit:" + editing.id : "manage-add") : "servers" });
+  }
+
+  // ---- About (in-panel tab) ---------------------------------------------
+  function renderAbout() {
+    api.ui.setViewData(VIEW, {
       type: "layout",
       direction: "vertical",
       children: [
-        { type: "section", title: "Servers", children: serverRows.length ? serverRows : [{ type: "text", content: "No servers added yet." }] },
-        { type: "section", title: "Add a server", children: addChildren },
+        sectionTabs("about"),
+        { type: "spacer" },
         { type: "section", title: "About", children: [
           { type: "text", content: "This is a live, multi-server browse layer — results are fetched on demand and are NOT added to your Library. To index a server into your Library (for unified search, Home shelves and tags), add it under Collections instead." },
         ] },
       ],
-    });
+    }, { scrollKey: "about" });
   }
 
   // ---- Actions: search + play -------------------------------------------
@@ -470,43 +903,154 @@ function activate(api) {
     api.playback.playTracks(tracks, idx, { name: "Subsonic: " + state.query, source: "search" });
   });
 
-  // ---- Actions: add-server form -----------------------------------------
-  // Re-render on each keystroke so the controlled inputs stay in sync (and clear
-  // after a successful add). React preserves focus across these re-renders.
-  api.ui.onAction("form-name", function (d) { state.form.name = (d && d.value) || ""; renderSettings(); });
-  api.ui.onAction("form-url", function (d) { state.form.url = (d && d.value) || ""; renderSettings(); });
-  api.ui.onAction("form-username", function (d) { state.form.username = (d && d.value) || ""; renderSettings(); });
-  api.ui.onAction("form-password", function (d) { state.form.password = (d && d.value) || ""; renderSettings(); });
-
-  api.ui.onAction("add-server", async function () {
-    var f = state.form;
-    if (!f.url || !f.username) { state.addStatus = "Server URL and username are required."; state.addError = true; renderSettings(); return; }
-    state.adding = true; state.addStatus = ""; state.addError = false; renderSettings();
-    var draft = { url: trimUrl(f.url), username: f.username, password: f.password };
-    try {
-      var method = await detectAuth(draft);
-      var server = { id: genId(), name: f.name || hostOf(draft.url), url: draft.url, username: draft.username, password: draft.password, authMethod: method };
-      state.servers.push(server);
-      await persistServers();
+  // ---- Actions: tabs + drill-in + album play ----------------------------
+  api.ui.onAction("switch-tab", function (data) {
+    var t = data && data.tabId;
+    if (t === "tracks" || t === "albums" || t === "artists") { state.activeTab = t; renderBrowse(); }
+  });
+  api.ui.onAction("open-album", function (data) { if (data && data.itemId) openAlbum(data.itemId); });
+  api.ui.onAction("open-artist", function (data) { if (data && data.itemId) openArtist(data.itemId); });
+  api.ui.onAction("back", function () { goBack(); });
+  // Top-level section switch (Search / Manage tabs). Peers, not a drill-in —
+  // no nav push; entity-detail drill-ins still use back/goBack within Search.
+  api.ui.onAction("switch-section", function (data) {
+    var t = data && data.tabId;
+    state.nav = [];
+    if (t === "manage") {
+      state.view = "servers";
+      state.editingId = null;
+      state.addingNew = false;
+      state.confirmRemoveId = null;
       state.form = { name: "", url: "", username: "", password: "" };
-      state.addStatus = "Added “" + server.name + "”."; state.addError = false;
-      api.ui.showNotification("Connected to " + server.name);
-    } catch (e) {
-      console.error("subsonic-browse: failed to add server:", e);
-      state.addStatus = "Could not connect: " + String((e && e.message) || e); state.addError = true;
+      state.addStatus = ""; state.addError = false;
+    } else if (t === "about") {
+      state.view = "about";
+    } else {
+      state.view = "results";
     }
-    state.adding = false;
-    renderSettings();
     renderBrowse();
   });
 
-  api.ui.onAction("remove-server", function (data) {
-    var id = data && data.id;
+  // Album play button (results card or artist-detail card) → fetch + play.
+  api.ui.onAction("play-playlist", function (data) { if (data && data.itemId) playAlbumById(data.itemId); });
+  // Album-detail header "play all".
+  api.ui.onAction("play-detail-all", function () {
+    if (!state.detailTracks.length) return;
+    api.playback.playTracks(state.detailTracks, 0, { name: (state.detail && state.detail.title) || "Album", source: "playlist" });
+  });
+  // Album-detail per-track play (distinct from the results-tab play-song handler).
+  api.ui.onAction("play-album-track", function (data) {
+    var id = data && data.itemId;
     if (!id) return;
+    var idx = -1;
+    for (var i = 0; i < state.detailTracks.length; i++) {
+      if (state.detailTracks[i].path === SCHEME + "://" + id) { idx = i; break; }
+    }
+    if (idx < 0) return;
+    api.playback.playTracks(state.detailTracks, idx, { name: (state.detail && state.detail.title) || "Album", source: "playlist" });
+  });
+
+  // ---- Actions: add-server form -----------------------------------------
+  // Re-render on each keystroke so the controlled inputs stay in sync (and clear
+  // after a successful add). React preserves focus across these re-renders.
+  api.ui.onAction("form-name", function (d) { state.form.name = (d && d.value) || ""; renderBrowse(); });
+  api.ui.onAction("form-url", function (d) { state.form.url = (d && d.value) || ""; renderBrowse(); });
+  api.ui.onAction("form-username", function (d) { state.form.username = (d && d.value) || ""; renderBrowse(); });
+  api.ui.onAction("form-password", function (d) { state.form.password = (d && d.value) || ""; renderBrowse(); });
+
+  // Open the in-tab edit form for an existing server (master-row tap).
+  api.ui.onAction("open-server", function (data) {
+    var s = findServer(data && data.itemId);
+    if (!s) return;
+    state.editingId = s.id;
+    state.addingNew = false;
+    state.form = { name: s.name, url: s.url, username: s.username, password: "" };
+    state.addStatus = ""; state.addError = false; state.confirmRemoveId = null;
+    renderBrowse();
+  });
+
+  // Open a blank in-tab add form.
+  api.ui.onAction("add-server-new", function () {
+    state.addingNew = true;
+    state.editingId = null;
+    state.form = { name: "", url: "", username: "", password: "" };
+    state.addStatus = ""; state.addError = false; state.confirmRemoveId = null;
+    renderBrowse();
+  });
+
+  // Return from the form to the server list (stays in the Manage tab).
+  api.ui.onAction("back-to-list", function () {
+    state.editingId = null;
+    state.addingNew = false;
+    state.form = { name: "", url: "", username: "", password: "" };
+    state.addStatus = ""; state.addError = false; state.confirmRemoveId = null;
+    renderBrowse();
+  });
+
+  // Save the add/edit form: test auth, persist, then drop back to the list.
+  api.ui.onAction("save-server", async function () {
+    var f = state.form;
+    var editing = state.editingId ? findServer(state.editingId) : null;
+    if (!f.url || !f.username) { state.addStatus = "Server URL and username are required."; state.addError = true; renderBrowse(); return; }
+    state.adding = true; state.addStatus = ""; state.addError = false; renderBrowse();
+    // On edit, a blank password keeps the current one.
+    var password = (editing && !f.password) ? editing.password : f.password;
+    var draft = { url: trimUrl(f.url), username: f.username, password: password };
+    try {
+      var method = await detectAuth(draft);
+      if (editing) {
+        editing.name = f.name || hostOf(draft.url);
+        editing.url = draft.url;
+        editing.username = draft.username;
+        editing.password = password;
+        editing.authMethod = method;
+        delete state.downServers[editing.id];
+        await persistServers();
+        state.addStatus = "Saved “" + editing.name + "”.";
+        api.ui.showNotification("Updated " + editing.name);
+      } else {
+        var server = { id: genId(), name: f.name || hostOf(draft.url), url: draft.url, username: draft.username, password: password, authMethod: method };
+        state.servers.push(server);
+        await persistServers();
+        state.addStatus = "Added “" + server.name + "”.";
+        api.ui.showNotification("Connected to " + server.name);
+      }
+      state.addError = false;
+      // success → collapse back to the list (still in the Manage tab)
+      state.editingId = null;
+      state.addingNew = false;
+      state.form = { name: "", url: "", username: "", password: "" };
+    } catch (e) {
+      console.error("subsonic-browse: failed to save server:", e);
+      state.addStatus = "Could not connect: " + String((e && e.message) || e); state.addError = true;
+      // failure → keep the form open so the user can fix it
+    }
+    state.adding = false;
+    renderBrowse();
+  });
+
+  // Remove flow: ask first via the confirm modal, then delete (all in-tab).
+  api.ui.onAction("ask-remove", function (data) {
+    var id = (data && data.id) || state.editingId;
+    if (!id) return;
+    state.confirmRemoveId = id;
+    renderBrowse();
+  });
+  api.ui.onAction("cancel-remove", function () {
+    state.confirmRemoveId = null;
+    renderBrowse();
+  });
+  api.ui.onAction("confirm-remove", function (data) {
+    var id = (data && data.id) || state.confirmRemoveId;
+    state.confirmRemoveId = null;
+    if (!id) { renderBrowse(); return; }
     state.servers = state.servers.filter(function (s) { return s.id !== id; });
     delete state.downServers[id];
     persistServers().then(null, function (e) { console.error("subsonic-browse: persist after remove failed:", e); });
-    renderSettings();
+    state.editingId = null;
+    state.addingNew = false;
+    state.form = { name: "", url: "", username: "", password: "" };
+    state.addStatus = "Removed server."; state.addError = false;
     renderBrowse();
   });
 
@@ -537,8 +1081,8 @@ function activate(api) {
     if (!q) return null;
     var res = await searchAll(q, 10);
     var want = songKey(title, artistName);
-    for (var i = 0; i < res.merged.length; i++) {
-      var song = res.merged[i];
+    for (var i = 0; i < res.songs.length; i++) {
+      var song = res.songs[i];
       if (songKey(song.title, song.artist) === want) {
         var server = findServer(primaryOf(song).serverId);
         if (server) return { url: streamUrl(server, primaryOf(song).trackId), label: "Subsonic: " + primaryOf(song).serverName };
@@ -566,7 +1110,7 @@ function activate(api) {
   api.downloads.onInteractiveSearch(PROVIDER, async function (query, limit) {
     if (state.servers.length === 0) return [];
     var res = await searchAll(query, limit || 20);
-    return res.merged.map(function (song) {
+    return res.songs.map(function (song) {
       var p = primaryOf(song);
       var server = findServer(p.serverId);
       var cover = coverUrl(server, song.coverId);
@@ -612,17 +1156,14 @@ function activate(api) {
   api.storage.get("servers").then(
     function (saved) {
       if (Array.isArray(saved)) state.servers = saved;
-      renderSettings();
       renderBrowse();
     },
     function (e) {
       console.error("subsonic-browse: failed to load servers:", e);
-      renderSettings();
       renderBrowse();
     }
   );
 
-  renderSettings();
   renderBrowse();
 }
 
