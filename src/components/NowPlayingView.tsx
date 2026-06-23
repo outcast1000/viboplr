@@ -6,6 +6,7 @@ import { isVideoTrack, getInitials } from "../utils";
 import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
+import { parseLrc, currentSyncedLineIndex } from "../utils/lyrics";
 import "./NowPlayingView.css";
 
 interface NowPlayingViewProps {
@@ -19,35 +20,6 @@ interface NowPlayingViewProps {
   getArtistImage: (name: string) => string | null;
   /** Seek playback to an absolute position (seconds) — wired to tap-to-seek on synced lines. */
   onSeek?: (secs: number) => void;
-}
-
-interface LrcLine {
-  time: number;
-  text: string;
-}
-
-function parseLrc(lrc: string): LrcLine[] {
-  const lines: LrcLine[] = [];
-  for (const line of lrc.split("\n")) {
-    const match = line.match(/^\[(\d{2}):(\d{2})(?:[.:](\d{2,3}))?\](.*)$/);
-    if (match) {
-      const mins = parseInt(match[1], 10);
-      const secs = parseInt(match[2], 10);
-      const cs = match[3] ? parseInt(match[3], 10) / (match[3].length === 3 ? 1000 : 100) : 0;
-      const text = match[4].trim();
-      lines.push({ time: mins * 60 + secs + cs, text });
-    }
-  }
-  return lines;
-}
-
-function currentLineIndex(lines: LrcLine[], position: number): number {
-  let idx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].time <= position) idx = i;
-    else break;
-  }
-  return idx;
 }
 
 /** Centered, lean-back lyrics display. Synced (karaoke) when LRC timing is
@@ -67,7 +39,7 @@ function NowPlayingLyrics({
     () => (data.kind === "synced" && data.text ? parseLrc(data.text) : null),
     [data.kind, data.text],
   );
-  const activeIdx = synced ? currentLineIndex(synced, positionSecs) : -1;
+  const activeIdx = synced ? currentSyncedLineIndex(synced, positionSecs) : -1;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);

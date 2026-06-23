@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { NowPlayingInfoResult, PluginTrack } from "../types/plugin";
+import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { isLocalTrack, parseUrlScheme } from "../queueEntry";
 import { formatDuration } from "../utils";
+import { useLyrics } from "./useLyrics";
+import { parseLrc, syncedLineAt, plainLines, pickLineByRatio, hashStringToRatio } from "../utils/lyrics";
 
 interface AudioProps { sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }
 
@@ -13,6 +16,13 @@ interface AudioProps { sample_rate?: number; bit_depth?: number; channels?: numb
 const TIMEOUT_MS = 5_000;
 
 export const NOW_PLAYING_ARTIST_ALBUM_ID = "builtin:artist-album";
+export const NOW_PLAYING_LYRICS_SYNCED_ID = "builtin:lyrics-synced";
+export const NOW_PLAYING_LYRICS_PLAIN_ID = "builtin:lyrics-plain";
+
+// Lyrics items are resolved synchronously from cached lyrics data (so the synced
+// "current line" can update with playback position) — they bypass the async
+// resolve pipeline below.
+const LYRICS_IDS = new Set<string>([NOW_PLAYING_LYRICS_SYNCED_ID, NOW_PLAYING_LYRICS_PLAIN_ID]);
 
 /** A piece of the rendered info line. `nav` makes the segment a clickable link
  *  (artist/album navigation); `badge` renders a trailing rank chip (e.g. #12). */
@@ -49,6 +59,8 @@ const BUILTIN_DESCRIPTORS: NowPlayingInfoDescriptor[] = [
   { id: "builtin:quality", label: "Quality", defaultEnabled: false },
   { id: "builtin:duration", label: "Duration", defaultEnabled: false },
   { id: "builtin:tags", label: "Tags", defaultEnabled: false },
+  { id: NOW_PLAYING_LYRICS_SYNCED_ID, label: "Synced Lyrics", defaultEnabled: false },
+  { id: NOW_PLAYING_LYRICS_PLAIN_ID, label: "Plain Lyrics", defaultEnabled: false },
 ];
 
 /** Whether an item is enabled: the user's explicit choice if any, else the
@@ -140,6 +152,17 @@ interface UseNowPlayingInfoArgs {
   pluginItems: { pluginId: string; itemId: string; label: string; defaultEnabled: boolean }[];
   invokeNowPlayingInfo: (pluginId: string, itemId: string, track: PluginTrack) => Promise<NowPlayingInfoResult>;
   selection: Record<string, boolean>;
+  // Current playback position — drives the "current line" of the Synced Lyrics item.
+  positionSecs: number;
+  // Plugin info-type bridge — lyrics are fetched through the same cache/chain as
+  // the track-detail Lyrics tab (via useLyrics), only when a lyrics item is on.
+  invokeInfoFetch: (
+    pluginId: string,
+    infoTypeId: string,
+    entity: InfoEntity,
+    onFetchUrl?: (url: string) => void,
+  ) => Promise<InfoFetchResult>;
+  pluginNames?: Map<string, string>;
 }
 
 export function useNowPlayingInfo({
@@ -149,6 +172,9 @@ export function useNowPlayingInfo({
   pluginItems,
   invokeNowPlayingInfo,
   selection,
+  positionSecs,
+  invokeInfoFetch,
+  pluginNames,
 }: UseNowPlayingInfoArgs): {
   availableItems: NowPlayingInfoDescriptor[];
   resolvedItems: NowPlayingInfoResolved[];
@@ -162,13 +188,51 @@ export function useNowPlayingInfo({
     [pluginItems],
   );
 
-  const [resolvedItems, setResolvedItems] = useState<NowPlayingInfoResolved[]>([]);
+  // Async items (everything except lyrics) — resolved once per track/selection.
+  const [asyncResolved, setAsyncResolved] = useState<NowPlayingInfoResolved[]>([]);
   const genRef = useRef(0);
 
+  // Lyrics items resolve synchronously from cached lyrics data, so the synced
+  // "current line" can track playback position without re-running the async
+  // resolvers each tick. Only fetch when a lyrics item is actually enabled.
+  const syncedEnabled = isNowPlayingItemSelected(NOW_PLAYING_LYRICS_SYNCED_ID, selection, availableItems);
+  const plainEnabled = isNowPlayingItemSelected(NOW_PLAYING_LYRICS_PLAIN_ID, selection, availableItems);
+  const { data: lyricsData } = useLyrics({
+    track: currentTrack,
+    enabled: syncedEnabled || plainEnabled,
+    invokeInfoFetch,
+    pluginNames,
+  });
+
+  const syncedLines = useMemo(
+    () => (lyricsData?.kind === "synced" && lyricsData.text ? parseLrc(lyricsData.text) : null),
+    [lyricsData],
+  );
+  const syncedText = useMemo(
+    () => (syncedLines ? syncedLineAt(syncedLines, positionSecs) : null),
+    [syncedLines, positionSecs],
+  );
+  // One line per track, stable across re-renders/cycles: pick by a hash of the
+  // track + lyrics so it doesn't flicker, while still varying between songs.
+  const plainText = useMemo(() => {
+    if (!lyricsData?.text || lyricsData.kind !== "plain") return null;
+    const lines = plainLines(lyricsData.text);
+    return pickLineByRatio(lines, hashStringToRatio(`${currentTrack?.key ?? ""}:${lyricsData.text.length}`));
+  }, [lyricsData, currentTrack?.key]);
+
+  const lyricsResolved = useMemo<NowPlayingInfoResolved[]>(() => {
+    const out: NowPlayingInfoResolved[] = [];
+    if (syncedEnabled && syncedText) out.push({ id: NOW_PLAYING_LYRICS_SYNCED_ID, segments: [{ text: `“${syncedText}”` }] });
+    if (plainEnabled && plainText) out.push({ id: NOW_PLAYING_LYRICS_PLAIN_ID, segments: [{ text: `“${plainText}”` }] });
+    return out;
+  }, [syncedEnabled, plainEnabled, syncedText, plainText]);
+
   // A stable signature so the resolve effect only re-runs when something it
-  // actually reads changes (track identity, ranks, the enabled set).
+  // actually reads changes (track identity, ranks, the enabled set). Lyrics ids
+  // are excluded — they're resolved synchronously above, not in this effect.
   const selectionSig = availableItems
     .filter((d) => isNowPlayingItemSelected(d.id, selection, availableItems))
+    .filter((d) => !LYRICS_IDS.has(d.id))
     .map((d) => d.id)
     .join("|");
   const trackSig = currentTrack
@@ -179,10 +243,12 @@ export function useNowPlayingInfo({
     const gen = ++genRef.current;
     const track = currentTrack;
     if (!track) {
-      setResolvedItems([]);
+      setAsyncResolved([]);
       return;
     }
-    const enabled = availableItems.filter((d) => isNowPlayingItemSelected(d.id, selection, availableItems));
+    const enabled = availableItems
+      .filter((d) => isNowPlayingItemSelected(d.id, selection, availableItems))
+      .filter((d) => !LYRICS_IDS.has(d.id));
 
     const pluginTrack: PluginTrack = {
       path: track.path,
@@ -299,11 +365,23 @@ export function useNowPlayingInfo({
     Promise.all(enabled.map((d) => resolveOne(d.id)))
       .then((results) => {
         if (gen !== genRef.current) return; // stale — a newer resolve started
-        setResolvedItems(results.filter((r): r is NowPlayingInfoResolved => r !== null));
+        setAsyncResolved(results.filter((r): r is NowPlayingInfoResolved => r !== null));
       })
       .catch((e) => console.error("Failed to resolve now-playing info:", e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackSig, selectionSig, trackRank, artistRank, availableItems, invokeNowPlayingInfo]);
+
+  // Merge async + lyrics items back into one list, ordered by availableItems and
+  // gated by the current selection.
+  const resolvedItems = useMemo<NowPlayingInfoResolved[]>(() => {
+    const byId = new Map<string, NowPlayingInfoResolved>();
+    for (const r of asyncResolved) byId.set(r.id, r);
+    for (const r of lyricsResolved) byId.set(r.id, r);
+    return availableItems
+      .filter((d) => isNowPlayingItemSelected(d.id, selection, availableItems))
+      .map((d) => byId.get(d.id))
+      .filter((r): r is NowPlayingInfoResolved => r !== undefined);
+  }, [asyncResolved, lyricsResolved, availableItems, selection]);
 
   return { availableItems, resolvedItems };
 }

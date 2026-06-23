@@ -349,6 +349,9 @@ function App() {
     pluginItems: plugins.nowPlayingInfoItems,
     invokeNowPlayingInfo: plugins.invokeNowPlayingInfo,
     selection: nowPlayingInfoSelection,
+    positionSecs: playback.positionSecs,
+    invokeInfoFetch: plugins.invokeInfoFetch,
+    pluginNames: plugins.pluginNames,
   });
   const toggleNowPlayingInfo = useCallback((id: string) => {
     setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: !isNowPlayingItemSelected(id, prev, nowPlayingInfoAvailable) }));
