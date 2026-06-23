@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useId } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { parseLibraryId } from "../queueEntry";
@@ -133,6 +133,8 @@ interface TrackListProps {
   hasMore?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  /** Accessible name for the listbox (screen readers). */
+  ariaLabel?: string;
 }
 
 export function TrackList({
@@ -143,6 +145,7 @@ export function TrackList({
   onDeleteTracks, onPlay, onEnqueue, onStartRadio, onLocateTrack, trackPopularity,
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
+  ariaLabel = "Tracks",
 }: TrackListProps) {
   const maxPopularity = useMemo(() => {
     if (!trackPopularity) return 0;
@@ -157,6 +160,10 @@ export function TrackList({
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const didDragRowRef = useRef(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Keyboard cursor for the listbox (aria-activedescendant). -1 = none yet.
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const listId = useId();
+  const optionId = (i: number) => `${listId}opt${i}`;
   const lastClickedIndexRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -181,6 +188,7 @@ export function TrackList({
     const prevFirst = prevTrackIdsRef.current.split(":")[0];
     if (prevTrackIdsRef.current && prevFirst !== currFirst) {
       setSelectedIds(new Set());
+      setActiveIndex(-1);
       lastClickedIndexRef.current = null;
     }
     prevTrackIdsRef.current = currFirst + ":" + tracks.length;
@@ -207,6 +215,56 @@ export function TrackList({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedIds, onDeleteTracks, tracks]);
+
+  // Scroll the keyboard cursor's option into view as it moves.
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
+  // Move the keyboard cursor; selection either follows (single) or extends (shift).
+  function moveActive(next: number, extend: boolean) {
+    if (tracks.length === 0) return;
+    const clamped = Math.max(0, Math.min(next, tracks.length - 1));
+    setActiveIndex(clamped);
+    if (extend) {
+      setSelectedIds(computeSelection(selectedIds, clamped, tracks, lastClickedIndexRef.current, false, true));
+    } else {
+      setSelectedIds(new Set([tracks[clamped].key]));
+      lastClickedIndexRef.current = clamped;
+    }
+  }
+
+  // Listbox keyboard nav. Only acts when the list container itself holds focus
+  // (aria-activedescendant model) — inner buttons keep their own key handling.
+  function handleListKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget || tracks.length === 0) return;
+    switch (e.key) {
+      case "ArrowDown": e.preventDefault(); moveActive(activeIndex < 0 ? 0 : activeIndex + 1, e.shiftKey); break;
+      case "ArrowUp": e.preventDefault(); moveActive(activeIndex < 0 ? 0 : activeIndex - 1, e.shiftKey); break;
+      case "Home": e.preventDefault(); moveActive(0, e.shiftKey); break;
+      case "End": e.preventDefault(); moveActive(tracks.length - 1, e.shiftKey); break;
+      case "Enter":
+        if (activeIndex >= 0) {
+          e.preventDefault();
+          if (e.shiftKey) { onEnqueue?.(tracks[activeIndex]); }
+          else { setSelectedIds(new Set()); onDoubleClick([tracks[activeIndex]], 0); }
+        }
+        break;
+      case " ":
+        if (activeIndex >= 0) {
+          e.preventDefault();
+          setSelectedIds(computeSelection(selectedIds, activeIndex, tracks, lastClickedIndexRef.current, true, false));
+          lastClickedIndexRef.current = activeIndex;
+        }
+        break;
+    }
+  }
+
+  // First focus on the list seeds the cursor so the active option is announced.
+  function handleListFocus(e: React.FocusEvent<HTMLDivElement>) {
+    if (e.target === e.currentTarget && activeIndex < 0 && tracks.length > 0) setActiveIndex(0);
+  }
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRowRef.current) return;
@@ -502,14 +560,27 @@ export function TrackList({
   const hasRowActions = !!onPlay || !!onEnqueue;
 
   return (
-    <div className="track-list" ref={trackListRef}>
-      <div className="track-header" onContextMenu={handleHeaderContextMenu}>
+    <div
+      className="track-list"
+      ref={trackListRef}
+      role="listbox"
+      aria-multiselectable="true"
+      aria-label={ariaLabel}
+      aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
+      tabIndex={0}
+      onKeyDown={handleListKeyDown}
+      onFocus={handleListFocus}
+    >
+      <div className="track-header" role="presentation" onContextMenu={handleHeaderContextMenu}>
         {visibleColumns.map(col => renderHeaderCell(col))}
       </div>
       {tracks.map((t, i) => (
         <div
           key={t.key}
-          className={`track-row ${currentTrack?.key === t.key ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${selectedIds.has(t.key) ? "selected" : ""}`}
+          role="option"
+          id={optionId(i)}
+          aria-selected={selectedIds.has(t.key)}
+          className={`track-row ${currentTrack?.key === t.key ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${activeIndex === i ? "active" : ""} ${selectedIds.has(t.key) ? "selected" : ""}`}
           onMouseDown={(e) => handleRowMouseDown(e, i)}
           onClick={(e) => handleRowClick(e, i)}
           onDoubleClick={() => { setSelectedIds(new Set()); onDoubleClick([tracks[i]], 0); }}

@@ -54,6 +54,21 @@
   padding: 0 8px 8px;
 }
 
+/* Listbox keyboard focus: subtle inset ring on the container — the active-row
+   ring (below) is the primary cursor indicator. */
+.track-list:focus-visible {
+  outline: 2px solid rgba(var(--accent-rgb), 0.5);
+  outline-offset: -2px;
+  border-radius: var(--ds-radius);
+}
+
+/* Keyboard cursor (the aria-activedescendant target). A ring, distinct from
+   mouse selection's background tint, so the two reading models stay legible. */
+.track-row.active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: var(--ds-radius);
+}
+
 .track-header {
   display: flex;
   gap: 4px;

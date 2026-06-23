@@ -11,7 +11,8 @@ describe("validateSkin", () => {
       "text-secondary": "#a0a0b0", "text-tertiary": "#707080",
       "accent": "#53a8ff", "accent-dim": "#3a7bd5", "border": "#2a2a4a",
       "now-playing-bg": "#0d1b2a", "success": "#4caf50", "error": "#f44336",
-      "warning": "#ff9500",
+      "warning": "#ff9500", "accent-text": "#ffffff",
+      "like": "#f44336", "dislike": "#ff9500",
     },
   };
 

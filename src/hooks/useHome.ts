@@ -334,7 +334,7 @@ export function useHome(opts: UseHomeOptions) {
   // parallel; a missing cover just renders the letter fallback in the hero.
   const fetchRadioStations = useCallback(async (): Promise<RadioStation[]> => {
     try {
-      const seeds = await invoke<Track[]>("pick_radio_seeds", { count: RADIO_STATION_COUNT });
+      const seeds = (await invoke<Track[]>("pick_radio_seeds", { count: RADIO_STATION_COUNT })) ?? [];
       if (seeds.length === 0) return [];
       const covers = await Promise.all(seeds.map((seed) => resolveCover(seed.album_title, seed.artist_name)));
       return seeds.map((seed, i) => ({ seed, coverUrl: covers[i] }));
@@ -354,7 +354,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const hist = await invoke<HistoryEntry[]>("get_history_recent", { limit: 60 });
+              const hist = (await invoke<HistoryEntry[]>("get_history_recent", { limit: 60 })) ?? [];
               const seen = new Set<string>();
               const items: HomeShelfItem[] = [];
               for (const h of hist) {
@@ -386,7 +386,7 @@ export function useHome(opts: UseHomeOptions) {
           fetch: async (limit) => {
             try {
               const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-              const tracks = await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit });
+              const tracks = (await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit })) ?? [];
               return {
                 status: "ok",
                 items: tracks.map(t => ({
@@ -409,7 +409,7 @@ export function useHome(opts: UseHomeOptions) {
           fetch: async (limit) => {
             try {
               const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-              const stats = await invoke<HistoryArtistStats[]>("get_history_most_played_artists_since", { sinceTs, limit });
+              const stats = (await invoke<HistoryArtistStats[]>("get_history_most_played_artists_since", { sinceTs, limit })) ?? [];
               if (stats.length === 0) return { status: "empty" };
               // Resolve to library artists via the backend (which normalizes diacritics)
               // so cards navigate to detail pages even when accent forms differ.
@@ -437,7 +437,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const albums = await invoke<Album[]>("get_albums", { artistId: null, sort: "added_desc" });
+              const albums = (await invoke<Album[]>("get_albums", { artistId: null, sort: "added_desc" })) ?? [];
               return {
                 status: "ok",
                 items: albums.slice(0, limit).map(a => ({
@@ -458,7 +458,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "recent", limit });
+              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "recent", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
               return {
                 status: "ok",
@@ -483,7 +483,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "album", order: "recent", limit });
+              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "album", order: "recent", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
               // Resolve to library albums by name so cards get a play button + detail nav.
               const items = await Promise.all(rows.map(async (r) => {
@@ -503,7 +503,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "artist", order: "recent", limit });
+              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "artist", order: "recent", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
               const items = await Promise.all(rows.map(async (r) => {
                 const artist = await invoke<Artist | null>("find_artist_by_name", { name: r.name }).catch(() => null);
@@ -522,7 +522,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit });
+              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
               return {
                 status: "ok",
@@ -547,7 +547,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const albums = await invoke<Album[]>("get_albums", { artistId: null, likedOnly: true });
+              const albums = (await invoke<Album[]>("get_albums", { artistId: null, likedOnly: true })) ?? [];
               return {
                 status: "ok",
                 items: albums.slice(0, limit).map(a => ({
@@ -568,7 +568,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const artists = await invoke<Artist[]>("get_artists", { likedOnly: true });
+              const artists = (await invoke<Artist[]>("get_artists", { likedOnly: true })) ?? [];
               return {
                 status: "ok",
                 items: artists.slice(0, limit).map(a => ({
@@ -588,7 +588,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const tracks = await invoke<Track[]>("pick_forgotten_favorites", { limit });
+              const tracks = (await invoke<Track[]>("pick_forgotten_favorites", { limit })) ?? [];
               if (tracks.length === 0) return { status: "empty" };
               return {
                 status: "ok",
@@ -608,7 +608,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const tracks = await invoke<Track[]>("pick_never_played_tracks", { limit });
+              const tracks = (await invoke<Track[]>("pick_never_played_tracks", { limit })) ?? [];
               if (tracks.length === 0) return { status: "empty" };
               return {
                 status: "ok",
@@ -628,7 +628,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const albums = await invoke<Album[]>("get_albums", { artistId: null });
+              const albums = (await invoke<Album[]>("get_albums", { artistId: null })) ?? [];
               const withYear = albums.filter((a) => typeof a.year === "number" && (a.year as number) > 0);
               if (withYear.length === 0) return { status: "empty" };
               // Group by decade, then feature one decade (chosen at random) per refresh.
@@ -667,7 +667,7 @@ export function useHome(opts: UseHomeOptions) {
           fetch: async (limit) => {
             try {
               const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-              const tracks = await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit });
+              const tracks = (await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit })) ?? [];
               if (tracks.length === 0) return { status: "empty" };
               const items = await Promise.all(
                 tracks.map(async (t, i) => {
@@ -688,7 +688,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 12,
           fetch: async (limit) => {
             try {
-              const rows = await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit });
+              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
               const items = await Promise.all(
                 rows.map(async (r, i) => {

@@ -278,14 +278,10 @@
 .queue-item.queue-current.selected {
   animation: none;
   background: rgba(var(--accent-rgb), 0.2);
-  border-left: 3px solid var(--accent);
-  padding-left: calc(8px - 3px);
 }
 
 .queue-item.selected {
   background: rgba(var(--accent-rgb), 0.12);
-  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, var(--text-secondary));
-  padding-left: calc(8px - 3px);
 }
 
 .queue-item.dragging {

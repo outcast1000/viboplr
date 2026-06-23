@@ -133,11 +133,11 @@
   margin: 0 auto;
   overflow-wrap: break-word;
   transform-origin: center;
-  /* spring-like easing: lines lift/settle with a slight overshoot, like Spotify/Apple */
+  /* smooth ease-out-quint: lines lift/settle without overshoot */
   transition:
     color 0.45s cubic-bezier(0.22, 1, 0.36, 1),
     opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
     filter 0.45s ease;
 }
 

@@ -245,7 +245,7 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
                         variant="overlay"
                         size={12}
                       />
-                      <button className="album-card-play-btn" title="Play album" onClick={(e) => {
+                      <button className="ds-card-play" title="Play album" onClick={(e) => {
                         e.stopPropagation();
                         actions.playAlbum(a.id);
                       }}><svg viewBox="0 0 24 24" width="25" height="25" fill="white" style={{marginLeft: 2}}><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg></button>

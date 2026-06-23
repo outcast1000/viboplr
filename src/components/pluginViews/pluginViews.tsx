@@ -147,7 +147,7 @@ export function PluginCardGrid({
             )}
             {item.contextMenuActions?.some(a => a.id === "play-playlist") && (
               <button
-                className="plugin-card-play"
+                className="ds-card-play"
                 onClick={(e) => {
                   e.stopPropagation();
                   onAction?.("play-playlist", { itemId: item.id });

@@ -548,7 +548,9 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       />
       <div className="playlists-view">
       {filtered.length === 0 ? (
-        <div className="playlists-empty">{searchQuery.trim() ? "No matching playlists" : "No saved playlists"}</div>
+        <div className="playlists-empty ds-empty">{searchQuery.trim()
+          ? "No matching playlists"
+          : "No saved playlists yet — play some tracks, then use Save → Save as Playlist in the queue panel."}</div>
       ) : (
         <>
           {protectedSystem.length > 0 && (
@@ -596,7 +598,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                         <IconSparkles size={13} />
                       </span>
                       <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
-                      <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
+                      <button className="ds-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                       </button>
                     </div>
@@ -622,7 +624,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                     <div className="playlist-card-art">
                       <img src={pl.image_path ? imageUrl(pl.image_path) : playlistDefault} alt="" />
                       <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
-                      <button className="playlist-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
+                      <button className="ds-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
                         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                       </button>
                     </div>

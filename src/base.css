@@ -18,12 +18,23 @@
   --accent: #53a8ff;
   --accent-rgb: 83, 168, 255;
   --accent-dim: #3a7bd5;
+  /* Text/icon color painted on accent-filled surfaces (primary/danger buttons,
+     card play FAB). Defaults to white; skinnable so pale-accent skins can keep
+     contrast. */
+  --accent-text: #fff;
   --success: #4caf50;
   --success-rgb: 76, 175, 80;
   --error: #f44336;
   --error-rgb: 244, 67, 54;
   --warning: #ff9500;
   --warning-rgb: 255, 149, 0;
+  /* Like / dislike rating colors. Independent from --error/--warning so a skin
+     can theme the "favorite" hue (a brand signature) without touching the
+     danger/validation palette. Default to the danger/warning hues for parity. */
+  --like: #ff4d6a;
+  --like-rgb: 255, 77, 106;
+  --dislike: #ff9500;
+  --dislike-rgb: 255, 149, 0;
 
   /* Chrome */
   --border: #2a2a4a;
@@ -49,15 +60,18 @@
   --ds-card-gap: 16px;
   --ds-card-min: 160px;
   --ds-content-max: 1600px;
+  --ds-disabled-opacity: 0.5;
 
   /* Typography scale */
-  --fs-2xs: 10px;
-  --fs-xs: 13px;
-  --fs-sm: 15px;
-  --fs-base: 17px;
-  --fs-lg: 21px;
-  --fs-xl: 26px;
-  --fs-2xl: 34px;
+  /* Denser, tighter ramp (~1.2) suited to a data-rich library/queue app.
+     base dropped 17→15; reserve the large steps for detail-page hero titles. */
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
 }
 
 [data-skin-type="light"] {
@@ -73,8 +87,29 @@
   user-select: none;
 }
 
+/* Re-enable text selection on real content — titles, metadata, lyrics,
+   tooltips, inputs — while chrome/controls stay non-selectable via the * rule.
+   (Track rows are intentionally excluded: they are drag sources.) */
+input, textarea, [contenteditable],
+.now-title, .now-artist, .now-artist-album,
+.detail-hero-title-text, .detail-hero-titleline, .home-hero-title,
+.np-lyric-line, .mixtape-track-title,
+.ds-tooltip-body, .ds-tooltip-val, .ds-tooltip-key,
+.selectable, .selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 *:focus {
   outline: none;
+}
+
+/* Keyboard-only focus ring. Mouse clicks stay ring-free (:focus-visible only
+   matches keyboard / assistive-tech focus). Baseline so every native control
+   shows where keyboard focus lands. */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 html, body, #root {
@@ -190,22 +225,22 @@ body {
 
 /* Like button states */
 .g-btn.liked {
-  color: var(--error);
-  background: rgba(255, 77, 106, 0.1);
-  border-color: rgba(255, 77, 106, 0.2);
+  color: var(--like);
+  background: rgba(var(--like-rgb), 0.1);
+  border-color: rgba(var(--like-rgb), 0.2);
 }
 .g-btn.liked:hover {
-  background: rgba(255, 77, 106, 0.18);
+  background: rgba(var(--like-rgb), 0.18);
   color: var(--text-primary);
 }
 .g-btn.disliked {
-  color: var(--warning);
+  color: var(--dislike);
   background: rgba(var(--overlay-base), 0.08);
   border-color: rgba(var(--overlay-base), 0.12);
 }
 
 .g-btn:disabled {
-  opacity: 0.35;
+  opacity: var(--ds-disabled-opacity);
   cursor: not-allowed;
   pointer-events: none;
 }

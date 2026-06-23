@@ -11,13 +11,16 @@
     "bg-hover": "#c7c7cc",
     "text-primary": "#1d1d1f",
     "text-secondary": "#6e6e73",
-    "text-tertiary": "#9e9ea3",
+    "text-tertiary": "#808085",
     "accent": "#0071e3",
     "accent-dim": "#0058b0",
     "border": "#d2d2d7",
     "now-playing-bg": "#f2f2f7",
     "success": "#34c759",
     "error": "#ff3b30",
-    "warning": "#ff9500"
+    "warning": "#ff9500",
+    "accent-text": "#ffffff",
+    "like": "#ff2d68",
+    "dislike": "#ff9500"
   }
 }

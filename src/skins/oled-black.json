@@ -18,6 +18,9 @@
     "now-playing-bg": "#000000",
     "success": "#4caf50",
     "error": "#f44336",
-    "warning": "#ff9500"
+    "warning": "#ff9500",
+    "accent-text": "#ffffff",
+    "like": "#ff4d6a",
+    "dislike": "#ff9500"
   }
 }

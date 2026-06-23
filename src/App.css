@@ -83,10 +83,7 @@
   font-size: var(--fs-sm);
   font-weight: 800;
   letter-spacing: -0.5px;
-  background: linear-gradient(180deg, #FF6B6B, #E91E8A);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--accent);
 }
 
 .caption-spacer {
@@ -429,46 +426,14 @@
   cursor: pointer;
 }
 
-.album-card-play-btn {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  font-size: var(--fs-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
-  z-index: 1;
-}
-
-.album-card:hover .album-card-play-btn,
-.artist-card:hover .album-card-play-btn,
-.tag-card:hover .album-card-play-btn {
+/* Tile play FAB is the shared .ds-card-play (design-system.css); these card
+   parents only trigger its reveal on hover. */
+.album-card:hover .ds-card-play,
+.artist-card:hover .ds-card-play,
+.tag-card:hover .ds-card-play {
   opacity: 1;
   transform: translateY(0);
-}
-
-.album-card-play-btn:hover {
-  background: linear-gradient(135deg, #ff8787, #f0731a);
-  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
-  transform: scale(1.08);
-}
-
-.album-card-play-btn svg {
-  width: 25px;
-  height: 25px;
-  fill: white;
-  margin-left: 2px;
+  pointer-events: auto;
 }
 
 .album-card-menu-btn {
@@ -553,13 +518,13 @@
   gap: 3px;
   padding: 3px 4px;
   border-radius: 6px;
-  background: rgba(108, 92, 231, 0.08);
-  border: 1px solid rgba(108, 92, 231, 0.2);
+  background: rgba(var(--accent-rgb), 0.08);
+  border: 1px solid rgba(var(--accent-rgb), 0.2);
   flex-wrap: wrap;
 }
 .sort-bar-group-filter {
-  background: rgba(0, 184, 148, 0.08);
-  border-color: rgba(0, 184, 148, 0.2);
+  background: rgba(var(--success-rgb), 0.08);
+  border-color: rgba(var(--success-rgb), 0.2);
 }
 .sort-bar-group-filter .sort-btn.active {
   color: var(--success);
@@ -718,8 +683,6 @@
 .track-row.selected,
 .entity-table-row.selected {
   background: rgba(var(--accent-rgb), 0.15);
-  border-left: 3px solid var(--accent);
-  padding-left: 13px;
 }
 
 .entity-table-like {
@@ -818,8 +781,6 @@
 
 .entity-list-item.selected {
   background: rgba(var(--accent-rgb), 0.15);
-  border-left: 3px solid var(--accent);
-  padding-left: 13px;
 }
 
 .entity-list-img {
@@ -1286,7 +1247,6 @@
   -webkit-backdrop-filter: blur(12px);
   color: var(--text-primary);
   border: 1px solid rgba(var(--overlay-base), 0.1);
-  border-left: 2px solid var(--accent);
   border-radius: var(--ds-radius);
   font-size: var(--fs-2xs);
   white-space: nowrap;
@@ -1418,7 +1378,7 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  background: var(--accent);
   color: #fff;
   border: none;
   cursor: pointer;
@@ -1428,7 +1388,7 @@
   opacity: 0;
   transform: translateX(6px);
   transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
+  box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.45);
 }
 
 .playlist-shortcut-play svg {
@@ -1442,8 +1402,8 @@
 }
 
 .playlist-shortcut-play:hover {
-  background: linear-gradient(135deg, #ff8787, #f0731a);
-  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
+  filter: brightness(1.1);
+  box-shadow: 0 6px 24px rgba(var(--accent-rgb), 0.6);
   transform: scale(1.08);
 }
 
@@ -1487,43 +1447,10 @@
   box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.45);
 }
 
-.playlist-card-play {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-  color: #fff;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: translateY(6px);
-  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 4px 16px rgba(238, 90, 36, 0.5);
-  z-index: 1;
-}
-
-.playlist-card:hover .playlist-card-play {
+.playlist-card:hover .ds-card-play {
   opacity: 1;
   transform: translateY(0);
-}
-
-.playlist-card-play:hover {
-  background: linear-gradient(135deg, #ff8787, #f0731a);
-  box-shadow: 0 6px 24px rgba(238, 90, 36, 0.7);
-  transform: scale(1.08);
-}
-
-.playlist-card-play svg {
-  width: 25px;
-  height: 25px;
-  fill: white;
-  margin-left: 2px;
+  pointer-events: auto;
 }
 
 .playlist-card-info {
@@ -2782,7 +2709,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--text-primary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   transition: transform 0.18s;
 }

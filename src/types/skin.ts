@@ -9,11 +9,14 @@ export const SKIN_COLOR_KEYS = [
   "text-tertiary",
   "accent",
   "accent-dim",
+  "accent-text",
   "border",
   "now-playing-bg",
   "success",
   "error",
   "warning",
+  "like",
+  "dislike",
 ] as const;
 
 export type SkinColorKey = (typeof SKIN_COLOR_KEYS)[number];

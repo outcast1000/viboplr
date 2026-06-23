@@ -592,7 +592,7 @@ export function SearchView({
 
   function handleTrackItemClick(e: React.MouseEvent, index: number) {
     if (didDragRef.current) return;
-    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn, .row-hover-action')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .ds-card-play, .row-hover-action')) return;
     const newSelection = computeSelection(
       selectedTrackIds, index, results.tracks, lastClickedTrackRef.current,
       e.metaKey || e.ctrlKey, e.shiftKey,
@@ -613,7 +613,7 @@ export function SearchView({
 
   function handleTrackItemMouseDown(e: React.MouseEvent, index: number) {
     if (e.button !== 0 || !onTrackDragStart) return;
-    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .album-card-play-btn, .row-hover-action')) return;
+    if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .ds-card-play, .row-hover-action')) return;
     const startX = e.clientX;
     const startY = e.clientY;
     didDragRef.current = false;
@@ -1035,7 +1035,7 @@ export function SearchView({
                       size={12}
                     />
                     <button className="album-card-menu-btn" onClick={(e) => { e.stopPropagation(); handleTrackItemContextMenu(e, t, i); }} title="More options">&#x22EF;</button>
-                    <button className="album-card-play-btn" onClick={(e) => { e.stopPropagation(); onPlayTracks([t], 0); }} title="Play">
+                    <button className="ds-card-play" onClick={(e) => { e.stopPropagation(); onPlayTracks([t], 0); }} title="Play">
                       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                     </button>
                     </div>
