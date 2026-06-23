@@ -163,7 +163,7 @@ describe("subsonic-browse: resilience", () => {
     });
     await env.search("song");
     expect(env.child("track-row-list").items).toHaveLength(1);
-    expect(env.texts().some((t) => t.includes("unreachable") && t.includes("Server A"))).toBe(true);
+    expect(env.texts().some((t: string) => t.includes("unreachable") && t.includes("Server A"))).toBe(true);
   });
 });
 
