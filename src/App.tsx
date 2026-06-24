@@ -3084,6 +3084,16 @@ function App() {
                 if (s) skins.previewSkin(s);
                 else skins.clearPreview();
               }}
+              onCreateSkin={() => {
+                skins.createSkin().then((res) => {
+                  notify(res.ok
+                    ? "New skin created — opening it in your editor"
+                    : `Couldn't create skin: ${res.error}`);
+                }).catch((e) => console.error("Failed to create skin:", e));
+              }}
+              onOpenSkinInEditor={(id) => { skins.openSkinInEditor(id).catch((e) => console.error("Failed to open skin in editor:", e)); }}
+              onRefreshSkin={(id) => skins.refreshSkin(id)}
+              onSubmitSkin={(id) => skins.submitSkin(id)}
             />
           {/* Settings view */}
           {view === "settings" && (

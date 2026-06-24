@@ -32,6 +32,17 @@ pub fn import_skin_file(state: State<'_, AppState>, path: String) -> Result<Stri
 }
 
 #[tauri::command]
+pub fn open_skin_in_editor(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let dir = skins::skins_dir(&state.app_dir);
+    let path = skins::skin_path(&dir, &id);
+    if !path.exists() {
+        return Err(format!("Skin '{}' not found", id));
+    }
+    tauri_plugin_opener::open_path(path.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn fetch_skin_gallery() -> Result<String, String> {
     skins::fetch_url("https://raw.githubusercontent.com/outcast1000/viboplr-skins/main/index.json")
 }

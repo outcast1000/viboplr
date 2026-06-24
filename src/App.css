@@ -2813,6 +2813,51 @@
 }
 .ext-skin-card:hover .ext-skin-cta { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.4); }
 
+/* Authoring action row — user skins only (Open / Refresh / Submit / Delete). */
+.ext-skin-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 9px 9px;
+  opacity: 0.75;
+  transition: opacity 0.15s ease;
+}
+.ext-skin-card:hover .ext-skin-actions,
+.ext-skin-card:focus-within .ext-skin-actions { opacity: 1; }
+.ext-skin-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.ext-skin-act:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  background: var(--bg-hover);
+}
+.ext-skin-act:disabled { opacity: 0.5; cursor: default; }
+.ext-skin-act--danger:hover:not(:disabled) {
+  color: var(--error);
+  border-color: rgba(var(--error-rgb), 0.4);
+}
+.ext-skin-feedback {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  padding: 0 13px 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ext-skin-feedback.ok { color: var(--success); }
+.ext-skin-feedback.err { color: var(--error); }
+
 .ext-nav-badge {
   margin-left: auto;
   padding: 0 4px;

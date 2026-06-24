@@ -180,6 +180,7 @@ macro_rules! invoke_handler {
             commands::save_user_skin,
             commands::delete_user_skin,
             commands::import_skin_file,
+            commands::open_skin_in_editor,
             commands::fetch_skin_gallery,
             commands::install_gallery_skin,
             commands::open_devtools,

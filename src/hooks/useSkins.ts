@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
 import { BUILTIN_SKINS } from "../skins";
-import { generateSkinCSS } from "../skinUtils";
+import { generateSkinCSS, buildStarterSkin, skinSubmissionUrl, validateSkin } from "../skinUtils";
 import type { SkinInfo, SkinColors, GallerySkinEntry } from "../types/skin";
 import defaultSkin from "../skins/default.json";
 
@@ -162,6 +163,85 @@ export function useSkins() {
     }
   }, [applySkin, refreshUserSkins]);
 
+  // Open a user skin's JSON file in the OS default editor for .json.
+  const openSkinInEditor = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      await invoke("open_skin_in_editor", { id });
+      return { ok: true };
+    } catch (e) {
+      console.error("Failed to open skin in editor:", e);
+      return { ok: false, error: String(e) };
+    }
+  }, []);
+
+  // Create a fresh user skin from the neutral starter template, make it active,
+  // and open it in the editor so the author can start tweaking immediately.
+  const createSkin = useCallback(async (): Promise<{ ok: boolean; id?: string; error?: string }> => {
+    try {
+      const skinJson = JSON.stringify(buildStarterSkin(), null, 2);
+      const id = await invoke<string>("save_user_skin", { skinJson });
+      await refreshUserSkins();
+      applySkin(id);
+      // Best-effort: a missing default .json handler shouldn't fail skin creation.
+      await openSkinInEditor(id);
+      return { ok: true, id };
+    } catch (e) {
+      console.error("Failed to create skin:", e);
+      return { ok: false, error: String(e) };
+    }
+  }, [applySkin, refreshUserSkins, openSkinInEditor]);
+
+  // Re-read a user skin from disk after an external edit, validate it, and
+  // re-apply. On invalid edits we keep the previous render and surface the exact
+  // validateSkin() reason instead of letting the skin silently vanish from the list.
+  const refreshSkin = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const raw = await invoke<string>("read_user_skin", { id });
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        return { ok: false, error: `Invalid JSON: ${String(e)}` };
+      }
+      const v = validateSkin(parsed);
+      if (!v.ok) return { ok: false, error: v.error };
+      // Reloads all user skins; the activeSkin effect re-injects CSS when the
+      // refreshed skin is the active one (new object identity → effect fires).
+      await refreshUserSkins();
+      return { ok: true };
+    } catch (e) {
+      console.error("Failed to refresh skin:", e);
+      return { ok: false, error: String(e) };
+    }
+  }, [refreshUserSkins]);
+
+  // Validate, copy the JSON to the clipboard (belt-and-suspenders for large
+  // skins), and open the pre-filled gallery submission form.
+  const submitSkin = useCallback(async (id: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const raw = await invoke<string>("read_user_skin", { id });
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        return { ok: false, error: `Invalid JSON: ${String(e)}` };
+      }
+      const v = validateSkin(parsed);
+      if (!v.ok) return { ok: false, error: v.error };
+      try {
+        await navigator.clipboard.writeText(raw);
+      } catch (e) {
+        // Non-fatal: the form may still be pre-filled from the URL.
+        console.error("Failed to copy skin JSON to clipboard:", e);
+      }
+      await openUrl(skinSubmissionUrl(raw));
+      return { ok: true };
+    } catch (e) {
+      console.error("Failed to submit skin:", e);
+      return { ok: false, error: String(e) };
+    }
+  }, []);
+
   return {
     activeSkinId,
     activeSkin,
@@ -176,5 +256,9 @@ export function useSkins() {
     galleryError,
     fetchGallery,
     installFromGallery,
+    createSkin,
+    refreshSkin,
+    submitSkin,
+    openSkinInEditor,
   };
 }

@@ -1,6 +1,7 @@
 // src/skinUtils.ts
 import { SKIN_COLOR_KEYS } from "./types/skin";
 import type { SkinColors } from "./types/skin";
+import { LINKS } from "./constants/links";
 
 const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const MAX_CUSTOM_CSS = 10240; // 10KB
@@ -73,4 +74,66 @@ export function slugifySkinName(name: string): string {
     .replace(/[^a-z0-9\s-]/g, "")
     .replace(/[\s-]+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+// A complete, valid neutral palette (the Default Dark Blue look) used to seed a
+// brand-new user skin. Every one of the 18 keys is present and valid so the
+// starter passes validateSkin() and renders immediately — the author then tweaks
+// values in their editor and hits Refresh.
+const STARTER_COLORS: SkinColors = {
+  "bg-primary": "#1a1a2e",
+  "bg-secondary": "#16213e",
+  "bg-tertiary": "#1e2a4a",
+  "bg-surface": "#0f3460",
+  "bg-hover": "#1a3a6e",
+  "text-primary": "#e0e0e0",
+  "text-secondary": "#a0a0b0",
+  "text-tertiary": "#707080",
+  "accent": "#53a8ff",
+  "accent-dim": "#3a7bd5",
+  "accent-text": "#ffffff",
+  "border": "#2a2a4a",
+  "now-playing-bg": "#0d1b2a",
+  "success": "#4caf50",
+  "error": "#f44336",
+  "warning": "#ff9500",
+  "like": "#ff4d6a",
+  "dislike": "#ff9500",
+};
+
+export interface StarterSkin {
+  name: string;
+  author: string;
+  version: string;
+  type: "dark" | "light";
+  colors: SkinColors;
+  customCSS: string;
+}
+
+export function buildStarterSkin(): StarterSkin {
+  return {
+    name: "My Skin",
+    author: "You",
+    version: "1.0.0",
+    type: "dark",
+    // Fresh copy per call so editing one starter never mutates another.
+    colors: { ...STARTER_COLORS },
+    customCSS:
+      "/* Optional structural overrides (uncomment to use):\n" +
+      "   :root { --ds-radius: 10px; --ds-radius-card: 10px; } */",
+  };
+}
+
+// GitHub issue-form field id for the JSON textarea (see submit-skin.yml in the
+// viboplr-skins gallery repo). A query param keyed by this id pre-fills it.
+const SKIN_SUBMIT_FIELD = "skin-json";
+// Keep the pre-filled URL comfortably under browser/GitHub length limits. A large
+// customCSS would overflow the query string, so we drop the pre-fill and rely on
+// the clipboard copy the caller also makes.
+const SKIN_SUBMIT_MAX_ENCODED = 6000;
+
+export function skinSubmissionUrl(skinJson: string): string {
+  const encoded = encodeURIComponent(skinJson);
+  if (encoded.length > SKIN_SUBMIT_MAX_ENCODED) return LINKS.skinSubmitForm;
+  return `${LINKS.skinSubmitForm}&${SKIN_SUBMIT_FIELD}=${encoded}`;
 }

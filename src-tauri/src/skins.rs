@@ -39,8 +39,13 @@ pub fn list_skins_in_dir(dir: &Path) -> Result<Vec<Value>, String> {
     Ok(skins)
 }
 
+/// Absolute path of a user skin file by its id (the slug used as the filename).
+pub fn skin_path(dir: &Path, id: &str) -> PathBuf {
+    dir.join(format!("{}.json", id))
+}
+
 pub fn read_skin_from_dir(dir: &Path, id: &str) -> Result<String, String> {
-    let path = dir.join(format!("{}.json", id));
+    let path = skin_path(dir, id);
     std::fs::read_to_string(&path).map_err(|e| format!("Failed to read skin '{}': {}", id, e))
 }
 
@@ -115,6 +120,12 @@ mod tests {
         let result = list_skins_in_dir(dir.path());
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_skin_path() {
+        let dir = Path::new("/tmp/viboplr-skins");
+        assert_eq!(skin_path(dir, "forest"), dir.join("forest.json"));
     }
 
     #[test]

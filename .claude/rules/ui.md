@@ -319,12 +319,12 @@ Plugin-registered actions appear on all applicable targets automatically. Search
 
 Skins control all colors via CSS custom properties on `:root`.
 
-**15 color keys** (defined in `types/skin.ts` → `SkinColors`):
+**18 color keys** (defined in `types/skin.ts` → `SkinColors`):
 ```
 bg-primary, bg-secondary, bg-tertiary, bg-surface, bg-hover,
 text-primary, text-secondary, text-tertiary,
-accent, accent-dim, border, now-playing-bg,
-success, error, warning
+accent, accent-dim, accent-text, border, now-playing-bg,
+success, error, warning, like, dislike
 ```
 
 Plus derived RGB versions (`--bg-primary-rgb`, `--accent-rgb`, `--now-playing-bg-rgb`) for `rgba()` usage.

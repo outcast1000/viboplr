@@ -5,4 +5,6 @@ export const LINKS = {
   skinsPage: "https://viboplr.com/skins.html",
   issues: "https://github.com/outcast1000/viboplr/issues",
   supportPage: "https://viboplr.com/support.html",
+  // Gallery submission issue-form. A bot validates the JSON and opens the PR.
+  skinSubmitForm: "https://github.com/outcast1000/viboplr-skins/issues/new?template=submit-skin.yml",
 } as const;

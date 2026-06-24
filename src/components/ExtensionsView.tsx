@@ -42,6 +42,12 @@ interface ExtensionsViewProps {
   skinGalleryError?: string | null;
   // Live skin preview: pass a skin id to preview it window-wide, null to revert.
   onPreviewSkin?: (id: string | null) => void;
+  // Skin authoring loop (user skins only). Create seeds a starter + opens the
+  // editor; Refresh re-reads disk + re-applies; Submit opens the gallery form.
+  onCreateSkin?: () => void;
+  onOpenSkinInEditor?: (id: string) => void;
+  onRefreshSkin?: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  onSubmitSkin?: (id: string) => Promise<{ ok: boolean; error?: string }>;
   // The view stays mounted (like Home/Library) and toggles visibility; the
   // gallery fetch is gated on becoming visible rather than on mount.
   isVisible?: boolean;
@@ -346,13 +352,19 @@ function PluginDetail({
 
 function SkinCard({
   ext, installing, onApply, onInstall, onPreview, onClearPreview,
+  onOpen, onRefresh, onSubmit, onDelete, busy, feedback,
 }: {
   ext: ExtensionItem; installing: boolean;
   onApply: () => void; onInstall: () => void;
   onPreview: () => void; onClearPreview: () => void;
+  // Authoring actions — only wired for user skins.
+  onOpen?: () => void; onRefresh?: () => void;
+  onSubmit?: () => void; onDelete?: () => void;
+  busy?: boolean; feedback?: { ok: boolean; text: string } | null;
 }) {
   const installed = ext.status !== "not_installed";
   const active = ext.isActiveSkin === true;
+  const isUser = ext.source === "user";
   const m = useMemo(() => skinMockColors(ext.skinColors), [ext.skinColors]);
   const mockVars: React.CSSProperties = {
     ["--m-bg" as string]: m.bg,
@@ -366,12 +378,17 @@ function SkinCard({
   // Live preview only for installed skins (gallery entries ship just 4 colors,
   // not the full palette needed to re-theme faithfully — their mock is enough).
   const previewable = installed;
+  const activate = installed ? onApply : onInstall;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={`ext-skin-card${active ? " ext-skin-card--active" : ""}`}
-      onClick={installed ? onApply : onInstall}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); activate(); }
+      }}
       onMouseEnter={previewable ? onPreview : undefined}
       onMouseLeave={previewable ? onClearPreview : undefined}
       onBlur={previewable ? onClearPreview : undefined}
@@ -410,7 +427,26 @@ function SkinCard({
           )}
         </div>
       </div>
-    </button>
+      {installed && isUser && (
+        <div className="ext-skin-actions" onClick={(e) => e.stopPropagation()}>
+          <button type="button" className="ext-skin-act" title="Open in editor" aria-label="Open in editor" onClick={onOpen}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z" /></svg>
+          </button>
+          <button type="button" className="ext-skin-act" title="Refresh from disk" aria-label="Refresh from disk" onClick={onRefresh} disabled={busy}>
+            {busy ? <span className="ds-spinner ds-spinner--sm" /> : <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 4v6h-6" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>}
+          </button>
+          <button type="button" className="ext-skin-act" title="Submit to gallery" aria-label="Submit to gallery" onClick={onSubmit} disabled={busy}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path d="M12 3v12" /></svg>
+          </button>
+          <button type="button" className="ext-skin-act ext-skin-act--danger" title="Delete skin" aria-label="Delete skin" onClick={onDelete}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+          </button>
+        </div>
+      )}
+      {feedback && (
+        <div className={`ext-skin-feedback${feedback.ok ? " ok" : " err"}`} role="status">{feedback.text}</div>
+      )}
+    </div>
   );
 }
 
@@ -438,7 +474,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onUninstall, onToggleEnabled, onFetchPluginGallery, onFetchSkinGallery,
     onInstallFromUrl, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
-    onPreviewSkin, isVisible = true, style,
+    onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
+    isVisible = true, style,
   } = props;
 
   const [tab, setTab] = useState<ExtTab>("plugins");
@@ -452,6 +489,33 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const [detail, setDetail] = useState<{ id: string; configMode: boolean } | null>(null);
   const openDetail = (id: string, configMode = false) => setDetail({ id, configMode });
   const closeDetail = () => setDetail(null);
+
+  // Per-card state for the skin authoring loop: a spinner while Refresh/Submit
+  // run, and a transient inline ✓/✗ message under the card afterwards.
+  const [skinBusy, setSkinBusy] = useState<Set<string>>(new Set());
+  const [skinFeedback, setSkinFeedback] = useState<{ id: string; ok: boolean; text: string } | null>(null);
+  const [deleteSkinPrompt, setDeleteSkinPrompt] = useState<{ id: string; name: string } | null>(null);
+
+  useEffect(() => {
+    if (!skinFeedback) return;
+    const t = setTimeout(() => setSkinFeedback(null), 3000);
+    return () => clearTimeout(t);
+  }, [skinFeedback]);
+
+  const runSkinAction = async (
+    id: string,
+    action: ((id: string) => Promise<{ ok: boolean; error?: string }>) | undefined,
+    okText: string,
+  ) => {
+    if (!action) return;
+    setSkinBusy((prev) => new Set(prev).add(id));
+    try {
+      const res = await action(id);
+      setSkinFeedback({ id, ok: res.ok, text: res.ok ? okText : (res.error || "Failed") });
+    } finally {
+      setSkinBusy((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    }
+  };
 
   // Gallery fetch is gated on visibility (the view stays mounted) and TTL-guarded
   // in the hooks, so opening costs nothing when the cached index is fresh.
@@ -557,6 +621,9 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           onChange={(e) => onSetSearchQuery(e.target.value)}
         />
         <div className="ext-topbar-actions">
+          {tab === "skins" && onCreateSkin && (
+            <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onCreateSkin}>+ New skin</button>
+          )}
           {updateCount > 0 && (
             <>
               <span className="ext-update-count">{updateCount} update{updateCount !== 1 ? "s" : ""}</span>
@@ -674,6 +741,12 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
                 onInstall={() => handleInstall(ext)}
                 onPreview={() => onPreviewSkin?.(ext.id)}
                 onClearPreview={() => onPreviewSkin?.(null)}
+                onOpen={() => onOpenSkinInEditor?.(ext.id)}
+                onRefresh={() => runSkinAction(ext.id, onRefreshSkin, "Updated")}
+                onSubmit={() => runSkinAction(ext.id, onSubmitSkin, "Opened submission form")}
+                onDelete={() => setDeleteSkinPrompt({ id: ext.id, name: ext.name })}
+                busy={skinBusy.has(ext.id)}
+                feedback={skinFeedback?.id === ext.id ? skinFeedback : null}
               />
             ))}
           </div>
@@ -720,6 +793,27 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
                 onClick={() => { const id = enablePrompt.id; setEnablePrompt(null); onToggleEnabled(id, "plugin"); }}
               >
                 Enable
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteSkinPrompt && (
+        <div className="ds-modal-overlay">
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="ds-modal-title">Delete {deleteSkinPrompt.name}?</h2>
+            <p className="delete-confirm-warning">
+              This removes the skin file from disk. This can't be undone.
+            </p>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => setDeleteSkinPrompt(null)}>Cancel</button>
+              <button
+                className="ds-btn ds-btn--danger"
+                autoFocus
+                onClick={() => { const id = deleteSkinPrompt.id; setDeleteSkinPrompt(null); onUninstall(id, "skin"); }}
+              >
+                Delete
               </button>
             </div>
           </div>
