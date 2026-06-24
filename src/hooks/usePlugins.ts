@@ -128,6 +128,12 @@ interface LoadedPlugin {
  *  just stops one slow/hung activate() (e.g. one that awaits network) from
  *  freezing startup and everything queued behind it. */
 const ACTIVATE_TIMEOUT_MS = 3000;
+// Cache the gallery index so the Extensions panel paints installable plugins
+// instantly on open (stale-while-revalidate), instead of waiting on the network.
+const PLUGIN_GALLERY_CACHE_KEY = "galleryPluginsCache";
+// Skip re-hitting the network if we already revalidated within this window. The
+// curated index changes rarely, so reopening the panel is free within the TTL.
+const GALLERY_TTL_MS = 30 * 60 * 1000;
 
 /** Per-plugin activation timing, logged as a summary after the load loop so we
  *  can see how long each plugin takes and where the time goes. */
@@ -207,6 +213,11 @@ export function usePlugins(
   );
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  // Refs backing the TTL guard so fetchPluginGallery can stay a stable callback
+  // and short-circuit reopens without re-hitting the network.
+  const galleryPluginsRef = useRef<GalleryPluginEntry[]>([]);
+  const lastGalleryFetchRef = useRef(0);
+  useEffect(() => { galleryPluginsRef.current = galleryPlugins; }, [galleryPlugins]);
   // True once the initial plugin load has completed at least once. Lets consumers
   // (e.g. Home shelves) distinguish "no plugin shelves because none are loaded"
   // from "plugins haven't finished loading yet" — avoids pruning valid shelves
@@ -1703,6 +1714,24 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Hydrate the plugin gallery from the last cached index so the Extensions
+  // panel can show installable plugins instantly on open; fetchPluginGallery()
+  // then revalidates over the network (stale-while-revalidate).
+  useEffect(() => {
+    (async () => {
+      try {
+        const cached = await store.get<GalleryPluginEntry[]>(
+          PLUGIN_GALLERY_CACHE_KEY,
+        );
+        if (cached && cached.length) {
+          setGalleryPlugins((prev) => (prev.length ? prev : cached));
+        }
+      } catch (e) {
+        console.error("Failed to read cached plugin gallery:", e);
+      }
+    })();
+  }, []);
+
   // Reload plugins when debugMode / devPluginPath changes (after initial load).
   useEffect(() => {
     if (initialLoadDone.current) {
@@ -1811,22 +1840,49 @@ export function usePlugins(
     [],
   );
 
-  const fetchPluginGallery = useCallback(async (): Promise<GalleryPluginEntry[]> => {
-    setGalleryLoading(true);
-    setGalleryError(null);
-    try {
-      const json = await invoke<string>("fetch_plugin_gallery");
-      const index: PluginGalleryIndex = JSON.parse(json);
-      const entries = index.plugins || [];
-      setGalleryPlugins(entries);
-      return entries;
-    } catch (e) {
-      setGalleryError(String(e));
-      return [];
-    } finally {
-      setGalleryLoading(false);
-    }
-  }, []);
+  const fetchPluginGallery = useCallback(
+    async (force = false): Promise<GalleryPluginEntry[]> => {
+      // Within the TTL, serve the already-loaded index without a network call so
+      // reopening the panel is instant. `force` bypasses it (first-run prompt).
+      if (
+        !force &&
+        galleryPluginsRef.current.length > 0 &&
+        Date.now() - lastGalleryFetchRef.current < GALLERY_TTL_MS
+      ) {
+        return galleryPluginsRef.current;
+      }
+      setGalleryLoading(true);
+      setGalleryError(null);
+      try {
+        const json = await invoke<string>("fetch_plugin_gallery");
+        const index: PluginGalleryIndex = JSON.parse(json);
+        const entries = index.plugins || [];
+        setGalleryPlugins(entries);
+        lastGalleryFetchRef.current = Date.now();
+        store.set(PLUGIN_GALLERY_CACHE_KEY, entries).catch((e) =>
+          console.error("Failed to cache plugin gallery:", e),
+        );
+        return entries;
+      } catch (e) {
+        setGalleryError(String(e));
+        return galleryPluginsRef.current;
+      } finally {
+        setGalleryLoading(false);
+      }
+    },
+    [],
+  );
+
+  // Warm the gallery cache once plugins finish loading, so the Extensions panel's
+  // "Available" list is ready before the user opens it. Fire-and-forget and
+  // TTL-guarded — it never blocks startup or the UI.
+  useEffect(() => {
+    if (!pluginsLoaded) return;
+    fetchPluginGallery().catch((e) =>
+      console.error("Plugin gallery prefetch failed:", e),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pluginsLoaded]);
 
   const installFromGallery = useCallback(
     async (

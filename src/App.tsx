@@ -1594,8 +1594,9 @@ function App() {
         const shown = await store.get<boolean>("pluginRecommendationsShown");
         if (shown || cancelled) return;
         // fetchPluginGallery returns the fresh entries and also updates
-        // plugins.galleryPlugins for the render below.
-        const entries = await plugins.fetchPluginGallery();
+        // plugins.galleryPlugins for the render below. Force past the TTL guard
+        // so the first-run prompt always reflects the live index.
+        const entries = await plugins.fetchPluginGallery(true);
         if (cancelled) return;
         if (entries.length > 0) {
           setShowFirstRunPluginModal(true);
@@ -3048,12 +3049,13 @@ function App() {
             );
           })()}
           {/* Extensions view */}
-          {view === "extensions" && (
-            <ExtensionsView
+          {/* Extensions — always mounted (display toggle) so it doesn't remount
+              and re-fetch the gallery on every open; fetch is gated on isVisible. */}
+          <ExtensionsView
+              style={{ display: view === "extensions" ? undefined : "none" }}
+              isVisible={view === "extensions"}
               allExtensions={extensionsHook.allExtensions}
               updateCount={extensionsHook.updateCount}
-              selectedId={extensionsHook.selectedId}
-              onSelectExtension={extensionsHook.setSelectedId}
               searchQuery={extensionsHook.searchQuery}
               onSetSearchQuery={extensionsHook.setSearchQuery}
               installing={extensionsHook.installing}
@@ -3072,8 +3074,17 @@ function App() {
               gallerySkins={skins.gallerySkins || []}
               getPluginViewData={plugins.getViewData}
               onPluginAction={plugins.dispatchUIAction}
+              pluginGalleryLoading={plugins.galleryLoading}
+              pluginGalleryError={plugins.galleryError}
+              skinGalleryLoading={skins.galleryLoading}
+              skinGalleryError={skins.galleryError}
+              onPreviewSkin={(id) => {
+                if (!id) { skins.clearPreview(); return; }
+                const s = skins.installedSkins.find((x) => x.id === id);
+                if (s) skins.previewSkin(s);
+                else skins.clearPreview();
+              }}
             />
-          )}
           {/* Settings view */}
           {view === "settings" && (
             <SettingsPanel

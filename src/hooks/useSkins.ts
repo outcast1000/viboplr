@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
 import { BUILTIN_SKINS } from "../skins";
@@ -8,6 +8,11 @@ import defaultSkin from "../skins/default.json";
 
 const STYLE_ID = "viboplr-skin";
 const GALLERY_BASE_URL = "https://raw.githubusercontent.com/outcast1000/viboplr-skins/main/";
+// Cache the gallery index so the Extensions panel can paint installable skins
+// instantly on open (stale-while-revalidate), instead of waiting on the network.
+const GALLERY_CACHE_KEY = "gallerySkinsCache";
+// Within this window, reopening the panel serves the loaded index with no fetch.
+const GALLERY_TTL_MS = 30 * 60 * 1000;
 
 function injectSkinCSS(skin: SkinInfo) {
   let el = document.getElementById(STYLE_ID) as HTMLStyleElement | null;
@@ -27,6 +32,10 @@ export function useSkins() {
   const [gallerySkins, setGallerySkins] = useState<GallerySkinEntry[]>([]);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  // Refs backing the TTL guard (see fetchGallery) so reopening the panel is free.
+  const gallerySkinsRef = useRef<GallerySkinEntry[]>([]);
+  const lastGalleryFetchRef = useRef(0);
+  useEffect(() => { gallerySkinsRef.current = gallerySkins; }, [gallerySkins]);
 
   const installedSkins: SkinInfo[] = [...BUILTIN_SKINS, ...userSkins];
   const activeSkin = installedSkins.find(s => s.id === activeSkinId) || BUILTIN_SKINS[0];
@@ -43,15 +52,44 @@ export function useSkins() {
       } catch {
         // No user skins yet
       }
+
+      // Hydrate the gallery from the last cached index so the Extensions panel
+      // shows installable skins immediately; fetchGallery() then revalidates.
+      try {
+        const cached = await store.get<GallerySkinEntry[]>(GALLERY_CACHE_KEY);
+        if (cached && cached.length) {
+          setGallerySkins((prev) => (prev.length ? prev : cached));
+        }
+      } catch (e) {
+        console.error("Failed to read cached skin gallery:", e);
+      }
     })();
   }, []);
 
-  // Apply skin whenever activeSkin changes
+  // Apply skin whenever activeSkin changes. previewRef tracks a transient hover
+  // preview so this effect doesn't clobber it on an unrelated re-render.
+  const previewRef = useRef(false);
   useEffect(() => {
+    if (previewRef.current) return;
+    injectSkinCSS(activeSkin);
+  }, [activeSkin]);
+
+  // Live preview: inject a skin's CSS without persisting it as active. Used by
+  // the Extensions skins grid on hover; clearPreview() restores the active skin.
+  const previewSkin = useCallback((skin: SkinInfo) => {
+    previewRef.current = true;
+    injectSkinCSS(skin);
+  }, []);
+
+  const clearPreview = useCallback(() => {
+    previewRef.current = false;
     injectSkinCSS(activeSkin);
   }, [activeSkin]);
 
   const applySkin = useCallback((id: string) => {
+    // A click during hover-preview becomes the real selection; drop the preview
+    // guard so the activeSkin effect can re-assert on later renders.
+    previewRef.current = false;
     setActiveSkinId(id);
     store.set("skin", id);
   }, []);
@@ -84,13 +122,27 @@ export function useSkins() {
     }
   }, [activeSkinId, applySkin, refreshUserSkins]);
 
-  const fetchGallery = useCallback(async () => {
+  const fetchGallery = useCallback(async (force = false) => {
+    // Within the TTL, keep the loaded index instead of re-hitting the network so
+    // reopening the Skins tab is instant.
+    if (
+      !force &&
+      gallerySkinsRef.current.length > 0 &&
+      Date.now() - lastGalleryFetchRef.current < GALLERY_TTL_MS
+    ) {
+      return;
+    }
     setGalleryLoading(true);
     setGalleryError(null);
     try {
       const json = await invoke<string>("fetch_skin_gallery");
       const index = JSON.parse(json);
-      setGallerySkins(index.skins || []);
+      const entries: GallerySkinEntry[] = index.skins || [];
+      setGallerySkins(entries);
+      lastGalleryFetchRef.current = Date.now();
+      store.set(GALLERY_CACHE_KEY, entries).catch((e) =>
+        console.error("Failed to cache skin gallery:", e),
+      );
     } catch (e) {
       setGalleryError(String(e));
     } finally {
@@ -115,6 +167,8 @@ export function useSkins() {
     activeSkin,
     installedSkins,
     applySkin,
+    previewSkin,
+    clearPreview,
     importSkin,
     deleteSkin,
     gallerySkins,

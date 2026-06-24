@@ -74,7 +74,13 @@ pub fn import_skin_from_path(dir: &Path, source_path: &str) -> Result<String, St
 }
 
 pub fn fetch_url(url: &str) -> Result<String, String> {
-    let resp = reqwest::blocking::get(url)
+    // Bound the request: callers fetch small index/skin JSON, so a slow or
+    // hanging GitHub must not leave gallery loading stuck indefinitely.
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let resp = client.get(url).send()
         .map_err(|e| format!("HTTP error: {}", e))?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
