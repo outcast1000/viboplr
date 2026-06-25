@@ -656,6 +656,7 @@
 }
 
 .ptr-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -665,11 +666,61 @@
 }
 
 .ptr-row:hover {
-  background: var(--hover);
+  background: var(--bg-hover);
 }
 
+/* Selection fill matches the library list (.track-row.selected) exactly. */
 .ptr-row-selected {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: rgba(var(--accent-rgb), 0.15);
+}
+
+/* Library-style selectable listbox: click/Cmd/Shift multi-select replaces the
+   checkbox column, so suppress text selection (Shift+click would otherwise
+   highlight text) and the default focus ring on the container. */
+.ptr-rows-selectable {
+  user-select: none;
+  outline: none;
+}
+
+/* Library-mode rows mirror the library list shell (.track-row): no per-row
+   border (the library separates rows by hover/selection background, not rules),
+   rounded corners so the state fills read like the library, a small internal
+   inset for the rounded fill, and the library's default cursor (single click
+   selects, double click plays). Scoped to the selectable list so legacy plugin
+   lists (subsonic/spotify) keep their bordered, click-to-play rows. */
+.ptr-rows-selectable .ptr-row {
+  padding: 7px 8px;
+  border-bottom: none;
+  border-radius: var(--ds-radius);
+  cursor: default;
+  transition: background 0.15s;
+}
+
+/* Keyboard cursor row (aria-activedescendant): the library's full inset accent
+   ring (.track-row.active), not a left rail. */
+.ptr-row-active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: var(--ds-radius);
+}
+
+/* Per-row hover action overlay — reuses the shared .row-hover-actions /
+   .row-hover-action chrome from App.css (same look as the library list).
+   Reveal on hover only (matching the library, where the active/cursor row does
+   not surface the overlay). The action glyph is plugin-provided text rather
+   than an inline SVG, so size it to sit centered in the round button. */
+.ptr-row:hover .row-hover-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ptr-hover-glyph {
+  font-size: var(--fs-sm);
+  line-height: 1;
+}
+
+.ptr-hover-text {
+  font-size: var(--fs-2xs);
+  padding: 0 2px;
 }
 
 .ptr-checkbox {

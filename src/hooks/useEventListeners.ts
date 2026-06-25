@@ -34,6 +34,9 @@ interface EventListenerOptions {
   // does not refresh it — this nudges it to re-run its current query.
   onLibraryChanged?: () => void;
   dispatchPluginEvent?: (event: string, ...args: unknown[]) => void;
+  // Toast channel for queue-based download outcomes (api.downloads.enqueue has
+  // no per-download progress UI of its own). Surfaces complete/error feedback.
+  notify?: (message: string) => void;
 }
 
 export type { ResyncProgress, ResyncComplete };
@@ -194,17 +197,28 @@ export function useEventListeners(opts: EventListenerOptions) {
     // of deps to match the other optional callbacks and avoid re-subscribing.
   }, [loadLibrary, loadTracks]);
 
-  // Download complete — refresh library so the new track appears
+  // Download complete/error — toast the outcome (queue-based downloads, e.g.
+  // plugin api.downloads.enqueue, have no progress UI) and refresh the library
+  // on success so the new track appears.
   useEffect(() => {
-    const unlisten = listen("download-complete", () => {
+    const notify = opts.notify;
+    const unlistenComplete = listen<{ trackTitle?: string }>("download-complete", (e) => {
+      const title = e.payload?.trackTitle;
+      notify?.(title ? `Downloaded “${title}”` : "Download complete");
       loadLibrary();
       loadTracks();
     });
+    const unlistenError = listen<{ trackTitle?: string; error?: string }>("download-error", (e) => {
+      const title = e.payload?.trackTitle ?? "track";
+      const reason = e.payload?.error ? ` — ${e.payload.error}` : "";
+      notify?.(`Download failed: “${title}”${reason}`);
+    });
 
     return () => {
-      unlisten.then((f) => f());
+      unlistenComplete.then((f) => f());
+      unlistenError.then((f) => f());
     };
-  }, [loadLibrary, loadTracks]);
+  }, [loadLibrary, loadTracks, opts.notify]);
 
   // Library change events — bridged to plugin event system
   useEffect(() => {

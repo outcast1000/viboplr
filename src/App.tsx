@@ -1004,6 +1004,7 @@ function App() {
     onBulkEditComplete: () => setSearchBulkEditKey(k => k + 1),
     onLibraryChanged: () => setSearchLibraryKey(k => k + 1),
     dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
+    notify,
   });
 
   useEffect(() => {

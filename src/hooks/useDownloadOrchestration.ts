@@ -19,8 +19,9 @@ export interface DownloadModalState {
 }
 
 /** Walk the plugin download-provider chain (by-uri first, then by-metadata) and
- * return the first successful resolution. Each provider call is bounded to 10s. */
-async function resolveTrackDownload(
+ * return the first successful resolution. Each provider call is bounded to 10s.
+ * Exported for unit testing of the provider-id matching. */
+export async function resolveTrackDownload(
   providers: DownloadProvider[],
   uri: string | null,
   title: string,
@@ -30,8 +31,13 @@ async function resolveTrackDownload(
   format: string,
   provider?: string | null,
 ): Promise<DownloadResolveResult | null> {
+  // `provider` may arrive as the host's fully-qualified id ("pluginId:providerId")
+  // or as the bare providerId a plugin passed to api.downloads.enqueue — which is
+  // all a plugin knows of itself (its manifest's downloadProviders[].id). Accept
+  // either, reconstructing the full id from each provider's source so a bare id
+  // can't false-match a same-named provider under a different plugin.
   const targetProviders = provider
-    ? providers.filter(p => p.id === provider)
+    ? providers.filter(p => p.id === provider || p.id === `${p.source}:${provider}`)
     : providers;
 
   if (uri) {

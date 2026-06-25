@@ -1,7 +1,7 @@
 // Leaf renderers for PluginViewData node types (split out of PluginViewRenderer.tsx).
 // The recursive dispatcher PluginViewNode lives in PluginViewRenderer.tsx and
 // imports these; none of these renderers recurse back into the dispatcher.
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useId } from "react";
 import type { Track, QueueTrack } from "../../types";
 import type { CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../../nativeMenu";
@@ -349,16 +349,7 @@ export function PluginTabs({
 
 // -- Track Row List --
 
-export function PluginTrackRowList({
-  items,
-  selectable,
-  actions,
-  categories,
-  numbered,
-  showHeader,
-  onAction,
-  onContextMenu,
-}: {
+interface PluginTrackRowListProps {
   items: TrackRowItem[];
   selectable?: boolean;
   actions?: { id: string; label: string; icon?: string }[];
@@ -367,7 +358,279 @@ export function PluginTrackRowList({
   showHeader?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
   onContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
-}) {
+}
+
+/**
+ * Library-style click selection for plugin rows, keyed by item id + index.
+ * Mirrors `TrackList.computeSelection`: a plain click replaces the selection,
+ * Cmd/Ctrl+click toggles one item, Shift+click selects a range from the last
+ * clicked index, and Cmd/Ctrl+Shift+click extends the existing selection with
+ * that range. Exported for unit testing.
+ */
+export function computeRowSelection(
+  current: Set<string>,
+  items: { id: string }[],
+  clickedIndex: number,
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<string> {
+  if (shift) {
+    const start = lastIndex ?? 0;
+    const lo = Math.min(start, clickedIndex);
+    const hi = Math.max(start, clickedIndex);
+    const range = new Set(items.slice(lo, hi + 1).map(it => it.id));
+    if (meta) {
+      const merged = new Set(current);
+      for (const id of range) merged.add(id);
+      return merged;
+    }
+    return range;
+  }
+  if (meta) {
+    const next = new Set(current);
+    const id = items[clickedIndex].id;
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  }
+  return new Set([items[clickedIndex].id]);
+}
+
+// Dispatcher: the `selectable` row list (used by e.g. the YouTube search view)
+// renders the library-style listbox below; everything else (the `categories`
+// interactive-download flow, plain/`showHeader`/`numbered` lists) keeps the
+// original checkbox/read-only body untouched.
+export function PluginTrackRowList(props: PluginTrackRowListProps) {
+  const libraryMode = !!props.selectable && !props.categories;
+  return libraryMode
+    ? <PluginTrackRowsSelectable {...props} />
+    : <PluginTrackRowsLegacy {...props} />;
+}
+
+// Library-parity list: click/Cmd/Shift multi-select (no checkboxes), keyboard
+// listbox navigation, double-click to play, and per-row hover overlay buttons
+// built from the declared `actions` (so Download rides along automatically).
+// Each overlay button applies its action to just that row via `selectedIds:
+// [item.id]`, reusing the same handlers the toolbar fires for the selection.
+function PluginTrackRowsSelectable({
+  items,
+  actions,
+  numbered,
+  showHeader,
+  onAction,
+  onContextMenu,
+}: PluginTrackRowListProps) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const lastClickedIndexRef = useRef<number | null>(null);
+  const listId = useId();
+  const optionId = (i: number) => `${listId}opt${i}`;
+
+  // Reset selection when the item set changes (e.g. a new search) so stale ids
+  // never drive a bulk action against rows that are no longer shown.
+  const prevKeyRef = useRef("");
+  useEffect(() => {
+    const key = (items[0]?.id ?? "") + ":" + items.length;
+    if (prevKeyRef.current && prevKeyRef.current !== key) {
+      setSelected(new Set());
+      setActiveIndex(-1);
+      lastClickedIndexRef.current = null;
+    }
+    prevKeyRef.current = key;
+  }, [items]);
+
+  // Cmd/Ctrl+A select-all and Escape clear, mirroring the library list.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (selected.size > 0) setSelected(new Set());
+      } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && items.length > 0) {
+        if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
+        e.preventDefault();
+        setSelected(new Set(items.map(it => it.id)));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected, items]);
+
+  // Keep the keyboard cursor's row scrolled into view as it moves.
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex]);
+
+  const selectAll = useCallback(() => setSelected(new Set(items.map(it => it.id))), [items]);
+  const selectNone = useCallback(() => setSelected(new Set()), []);
+
+  // Double-click / Enter play just that row: prefer its per-row `action`, else
+  // fall back to the first declared action (the play action by convention).
+  const playRow = useCallback((index: number) => {
+    const item = items[index];
+    if (!item) return;
+    setSelected(new Set());
+    if (item.action) onAction?.(item.action, { itemId: item.id });
+    else if (actions && actions.length > 0) onAction?.(actions[0].id, { selectedIds: [item.id], itemId: item.id });
+  }, [items, actions, onAction]);
+
+  function handleRowClick(e: React.MouseEvent, index: number) {
+    if ((e.target as HTMLElement).closest(".row-hover-action")) return;
+    setSelected(computeRowSelection(selected, items, index, lastClickedIndexRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
+    lastClickedIndexRef.current = index;
+    setActiveIndex(index);
+  }
+
+  function handleRowContextMenu(e: React.MouseEvent, index: number, item: TrackRowItem) {
+    e.preventDefault();
+    if (!selected.has(item.id)) {
+      setSelected(new Set([item.id]));
+      lastClickedIndexRef.current = index;
+      setActiveIndex(index);
+    }
+    onContextMenu?.(e, item);
+  }
+
+  function moveActive(next: number, extend: boolean) {
+    if (items.length === 0) return;
+    const clamped = Math.max(0, Math.min(next, items.length - 1));
+    setActiveIndex(clamped);
+    if (extend) {
+      setSelected(computeRowSelection(selected, items, clamped, lastClickedIndexRef.current, false, true));
+    } else {
+      setSelected(new Set([items[clamped].id]));
+      lastClickedIndexRef.current = clamped;
+    }
+  }
+
+  function handleListKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.target !== e.currentTarget || items.length === 0) return;
+    switch (e.key) {
+      case "ArrowDown": e.preventDefault(); moveActive(activeIndex < 0 ? 0 : activeIndex + 1, e.shiftKey); break;
+      case "ArrowUp": e.preventDefault(); moveActive(activeIndex < 0 ? 0 : activeIndex - 1, e.shiftKey); break;
+      case "Home": e.preventDefault(); moveActive(0, e.shiftKey); break;
+      case "End": e.preventDefault(); moveActive(items.length - 1, e.shiftKey); break;
+      case "Enter": if (activeIndex >= 0) { e.preventDefault(); playRow(activeIndex); } break;
+      case " ":
+        if (activeIndex >= 0) {
+          e.preventDefault();
+          setSelected(computeRowSelection(selected, items, activeIndex, lastClickedIndexRef.current, true, false));
+          lastClickedIndexRef.current = activeIndex;
+        }
+        break;
+    }
+  }
+
+  function handleListFocus(e: React.FocusEvent<HTMLDivElement>) {
+    if (e.target === e.currentTarget && activeIndex < 0 && items.length > 0) setActiveIndex(0);
+  }
+
+  const useCv = items.length > 100;
+  const hasActions = !!actions && actions.length > 0;
+
+  return (
+    <div className="ptr-list">
+      <div className="ptr-toolbar">
+        <div className="ptr-toolbar-left">
+          <button className="ptr-toolbar-btn" onClick={selectAll}>All</button>
+          <button className="ptr-toolbar-btn" onClick={selectNone}>None</button>
+          <span className="ptr-toolbar-count">{selected.size} / {items.length}</span>
+        </div>
+        {hasActions && (
+          <div className="ptr-toolbar-right">
+            {actions!.map(a => (
+              <button
+                key={a.id}
+                className="ptr-toolbar-btn"
+                disabled={selected.size === 0}
+                onClick={() => onAction?.(a.id, { selectedIds: Array.from(selected) })}
+              >
+                {a.icon && <span className="ptr-toolbar-icon">{a.icon}</span>}
+                {a.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {showHeader && (
+        <div className="ptr-header">
+          {numbered && <span className="ptr-num">#</span>}
+          <span className="ptr-art" />
+          <span className="ptr-info ptr-header-title">Title</span>
+          <span className="ptr-album">Album</span>
+          <span className="ptr-duration">Duration</span>
+        </div>
+      )}
+      <div
+        className={`ptr-rows ptr-rows-selectable${useCv ? " ptr-rows-cv" : ""}`}
+        role="listbox"
+        aria-multiselectable="true"
+        aria-label="Tracks"
+        aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
+        tabIndex={0}
+        onKeyDown={handleListKeyDown}
+        onFocus={handleListFocus}
+      >
+        {items.map((item, i) => (
+          <div
+            key={item.id}
+            role="option"
+            id={optionId(i)}
+            aria-selected={selected.has(item.id)}
+            className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}${activeIndex === i ? " ptr-row-active" : ""}`}
+            onClick={(e) => handleRowClick(e, i)}
+            onDoubleClick={() => playRow(i)}
+            onContextMenu={onContextMenu ? (e) => handleRowContextMenu(e, i, item) : undefined}
+          >
+            {numbered && <span className="ptr-num">{i + 1}</span>}
+            {item.imageUrl ? (
+              <div className="ptr-art">
+                <img src={resolveImageUrl(item.imageUrl)} alt="" loading="lazy" decoding="async" />
+              </div>
+            ) : showHeader ? (
+              <div className="ptr-art" />
+            ) : null}
+            <div className="ptr-info">
+              <span className="ptr-title">{item.title}</span>
+              {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
+            </div>
+            {showHeader && <span className="ptr-album">{item.album ?? ""}</span>}
+            {item.duration && <span className="ptr-duration">{item.duration}</span>}
+            {hasActions && (
+              <span className="row-hover-actions">
+                {actions!.map((a, ai) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className={`row-hover-action${ai === 0 ? " row-hover-action--play" : ""}`}
+                    title={a.label}
+                    aria-label={a.label}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onAction?.(a.id, { selectedIds: [item.id], itemId: item.id }); }}
+                  >
+                    {a.icon ? <span className="ptr-hover-glyph">{a.icon}</span> : <span className="ptr-hover-text">{a.label}</span>}
+                  </button>
+                ))}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PluginTrackRowsLegacy({
+  items,
+  selectable,
+  actions,
+  categories,
+  numbered,
+  showHeader,
+  onAction,
+  onContextMenu,
+}: PluginTrackRowListProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [itemCategories, setItemCategories] = useState<Record<string, string[]>>(() => {
     if (!categories) return {};

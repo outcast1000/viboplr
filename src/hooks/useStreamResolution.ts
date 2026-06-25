@@ -178,8 +178,21 @@ export function useStreamResolution({
         }
       }
 
+      // A track that already carries a plugin's native scheme (e.g.
+      // youtube://{id}) gets that plugin's by-id resolver in the chain above.
+      // Don't also append the SAME plugin's metadata stream resolver: if the
+      // exact id fails to resolve, re-searching by title/artist just re-picks
+      // the same item (often the same unavailable video) after a long delay.
+      // Other plugins and the local-library copy still serve as real fallbacks.
+      let nativeSchemeOwner: string | null = null;
+      if (url && !url.startsWith("http://") && !url.startsWith("https://")) {
+        const parsedScheme = parseUrlScheme(url);
+        if (parsedScheme.scheme === "plugin") nativeSchemeOwner = ownerRef.current(parsedScheme.protocol);
+      }
+
       // Append user-configured stream resolvers
       for (const sr of streamResolversRef.current) {
+        if (nativeSchemeOwner && sr.source === nativeSchemeOwner) continue;
         // A plugin resolver streams from its own plugin; the built-in Library
         // resolver streams from whatever the matched row points at (file/subsonic/
         // plugin), so it's classified from the resolved URL inside resolve().
