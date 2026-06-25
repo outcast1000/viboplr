@@ -224,6 +224,35 @@ pub async fn check_dest_conflict(
     }
 }
 
+/// Conflict check for an already-computed destination path. Unlike
+/// `check_dest_conflict` (which derives a flat `Artist - Title.ext` name and so
+/// ignores the chosen file-layout pattern), this stats the exact path the batch
+/// flow will write to — built via the user's path pattern — so the prompt fires
+/// on the real collision.
+#[tauri::command]
+pub async fn check_path_conflict(dest_path: String) -> Result<ConflictCheck, String> {
+    let path = std::path::Path::new(&dest_path);
+    if path.exists() {
+        let meta = std::fs::metadata(path).ok();
+        Ok(ConflictCheck {
+            has_conflict: true,
+            dest_path: dest_path.clone(),
+            existing_size: meta.as_ref().map(|m| m.len()),
+            existing_format: path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_uppercase()),
+        })
+    } else {
+        Ok(ConflictCheck {
+            has_conflict: false,
+            dest_path,
+            existing_size: None,
+            existing_format: None,
+        })
+    }
+}
+
 #[tauri::command]
 pub async fn cancel_direct_download(
     state: State<'_, AppState>,

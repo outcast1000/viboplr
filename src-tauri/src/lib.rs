@@ -170,6 +170,7 @@ macro_rules! invoke_handler {
             commands::cancel_track_upgrade,
             commands::save_track_as_copy,
             commands::check_dest_conflict,
+            commands::check_path_conflict,
             commands::cancel_direct_download,
             commands::download_to_path,
             commands::add_downloaded_track,

@@ -7,7 +7,7 @@ import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOpt
 import { formatDuration, formatFileSize } from "../../utils";
 import type { AppStore } from "../../store";
 import { IconPlay, IconFolder } from "../Icons";
-import type { DownloadTrack, UpgradePreviewInfo, DownloadResult, ExistingAction, ResolveState, BatchDownloadTrackState, BatchConflict } from "./types";
+import type { DownloadTrack, UpgradePreviewInfo, DownloadResult, ExistingAction, ResolveState, BatchDownloadTrackState, BatchConflict, ConflictCheck } from "./types";
 import { PATH_PATTERNS, previewPattern, buildDestPath } from "./pathUtils";
 
 type BatchStep = "configure" | "resolve" | "review" | "downloading" | "done";
@@ -87,7 +87,16 @@ export function MultiTrackDownload({
 
   // Download step state
   const [downloadStates, setDownloadStates] = useState<BatchDownloadTrackState[]>([]);
-  const [batchConflict, _setBatchConflict] = useState<BatchConflict | null>(null);
+  const [batchConflict, setBatchConflict] = useState<BatchConflict | null>(null);
+  // Inline "already in your library" prompt (confirmed/batch flow only — the
+  // resolve→review flow accounts for library matches up front instead).
+  const [batchLibraryMatch, setBatchLibraryMatch] = useState<{
+    trackIndex: number;
+    title: string;
+    existingFormat: string | null;
+    existingSize: number | null;
+  } | null>(null);
+  const libraryResolveRef = useRef<((decision: "download" | "skip") => void) | null>(null);
   const [upgradeComparison, setUpgradeComparison] = useState<{
     trackIndex: number;
     title: string;
@@ -264,6 +273,40 @@ export function MultiTrackDownload({
           ));
 
           try {
+            // Already-in-library prompt. Only the confirmed/batch flow needs this
+            // inline check — the resolve→review flow already surfaces library
+            // matches up front (so `existingAction` is set there). Done before
+            // resolving the stream so a "skip" doesn't waste a fetch.
+            if (confirmed) {
+              let libMatch: Track | null = null;
+              try {
+                libMatch = await invoke<Track | null>("find_track_by_metadata", {
+                  title: t.title,
+                  artistName: t.artistName ?? null,
+                  albumName: t.albumTitle ?? null,
+                });
+              } catch { /* treat as not in library */ }
+              if (libMatch && !cancelledRef.current) {
+                setBatchLibraryMatch({
+                  trackIndex: i,
+                  title: t.title,
+                  existingFormat: libMatch.format ?? null,
+                  existingSize: libMatch.file_size ?? null,
+                });
+                const decision = await new Promise<"download" | "skip">((resolve) => {
+                  libraryResolveRef.current = resolve;
+                });
+                setBatchLibraryMatch(null);
+                libraryResolveRef.current = null;
+                if (decision === "skip") {
+                  setDownloadStates(prev => prev.map(s =>
+                    s.index === i ? { ...s, status: "skipped" } : s
+                  ));
+                  continue;
+                }
+              }
+            }
+
             // Resolve the stream URL + metadata
             const resolved = await onResolveRef.current(t.matchId!, quality);
             const streamUrl = resolved.url;
@@ -333,12 +376,47 @@ export function MultiTrackDownload({
               continue;
             }
 
+            // File-conflict prompt: stat the exact path we're about to write
+            // (built from the user's layout pattern) and ask before clobbering.
+            let overwrite = false;
+            try {
+              const conflict = await invoke<ConflictCheck>("check_path_conflict", { destPath: dp });
+              if (conflict.has_conflict && !cancelledRef.current) {
+                const dotIdx = dp.lastIndexOf(".");
+                const altPath = dotIdx > 0 ? `${dp.substring(0, dotIdx)} (2)${dp.substring(dotIdx)}` : `${dp} (2)`;
+                setBatchConflict({
+                  trackIndex: i,
+                  destPath: dp,
+                  existingSize: conflict.existing_size,
+                  existingFormat: conflict.existing_format,
+                  altPath,
+                });
+                const decision = await new Promise<"replace" | "keep_both" | "skip">((resolve) => {
+                  conflictResolveRef.current = resolve;
+                });
+                setBatchConflict(null);
+                conflictResolveRef.current = null;
+                if (decision === "skip") {
+                  setDownloadStates(prev => prev.map(s =>
+                    s.index === i ? { ...s, status: "skipped" } : s
+                  ));
+                  continue;
+                } else if (decision === "replace") {
+                  overwrite = true;
+                } else {
+                  finalPath = altPath;
+                }
+              }
+            } catch {
+              // Conflict check failed — fall through and let download_to_path decide.
+            }
+
             // Normal download
             const result = await invoke<DownloadResult>("download_to_path", {
               streamUrl,
               destPath: finalPath,
               format: quality,
-              overwrite: true,
+              overwrite,
               title,
               artistName,
               albumTitle,
@@ -682,6 +760,23 @@ export function MultiTrackDownload({
               </span>
             </div>
           </div>
+
+          {/* Inline "already in library" UI */}
+          {batchLibraryMatch && (
+            <div className="dl-conflict">
+              <div className="dl-conflict-filename">
+                &ldquo;{batchLibraryMatch.title}&rdquo; is already in your library
+              </div>
+              <div className="dl-conflict-size">
+                Existing: {batchLibraryMatch.existingFormat?.toUpperCase() ?? "Unknown"}
+                {batchLibraryMatch.existingSize != null ? `, ${formatFileSize(batchLibraryMatch.existingSize)}` : ""}
+              </div>
+              <div className="dl-actions" style={{ marginTop: "12px", justifyContent: "center" }}>
+                <button onClick={() => libraryResolveRef.current?.("skip")}>Skip</button>
+                <button className="dl-btn-primary" onClick={() => libraryResolveRef.current?.("download")}>Download anyway</button>
+              </div>
+            </div>
+          )}
 
           {/* Inline conflict UI */}
           {batchConflict && (
