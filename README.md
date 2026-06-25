@@ -182,7 +182,11 @@ viboplr/
 
 ## License
 
-All Rust dependencies are MIT or Apache-2.0 licensed (no GPL/LGPL). See SPEC.md for details.
+Viboplr is free software, licensed under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later). You may use, study, modify, and redistribute it, but any distributed derivative must also be released under the GPL. See the [LICENSE](LICENSE) file for the full text.
+
+Copyright (C) 2026 outcast1000.
+
+All Rust and JavaScript dependencies are permissively licensed (MIT or Apache-2.0), so they impose no additional restrictions. The app invokes `ffmpeg` and `yt-dlp` as separate external processes (not linked), so their licenses do not affect Viboplr's. See SPEC.md for the dependency breakdown.
 
 ## Recommended IDE Setup
 

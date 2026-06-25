@@ -2,8 +2,9 @@
 name = "viboplr"
 version = "0.9.136"
 description = "Viboplr — lightweight audio player"
-authors = ["you"]
+authors = ["outcast1000"]
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 [lib]
 name = "viboplr_lib"
