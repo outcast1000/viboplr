@@ -34,6 +34,8 @@ export interface KeyboardShortcutDeps {
   handleNext: () => void;
   handleToggleQueueCollapsed: () => void;
   handleToggleSidebar: () => void;
+  // Interface zoom: +1 larger, -1 smaller (acts on mini player or full window).
+  adjustZoom: (dir: 1 | -1) => void;
   // Mini-player quick search.
   miniSearchOpen: boolean;
   openMiniSearch: (initialChar: string) => void;
@@ -115,6 +117,19 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
       if (e.key === "k") {
         e.preventDefault();
         d.focusSearch();
+        return;
+      }
+
+      // Cmd/Ctrl +/- : step interface zoom. Accept "=" (unshifted +) and "+",
+      // and "-"/"_", so the standard browser-zoom keys work regardless of Shift.
+      if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        d.adjustZoom(1);
+        return;
+      }
+      if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        d.adjustZoom(-1);
         return;
       }
 

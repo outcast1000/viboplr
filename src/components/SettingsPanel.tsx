@@ -6,9 +6,16 @@ import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { PluginState } from "../types/plugin";
 import { LINKS } from "../constants/links";
+import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { store } from "../store";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
+
+// Modifier-key glyph for shortcut hints (⌘ on macOS, Ctrl elsewhere).
+const MOD_KEY_LABEL =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+    ? "⌘"
+    : "Ctrl";
 
 // Provider config data shapes from backend
 interface InfoTypeRow {
@@ -888,6 +895,10 @@ interface SettingsPanelProps {
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
+  uiZoom: number;
+  onUiZoomChange: (factor: number) => void;
+  miniZoom: number;
+  onMiniZoomChange: (factor: number) => void;
   appVersion: string;
   updateState: UpdateState;
   onCheckForUpdates: () => void;
@@ -950,6 +961,10 @@ export function SettingsPanel({
   onTrackVideoHistoryChange,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
+  uiZoom,
+  onUiZoomChange,
+  miniZoom,
+  onMiniZoomChange,
   appVersion,
   updateState,
   onCheckForUpdates,
@@ -1093,6 +1108,36 @@ export function SettingsPanel({
                 <div className="settings-group">
                   <div className="settings-group-title">Window</div>
                   <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Interface size</span>
+                        <span className="settings-description">Scale the whole interface — text, spacing, and artwork. Also adjustable with {MOD_KEY_LABEL} + and {MOD_KEY_LABEL} −.</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={uiZoom}
+                        onChange={e => onUiZoomChange(parseFloat(e.target.value))}
+                      >
+                        {ZOOM_PRESET_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Mini player size</span>
+                        <span className="settings-description">Scale the mini player independently of the main window</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={miniZoom}
+                        onChange={e => onMiniZoomChange(parseFloat(e.target.value))}
+                      >
+                        {ZOOM_PRESET_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Minimize to mini player</span>

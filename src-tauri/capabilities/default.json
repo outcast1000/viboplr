@@ -30,6 +30,7 @@
     "core:window:allow-unminimize",
     "core:window:allow-is-maximized",
     "core:window:allow-is-focused",
+    "core:webview:allow-set-webview-zoom",
     "updater:default",
     "process:default",
     "deep-link:default",

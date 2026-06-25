@@ -57,6 +57,8 @@ const STORE_DEFAULTS = {
   minimizeToMiniPlayer: false,
   heroEffectMode: "by-artist",
   pluginRecommendationsShown: false,
+  uiZoom: 1,
+  miniZoom: 1,
 };
 
 export interface AppStore {

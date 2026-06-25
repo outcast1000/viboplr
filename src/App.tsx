@@ -45,6 +45,8 @@ import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
 import { useAppUpdater } from "./hooks/useAppUpdater";
 import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
+import { useUiZoom } from "./hooks/useUiZoom";
+import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
@@ -281,7 +283,8 @@ function App() {
     store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
   });
   const autoContinue = useAutoContinue(restoredRef);
-  const mini = useMiniMode(restoredRef);
+  const zoom = useUiZoom();
+  const mini = useMiniMode(restoredRef, zoom.uiZoomRef, zoom.miniZoomRef);
   const videoLayout = useVideoLayout(restoredRef);
 
   // Plugin system
@@ -1401,7 +1404,9 @@ function App() {
           mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
+          uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
+        zoom.hydrate(savedUiZoom, savedMiniZoom);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
@@ -1535,6 +1540,10 @@ function App() {
             mini.setMiniMode(true);
             mini.miniModeRef.current = true;
           }
+          // Apply the saved interface zoom for the restored mode before showing,
+          // so the first paint lands at the right size (webview zoom doesn't
+          // persist across restarts). hydrate() clamped these to the ladder.
+          await applyWebviewZoom(wasMini ? zoom.miniZoomRef.current : zoom.uiZoomRef.current);
           await getCurrentWindow().show();
         });
       } catch (e) {
@@ -1945,6 +1954,7 @@ function App() {
     handleNext: () => handleNext(),
     handleToggleQueueCollapsed,
     handleToggleSidebar,
+    adjustZoom,
     miniSearchOpen: miniSearch.isOpen,
     openMiniSearch: (initialChar) => miniSearch.open(initialChar),
   });
@@ -2189,6 +2199,28 @@ function App() {
   function handleMinimizeToMiniPlayerChange(enabled: boolean) {
     setMinimizeToMiniPlayer(enabled);
     store.set("minimizeToMiniPlayer", enabled);
+  }
+
+  // Interface zoom. The full-window factor applies immediately only when not in
+  // the mini player (otherwise it takes effect on returning to full mode, via
+  // useMiniMode's transition). The mini factor is re-fit by useMiniMode.
+  function handleUiZoomChange(factor: number) {
+    zoom.setUiZoom(factor);
+    if (!mini.miniModeRef.current) applyWebviewZoom(factor);
+  }
+
+  function handleMiniZoomChange(factor: number) {
+    zoom.setMiniZoom(factor);
+    mini.applyMiniZoom();
+  }
+
+  // Cmd/Ctrl +/- steps the active context's zoom (mini player or full window).
+  function adjustZoom(dir: 1 | -1) {
+    if (mini.miniModeRef.current) {
+      handleMiniZoomChange(stepZoomPreset(zoom.miniZoomRef.current, dir));
+    } else {
+      handleUiZoomChange(stepZoomPreset(zoom.uiZoomRef.current, dir));
+    }
   }
 
   function handleLoggingEnabledChange(enabled: boolean) {
@@ -3109,6 +3141,10 @@ function App() {
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
+              uiZoom={zoom.uiZoom}
+              onUiZoomChange={handleUiZoomChange}
+              miniZoom={zoom.miniZoom}
+              onMiniZoomChange={handleMiniZoomChange}
               appVersion={updater.appVersion}
               updateState={updater.updateState}
               onCheckForUpdates={updater.handleCheckForUpdates}

@@ -4,6 +4,7 @@ import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
+import { applyWebviewZoom } from "../utils/zoom";
 
 const MINI_NORMAL_HEIGHT = 52;
 const MINI_COMPACT_HEIGHT = 24;
@@ -63,8 +64,13 @@ export interface SearchPanelGeometry {
 
 // Decide the search-panel window geometry: prefer growing down; if the panel
 // would overflow the bottom of the monitor, grow up and shift the top edge.
-export function searchPanelGeometry(input: SearchPanelGeometryInput): SearchPanelGeometry {
-  const height = MINI_SEARCH_PANEL_HEIGHT;
+// `panelHeight` defaults to the unscaled constant; callers pass a zoom-scaled
+// height when the mini player runs at a non-1 zoom factor.
+export function searchPanelGeometry(
+  input: SearchPanelGeometryInput,
+  panelHeight: number = MINI_SEARCH_PANEL_HEIGHT,
+): SearchPanelGeometry {
+  const height = panelHeight;
   const extra = height - input.restingHeight;
   const spaceBelow = input.monitor
     ? (input.monitor.y + input.monitor.h) - (input.logicalY + input.restingHeight)
@@ -153,7 +159,11 @@ export function makeHoverController(opts: HoverControllerOptions): HoverControll
   };
 }
 
-export function useMiniMode(restoredRef: React.RefObject<boolean>) {
+export function useMiniMode(
+  restoredRef: React.RefObject<boolean>,
+  uiZoomRef: React.RefObject<number>,
+  miniZoomRef: React.RefObject<number>,
+) {
   const [miniMode, setMiniMode] = useState(false);
   const miniModeRef = useRef(false);
   const fullSizeRef = useRef<{ w: number; h: number; x: number; y: number } | null>(null);
@@ -167,10 +177,21 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
   const miniWidthSizeRef = useRef<MiniWidthSize>("medium");
   useEffect(() => { miniWidthSizeRef.current = miniWidthSize; }, [miniWidthSize]);
 
+  // The mini player is the same webview, so its zoom factor (`miniZoomRef`)
+  // scales the content; to keep that content fitting, every mini-window
+  // dimension is multiplied by the same factor. All geometry below routes
+  // through these scaled accessors so the window and the rendered content stay
+  // proportional at any zoom. (Default zoom 1 → unchanged dimensions.)
+  const sz = useCallback((px: number) => Math.round(px * (miniZoomRef.current ?? 1)), [miniZoomRef]);
+  const expandedH = useCallback(() => sz(MINI_EXPANDED_HEIGHT), [sz]);
+  const searchH = useCallback(() => sz(MINI_SEARCH_PANEL_HEIGHT), [sz]);
+  const minW = useCallback(() => sz(MINI_MIN_WIDTH), [sz]);
+  const widthFor = useCallback((s: MiniWidthSize) => sz(MINI_WIDTHS[s]), [sz]);
+
   // Used in Task 3 for expand/collapse paths
   const currentRestingHeight = useCallback(
-    () => (miniRestingSizeRef.current === "compact" ? MINI_COMPACT_HEIGHT : MINI_NORMAL_HEIGHT),
-    [],
+    () => sz(miniRestingSizeRef.current === "compact" ? MINI_COMPACT_HEIGHT : MINI_NORMAL_HEIGHT),
+    [sz],
   );
 
   const expandDirectionRef = useRef<"down" | "up">("down");
@@ -208,20 +229,21 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
       ) || bounds[0];
 
       const restingHeight = currentRestingHeight();
-      const extraHeight = MINI_EXPANDED_HEIGHT - restingHeight;
+      const expanded = expandedH();
+      const extraHeight = expanded - restingHeight;
       const spaceBelow = monitor
         ? (monitor.y + monitor.h) - (logicalY + restingHeight)
         : Infinity;
 
       if (spaceBelow >= extraHeight) {
         expandDirectionRef.current = "down";
-        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_EXPANDED_HEIGHT));
-        await win.setSize(new LogicalSize(logicalW, MINI_EXPANDED_HEIGHT));
+        await win.setMinSize(new LogicalSize(minW(), expanded));
+        await win.setSize(new LogicalSize(logicalW, expanded));
       } else {
         expandDirectionRef.current = "up";
-        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, MINI_EXPANDED_HEIGHT));
+        await win.setMinSize(new LogicalSize(minW(), expanded));
         await win.setPosition(new LogicalPosition(pos.x / factor, logicalY - extraHeight));
-        await win.setSize(new LogicalSize(logicalW, MINI_EXPANDED_HEIGHT));
+        await win.setSize(new LogicalSize(logicalW, expanded));
       }
       setMiniExpanded(true);
     } catch (err) {
@@ -242,12 +264,12 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
       const logicalW = size.width / factor;
 
       const restingHeight = currentRestingHeight();
-      const extraHeight = MINI_EXPANDED_HEIGHT - restingHeight;
+      const extraHeight = expandedH() - restingHeight;
       await win.setSize(new LogicalSize(logicalW, restingHeight));
       if (expandDirectionRef.current === "up") {
         await win.setPosition(new LogicalPosition(pos.x / factor, pos.y / factor + extraHeight));
       }
-      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, restingHeight));
+      await win.setMinSize(new LogicalSize(minW(), restingHeight));
       setMiniExpanded(false);
     } catch (err) {
       console.error("collapseMini failed:", err);
@@ -275,9 +297,9 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
       ) || bounds[0] || null;
       // Anchor the grow decision on the window's CURRENT height, so a search
       // opened from the hover-expanded state grows from there, not the resting size.
-      const geo = searchPanelGeometry({ logicalY, restingHeight: priorHeight, monitor });
+      const geo = searchPanelGeometry({ logicalY, restingHeight: priorHeight, monitor }, searchH());
       searchDirectionRef.current = geo.direction;
-      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, geo.height));
+      await win.setMinSize(new LogicalSize(minW(), geo.height));
       if (geo.direction === "up") {
         await win.setPosition(new LogicalPosition(pos.x / factor, geo.newY));
       }
@@ -299,9 +321,9 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
       // Restore to whatever the hover state dictates right now: if the cursor is
       // over the window, land on the expanded player; otherwise the resting size.
       const expand = cursorOverRef.current;
-      const restoreHeight = expand ? MINI_EXPANDED_HEIGHT : currentRestingHeight();
-      const extra = MINI_SEARCH_PANEL_HEIGHT - restoreHeight;
-      await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, restoreHeight));
+      const restoreHeight = expand ? expandedH() : currentRestingHeight();
+      const extra = searchH() - restoreHeight;
+      await win.setMinSize(new LogicalSize(minW(), restoreHeight));
       if (searchDirectionRef.current === "up") {
         // Search grew upward (bottom edge fixed); shrink back down to it.
         await win.setPosition(new LogicalPosition(pos.x / factor, pos.y / factor + extra));
@@ -336,8 +358,12 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
         miniModeRef.current = true;
         store.set("miniMode", true);
         await win.hide();
-        await win.setMinSize(new LogicalSize(MINI_MIN_WIDTH, restingHeight));
-        await win.setSize(new LogicalSize(MINI_WIDTHS[miniWidthSizeRef.current], restingHeight));
+        // Apply the mini player's own zoom (independent of the full-window zoom)
+        // while hidden, before sizing, so content + window stay proportional.
+        await applyWebviewZoom(miniZoomRef.current ?? 1);
+        const miniW = widthFor(miniWidthSizeRef.current);
+        await win.setMinSize(new LogicalSize(minW(), restingHeight));
+        await win.setSize(new LogicalSize(miniW, restingHeight));
         const [mx, my] = await Promise.all([
           store.get<number | null>("miniWindowX"),
           store.get<number | null>("miniWindowY"),
@@ -347,7 +373,7 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
           if (isPositionOnScreen(mx, my, bounds)) {
             await win.setPosition(new LogicalPosition(mx, my));
           } else if (bounds.length > 0) {
-            const clamped = clampToNearestMonitor(mx, my, MINI_WIDTHS[miniWidthSizeRef.current], restingHeight, bounds);
+            const clamped = clampToNearestMonitor(mx, my, miniW, restingHeight, bounds);
             await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
           }
         }
@@ -369,6 +395,9 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
         setMiniMode(false);
         store.set("miniMode", false);
         await win.hide();
+        // Restore the full-window zoom (the full UI scales content but not the
+        // window itself, so no dimension scaling here — just the zoom factor).
+        await applyWebviewZoom(uiZoomRef.current ?? 1);
         await win.setAlwaysOnTop(false);
         await win.setResizable(true);
         await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
@@ -534,10 +563,8 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const pos = await win.outerPosition();
-      const newWidth = MINI_WIDTHS[next];
-      const currentHeight = miniExpandedRef.current
-        ? MINI_EXPANDED_HEIGHT
-        : (miniRestingSizeRef.current === "compact" ? MINI_COMPACT_HEIGHT : MINI_NORMAL_HEIGHT);
+      const newWidth = widthFor(next);
+      const currentHeight = miniExpandedRef.current ? expandedH() : currentRestingHeight();
       await win.setSize(new LogicalSize(newWidth, currentHeight));
       const bounds = await getLogicalMonitorBounds();
       const clamped = clampToNearestMonitor(
@@ -549,12 +576,39 @@ export function useMiniMode(restoredRef: React.RefObject<boolean>) {
     } catch (err) {
       console.error("Failed to resize mini window:", err);
     }
-  }, []);
+  }, [widthFor, expandedH, currentRestingHeight]);
+
+  // Re-apply the mini zoom factor and re-fit the current mini window to the new
+  // scaled dimensions. Called by App.tsx when the user changes the mini-player
+  // size while it is showing (Settings dropdown or the Cmd-+/- hotkeys). No-op
+  // in full mode — the new factor takes effect next time the mini player opens.
+  const applyMiniZoom = useCallback(async () => {
+    if (!miniModeRef.current) return;
+    await applyWebviewZoom(miniZoomRef.current ?? 1);
+    try {
+      const win = getCurrentWindow();
+      const factor = await win.scaleFactor();
+      const pos = await win.outerPosition();
+      const width = widthFor(miniWidthSizeRef.current);
+      const height = searchOpenRef.current ? searchH()
+        : miniExpandedRef.current ? expandedH()
+        : currentRestingHeight();
+      await win.setMinSize(new LogicalSize(minW(), height));
+      await win.setSize(new LogicalSize(width, height));
+      const bounds = await getLogicalMonitorBounds();
+      const clamped = clampToNearestMonitor(pos.x / factor, pos.y / factor, width, height, bounds);
+      if (clamped.x !== pos.x / factor || clamped.y !== pos.y / factor) {
+        await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
+      }
+    } catch (err) {
+      console.error("Failed to apply mini zoom resize:", err);
+    }
+  }, [widthFor, searchH, expandedH, currentRestingHeight, minW, miniZoomRef]);
 
   return {
     miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded,
     cancelCollapseTimer, miniRestingSize, setMiniRestingSize,
-    miniWidthSize, setMiniWidthSize,
+    miniWidthSize, setMiniWidthSize, applyMiniZoom,
     openSearchPanel, closeSearchPanel, searchOpenRef,
   };
 }
