@@ -45,6 +45,62 @@
   z-index: 0;
 }
 
+/* ── Crossfade between tracks ─────────────────── */
+/* Each <Crossfade> stacks 1-2 absolutely-positioned layers; the incoming layer
+   fades in over the outgoing one (which is then pruned). See NowPlayingView.tsx. */
+.np-xfade {
+  position: relative;
+}
+.np-xfade-layer {
+  position: absolute;
+  inset: 0;
+  opacity: 1;
+  transition: opacity 0.55s ease;
+}
+.np-xfade-layer--enter {
+  opacity: 0;
+}
+
+/* Backdrop variant fills the whole view behind the stage. */
+.np-xfade--backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+/* Art variant owns the framed box (size, radius, shadow); the layered <img>s
+   just fill it and crossfade. */
+.np-xfade--art {
+  width: min(38vh, 360px);
+  height: min(38vh, 360px);
+  border-radius: var(--ds-radius-card);
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+  background: var(--bg-secondary);
+}
+.np-xfade--art .np-art {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.np-audio--nolyrics .np-xfade--art {
+  width: min(50vh, 460px);
+  height: min(50vh, 460px);
+}
+
+/* ── Entrance on track change / appearance ───── */
+/* Title, tags, and the no-art placeholder lift+fade in when their React key
+   changes (i.e. a new track), so the swap feels alive instead of snapping. */
+.np-enter {
+  animation: np-enter-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes np-enter-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .np-stage {
   position: relative;
   z-index: 1;
@@ -104,6 +160,13 @@
   -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
   mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
   scrollbar-width: none;
+  /* Keyed on the track, so this plays both when lyrics first appear and on each
+     track change (the element remounts). */
+  animation: np-lyrics-in 0.55s ease both;
+}
+@keyframes np-lyrics-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .np-lyrics-scroll::-webkit-scrollbar { display: none; }
 
@@ -243,4 +306,16 @@
 .np-audio--nolyrics .np-art {
   width: min(50vh, 460px);
   height: min(50vh, 460px);
+}
+
+/* Honor reduced-motion: keep the layout but drop the track-change motion. The
+   crossfade still swaps images (it just snaps), and entrances render final. */
+@media (prefers-reduced-motion: reduce) {
+  .np-xfade-layer {
+    transition: none;
+  }
+  .np-enter,
+  .np-lyrics-scroll {
+    animation: none;
+  }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { isVideoTrack, getInitials } from "../utils";
@@ -104,6 +104,78 @@ function NowPlayingLyrics({
   );
 }
 
+/** Single-source crossfade: when `src` changes the incoming layer fades in on
+    top of the previous one, which is pruned once the fade completes. Used for
+    the album art and the blurred backdrop so a track change dissolves instead of
+    snapping. Layers beneath the top stay fully opaque, so there's no mid-fade dip
+    to the background. */
+function Crossfade({
+  src,
+  className,
+  render,
+}: {
+  src: string | null;
+  className?: string;
+  render: (src: string) => ReactNode;
+}) {
+  const [layers, setLayers] = useState<{ id: number; src: string }[]>([]);
+  const nextId = useRef(0);
+  const pruneTimer = useRef(0);
+
+  useEffect(() => {
+    if (!src) {
+      setLayers([]);
+      return;
+    }
+    setLayers((prev) => {
+      if (prev.length && prev[prev.length - 1].src === src) return prev; // unchanged
+      // Keep only the just-departing layer beneath the incoming one.
+      return [...prev.slice(-1), { id: nextId.current++, src }];
+    });
+  }, [src]);
+
+  // Fallback prune to a single layer after the fade window, so layers can't
+  // accumulate even when `transitionend` never fires (e.g. reduced motion).
+  useEffect(() => {
+    if (layers.length <= 1) return;
+    if (pruneTimer.current) clearTimeout(pruneTimer.current);
+    pruneTimer.current = window.setTimeout(
+      () => setLayers((prev) => prev.slice(-1)),
+      700,
+    );
+    return () => {
+      if (pruneTimer.current) clearTimeout(pruneTimer.current);
+    };
+  }, [layers]);
+
+  return (
+    <div className={`np-xfade ${className ?? ""}`} aria-hidden="true">
+      {layers.map((layer, i) => (
+        <CrossfadeLayer key={layer.id} top={i === layers.length - 1}>
+          {render(layer.src)}
+        </CrossfadeLayer>
+      ))}
+    </div>
+  );
+}
+
+function CrossfadeLayer({ top, children }: { top: boolean; children: ReactNode }) {
+  // Mount hidden and reveal on the next frame so the opacity transition actually
+  // runs (same deferred-reveal trick as DetailHeroBackground). Only the topmost
+  // layer fades in; layers beneath stay opaque until pruned.
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+  const hidden = top && !entered;
+  return (
+    <div className={`np-xfade-layer${hidden ? " np-xfade-layer--enter" : ""}`}>
+      {children}
+    </div>
+  );
+}
+
 export function NowPlayingView({
   style,
   track,
@@ -152,11 +224,13 @@ export function NowPlayingView({
     }
   }
 
+  // Keyed on the track identity so a track change remounts the line and replays
+  // the entrance animation (it stays put across position ticks).
   const metaLine = useMemo(() => {
     if (!track) return null;
     const parts = [track.artist_name, track.album_title].filter(Boolean) as string[];
     return (
-      <div className="np-meta">
+      <div className="np-meta np-enter" key={track.key}>
         <div className="np-title">{track.title}</div>
         {parts.length > 0 && <div className="np-subtitle">{parts.join(" · ")}</div>}
       </div>
@@ -191,30 +265,39 @@ export function NowPlayingView({
       style={style}
     >
       {hasArt && (
-        <div
-          className="np-backdrop"
-          style={{ backgroundImage: `url("${albumImageSrc}")` }}
+        <Crossfade
+          src={albumImageSrc}
+          className="np-xfade--backdrop"
+          render={(src) => (
+            <div className="np-backdrop" style={{ backgroundImage: `url("${src}")` }} />
+          )}
         />
       )}
       <div className="np-stage">
         <div className="np-art-col">
           {hasArt ? (
-            <img className="np-art" src={albumImageSrc!} alt="" />
+            <Crossfade
+              src={albumImageSrc}
+              className="np-xfade--art"
+              render={(src) => <img className="np-art" src={src} alt="" />}
+            />
           ) : (
-            <div className="np-art np-art--placeholder">{getInitials(track.title)}</div>
+            <div key={track.key} className="np-art np-art--placeholder np-enter">
+              {getInitials(track.title)}
+            </div>
           )}
         </div>
         <div className="np-lyrics-col">
           {lyrics.status === "loaded" && lyrics.data ? (
-            <NowPlayingLyrics data={lyrics.data} positionSecs={positionSecs} onSeek={onSeek} />
+            <NowPlayingLyrics key={track.key} data={lyrics.data} positionSecs={positionSecs} onSeek={onSeek} />
           ) : lyrics.status === "loading" ? (
             <div className="np-lyrics-hint" aria-hidden="true" />
           ) : null}
         </div>
       </div>
       {metaLine}
-      {track && trackTags.length > 0 && (
-        <div className="np-tags">{trackTags.join(" · ")}</div>
+      {trackTags.length > 0 && (
+        <div className="np-tags np-enter" key={`${track.key}-tags`}>{trackTags.join(" · ")}</div>
       )}
     </div>
   );
