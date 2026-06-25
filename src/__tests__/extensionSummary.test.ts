@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   summarizeContributes,
+  describeContributes,
   skinMockColors,
   mixHex,
 } from "../utils/extensionSummary";
@@ -57,6 +58,47 @@ describe("summarizeContributes", () => {
     expect(caps).toContain("Sidebar view");
     expect(caps).toContain("Menu actions");
     expect(caps).toContain("Settings");
+  });
+});
+
+describe("describeContributes", () => {
+  it("returns [] for undefined", () => {
+    expect(describeContributes(undefined)).toEqual([]);
+  });
+
+  it("pairs each capability label with a non-empty description", () => {
+    const c: PluginManifestContributes = {
+      streamResolvers: [{ id: "yt", name: "YouTube" }],
+      imageProviders: [{ entity: "artist" }],
+      informationTypes: [info("lyrics_lrclib")],
+    };
+    const caps = describeContributes(c);
+    for (const cap of caps) {
+      expect(cap.label).toBeTruthy();
+      expect(cap.description.length).toBeGreaterThan(0);
+    }
+    expect(caps.find((x) => x.label === "Lyrics")?.description).toMatch(/lyrics/i);
+  });
+
+  it("prefers the info type's declared description when present", () => {
+    const c: PluginManifestContributes = {
+      informationTypes: [
+        { ...info("weird_thing", "Cosmic Vibes"), description: "Renders cosmic vibes" },
+      ],
+    };
+    expect(describeContributes(c)).toEqual([
+      { label: "Cosmic Vibes", description: "Renders cosmic vibes" },
+    ]);
+  });
+
+  it("is label-consistent with summarizeContributes", () => {
+    const c: PluginManifestContributes = {
+      streamResolvers: [{ id: "yt", name: "YouTube" }],
+      downloadProviders: [{ id: "yt-dl", name: "YouTube" }],
+      contextMenuItems: [{ id: "a", label: "Do", targets: ["track"] }],
+      settingsPanel: { id: "s", label: "S", order: 1 },
+    };
+    expect(describeContributes(c).map((x) => x.label)).toEqual(summarizeContributes(c));
   });
 });
 

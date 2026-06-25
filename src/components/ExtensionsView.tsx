@@ -9,7 +9,7 @@ import type { GallerySkinEntry } from "../types/skin";
 import { PluginViewRenderer } from "./PluginViewRenderer";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { LINKS } from "../constants/links";
-import { summarizeContributes, skinMockColors } from "../utils/extensionSummary";
+import { summarizeContributes, describeContributes, skinMockColors } from "../utils/extensionSummary";
 
 type ExtTab = "skins" | "plugins";
 
@@ -105,16 +105,22 @@ function SectionHeader({ title, count, action }: { title: string; count: number;
 /* ── Plugins: cards + skeletons ───────────────────────────────────────── */
 
 function PluginCard({
-  ext, installing, onDetails, onConfig, onToggleEnabled, onInstall,
+  ext, installing, onDetails, onConfig, onToggleEnabled, onInstall, onUpdate, onUninstall,
 }: {
   ext: ExtensionItem; installing: boolean;
   onDetails: () => void; onConfig: () => void;
   onToggleEnabled: () => void; onInstall: () => void;
+  // Optional: only wired where the action is applicable. `onUpdate` is passed in
+  // the "Updates available" section; `onUninstall` on every installed card.
+  onUpdate?: () => void; onUninstall?: () => void;
 }) {
   const caps = useMemo(() => summarizeContributes(ext.contributes), [ext.contributes]);
   const installed = ext.status !== "not_installed";
   const isOn = ext.status === "active";
   const hasConfig = ext.status === "active" && !!ext.contributes?.settingsPanel?.id;
+  // Built-in plugins ship with the app and can't be removed (matches the detail pane).
+  const canUninstall = installed && ext.source !== "builtin" && !!onUninstall;
+  const canUpdate = installed && ext.updateAvailable?.status === "available" && !!onUpdate;
   return (
     <div className={`ext-pcard${!installed ? " ext-pcard--gallery" : ""}`}>
       <div className="ext-pcard-head">
@@ -158,12 +164,19 @@ function PluginCard({
       <div className="ext-pcard-actions">
         {installed ? (
           <>
+            {canUpdate && (
+              <button className="ds-btn ds-btn--primary ds-btn--sm" disabled={installing} onClick={onUpdate}>
+                {installing ? "Updating…" : `Update to v${ext.updateAvailable!.latestVersion}`}
+              </button>
+            )}
             <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onDetails}>Details</button>
             {hasConfig && (
               <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onConfig}>Config</button>
             )}
-            {ext.updateAvailable?.status === "available" && (
-              <span className="ext-badge ext-badge--update ext-pcard-update">update available</span>
+            {canUninstall && (
+              <button className="ds-btn ds-btn--ghost ds-btn--sm ext-pcard-uninstall" onClick={onUninstall}>
+                Uninstall
+              </button>
             )}
           </>
         ) : (
@@ -209,7 +222,7 @@ function PluginDetail({
 }) {
   const isInstalled = ext.status !== "not_installed";
   const settingsPanelId = ext.status === "active" && ext.contributes?.settingsPanel?.id;
-  const caps = useMemo(() => summarizeContributes(ext.contributes), [ext.contributes]);
+  const caps = useMemo(() => describeContributes(ext.contributes), [ext.contributes]);
   const configRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (autoScrollToConfig && settingsPanelId) {
@@ -301,8 +314,13 @@ function PluginDetail({
       {caps.length > 0 && (
         <div className="ext-detail-section">
           <div className="ext-detail-section-title">Capabilities</div>
-          <div className="ext-chips">
-            {caps.map((c) => <span key={c} className="ext-chip ext-chip--cap">{c}</span>)}
+          <div className="ext-detail-caps-list">
+            {caps.map((c) => (
+              <div key={c.label} className="ext-detail-cap">
+                <span className="ext-chip ext-chip--cap ext-detail-cap-label">{c.label}</span>
+                <span className="ext-detail-cap-desc">{c.description}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -484,6 +502,8 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const [urlInstalling, setUrlInstalling] = useState(false);
   // After a successful gallery install (plugins land disabled), prompt to enable.
   const [enablePrompt, setEnablePrompt] = useState<{ id: string; name: string } | null>(null);
+  // Confirmation before uninstalling a plugin (from a card or the detail pane).
+  const [uninstallPrompt, setUninstallPrompt] = useState<{ id: string; name: string } | null>(null);
   // Full-page plugin detail navigation (replaces the card grid; back returns).
   // `configMode` scrolls straight to the Configuration section.
   const [detail, setDetail] = useState<{ id: string; configMode: boolean } | null>(null);
@@ -555,6 +575,12 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const installedItems = filtered
     .filter((e) => e.status !== "not_installed")
     .sort(byName);
+
+  // Installed items split into "has an installable update" vs the rest. Updatable
+  // items surface in their own section at the top (with an inline Update button)
+  // instead of the main Installed list, so they're not shown twice.
+  const updatableItems = installedItems.filter((e) => e.updateAvailable?.status === "available");
+  const installedRest = installedItems.filter((e) => e.updateAvailable?.status !== "available");
 
   // In-app discovery prefers the curated "recommended" subset (the long tail
   // lives on the site, "Browse all"). When the gallery index flags none as
@@ -678,7 +704,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               installing={installing.has(detailExt.id)}
               autoScrollToConfig={detail?.configMode}
               onUpdate={() => onUpdateExtension(detailExt.id)}
-              onUninstall={() => onUninstall(detailExt.id, "plugin")}
+              onUninstall={() => setUninstallPrompt({ id: detailExt.id, name: detailExt.name })}
               onToggleEnabled={() => onToggleEnabled(detailExt.id, "plugin")}
               onInstall={() => handleInstall(detailExt)}
               getPluginViewData={getPluginViewData}
@@ -687,9 +713,38 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           </div>
         ) : (
           <div className="ext-plugins-pane">
-            <SectionHeader title="Installed" count={installedItems.length} />
+            {updatableItems.length > 0 && (
+              <>
+                <SectionHeader
+                  title="Updates available"
+                  count={updatableItems.length}
+                  action={
+                    updatableItems.length > 1 ? (
+                      <button type="button" className="ext-browse-all" onClick={onUpdateAll}>Update all</button>
+                    ) : undefined
+                  }
+                />
+                <div className="ext-plugin-grid">
+                  {updatableItems.map((ext) => (
+                    <PluginCard
+                      key={ext.id}
+                      ext={ext}
+                      installing={installing.has(ext.id)}
+                      onDetails={() => openDetail(ext.id)}
+                      onConfig={() => openDetail(ext.id, true)}
+                      onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
+                      onInstall={() => handleInstall(ext)}
+                      onUpdate={() => onUpdateExtension(ext.id)}
+                      onUninstall={() => setUninstallPrompt({ id: ext.id, name: ext.name })}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            <SectionHeader title="Installed" count={installedRest.length} />
             <div className="ext-plugin-grid">
-              {installedItems.map((ext) => (
+              {installedRest.map((ext) => (
                 <PluginCard
                   key={ext.id}
                   ext={ext}
@@ -698,6 +753,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
                   onConfig={() => openDetail(ext.id, true)}
                   onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
                   onInstall={() => handleInstall(ext)}
+                  onUninstall={() => setUninstallPrompt({ id: ext.id, name: ext.name })}
                 />
               ))}
             </div>
@@ -793,6 +849,27 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
                 onClick={() => { const id = enablePrompt.id; setEnablePrompt(null); onToggleEnabled(id, "plugin"); }}
               >
                 Enable
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {uninstallPrompt && (
+        <div className="ds-modal-overlay">
+          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
+            <h2 className="ds-modal-title">Uninstall {uninstallPrompt.name}?</h2>
+            <p className="delete-confirm-warning">
+              This removes {uninstallPrompt.name} from this device. You can reinstall it from the gallery later.
+            </p>
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={() => setUninstallPrompt(null)}>Cancel</button>
+              <button
+                className="ds-btn ds-btn--danger"
+                autoFocus
+                onClick={() => { const id = uninstallPrompt.id; setUninstallPrompt(null); onUninstall(id, "plugin"); }}
+              >
+                Uninstall
               </button>
             </div>
           </div>

@@ -224,6 +224,10 @@ pub fn spawn_update_checker(
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     std::thread::spawn(move || {
+        // Initial delay so the first check doesn't compete with startup work —
+        // 30s after launch, then daily (matches the dependency auto-updater and
+        // the in-app updater).
+        std::thread::sleep(std::time::Duration::from_secs(30));
         loop {
             if cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 break;

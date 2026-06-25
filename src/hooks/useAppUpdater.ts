@@ -24,7 +24,8 @@ export function useAppUpdater(onBeforeInstall?: () => void) {
 
   useEffect(() => {
     getVersion().then(setAppVersion);
-    const timer = setTimeout(async () => {
+
+    const runCheck = async () => {
       try {
         const update = await check();
         if (update) {
@@ -34,8 +35,19 @@ export function useAppUpdater(onBeforeInstall?: () => void) {
       } catch {
         // Silently ignore — no update endpoint configured or network error
       }
-    }, 3000);
-    return () => clearTimeout(timer);
+    };
+
+    // First check 30s after startup (don't compete with startup work), then
+    // daily — matching the plugin/skin and dependency update schedules.
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const timer = setTimeout(() => {
+      runCheck();
+      interval = setInterval(runCheck, 24 * 60 * 60 * 1000);
+    }, 30_000);
+    return () => {
+      clearTimeout(timer);
+      if (interval) clearInterval(interval);
+    };
   }, []);
 
   async function handleCheckForUpdates() {

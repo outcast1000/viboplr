@@ -2376,7 +2376,8 @@
   margin-top: 12px;
   flex-wrap: wrap;
 }
-.ext-pcard-update {
+/* Push the Uninstall button to the far right of the card action row. */
+.ext-pcard-uninstall {
   margin-left: auto;
   align-self: center;
 }
@@ -2685,6 +2686,24 @@
 }
 .ext-detail-api-usage-reason {
   color: var(--text-secondary);
+}
+
+/* Capabilities list (detail): chip label + what-it-does description */
+.ext-detail-caps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ext-detail-cap {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: var(--fs-xs);
+}
+.ext-detail-cap-label { flex-shrink: 0; }
+.ext-detail-cap-desc {
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 /* ── Skins gallery grid ─────────────────────────────────────── */
