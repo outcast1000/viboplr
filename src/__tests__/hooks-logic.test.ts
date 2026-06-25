@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isPositionOnScreen, clampToNearestMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
-import { isCurrentPlayGeneration, decideHandlePlayOutcome } from "../hooks/usePlayback";
+import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement } from "../hooks/usePlayback";
 
 // --- Extracted pure functions from hooks ---
 
@@ -224,5 +224,32 @@ describe("decideHandlePlayOutcome (empty-src / supersession recovery)", () => {
 
   it("still bails if a newer play arrived during the retry", () => {
     expect(decideHandlePlayOutcome(false, false, true)).toBe("bail");
+  });
+});
+
+describe("isActiveMediaElement (spurious-error guard during track swap)", () => {
+  it("treats the active audio slot's error as real", () => {
+    expect(isActiveMediaElement("A", "A", false)).toBe(true);
+    expect(isActiveMediaElement("B", "B", false)).toBe(true);
+  });
+
+  it("ignores errors from the INACTIVE audio slot (failed preload / torn-down outgoing)", () => {
+    // The bug: clicking Next tears down the outgoing element and the inactive slot
+    // may hold a preloaded src; either firing an error gets misattributed to the
+    // now-playing track, showing "Playback failed" while the active slot plays fine.
+    expect(isActiveMediaElement("B", "A", false)).toBe(false);
+    expect(isActiveMediaElement("A", "B", false)).toBe(false);
+  });
+
+  it("treats the video element's error as real only when a video track is current", () => {
+    expect(isActiveMediaElement("video", "A", true)).toBe(true);
+    expect(isActiveMediaElement("video", "A", false)).toBe(false);
+  });
+
+  it("ignores audio-element errors while a video track is the active surface", () => {
+    // For a video track the active media element is the <video>; a stale audio
+    // element error must not be surfaced.
+    expect(isActiveMediaElement("A", "A", true)).toBe(false);
+    expect(isActiveMediaElement("B", "B", true)).toBe(false);
   });
 });

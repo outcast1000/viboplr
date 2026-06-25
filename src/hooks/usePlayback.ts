@@ -60,6 +60,24 @@ export function decideHandlePlayOutcome(
   return alreadyRetried ? "fail" : "retry";
 }
 
+// Decides whether a media `error` event should surface as a user-facing playback
+// failure. The error handler is attached to ALL media elements (audio slot A, slot
+// B, and the <video>), but only the element currently driving playback represents a
+// real failure of the current track. During a track change the outgoing element is
+// torn down (pause → removeAttribute("src") → load()) and the inactive audio slot
+// may still hold a preloaded source; either can fire a spurious `error` that, if
+// surfaced, shows "Playback failed" while the active element plays the new track
+// fine. Mirrors getMediaElement(): for a video track the <video> is the active
+// surface; otherwise the active audio slot is. Pure so it can be unit-tested.
+export function isActiveMediaElement(
+  fired: "A" | "B" | "video",
+  activeSlot: "A" | "B",
+  currentIsVideo: boolean,
+): boolean {
+  if (fired === "video") return currentIsVideo;
+  return !currentIsVideo && fired === activeSlot;
+}
+
 export function usePlayback(
   restoredRef: React.RefObject<boolean>,
   peekNextRef: React.RefObject<() => QueueTrack | null>,
@@ -1029,6 +1047,18 @@ export function usePlayback(
     const el = e.currentTarget;
     const err = el.error;
     if (!err) return;
+    // Ignore errors from an element that isn't the one currently driving playback.
+    // The handler is shared by audio slot A, slot B, and the <video>; during a track
+    // change the outgoing element is torn down and the inactive audio slot may hold a
+    // preloaded src, and either can fire a spurious error. Attributing those to the
+    // now-current track shows a false "Playback failed" while the active element plays
+    // fine. A genuine failure of the current track always fires on the active element.
+    const fired: "A" | "B" | "video" =
+      el === videoRef.current ? "video" : el === audioRefA.current ? "A" : "B";
+    if (!isActiveMediaElement(fired, activeSlotRef.current, !!(currentTrack && isVideoTrack(currentTrack)))) {
+      logPlayback(`Ignoring media error from non-active element ${fired} (code ${err.code}); active playback continues`);
+      return;
+    }
     const messages: Record<number, string> = {
       1: "Playback aborted",
       2: "Network error during playback",
