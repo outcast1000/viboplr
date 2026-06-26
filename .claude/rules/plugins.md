@@ -409,6 +409,9 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 | `tabs` | Tab bar with `activeTab` |
 | `loading` | Loading spinner with optional message |
 | `progress-bar` | `{value, max, label?}` |
+| `bar-chart` | Proportional bars for distributions / ranked counts. `{bars: [{label, value, sublabel?, color?}], max?, orientation?: "horizontal"\|"vertical", valueFormat?: "number"\|"percent"\|"duration"}`. Horizontal by default (label · fill · value); `color` should be a skin var. Skin-safe. |
+| `heatmap` | Grid of intensity cells (e.g. an hour-of-day × weekday "listening clock"). `{rows: string[], cols: string[], cells: number[][], max?, colLabelEvery?, valueSuffix?}`. Cell fill = `value / max`. Skin-safe. |
+| `line-chart` | Trend line(s) over an ordered x-axis (e.g. plays per month). `{series: [{points: number[], label?, color?}], labels?: string[], max?, area?, valueFormat?}`. SVG polyline (+ optional area fill); `labels` are the x-ticks. Skin-safe. |
 | `toolbar` | Titled button bar with optional status text |
 | `settings-row` | Label + description + right-side control or child view |
 | `section` | Titled grouping wrapper |

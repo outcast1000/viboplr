@@ -16,6 +16,9 @@ import {
   PluginSelect,
   PluginProgressBar,
   PluginSettingsRow,
+  PluginBarChart,
+  PluginHeatmap,
+  PluginLineChart,
 } from "./pluginViews/pluginViews";
 // Re-exported for existing consumers that import it from this module
 // (renderers/HtmlRenderer, AnnotatedTextRenderer, RichTextRenderer).
@@ -312,6 +315,36 @@ function PluginViewNode({
       );
     case "progress-bar":
       return <PluginProgressBar value={node.value} max={node.max} label={node.label} />;
+    case "bar-chart":
+      return (
+        <PluginBarChart
+          bars={node.bars}
+          max={node.max}
+          orientation={node.orientation}
+          valueFormat={node.valueFormat}
+        />
+      );
+    case "heatmap":
+      return (
+        <PluginHeatmap
+          rows={node.rows}
+          cols={node.cols}
+          cells={node.cells}
+          max={node.max}
+          colLabelEvery={node.colLabelEvery}
+          valueSuffix={node.valueSuffix}
+        />
+      );
+    case "line-chart":
+      return (
+        <PluginLineChart
+          series={node.series}
+          labels={node.labels}
+          max={node.max}
+          area={node.area}
+          valueFormat={node.valueFormat}
+        />
+      );
     case "settings-row": {
       const control = node.control || node.child;
       return (

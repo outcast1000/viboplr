@@ -426,6 +426,18 @@ export function usePlugins(
               limit: opts?.limit ?? 20,
             });
           },
+          async getMostPlayedArtists(opts) {
+            if (opts?.days) {
+              const sinceTs = Math.floor(Date.now() / 1000) - opts.days * 86400;
+              return invoke("get_history_most_played_artists_since", {
+                sinceTs,
+                limit: opts?.limit ?? 20,
+              });
+            }
+            return invoke("get_history_most_played_artists", {
+              limit: opts?.limit ?? 20,
+            });
+          },
           async recordHistoryPlaysBatch(plays) {
             const tuples = plays.map(p => [p.artist, p.track, p.playedAt] as [string, string, number]);
             const [imported, skipped] = await invoke<[number, number]>("plugin_record_history_plays_batch", { plays: tuples });

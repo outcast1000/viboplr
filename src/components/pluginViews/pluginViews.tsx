@@ -3,12 +3,19 @@
 // imports these; none of these renderers recurse back into the dispatcher.
 import { useState, useCallback, useEffect, useRef, useId } from "react";
 import type { Track, QueueTrack } from "../../types";
-import type { CardGridItem, StatItem, TrackRowItem, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
+import type { CardGridItem, StatItem, TrackRowItem, BarChartDatum, LineSeries, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../../nativeMenu";
 import { formatDuration } from "../../utils";
 import { ViewSearchBar } from "../ViewSearchBar";
 import { resolveImageUrl } from "../../utils/resolveImageUrl";
 import { sanitizeHTML } from "./htmlSanitize";
+import {
+  buildLinePath,
+  buildAreaPath,
+  formatChartValue,
+  heatIntensity,
+  type ChartValueFormat,
+} from "../../utils/pluginCharts";
 
 // -- Track List (simplified read-only) --
 
@@ -1021,6 +1028,210 @@ export function PluginSettingsRow({
         {description && <span className="plugin-settings-description">{description}</span>}
       </div>
       {children}
+    </div>
+  );
+}
+
+// -- Bar Chart --
+
+export function PluginBarChart({
+  bars,
+  max,
+  orientation = "horizontal",
+  valueFormat,
+}: {
+  bars: BarChartDatum[];
+  max?: number;
+  orientation?: "horizontal" | "vertical";
+  valueFormat?: ChartValueFormat;
+}) {
+  const scaleMax =
+    max && max > 0 ? max : bars.reduce((m, b) => Math.max(m, b.value || 0), 0) || 1;
+
+  if (orientation === "vertical") {
+    return (
+      <div className="plugin-bar-chart plugin-bar-chart--vertical">
+        {/* Plot body: bars grow up from the baseline (the bottom border = x-axis). */}
+        <div className="plugin-bar-cols">
+          {bars.map((b, i) => {
+            const pct = Math.max(0, Math.min(100, ((b.value || 0) / scaleMax) * 100));
+            return (
+              <div
+                key={i}
+                className="plugin-bar-col"
+                title={`${b.label}: ${formatChartValue(b.value, valueFormat)}`}
+              >
+                <div className="plugin-bar-col-fill" style={{ height: `${pct}%`, background: b.color }}>
+                  <span className="plugin-bar-col-value">{formatChartValue(b.value, valueFormat)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {/* X-axis labels, below the baseline. */}
+        <div className="plugin-bar-axis">
+          {bars.map((b, i) => (
+            <div key={i} className="plugin-bar-col-label" title={b.label}>
+              {b.label}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="plugin-bar-chart">
+      {bars.map((b, i) => {
+        const pct = Math.max(0, Math.min(100, ((b.value || 0) / scaleMax) * 100));
+        return (
+          <div key={i} className="plugin-bar-row">
+            <div className="plugin-bar-label" title={b.label}>
+              {b.label}
+            </div>
+            <div className="plugin-bar-track">
+              <div className="plugin-bar-fill" style={{ width: `${pct}%`, background: b.color }} />
+            </div>
+            <div className="plugin-bar-value">
+              {formatChartValue(b.value, valueFormat)}
+              {b.sublabel ? <span className="plugin-bar-sublabel"> {b.sublabel}</span> : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// -- Heatmap (e.g. listening clock: hour-of-day × weekday) --
+
+export function PluginHeatmap({
+  rows,
+  cols,
+  cells,
+  max,
+  colLabelEvery = 1,
+  valueSuffix = "",
+}: {
+  rows: string[];
+  cols: string[];
+  cells: number[][];
+  max?: number;
+  colLabelEvery?: number;
+  valueSuffix?: string;
+}) {
+  const scaleMax =
+    max && max > 0
+      ? max
+      : cells.reduce((m, row) => row.reduce((mm, v) => Math.max(mm, v || 0), m), 0) || 1;
+
+  const nodes: React.ReactNode[] = [];
+  nodes.push(<div key="corner" className="plugin-heatmap-corner" />);
+  cols.forEach((c, ci) => {
+    nodes.push(
+      <div key={`col${ci}`} className="plugin-heatmap-collabel">
+        {ci % colLabelEvery === 0 ? c : ""}
+      </div>,
+    );
+  });
+  rows.forEach((r, ri) => {
+    nodes.push(
+      <div key={`rl${ri}`} className="plugin-heatmap-rowlabel">
+        {r}
+      </div>,
+    );
+    cols.forEach((_c, ci) => {
+      const v = (cells[ri] && cells[ri][ci]) || 0;
+      const intensity = heatIntensity(v, scaleMax);
+      const op = v > 0 ? Math.max(0.08, intensity) : 0;
+      nodes.push(
+        <div
+          key={`cell${ri}-${ci}`}
+          className="plugin-heatmap-cell"
+          title={`${r} · ${cols[ci]}: ${v}${valueSuffix}`}
+        >
+          <div className="plugin-heatmap-cell-fill" style={{ opacity: op }} />
+        </div>,
+      );
+    });
+  });
+
+  return (
+    <div
+      className="plugin-heatmap"
+      style={{ gridTemplateColumns: `auto repeat(${cols.length}, minmax(0, 1fr))` }}
+    >
+      {nodes}
+    </div>
+  );
+}
+
+// -- Line Chart (trend over an ordered x-axis) --
+
+export function PluginLineChart({
+  series,
+  labels,
+  max,
+  area,
+  valueFormat,
+}: {
+  series: LineSeries[];
+  labels?: string[];
+  max?: number;
+  area?: boolean;
+  valueFormat?: ChartValueFormat;
+}) {
+  const W = 100;
+  const H = 40;
+  const allValues = series.reduce<number[]>((acc, s) => acc.concat(s.points), []);
+  const scaleMax = max && max > 0 ? max : allValues.reduce((m, v) => Math.max(m, v || 0), 0) || 1;
+  const gradId = "plc-" + useId().replace(/:/g, "");
+
+  return (
+    <div className="plugin-line-chart">
+      <div className="plugin-line-chart-peak">{formatChartValue(scaleMax, valueFormat)}</div>
+      <svg
+        className="plugin-line-chart-svg"
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        role="img"
+      >
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {series.map((s, i) => (
+          <g key={i}>
+            {area && (
+              <path
+                d={buildAreaPath(s.points, scaleMax, W, H)}
+                fill={`url(#${gradId})`}
+                stroke="none"
+              />
+            )}
+            <path
+              d={buildLinePath(s.points, scaleMax, W, H)}
+              fill="none"
+              stroke={s.color || "var(--accent)"}
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </g>
+        ))}
+      </svg>
+      {labels && labels.length > 0 && (
+        <div className="plugin-line-chart-labels">
+          {labels.map((l, i) => (
+            <span key={i} className="plugin-line-chart-label">
+              {l}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

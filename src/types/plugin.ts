@@ -189,6 +189,23 @@ export interface StatItem {
   value: string | number;
 }
 
+// One bar in a `bar-chart`. `value` is raw; the renderer scales it against the
+// chart's `max` (or the largest value if `max` is omitted). `color` should be a
+// skin CSS variable (e.g. "var(--accent)") to stay skin-safe; omit for default.
+export interface BarChartDatum {
+  label: string;
+  value: number;
+  sublabel?: string;
+  color?: string;
+}
+
+// One series in a `line-chart`. `points` are raw values plotted left→right.
+export interface LineSeries {
+  label?: string;
+  points: number[];
+  color?: string;
+}
+
 export interface TrackRowItem {
   id: string;
   title: string;
@@ -248,6 +265,36 @@ export type PluginViewData =
   | { type: "toggle"; label: string; description?: string; action: string; checked: boolean; disabled?: boolean }
   | { type: "select"; label: string; description?: string; action: string; value: string; options: { value: string; label: string }[] }
   | { type: "progress-bar"; value: number; max: number; label?: string }
+  | {
+      // Proportional bars for distributions / ranked counts. Horizontal by
+      // default (label · fill · value); "vertical" renders column bars.
+      type: "bar-chart";
+      bars: BarChartDatum[];
+      max?: number;
+      orientation?: "horizontal" | "vertical";
+      valueFormat?: "number" | "percent" | "duration";
+    }
+  | {
+      // Grid of intensity cells (e.g. an hour-of-day × weekday "listening
+      // clock"). `cells[rowIndex][colIndex]`; intensity = value / max.
+      type: "heatmap";
+      rows: string[];
+      cols: string[];
+      cells: number[][];
+      max?: number;
+      colLabelEvery?: number;
+      valueSuffix?: string;
+    }
+  | {
+      // Trend line(s) over an ordered x-axis (e.g. plays per month). `labels`
+      // are the x-axis ticks; `area` fills under the line.
+      type: "line-chart";
+      series: LineSeries[];
+      labels?: string[];
+      max?: number;
+      area?: boolean;
+      valueFormat?: "number" | "percent" | "duration";
+    }
   | {
       type: "toolbar";
       title?: string;
@@ -343,6 +390,18 @@ export interface PluginLibraryAPI {
     limit?: number;
     days?: number;
   }): Promise<HistoryMostPlayed[]>;
+  getMostPlayedArtists(opts?: {
+    limit?: number;
+    days?: number;
+  }): Promise<
+    Array<{
+      history_artist_id: number;
+      play_count: number;
+      track_count: number;
+      display_name: string;
+      rank: number;
+    }>
+  >;
   recordHistoryPlaysBatch(plays: { artist: string; track: string; playedAt: number }[]): Promise<{ imported: number; skipped: number }>;
   applyTags(trackId: number, tagNames: string[]): Promise<Array<{ id: number; name: string }>>;
   applyTagsBulk(assignments: Array<[number, string[]]>): Promise<number>;

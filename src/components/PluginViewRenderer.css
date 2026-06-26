@@ -10,6 +10,15 @@
   padding: 0 16px 16px;
 }
 
+/* When a header bar (toolbar / tabs / search) is hoisted above the scroll
+   area, the content beneath it would otherwise sit flush against the bar.
+   Add top breathing room only in that case (header-less views keep top: 0). */
+.plugin-toolbar + .plugin-view,
+.ds-tabs + .plugin-view,
+.view-search-bar + .plugin-view {
+  padding-top: 12px;
+}
+
 .plugin-layout-horizontal {
   display: flex;
   align-items: center;
@@ -927,6 +936,196 @@
 .plugin-progress-label {
   font-size: var(--fs-2xs);
   color: var(--text-secondary);
+}
+
+/* Plugin bar chart (horizontal: label · fill · value) */
+.plugin-bar-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plugin-bar-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 28%) 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.plugin-bar-label {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-bar-track {
+  height: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.plugin-bar-fill {
+  height: 100%;
+  min-width: 2px;
+  background: var(--accent);
+  border-radius: 5px;
+  transition: width 0.3s;
+}
+
+.plugin-bar-value {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.plugin-bar-sublabel {
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+/* Vertical bar chart (column bars): a plot body with an x-axis baseline,
+   value labels floating above each bar, and category labels in a row below. */
+.plugin-bar-chart--vertical {
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Plot body — bars bottom-align to the baseline (the bottom border). */
+.plugin-bar-cols {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 120px;
+  padding-top: 14px; /* headroom so the tallest bar's value label isn't clipped */
+  border-bottom: 1px solid var(--border);
+}
+
+.plugin-bar-col {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.plugin-bar-col-fill {
+  position: relative;
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 4px 4px 0 0;
+  transition: height 0.3s;
+}
+
+/* Value sits just above the bar top and rises with it. */
+.plugin-bar-col-value {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 2px;
+  text-align: center;
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* X-axis label row, beneath the baseline. */
+.plugin-bar-axis {
+  display: flex;
+  gap: 6px;
+}
+
+.plugin-bar-axis .plugin-bar-col-label {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Plugin heatmap (e.g. listening clock) */
+.plugin-heatmap {
+  display: grid;
+  gap: 3px;
+  align-items: center;
+}
+
+.plugin-heatmap-corner {
+  min-width: 0;
+}
+
+.plugin-heatmap-collabel {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  overflow: hidden;
+}
+
+.plugin-heatmap-rowlabel {
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  padding-right: 6px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.plugin-heatmap-cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+}
+
+.plugin-heatmap-cell-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* Plugin line chart (trend over time) */
+.plugin-line-chart {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plugin-line-chart-peak {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+}
+
+.plugin-line-chart-svg {
+  width: 100%;
+  height: 120px;
+  overflow: visible;
+}
+
+.plugin-line-chart-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.plugin-line-chart-label {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Plugin settings panel (rendered in settings) */

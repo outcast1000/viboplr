@@ -1,0 +1,28 @@
+{
+  "id": "library-stats",
+  "name": "Library Statistics",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "A dashboard of your library composition, listening patterns, and top charts — built from your local library and play history.",
+  "minAppVersion": "0.9.136",
+  "icon": "chart-bar",
+  "apiUsage": [
+    { "api": "library.getTracks", "reason": "Aggregate library composition (format, decade, duration, size, likes)" },
+    { "api": "library.getTags", "reason": "Genre/tag distribution" },
+    { "api": "library.getHistory", "reason": "Compute listening patterns over time from play timestamps" },
+    { "api": "library.getMostPlayed", "reason": "Top tracks (all-time and rolling windows)" },
+    { "api": "library.getMostPlayedArtists", "reason": "Top artists by play count" },
+    { "api": "playback.playTracks", "reason": "Play a track from the Top charts" },
+    { "api": "storage.set", "reason": "Cache the computed statistics snapshot" }
+  ],
+  "contributes": {
+    "sidebarItems": [
+      { "id": "library-stats", "label": "Statistics", "icon": "chart-bar" }
+    ],
+    "settingsPanel": {
+      "id": "library-stats-settings",
+      "label": "Statistics",
+      "order": 60
+    }
+  }
+}
