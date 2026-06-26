@@ -1426,6 +1426,15 @@ function App() {
         ]);
         if (typeof savedEqEnabled === "boolean") playback.setEqEnabled(savedEqEnabled);
         if (savedEqMode === "simple" || savedEqMode === "advanced") playback.setEqMode(savedEqMode);
+
+        const [savedRgMode, savedRgPreampDb, savedRgPreventClip] = await Promise.all([
+          store.get<string>("rgMode"),
+          store.get<number>("rgPreampDb"),
+          store.get<boolean>("rgPreventClip"),
+        ]);
+        if (savedRgMode === "off" || savedRgMode === "track" || savedRgMode === "album") playback.setRgMode(savedRgMode);
+        if (typeof savedRgPreampDb === "number") playback.setRgPreampDb(savedRgPreampDb);
+        if (typeof savedRgPreventClip === "boolean") playback.setRgPreventClip(savedRgPreventClip);
         if (typeof savedEqPreset === "string") playback.setEqPreset(savedEqPreset);
         if (Array.isArray(savedEqGains) && savedEqGains.length === 10 && savedEqGains.every(n => typeof n === "number")) {
           playback.setEqGains(savedEqGains);
@@ -1702,6 +1711,21 @@ function App() {
     if (!restoredRef.current) return;
     store.set("eqTrebleDb", playback.eqTrebleDb);
   }, [playback.eqTrebleDb]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("rgMode", playback.rgMode);
+  }, [playback.rgMode]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("rgPreampDb", playback.rgPreampDb);
+  }, [playback.rgPreampDb]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("rgPreventClip", playback.rgPreventClip);
+  }, [playback.rgPreventClip]);
 
   // Persist recently visited entities (album/artist detail views)
   const recentlyVisitedRef = useRef<RecentlyVisitedEntry[]>([]);
@@ -3137,6 +3161,12 @@ function App() {
               onClearImageFailures={handleClearImageFailures}
               crossfadeSecs={crossfadeSecs}
               onCrossfadeChange={handleCrossfadeChange}
+              rgMode={playback.rgMode}
+              onRgModeChange={playback.setRgMode}
+              rgPreampDb={playback.rgPreampDb}
+              onRgPreampDbChange={playback.setRgPreampDb}
+              rgPreventClip={playback.rgPreventClip}
+              onRgPreventClipChange={playback.setRgPreventClip}
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}

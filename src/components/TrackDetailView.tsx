@@ -79,6 +79,24 @@ interface TrackDetailViewProps {
   onToggleDislike: () => void;
 }
 
+// Turn a raw tag key like REPLAYGAIN_TRACK_GAIN / MUSICBRAINZ_RECORDING_ID into a
+// readable label ("ReplayGain Track Gain", "MusicBrainz Recording ID").
+const TAG_ACRONYMS = new Set(["ID", "ISRC", "BPM", "URL", "UPC", "EAN"]);
+function prettifyTagKey(key: string): string {
+  return key
+    .toLowerCase()
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map(w => {
+      const up = w.toUpperCase();
+      if (TAG_ACRONYMS.has(up)) return up;
+      if (up === "REPLAYGAIN") return "ReplayGain";
+      if (up === "MUSICBRAINZ") return "MusicBrainz";
+      return w.charAt(0).toUpperCase() + w.slice(1);
+    })
+    .join(" ");
+}
+
 export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
   positionSecs, isCurrentTrack,
@@ -91,6 +109,7 @@ export function TrackDetailView({
   const [playStats, setPlayStats] = useState<TrackPlayStats | null>(null);
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
+  const [extraTags, setExtraTags] = useState<Record<string, string> | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; url?: string } | null>(null);
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
@@ -131,11 +150,14 @@ export function TrackDetailView({
     setPlayStats(null);
     setPlayHistory([]);
     setAudioProps(null);
+    setExtraTags(null);
     setTrackInfo(null);
 
     if (isLibrary) {
       invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
         .then(setAudioProps).catch(e => console.error("Failed to load audio properties:", e));
+      invoke<Record<string, string> | null>("get_track_extra_tags", { trackId })
+        .then(setExtraTags).catch(e => console.error("Failed to load extra tags:", e));
     }
     invoke<TrackPlayStats | null>("get_track_play_stats", { title: track.title, artistName: track.artist_name }).then(s => { if (s) setPlayStats(s); }).catch(e => console.error("Failed to load play stats:", e));
     invoke<Array<{ played_at: number }>>("get_track_play_history", { title: track.title, artistName: track.artist_name, limit: 50 }).then(setPlayHistory).catch(e => console.error("Failed to load play history:", e));
@@ -404,6 +426,12 @@ export function TrackDetailView({
                       <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
                     </div>
                   )}
+                  {extraTags && Object.entries(extraTags).map(([k, v]) => (
+                    <div className="track-details-row" key={k}>
+                      <span className="track-details-label">{prettifyTagKey(k)}</span>
+                      <span className="track-details-value">{String(v)}</span>
+                    </div>
+                  ))}
                 </div>
               ),
             },

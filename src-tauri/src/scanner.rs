@@ -44,6 +44,9 @@ struct ParsedTags {
     year: Option<i32>,
     track_number: Option<i32>,
     duration_secs: Option<f64>,
+    /// JSON object of tag keys with no dedicated column (ReplayGain among them).
+    /// None for filename-derived tracks (no embedded tag to read).
+    extra_tags: Option<String>,
 }
 
 /// Fix misencoded tag strings from ID3v1 or Latin-1-declared ID3v2 frames.
@@ -122,6 +125,7 @@ fn read_tags(path: &Path) -> ParsedTags {
             let genre = tag.genre().map(|s| fix_encoding(&s));
             let year = tag.date().map(|d| d.year as i32);
             let track_number = tag.track().map(|t| t as i32);
+            let extra_tags = collect_extra_tags(tag);
 
             if title.is_some() {
                 return ParsedTags {
@@ -132,6 +136,7 @@ fn read_tags(path: &Path) -> ParsedTags {
                     year,
                     track_number,
                     duration_secs,
+                    extra_tags,
                 };
             }
         }
@@ -139,6 +144,61 @@ fn read_tags(path: &Path) -> ParsedTags {
         return fallback_from_filename(path, duration_secs);
     }
     fallback_from_filename(path, None)
+}
+
+/// Collect tag values that have no dedicated `tracks` column into a JSON object
+/// string. ReplayGain values are the primary consumer; the rest is a
+/// general-purpose catch-all (composer, ISRC, disc numbers, MusicBrainz IDs, …)
+/// surfaced elsewhere later. Returns None when nothing extra is present.
+fn collect_extra_tags(tag: &lofty::tag::Tag) -> Option<String> {
+    use lofty::tag::ItemKey;
+    // (json_key, ItemKey) for everything lofty exposes that isn't already stored
+    // in a dedicated column. RG keys use their canonical names so the ReplayGain
+    // parser can read them back out of the JSON.
+    const KEYS: &[(&str, ItemKey)] = &[
+        ("REPLAYGAIN_TRACK_GAIN", ItemKey::ReplayGainTrackGain),
+        ("REPLAYGAIN_TRACK_PEAK", ItemKey::ReplayGainTrackPeak),
+        ("REPLAYGAIN_ALBUM_GAIN", ItemKey::ReplayGainAlbumGain),
+        ("REPLAYGAIN_ALBUM_PEAK", ItemKey::ReplayGainAlbumPeak),
+        ("ALBUM_ARTIST", ItemKey::AlbumArtist),
+        ("COMPOSER", ItemKey::Composer),
+        ("CONDUCTOR", ItemKey::Conductor),
+        ("PRODUCER", ItemKey::Producer),
+        ("REMIXER", ItemKey::Remixer),
+        ("LABEL", ItemKey::Label),
+        ("PUBLISHER", ItemKey::Publisher),
+        ("ISRC", ItemKey::Isrc),
+        ("BARCODE", ItemKey::Barcode),
+        ("CATALOG_NUMBER", ItemKey::CatalogNumber),
+        ("DISC_NUMBER", ItemKey::DiscNumber),
+        ("DISC_TOTAL", ItemKey::DiscTotal),
+        ("TRACK_TOTAL", ItemKey::TrackTotal),
+        ("BPM", ItemKey::Bpm),
+        ("INITIAL_KEY", ItemKey::InitialKey),
+        ("MOOD", ItemKey::Mood),
+        ("COMMENT", ItemKey::Comment),
+        ("LANGUAGE", ItemKey::Language),
+        ("RELEASE_DATE", ItemKey::ReleaseDate),
+        ("MUSICBRAINZ_RECORDING_ID", ItemKey::MusicBrainzRecordingId),
+        ("MUSICBRAINZ_RELEASE_ID", ItemKey::MusicBrainzReleaseId),
+        ("MUSICBRAINZ_ARTIST_ID", ItemKey::MusicBrainzArtistId),
+        ("COPYRIGHT", ItemKey::CopyrightMessage),
+        ("ENCODED_BY", ItemKey::EncodedBy),
+    ];
+    let mut map = serde_json::Map::new();
+    for (json_key, item_key) in KEYS {
+        if let Some(val) = tag.get_string(*item_key) {
+            let val = fix_encoding(val);
+            if !val.trim().is_empty() {
+                map.insert((*json_key).to_string(), serde_json::Value::String(val));
+            }
+        }
+    }
+    if map.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&serde_json::Value::Object(map)).ok()
+    }
 }
 
 static FALLBACK_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
@@ -173,6 +233,7 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
                 year: None,
                 track_number: caps.name("track").and_then(|m| m.as_str().parse().ok()),
                 duration_secs,
+                extra_tags: None,
             };
         }
     }
@@ -186,6 +247,7 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
         year: None,
         track_number: None,
         duration_secs,
+        extra_tags: None,
     }
 }
 
@@ -311,11 +373,17 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64);
 
-    // Skip if file hasn't changed since last scan
-    let stored_modified = db.get_track_modified_at_by_path(&relative_path, collection_id);
+    // Skip if file hasn't changed since last scan. Exception: re-read an audio file
+    // whose row predates the extra_tags backfill (extra_tags still NULL) even when
+    // the mtime is unchanged, so existing libraries fill in on the next scan. Video
+    // files carry no embedded tags, so they keep the plain mtime skip.
+    let scan_state = db.get_track_scan_state_by_path(&relative_path, collection_id);
+    let stored_modified = scan_state.and_then(|(m, _)| m);
+    let needs_tag_backfill = !is_video_file(path)
+        && scan_state.map(|(_, has_extra)| !has_extra).unwrap_or(false);
     if let (Some(stored), Some(current)) = (stored_modified, modified_at) {
-        if stored >= current {
-            return; // File unchanged, skip
+        if stored >= current && !needs_tag_backfill {
+            return; // Unchanged and already processed for tags
         }
         info!("Updated file: {}", relative_path);
     } else if stored_modified.is_some() {
@@ -391,6 +459,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
                 let _ = db.add_track_tag(track_id, tag_id);
             }
         }
+        let _ = db.set_track_extra_tags(track_id, tags.extra_tags.as_deref());
     }
 }
 

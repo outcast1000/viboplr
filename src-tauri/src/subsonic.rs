@@ -40,6 +40,11 @@ pub struct SubsonicTrack {
     pub size: Option<i64>,
     pub suffix: Option<String>,
     pub genre: Option<String>,
+    // OpenSubsonic ReplayGain (absent on legacy servers). Folded into extra_tags on sync.
+    pub rg_track_gain: Option<f64>,
+    pub rg_track_peak: Option<f64>,
+    pub rg_album_gain: Option<f64>,
+    pub rg_album_peak: Option<f64>,
 }
 
 fn generate_salt() -> String {
@@ -222,6 +227,10 @@ impl SubsonicClient {
                     size: s["size"].as_i64(),
                     suffix: s["suffix"].as_str().map(|s| s.to_string()),
                     genre: s["genre"].as_str().map(|s| s.to_string()),
+                    rg_track_gain: s["replayGain"]["trackGain"].as_f64(),
+                    rg_track_peak: s["replayGain"]["trackPeak"].as_f64(),
+                    rg_album_gain: s["replayGain"]["albumGain"].as_f64(),
+                    rg_album_peak: s["replayGain"]["albumPeak"].as_f64(),
                 });
             }
         }

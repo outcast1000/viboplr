@@ -128,6 +128,12 @@ export function usePlayback(
   // modes is non-destructive — each mode keeps its own settings.
   const [eqBassDb, setEqBassDb] = useState<number>(0);
   const [eqTrebleDb, setEqTrebleDb] = useState<number>(0);
+  // ReplayGain: per-track loudness normalization applied via a per-chain gain node.
+  // Mode "off" | "track" | "album"; preamp dB is added on top; preventClip caps the
+  // gain so the (normalized) peak stays <= 0 dBFS.
+  const [rgMode, setRgMode] = useState<"off" | "track" | "album">("off");
+  const [rgPreampDb, setRgPreampDb] = useState<number>(0);
+  const [rgPreventClip, setRgPreventClip] = useState<boolean>(true);
   const trackChangeSourceRef = useRef<"user" | "auto">("user");
   // Synchronous guard against concurrent transcode starts. transcodeSessionRef
   // is only set after `await start_transcode` resolves, so two callers firing
@@ -267,6 +273,9 @@ export function usePlayback(
   const shelvesBRef = useRef<BiquadFilterNode[]>([]);
   const xfadeGainARef = useRef<GainNode | null>(null);
   const xfadeGainBRef = useRef<GainNode | null>(null);
+  // ReplayGain gain node per chain (at the head of each chain, pre-EQ).
+  const rgGainARef = useRef<GainNode | null>(null);
+  const rgGainBRef = useRef<GainNode | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   // Brick-wall limiter on the master bus, engaged only while a simple-mode boost
   // is active. Prevents shelf boosts from clipping without dropping overall level.
@@ -277,12 +286,18 @@ export function usePlayback(
   const eqPreGainDbRef = useRef<number>(eqPreGainDb);
   const eqBassDbRef = useRef<number>(eqBassDb);
   const eqTrebleDbRef = useRef<number>(eqTrebleDb);
+  const rgModeRef = useRef(rgMode);
+  const rgPreampDbRef = useRef(rgPreampDb);
+  const rgPreventClipRef = useRef(rgPreventClip);
   eqEnabledRef.current = eqEnabled;
   eqModeRef.current = eqMode;
   eqGainsRef.current = eqGains;
   eqPreGainDbRef.current = eqPreGainDb;
   eqBassDbRef.current = eqBassDb;
   eqTrebleDbRef.current = eqTrebleDb;
+  rgModeRef.current = rgMode;
+  rgPreampDbRef.current = rgPreampDb;
+  rgPreventClipRef.current = rgPreventClip;
 
   function masterGainValue(): number {
     // Advanced mode: the user sets pre-gain manually. Simple mode does NOT
@@ -379,6 +394,7 @@ export function usePlayback(
       filters: BiquadFilterNode[];
       shelves: BiquadFilterNode[];
       xfadeGain: GainNode;
+      rgGain: GainNode;
     } {
       const source = ctx.createMediaElementSource(el);
       const filters: BiquadFilterNode[] = [];
@@ -404,13 +420,20 @@ export function usePlayback(
       const xfadeGain = ctx.createGain();
       xfadeGain.gain.value = 1;
 
-      source.connect(filters[0]);
+      // ReplayGain node at the head of the chain (pre-EQ): a per-track loudness
+      // adjustment on the source signal. Clipping from RG + EQ boosts is caught
+      // by the shared master-bus limiter downstream.
+      const rgGain = ctx.createGain();
+      rgGain.gain.value = 1;
+
+      source.connect(rgGain);
+      rgGain.connect(filters[0]);
       for (let i = 0; i < filters.length - 1; i++) filters[i].connect(filters[i + 1]);
       filters[filters.length - 1].connect(lowShelf);
       lowShelf.connect(highShelf);
       highShelf.connect(xfadeGain);
       xfadeGain.connect(masterGain);
-      return { source, filters, shelves, xfadeGain };
+      return { source, filters, shelves, xfadeGain, rgGain };
     }
 
     const a = buildChain(elA);
@@ -423,6 +446,8 @@ export function usePlayback(
     shelvesBRef.current = b.shelves;
     xfadeGainARef.current = a.xfadeGain;
     xfadeGainBRef.current = b.xfadeGain;
+    rgGainARef.current = a.rgGain;
+    rgGainBRef.current = b.rgGain;
 
     applyEqToFilters();
     applyLimiter();
@@ -447,6 +472,72 @@ export function usePlayback(
     el.pause();
     el.removeAttribute("src");
     el.load();
+  }
+
+  // ReplayGain --------------------------------------------------------------
+  type ReplayGainInfo = {
+    track_gain_db: number | null;
+    track_peak: number | null;
+    album_gain_db: number | null;
+    album_peak: number | null;
+  };
+  // Track key whose RG is (being) applied to each chain — guards against a slow
+  // async resolve landing after the chain has already moved on to another track.
+  const rgSlotKeyARef = useRef<string | null>(null);
+  const rgSlotKeyBRef = useRef<string | null>(null);
+
+  function setRgGain(slot: "A" | "B", linear: number): void {
+    const node = slot === "A" ? rgGainARef.current : rgGainBRef.current;
+    if (!node) return;
+    const ctx = audioCtxRef.current;
+    // Ramp to avoid a click when normalization changes between tracks.
+    if (ctx) node.gain.setTargetAtTime(linear, ctx.currentTime, 0.05);
+    else node.gain.value = linear;
+  }
+
+  // Resolve and apply ReplayGain for the track loaded on `slot`. No-op (unity
+  // gain) when RG is off, the track has no path, or it carries no RG values.
+  async function applyReplayGain(slot: "A" | "B", track: QueueTrack | null): Promise<void> {
+    if (slot === "A") rgSlotKeyARef.current = track?.key ?? null;
+    else rgSlotKeyBRef.current = track?.key ?? null;
+
+    if (rgModeRef.current === "off" || !track || !track.path) {
+      setRgGain(slot, 1);
+      return;
+    }
+    let info: ReplayGainInfo | null = null;
+    try {
+      info = await invoke<ReplayGainInfo | null>("get_replaygain_by_path", { path: track.path });
+    } catch (e) {
+      console.error("Failed to resolve ReplayGain:", e);
+      setRgGain(slot, 1);
+      return;
+    }
+    // Bail if this chain moved on to another track while we awaited.
+    const stillCurrent =
+      (slot === "A" ? rgSlotKeyARef.current : rgSlotKeyBRef.current) === track.key;
+    if (!stillCurrent) return;
+
+    if (!info) {
+      setRgGain(slot, 1);
+      return;
+    }
+    const album = rgModeRef.current === "album";
+    const gainDb = album
+      ? info.album_gain_db ?? info.track_gain_db
+      : info.track_gain_db ?? info.album_gain_db;
+    if (gainDb == null) {
+      setRgGain(slot, 1);
+      return;
+    }
+    let linear = Math.pow(10, (gainDb + rgPreampDbRef.current) / 20);
+    if (rgPreventClipRef.current) {
+      const peak = album
+        ? info.album_peak ?? info.track_peak
+        : info.track_peak ?? info.album_peak;
+      if (peak && peak > 0) linear = Math.min(linear, 1 / peak);
+    }
+    setRgGain(slot, linear);
   }
 
   function getMediaElement(): HTMLAudioElement | HTMLVideoElement | null {
@@ -488,6 +579,12 @@ export function usePlayback(
     applyLimiter();
     if (masterGainRef.current) masterGainRef.current.gain.value = masterGainValue();
   }, [eqEnabled, eqMode, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb]);
+
+  // Apply ReplayGain to the active chain when the current track changes or the RG
+  // settings change. The inactive (preloaded) chain is handled in preloadNext.
+  useEffect(() => {
+    applyReplayGain(activeSlotRef.current, currentTrack);
+  }, [currentTrack, rgMode, rgPreampDb, rgPreventClip]);
 
   // Load video source once the element is available after render
   useEffect(() => {
@@ -615,6 +712,9 @@ export function usePlayback(
       inactiveEl.src = resolved.src;
       inactiveEl.volume = effectiveVolume();
       inactiveEl.preload = "auto";
+      // Pre-apply RG to the inactive chain so the gapless/crossfade swap is already
+      // normalized when this track becomes active.
+      applyReplayGain(activeSlotRef.current === "A" ? "B" : "A", nextTrack);
 
       preloadedTrackRef.current = nextTrack;
       preloadReadyRef.current = false;
@@ -1430,5 +1530,8 @@ export function usePlayback(
     eqPreGainDb, setEqPreGainDb,
     eqBassDb, setEqBassDb,
     eqTrebleDb, setEqTrebleDb,
+    rgMode, setRgMode,
+    rgPreampDb, setRgPreampDb,
+    rgPreventClip, setRgPreventClip,
   };
 }

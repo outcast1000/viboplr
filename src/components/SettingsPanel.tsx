@@ -891,6 +891,12 @@ interface SettingsPanelProps {
   onClearImageFailures: () => void;
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
+  rgMode: "off" | "track" | "album";
+  onRgModeChange: (mode: "off" | "track" | "album") => void;
+  rgPreampDb: number;
+  onRgPreampDbChange: (db: number) => void;
+  rgPreventClip: boolean;
+  onRgPreventClipChange: (enabled: boolean) => void;
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
@@ -957,6 +963,12 @@ export function SettingsPanel({
   onClearImageFailures,
   crossfadeSecs,
   onCrossfadeChange,
+  rgMode,
+  onRgModeChange,
+  rgPreampDb,
+  onRgPreampDbChange,
+  rgPreventClip,
+  onRgPreventClipChange,
   trackVideoHistory,
   onTrackVideoHistoryChange,
   minimizeToMiniPlayer,
@@ -1102,6 +1114,50 @@ export function SettingsPanel({
                         <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
                       </div>
                     </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">ReplayGain</span>
+                        <span className="settings-description">Normalize loudness across tracks using embedded ReplayGain tags</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={rgMode}
+                        onChange={e => onRgModeChange(e.target.value as "off" | "track" | "album")}
+                      >
+                        <option value="off">Off</option>
+                        <option value="track">Track</option>
+                        <option value="album">Album</option>
+                      </select>
+                    </div>
+                    {rgMode !== "off" && (
+                      <>
+                        <div className="settings-row">
+                          <div className="settings-row-info">
+                            <span className="settings-label">Pre-amp</span>
+                            <span className="settings-description">Extra gain applied on top of ReplayGain</span>
+                          </div>
+                          <div className="settings-row-control settings-row-slider">
+                            <input
+                              type="range"
+                              min={-15}
+                              max={15}
+                              step={0.5}
+                              value={rgPreampDb}
+                              onChange={e => onRgPreampDbChange(parseFloat(e.target.value))}
+                              className="settings-slider"
+                            />
+                            <span className="settings-value">{rgPreampDb > 0 ? "+" : ""}{rgPreampDb.toFixed(1)} dB</span>
+                          </div>
+                        </div>
+                        <div className="settings-row">
+                          <div className="settings-row-info">
+                            <span className="settings-label">Prevent clipping</span>
+                            <span className="settings-description">Cap the gain using the track's peak so loud masters never clip</span>
+                          </div>
+                          <ToggleSwitch checked={rgPreventClip} onChange={onRgPreventClipChange} />
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 

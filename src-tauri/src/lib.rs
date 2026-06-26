@@ -153,6 +153,8 @@ macro_rules! invoke_handler {
             commands::extract_video_frames,
             commands::get_track_audio_properties,
             commands::get_audio_properties_by_path,
+            commands::get_replaygain_by_path,
+            commands::get_track_extra_tags,
             commands::replace_track_tags,
             commands::get_download_status,
             commands::cancel_download,

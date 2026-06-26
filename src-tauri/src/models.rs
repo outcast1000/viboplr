@@ -134,6 +134,69 @@ pub struct Track {
     pub modified_at: Option<i64>,
 }
 
+/// ReplayGain values parsed from a track's `extra_tags` JSON. Gains are in dB,
+/// peaks are linear (0..~1). Any field may be absent.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ReplayGain {
+    pub track_gain_db: Option<f64>,
+    pub track_peak: Option<f64>,
+    pub album_gain_db: Option<f64>,
+    pub album_peak: Option<f64>,
+}
+
+impl ReplayGain {
+    /// Extract REPLAYGAIN_* values from a track's `extra_tags` JSON object.
+    /// Gains look like "-6.48 dB"; peaks like "0.987654". Returns None if no
+    /// gain value is present (peaks alone are not useful without a gain).
+    pub fn from_extra_tags_json(json: &str) -> Option<Self> {
+        let v: serde_json::Value = serde_json::from_str(json).ok()?;
+        let obj = v.as_object()?;
+        let num = |k: &str| obj.get(k).and_then(|x| x.as_str()).and_then(parse_leading_number);
+        let rg = ReplayGain {
+            track_gain_db: num("REPLAYGAIN_TRACK_GAIN"),
+            track_peak: num("REPLAYGAIN_TRACK_PEAK"),
+            album_gain_db: num("REPLAYGAIN_ALBUM_GAIN"),
+            album_peak: num("REPLAYGAIN_ALBUM_PEAK"),
+        };
+        if rg.track_gain_db.is_none() && rg.album_gain_db.is_none() {
+            None
+        } else {
+            Some(rg)
+        }
+    }
+
+    /// Build an `extra_tags`-style JSON object holding just the ReplayGain keys,
+    /// using the same key names `from_extra_tags_json` reads. For non-file sources
+    /// (e.g. OpenSubsonic) that expose RG as numbers. None if every value is absent.
+    pub fn to_extra_tags_json(
+        track_gain: Option<f64>,
+        track_peak: Option<f64>,
+        album_gain: Option<f64>,
+        album_peak: Option<f64>,
+    ) -> Option<String> {
+        let mut map = serde_json::Map::new();
+        if let Some(v) = track_gain { map.insert("REPLAYGAIN_TRACK_GAIN".to_string(), serde_json::Value::String(v.to_string())); }
+        if let Some(v) = track_peak { map.insert("REPLAYGAIN_TRACK_PEAK".to_string(), serde_json::Value::String(v.to_string())); }
+        if let Some(v) = album_gain { map.insert("REPLAYGAIN_ALBUM_GAIN".to_string(), serde_json::Value::String(v.to_string())); }
+        if let Some(v) = album_peak { map.insert("REPLAYGAIN_ALBUM_PEAK".to_string(), serde_json::Value::String(v.to_string())); }
+        if map.is_empty() {
+            None
+        } else {
+            serde_json::to_string(&serde_json::Value::Object(map)).ok()
+        }
+    }
+}
+
+/// Parse the leading signed-decimal prefix of a string, ignoring a trailing unit
+/// like " dB". e.g. "-6.48 dB" -> -6.48, "0.987654" -> 0.987654.
+fn parse_leading_number(s: &str) -> Option<f64> {
+    let s = s.trim();
+    let end = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
+        .unwrap_or(s.len());
+    s[..end].parse::<f64>().ok()
+}
+
 impl Track {
     /// Returns true if this track is not a local file (anything except file://).
     pub fn is_remote(&self) -> bool {
@@ -521,6 +584,45 @@ pub struct ImageSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_replaygain_parse_full() {
+        let json = r#"{"REPLAYGAIN_TRACK_GAIN":"-6.48 dB","REPLAYGAIN_TRACK_PEAK":"0.987654","REPLAYGAIN_ALBUM_GAIN":"-7.02 dB","REPLAYGAIN_ALBUM_PEAK":"0.992"}"#;
+        let rg = ReplayGain::from_extra_tags_json(json).expect("should parse");
+        assert_eq!(rg.track_gain_db, Some(-6.48));
+        assert_eq!(rg.track_peak, Some(0.987654));
+        assert_eq!(rg.album_gain_db, Some(-7.02));
+        assert_eq!(rg.album_peak, Some(0.992));
+    }
+
+    #[test]
+    fn test_replaygain_handles_positive_and_no_space_unit() {
+        let rg = ReplayGain::from_extra_tags_json(r#"{"REPLAYGAIN_TRACK_GAIN":"+3.2dB"}"#)
+            .expect("should parse");
+        assert_eq!(rg.track_gain_db, Some(3.2));
+        assert_eq!(rg.album_gain_db, None);
+    }
+
+    #[test]
+    fn test_replaygain_none_when_no_gain_keys() {
+        // extra_tags present but carrying no RG gain -> None (peaks alone are useless).
+        assert!(ReplayGain::from_extra_tags_json(r#"{"COMPOSER":"Roger Waters"}"#).is_none());
+        assert!(ReplayGain::from_extra_tags_json("not valid json").is_none());
+    }
+
+    #[test]
+    fn test_replaygain_roundtrip_from_numbers() {
+        // OpenSubsonic-style numeric RG -> extra_tags JSON -> parsed back out.
+        let json = ReplayGain::to_extra_tags_json(Some(-6.5), Some(0.97), Some(-7.0), Some(0.99))
+            .expect("should build");
+        let rg = ReplayGain::from_extra_tags_json(&json).expect("should parse");
+        assert_eq!(rg.track_gain_db, Some(-6.5));
+        assert_eq!(rg.track_peak, Some(0.97));
+        assert_eq!(rg.album_gain_db, Some(-7.0));
+        assert_eq!(rg.album_peak, Some(0.99));
+        // All-absent -> no JSON at all.
+        assert!(ReplayGain::to_extra_tags_json(None, None, None, None).is_none());
+    }
 
     #[test]
     fn test_is_network_path() {

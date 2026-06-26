@@ -58,6 +58,56 @@ impl Database {
         Ok(id)
     }
 
+    /// Store the JSON catch-all of file tags that have no dedicated column
+    /// (ReplayGain values among them). Called by the scanner / sync after upsert.
+    /// `json` is a serialized JSON object, or None to clear it.
+    pub fn set_track_extra_tags(&self, track_id: i64, json: Option<&str>) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tracks SET extra_tags = ?1 WHERE id = ?2",
+            params![json, track_id],
+        )?;
+        Ok(())
+    }
+
+    /// Read ReplayGain values for a track by its full scheme-prefixed path
+    /// (`file://…`, `subsonic://…`), parsed from the `extra_tags` JSON. Matches the
+    /// same computed-path expression as `find_track_id_by_path` (the stored
+    /// `t.path` is relative for local / a remote id, not the full URI). Returns
+    /// None when no row matches, the row has no `extra_tags`, or it carries no RG.
+    pub fn get_replaygain_by_path(&self, full_path: &str) -> SqlResult<Option<crate::models::ReplayGain>> {
+        let conn = self.conn.lock().unwrap();
+        let sql = "SELECT t.extra_tags FROM tracks t \
+            LEFT JOIN collections co ON t.collection_id = co.id \
+            WHERE CASE \
+              WHEN co.kind = 'local' AND co.path IS NOT NULL \
+                THEN 'file://' || co.path || '/' || t.path \
+              WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
+                THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
+              ELSE t.path \
+            END = ?1 \
+            AND t.extra_tags IS NOT NULL \
+            AND (t.collection_id IS NULL OR co.enabled = 1) \
+            LIMIT 1";
+        let json: Option<String> = conn
+            .query_row(sql, params![full_path], |row| row.get(0))
+            .optional()?;
+        Ok(json.and_then(|j| crate::models::ReplayGain::from_extra_tags_json(&j)))
+    }
+
+    /// Raw `extra_tags` JSON string for a library track by id (the catch-all of
+    /// file/Subsonic tag keys with no dedicated column). None if the track has none.
+    pub fn get_extra_tags(&self, track_id: i64) -> SqlResult<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT extra_tags FROM tracks WHERE id = ?1",
+            params![track_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(|opt| opt.flatten())
+    }
+
 
     #[cfg(any(debug_assertions, test))]
     pub fn clear_database(&self) -> SqlResult<()> {
@@ -496,12 +546,15 @@ impl Database {
         Ok(uris.iter().filter_map(|p| track_map.get(p).cloned()).collect())
     }
 
-    pub fn get_track_modified_at_by_path(&self, path: &str, collection_id: Option<i64>) -> Option<i64> {
+    /// (modified_at, whether `extra_tags` has been populated) for a track by path,
+    /// in one query — backs the scanner's incremental mtime skip *and* the
+    /// extra_tags backfill (re-read audio rows whose `extra_tags` is still NULL).
+    pub fn get_track_scan_state_by_path(&self, path: &str, collection_id: Option<i64>) -> Option<(Option<i64>, bool)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT modified_at FROM tracks WHERE path = ?1 AND collection_id IS ?2",
+            "SELECT modified_at, extra_tags IS NOT NULL FROM tracks WHERE path = ?1 AND collection_id IS ?2",
             params![path, collection_id],
-            |row| row.get(0),
+            |row| Ok((row.get::<_, Option<i64>>(0)?, row.get::<_, bool>(1)?)),
         )
         .optional()
         .ok()

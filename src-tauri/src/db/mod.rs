@@ -327,6 +327,7 @@ impl Database {
                 collection_id INTEGER REFERENCES collections(id),
                 liked         INTEGER NOT NULL DEFAULT 0,
                 year          INTEGER,
+                extra_tags    TEXT,
                 UNIQUE(collection_id, path)
             );
 
@@ -620,6 +621,21 @@ impl Database {
         if has_youtube_url_col {
             let conn = self.conn.lock().unwrap();
             conn.execute("ALTER TABLE tracks DROP COLUMN youtube_url", [])?;
+        }
+
+        // 6. Add tracks.extra_tags (a JSON catch-all for tag keys with no dedicated
+        //    column — ReplayGain values live here). Fresh DBs get it via init_tables;
+        //    pre-feature DBs need it added. Detected by schema presence (idempotent).
+        let has_extra_tags: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('tracks') WHERE name = 'extra_tags'",
+                [], |r| r.get::<_, i64>(0),
+            )? > 0
+        };
+        if !has_extra_tags {
+            let conn = self.conn.lock().unwrap();
+            conn.execute("ALTER TABLE tracks ADD COLUMN extra_tags TEXT", [])?;
         }
 
         Ok(())

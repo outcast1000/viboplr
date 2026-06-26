@@ -27,6 +27,27 @@ pub fn get_albums(
         .map_err(|e| e.to_string())
 }
 
+/// ReplayGain values for the track at `path` (parsed from its `extra_tags` JSON).
+/// Resolved on demand at play time, mirroring the name/path-based image lookups.
+#[tauri::command]
+pub fn get_replaygain_by_path(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<ReplayGain>, String> {
+    state.db.get_replaygain_by_path(&path).map_err(|e| e.to_string())
+}
+
+/// Raw extra tags (the catch-all of file/Subsonic tag keys with no dedicated
+/// column) for a library track, as a JSON object. Shown in Track Details.
+#[tauri::command]
+pub fn get_track_extra_tags(
+    state: State<'_, AppState>,
+    track_id: i64,
+) -> Result<Option<serde_json::Value>, String> {
+    let raw = state.db.get_extra_tags(track_id).map_err(|e| e.to_string())?;
+    Ok(raw.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()))
+}
+
 #[tauri::command]
 pub fn get_album_by_id(state: State<'_, AppState>, album_id: i64) -> Result<Option<Album>, String> {
     state.db.get_album_by_id(album_id).map_err(|e| e.to_string())
