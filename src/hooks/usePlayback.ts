@@ -710,6 +710,16 @@ export function usePlayback(
       if (!inactiveEl) return;
 
       inactiveEl.src = resolved.src;
+      // CRITICAL: a preloaded element must only buffer, never play, until
+      // startCrossfade/handleGaplessNext plays it intentionally. The inactive
+      // slot is usually a torn-down former-outgoing element whose `.paused` reads
+      // stale-`false` on WKWebView (see stopMediaElement's note) — and assigning a
+      // fresh `src` to an element whose paused flag is false makes WKWebView START
+      // PLAYING on assignment. That auto-start is the "two tracks at once / pause
+      // leaves one playing" bug: the preload sounds alongside the active track with
+      // no crossfade, and handlePause (active slot only) can't reach it. pause() is
+      // reliable now that a src is present, so force it back to paused immediately.
+      inactiveEl.pause();
       inactiveEl.volume = effectiveVolume();
       inactiveEl.preload = "auto";
       // Pre-apply RG to the inactive chain so the gapless/crossfade swap is already
@@ -722,6 +732,10 @@ export function usePlayback(
       const onCanPlay = () => {
         logPlayback(`Preload: audio ready for "${nextTrack.title}"`);
         preloadReadyRef.current = true;
+        // Belt-and-suspenders: WKWebView can (re)start a freshly-src'd element on
+        // its own once it has buffered. A ready preload must still be silent until
+        // it's intentionally played, so re-assert paused here too.
+        if (!inactiveEl.paused) inactiveEl.pause();
         inactiveEl.removeEventListener("canplay", onCanPlay);
       };
       inactiveEl.addEventListener("canplay", onCanPlay);
