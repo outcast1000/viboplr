@@ -15,7 +15,8 @@ import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
+import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { subscribeTrackEvents } from "./trackEvents";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
@@ -870,16 +871,23 @@ function App() {
     [playback.currentTrack, resolvedSource, downloadProviders],
   );
 
-  const handleDeleteTracks = useCallback((trackIds: number[]) => {
-    const idSet = new Set(trackIds);
-    const selected = library.tracks.filter(t => t.id != null && idSet.has(t.id));
-    const localIds = selected.filter(t => t.id != null && isLocalTrack(t)).map(t => t.id!);
-    if (localIds.length === 0) return;
-    const title = localIds.length === 1
-      ? (selected.find(t => t.id != null && t.id === localIds[0])?.title ?? "track")
-      : `${localIds.length} tracks`;
-    const network = selected.some(t => t.id != null && localIds.includes(t.id) && isNetworkSharePath(t.path));
-    contextMenuActions.setDeleteConfirm({ trackIds: localIds, title, network });
+  const handleDeleteTracks = useCallback(async (trackIds: number[]) => {
+    // library.tracks is paginated to the current view's first page, so a
+    // plugin-initiated delete (e.g. Duplicate Finder) can reference ids that
+    // were never loaded. Resolve those from the backend before building the
+    // confirm payload — otherwise off-page ids drop out and the delete no-ops.
+    const { loaded, missingIds } = partitionTrackIds(trackIds, library.tracks);
+    let resolved = loaded;
+    if (missingIds.length > 0) {
+      try {
+        const fetched = await invoke<Track[]>("get_tracks_by_ids", { ids: missingIds });
+        resolved = [...loaded, ...fetched];
+      } catch (e) {
+        console.error("Failed to resolve tracks for delete:", e);
+      }
+    }
+    const payload = buildDeleteConfirmPayload(resolved);
+    if (payload) contextMenuActions.setDeleteConfirm(payload);
   }, [library.tracks, contextMenuActions.setDeleteConfirm]);
 
   const buildAndShowNativeMenu = useCallback((cm: { x: number; y: number; target: import("./types/contextMenu").ContextMenuTarget }) => {
