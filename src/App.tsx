@@ -16,6 +16,7 @@ import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, isNetworkSharePath } from "./queueEntry";
+import { subscribeTrackEvents } from "./trackEvents";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
@@ -1881,6 +1882,23 @@ function App() {
       .catch(() => { if (!cancelled) setDetailTrack(null); });
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
+
+  // Keep the Track-detail header fresh on in-place track patches (e.g. a
+  // like/dislike). The detail view renders `detailTrackLocal ?? detailTrack`,
+  // and for tracks opened from the Library (SearchView keeps its own results)
+  // `detailTrackLocal` is null, so the backend-fetched `detailTrack` is what's
+  // shown — and nothing else patches it. Mirror the pattern used by SearchView
+  // and useEntityDetail: subscribe to trackEvents and patch by id.
+  useEffect(() => {
+    return subscribeTrackEvents(event => {
+      if (event.kind === "patch") {
+        setDetailTrack(prev => prev && prev.id === event.trackId ? { ...prev, ...event.patch } : prev);
+      } else {
+        const removed = new Set(event.trackIds);
+        setDetailTrack(prev => prev && prev.id != null && removed.has(prev.id) ? null : prev);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!restoredRef.current) return;
