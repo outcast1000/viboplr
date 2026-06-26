@@ -621,4 +621,189 @@ impl Database {
         }
         .optional()
     }
+
+    /// Group tracks that look like the same song into duplicate sets.
+    ///
+    /// Tracks are first bucketed by a diacritic-insensitive normalized
+    /// `title` + `artist` key — computed with the same registered
+    /// `strip_diacritics(unicode_lower(...))` SQL functions the rest of the
+    /// metadata-matching code uses (so "Björk" and "Bjork" land together).
+    /// Each bucket is then optionally subdivided so that copies only count as
+    /// duplicates when their duration and/or file size also agree within the
+    /// given tolerance (a track with a missing value is treated leniently — it
+    /// never forces a split). Buckets with fewer than two surviving copies are
+    /// dropped.
+    ///
+    /// Each returned inner `Vec` is one duplicate set (length >= 2), ordered
+    /// with the recommended keeper (highest quality copy) first so callers can
+    /// offer a "keep best, delete the rest" action without re-deriving it.
+    pub fn find_duplicate_groups(
+        &self,
+        match_duration: bool,
+        duration_tolerance_secs: f64,
+        match_size: bool,
+        size_tolerance_pct: f64,
+        local_only: bool,
+    ) -> SqlResult<Vec<Vec<Track>>> {
+        let conn = self.conn.lock().unwrap();
+
+        // Pull every candidate track ordered by its diacritic-normalized
+        // (title, artist) key so same-song copies are adjacent and can be
+        // bucketed in a single linear pass. The Rust key below
+        // (`duplicate_norm_key`) reproduces this exact ORDER BY because both
+        // call the same `strip_diacritics` Rust fn and `unicode_lower` is just
+        // `to_lowercase`, so adjacency and bucketing always agree.
+        let local_filter = if local_only { "AND co.kind = 'local'" } else { "" };
+        let sql = format!(
+            "{select} WHERE TRIM(t.title) != '' {enabled} {local} \
+             ORDER BY strip_diacritics(unicode_lower(TRIM(t.title))), \
+                      strip_diacritics(unicode_lower(TRIM(COALESCE(ar.name, '')))), t.id",
+            select = TRACK_SELECT,
+            enabled = ENABLED_COLLECTION_FILTER,
+            local = local_filter,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |row| {
+            let track = track_from_row(row)?;
+            let key = duplicate_norm_key(&track);
+            Ok((key, track))
+        })?;
+
+        let mut buckets: Vec<Vec<Track>> = Vec::new();
+        let mut cur_key: Option<String> = None;
+        let mut cur: Vec<Track> = Vec::new();
+        for row in rows {
+            let (key, track) = row?;
+            if cur_key.as_deref() == Some(key.as_str()) {
+                cur.push(track);
+            } else {
+                if cur.len() >= 2 {
+                    buckets.push(std::mem::take(&mut cur));
+                } else {
+                    cur.clear();
+                }
+                cur_key = Some(key);
+                cur.push(track);
+            }
+        }
+        if cur.len() >= 2 {
+            buckets.push(cur);
+        }
+
+        let mut groups: Vec<Vec<Track>> = Vec::new();
+        for bucket in buckets {
+            for mut group in subdivide_duplicate_bucket(
+                bucket,
+                match_duration,
+                duration_tolerance_secs,
+                match_size,
+                size_tolerance_pct,
+            ) {
+                if group.len() < 2 {
+                    continue;
+                }
+                // Keeper-first: best quality copy at index 0.
+                group.sort_by(|a, b| duplicate_quality_key(b).cmp(&duplicate_quality_key(a)));
+                groups.push(group);
+            }
+        }
+        // Most copies first — the worst offenders surface at the top.
+        groups.sort_by(|a, b| b.len().cmp(&a.len()));
+        Ok(groups)
+    }
+}
+
+/// Diacritic-insensitive `(title, artist)` bucket key. Matches the SQL
+/// `strip_diacritics(unicode_lower(TRIM(...)))` ordering used by
+/// `find_duplicate_groups` exactly: both call the same `strip_diacritics` Rust
+/// fn and `unicode_lower` is `to_lowercase`, so a Rust key and the SQL sort key
+/// can never disagree on which rows are adjacent.
+fn duplicate_norm_key(t: &Track) -> String {
+    let title = strip_diacritics(&t.title.trim().to_lowercase());
+    let artist = strip_diacritics(&t.artist_name.as_deref().unwrap_or("").trim().to_lowercase());
+    format!("{title}\u{1f}{artist}")
+}
+
+/// Within a single title+artist bucket, split copies into clusters that also
+/// agree on duration and/or file size (greedy: a copy joins the first cluster
+/// whose representative it matches, else starts its own). When neither extra
+/// dimension is requested the whole bucket stays one cluster.
+fn subdivide_duplicate_bucket(
+    bucket: Vec<Track>,
+    match_duration: bool,
+    duration_tolerance_secs: f64,
+    match_size: bool,
+    size_tolerance_pct: f64,
+) -> Vec<Vec<Track>> {
+    if !match_duration && !match_size {
+        return vec![bucket];
+    }
+    let mut clusters: Vec<Vec<Track>> = Vec::new();
+    'next: for track in bucket {
+        for cluster in clusters.iter_mut() {
+            if duplicate_tracks_similar(
+                &cluster[0],
+                &track,
+                match_duration,
+                duration_tolerance_secs,
+                match_size,
+                size_tolerance_pct,
+            ) {
+                cluster.push(track);
+                continue 'next;
+            }
+        }
+        clusters.push(vec![track]);
+    }
+    clusters
+}
+
+/// Whether two same-song copies agree closely enough on the requested
+/// dimensions. A missing value on either side passes that dimension (lenient,
+/// so sparse metadata never over-splits a real duplicate).
+fn duplicate_tracks_similar(
+    a: &Track,
+    b: &Track,
+    match_duration: bool,
+    duration_tolerance_secs: f64,
+    match_size: bool,
+    size_tolerance_pct: f64,
+) -> bool {
+    if match_duration {
+        if let (Some(da), Some(db)) = (a.duration_secs, b.duration_secs) {
+            if (da - db).abs() > duration_tolerance_secs {
+                return false;
+            }
+        }
+    }
+    if match_size {
+        if let (Some(sa), Some(sb)) = (a.file_size, b.file_size) {
+            let max = sa.max(sb).max(1) as f64;
+            if ((sa - sb).abs() as f64) / max > size_tolerance_pct {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Comparable quality ranking for a copy, highest = best keeper. Prefers a
+/// local file over a remote one, lossless over lossy, higher bitrate, larger
+/// file, a liked copy, and finally the lower (older) id as a stable tiebreak.
+fn duplicate_quality_key(t: &Track) -> (i32, i32, i64, i64, i32, std::cmp::Reverse<i64>) {
+    let local = if t.path.starts_with("file://") { 1 } else { 0 };
+    let lossless = match t.format.as_deref() {
+        Some(f) if matches!(
+            f.to_ascii_lowercase().as_str(),
+            "flac" | "wav" | "alac" | "aiff" | "aif" | "ape" | "wv"
+        ) => 1,
+        _ => 0,
+    };
+    let bitrate = match (t.file_size, t.duration_secs) {
+        (Some(sz), Some(d)) if d > 0.0 => ((sz as f64) * 8.0 / d / 1000.0) as i64,
+        _ => 0,
+    };
+    let size = t.file_size.unwrap_or(0);
+    let liked = if t.liked > 0 { 1 } else { 0 };
+    (local, lossless, bitrate, size, liked, std::cmp::Reverse(t.id))
 }

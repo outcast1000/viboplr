@@ -461,6 +461,18 @@ export function usePlugins(
             if (fields.tag_names !== undefined) out.tag_names = fields.tag_names;
             return invoke<string[]>("bulk_update_tracks", { trackIds, fields: out });
           },
+          async findDuplicates(opts) {
+            // Backend groups by diacritic-normalized title+artist (reusing the
+            // shared strip_diacritics/unicode_lower SQL fns), optionally
+            // constrained by duration/size tolerance. Each group is keeper-first.
+            return invoke<Track[][]>("find_duplicate_tracks", {
+              matchDuration: opts?.matchDuration ?? false,
+              durationToleranceSecs: opts?.durationToleranceSecs ?? 2,
+              matchSize: opts?.matchSize ?? false,
+              sizeTolerancePct: opts?.sizeTolerancePct ?? 0.05,
+              localOnly: opts?.localOnly ?? true,
+            });
+          },
           onTrackAdded: (handler) =>
             subscribeEvent(
               "track:added",

@@ -744,6 +744,55 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_find_duplicate_groups_normalizes_and_ranks() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        // Accented + unaccented spellings of the same artist/title must fold
+        // together via strip_diacritics/unicode_lower.
+        let bjork_accented = db.get_or_create_artist("Björk").unwrap();
+        let bjork_plain = db.get_or_create_artist("Bjork").unwrap();
+        db.upsert_track("a/joga.flac", "Jóga", Some(bjork_accented), None, None,
+            Some(300.0), Some("flac"), Some(30_000_000), None, Some(cid), None).unwrap();
+        db.upsert_track("b/joga.mp3", "Joga", Some(bjork_plain), None, None,
+            Some(301.0), Some("mp3"), Some(7_000_000), None, Some(cid), None).unwrap();
+        // A song held only once is not a duplicate.
+        db.upsert_track("c/army.mp3", "Army of Me", Some(bjork_accented), None, None,
+            Some(200.0), Some("mp3"), Some(5_000_000), None, Some(cid), None).unwrap();
+
+        let groups = db.find_duplicate_groups(false, 2.0, false, 0.05, true).unwrap();
+        assert_eq!(groups.len(), 1, "diacritic-folded copies should form one group");
+        assert_eq!(groups[0].len(), 2);
+        // Keeper-first: the lossless FLAC outranks the lossy MP3.
+        assert_eq!(groups[0][0].format.as_deref(), Some("flac"));
+        assert_eq!(groups[0][1].format.as_deref(), Some("mp3"));
+    }
+
+    #[test]
+    fn test_find_duplicate_groups_duration_tolerance_splits() {
+        let db = test_db();
+        let cid = test_collection(&db);
+        let artist = db.get_or_create_artist("Artist").unwrap();
+        // Three same-title copies; one is a very different length (a long edit).
+        db.upsert_track("x/s1.mp3", "Song", Some(artist), None, None,
+            Some(180.0), Some("mp3"), Some(5_000_000), None, Some(cid), None).unwrap();
+        db.upsert_track("y/s2.mp3", "Song", Some(artist), None, None,
+            Some(181.0), Some("mp3"), Some(5_100_000), None, Some(cid), None).unwrap();
+        db.upsert_track("z/s3.mp3", "Song", Some(artist), None, None,
+            Some(420.0), Some("mp3"), Some(11_000_000), None, Some(cid), None).unwrap();
+
+        // Title+artist only: all three land in one group.
+        let loose = db.find_duplicate_groups(false, 2.0, false, 0.05, true).unwrap();
+        assert_eq!(loose.len(), 1);
+        assert_eq!(loose[0].len(), 3);
+
+        // With duration matching (±2s) the 420s outlier splits off, leaving the
+        // two ~180s copies as the only surviving duplicate set.
+        let strict = db.find_duplicate_groups(true, 2.0, false, 0.05, true).unwrap();
+        assert_eq!(strict.len(), 1);
+        assert_eq!(strict[0].len(), 2);
+    }
+
     /// Helper: create a test collection and return its id.
     /// Uses upsert semantics so repeated calls return the same collection.
     fn test_collection(db: &Database) -> i64 {

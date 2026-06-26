@@ -1,0 +1,21 @@
+{
+  "id": "duplicate-finder",
+  "name": "Duplicate Finder",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Find duplicate tracks in your library — the same song downloaded twice or sitting in two folders — and reclaim space by deleting the extra copies. Grouping is diacritic-insensitive (Björk = Bjork) and can optionally require duration and file-size to match too.",
+  "minAppVersion": "0.9.136",
+  "icon": "M9 9h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
+  "apiUsage": [
+    { "api": "library.findDuplicates", "reason": "Group library tracks that share a normalized title and artist to surface duplicates" },
+    { "api": "ui.requestAction", "reason": "Hand deletes to the app's standard delete-with-confirmation flow" },
+    { "api": "playback.playTracks", "reason": "Play a copy so you can compare it before deleting" },
+    { "api": "storage.set", "reason": "Remember your duplicate-matching options between sessions" }
+  ],
+  "contributes": {
+    "sidebarItems": [
+      { "id": "duplicate-finder", "label": "Duplicates", "icon": "M9 9h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V11a2 2 0 0 1 2-2zM5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" }
+    ],
+    "eventHooks": ["track:removed", "track:added", "scan:complete"]
+  }
+}

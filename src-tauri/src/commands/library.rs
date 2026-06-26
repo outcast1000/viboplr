@@ -178,6 +178,31 @@ pub fn find_track_id_by_path(
     state.db.find_track_id_by_path(&path).map_err(|e| e.to_string())
 }
 
+/// Find duplicate tracks grouped by normalized title + artist, optionally
+/// constrained to copies that also match on duration and/or file size within
+/// the given tolerances. Returns one keeper-first group per duplicate set.
+/// Backs the Duplicate Finder plugin (`api.library.findDuplicates`).
+#[tauri::command]
+pub fn find_duplicate_tracks(
+    state: State<'_, AppState>,
+    match_duration: bool,
+    duration_tolerance_secs: f64,
+    match_size: bool,
+    size_tolerance_pct: f64,
+    local_only: bool,
+) -> Result<Vec<Vec<Track>>, String> {
+    state
+        .db
+        .find_duplicate_groups(
+            match_duration,
+            duration_tolerance_secs,
+            match_size,
+            size_tolerance_pct,
+            local_only,
+        )
+        .map_err(|e| e.to_string())
+}
+
 // --- Track path command ---
 
 #[tauri::command]

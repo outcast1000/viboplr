@@ -975,6 +975,15 @@ function App() {
       } else if (action === "navigate-to-track") {
         pushStateRef.current();
         library.navigateToTrackByName(payload.name as string, payload.artistName as string | undefined, payload.albumTitle as string | undefined);
+      } else if (action === "delete-tracks") {
+        // Route a plugin-initiated delete through the canonical delete flow
+        // (confirm modal → delete_tracks → library/queue cleanup → track:removed).
+        // handleDeleteTracks already filters to local, deletable copies and
+        // computes the network-share permanent-delete warning.
+        const ids = ((payload as { trackIds?: unknown }).trackIds);
+        if (Array.isArray(ids)) {
+          handleDeleteTracks(ids.filter((x): x is number => typeof x === "number"));
+        }
       } else if (action === "refresh-library") {
         library.loadLibrary();
         library.loadTracks();

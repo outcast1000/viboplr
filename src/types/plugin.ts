@@ -411,6 +411,19 @@ export interface PluginLibraryAPI {
     year?: number | null;
     tag_names?: string[] | null;
   }): Promise<string[]>;
+  /**
+   * Find duplicate tracks grouped by diacritic-normalized title + artist.
+   * Optionally require copies to also match on duration and/or file size
+   * within tolerance. Each returned group (length >= 2) is keeper-first:
+   * `group[0]` is the highest-quality copy to keep.
+   */
+  findDuplicates(opts?: {
+    matchDuration?: boolean;
+    durationToleranceSecs?: number;
+    matchSize?: boolean;
+    sizeTolerancePct?: number;
+    localOnly?: boolean;
+  }): Promise<Track[][]>;
   onTrackAdded(handler: (track: { trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }) => void): () => void;
   onTrackRemoved(handler: (track: { trackId: number; path: string }) => void): () => void;
   onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;
