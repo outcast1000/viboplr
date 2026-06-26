@@ -63,15 +63,16 @@
   --ds-disabled-opacity: 0.5;
 
   /* Typography scale */
-  /* Denser, tighter ramp (~1.2) suited to a data-rich library/queue app.
-     base dropped 17→15; reserve the large steps for detail-page hero titles. */
+  /* Tight ramp (~1.2) suited to a data-rich library/queue app, with a
+     slightly more readable body: base 15→16. Micro-label floor (2xs/xs)
+     kept small for density; large steps reserved for detail-page hero titles. */
   --fs-2xs: 11px;
   --fs-xs: 12px;
-  --fs-sm: 13px;
-  --fs-base: 15px;
-  --fs-lg: 18px;
-  --fs-xl: 22px;
-  --fs-2xl: 28px;
+  --fs-sm: 14px;
+  --fs-base: 16px;
+  --fs-lg: 19px;
+  --fs-xl: 23px;
+  --fs-2xl: 30px;
 }
 
 [data-skin-type="light"] {
