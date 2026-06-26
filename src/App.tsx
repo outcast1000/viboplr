@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { exit } from "@tauri-apps/plugin-process";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "./utils/tauriEvents";
 import "./base.css";
 import "./design-system.css";
 import "./App.css";
@@ -1338,26 +1338,24 @@ function App() {
         }
       }
     }
-    const unlistenEvent = listen<string>("deep-link-received", (event) => {
+    const stopDeepLink = subscribe<string>("deep-link-received", (event) => {
       handleDeepLink([event.payload]);
     });
     // Check for URLs that arrived before listeners were registered
     getDeepLinkCurrent().then((urls) => {
       if (urls && urls.length > 0) handleDeepLink(urls);
     }).catch(() => {}); // Fire-and-forget: deep link check on startup — no URLs is the common case
-    return () => {
-      unlistenEvent.then(f => f());
-    };
+    return stopDeepLink;
   }, [plugins.forwardDeepLink]);
 
   // Listen for mixtape file opened events (from file association / CLI) — play immediately
   useEffect(() => {
-    const unlistenMixtapeOpen = listen<string>("mixtape-file-opened", (event) => {
+    const stopMixtapeOpen = subscribe<string>("mixtape-file-opened", (event) => {
       invoke("import_mixtape", { path: event.payload, mode: "just_play", destDir: null })
         .catch(err => console.error("Failed to play mixtape:", err));
     });
 
-    const unlistenJustPlay = listen<{ tracks: Track[]; coverPath?: string | null; title?: string; metadata?: Record<string, string> | null }>("mixtape-just-play", (event) => {
+    const stopJustPlay = subscribe<{ tracks: Track[]; coverPath?: string | null; title?: string; metadata?: Record<string, string> | null }>("mixtape-just-play", (event) => {
       if (mixtapePreviewPath) return;
       const { tracks, coverPath, title, metadata } = event.payload;
       const queueTracks: QueueTrack[] = tracks.map(t => ({
@@ -1375,10 +1373,7 @@ function App() {
       queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(name, coverPath ?? null, metadata ?? null));
     });
 
-    return () => {
-      unlistenMixtapeOpen.then(f => f());
-      unlistenJustPlay.then(f => f());
-    };
+    return combineUnlisten(stopMixtapeOpen, stopJustPlay);
   }, [mixtapePreviewPath, queueHook.playTracks]);
 
   // Handle drag-and-drop of .mixtape files onto the window — play immediately
@@ -1975,7 +1970,7 @@ function App() {
   // When a backend image fetch completes, update currentTrack if it's still missing artwork
   useEffect(() => {
     const norm = (s: string | null | undefined) => (s ?? "").toLowerCase();
-    const unlistenAlbum = listen<{ title: string; artist_name?: string | null; path: string }>("album-image-ready", (event) => {
+    const stopAlbum = subscribe<{ title: string; artist_name?: string | null; path: string }>("album-image-ready", (event) => {
       const { title, artist_name, path } = event.payload;
       playback.setCurrentTrack(prev => {
         if (!prev || prev.image_url) return prev;
@@ -1984,7 +1979,7 @@ function App() {
         return { ...prev, image_url: path };
       });
     });
-    const unlistenArtist = listen<{ name: string; path: string }>("artist-image-ready", (event) => {
+    const stopArtist = subscribe<{ name: string; path: string }>("artist-image-ready", (event) => {
       const { name, path } = event.payload;
       playback.setCurrentTrack(prev => {
         if (!prev || prev.image_url) return prev;
@@ -1992,10 +1987,7 @@ function App() {
         return { ...prev, image_url: path };
       });
     });
-    return () => {
-      unlistenAlbum.then(f => f());
-      unlistenArtist.then(f => f());
-    };
+    return combineUnlisten(stopAlbum, stopArtist);
   }, [playback.setCurrentTrack]);
 
 
@@ -2079,7 +2071,7 @@ function App() {
   useEffect(() => {
     const idOf = (title: string | null, artist: string | null) =>
       `${(title ?? "").toLowerCase()}:${(artist ?? "").toLowerCase()}`;
-    const unlisten = listen("entity-likes-changed", async () => {
+    return subscribe("entity-likes-changed", async () => {
       const items: { title: string; artistName: string | null }[] = [];
       const seen = new Set<string>();
       const push = (t: QueueTrack | null) => {
@@ -2115,7 +2107,6 @@ function App() {
         console.error("Failed to reconcile like states after change:", e);
       }
     });
-    return () => { unlisten.then(f => f()); };
   }, [playback.setCurrentTrack, queueHook.setQueue]);
 
   prefetchNextRef.current = () => {

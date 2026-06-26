@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { type PluginState } from "../types/plugin";
 
 export interface InstallInstructions {
@@ -75,7 +75,7 @@ export function useDependencies(pluginStates: PluginState[]) {
   const shownModalsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    const unlistenProgress = listen<{ name: string; downloaded: number; total: number | null }>(
+    const stopProgress = subscribe<{ name: string; downloaded: number; total: number | null }>(
       "dependency-install-progress",
       (event) => {
         const { name, downloaded, total } = event.payload;
@@ -84,7 +84,7 @@ export function useDependencies(pluginStates: PluginState[]) {
     );
     // Background auto-updater replaced a managed copy — drop the stale
     // cached check so the next look re-probes, and leave a log trail.
-    const unlistenUpdated = listen<{ name: string; from: string; to: string }>(
+    const stopUpdated = subscribe<{ name: string; from: string; to: string }>(
       "dependency-updated",
       (event) => {
         const { name, from, to } = event.payload;
@@ -98,10 +98,7 @@ export function useDependencies(pluginStates: PluginState[]) {
         }).catch(() => {}); // Fire-and-forget: log-trail only, no user impact on failure
       },
     );
-    return () => {
-      unlistenProgress.then((fn) => fn()).catch(console.error);
-      unlistenUpdated.then((fn) => fn()).catch(console.error);
-    };
+    return combineUnlisten(stopProgress, stopUpdated);
   }, []);
 
   const getPluginDeps = useCallback(() => {

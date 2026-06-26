@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import type {
   ExtensionUpdate,
   ExtensionItem,
@@ -72,21 +72,18 @@ export function useExtensions(props: UseExtensionsProps) {
 
   // Listen for background update events
   useEffect(() => {
-    const unlisten = listen<ExtensionUpdate[]>(
+    const stopUpdates = subscribe<ExtensionUpdate[]>(
       "extensions-updates-available",
       (event) => {
         setUpdates(event.payload);
         setLastChecked(Date.now());
       },
     );
-    const unlisten2 = listen<string>("extension-update-installed", () => {
+    const stopInstalled = subscribe<string>("extension-update-installed", () => {
       // Background re-check — silent so it never pops a modal unprompted.
       checkForUpdates({ silent: true });
     });
-    return () => {
-      unlisten.then((f) => f());
-      unlisten2.then((f) => f());
-    };
+    return combineUnlisten(stopUpdates, stopInstalled);
   }, []);
 
   const checkForUpdates = useCallback(

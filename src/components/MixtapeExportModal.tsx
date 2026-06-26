@@ -1,6 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
 import { formatDuration, formatFileSize } from "../utils";
 import { MIXTAPE_FORMAT_LADDER, MIXTAPE_FORMAT_DEFAULT } from "../utils/mixtapeFormatLadder";
@@ -237,11 +237,11 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
   }, [exporting, onClose]);
 
   useEffect(() => {
-    const unlistenProgress = listen<MixtapeExportProgress>("mixtape-export-progress", (event) => {
+    const stopProgress = subscribe<MixtapeExportProgress>("mixtape-export-progress", (event) => {
       setProgress(event.payload);
     });
 
-    const unlistenComplete = listen<{ path: string; fileSize: number; skipped?: string[] }>("mixtape-export-complete", (event) => {
+    const stopComplete = subscribe<{ path: string; fileSize: number; skipped?: string[] }>("mixtape-export-complete", (event) => {
       setExporting(false);
       const { fileSize, skipped } = event.payload;
       const sizeMb = (fileSize / (1024 * 1024)).toFixed(1);
@@ -252,17 +252,13 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
       setExportResult(msg);
     });
 
-    const unlistenError = listen<{ message: string } | string>("mixtape-export-error", (event) => {
+    const stopError = subscribe<{ message: string } | string>("mixtape-export-error", (event) => {
       const payload = event.payload;
       setError(typeof payload === "string" ? payload : payload?.message ?? "Export failed");
       setExporting(false);
     });
 
-    return () => {
-      unlistenProgress.then((fn) => fn());
-      unlistenComplete.then((fn) => fn());
-      unlistenError.then((fn) => fn());
-    };
+    return combineUnlisten(stopProgress, stopComplete, stopError);
   }, [onClose]);
 
   const mixtapeTypeLabel = (type: MixtapeType): string => {

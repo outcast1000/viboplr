@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../utils/tauriEvents";
 import type { ImageFetchResult } from "../types/plugin";
 
 type InvokeImageFetch = (
@@ -12,7 +12,7 @@ type InvokeImageFetch = (
 
 export function useImageResolver(invokeImageFetch: InvokeImageFetch) {
   useEffect(() => {
-    const unlisten = listen<{
+    return subscribe<{
       request_id: string;
       entity: "artist" | "album" | "tag";
       id: number;
@@ -65,9 +65,5 @@ export function useImageResolver(invokeImageFetch: InvokeImageFetch) {
         }).catch(() => {}); // Fire-and-forget: error already reported in the response payload
       }
     });
-
-    return () => {
-      unlisten.then((f) => f());
-    };
   }, [invokeImageFetch]);
 }

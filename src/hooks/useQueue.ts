@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../utils/tauriEvents";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { QueueTrack, PlaylistLoadResult, PlaylistEntry, QueueMode } from "../types";
 import { trackToQueueEntry, queueEntryToQueueTrack, nextExternalKey } from "../queueEntry";
@@ -31,7 +31,7 @@ export function useQueue(
   const [thumbInfo, setThumbInfo] = useState<Record<string, ThumbInfo>>({});
 
   useEffect(() => {
-    const unlisten = listen<{ key: string; filename: string }>("main-playlist-thumb-ready", (event) => {
+    return subscribe<{ key: string; filename: string }>("main-playlist-thumb-ready", (event) => {
       const key = event.payload?.key;
       const filename = event.payload?.filename;
       if (!key || !filename) return;
@@ -40,7 +40,6 @@ export function useQueue(
       // single source of truth, so there's no JS slug mirror to drift).
       setThumbInfo(prev => ({ ...prev, [key]: { version: (prev[key]?.version ?? 0) + 1, filename } }));
     });
-    return () => { unlisten.then(fn => fn()).catch(console.error); };
   }, []);
 
   const queueRef = useRef(queue);

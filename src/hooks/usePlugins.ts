@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { subscribe, safeUnlisten } from "../utils/tauriEvents";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
@@ -769,15 +770,16 @@ export function usePlugins(
             );
             unlisteners.push(closeUnlisten);
 
-            // Clean up listeners when plugin deactivates
-            for (const ul of unlisteners) trackUnsubscribe(ul);
+            // Clean up listeners when plugin deactivates (safeUnlisten guards the
+            // tauri 2.11 stale-id rejection if the same handle is also close()d).
+            for (const ul of unlisteners) trackUnsubscribe(() => safeUnlisten(ul));
 
             return {
               async eval(js: string) {
                 await invoke("browse_window_eval", { label, js });
               },
               async close() {
-                for (const ul of unlisteners) ul();
+                for (const ul of unlisteners) safeUnlisten(ul);
                 await invoke("close_browse_window", { label });
               },
               async show() {
@@ -1170,7 +1172,7 @@ export function usePlugins(
 
   // Listen for scheduler due events from the Rust backend
   useEffect(() => {
-    const unlisten = listen<{ pluginId: string; taskId: string }>(
+    return subscribe<{ pluginId: string; taskId: string }>(
       "plugin-scheduler-due",
       (event) => {
         const { pluginId, taskId } = event.payload;
@@ -1182,7 +1184,6 @@ export function usePlugins(
         }
       }
     );
-    return () => { unlisten.then(fn => fn()); };
   }, []);
 
   // Deactivate and clean up a single plugin

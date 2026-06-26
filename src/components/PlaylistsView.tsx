@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { formatDuration } from "../utils";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
@@ -135,7 +135,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   }, [loadPlaylists]);
 
   useEffect(() => {
-    const unLikes = listen("entity-likes-changed", () => {
+    const stopLikes = subscribe("entity-likes-changed", () => {
       loadPlaylists().catch(console.error);
       setSelectedPlaylist(prev => {
         if (prev && prev.system_kind) {
@@ -148,13 +148,10 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     });
     // Reload when a playlist is saved/deleted anywhere (queue "Save as Playlist",
     // plugin saves, etc.) so a mounted Playlists view stays current.
-    const unPlaylists = listen("playlists-changed", () => {
+    const stopPlaylists = subscribe("playlists-changed", () => {
       loadPlaylists().catch(console.error);
     });
-    return () => {
-      unLikes.then(f => f()).catch(console.error);
-      unPlaylists.then(f => f()).catch(console.error);
-    };
+    return combineUnlisten(stopLikes, stopPlaylists);
   }, [loadPlaylists]);
 
   const openPlaylist = useCallback(async (pl: Playlist) => {

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { getCurrentWindow, availableMonitors } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../utils/tauriEvents";
 import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
 import { applyWebviewZoom } from "../utils/zoom";
@@ -513,10 +513,9 @@ export function useMiniMode(
 
   useEffect(() => {
     if (!miniMode) return;
-    const unlisten = listen("restore-from-mini", () => {
+    return subscribe("restore-from-mini", () => {
       if (miniModeRef.current) toggleMiniMode();
     });
-    return () => { unlisten.then(f => f()); };
   }, [miniMode, toggleMiniMode]);
 
   useEffect(() => {
@@ -535,14 +534,14 @@ export function useMiniMode(
       isExpanded: () => miniExpandedRef.current,
     });
 
-    const unlistenEnter = listen("mini-cursor-entered", () => { cursorOverRef.current = true; controller.handleEnter(); });
-    const unlistenLeave = listen("mini-cursor-left", () => { cursorOverRef.current = false; controller.handleLeave(); });
+    const stopEnter = subscribe("mini-cursor-entered", () => { cursorOverRef.current = true; controller.handleEnter(); });
+    const stopLeave = subscribe("mini-cursor-left", () => { cursorOverRef.current = false; controller.handleLeave(); });
 
     return () => {
       controller.cancel();
       invoke("set_cursor_tracker", { active: false }).catch(console.error);
-      unlistenEnter.then((f) => f());
-      unlistenLeave.then((f) => f());
+      stopEnter();
+      stopLeave();
     };
   }, [miniMode, expandMini, collapseMini]);
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../../utils/tauriEvents";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../../types/plugin";
 import { formatDuration, formatFileSize } from "../../utils";
@@ -436,10 +436,9 @@ export function SingleTrackDownload({
     const eventName = isUpgrade && !showDestPicker
       ? "upgrade-download-progress"
       : "direct-download-progress";
-    const unlisten = listen<number>(eventName, (event) => {
+    return subscribe<number>(eventName, (event) => {
       setDownloadProgress(event.payload);
     });
-    return () => { unlisten.then((fn) => fn()); };
   }, [step, isUpgrade, showDestPicker]);
 
   return (

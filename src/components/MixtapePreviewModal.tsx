@@ -1,6 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
 import type { MixtapePreview, MixtapeImportProgress, Track } from "../types";
 import { formatDuration, formatFileSize } from "../utils";
@@ -62,26 +62,26 @@ export function MixtapePreviewModal({
 
   // Listen for import progress events
   useEffect(() => {
-    const unlistenProgress = listen<MixtapeImportProgress>(
+    const stopProgress = subscribe<MixtapeImportProgress>(
       "mixtape-import-progress",
       (event) => {
         setProgress(event.payload);
       }
     );
 
-    const unlistenComplete = listen("mixtape-import-complete", () => {
+    const stopComplete = subscribe("mixtape-import-complete", () => {
       setImporting(false);
       setProgress(null);
       onClose();
     });
 
-    const unlistenError = listen<string>("mixtape-import-error", (event) => {
+    const stopError = subscribe<string>("mixtape-import-error", (event) => {
       setError(event.payload);
       setImporting(false);
       setProgress(null);
     });
 
-    const unlistenJustPlay = listen<{ tracks: Track[]; coverPath?: string }>("mixtape-just-play", (event) => {
+    const stopJustPlay = subscribe<{ tracks: Track[]; coverPath?: string }>("mixtape-just-play", (event) => {
       if (onQueueTracks && preview) {
         const meta = preview.manifest.metadata && Object.keys(preview.manifest.metadata).length > 0
           ? preview.manifest.metadata as Record<string, string>
@@ -95,12 +95,7 @@ export function MixtapePreviewModal({
       onClose();
     });
 
-    return () => {
-      unlistenProgress.then((fn) => fn());
-      unlistenComplete.then((fn) => fn());
-      unlistenError.then((fn) => fn());
-      unlistenJustPlay.then((fn) => fn());
-    };
+    return combineUnlisten(stopProgress, stopComplete, stopError, stopJustPlay);
   }, [onClose, onQueueTracks, preview]);
 
   const handleImport = useCallback(

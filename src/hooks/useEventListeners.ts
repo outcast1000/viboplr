@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 
 interface ResyncProgress {
   collectionId: number;
@@ -57,7 +57,7 @@ export function useEventListeners(opts: EventListenerOptions) {
   // Scan events
   useEffect(() => {
     let scanStarted = false;
-    const unlisten1 = listen<{ folder: string; scanned: number; total: number; collection_id?: number }>(
+    const stopProgress = subscribe<{ folder: string; scanned: number; total: number; collection_id?: number }>(
       "scan-progress",
       (event) => {
         if (!scanStarted) {
@@ -77,7 +77,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         }
       }
     );
-    const unlisten2 = listen<{ folder?: string; collectionId?: number; newTracks?: number; removedTracks?: number }>("scan-complete", (event) => {
+    const stopComplete = subscribe<{ folder?: string; collectionId?: number; newTracks?: number; removedTracks?: number }>("scan-complete", (event) => {
       scanStarted = false;
       setScanning(false);
       onResyncDone?.();
@@ -101,16 +101,13 @@ export function useEventListeners(opts: EventListenerOptions) {
       });
     });
 
-    return () => {
-      unlisten1.then((f) => f());
-      unlisten2.then((f) => f());
-    };
+    return combineUnlisten(stopProgress, stopComplete);
   }, [loadLibrary, loadTracks, resyncingCollectionName]);
 
   // Sync events
   useEffect(() => {
     let syncStarted = false;
-    const unlisten1 = listen<{ collection: string; synced: number; total: number; collection_id?: number }>(
+    const stopProgress = subscribe<{ collection: string; synced: number; total: number; collection_id?: number }>(
       "sync-progress",
       (event) => {
         if (!syncStarted) {
@@ -134,7 +131,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         }
       }
     );
-    const unlisten2 = listen<{ collectionId: number; newTracks?: number; removedTracks?: number }>("sync-complete", (event) => {
+    const stopComplete = subscribe<{ collectionId: number; newTracks?: number; removedTracks?: number }>("sync-complete", (event) => {
       syncStarted = false;
       setSyncing(false);
       onResyncDone?.();
@@ -155,7 +152,7 @@ export function useEventListeners(opts: EventListenerOptions) {
         removedTracks: event.payload.removedTracks ?? 0,
       });
     });
-    const unlisten3 = listen<{ collectionId: number; error: string }>("sync-error", (event) => {
+    const stopError = subscribe<{ collectionId: number; error: string }>("sync-error", (event) => {
       syncStarted = false;
       setSyncing(false);
       console.error("Sync error:", event.payload.error);
@@ -175,24 +172,16 @@ export function useEventListeners(opts: EventListenerOptions) {
       onLibraryChanged?.();
     });
 
-    return () => {
-      unlisten1.then((f) => f());
-      unlisten2.then((f) => f());
-      unlisten3.then((f) => f());
-    };
+    return combineUnlisten(stopProgress, stopComplete, stopError);
   }, [loadLibrary, loadTracks, resyncingCollectionName]);
 
   // Bulk edit events
   useEffect(() => {
-    const unlisten = listen("bulk-edit-complete", () => {
+    return subscribe("bulk-edit-complete", () => {
       loadLibrary();
       loadTracks();
       onBulkEditComplete?.();
     });
-
-    return () => {
-      unlisten.then((f) => f());
-    };
     // onBulkEditComplete called via closure (stable functional setter) — kept out
     // of deps to match the other optional callbacks and avoid re-subscribing.
   }, [loadLibrary, loadTracks]);
@@ -202,42 +191,36 @@ export function useEventListeners(opts: EventListenerOptions) {
   // on success so the new track appears.
   useEffect(() => {
     const notify = opts.notify;
-    const unlistenComplete = listen<{ trackTitle?: string }>("download-complete", (e) => {
+    const stopComplete = subscribe<{ trackTitle?: string }>("download-complete", (e) => {
       const title = e.payload?.trackTitle;
       notify?.(title ? `Downloaded “${title}”` : "Download complete");
       loadLibrary();
       loadTracks();
     });
-    const unlistenError = listen<{ trackTitle?: string; error?: string }>("download-error", (e) => {
+    const stopError = subscribe<{ trackTitle?: string; error?: string }>("download-error", (e) => {
       const title = e.payload?.trackTitle ?? "track";
       const reason = e.payload?.error ? ` — ${e.payload.error}` : "";
       notify?.(`Download failed: “${title}”${reason}`);
     });
 
-    return () => {
-      unlistenComplete.then((f) => f());
-      unlistenError.then((f) => f());
-    };
+    return combineUnlisten(stopComplete, stopError);
   }, [loadLibrary, loadTracks, opts.notify]);
 
   // Library change events — bridged to plugin event system
   useEffect(() => {
-    const unlisten1 = listen<{ trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }>(
+    const stopAdded = subscribe<{ trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }>(
       "track-added",
       (event) => {
         opts.dispatchPluginEvent?.("track:added" as any, event.payload);
       }
     );
-    const unlisten2 = listen<{ trackId: number; path: string }>(
+    const stopRemoved = subscribe<{ trackId: number; path: string }>(
       "track-removed",
       (event) => {
         opts.dispatchPluginEvent?.("track:removed" as any, event.payload);
       }
     );
 
-    return () => {
-      unlisten1.then((f) => f());
-      unlisten2.then((f) => f());
-    };
+    return combineUnlisten(stopAdded, stopRemoved);
   }, []);
 }

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../utils/tauriEvents";
 import type { Track, QueueTrack } from "../types";
 import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
@@ -152,7 +152,7 @@ export function useDownloadOrchestration({
   // Respond to backend download-resolve-request events by walking the plugin
   // download-provider chain. (Inlined from the former useDownloads hook.)
   useEffect(() => {
-    const unlisten = listen<{
+    return subscribe<{
       id: number;
       title: string;
       artist_name: string | null;
@@ -169,7 +169,6 @@ export function useDownloadOrchestration({
       );
       await invoke("download_resolve_response", { id, result: result ?? null });
     });
-    return () => { unlisten.then((fn) => fn()); };
   }, []);
 
   const refreshProviderPriorities = useCallback(async () => {

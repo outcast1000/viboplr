@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 
 export function imageCacheKey(kind: "artist" | "album" | "tag", name: string, artistName?: string | null): string {
   if (kind === "album") {
@@ -135,7 +135,7 @@ export function useImageCache(
     const readyEvent = `${kind}-image-ready`;
     const errorEvent = `${kind}-image-error`;
 
-    const unlistenReady = listen<Record<string, unknown>>(readyEvent, (event) => {
+    const stopReady = subscribe<Record<string, unknown>>(readyEvent, (event) => {
       const path = event.payload.path as string;
       let key: string;
 
@@ -155,7 +155,7 @@ export function useImageCache(
       setCache((prev) => ({ ...prev, [key]: path }));
     });
 
-    const unlistenError = listen<Record<string, unknown>>(errorEvent, (event) => {
+    const stopError = subscribe<Record<string, unknown>>(errorEvent, (event) => {
       let key: string;
 
       if (kind === "artist") {
@@ -171,10 +171,7 @@ export function useImageCache(
       setCache((prev) => ({ ...prev, [key]: null }));
     });
 
-    return () => {
-      unlistenReady.then((f) => f());
-      unlistenError.then((f) => f());
-    };
+    return combineUnlisten(stopReady, stopError);
   }, [kind, bumpVersion]);
 
   return { getImage, invalidate, requestFetch, clearAllFailures, cache };

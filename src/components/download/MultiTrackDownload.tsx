@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { safeUnlisten } from "../../utils/tauriEvents";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Track } from "../../types";
 import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../../types/plugin";
@@ -447,7 +448,7 @@ export function MultiTrackDownload({
           }
         }
       } finally {
-        unlisten();
+        safeUnlisten(unlisten);
       }
 
       setStep("done");
