@@ -78,6 +78,30 @@ export function isActiveMediaElement(
   return !currentIsVideo && fired === activeSlot;
 }
 
+// Whether a `timeupdate` may drive the preload→crossfade transition machine. It
+// runs only in the settled playing state: the firing element is the active slot
+// AND no explicit play (handlePlay/handlePlayUrl) is mid-transition — i.e. between
+// "user picked a track" and "the new source is installed and playing". During that
+// window the outgoing element can keep firing `timeupdate` (WKWebView does not
+// reliably honor pause()), and it is still the active slot because the swap hasn't
+// happened yet; letting it start a crossfade hands a fade to a track the incoming
+// explicit play doesn't own (the "started at very low volume" bug). Pure so it can
+// be unit-tested without the hook.
+export function canDriveTransitionMachine(firedIsActive: boolean, transitioning: boolean): boolean {
+  return firedIsActive && !transitioning;
+}
+
+// Picks the [incoming, outgoing] crossfade gain nodes for the slot that just
+// became active. Captured ONCE when a fade starts and reused for every tick — the
+// interval must keep ramping the SAME pair even if `activeSlotRef` changes
+// underneath it (e.g. an explicit play forces slot A mid-fade). Re-deriving the
+// pair from the live ref each tick is what let a stray slot swap pump the incoming
+// track's gain down to ~0. Pure/generic so it can be unit-tested with stand-in
+// nodes.
+export function crossfadeGainPair<T>(activeSlot: "A" | "B", gainA: T, gainB: T): { incoming: T; outgoing: T } {
+  return activeSlot === "A" ? { incoming: gainA, outgoing: gainB } : { incoming: gainB, outgoing: gainA };
+}
+
 export function usePlayback(
   restoredRef: React.RefObject<boolean>,
   peekNextRef: React.RefObject<() => QueueTrack | null>,
@@ -117,6 +141,14 @@ export function usePlayback(
   // the id at the start of each request and comparing on completion, a superseded
   // request silently discards its outcome instead of flashing a playback-error modal.
   const playGenerationRef = useRef(0);
+  // True while an explicit play (handlePlay/handlePlayUrl) is resolving and
+  // installing its source. Set synchronously before the resolve await and cleared
+  // once the new source is installed (or the attempt ends), guarded by play
+  // generation so a superseded play can't clear a newer one's flag. While true the
+  // timeupdate-driven preload→crossfade machine is gated off (canDriveTransitionMachine)
+  // so a not-fully-stopped outgoing element can't start a fade the incoming play
+  // doesn't own.
+  const transitioningRef = useRef(false);
   // Synchronous re-entrancy guard for fullscreen toggling. requestFullscreen /
   // exitFullscreen are activation-consuming in WKWebView: a second call fired
   // before the first transition settles rejects with "Cannot request fullscreen
@@ -405,6 +437,18 @@ export function usePlayback(
     return activeSlotRef.current === "A" ? audioRefB.current : audioRefA.current;
   }
 
+  // Forcibly silence a media element. pause() alone is not reliable on WKWebView —
+  // it can leave `.paused` false and keep the element emitting `timeupdate` / sound
+  // (the cause behind the CROSSFADE WARN / SHADOW diagnostics). Detaching the source
+  // and reloading drives the element to NETWORK_EMPTY, which also prevents a stray
+  // `ended` from firing. Use this wherever an element must truly go quiet.
+  function stopMediaElement(el: HTMLMediaElement | null) {
+    if (!el) return;
+    el.pause();
+    el.removeAttribute("src");
+    el.load();
+  }
+
   function getMediaElement(): HTMLAudioElement | HTMLVideoElement | null {
     if (currentTrack && isVideoTrack(currentTrack)) {
       return videoRef.current;
@@ -683,8 +727,12 @@ export function usePlayback(
 
     // Start incoming element
     incoming.volume = effectiveVolume();
-    const incomingGain = activeSlotRef.current === "A" ? xfadeGainARef.current : xfadeGainBRef.current;
-    const outgoingGain = activeSlotRef.current === "A" ? xfadeGainBRef.current : xfadeGainARef.current;
+    // Capture the gain pair ONCE for the whole fade — the interval must keep
+    // ramping these same nodes even if activeSlotRef changes underneath it (an
+    // explicit play forces slot A mid-fade); re-deriving from the live ref each
+    // tick is what pumped the incoming track's gain to ~0.
+    const { incoming: incomingGain, outgoing: outgoingGain } =
+      crossfadeGainPair(activeSlotRef.current, xfadeGainARef.current, xfadeGainBRef.current);
     if (incomingGain) incomingGain.gain.value = 0;
     if (outgoingGain) outgoingGain.gain.value = 1;
     // If the incoming element's play() rejects (WKWebView intermittently throws
@@ -713,10 +761,9 @@ export function usePlayback(
       const progress = Math.min(elapsed / fadeDuration, 1);
 
       if (audioCtxRef.current) {
-        const inGain = activeSlotRef.current === "A" ? xfadeGainARef.current : xfadeGainBRef.current;
-        const outGain = activeSlotRef.current === "A" ? xfadeGainBRef.current : xfadeGainARef.current;
-        if (inGain) inGain.gain.value = progress;
-        if (outGain) outGain.gain.value = 1 - progress;
+        // Drive the captured pair, not whatever activeSlotRef currently points at.
+        if (incomingGain) incomingGain.gain.value = progress;
+        if (outgoingGain) outgoingGain.gain.value = 1 - progress;
       } else {
         const vol = effectiveVolume();
         if (crossfadeOutgoingRef.current) crossfadeOutgoingRef.current.volume = vol * (1 - progress);
@@ -782,19 +829,25 @@ export function usePlayback(
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
     const generation = ++playGenerationRef.current;
+    // Mark the explicit-play transition window: until the new source is installed,
+    // the timeupdate-driven preload→crossfade machine must stay gated off so a
+    // not-fully-stopped outgoing element can't start a fade against the replaced
+    // track. Cleared in `finally` (guarded by generation).
+    transitioningRef.current = true;
     // A real playback session supersedes any restored preview frame.
     previewLoadedKeyRef.current = null;
     if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
-    // Pause the outgoing audio synchronously so its `ended` event can't fire
-    // during the async resolveTrackSrc / playWithSrc await window. Without this
-    // pause, the previously-playing track can finish naturally between the user
-    // initiating a new play and `playWithSrc` actually swapping the source —
-    // that fires onEnded → handleNext("auto") → addToQueueAndPlay against the
-    // already-replaced queue, leaking the old track or a stray auto-continue
-    // pick into the new queue.
-    [audioRefA.current, audioRefB.current].forEach(el => { if (el) el.pause(); });
-    if (videoRef.current) videoRef.current.pause();
+    // Forcibly tear down the outgoing media synchronously — not just pause(). The
+    // resolveTrackSrc / playWithSrc await window can be long (plugin stream
+    // resolvers), and a merely-paused element keeps firing `timeupdate` on WKWebView
+    // (pause() is not reliably honored), which would drive the preload→crossfade
+    // machine against a track that's being replaced — and could finish naturally,
+    // firing onEnded → handleNext("auto") → addToQueueAndPlay against the
+    // already-replaced queue. Detaching the source (stopMediaElement) removes both
+    // the stray timeupdate and the stray `ended` at the source.
+    [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
+    stopMediaElement(videoRef.current);
     // Reuse in-flight preload resolution for the same track instead of starting over
     const inflight = preloadPromiseRef.current;
     const reusePreload = inflight !== null && inflight.key === track.key;
@@ -861,7 +914,13 @@ export function usePlayback(
       setPlaybackError(e instanceof Error ? e.message : String(e));
       setFailedTrack(track);
     } finally {
-      if (isCurrentPlayGeneration(generation, playGenerationRef.current)) setLoadingTrack(null);
+      // Only the current play closes the transition window — a superseded play
+      // must not clear the newer one's flag (the newer play owns it and will clear
+      // it in its own finally once its source is installed).
+      if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
+        setLoadingTrack(null);
+        transitioningRef.current = false;
+      }
     }
   }
 
@@ -871,6 +930,7 @@ export function usePlayback(
 
   async function handlePlayUrl(track: QueueTrack, url: string) {
     const generation = ++playGenerationRef.current;
+    transitioningRef.current = true;
     if (eqEnabledRef.current) ensureAudioGraph();
     cancelCrossfade();
     invalidatePreload();
@@ -888,7 +948,10 @@ export function usePlayback(
       setPlaybackError(e instanceof Error ? e.message : String(e));
       setFailedTrack(track);
     } finally {
-      if (isCurrentPlayGeneration(generation, playGenerationRef.current)) setLoadingTrack(null);
+      if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
+        setLoadingTrack(null);
+        transitioningRef.current = false;
+      }
     }
   }
 
@@ -936,10 +999,15 @@ export function usePlayback(
   }
 
   async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user") {
+    // Claim the crossfade machinery, not just the elements. A fade may have
+    // (re)started during the caller's async resolve window, and since this function
+    // forces slot A below, a surviving interval would keep ramping the active slot's
+    // gain after we install the new source (→ "started at very low volume"). Idempotent
+    // when no fade is running. (handlePlay/handlePlayUrl also gate the machine via
+    // transitioningRef; this is the second line of defense at the moment of takeover.)
+    cancelCrossfade();
     // Stop all elements
-    [audioRefA.current, audioRefB.current].forEach(el => {
-      if (el) { el.pause(); el.removeAttribute("src"); el.load(); }
-    });
+    [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
     if (videoRef.current) {
       videoRef.current.pause();
       videoRef.current.removeAttribute("src");
@@ -1155,7 +1223,8 @@ export function usePlayback(
     // the INACTIVE element while it's playing (and no crossfade) is exactly the
     // orphan we're hunting. The active-element guard below would hide it.
     diagnoseShadowPlayback("timeupdate");
-    if (!isActiveElement(el)) return;
+    const isActive = isActiveElement(el);
+    if (!isActive) return;
 
     const transcodeSession = (transcodeSessionRef.current && currentTrack && isVideoTrack(currentTrack))
       ? transcodeSessionRef.current
@@ -1176,7 +1245,17 @@ export function usePlayback(
     const transcodeDuration = transcodeSession?.durationSecs ?? null;
     const effectiveDuration = transcodeDuration ?? (isFinite(el.duration) ? el.duration : 0);
     const effectivePosition = transcodeSession ? absolutePosition : el.currentTime;
-    if (effectiveDuration > 0 && effectiveDuration - effectivePosition > 0) {
+    // Gate the preload→crossfade machine: only in the settled playing state (active
+    // element + no explicit play mid-transition). During a transition the outgoing
+    // element can keep firing timeupdate (WKWebView ignores pause()) while it's still
+    // the active slot — letting it start a fade hands one to a track the incoming
+    // explicit play doesn't own. Position/scrobble above still run; only the machine
+    // is gated.
+    if (
+      canDriveTransitionMachine(isActive, transitioningRef.current) &&
+      effectiveDuration > 0 &&
+      effectiveDuration - effectivePosition > 0
+    ) {
       const remaining = effectiveDuration - effectivePosition;
       const cfSecs = crossfadeSecsRef.current;
       const nextPeek = peekNextRef.current();

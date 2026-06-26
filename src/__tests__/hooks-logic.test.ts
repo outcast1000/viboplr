@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { isPositionOnScreen, clampToNearestMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
-import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement } from "../hooks/usePlayback";
+import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement, canDriveTransitionMachine, crossfadeGainPair } from "../hooks/usePlayback";
 
 // --- Extracted pure functions from hooks ---
 
@@ -251,5 +251,44 @@ describe("isActiveMediaElement (spurious-error guard during track swap)", () => 
     // element error must not be surfaced.
     expect(isActiveMediaElement("A", "A", true)).toBe(false);
     expect(isActiveMediaElement("B", "B", true)).toBe(false);
+  });
+});
+
+describe("canDriveTransitionMachine (preload→crossfade gate)", () => {
+  it("runs only on the active element when no play is mid-transition", () => {
+    expect(canDriveTransitionMachine(true, false)).toBe(true);
+  });
+
+  it("blocks while an explicit play is mid-transition (the low-volume / orphan window)", () => {
+    // The bug: during handlePlay's resolve await, a not-fully-stopped outgoing
+    // element keeps firing timeupdate while it's still the active slot. Letting it
+    // start a crossfade hands a fade to the track being replaced — the incoming
+    // explicit play then installs slot A under a live ramp → starts at low volume.
+    expect(canDriveTransitionMachine(true, true)).toBe(false);
+  });
+
+  it("never runs for a non-active element regardless of transition state", () => {
+    expect(canDriveTransitionMachine(false, false)).toBe(false);
+    expect(canDriveTransitionMachine(false, true)).toBe(false);
+  });
+});
+
+describe("crossfadeGainPair (captured-once fade target)", () => {
+  it("maps the just-activated slot to its incoming gain node", () => {
+    const a = { id: "A" };
+    const b = { id: "B" };
+    expect(crossfadeGainPair("A", a, b)).toEqual({ incoming: a, outgoing: b });
+    expect(crossfadeGainPair("B", a, b)).toEqual({ incoming: b, outgoing: a });
+  });
+
+  it("returns a stable pair the interval can reuse even if the active slot later flips", () => {
+    // The interval must keep ramping THIS pair; re-deriving from a live activeSlot
+    // each tick is what let a mid-fade slot swap pump the incoming gain to ~0.
+    const a = { id: "A" };
+    const b = { id: "B" };
+    const captured = crossfadeGainPair("B", a, b);
+    // A later flip to "A" must not change what was captured for this fade.
+    expect(captured.incoming).toBe(b);
+    expect(captured.outgoing).toBe(a);
   });
 });
