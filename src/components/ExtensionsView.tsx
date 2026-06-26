@@ -12,6 +12,9 @@ import { LINKS } from "../constants/links";
 import { summarizeContributes, describeContributes, skinMockColors } from "../utils/extensionSummary";
 
 type ExtTab = "skins" | "plugins";
+// Plugins tab layout: the default compact one-per-row list, or the card grid.
+// Persisted by App.tsx under the `pluginViewMode` store key.
+export type PluginViewMode = "list" | "cards";
 
 interface ExtensionsViewProps {
   allExtensions: ExtensionItem[];
@@ -51,6 +54,9 @@ interface ExtensionsViewProps {
   // The view stays mounted (like Home/Library) and toggles visibility; the
   // gallery fetch is gated on becoming visible rather than on mount.
   isVisible?: boolean;
+  // Plugins tab layout (card grid vs. compact list). Owned + persisted by App.tsx.
+  pluginViewMode?: PluginViewMode;
+  onSetPluginViewMode?: (mode: PluginViewMode) => void;
   style?: React.CSSProperties;
 }
 
@@ -204,6 +210,106 @@ function PluginCardSkeleton() {
       </div>
       <div className="ext-sk" style={{ width: "100%", height: 9, marginTop: 12 }} />
       <div className="ext-sk" style={{ width: "70%", height: 9, marginTop: 7 }} />
+    </div>
+  );
+}
+
+/* ── Plugins: compact list rows ───────────────────────────────────────── */
+
+// Row variant of PluginCard. Same actions + internal gating; the difference is
+// a single-line horizontal layout. Secondary actions (Details/Config/Uninstall)
+// are revealed on row hover/focus to keep the resting state clean.
+function PluginRow({
+  ext, installing, onDetails, onConfig, onToggleEnabled, onInstall, onUpdate, onUninstall,
+}: {
+  ext: ExtensionItem; installing: boolean;
+  onDetails: () => void; onConfig: () => void;
+  onToggleEnabled: () => void; onInstall: () => void;
+  onUpdate?: () => void; onUninstall?: () => void;
+}) {
+  const caps = useMemo(() => summarizeContributes(ext.contributes), [ext.contributes]);
+  const installed = ext.status !== "not_installed";
+  const isOn = ext.status === "active";
+  const hasConfig = ext.status === "active" && !!ext.contributes?.settingsPanel?.id;
+  const canUninstall = installed && ext.source !== "builtin" && !!onUninstall;
+  const canUpdate = installed && ext.updateAvailable?.status === "available" && !!onUpdate;
+  return (
+    <div className={`ext-prow${!installed ? " ext-prow--gallery" : ""}`}>
+      <PluginIcon name={ext.name} icon={ext.icon} />
+      <div className="ext-prow-main">
+        <div className="ext-prow-line1">
+          <span className="ext-prow-name">{ext.name}</span>
+          {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
+          {!installed && ext.recommended && (
+            <span className="ext-badge ext-badge--recommended">recommended</span>
+          )}
+          <StatusBadge status={ext.status} update={ext.updateAvailable} />
+        </div>
+        <div className="ext-prow-line2">
+          <span className="ext-prow-meta">by {ext.author} · v{ext.version}</span>
+          {ext.description && <span className="ext-prow-sep" aria-hidden="true">·</span>}
+          {ext.description && <span className="ext-prow-desc">{ext.description}</span>}
+        </div>
+      </div>
+
+      {caps.length > 0 && (
+        <div className="ext-chips ext-prow-chips">
+          {caps.slice(0, 3).map((c) => (
+            <span key={c} className="ext-chip ext-chip--cap">{c}</span>
+          ))}
+          {caps.length > 3 && <span className="ext-chip">+{caps.length - 3}</span>}
+        </div>
+      )}
+
+      <div className="ext-prow-actions">
+        {installed ? (
+          <>
+            {canUpdate && (
+              <button className="ds-btn ds-btn--primary ds-btn--sm" disabled={installing} onClick={onUpdate}>
+                {installing ? "Updating…" : `Update to v${ext.updateAvailable!.latestVersion}`}
+              </button>
+            )}
+            <button className="ds-btn ds-btn--secondary ds-btn--sm ext-prow-quiet" onClick={onDetails}>Details</button>
+            {hasConfig && (
+              <button className="ds-btn ds-btn--secondary ds-btn--sm ext-prow-quiet" onClick={onConfig}>Config</button>
+            )}
+            {canUninstall && (
+              <button className="ds-btn ds-btn--ghost ds-btn--sm ext-prow-quiet" onClick={onUninstall}>Uninstall</button>
+            )}
+            {ext.source !== "dev" && (
+              <button
+                type="button"
+                className={`ds-toggle${isOn ? " on" : ""}`}
+                role="switch"
+                aria-checked={isOn}
+                aria-label={isOn ? `Disable ${ext.name}` : `Enable ${ext.name}`}
+                onClick={onToggleEnabled}
+              >
+                <span className="ds-toggle-thumb" />
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <button className="ds-btn ds-btn--primary ds-btn--sm" disabled={installing} onClick={onInstall}>
+              {installing ? "Installing…" : "Install"}
+            </button>
+            <button className="ds-btn ds-btn--ghost ds-btn--sm ext-prow-quiet" onClick={onDetails}>Details</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PluginRowSkeleton() {
+  return (
+    <div className="ext-prow ext-prow--skeleton" aria-hidden="true">
+      <div className="ext-sk ext-sk--icon" />
+      <div className="ext-prow-main">
+        <div className="ext-sk" style={{ width: "30%", height: 11 }} />
+        <div className="ext-sk" style={{ width: "55%", height: 8, marginTop: 7 }} />
+      </div>
     </div>
   );
 }
@@ -493,6 +599,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onInstallFromUrl, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
+    pluginViewMode = "list", onSetPluginViewMode,
     isVisible = true, style,
   } = props;
 
@@ -636,6 +743,32 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     });
   };
 
+  // Renders a plugin section's items as either the card grid or the compact list.
+  // All callbacks are passed unconditionally — PluginCard/PluginRow gate update +
+  // uninstall internally on install state, so installed/gallery sections render
+  // the same regardless of which set wires them up.
+  const renderPluginCollection = (items: ExtensionItem[]) => {
+    const list = pluginViewMode === "list";
+    const Item = list ? PluginRow : PluginCard;
+    return (
+      <div className={list ? "ext-plugin-list" : "ext-plugin-grid"}>
+        {items.map((ext) => (
+          <Item
+            key={ext.id}
+            ext={ext}
+            installing={installing.has(ext.id)}
+            onDetails={() => openDetail(ext.id)}
+            onConfig={() => openDetail(ext.id, true)}
+            onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
+            onInstall={() => handleInstall(ext)}
+            onUpdate={() => onUpdateExtension(ext.id)}
+            onUninstall={() => setUninstallPrompt({ id: ext.id, name: ext.name })}
+          />
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="extensions-view" style={style}>
       <div className="ext-topbar">
@@ -662,6 +795,22 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setShowUrlInput((v) => !v)}>
             Install from URL
           </button>
+          {tab === "plugins" && onSetPluginViewMode && (
+            <div className="view-mode-toggle ext-view-toggle" role="group" aria-label="Plugin layout">
+              <button
+                className={`view-mode-btn${pluginViewMode === "cards" ? " active" : ""}`}
+                onClick={() => onSetPluginViewMode("cards")}
+                title="Card view"
+                aria-pressed={pluginViewMode === "cards"}
+              >{"⊞"}</button>
+              <button
+                className={`view-mode-btn${pluginViewMode === "list" ? " active" : ""}`}
+                onClick={() => onSetPluginViewMode("list")}
+                title="List view"
+                aria-pressed={pluginViewMode === "list"}
+              >{"☰"}</button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -724,59 +873,26 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
                     ) : undefined
                   }
                 />
-                <div className="ext-plugin-grid">
-                  {updatableItems.map((ext) => (
-                    <PluginCard
-                      key={ext.id}
-                      ext={ext}
-                      installing={installing.has(ext.id)}
-                      onDetails={() => openDetail(ext.id)}
-                      onConfig={() => openDetail(ext.id, true)}
-                      onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
-                      onInstall={() => handleInstall(ext)}
-                      onUpdate={() => onUpdateExtension(ext.id)}
-                      onUninstall={() => setUninstallPrompt({ id: ext.id, name: ext.name })}
-                    />
-                  ))}
-                </div>
+                {renderPluginCollection(updatableItems)}
               </>
             )}
 
             <SectionHeader title="Installed" count={installedRest.length} />
-            <div className="ext-plugin-grid">
-              {installedRest.map((ext) => (
-                <PluginCard
-                  key={ext.id}
-                  ext={ext}
-                  installing={installing.has(ext.id)}
-                  onDetails={() => openDetail(ext.id)}
-                  onConfig={() => openDetail(ext.id, true)}
-                  onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
-                  onInstall={() => handleInstall(ext)}
-                  onUninstall={() => setUninstallPrompt({ id: ext.id, name: ext.name })}
-                />
-              ))}
-            </div>
+            {renderPluginCollection(installedRest)}
 
             <SectionHeader title={discoverTitle} count={discover.length} action={browseAll} />
-            <div className="ext-plugin-grid">
-              {discover.map((ext) => (
-                <PluginCard
-                  key={ext.id}
-                  ext={ext}
-                  installing={installing.has(ext.id)}
-                  onDetails={() => openDetail(ext.id)}
-                  onConfig={() => openDetail(ext.id, true)}
-                  onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
-                  onInstall={() => handleInstall(ext)}
-                />
-              ))}
-            </div>
+            {renderPluginCollection(discover)}
 
             {showGallerySkeleton && (
-              <div className="ext-plugin-grid">
-                <PluginCardSkeleton /><PluginCardSkeleton /><PluginCardSkeleton />
-              </div>
+              pluginViewMode === "list" ? (
+                <div className="ext-plugin-list">
+                  <PluginRowSkeleton /><PluginRowSkeleton /><PluginRowSkeleton />
+                </div>
+              ) : (
+                <div className="ext-plugin-grid">
+                  <PluginCardSkeleton /><PluginCardSkeleton /><PluginCardSkeleton />
+                </div>
+              )
             )}
             {showGalleryError && <GalleryError onRetry={retryGallery} />}
             {!galleryLoading && !galleryError && filtered.length === 0 && (

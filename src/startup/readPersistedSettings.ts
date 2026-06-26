@@ -30,6 +30,7 @@ export interface PersistedSettings {
   trackLikedFirst: boolean | undefined;
   lastDownloadDest: string | null | undefined;
   searchViewModes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null | undefined;
+  pluginViewMode: string | null | undefined;
   minimizeToMiniPlayer: boolean | undefined;
   uiZoom: number | undefined;
   miniZoom: number | undefined;
@@ -47,7 +48,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
     mediaTypeFilter, trackLikedFirst,
-    lastDownloadDest, searchViewModes,
+    lastDownloadDest, searchViewModes, pluginViewMode,
     minimizeToMiniPlayer, uiZoom, miniZoom,
   ] = await Promise.all([
     store.get<number>("volume"),
@@ -70,6 +71,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     store.get<boolean>("trackLikedFirst"),
     store.get<string | null>("lastDownloadDest"),
     store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
+    store.get<string | null>("pluginViewMode"),
     store.get<boolean>("minimizeToMiniPlayer"),
     store.get<number>("uiZoom"),
     store.get<number>("miniZoom"),
@@ -80,7 +82,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
     mediaTypeFilter, trackLikedFirst,
-    lastDownloadDest, searchViewModes,
+    lastDownloadDest, searchViewModes, pluginViewMode,
     minimizeToMiniPlayer, uiZoom, miniZoom,
   };
 }

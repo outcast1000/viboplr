@@ -76,7 +76,7 @@ import { Sidebar } from "./components/Sidebar";
 import { NowPlayingBar } from "./components/NowPlayingBar";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import ExtensionsView from "./components/ExtensionsView";
+import ExtensionsView, { type PluginViewMode } from "./components/ExtensionsView";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { VideoAmbientOverlay } from "./components/VideoAmbientOverlay";
 import { AddServerModal } from "./components/AddServerModal";
@@ -628,6 +628,7 @@ function App() {
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [queueWidth, setQueueWidth] = useState(300);
   const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" });
+  const [pluginViewMode, setPluginViewMode] = useState<PluginViewMode>("list");
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
   // Bumped when a scan/sync changes the library's track population, so the
@@ -1412,6 +1413,7 @@ function App() {
           sidebarCollapsed: savedSidebarCollapsed, queueCollapsed: savedQueueCollapsed, queueWidth: savedQueueWidth,
           mediaTypeFilter: savedMediaTypeFilter, trackLikedFirst: savedTrackLikedFirst,
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
+          pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
@@ -1536,6 +1538,7 @@ function App() {
             setSearchViewModes({ tracks: s.tracks, albums: s.albums, artists: s.artists, tags: s.tags && validModes.includes(s.tags) ? s.tags : "tiles" });
           }
         }
+        if (savedPluginViewMode && ["cards", "list"].includes(savedPluginViewMode)) setPluginViewMode(savedPluginViewMode as PluginViewMode);
         const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
           store.get<boolean>("loggingEnabled"),
           store.get<boolean>("debugLogging"),
@@ -2306,6 +2309,10 @@ function App() {
   function handleSearchViewModesChange(modes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }) {
     setSearchViewModes(modes);
     store.set("searchViewModes", modes);
+  }
+  function handlePluginViewModeChange(mode: PluginViewMode) {
+    setPluginViewMode(mode);
+    store.set("pluginViewMode", mode);
   }
   const handlePlayEntityAll = useCallback((kind: "artist" | "album" | "tag", name: string, entityArtistName?: string, opts?: { tracks?: Track[]; entityId?: number }) => {
     if (kind === "artist") {
@@ -3160,6 +3167,8 @@ function App() {
               onOpenSkinInEditor={(id) => { skins.openSkinInEditor(id).catch((e) => console.error("Failed to open skin in editor:", e)); }}
               onRefreshSkin={(id) => skins.refreshSkin(id)}
               onSubmitSkin={(id) => skins.submitSkin(id)}
+              pluginViewMode={pluginViewMode}
+              onSetPluginViewMode={handlePluginViewModeChange}
             />
           {/* Settings view */}
           {view === "settings" && (

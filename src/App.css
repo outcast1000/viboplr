@@ -2383,6 +2383,66 @@
 }
 .ext-pcard--skeleton { pointer-events: none; }
 
+/* Plugin list (compact row layout — toggled via the topbar view switch) */
+.ext-view-toggle { margin-left: 4px; }
+.ext-plugin-list {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0 4px;
+}
+.ext-prow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border-radius: var(--ds-radius);
+  border: 1px solid transparent;
+  transition: background 0.1s, border-color 0.1s;
+}
+/* Hairline separators between resting rows; the hovered row gets a full card-like
+   outline instead, so its top border and the next row's separator are suppressed. */
+.ext-prow + .ext-prow { border-top-color: var(--border); border-radius: 0; }
+.ext-prow:hover {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+  border-radius: var(--ds-radius);
+}
+.ext-prow:hover + .ext-prow { border-top-color: transparent; }
+.ext-prow--gallery { opacity: 0.92; }
+.ext-prow-main { flex: 1; min-width: 0; }
+.ext-prow-line1 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ext-prow-name { font-size: var(--fs-sm); font-weight: 700; color: var(--text-primary); }
+.ext-prow-line2 {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+.ext-prow-meta { flex-shrink: 0; }
+.ext-prow-desc {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.ext-prow-chips { flex-shrink: 0; flex-wrap: nowrap; }
+.ext-prow-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+/* Secondary actions stay quiet until the row is hovered or keyboard-focused, so
+   the resting list reads clean. They keep their layout box (opacity, not display)
+   to avoid width jitter on hover. */
+.ext-prow-quiet { opacity: 0; transition: opacity 0.12s; }
+.ext-prow:hover .ext-prow-quiet,
+.ext-prow:focus-within .ext-prow-quiet { opacity: 1; }
+.ext-prow--skeleton { pointer-events: none; }
+/* Drop the capability chips when the row gets tight so the actions never wrap. */
+@media (max-width: 900px) {
+  .ext-prow-chips { display: none; }
+}
+
 /* Full-page plugin detail (replaces the grid; back returns) */
 .ext-detail-full {
   flex: 1;
