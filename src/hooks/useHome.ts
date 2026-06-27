@@ -36,12 +36,17 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   { id: LATEST_PLAY_SHELF_ID, title: "Latest play", description: "Jump back into what you last played.", defaultVisible: true },
   { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently.", defaultVisible: true },
   { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off.", defaultVisible: true },
-  { id: "builtin:recently-added", title: "Recently added", description: "The newest additions to your library.", defaultVisible: true },
+  { id: "builtin:recently-added", title: "Recently added albums", description: "The newest albums in your library.", defaultVisible: true },
   { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: true },
   { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A different era from your collection each refresh.", defaultVisible: true },
   { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Old favorites you haven’t played in a while.", defaultVisible: true },
   { id: "builtin:liked-albums", title: "Liked albums", description: "Albums you’ve hearted.", defaultVisible: true },
   // Off by default — opt in via Customize.
+  // Track-level counterpart to "Recently added albums": surfaces the newest
+  // tracks (including videos, which carry no album_id and so never appear in the
+  // album-cards shelf). Opt-in to keep the default Home from double-listing a
+  // freshly added album as both cards and rows.
+  { id: "builtin:recently-added-tracks", title: "Recently added tracks", description: "The newest tracks in your library, including videos.", defaultVisible: false },
   { id: "builtin:most-played-artists-30d", title: "Most played artists · 30 days", description: "Who you’ve had on repeat lately.", defaultVisible: false },
   { id: "builtin:recently-liked", title: "Recently liked", description: "Songs you’ve loved most recently.", defaultVisible: false },
   { id: "builtin:recently-liked-albums", title: "Recently liked albums", description: "Albums you’ve loved most recently.", defaultVisible: false },
@@ -432,7 +437,7 @@ export function useHome(opts: UseHomeOptions) {
         },
         {
           id: "builtin:recently-added",
-          title: "Recently added",
+          title: "Recently added albums",
           displayKind: "album-cards",
           limit: 20,
           fetch: async (limit) => {
@@ -444,6 +449,35 @@ export function useHome(opts: UseHomeOptions) {
                   libraryId: a.id,
                   name: a.title,
                   artistName: a.artist_name ?? undefined,
+                })),
+              };
+            } catch (e) {
+              return { status: "error", message: String(e) };
+            }
+          },
+        },
+        {
+          id: "builtin:recently-added-tracks",
+          title: "Recently added tracks",
+          // Track-based (not album-based) so videos — which have no album_id —
+          // and loose singles surface here. Sorted by tracks.added_at desc.
+          displayKind: "track-rows",
+          limit: 20,
+          fetch: async (limit) => {
+            try {
+              const tracks = (await invoke<Track[]>("get_tracks", {
+                opts: { sortField: "added", sortDir: "desc", limit },
+              })) ?? [];
+              if (tracks.length === 0) return { status: "empty" };
+              return {
+                status: "ok",
+                items: tracks.map(t => ({
+                  track: {
+                    title: t.title,
+                    artist_name: t.artist_name ?? undefined,
+                    album_title: t.album_title ?? undefined,
+                    image_url: t.image_url ?? undefined,
+                  },
                 })),
               };
             } catch (e) {

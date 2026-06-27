@@ -163,7 +163,8 @@ See "Entity System > Three Rendering Modes" above. Toggled via `ViewModeToggle` 
 | `builtin:recently-played` | Recently played | track | `get_history_recent` |
 | `builtin:most-played-30d` | Most played · 30 days | track | `get_history_most_played_since` (now − 30 days) |
 | `builtin:most-played-artists-30d` | Most played artists · 30 days | artist | `get_history_most_played_artists_since`, resolved against library by name |
-| `builtin:recently-added` | Recently added | album | `get_albums` with `sort: "added_desc"` |
+| `builtin:recently-added` | Recently added albums | album | `get_albums` with `sort: "added_desc"` |
+| `builtin:recently-added-tracks` | Recently added tracks | track | `get_tracks` with `sortField: "added"`, `sortDir: "desc"` — track-based so videos (no `album_id`) and loose singles surface; off by default |
 | `builtin:liked-albums` | Liked albums | album | `get_albums` filtered by `liked === 1` |
 | `builtin:liked-artists` | Liked artists | artist | `get_artists` filtered by `liked === 1` |
 | `builtin:jump-back-in` | Jump back in | mixed (album/artist) | reads `recentlyVisitedEntities` ring buffer (recorded by `recordVisit` from `src/utils/recentlyVisited.ts`) |
