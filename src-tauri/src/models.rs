@@ -299,6 +299,21 @@ pub struct HistoryEntry {
     pub display_album: Option<String>,
 }
 
+/// A single play row, stripped to only what bulk listening-pattern aggregation
+/// needs. Unlike `HistoryEntry`, this does NOT resolve an album per row (the
+/// per-row correlated subquery in `get_history_recent` is O(plays × tracks) and
+/// can hang for minutes on large histories). Callers that need album/duration
+/// resolve it client-side from an already-loaded library snapshot. Paginated by
+/// keyset (`played_at`, `id`) so the whole history streams without one giant
+/// query holding the DB lock. `id` is the play id (the keyset cursor).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoryPlayLite {
+    pub id: i64,
+    pub played_at: i64,
+    pub display_title: String,
+    pub display_artist: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryMostPlayed {
     pub history_track_id: i64,

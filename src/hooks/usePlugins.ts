@@ -415,6 +415,16 @@ export function usePlugins(
               limit: opts?.limit ?? 50,
             });
           },
+          async getHistoryPlayCount() {
+            return invoke<number>("get_history_play_count");
+          },
+          async getHistoryPlaysPage(opts) {
+            return invoke("get_history_plays_page", {
+              beforeTs: opts?.beforeTs ?? null,
+              beforeId: opts?.beforeId ?? null,
+              limit: opts?.limit ?? 20000,
+            });
+          },
           async getMostPlayed(opts) {
             if (opts?.days) {
               const sinceTs = Math.floor(Date.now() / 1000) - opts.days * 86400;

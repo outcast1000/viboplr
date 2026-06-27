@@ -2,6 +2,7 @@ import type {
   Track,
   QueueTrack,
   HistoryEntry,
+  HistoryPlayLite,
   HistoryMostPlayed,
 } from "../types";
 
@@ -386,6 +387,15 @@ export interface PluginLibraryAPI {
   getAlbumById(id: number): Promise<{ id: number; title: string; artist_name: string | null; year: number | null } | null>;
   getTagById(id: number): Promise<{ id: number; name: string; track_count: number } | null>;
   getHistory(opts?: { limit?: number }): Promise<HistoryEntry[]>;
+  // Total recorded plays — drives a determinate progress bar for chunked reads.
+  getHistoryPlayCount(): Promise<number>;
+  // One keyset-paginated page of raw plays (no album resolution; cheap). Pass the
+  // previous page's last row as { beforeTs, beforeId } to advance; omit for page 1.
+  getHistoryPlaysPage(opts?: {
+    beforeTs?: number | null;
+    beforeId?: number | null;
+    limit?: number;
+  }): Promise<HistoryPlayLite[]>;
   getMostPlayed(opts?: {
     limit?: number;
     days?: number;

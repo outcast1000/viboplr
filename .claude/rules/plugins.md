@@ -150,6 +150,7 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 - `getArtists(opts?)` / `getAlbums(opts?)` / `getTags(opts?)` — paginated listings (`getAlbums` accepts `artistId`)
 - `getTrackById(id)` / `getArtistById(id)` / `getAlbumById(id)` / `getTagById(id)`
 - `getHistory(opts?)` / `getMostPlayed(opts?)` — `opts.days` switches to the rolling-window variant
+- `getHistoryPlayCount()` / `getHistoryPlaysPage(opts?)` — total play count + a cheap, **album-free**, keyset-paginated page of raw plays (`{ beforeTs?, beforeId?, limit? }`; pass the previous page's last row to advance). Use these to stream a large history in chunks instead of pulling it all via `getHistory` — the latter resolves an album per row (O(plays × tracks)) and can freeze the app on long histories.
 - `recordHistoryPlaysBatch(plays)` — batch import scrobbles, returns `{ imported, skipped }`
 - `applyTags(trackId, tagNames)` — tag tracks
 - `onTrackAdded(handler)` / `onTrackRemoved(handler)` / `onScanComplete(handler)` — library events

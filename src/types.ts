@@ -127,6 +127,16 @@ export interface HistoryEntry {
   display_album: string | null;
 }
 
+// A single play row stripped to what bulk listening-pattern aggregation needs.
+// Unlike HistoryEntry it carries NO album (the backend skips the per-row album
+// subquery here — see get_history_plays_page). Keyset-paginated by (played_at, id).
+export interface HistoryPlayLite {
+  id: number;
+  played_at: number;
+  display_title: string;
+  display_artist: string | null;
+}
+
 export interface HistoryMostPlayed {
   history_track_id: number;
   play_count: number;

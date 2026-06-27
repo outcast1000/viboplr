@@ -627,6 +627,49 @@ impl Database {
         rows.collect()
     }
 
+    /// Total number of recorded plays. Cheap (`COUNT(*)` over an indexed table);
+    /// used by the chunked history streamer to drive a determinate progress bar.
+    pub fn get_history_play_count(&self) -> SqlResult<i64> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT COUNT(*) FROM history_plays", [], |row| row.get(0))
+    }
+
+    /// One keyset-paginated page of raw plays, newest first, with NO per-row
+    /// album resolution (contrast `get_history_recent`, whose correlated album
+    /// subquery makes it O(plays × tracks)). All joins are on indexed keys, so a
+    /// page is O(limit). Pass `before_ts`/`before_id` = the last row of the
+    /// previous page to advance the cursor; pass both `None` for the first page.
+    /// Both must be supplied together. Ordering is `(played_at DESC, id DESC)`,
+    /// matching the cursor so pages don't overlap or skip on ties.
+    pub fn get_history_plays_page(
+        &self,
+        before_ts: Option<i64>,
+        before_id: Option<i64>,
+        limit: i64,
+    ) -> SqlResult<Vec<HistoryPlayLite>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT hp.id, hp.played_at, ht.display_title, ha.display_name
+             FROM history_plays hp
+             JOIN history_tracks ht ON ht.id = hp.history_track_id
+             JOIN history_artists ha ON ha.id = ht.history_artist_id
+             WHERE ?1 IS NULL
+                OR hp.played_at < ?1
+                OR (hp.played_at = ?1 AND hp.id < ?2)
+             ORDER BY hp.played_at DESC, hp.id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![before_ts, before_id, limit], |row| {
+            Ok(HistoryPlayLite {
+                id: row.get(0)?,
+                played_at: row.get(1)?,
+                display_title: row.get(2)?,
+                display_artist: row.get(3)?,
+            })
+        })?;
+        rows.collect()
+    }
+
     pub fn get_history_most_played(&self, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -908,5 +951,103 @@ impl Database {
         ).optional()?;
 
         Ok(maybe_artist_id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn test_db() -> Database {
+        Database::new_in_memory().unwrap()
+    }
+
+    fn seed_plays(db: &Database, plays: &[(&str, &str, i64)]) {
+        let owned: Vec<(String, String, i64)> = plays
+            .iter()
+            .map(|(a, t, ts)| (a.to_string(), t.to_string(), *ts))
+            .collect();
+        let (imported, _skipped) = db.record_history_plays_batch(&owned).unwrap();
+        assert_eq!(imported as usize, plays.len());
+    }
+
+    // Drain the whole history via keyset paging, returning play ids newest-first.
+    fn page_all(db: &Database, page: i64) -> Vec<i64> {
+        let mut out = Vec::new();
+        let mut before_ts: Option<i64> = None;
+        let mut before_id: Option<i64> = None;
+        loop {
+            let rows = db.get_history_plays_page(before_ts, before_id, page).unwrap();
+            if rows.is_empty() {
+                break;
+            }
+            for r in &rows {
+                out.push(r.id);
+            }
+            let last = rows.last().unwrap();
+            before_ts = Some(last.played_at);
+            before_id = Some(last.id);
+            if (rows.len() as i64) < page {
+                break;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn test_history_play_count() {
+        let db = test_db();
+        assert_eq!(db.get_history_play_count().unwrap(), 0);
+        seed_plays(&db, &[("A", "t1", 100), ("A", "t2", 200), ("B", "t3", 300)]);
+        assert_eq!(db.get_history_play_count().unwrap(), 3);
+    }
+
+    #[test]
+    fn test_plays_page_keyset_covers_all_newest_first() {
+        let db = test_db();
+        seed_plays(
+            &db,
+            &[
+                ("A", "t1", 100),
+                ("A", "t2", 200),
+                ("B", "t3", 300),
+                ("B", "t4", 400),
+                ("C", "t5", 500),
+            ],
+        );
+
+        // First page (no cursor) is the newest rows, descending.
+        let first = db.get_history_plays_page(None, None, 2).unwrap();
+        assert_eq!(first.len(), 2);
+        assert_eq!(first[0].played_at, 500);
+        assert_eq!(first[1].played_at, 400);
+
+        // Paging by 2 visits every play exactly once.
+        let ids = page_all(&db, 2);
+        assert_eq!(ids.len(), 5);
+        assert_eq!(ids.iter().cloned().collect::<HashSet<i64>>().len(), 5, "no play returned twice");
+
+        // A single big page returns all plays strictly descending by played_at.
+        let all = db.get_history_plays_page(None, None, 100).unwrap();
+        let times: Vec<i64> = all.iter().map(|r| r.played_at).collect();
+        assert_eq!(times, vec![500, 400, 300, 200, 100]);
+    }
+
+    #[test]
+    fn test_plays_page_handles_played_at_ties() {
+        let db = test_db();
+        // Three plays share played_at = 100; the (played_at, id) keyset must still
+        // page through them without skipping or duplicating any.
+        seed_plays(
+            &db,
+            &[("A", "t1", 100), ("B", "t2", 100), ("C", "t3", 100), ("D", "t4", 50)],
+        );
+        let ids = page_all(&db, 2);
+        assert_eq!(ids.len(), 4);
+        assert_eq!(ids.iter().cloned().collect::<HashSet<i64>>().len(), 4, "tie rows skipped or duplicated");
+        // Oldest play (ts=50) sorts last in newest-first order.
+        let all = db.get_history_plays_page(None, None, 10).unwrap();
+        assert_eq!(all.last().unwrap().played_at, 50);
     }
 }

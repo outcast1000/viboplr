@@ -108,6 +108,8 @@ macro_rules! invoke_handler {
             commands::extract_embedded_album_image,
             commands::record_play,
             commands::get_history_recent,
+            commands::get_history_play_count,
+            commands::get_history_plays_page,
             commands::get_history_most_played,
             commands::get_history_most_played_since,
             commands::get_history_most_played_artists,

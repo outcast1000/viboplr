@@ -14,6 +14,21 @@ pub fn get_history_recent(state: State<'_, AppState>, limit: i64) -> Result<Vec<
 }
 
 #[tauri::command]
+pub fn get_history_play_count(state: State<'_, AppState>) -> Result<i64, String> {
+    state.db.get_history_play_count().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_history_plays_page(
+    state: State<'_, AppState>,
+    before_ts: Option<i64>,
+    before_id: Option<i64>,
+    limit: i64,
+) -> Result<Vec<HistoryPlayLite>, String> {
+    state.db.get_history_plays_page(before_ts, before_id, limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_history_most_played(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryMostPlayed>, String> {
     state.db.get_history_most_played(limit).map_err(|e| e.to_string())
 }
