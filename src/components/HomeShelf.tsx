@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { ResolvedShelf } from "../hooks/useHome";
 import { shelfDescriptionFor } from "../hooks/useHome";
 import type { HomeShelfItem, PluginTrack } from "../types/plugin";
@@ -21,6 +21,27 @@ function playlistFallbackImage(
   return (
     (seed.album_title ? albumImageFor(seed.album_title, seed.artist_name ?? undefined) : null) ??
     (seed.artist_name ? artistImageFor(seed.artist_name) : null)
+  );
+}
+
+// Renders a shelf card's art with graceful degradation. `candidates` is an
+// ordered list of already-resolved `<img src>` values (first usable one wins);
+// on a load failure that src is dropped and the next is tried. When every
+// candidate is missing or fails, the first-letter placeholder renders instead of
+// the browser's broken-image glyph. Mirrors QueueItemThumb in QueuePanel.tsx.
+function ShelfCardArt({ candidates, name }: { candidates: (string | null | undefined)[]; name: string }) {
+  const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
+  const src = candidates.find((s): s is string => !!s && !failedSrcs.has(s)) ?? null;
+  if (!src) {
+    return <div className="home-shelf-card-fallback">{name[0]?.toUpperCase() ?? "?"}</div>;
+  }
+  return (
+    <img
+      key={src}
+      src={src}
+      alt={name}
+      onError={() => setFailedSrcs(prev => new Set(prev).add(src))}
+    />
   );
 }
 
@@ -106,7 +127,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     return (
       <div key={`${idx}-${it.name}`} className={`ds-card home-shelf-card${isArtist ? " ds-card--circular" : ""}`} onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
-          {src ? <img src={src} alt={it.name} /> : <div className="home-shelf-card-fallback">{it.name[0]?.toUpperCase() ?? "?"}</div>}
+          <ShelfCardArt candidates={[src]} name={it.name} />
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
@@ -122,7 +143,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     return (
       <div key={`${idx}-${it.name}`} className="ds-card ds-card--circular home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
-          {src ? <img src={src} alt={it.name} /> : <div className="home-shelf-card-fallback">{it.name[0]?.toUpperCase() ?? "?"}</div>}
+          <ShelfCardArt candidates={[src]} name={it.name} />
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
@@ -137,7 +158,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     return (
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
-          {src ? <img src={src} alt={it.name} /> : <div className="home-shelf-card-fallback">{it.name[0]?.toUpperCase() ?? "?"}</div>}
+          <ShelfCardArt candidates={[src]} name={it.name} />
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
@@ -160,7 +181,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   return (
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>
       <div className="ds-card-art">
-        {src ? <img src={src} alt={it.track.title} /> : <div className="home-shelf-card-fallback">{it.track.title[0]?.toUpperCase() ?? "?"}</div>}
+        <ShelfCardArt candidates={[src]} name={it.track.title} />
         {playButton(shelf, item, ctx)}
       </div>
       <div className="ds-card-body">
