@@ -3,7 +3,17 @@ use std::path::{Path, PathBuf};
 use crate::dependencies;
 
 const FRAME_COUNT: usize = 4;
-const FRAME_POSITIONS: [f64; 4] = [0.10, 0.30, 0.60, 0.90];
+// Positions are pulled slightly off the very head/tail so we dodge fade-in /
+// end-credit black frames; the thumbnail filter (below) does the fine selection.
+const FRAME_POSITIONS: [f64; 4] = [0.10, 0.35, 0.62, 0.85];
+// Around each position we decode a short window and let ffmpeg's `thumbnail`
+// filter pick the most representative (non-black, non-blurry) frame in it.
+const WINDOW_SECS: f64 = 2.0;
+// `thumbnail=50` analyzes ~50 frames per window and emits the most
+// representative one; `scale=-2:720` targets the short edge at ~720px so the
+// 220px square hero crop stays sharp on retina (up to ~660 device px), at
+// negligible disk cost vs. native resolution.
+const SCALE_FILTER: &str = "thumbnail=50,scale=-2:720";
 
 fn ffmpeg_command() -> std::process::Command {
     dependencies::command_with_path("ffmpeg")
@@ -12,6 +22,38 @@ fn ffmpeg_command() -> std::process::Command {
 pub fn is_ffmpeg_available() -> bool {
     let cache = dependencies::DepCache::new();
     dependencies::is_available("ffmpeg", &cache)
+}
+
+/// Whether the resolved ffmpeg build can encode WebP. Probed once per process;
+/// builds without libwebp fall back to high-quality JPEG so extraction never
+/// fails outright on a stripped-down ffmpeg.
+fn webp_supported() -> bool {
+    static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SUPPORTED.get_or_init(|| {
+        let mut cmd = ffmpeg_command();
+        cmd.args(["-hide_banner", "-loglevel", "error", "-encoders"]);
+        match cmd.output() {
+            Ok(out) => String::from_utf8_lossy(&out.stdout).contains("libwebp"),
+            Err(_) => false,
+        }
+    })
+}
+
+fn frame_ext() -> &'static str {
+    if webp_supported() { "webp" } else { "jpg" }
+}
+
+/// Locate frame `i` in `dir`, accepting either output format. A cache written
+/// by an earlier session (or a different ffmpeg build) may use the other
+/// extension; we honor whichever is on disk.
+fn frame_file(dir: &Path, i: usize) -> Option<PathBuf> {
+    for ext in ["webp", "jpg"] {
+        let p = dir.join(format!("frame_{}.{}", i, ext));
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 pub fn parse_duration(stderr: &str) -> Option<f64> {
@@ -52,10 +94,7 @@ pub fn get_cached_frames(app_dir: &Path, track_id: i64) -> Option<CachedFrames> 
     let dir = frames_dir(app_dir, track_id);
     let mut paths = Vec::with_capacity(FRAME_COUNT);
     for i in 0..FRAME_COUNT {
-        let frame_path = dir.join(format!("frame_{}.jpg", i));
-        if !frame_path.exists() {
-            return None;
-        }
+        let frame_path = frame_file(&dir, i)?;
         paths.push(frame_path.to_string_lossy().to_string());
     }
     let timestamps = read_timestamps(&dir).unwrap_or_default();
@@ -82,24 +121,39 @@ pub fn extract_frames(app_dir: &Path, track_id: i64, video_path: &Path) -> Resul
     }
 
     let dir = frames_dir(app_dir, track_id);
+    // Start from a clean dir so we never mix formats from an earlier run.
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create frames dir: {}", e))?;
 
+    let ext = frame_ext();
     let mut paths = Vec::with_capacity(FRAME_COUNT);
     for (i, &position) in FRAME_POSITIONS.iter().enumerate() {
         let timestamp = duration * position;
-        let output_path = dir.join(format!("frame_{}.jpg", i));
+        let output_path = dir.join(format!("frame_{}.{}", i, ext));
         let output_str = output_path.to_string_lossy().to_string();
+        let timestamp_str = format!("{:.2}", timestamp);
+        let window_str = format!("{:.2}", WINDOW_SECS);
 
         let mut cmd = ffmpeg_command();
         cmd.args([
-            "-ss", &format!("{:.2}", timestamp),
+            "-hide_banner",
+            "-loglevel", "error",
+            // Fast input seek to ~position, then decode only a short window so
+            // long videos stay cheap (we never decode the whole file).
+            "-ss", &timestamp_str,
             "-i", &video_path.to_string_lossy(),
+            "-t", &window_str,
+            "-an",
+            "-vf", SCALE_FILTER,
             "-frames:v", "1",
-            "-q:v", "3",
-            "-vf", "scale=480:-1",
-            "-y",
-            &output_str,
         ]);
+        if ext == "webp" {
+            cmd.args(["-c:v", "libwebp", "-quality", "82"]);
+        } else {
+            // yuvj420p keeps full-range color so JPEGs don't look washed out.
+            cmd.args(["-c:v", "mjpeg", "-q:v", "2", "-pix_fmt", "yuvj420p"]);
+        }
+        cmd.args(["-y", &output_str]);
         let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg for frame {}: {}", i, e))?;
 
         if !output.status.success() || !output_path.exists() {
