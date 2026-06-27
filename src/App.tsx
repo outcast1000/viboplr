@@ -1413,7 +1413,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, crossfadeSecs: cf, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -1426,6 +1426,12 @@ function App() {
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         zoom.hydrate(savedUiZoom, savedMiniZoom);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
+        if (savedMuted !== undefined && savedMuted !== null) {
+          playback.setMuted(savedMuted);
+          // Restoring a muted state means the app starts silent — surface a
+          // non-blocking toast so the silence isn't mistaken for a playback bug.
+          if (savedMuted) notify("Audio is muted from your last session");
+        }
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);

@@ -662,6 +662,7 @@ export function usePlayback(
   }, [currentTrack]);
   useEffect(() => { if (restoredRef.current) store.set("positionSecs", positionSecs); }, [positionSecs]);
   useEffect(() => { if (restoredRef.current) store.set("volume", volume); }, [volume]);
+  useEffect(() => { if (restoredRef.current) store.set("muted", muted); }, [muted]);
 
   function invalidatePreload() {
     cancelCrossfade();
@@ -1521,7 +1522,7 @@ export function usePlayback(
     positionSecs, setPositionSecs,
     durationSecs, setDurationSecs,
     volume, setVolume,
-    muted, toggleMute,
+    muted, setMuted, toggleMute,
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,

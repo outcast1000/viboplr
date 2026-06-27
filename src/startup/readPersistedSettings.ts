@@ -11,6 +11,7 @@ import type { VideoLayoutState } from "../hooks/useVideoLayout";
 
 export interface PersistedSettings {
   vol: number | undefined;
+  muted: boolean | undefined;
   crossfadeSecs: number | undefined;
   trackVideoHistory: boolean | undefined;
   miniMode: boolean | undefined;
@@ -43,7 +44,7 @@ export interface PersistedSettings {
  */
 export async function readPersistedSettings(store: AppStore): Promise<PersistedSettings> {
   const [
-    vol, crossfadeSecs, trackVideoHistory, miniMode,
+    vol, muted, crossfadeSecs, trackVideoHistory, miniMode,
     fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
@@ -52,6 +53,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     minimizeToMiniPlayer, uiZoom, miniZoom,
   ] = await Promise.all([
     store.get<number>("volume"),
+    store.get<boolean>("muted"),
     store.get<number>("crossfadeSecs"),
     store.get<boolean>("trackVideoHistory"),
     store.get<boolean>("miniMode"),
@@ -77,7 +79,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     store.get<number>("miniZoom"),
   ]);
   return {
-    vol, crossfadeSecs, trackVideoHistory, miniMode,
+    vol, muted, crossfadeSecs, trackVideoHistory, miniMode,
     fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
