@@ -1532,6 +1532,9 @@
   font-size: var(--fs-xs);
   color: var(--text-secondary);
   padding: 0 12px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playlists-empty {

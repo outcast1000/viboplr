@@ -7,6 +7,8 @@ import {
   autoRecipeLabel,
   firstArtist,
   featuredArtists,
+  featuredArtistsFromMetadata,
+  featuredArtistsLabel,
 } from "../utils/autoPlaylist";
 
 const p = (system_kind: string | null, metadata: string | null = null) => ({ system_kind, metadata });
@@ -112,5 +114,39 @@ describe("featuredArtists", () => {
 
   it("keeps first-seen order on ties", () => {
     expect(featuredArtists([t("X"), t("Y"), t("Z")], 4)).toEqual(["X", "Y", "Z"]);
+  });
+});
+
+describe("featuredArtistsFromMetadata", () => {
+  it("reads a string array of featured artists", () => {
+    expect(featuredArtistsFromMetadata(JSON.stringify({ recipe: "genre", featured_artists: ["A", "B"] }))).toEqual(["A", "B"]);
+  });
+
+  it("filters out blank/non-string entries", () => {
+    expect(featuredArtistsFromMetadata(JSON.stringify({ featured_artists: ["A", "", "  ", 3, null, "B"] }))).toEqual(["A", "B"]);
+  });
+
+  it("returns [] for missing, legacy, null, or malformed metadata (never throws)", () => {
+    expect(featuredArtistsFromMetadata(null)).toEqual([]);
+    expect(featuredArtistsFromMetadata(undefined)).toEqual([]);
+    expect(featuredArtistsFromMetadata("not json {{{")).toEqual([]);
+    expect(featuredArtistsFromMetadata(JSON.stringify({ recipe: "genre" }))).toEqual([]);
+    expect(featuredArtistsFromMetadata(JSON.stringify({ featured_artists: "nope" }))).toEqual([]);
+  });
+});
+
+describe("featuredArtistsLabel", () => {
+  it("joins up to `shown` names with commas", () => {
+    expect(featuredArtistsLabel(["A", "B", "C"])).toBe("A, B, C");
+    expect(featuredArtistsLabel(["A", "B"], 3)).toBe("A, B");
+  });
+
+  it("appends 'and more' when the list exceeds `shown`", () => {
+    expect(featuredArtistsLabel(["A", "B", "C", "D"])).toBe("A, B, C and more");
+    expect(featuredArtistsLabel(["A", "B", "C"], 2)).toBe("A, B and more");
+  });
+
+  it("returns null for an empty list", () => {
+    expect(featuredArtistsLabel([])).toBe(null);
   });
 });

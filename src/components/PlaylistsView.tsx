@@ -16,7 +16,7 @@ import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
-import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists } from "../utils/autoPlaylist";
+import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel } from "../utils/autoPlaylist";
 import { useImageCache } from "../hooks/useImageCache";
 import "./PlaylistsView.css";
 
@@ -587,7 +587,12 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                 </button>
               </div>
               <div className="playlists-grid">
-                {autoPlaylists.map((pl) => (
+                {autoPlaylists.map((pl) => {
+                  // Spotify-"Daily Mix"-style description: the mix's top artists,
+                  // recorded in metadata at generation. Falls back to the track
+                  // count + last-refresh line for legacy mixes (pre-regeneration).
+                  const artistsLabel = featuredArtistsLabel(featuredArtistsFromMetadata(pl.metadata));
+                  return (
                   <div key={pl.id} className="playlist-card" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
                     <div className="playlist-card-art">
                       <img src={autoCoverSrc(pl)} alt="" />
@@ -603,10 +608,11 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                       <div className="playlist-card-name">{pl.name}</div>
                     </div>
                     <div className="playlist-card-meta">
-                      {`${pl.track_count} tracks · Updated ${formatDate(pl.saved_at)}`}
+                      {artistsLabel ?? `${pl.track_count} tracks · Updated ${formatDate(pl.saved_at)}`}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

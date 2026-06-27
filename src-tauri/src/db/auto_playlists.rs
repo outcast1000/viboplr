@@ -20,9 +20,37 @@ const AUTO_STALE_SECS: i64 = 24 * 60 * 60;
 /// Forgotten cutoff for the discovery mix (tracks not played in this long).
 const DISCOVERY_CUTOFF_SECS: i64 = 30 * 24 * 60 * 60;
 
-/// Merge the mix's first track artist into its recipe metadata JSON, so the UI
-/// can resolve a cover image from it. Tolerant of malformed input.
-fn merge_first_artist(metadata: &str, first_artist: Option<&str>) -> String {
+/// Top featured artists across the mix's tracks, ranked by track count
+/// descending (ties keep first-seen order), capped at `max`. Mirrors the
+/// frontend `featuredArtists` helper so card subtitles can read this straight
+/// from metadata without loading every track. Blank artist names are skipped.
+fn top_featured_artists(tracks: &[Track], max: usize) -> Vec<String> {
+    let mut order: Vec<String> = Vec::new();
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for t in tracks {
+        let name = match t.artist_name.as_deref() {
+            Some(n) => n.trim(),
+            None => continue,
+        };
+        if name.is_empty() {
+            continue;
+        }
+        if !counts.contains_key(name) {
+            order.push(name.to_string());
+        }
+        *counts.entry(name.to_string()).or_insert(0) += 1;
+    }
+    // Stable sort by count desc keeps first-seen order for ties.
+    order.sort_by(|a, b| counts[b].cmp(&counts[a]));
+    order.truncate(max);
+    order
+}
+
+/// Merge track-derived facts into a mix's recipe metadata JSON: `first_artist`
+/// (so the UI can resolve a cover image) and `featured_artists` (a short,
+/// ranked artist list for the card subtitle, Spotify "Daily Mix" style).
+/// Tolerant of malformed input.
+fn merge_track_facts(metadata: &str, first_artist: Option<&str>, featured: &[String]) -> String {
     let mut v: serde_json::Value =
         serde_json::from_str(metadata).unwrap_or_else(|_| serde_json::json!({}));
     if let Some(obj) = v.as_object_mut() {
@@ -32,6 +60,12 @@ fn merge_first_artist(metadata: &str, first_artist: Option<&str>) -> String {
                 Some(a) => serde_json::Value::String(a.to_string()),
                 None => serde_json::Value::Null,
             },
+        );
+        obj.insert(
+            "featured_artists".to_string(),
+            serde_json::Value::Array(
+                featured.iter().map(|a| serde_json::Value::String(a.clone())).collect(),
+            ),
         );
     }
     v.to_string()
@@ -407,10 +441,12 @@ impl Database {
                 ])?;
             }
         }
-        // Record the first track's artist in metadata so the UI can use that
-        // artist's image as the mix cover.
+        // Record the first track's artist (cover image) plus the top featured
+        // artists (card subtitle) in metadata so the UI needs neither a cover
+        // lookup nor the full track list to describe the mix.
         let first_artist = tracks.first().and_then(|t| t.artist_name.clone());
-        let metadata = merge_first_artist(&spec.metadata, first_artist.as_deref());
+        let featured = top_featured_artists(tracks, 4);
+        let metadata = merge_track_facts(&spec.metadata, first_artist.as_deref(), &featured);
         conn.execute(
             "UPDATE playlists SET name = ?1, metadata = ?2, saved_at = ?3 WHERE id = ?4",
             params![spec.name, metadata, now, playlist_id],
@@ -600,6 +636,50 @@ mod tests {
         assert_eq!(v.get("first_artist").and_then(|x| x.as_str()), Some("Radiohead"));
         // The original recipe spec is preserved alongside the injected field.
         assert_eq!(v.get("recipe").and_then(|x| x.as_str()), Some("genre"));
+        // Featured artists are recorded for the card subtitle.
+        let featured: Vec<&str> = v
+            .get("featured_artists")
+            .and_then(|x| x.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+            .unwrap_or_default();
+        assert_eq!(featured, vec!["Radiohead"]);
+    }
+
+    #[test]
+    fn test_top_featured_artists_ranks_by_count() {
+        let mk = |artist: Option<&str>| Track {
+            id: 0,
+            key: String::new(),
+            path: String::new(),
+            title: String::new(),
+            artist_id: None,
+            artist_name: artist.map(|s| s.to_string()),
+            album_id: None,
+            album_title: None,
+            year: None,
+            track_number: None,
+            duration_secs: None,
+            format: None,
+            file_size: None,
+            collection_id: None,
+            collection_name: None,
+            liked: 0,
+            added_at: None,
+            modified_at: None,
+        };
+        let tracks = vec![
+            mk(Some("A")),
+            mk(Some("B")),
+            mk(Some("A")),
+            mk(Some("  ")), // blank → skipped
+            mk(None),       // none → skipped
+            mk(Some("C")),
+            mk(Some("B")),
+        ];
+        // A:2, B:2, C:1 — A before B (first-seen tie), C last.
+        assert_eq!(top_featured_artists(&tracks, 4), vec!["A", "B", "C"]);
+        // Respects the cap.
+        assert_eq!(top_featured_artists(&tracks, 2), vec!["A", "B"]);
     }
 
     #[test]

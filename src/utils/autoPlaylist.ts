@@ -75,6 +75,36 @@ export function firstArtist(metadata: string | null | undefined): string | null 
 }
 
 /**
+ * The featured artists recorded in an auto-playlist's metadata JSON at
+ * materialization (top artists by track count). Lets the card grid show a
+ * Spotify-style "Artist A, Artist B and more" subtitle without loading the
+ * mix's tracks. Tolerant of missing/malformed/legacy metadata (returns []).
+ */
+export function featuredArtistsFromMetadata(metadata: string | null | undefined): string[] {
+  if (!metadata) return [];
+  try {
+    const m = JSON.parse(metadata) as { featured_artists?: unknown };
+    if (!Array.isArray(m?.featured_artists)) return [];
+    return m.featured_artists.filter((a): a is string => typeof a === "string" && a.trim() !== "");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A Spotify-"Daily Mix"-style subtitle from a ranked artist list: the first
+ * few names joined by commas, with "and more" appended when the list is capped.
+ * Returns null for an empty list so callers can fall back. `shown` caps how
+ * many names are displayed; `capped` indicates more artists exist beyond them.
+ */
+export function featuredArtistsLabel(artists: string[], shown = 3): string | null {
+  if (artists.length === 0) return null;
+  const names = artists.slice(0, shown);
+  const more = artists.length > names.length;
+  return more ? `${names.join(", ")} and more` : names.join(", ");
+}
+
+/**
  * Top featured artists across a playlist's tracks, ranked by track count
  * descending and capped at `max`. Used to give a playlist a "Featuring …"
  * description. Ties keep first-seen order; blank artist names are skipped.
