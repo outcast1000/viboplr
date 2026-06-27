@@ -1,0 +1,22 @@
+{
+  "id": "lyrics-search",
+  "name": "Lyrics Search",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Search the lyrics cached in your library and jump straight to the matching track.",
+  "minAppVersion": "0.9.141",
+  "icon": "M21 21l-4.35-4.35M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z",
+  "apiUsage": [
+    { "api": "informationTypes.searchValues", "reason": "Search cached lyrics stored in the library" },
+    { "api": "playback.playTracks", "reason": "Play a track from a search result" }
+  ],
+  "contributes": {
+    "sidebarItems": [
+      {
+        "id": "lyrics-search",
+        "label": "Lyrics Search",
+        "icon": "M21 21l-4.35-4.35M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z"
+      }
+    ]
+  }
+}

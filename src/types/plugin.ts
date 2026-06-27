@@ -216,6 +216,15 @@ export interface TrackRowItem {
   duration?: string;
   action?: string;
   checked?: string[];
+  // Playable / resolvable metadata (all optional). When present, the host can
+  // resolve a row's artwork the same way the library/queue do (album→artist by
+  // name) and act on it from the right-click menu / drag-to-queue without a DB
+  // id. `path` is the scheme-prefixed URI (file://, subsonic://, …) used for
+  // playback; artistName/albumTitle drive the name-based image lookup.
+  artistName?: string | null;
+  albumTitle?: string | null;
+  path?: string | null;
+  durationSecs?: number | null;
 }
 
 export type PluginViewData =
@@ -571,11 +580,59 @@ export interface PluginNetworkAPI {
   ): Promise<BrowseWindowHandle>;
 }
 
+/** One match from `searchValues` across cached `information_values`. */
+export interface InfoValueMatch {
+  typeId: string;
+  pluginId: string;
+  entity: import("./informationTypes").InfoEntityKind;
+  displayKind: string;
+  entityKey: string;
+  /** The stored value, parsed from JSON (raw string if it wasn't valid JSON). */
+  value: unknown;
+  status: string;
+  fetchedAt: number;
+  /** Short excerpt of the matched text (the `jsonPath` field, or whole value). */
+  snippet: string;
+  /** Resolved library track — only for `entity: "track"` matches when
+   *  `resolveTracks` was requested; null when the track isn't in the library. */
+  track: Track | null;
+}
+
+/** A single cached information value read back for an entity. */
+export interface InfoValueRead {
+  typeId: string;
+  /** The stored value, parsed from JSON (raw string if it wasn't valid JSON). */
+  value: unknown;
+  status: string;
+  fetchedAt: number;
+}
+
 export interface PluginInformationTypesAPI {
   onFetch(
     infoTypeId: string,
     handler: (entity: import("./informationTypes").InfoEntity) => Promise<import("./informationTypes").InfoFetchResult>,
   ): () => void;
+  /**
+   * Substring-search the values cached in `information_values` across any info
+   * type (lyrics, bios, reviews, similar lists, …). Matching is case/diacritic-
+   * insensitive. All filters are optional and AND-combined:
+   * - `typeId` / `displayKind` / `entity` narrow by info type.
+   * - `jsonPath` scopes matching + snippet to one JSON field (e.g. "$.text" for
+   *   lyrics, "$.summary" for bios); omit to search the whole stored value.
+   * - `resolveTracks` populates `match.track` for track-entity matches.
+   */
+  searchValues(query: string, opts?: {
+    typeId?: string;
+    displayKind?: string;
+    entity?: import("./informationTypes").InfoEntityKind;
+    jsonPath?: string;
+    resolveTracks?: boolean;
+    limit?: number;
+  }): Promise<InfoValueMatch[]>;
+  /** All cached info values for an entity (across every info type). */
+  getValuesForEntity(entity: import("./informationTypes").InfoEntity): Promise<InfoValueRead[]>;
+  /** A single cached info value for an entity by info type, or null if absent. */
+  getValue(typeId: string, entity: import("./informationTypes").InfoEntity): Promise<InfoValueRead | null>;
 }
 
 export type HomeShelfItem =

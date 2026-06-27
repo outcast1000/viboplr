@@ -234,9 +234,12 @@ Nested file I/O rooted inside the plugin's data directory. `path` is a string ar
 - `save(data)` / `list()` / `delete(id)` / `getTracks(id)` — saved playlists (source-aware, image-aware)
 
 ### api.informationTypes
-- `onFetch(infoTypeId, handler)` — handler receives an `InfoEntity`, returns `{ status: "ok", value } | { status: "not_found" } | { status: "error", message? }`.
+- `onFetch(infoTypeId, handler)` — *provide* a value: handler receives an `InfoEntity`, returns `{ status: "ok", value } | { status: "not_found" } | { status: "error", message? }`.
+- `searchValues(query, opts?)` — *read* across the cached `information_values` store (any info type — lyrics, bios, reviews, similar lists, …). Case/diacritic-insensitive substring search. `opts` (all optional, AND-combined): `typeId` / `displayKind` / `entity` narrow by info type; `jsonPath` scopes matching **and** the returned `snippet` to one JSON field of the stored value (e.g. `"$.text"` for lyrics, `"$.summary"` for bios) — omit to search the whole value; `resolveTracks` populates `match.track` for `entity: "track"` matches; `limit`. Returns `InfoValueMatch[]`: `{ typeId, pluginId, entity, displayKind, entityKey, value (parsed JSON), status, fetchedAt, snippet, track }` where `track` is the resolved library `Track | null` (only for track entities when `resolveTracks` is set). This runs the scan in the host — the value store is keyed by metadata (`buildEntityKey`), not exposed as a queryable table to JS.
+- `getValuesForEntity(entity)` — read every cached value for an `InfoEntity`: `Array<{ typeId, value (parsed JSON), status, fetchedAt }>`.
+- `getValue(typeId, entity)` — read one cached value by info type for an `InfoEntity`, or `null`.
 
-There is **no** `api.informationTypes.invoke` escape hatch — plugins cannot call arbitrary Tauri commands.
+There is still **no** `api.informationTypes.invoke` escape hatch — plugins read/provide info values through the typed methods above, not arbitrary Tauri commands. The **Lyrics Search** plugin (`src-tauri/plugins/lyrics-search/`) is the canonical `searchValues` consumer (`{ typeId: "lyrics", jsonPath: "$.text", resolveTracks: true }`).
 
 ### api.imageProviders
 - `onFetch(entity, handler)` — entity is `"artist"` or `"album"`. Handler receives `(name, artistName?)` and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`.

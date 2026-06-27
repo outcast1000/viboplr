@@ -35,8 +35,21 @@ import type {
   HomeShelfItem,
   HomeShelfResult,
   NowPlayingInfoResult,
+  InfoValueMatch,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import { buildEntityKey } from "../types/informationTypes";
+
+/** Parse a stored info value (JSON string) for plugin consumers; passes through
+ *  non-string / non-JSON values unchanged so callers never see a parse throw. */
+function parsePluginJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
 import { withResolverLog } from "../utils/resolverLog";
 
 // Hardcoded defaults for information type tab order and provider priority.
@@ -917,6 +930,42 @@ export function usePlugins(
             };
             trackUnsubscribe(unsub);
             return unsub;
+          },
+          async searchValues(query, opts) {
+            const matches = await invoke<InfoValueMatch[]>("search_information_values", {
+              query,
+              typeId: opts?.typeId ?? null,
+              displayKind: opts?.displayKind ?? null,
+              entity: opts?.entity ?? null,
+              jsonPath: opts?.jsonPath ?? null,
+              resolveTracks: opts?.resolveTracks ?? false,
+              limit: opts?.limit ?? 50,
+            });
+            // Hand the plugin the parsed value, not the raw JSON string.
+            return matches.map((m) => ({ ...m, value: parsePluginJson(m.value) }));
+          },
+          async getValuesForEntity(entity) {
+            const entityKey = buildEntityKey(entity);
+            const rows = await invoke<Array<[number, string, string, string, number]>>(
+              "info_get_values_for_entity",
+              { entityKey },
+            );
+            return rows.map(([, typeId, value, status, fetchedAt]) => ({
+              typeId,
+              value: parsePluginJson(value),
+              status,
+              fetchedAt,
+            }));
+          },
+          async getValue(typeId, entity) {
+            const entityKey = buildEntityKey(entity);
+            const rows = await invoke<Array<[number, string, string, string, number]>>(
+              "info_get_values_for_entity",
+              { entityKey },
+            );
+            const hit = rows.find((r) => r[1] === typeId);
+            if (!hit) return null;
+            return { typeId: hit[1], value: parsePluginJson(hit[2]), status: hit[3], fetchedAt: hit[4] };
           },
         },
 

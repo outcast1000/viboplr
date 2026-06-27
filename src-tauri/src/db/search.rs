@@ -415,4 +415,294 @@ impl Database {
             _ => Ok(SearchEntityResult { tracks: None, albums: None, artists: None, tags: None, total: 0 }),
         }
     }
+
+    /// Substring-search the values cached in `information_values` across ANY info
+    /// type (lyrics, bios, reviews, similar lists, …) and return the matches.
+    ///
+    /// Filters (all optional, AND-combined): `type_id` (e.g. "lyrics"),
+    /// `display_kind` (e.g. "rich_text"), `entity` ("artist"/"album"/"track"/"tag").
+    /// `json_path` restricts matching to one JSON field of the stored value
+    /// (e.g. "$.text" for lyrics, "$.summary" for bios); when None, the whole
+    /// stored JSON is searched. Matching is case/diacritic-insensitive to mirror
+    /// the rest of search, and LIKE metacharacters in the query are escaped.
+    ///
+    /// When `resolve_tracks` is set, `track`-entity matches are resolved back to
+    /// the library `Track` (by reconstructing the un-normalized `track:{artist}:
+    /// {title}` key the TS `buildEntityKey` writes) so the caller can play them.
+    /// Backs `api.informationTypes.searchValues` — plugins can't read stored info
+    /// values directly.
+    pub fn search_information_values(
+        &self,
+        query: &str,
+        type_id: Option<&str>,
+        display_kind: Option<&str>,
+        entity: Option<&str>,
+        json_path: Option<&str>,
+        resolve_tracks: bool,
+        limit: i64,
+    ) -> SqlResult<Vec<InfoValueMatch>> {
+        let norm = strip_diacritics(&query.trim().to_lowercase());
+        if norm.is_empty() {
+            return Ok(vec![]);
+        }
+        // Escape LIKE metacharacters so a literal `%`/`_`/`\` in the query isn't
+        // treated as a wildcard (paired with `ESCAPE '\'` in the SQL below).
+        let q_like = norm.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let conn = self.conn.lock().unwrap();
+
+        // The text we match (and excerpt) on: a single JSON field when json_path
+        // is given, else the whole stored value. Bind the path as ?1 (reused) so
+        // it can't be injected.
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let searched = if let Some(path) = json_path {
+            params.push(Box::new(path.to_string())); // ?1
+            "json_extract(iv.value, ?1)".to_string()
+        } else {
+            "iv.value".to_string()
+        };
+
+        let mut sql = format!(
+            "SELECT it.type_id, it.plugin_id, it.entity, it.display_kind, iv.entity_key, \
+                    iv.value, iv.status, iv.fetched_at, {searched} AS searched_text \
+             FROM information_values iv \
+             JOIN information_types it ON it.id = iv.information_type_id \
+             WHERE iv.status = 'ok'"
+        );
+        let mut next = params.len() + 1;
+        if let Some(t) = type_id {
+            sql.push_str(&format!(" AND it.type_id = ?{next}"));
+            params.push(Box::new(t.to_string()));
+            next += 1;
+        }
+        if let Some(d) = display_kind {
+            sql.push_str(&format!(" AND it.display_kind = ?{next}"));
+            params.push(Box::new(d.to_string()));
+            next += 1;
+        }
+        if let Some(e) = entity {
+            sql.push_str(&format!(" AND it.entity = ?{next}"));
+            params.push(Box::new(e.to_string()));
+            next += 1;
+        }
+        sql.push_str(&format!(
+            " AND {searched} IS NOT NULL \
+              AND strip_diacritics(unicode_lower({searched})) LIKE '%' || ?{next} || '%' ESCAPE '\\'"
+        ));
+        params.push(Box::new(q_like));
+        next += 1;
+        sql.push_str(&format!(" ORDER BY iv.fetched_at DESC LIMIT ?{next}"));
+        params.push(Box::new(limit));
+
+        let mut matches: Vec<InfoValueMatch> = {
+            let mut stmt = conn.prepare(&sql)?;
+            let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+            let rows = stmt.query_map(refs.as_slice(), |row| {
+                let searched_text: String = row.get(8)?;
+                Ok(InfoValueMatch {
+                    type_id: row.get(0)?,
+                    plugin_id: row.get(1)?,
+                    entity: row.get(2)?,
+                    display_kind: row.get(3)?,
+                    entity_key: row.get(4)?,
+                    value: row.get(5)?,
+                    status: row.get(6)?,
+                    fetched_at: row.get(7)?,
+                    snippet: value_snippet(&searched_text, &norm),
+                    track: None,
+                })
+            })?;
+            rows.collect::<SqlResult<Vec<_>>>()?
+        };
+
+        // Resolve track-entity matches to playable library tracks. Reuse
+        // TRACK_SELECT and reconstruct the same un-normalized key per row so the
+        // IN-list is an exact (BINARY) match to what was stored.
+        if resolve_tracks {
+            let mut keys: Vec<&String> = matches
+                .iter()
+                .filter(|m| m.entity == "track")
+                .map(|m| &m.entity_key)
+                .collect();
+            keys.sort();
+            keys.dedup();
+            if !keys.is_empty() {
+                let placeholders: Vec<String> =
+                    (0..keys.len()).map(|i| format!("?{}", i + 1)).collect();
+                let tsql = format!(
+                    "{} WHERE ('track:' || COALESCE(ar.name, '') || ':' || t.title) IN ({}) {}",
+                    TRACK_SELECT,
+                    placeholders.join(", "),
+                    ENABLED_COLLECTION_FILTER,
+                );
+                let mut stmt = conn.prepare(&tsql)?;
+                let refs: Vec<&dyn rusqlite::types::ToSql> =
+                    keys.iter().map(|k| *k as &dyn rusqlite::types::ToSql).collect();
+                let rows = stmt.query_map(refs.as_slice(), |row| track_from_row(row))?;
+                let mut by_key: std::collections::HashMap<String, Track> =
+                    std::collections::HashMap::new();
+                for tr in rows {
+                    let track = tr?;
+                    let key = format!(
+                        "track:{}:{}",
+                        track.artist_name.as_deref().unwrap_or(""),
+                        track.title
+                    );
+                    by_key.entry(key).or_insert(track);
+                }
+                for m in matches.iter_mut() {
+                    if m.entity == "track" {
+                        m.track = by_key.get(&m.entity_key).cloned();
+                    }
+                }
+            }
+        }
+
+        Ok(matches)
+    }
+}
+
+/// Pull a short, human-readable snippet from `text` for a search hit: the first
+/// line that contains `norm_query` (matched case/diacritic-insensitively), else
+/// the first non-empty line. Leading LRC-style timestamps are stripped so synced
+/// lyrics read cleanly; harmless for other content.
+fn value_snippet(text: &str, norm_query: &str) -> String {
+    const MAX: usize = 140;
+    let mut fallback: Option<&str> = None;
+    for raw in text.lines() {
+        let line = strip_leading_timestamp(raw).trim();
+        if line.is_empty() {
+            continue;
+        }
+        if fallback.is_none() {
+            fallback = Some(line);
+        }
+        if strip_diacritics(&line.to_lowercase()).contains(norm_query) {
+            return truncate_chars(line, MAX);
+        }
+    }
+    fallback.map(|f| truncate_chars(f, MAX)).unwrap_or_default()
+}
+
+/// Drop a leading LRC timestamp like `[00:12.34]` from a synced-lyrics line.
+fn strip_leading_timestamp(line: &str) -> &str {
+    let t = line.trim_start();
+    if t.starts_with('[') {
+        if let Some(end) = t.find(']') {
+            return t[end + 1..].trim_start();
+        }
+    }
+    t
+}
+
+/// Truncate to `max` chars (not bytes), appending an ellipsis when cut.
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let mut out: String = s.chars().take(max).collect();
+        out.push('…');
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lyrics_type_id(db: &Database) -> i64 {
+        // Register a lyrics-kind information type (mirrors a plugin manifest) and
+        // return its row id so we can upsert cached lyrics values against it.
+        db.info_sync_types(&[(
+            "lyrics".into(),
+            "Lyrics".into(),
+            "track".into(),
+            "lyrics".into(),
+            "lrclib".into(),
+            7_776_000,
+            0,
+            500,
+            "Song lyrics".into(),
+        )])
+        .unwrap();
+        let conn = db.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id FROM information_types WHERE type_id = 'lyrics' AND plugin_id = 'lrclib'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_search_information_values_lyrics_with_track_resolution() {
+        let db = Database::new_in_memory().unwrap();
+        let col = db
+            .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        let artist = db.get_or_create_artist("Radiohead").unwrap();
+        db.upsert_track(
+            "karma.mp3", "Karma Police", Some(artist), None, None,
+            Some(240.0), Some("mp3"), None, None, Some(col.id), None,
+        )
+        .unwrap();
+
+        let type_id = lyrics_type_id(&db);
+        db.info_upsert_value(
+            type_id,
+            "track:Radiohead:Karma Police",
+            "{\"text\":\"This is what you'll get\\nKarma police, arrest this man\",\"kind\":\"plain\"}",
+            "ok",
+        )
+        .unwrap();
+
+        // Filter to the lyrics type, search only the `$.text` field, resolve the
+        // playable track. Matching is case/diacritic-insensitive.
+        let hits = db
+            .search_information_values("ARREST", Some("lyrics"), None, None, Some("$.text"), true, 50)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].type_id, "lyrics");
+        assert_eq!(hits[0].entity, "track");
+        assert!(hits[0].snippet.to_lowercase().contains("arrest"));
+        let track = hits[0].track.as_ref().expect("track resolved");
+        assert_eq!(track.title, "Karma Police");
+        assert_eq!(track.artist_name.as_deref(), Some("Radiohead"));
+
+        // The `$.kind` field is searchable too (whole-value search would also
+        // catch it) — but a `$.text`-scoped search for "plain" must NOT match.
+        assert!(db
+            .search_information_values("plain", Some("lyrics"), None, None, Some("$.text"), false, 50)
+            .unwrap()
+            .is_empty());
+
+        // No match / blank query are no-ops.
+        assert!(db
+            .search_information_values("zzzznotpresent", None, None, None, None, false, 50)
+            .unwrap()
+            .is_empty());
+        assert!(db
+            .search_information_values("   ", None, None, None, None, false, 50)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_search_information_values_unresolved_track_is_null() {
+        let db = Database::new_in_memory().unwrap();
+        let type_id = lyrics_type_id(&db);
+        // A cached lyric whose track isn't in the library still matches, but
+        // resolves to track: None (the caller filters unplayable hits).
+        db.info_upsert_value(
+            type_id,
+            "track:Ghost Artist:Ghost Song",
+            "{\"text\":\"floating words with no track\",\"kind\":\"plain\"}",
+            "ok",
+        )
+        .unwrap();
+        let hits = db
+            .search_information_values("floating", None, None, None, Some("$.text"), true, 50)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].track.is_none());
+    }
 }

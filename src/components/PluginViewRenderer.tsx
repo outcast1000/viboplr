@@ -36,7 +36,8 @@ interface PluginViewRendererProps {
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
-  onTrackRowContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
+  onTrackRowContextMenu?: (e: React.MouseEvent, items: TrackRowItem[]) => void;
+  onTrackRowsDragStart?: (items: TrackRowItem[]) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
@@ -49,6 +50,7 @@ export function PluginViewRenderer({
   onAction,
   onTrackContextMenu,
   onTrackRowContextMenu,
+  onTrackRowsDragStart,
   pluginMenuItems,
   onPluginAction,
 }: PluginViewRendererProps) {
@@ -120,6 +122,7 @@ export function PluginViewRenderer({
           onAction={onAction}
           onTrackContextMenu={onTrackContextMenu}
           onTrackRowContextMenu={onTrackRowContextMenu}
+          onTrackRowsDragStart={onTrackRowsDragStart}
           pluginMenuItems={pluginMenuItems}
           onPluginAction={onPluginAction}
         />
@@ -133,6 +136,7 @@ export function PluginViewRenderer({
             onAction={onAction}
             onTrackContextMenu={onTrackContextMenu}
             onTrackRowContextMenu={onTrackRowContextMenu}
+            onTrackRowsDragStart={onTrackRowsDragStart}
             pluginMenuItems={pluginMenuItems}
             onPluginAction={onPluginAction}
           />
@@ -148,7 +152,8 @@ interface PluginViewNodeProps {
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
-  onTrackRowContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
+  onTrackRowContextMenu?: (e: React.MouseEvent, items: TrackRowItem[]) => void;
+  onTrackRowsDragStart?: (items: TrackRowItem[]) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
 }
@@ -160,6 +165,7 @@ function PluginViewNode({
   onAction,
   onTrackContextMenu,
   onTrackRowContextMenu,
+  onTrackRowsDragStart,
   pluginMenuItems,
   onPluginAction,
 }: PluginViewNodeProps) {
@@ -195,6 +201,7 @@ function PluginViewNode({
           showHeader={node.showHeader}
           onAction={onAction}
           onContextMenu={onTrackRowContextMenu}
+          onRowsDragStart={onTrackRowsDragStart}
         />
       );
     case "text":
@@ -226,6 +233,7 @@ function PluginViewNode({
               onAction={onAction}
               onTrackContextMenu={onTrackContextMenu}
               onTrackRowContextMenu={onTrackRowContextMenu}
+              onTrackRowsDragStart={onTrackRowsDragStart}
               pluginMenuItems={pluginMenuItems}
               onPluginAction={onPluginAction}
             />
@@ -357,6 +365,7 @@ function PluginViewNode({
               onAction={onAction}
               onTrackContextMenu={onTrackContextMenu}
               onTrackRowContextMenu={onTrackRowContextMenu}
+              onTrackRowsDragStart={onTrackRowsDragStart}
             />
           )}
         </PluginSettingsRow>
@@ -376,6 +385,7 @@ function PluginViewNode({
                 onAction={onAction}
                 onTrackContextMenu={onTrackContextMenu}
                 onTrackRowContextMenu={onTrackRowContextMenu}
+                onTrackRowsDragStart={onTrackRowsDragStart}
               />
             ))}
           </div>

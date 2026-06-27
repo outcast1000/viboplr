@@ -5,9 +5,11 @@ import { useState, useCallback, useEffect, useRef, useId } from "react";
 import type { Track, QueueTrack } from "../../types";
 import type { CardGridItem, StatItem, TrackRowItem, BarChartDatum, LineSeries, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../../nativeMenu";
-import { formatDuration } from "../../utils";
+import { formatDuration, getInitials } from "../../utils";
 import { ViewSearchBar } from "../ViewSearchBar";
 import { resolveImageUrl } from "../../utils/resolveImageUrl";
+import { resolveTrackImage } from "../../utils/trackImage";
+import { useImageCache } from "../../hooks/useImageCache";
 import { sanitizeHTML } from "./htmlSanitize";
 import {
   buildLinePath,
@@ -364,7 +366,12 @@ interface PluginTrackRowListProps {
   numbered?: boolean;
   showHeader?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
-  onContextMenu?: (e: React.MouseEvent, item: TrackRowItem) => void;
+  // Right-click on a row. Passes the full selection (the right-clicked row plus
+  // any other selected rows) so the host can build a single- or multi-track menu.
+  onContextMenu?: (e: React.MouseEvent, items: TrackRowItem[]) => void;
+  // Drag rows onto the queue panel. Receives the dragged rows (the selection if
+  // the dragged row is part of a multi-selection, else just that row).
+  onRowsDragStart?: (items: TrackRowItem[]) => void;
 }
 
 /**
@@ -427,12 +434,37 @@ function PluginTrackRowsSelectable({
   showHeader,
   onAction,
   onContextMenu,
+  onRowsDragStart,
 }: PluginTrackRowListProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState(-1);
   const lastClickedIndexRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
   const listId = useId();
   const optionId = (i: number) => `${listId}opt${i}`;
+
+  // Name-based artwork, resolved exactly like the library/queue (album→artist),
+  // so plugin rows show consistent thumbnails. The hooks subscribe to the image
+  // cache, so rows re-render as fetched images arrive.
+  const albumCache = useImageCache("album");
+  const artistCache = useImageCache("artist");
+  useEffect(() => {
+    for (const item of items) {
+      if (item.imageUrl) continue;
+      if (item.albumTitle) albumCache.requestFetch(item.albumTitle, item.artistName ?? undefined);
+      else if (item.artistName) artistCache.requestFetch(item.artistName);
+    }
+    // requestFetch is stable; re-run only when the item set changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+  const imageForRow = useCallback(
+    (item: TrackRowItem): string | null =>
+      resolveTrackImage(
+        { title: item.title, artist_name: item.artistName, album_title: item.albumTitle, image_url: item.imageUrl },
+        { albumImageFor: albumCache.getImage, artistImageFor: artistCache.getImage },
+      ),
+    [albumCache.getImage, artistCache.getImage],
+  );
 
   // Reset selection when the item set changes (e.g. a new search) so stale ids
   // never drive a bulk action against rows that are no longer shown.
@@ -482,20 +514,57 @@ function PluginTrackRowsSelectable({
   }, [items, actions, onAction]);
 
   function handleRowClick(e: React.MouseEvent, index: number) {
+    if (didDragRef.current) return; // suppress the click that ends a drag
     if ((e.target as HTMLElement).closest(".row-hover-action")) return;
     setSelected(computeRowSelection(selected, items, index, lastClickedIndexRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
     lastClickedIndexRef.current = index;
     setActiveIndex(index);
   }
 
+  // Drag-to-queue: mirror the library list's mouse handshake (5px threshold,
+  // selection-aware) so dragging plugin rows onto the queue inserts them.
+  function handleRowMouseDown(e: React.MouseEvent, index: number) {
+    if (e.button !== 0 || !onRowsDragStart) return;
+    if ((e.target as HTMLElement).closest(".row-hover-action")) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    didDragRef.current = false;
+
+    function onMove(ev: MouseEvent) {
+      if (didDragRef.current) return;
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 5) return;
+      didDragRef.current = true;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      const item = items[index];
+      const dragRows = selected.has(item.id) && selected.size > 1
+        ? items.filter(it => selected.has(it.id))
+        : [item];
+      onRowsDragStart!(dragRows);
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setTimeout(() => { didDragRef.current = false; }, 0);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   function handleRowContextMenu(e: React.MouseEvent, index: number, item: TrackRowItem) {
     e.preventDefault();
-    if (!selected.has(item.id)) {
-      setSelected(new Set([item.id]));
+    // Right-clicking inside a multi-selection targets the whole selection;
+    // otherwise it selects (and targets) just the clicked row.
+    let targetIds: Set<string>;
+    if (selected.has(item.id) && selected.size > 1) {
+      targetIds = selected;
+    } else {
+      targetIds = new Set([item.id]);
+      setSelected(targetIds);
       lastClickedIndexRef.current = index;
       setActiveIndex(index);
     }
-    onContextMenu?.(e, item);
+    onContextMenu?.(e, items.filter(it => targetIds.has(it.id)));
   }
 
   function moveActive(next: number, extend: boolean) {
@@ -578,25 +647,29 @@ function PluginTrackRowsSelectable({
         onKeyDown={handleListKeyDown}
         onFocus={handleListFocus}
       >
-        {items.map((item, i) => (
+        {items.map((item, i) => {
+          const art = imageForRow(item);
+          return (
           <div
             key={item.id}
             role="option"
             id={optionId(i)}
             aria-selected={selected.has(item.id)}
             className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}${activeIndex === i ? " ptr-row-active" : ""}`}
+            onMouseDown={(e) => handleRowMouseDown(e, i)}
             onClick={(e) => handleRowClick(e, i)}
             onDoubleClick={() => playRow(i)}
             onContextMenu={onContextMenu ? (e) => handleRowContextMenu(e, i, item) : undefined}
           >
             {numbered && <span className="ptr-num">{i + 1}</span>}
-            {item.imageUrl ? (
-              <div className="ptr-art">
-                <img src={resolveImageUrl(item.imageUrl)} alt="" loading="lazy" decoding="async" />
-              </div>
-            ) : showHeader ? (
-              <div className="ptr-art" />
-            ) : null}
+            {/* Consistent thumbnail per row (image_url → album → artist by name),
+                with a first-letter placeholder on a miss — same chain as the
+                library list and queue. */}
+            <div className="ptr-art">
+              {art
+                ? <img src={art} alt="" loading="lazy" decoding="async" />
+                : <span className="ptr-art-fallback">{getInitials(item.title)}</span>}
+            </div>
             <div className="ptr-info">
               <span className="ptr-title">{item.title}</span>
               {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
@@ -622,7 +695,8 @@ function PluginTrackRowsSelectable({
               </span>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -761,7 +835,7 @@ function PluginTrackRowsLegacy({
         numbered={numbered}
         showAlbum={showHeader}
         onAction={onAction}
-        onContextMenu={onContextMenu}
+        onContextMenu={onContextMenu ? (e, item) => onContextMenu(e, [item]) : undefined}
       />
     </div>
   );

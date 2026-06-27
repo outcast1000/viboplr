@@ -83,6 +83,8 @@ import { FullscreenControls } from "./components/FullscreenControls";
 import { VideoAmbientOverlay } from "./components/VideoAmbientOverlay";
 import { AddServerModal } from "./components/AddServerModal";
 import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
+import { buildPluginMenuSpecs } from "./contextMenu/pluginMenuGroups";
+import { toPluginTarget } from "./types/contextMenu";
 import { buildContextMenuSpecs } from "./contextMenu/buildContextMenuSpecs";
 import { ArtistDetailContent } from "./components/ArtistDetailContent";
 import { AlbumDetail } from "./components/AlbumDetail";
@@ -3131,8 +3133,46 @@ function App() {
                 onTrackContextMenu={(e, track) => {
                   buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name } });
                 }}
-                onTrackRowContextMenu={(e, item) => {
-                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: undefined, isLocal: false, title: item.title, artistName: item.subtitle ?? null } });
+                onTrackRowContextMenu={(e, items) => {
+                  // Metadata-only rows (no DB id) → act directly on synthesized
+                  // QueueTracks (the id-based context-menu Play/Enqueue would no-op).
+                  const qts = items.map((it) => pluginTrackToQueueTrack({
+                    path: it.path ?? null,
+                    title: it.title,
+                    artist_name: it.artistName ?? null,
+                    album_title: it.albumTitle ?? null,
+                    duration_secs: it.durationSecs ?? null,
+                    image_url: it.imageUrl,
+                  }));
+                  if (qts.length === 0) return;
+                  const n = qts.length;
+                  const specs: MenuItemSpec[] = [
+                    { kind: "item", text: n > 1 ? `Play ${n} tracks` : "Play", action: () => queueHook.playTracks(qts, 0) },
+                    { kind: "item", text: n > 1 ? `Enqueue ${n} tracks` : "Enqueue", action: () => contextMenuActions.handleEnqueue(qts as unknown as Track[]) },
+                    { kind: "item", text: "Play Next", action: () => { for (let i = qts.length - 1; i >= 0; i--) queueHook.playNextInQueue(qts[i]); } },
+                  ];
+                  // Append plugin-registered actions (Universal Track Actions). A
+                  // single row carries metadata for plugins to act on; a multi-row
+                  // selection has no DB ids so only the queue actions above apply.
+                  if (n === 1) {
+                    const first = items[0];
+                    const target = { kind: "track" as const, title: first.title, artistName: first.artistName ?? null, isLocal: isLocalTrack(qts[0]) };
+                    const matching = plugins.menuItems.filter((mi) => mi.targets.includes("track"));
+                    const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), plugins.dispatchContextMenuAction);
+                    if (pluginSpecs.length > 0) { specs.push({ kind: "separator" }, ...pluginSpecs); }
+                  }
+                  showNativeMenu(e.clientX, e.clientY, specs);
+                }}
+                onTrackRowsDragStart={(items) => {
+                  const qts = items.map((it) => pluginTrackToQueueTrack({
+                    path: it.path ?? null,
+                    title: it.title,
+                    artist_name: it.artistName ?? null,
+                    album_title: it.albumTitle ?? null,
+                    duration_secs: it.durationSecs ?? null,
+                    image_url: it.imageUrl,
+                  }));
+                  if (qts.length > 0) contextMenuActions.handleTrackDragStart(qts as unknown as Track[]);
                 }}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}

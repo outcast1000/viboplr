@@ -59,6 +59,7 @@ macro_rules! invoke_handler {
             commands::get_tracks,
             commands::search_all,
             commands::search_entity,
+            commands::search_information_values,
             commands::get_track_count,
             commands::get_track_by_id,
             commands::find_track_by_metadata,

@@ -114,6 +114,37 @@ pub fn search_entity(
 
 // --- Track lookup command ---
 
+/// Substring-search the values cached in `information_values` across any info
+/// type (lyrics, bios, reviews, similar lists, …), optionally filtered by
+/// `typeId` / `displayKind` / `entity` and scoped to a single JSON field via
+/// `jsonPath`. When `resolveTracks` is set, `track`-entity matches carry their
+/// resolved library `track`. Backs `api.informationTypes.searchValues` — plugins
+/// can't read stored info values directly, so the search runs here in the host.
+#[tauri::command]
+pub fn search_information_values(
+    state: State<'_, AppState>,
+    query: String,
+    type_id: Option<String>,
+    display_kind: Option<String>,
+    entity: Option<String>,
+    json_path: Option<String>,
+    resolve_tracks: Option<bool>,
+    limit: Option<i64>,
+) -> Result<Vec<InfoValueMatch>, String> {
+    state
+        .db
+        .search_information_values(
+            &query,
+            type_id.as_deref(),
+            display_kind.as_deref(),
+            entity.as_deref(),
+            json_path.as_deref(),
+            resolve_tracks.unwrap_or(false),
+            limit.unwrap_or(50),
+        )
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_track_by_id(state: State<'_, AppState>, track_id: i64) -> Result<Track, String> {
     state

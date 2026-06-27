@@ -134,6 +134,28 @@ pub struct Track {
     pub modified_at: Option<i64>,
 }
 
+/// One match from a search across cached `information_values` (any info type —
+/// lyrics, bios, reviews, similar lists, …). Backs the `search_information_values`
+/// command / `api.informationTypes.searchValues`. `value` is the raw JSON string
+/// as stored (the plugin parses it per its known shape); `snippet` is a short
+/// excerpt of the matched text. `track` is the resolved library track, populated
+/// only for `entity == "track"` matches when `resolve_tracks` was requested
+/// (None when the track isn't in the library).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InfoValueMatch {
+    pub type_id: String,
+    pub plugin_id: String,
+    pub entity: String,
+    pub display_kind: String,
+    pub entity_key: String,
+    pub value: String,
+    pub status: String,
+    pub fetched_at: i64,
+    pub snippet: String,
+    pub track: Option<Track>,
+}
+
 /// ReplayGain values parsed from a track's `extra_tags` JSON. Gains are in dB,
 /// peaks are linear (0..~1). Any field may be absent.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
