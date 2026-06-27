@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, Artist, Album, QueueTrack } from "../types";
+import { watchOnYoutube } from "../utils/youtube";
 import { parseLibraryId, isLocalTrack, isNetworkSharePath } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
@@ -369,19 +369,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } catch (e) {
       console.error("Failed to move tracks to trash:", e);
       setDeleteError({ message: `Failed to move ${title} to ${trashLabel}`, failures: [{ title, reason: String(e) }] });
-    }
-  }
-
-  async function watchOnYoutube(title: string, artistName: string | null, durationSecs: number | null = null) {
-    try {
-      const result = await invoke<{ url: string; video_title: string | null }>(
-        "search_youtube", { title, artistName, durationSecs }
-      );
-      await openUrl(result.url);
-    } catch (e) {
-      console.error("YouTube search failed, falling back to search page:", e);
-      const q = encodeURIComponent(`${title} ${artistName ?? ""}`);
-      await openUrl(`https://www.youtube.com/results?search_query=${q}`);
     }
   }
 

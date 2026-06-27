@@ -9,6 +9,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildEntityKey } from "../types/informationTypes";
 import type { QueueTrack } from "../types";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
+import { watchOnYoutube } from "../utils/youtube";
 import "./InformationSections.css";
 
 export interface CustomTab {
@@ -169,18 +170,7 @@ export function InformationSections({
     }
     if (actionId === "youtube-search") {
       const p = payload as { name: string; artist?: string } | undefined;
-      if (p) {
-        const artist = resolveArtist(p.artist);
-        try {
-          const result = await invoke<{ url: string; video_title: string | null }>(
-            "search_youtube", { title: p.name, artistName: artist ?? null }
-          );
-          openUrl(result.url);
-        } catch {
-          const q = encodeURIComponent(`${p.name} ${artist ?? ""}`);
-          openUrl(`https://www.youtube.com/results?search_query=${q}`);
-        }
-      }
+      if (p) watchOnYoutube(p.name, resolveArtist(p.artist) ?? null);
       return;
     }
     if (onAction) onAction(actionId, payload);

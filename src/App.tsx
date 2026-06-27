@@ -713,7 +713,8 @@ function App() {
       handleStop: playback.handleStop,
     },
     queueHook: {
-      setQueue: queueHook.setQueue,
+      queue: queueHook.queue,
+      removeMultiple: queueHook.removeMultiple,
     },
     collections: library.collections,
   });
@@ -3620,13 +3621,7 @@ function App() {
           onSkip={() => { playback.clearPlaybackError(); handleNext(); }}
           onSearchYoutube={playback.failedTrack ? () => {
             const ft = playback.failedTrack!;
-            invoke<{ url: string; video_title: string | null }>("search_youtube", { title: ft.title, artistName: ft.artist_name ?? null })
-              .then(r => openUrl(r.url))
-              .catch((e) => {
-                console.error("YouTube search failed, falling back to manual search:", e);
-                const q = encodeURIComponent(`${ft.title} ${ft.artist_name ?? ""}`);
-                openUrl(`https://www.youtube.com/results?search_query=${q}`).catch(console.error);
-              });
+            contextMenuActions.watchOnYoutube(ft.title, ft.artist_name ?? null, ft.duration_secs ?? null);
           } : undefined}
         />
       )}

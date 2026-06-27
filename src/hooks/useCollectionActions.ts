@@ -5,7 +5,7 @@ import type { Collection, QueueTrack } from "../types";
 export function useCollectionActions(deps: {
   library: { loadLibrary: () => Promise<void>; loadTracks: () => Promise<void> };
   playback: { currentTrack: QueueTrack | null; handleStop: () => void };
-  queueHook: { setQueue: React.Dispatch<React.SetStateAction<QueueTrack[]>> };
+  queueHook: { queue: QueueTrack[]; removeMultiple: (indices: number[]) => void };
   collections: Collection[];
 }) {
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
@@ -83,7 +83,13 @@ export function useCollectionActions(deps: {
         deps.playback.handleStop();
       }
       if (pathPrefix) {
-        deps.queueHook.setQueue(prev => prev.filter(t => !t.path?.startsWith(pathPrefix)));
+        // Route through removeMultiple (not a raw setQueue filter) so queueIndex
+        // is recalculated and keeps pointing at the playing track — see
+        // queue.md "Queue Mutation & Index Integrity".
+        const indices = deps.queueHook.queue
+          .map((t, i) => (t.path?.startsWith(pathPrefix) ? i : -1))
+          .filter(i => i >= 0);
+        if (indices.length > 0) deps.queueHook.removeMultiple(indices);
       }
       deps.library.loadLibrary();
       deps.library.loadTracks();
