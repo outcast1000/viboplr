@@ -7,6 +7,7 @@ import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { resolveTrackImage } from "../utils/trackImage";
 import { useImageCache } from "../hooks/useImageCache";
+import { useFlipList } from "../hooks/useFlipList";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { SpinningDisc } from "./SpinningDisc";
 import { IconHeartFilled, IconThumbsDownFilled } from "./Icons";
@@ -157,6 +158,10 @@ export function QueuePanel({
   const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ left: number; top: number } | null>(null);
+  const queueListRef = useRef<HTMLDivElement>(null);
+
+  // Physical reorder/insert/remove settling for the queue list.
+  useFlipList(queueListRef);
 
   useEffect(() => {
     if (!tooltip || !tooltipRef.current) { setTooltipPos(null); return; }
@@ -531,11 +536,12 @@ export function QueuePanel({
           )}
         </div>
       )}
-      <div className="queue-list">
+      <div className="queue-list" ref={queueListRef}>
         {queue.map((t, i) => (
           <div
             key={t.key}
             data-queue-index={i}
+            data-flip-key={t.key}
             className={
               `queue-item${i === queueIndex ? ` queue-current${isPlaying ? "" : " paused"}` : ""}${selectedIndices.has(i) ? " selected" : ""}`
               + `${(dropTarget === i || externalDropTarget === i) ? " drop-above" : ""}`

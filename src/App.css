@@ -173,6 +173,19 @@
   min-height: 0;
 }
 
+/* View-switch crossfade. Each top-level view (a direct child of .content) fades
+   in when it mounts AND when it un-hides — display:none→shown restarts CSS
+   animations, so the always-mounted Home/Search views animate on every revisit,
+   not just first paint. Opacity-only by design: it layers under views that bring
+   their own transform intros (Home hero, Now Playing) without fighting them. */
+@keyframes view-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.content > * {
+  animation: view-fade 160ms var(--ease-out-quart) both;
+}
+
 
 /* Artist detail view */
 .artist-detail,
@@ -671,6 +684,21 @@
   cursor: default;
   transition: background 0.15s;
   font-size: var(--fs-sm);
+}
+
+/* Row entrance. Fires on mount, so rows fade up as search results filter in or
+   as more load on scroll — instead of snapping. Stable React keys mean a plain
+   re-render (selection, hover) does NOT remount, so it never re-fires there.
+   Transform/opacity only; fill `both` settles to transform:none (no lingering
+   containing block for the hover-action overlay). */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+.track-row,
+.entity-table-row,
+.entity-list-item {
+  animation: row-in 200ms var(--ease-out-quart) both;
 }
 
 .track-row:hover,

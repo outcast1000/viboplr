@@ -284,6 +284,19 @@
   background: rgba(var(--accent-rgb), 0.12);
 }
 
+/* New queue entries fade + rise in (enqueue, play-next, restore). Stable React
+   keys mean a plain re-render never re-fires this; reordering existing rows is
+   handled by useFlipList. Deliberately NO `both`/`forwards` fill — a filled
+   animation would keep overriding the inline transform FLIP sets on reorder.
+   The keyframe ends at the element's natural state, so there's no flash. */
+@keyframes queue-item-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.queue-item {
+  animation: queue-item-in 220ms var(--ease-out-quart);
+}
+
 .queue-item.dragging {
   opacity: 0.4;
 }

@@ -94,6 +94,7 @@
 }
 
 .ds-tab {
+  position: relative;
   padding: 8px 16px;
   background: none;
   border: none;
@@ -102,9 +103,25 @@
   font-size: var(--fs-sm);
   font-family: inherit;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s;
   margin-bottom: -1px;
   white-space: nowrap;
+}
+
+/* Animated active indicator: the underline grows from centre on activation
+   instead of the previous instant border-color flip. transform-only, so it's
+   cheap and skin-safe (accent-coloured). */
+.ds-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 0.2s var(--ease-out-quart);
+  pointer-events: none;
 }
 
 .ds-tab:hover {
@@ -113,7 +130,10 @@
 
 .ds-tab.active {
   color: var(--text-primary);
-  border-bottom-color: var(--accent);
+}
+
+.ds-tab.active::after {
+  transform: scaleX(1);
 }
 
 .ds-tab-badge {

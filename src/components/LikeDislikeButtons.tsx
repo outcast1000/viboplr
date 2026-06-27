@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   IconHeartFilled,
   IconHeartOutline,
@@ -48,26 +48,32 @@ export function LikeDislikeButtons({
   const iconSize = Math.round(size * 1.4);
   const labelSuffix = entityLabel ? ` ${entityLabel}` : "";
 
+  // Bounce is driven by the rating *changing*, not by the click — so a like from
+  // any source (mouse, Cmd+L, context menu, same-song propagation to this copy)
+  // animates the visible heart identically. Full bounce when landing on "liked",
+  // a subtler one for dislike / clear. Skips the initial mount (prev === current).
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const prevCurrentRef = useRef(current);
+  useEffect(() => {
+    if (prevCurrentRef.current === current) return;
+    prevCurrentRef.current = current;
+    const el = btnRef.current;
+    if (!el) return;
+    const cls = current === 1 ? "anim-heart-bounce" : "anim-heart-bounce-subtle";
+    el.classList.remove("anim-heart-bounce", "anim-heart-bounce-subtle");
+    void el.offsetWidth; // restart the animation even if a class lingered
+    el.classList.add(cls);
+  }, [current]);
+
   const onClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (disabled) return;
-    // From neutral, advance to like. From like, advance to dislike (or back to
-    // neutral when there's no dislike callback). From dislike, back to neutral.
-    if (current === 0) {
-      e.currentTarget.classList.add("anim-heart-bounce");
-      onToggleLike();
-    } else if (current === 1) {
-      if (hasDislike) {
-        e.currentTarget.classList.add("anim-heart-bounce-subtle");
-        onToggleDislike?.();
-      } else {
-        e.currentTarget.classList.add("anim-heart-bounce");
-        onToggleLike();
-      }
-    } else {
-      e.currentTarget.classList.add("anim-heart-bounce-subtle");
-      onToggleDislike?.();
-    }
+    // From neutral → like. From like → dislike (or back to neutral when there's
+    // no dislike callback). From dislike → neutral. The visible bounce is handled
+    // by the effect above, keyed on the resulting state.
+    if (current === 0) onToggleLike();
+    else if (current === 1) (hasDislike ? onToggleDislike : onToggleLike)?.();
+    else onToggleDislike?.();
   }, [current, hasDislike, disabled, onToggleLike, onToggleDislike]);
 
   const Icon = current === 1 ? IconHeartFilled : current === -1 ? IconThumbsDownFilled : IconHeartOutline;
@@ -81,6 +87,7 @@ export function LikeDislikeButtons({
   return (
     <div className={`ds-like-control ds-like-control--${variant}`}>
       <button
+        ref={btnRef}
         type="button"
         className={`${btnClass} ds-like-status${stateClass}`}
         title={title.trim()}

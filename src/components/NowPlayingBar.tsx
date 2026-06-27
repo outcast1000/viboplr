@@ -27,6 +27,26 @@ import "./NowPlayingBar.css";
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
 const isMac = navigator.platform.includes("Mac");
 
+/** Album art that preloads the next image and crossfades it in once decoded, so
+ *  a track change never flashes a blank frame while the new art is still
+ *  loading. Keying the <img> on the *loaded* src (not the requested one) means
+ *  the CSS `art-in` fade only runs against an already-decoded, cached image. */
+function CrossfadeArt({ src, className }: { src: string | undefined; className: string }) {
+  const [loaded, setLoaded] = useState(src);
+  useEffect(() => {
+    if (!src || src === loaded) return;
+    let cancelled = false;
+    const img = new Image();
+    const settle = () => { if (!cancelled) setLoaded(src); };
+    img.onload = settle;
+    img.onerror = settle; // swap anyway so a broken url doesn't freeze old art
+    img.src = src;
+    return () => { cancelled = true; };
+  }, [src, loaded]);
+  if (!loaded) return null;
+  return <img className={className} key={loaded} src={loaded} alt="" />;
+}
+
 // Decide whether the *effective* playback source is a local file, using the winning
 // resolver's classified EffectiveSource rather than the track's path scheme: a remote
 // track served from a local Library copy plays locally, while a local-path track that
@@ -300,7 +320,7 @@ export function NowPlayingBar({
             <div className="now-info">
               <div className="now-mini-art-wrapper">
                 {imagePath ? (
-                  <img className="now-mini-art" src={resolveImageUrl(imagePath)} alt="" />
+                  <CrossfadeArt className="now-mini-art" src={resolveImageUrl(imagePath)} />
                 ) : (
                   <div className="now-mini-art now-mini-art-placeholder">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
@@ -356,9 +376,11 @@ export function NowPlayingBar({
             <div className="mini-right">
               <div className="now-controls">
                 <button className="g-btn g-btn-md mini-play-btn" onClick={onPause} title="Play / Pause">
-                  {playing
-                    ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-                    : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+                  <span className="now-play-icon" key={playing ? "pause" : "play"}>
+                    {playing
+                      ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                      : <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+                  </span>
                 </button>
                 <button className="g-btn g-btn-sm" onClick={onNext} title="Next">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
@@ -484,7 +506,7 @@ export function NowPlayingBar({
         <div className="now-info">
           <div className={`now-art-wrapper${playing ? " playing" : ""}`}>
             {imagePath ? (
-              <img className="now-art" src={resolveImageUrl(imagePath)} alt="" />
+              <CrossfadeArt className="now-art" src={resolveImageUrl(imagePath)} />
             ) : (
               <div className="now-art now-art-placeholder">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">
@@ -617,9 +639,11 @@ export function NowPlayingBar({
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
           </button>
           <button className="g-btn g-btn-play" onClick={onPause} title="Play / Pause (Space)">
-            {playing
-              ? <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-              : <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+            <span className="now-play-icon" key={playing ? "pause" : "play"}>
+              {playing
+                ? <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                : <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
+            </span>
           </button>
           <button className="g-btn g-btn-md" onClick={onNext} title={`Next (${mod}\u2192)`}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>

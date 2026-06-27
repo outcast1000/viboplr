@@ -73,6 +73,12 @@
   --fs-lg: 19px;
   --fs-xl: 23px;
   --fs-2xl: 30px;
+
+  /* Motion — shared easing curves. Natural deceleration, no bounce/elastic.
+     Durations follow the 100/300/500 rule per-component; these set the feel. */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-skin-type="light"] {
@@ -294,6 +300,35 @@ body {
   to   { transform: translateY(0); opacity: 1; }
 }
 
+/* Generic fade-in — referenced by caption-sync banner & loading states. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Empty-state entrance. "No results / nothing here yet" surfaces fade + rise in
+   when they appear instead of snapping. Selectors are global, so this single
+   rule reaches the per-view empty classes regardless of which CSS file defines
+   them. Opacity/transform only; the global reduced-motion guard below zeroes it.
+   One-shot by design — no looping idle motion (that reads as nervous in a tool). */
+@keyframes empty-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.ds-empty,
+.search-view-empty,
+.playlists-empty,
+.ext-empty,
+.collections-empty,
+.queue-empty,
+.track-detail-empty,
+.plugin-view-empty,
+.plugin-track-list-empty,
+.info-section-empty,
+.entity-grid > .empty {
+  animation: empty-in 280ms var(--ease-out-quart) both;
+}
+
 /* Animation utility classes */
 .anim-heart-bounce {
   animation: heart-bounce 300ms ease-out;
@@ -301,4 +336,26 @@ body {
 
 .anim-heart-bounce-subtle {
   animation: heart-bounce-subtle 300ms ease-out;
+}
+
+/* Universal press feedback for glass buttons: a quick scale-down on press
+   gives every transport/like/toggle control tactile acknowledgement. The base
+   .g-btn already carries `transition: all 0.15s`, so this rides that curve. */
+.g-btn:active:not(:disabled) {
+  transform: scale(0.93);
+}
+
+/* === Reduced motion ===
+   Honour the OS "reduce motion" setting globally: collapse animations and
+   transitions to near-instant so motion-sensitive users get state changes
+   without movement. Per-component guards elsewhere remain as finer overrides. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
