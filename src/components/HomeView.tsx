@@ -30,6 +30,9 @@ export interface HomeViewProps {
   invokePluginShelf: (pluginId: string, shelfId: string, limit: number) => Promise<HomeShelfResult>;
   pluginsLoaded: boolean;
   restoredRef: React.RefObject<boolean>;
+  // Bumped by the host when a collection resync changes the library, so Home
+  // re-fetches its content shelves (see useHome).
+  libraryRevision: number;
   onShelfItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onShelfItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
   onShelfItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
@@ -76,6 +79,7 @@ export function HomeView(props: HomeViewProps) {
     visibility,
     shelfOrder,
     restoredRef: props.restoredRef,
+    libraryRevision: props.libraryRevision,
   });
 
   function toggleShelf(id: string) {

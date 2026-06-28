@@ -12,6 +12,9 @@ import { store } from "../store";
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
+// Coalesce a burst of library changes (e.g. several collections finishing a resync
+// back-to-back at startup) into a single background refresh.
+const LIBRARY_REFRESH_DEBOUNCE_MS = 1_200;
 const SNAPSHOT_KEY = "homeSnapshot";
 const RADIO_STATION_COUNT = 7;
 
@@ -313,6 +316,11 @@ export interface UseHomeOptions {
   // follow the built-ins regardless. Defaults to DEFAULT_SHELF_ORDER.
   shelfOrder: string[];
   restoredRef: React.RefObject<boolean>;
+  // Monotonic counter the host bumps whenever a collection resync changes the
+  // library (scan/sync complete). A change re-runs the normal refresh so content
+  // shelves (recently added, liked, most-played, …) pick up the new tracks — fully
+  // generic, no per-shelf wiring. Debounced and gated so it never delays startup.
+  libraryRevision: number;
 }
 
 export function shelfKey(pluginId: string | undefined, shelfId: string): string {
@@ -320,7 +328,7 @@ export function shelfKey(pluginId: string | undefined, shelfId: string): string 
 }
 
 export function useHome(opts: UseHomeOptions) {
-  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, shelfOrder, restoredRef } = opts;
+  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, shelfOrder, restoredRef, libraryRevision } = opts;
 
   const [radioStations, setRadioStations] = useState<RadioStation[]>([]);
   const [shelves, setShelves] = useState<ResolvedShelf[]>([]);
@@ -329,10 +337,21 @@ export function useHome(opts: UseHomeOptions) {
   const refreshGenRef = useRef(0);
   const radioStationsRef = useRef<RadioStation[]>([]);
   radioStationsRef.current = radioStations;
+  // Mirror of `shelves` so a refresh can seed itself from what's currently on
+  // screen and update shelves in place (rather than collapsing the list and
+  // rebuilding it one shelf at a time) — see refresh() below.
+  const shelvesRef = useRef<ResolvedShelf[]>(shelves);
+  shelvesRef.current = shelves;
   const savedAtRef = useRef<number>(0);
   // Resolver ids attempted in the last completed refresh — used to detect
   // freshly-installed plugin shelves that have never been fetched.
   const attemptedKeysRef = useRef<Set<string>>(new Set());
+  // Latest library revision (read via ref so refresh() doesn't depend on it), and
+  // the revision the last refresh accounted for. A mismatch means a collection
+  // resync landed new tracks that the shelves haven't picked up yet.
+  const libRevRef = useRef(libraryRevision);
+  libRevRef.current = libraryRevision;
+  const refreshedRevRef = useRef(libraryRevision);
 
   // Pick the radio-station seeds for the hero carousel and resolve a cover image
   // for each (album image first, artist image as fallback). Covers resolve in
@@ -798,6 +817,9 @@ export function useHome(opts: UseHomeOptions) {
 
   const refresh = useCallback(async () => {
     const gen = ++refreshGenRef.current;
+    // Capture the library revision this refresh accounts for, up front: its DB
+    // reads run after this point, so they observe any resync that has completed.
+    refreshedRevRef.current = libRevRef.current;
     setIsLoading(true);
     try {
       const recentlyVisited = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
@@ -829,7 +851,16 @@ export function useHome(opts: UseHomeOptions) {
 
       // Stream each shelf into the UI as it resolves, preserving the resolver order.
       const order = new Map(all.map((r, i) => [r.id, i]));
+      // Seed the working set from the shelves currently on screen (those still
+      // visible this cycle) so a live refresh updates shelves IN PLACE instead of
+      // collapsing the list to empty and rebuilding it one shelf at a time. Seeded
+      // shelves keep their old items until their resolver returns; any that don't
+      // resolve OK this cycle are dropped in the final pass via `resolvedOk`.
       const partial = new Map<string, ResolvedShelf>();
+      for (const s of shelvesRef.current) {
+        if (order.has(s.id)) partial.set(s.id, s);
+      }
+      const resolvedOk = new Set<string>();
       const shelfPromises = all.map(async (r) => {
         try {
           const result = await Promise.race<HomeShelfResult>([
@@ -845,6 +876,7 @@ export function useHome(opts: UseHomeOptions) {
             }
             return;
           }
+          resolvedOk.add(r.id);
           partial.set(r.id, {
             id: r.id,
             pluginId: r.pluginId,
@@ -863,13 +895,13 @@ export function useHome(opts: UseHomeOptions) {
 
       await Promise.all([radioPromise, ...shelfPromises]);
       if (gen === refreshGenRef.current) {
-        // Final pass: drop any shelves left over from a previous run that no longer
-        // resolved this cycle (e.g., went from ok -> empty/error or were toggled off).
-        const finalIds = new Set(partial.keys());
-        const finalShelves = Array.from(partial.values()).sort(
-          (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
-        );
-        setShelves((prev) => prev.filter((s) => finalIds.has(s.id)));
+        // Final pass: keep only shelves that actually resolved OK this cycle, so a
+        // seeded shelf that went ok -> empty/error (or was toggled off) drops in a
+        // single clean step at the end rather than flickering mid-refresh.
+        const finalShelves = Array.from(partial.values())
+          .filter((s) => resolvedOk.has(s.id))
+          .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+        setShelves(finalShelves);
         // Persist the snapshot so the next mount can hydrate instantly.
         const savedAt = Date.now();
         savedAtRef.current = savedAt;
@@ -958,6 +990,25 @@ export function useHome(opts: UseHomeOptions) {
       findUnattemptedBuiltInKeys(visibility, attemptedKeysRef.current).length > 0;
     if (savedAtRef.current === 0 || age >= STALE_MS || hasNewShelves) refresh();
   }, [isVisible, refresh, restoredRef, hydrated, pluginsLoaded, pluginShelves, visibility]);
+
+  // Re-run the refresh after a collection resync changes the library (host bumps
+  // `libraryRevision`). This is generic — every content shelf picks up the new
+  // tracks, not just "Recently added". Gated on restore/hydrate/plugins-loaded so
+  // it never runs on the startup critical path, and debounced so several
+  // collections finishing back-to-back coalesce into one background refresh.
+  //
+  // When Home isn't visible we don't fetch: the revision mismatch persists, and
+  // because `isVisible` is in the deps this effect re-runs the moment Home opens
+  // again, refreshing then. The mismatch is revision-based (not time-based), so a
+  // change that lands before hydrate completes is still honoured once `hydrated`
+  // flips — no startup race, no dependence on snapshot age.
+  useEffect(() => {
+    if (!restoredRef.current || !hydrated || !pluginsLoaded) return;
+    if (!isVisible) return;
+    if (libraryRevision === refreshedRevRef.current) return;
+    const t = setTimeout(() => { refresh(); }, LIBRARY_REFRESH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [libraryRevision, isVisible, hydrated, pluginsLoaded, restoredRef, refresh]);
 
   return { radioStations, shelves, refresh, isLoading };
 }

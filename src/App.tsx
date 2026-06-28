@@ -642,6 +642,9 @@ function App() {
   // always-mounted SearchView re-runs its current (often empty) query instead of
   // showing stale results cached from an earlier (possibly empty) startup.
   const [searchLibraryKey, setSearchLibraryKey] = useState(0);
+  // Monotonic counter bumped whenever a collection resync changes the library.
+  // Drives Home's generic post-resync refresh (see useHome / HomeView).
+  const [libraryRevision, setLibraryRevision] = useState(0);
   const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
@@ -1030,7 +1033,10 @@ function App() {
     setResyncProgress,
     setResyncComplete,
     onBulkEditComplete: () => setSearchBulkEditKey(k => k + 1),
-    onLibraryChanged: () => setSearchLibraryKey(k => k + 1),
+    onLibraryChanged: () => {
+      setSearchLibraryKey(k => k + 1);
+      setLibraryRevision(k => k + 1);
+    },
     dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
     notify,
   });
@@ -2996,6 +3002,7 @@ function App() {
             pluginsLoaded={plugins.pluginsLoaded}
             invokePluginShelf={plugins.invokeHomeShelf}
             restoredRef={restoredRef}
+            libraryRevision={libraryRevision}
             onShelfItemClick={handleHomeShelfItemClick}
             onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}
