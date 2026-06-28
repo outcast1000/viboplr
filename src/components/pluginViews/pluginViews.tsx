@@ -448,13 +448,20 @@ function PluginTrackRowsSelectable({
   // cache, so rows re-render as fetched images arrive.
   const albumCache = useImageCache("album");
   const artistCache = useImageCache("artist");
+  // Prime images with the lazy, idempotent `getImage` — NOT `requestFetch`.
+  // `requestFetch` is a destructive force-refresh (wipes the cache entry, bumps
+  // the cache-bust version, re-invokes fetch), so calling it on every `items`
+  // change made the thumbnails flicker whenever a plugin re-emits its view data
+  // rapidly (e.g. Library Statistics redrawing the Top list while it streams
+  // play history). `getImage` returns the cached URL untouched and only kicks a
+  // fetch on a genuine miss — so repeated redraws of an unchanged list are no-ops.
   useEffect(() => {
     for (const item of items) {
       if (item.imageUrl) continue;
-      if (item.albumTitle) albumCache.requestFetch(item.albumTitle, item.artistName ?? undefined);
-      else if (item.artistName) artistCache.requestFetch(item.artistName);
+      if (item.albumTitle) albumCache.getImage(item.albumTitle, item.artistName ?? undefined);
+      else if (item.artistName) artistCache.getImage(item.artistName);
     }
-    // requestFetch is stable; re-run only when the item set changes.
+    // getImage is stable (memoized on kind); re-run only when the item set changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
   const imageForRow = useCallback(
