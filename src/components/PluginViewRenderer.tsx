@@ -330,6 +330,7 @@ function PluginViewNode({
           max={node.max}
           orientation={node.orientation}
           valueFormat={node.valueFormat}
+          onAction={onAction}
         />
       );
     case "heatmap":

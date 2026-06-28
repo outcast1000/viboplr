@@ -1113,14 +1113,34 @@ export function PluginBarChart({
   max,
   orientation = "horizontal",
   valueFormat,
+  onAction,
 }: {
   bars: BarChartDatum[];
   max?: number;
   orientation?: "horizontal" | "vertical";
   valueFormat?: ChartValueFormat;
+  onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const scaleMax =
     max && max > 0 ? max : bars.reduce((m, b) => Math.max(m, b.value || 0), 0) || 1;
+
+  // Bars opt into being clickable by carrying an `action`. We attach button
+  // semantics (role/tabIndex/keyboard) so a clickable bar is reachable and
+  // operable from the keyboard, matching the rest of the plugin view kinds.
+  const clickProps = (b: BarChartDatum) =>
+    b.action && onAction
+      ? {
+          role: "button",
+          tabIndex: 0,
+          onClick: () => onAction(b.action!, { id: b.id, label: b.label }),
+          onKeyDown: (e: React.KeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onAction(b.action!, { id: b.id, label: b.label });
+            }
+          },
+        }
+      : {};
 
   if (orientation === "vertical") {
     return (
@@ -1129,11 +1149,13 @@ export function PluginBarChart({
         <div className="plugin-bar-cols">
           {bars.map((b, i) => {
             const pct = Math.max(0, Math.min(100, ((b.value || 0) / scaleMax) * 100));
+            const clickable = !!(b.action && onAction);
             return (
               <div
                 key={i}
-                className="plugin-bar-col"
+                className={"plugin-bar-col" + (clickable ? " plugin-bar-col--clickable" : "")}
                 title={`${b.label}: ${formatChartValue(b.value, valueFormat)}`}
+                {...clickProps(b)}
               >
                 <div className="plugin-bar-col-fill" style={{ height: `${pct}%`, background: b.color }}>
                   <span className="plugin-bar-col-value">{formatChartValue(b.value, valueFormat)}</span>
@@ -1158,8 +1180,13 @@ export function PluginBarChart({
     <div className="plugin-bar-chart">
       {bars.map((b, i) => {
         const pct = Math.max(0, Math.min(100, ((b.value || 0) / scaleMax) * 100));
+        const clickable = !!(b.action && onAction);
         return (
-          <div key={i} className="plugin-bar-row">
+          <div
+            key={i}
+            className={"plugin-bar-row" + (clickable ? " plugin-bar-row--clickable" : "")}
+            {...clickProps(b)}
+          >
             <div className="plugin-bar-label" title={b.label}>
               {b.label}
             </div>

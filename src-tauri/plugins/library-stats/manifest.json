@@ -1,7 +1,7 @@
 {
   "id": "library-stats",
   "name": "Library Statistics",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "Viboplr",
   "description": "A dashboard of your library composition, listening patterns, and top charts — built from your local library and play history.",
   "minAppVersion": "0.9.136",

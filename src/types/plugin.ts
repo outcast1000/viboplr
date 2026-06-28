@@ -198,6 +198,11 @@ export interface BarChartDatum {
   value: number;
   sublabel?: string;
   color?: string;
+  // When `action` is set, the bar becomes clickable: clicking it fires
+  // onAction(action, { id, label }). `id` is an opaque identifier the plugin
+  // uses to resolve what was clicked (the human label may not be unique).
+  id?: string;
+  action?: string;
 }
 
 // One series in a `line-chart`. `points` are raw values plotted left→right.

@@ -966,6 +966,26 @@
   gap: 10px;
 }
 
+/* Clickable bars (e.g. drill into an entity). Hover/focus brighten the label
+   and fill so the affordance reads without leaving the skin palette. */
+.plugin-bar-row--clickable,
+.plugin-bar-col--clickable {
+  cursor: pointer;
+  border-radius: var(--ds-radius);
+}
+.plugin-bar-row--clickable:focus-visible,
+.plugin-bar-col--clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.plugin-bar-row--clickable:hover .plugin-bar-label {
+  color: var(--text-primary);
+}
+.plugin-bar-row--clickable:hover .plugin-bar-fill,
+.plugin-bar-col--clickable:hover .plugin-bar-col-fill {
+  filter: brightness(1.15);
+}
+
 .plugin-bar-label {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
