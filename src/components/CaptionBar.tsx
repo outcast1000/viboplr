@@ -39,17 +39,15 @@ export function CaptionBar({
     <div className="search-bar" data-tauri-drag-region>
       <WindowControls position="left" minimizeToMiniPlayer={minimizeToMiniPlayer} onMinimizeToMini={onToggleMiniMode} />
         <div className="caption-brand" data-tauri-drag-region>
-          <svg width="34" height="34" viewBox="0 0 512 512" fill="none" style={{ marginRight: "-6px" }}>
+          <svg width="30" height="30" viewBox="0 0 100 100" fill="none" style={{ marginRight: "-5px" }}>
             <defs>
               <linearGradient id="captionVGrad" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stopColor="#FF6B6B"/>
                 <stop offset="100%" stopColor="#E91E8A"/>
               </linearGradient>
             </defs>
-            <circle cx="256" cy="256" r="230" fill="none" stroke="url(#captionVGrad)" strokeWidth="6" opacity="0.15"/>
-            <circle cx="256" cy="256" r="190" fill="none" stroke="url(#captionVGrad)" strokeWidth="4" opacity="0.1"/>
-            <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#captionVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
-            <circle cx="256" cy="400" r="16" fill="url(#captionVGrad)" opacity="0.6"/>
+            <path d="M27 27 L50 55 L73 27" stroke="url(#captionVGrad)" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M27 46 L50 74 L73 46" stroke="url(#captionVGrad)" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" opacity="0.48"/>
           </svg>
           <span className="caption-brand-text">iboPLR</span>
         </div>

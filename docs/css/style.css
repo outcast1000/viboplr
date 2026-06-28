@@ -161,9 +161,9 @@ p {
 .nav-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 2px;
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 800;
   font-size: 1.35rem;
   letter-spacing: -0.02em;
   transition: opacity var(--transition-fast);
@@ -176,6 +176,7 @@ p {
 .nav-logo svg {
   width: 34px;
   height: 34px;
+  margin-right: -6px;
 }
 
 .nav-links {
