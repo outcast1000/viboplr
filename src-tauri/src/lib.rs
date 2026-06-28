@@ -256,7 +256,6 @@ macro_rules! invoke_handler {
             commands::main_playlist_set_cover,
             commands::main_playlist_set_thumb,
             commands::main_playlist_remove_thumb,
-            commands::main_playlist_touch_thumbs,
             commands::main_playlist_dir,
             commands::check_for_extension_updates,
             commands::download_and_install_plugin_update,

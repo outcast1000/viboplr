@@ -70,7 +70,18 @@ pub fn read(profile_dir: &Path) -> Result<MainPlaylistReadResult, String> {
     let f = folder(profile_dir);
     let manifest = read_json::<MixtapeManifest>(&f.join(MANIFEST_FILE));
     let state = read_json::<MainPlaylistState>(&f.join(STATE_FILE));
-    Ok(MainPlaylistReadResult { manifest, state })
+    // Existence-check cached thumbs inline so the frontend can seed `thumbInfo`
+    // synchronously with the restored queue (replaces the old post-restore
+    // `touch_thumbs` round-trip). Keys are the track file URIs; Rust stays the
+    // sole namer via `canonical_slug` inside `existing_thumbs`.
+    let thumbs = manifest
+        .as_ref()
+        .map(|m| {
+            let keys: Vec<String> = m.tracks.iter().filter_map(|t| t.file.clone()).collect();
+            existing_thumbs(profile_dir, &keys)
+        })
+        .unwrap_or_default();
+    Ok(MainPlaylistReadResult { manifest, state, thumbs })
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
@@ -341,6 +352,28 @@ mod tests {
         let r = read(t.path()).unwrap();
         assert!(r.manifest.is_none());
         assert!(r.state.is_none());
+        assert!(r.thumbs.is_empty());
+    }
+
+    #[test]
+    fn read_returns_existing_thumbs_for_queued_tracks_only() {
+        // read() existence-checks each queued track's thumb and returns
+        // (uri, canonical_slug(uri).jpg) only for those present on disk, so the
+        // frontend can seed thumbInfo synchronously (no touch_thumbs round-trip).
+        let t = tmp();
+        ensure_dirs(t.path()).unwrap();
+        let with_thumb = "spotify://has-thumb";
+        let without_thumb = "spotify://no-thumb";
+        // Write the on-disk thumb for only the first track, using the Rust name.
+        let fname = format!("{}.jpg", canonical_slug(with_thumb));
+        std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&fname), b"x").unwrap();
+        let mut m = sample_manifest();
+        m.tracks.push(referenced_track(with_thumb));
+        m.tracks.push(referenced_track(without_thumb));
+        write(t.path(), Some(&m), Some(&sample_state())).unwrap();
+
+        let r = read(t.path()).unwrap();
+        assert_eq!(r.thumbs, vec![(with_thumb.to_string(), fname)]);
     }
 
     #[test]

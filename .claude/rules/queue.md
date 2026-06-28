@@ -133,18 +133,19 @@ How the queue survives app restarts.
 - Writes cover via `invoke("main_playlist_set_cover", { source })` — either a local path or remote URL
 - Clears cover (`source: null`) when no context or no image
 
-**Thumbnail management (remote playlists only):**
-- `useEffect` on `[queue, playlistContext]` diffs previous and current queue
-- Removed tracks: thumbnails deleted via `main_playlist_remove_thumb`, version entries cleaned from `thumbVersions`
-- Added tracks (remote context only): thumbnails written via `main_playlist_set_thumb` using track's `image_url`
-- `main-playlist-thumb-ready` backend event bumps `thumbVersions` to bust the `convertFileSrc` cache
-- Stale thumbnail removal happens regardless of remote flag — switching away from a remote playlist still cleans up
+**Thumbnail management:**
+- `useEffect` on `[queue, playlistContext]` diffs previous and current queue by file URI (`diffThumbs`)
+- Removed tracks: thumbnails deleted via `main_playlist_remove_thumb`, their `thumbInfo` entries dropped
+- Added tracks: a thumbnail is written via `main_playlist_set_thumb` for **any** track that carries an `image_url` (plugin/remote art the entity-image cache can't serve) — there is **no** remote-context gate. Library tracks carry no `image_url` on their `QueueTrack`, so they're skipped (their art resolves via the entity cache)
+- `main-playlist-thumb-ready` backend event records the backend-named filename into `thumbInfo` and bumps its `version` to bust the `convertFileSrc` cache
+- The on-disk thumb is named solely by Rust (`canonical_slug(file)`); the frontend never computes the filename
 
 **Restore path:**
 - On startup, App.tsx calls `invoke("main_playlist_read")` to read the manifest and state from the backend's main-playlist folder (NOT from `tauri-plugin-store`).
 - Tracks are reconstructed via `tracksFromManifest()` (producing `id: null` tracks with fresh `ext:N` keys). Playlist context is reconstructed via `contextFromManifest()`.
 - Queue mode is restored from the state object. Legacy persisted modes are normalized on read: `"loop"` → `"repeat-all"`, `"shuffle"` → `"normal"` (App.tsx restore path) so older stored state stays valid.
 - The queue and index are NOT set directly during restore — they are deferred via `pendingRestoreQueueRef` / `pendingRestoreTrackRef` and applied after initial library load (so library tracks can be matched and upgraded to full `id`-bearing tracks).
+- Cached thumbnails are seeded synchronously into `thumbInfo` from the `thumbs` field of the `main_playlist_read` result (the backend existence-checks each queued track's thumb and returns its `canonical_slug`-derived filename), so restored queue rows paint their cached art on the first render — no separate async reconcile round-trip. Rust stays the sole namer of the on-disk file.
 - `restoredRef` is set to `true` only after all restore operations complete.
 - `invoke("main_playlist_gc")` runs fire-and-forget after restore to clean up orphaned cover/thumb files in the main-playlist folder.
 

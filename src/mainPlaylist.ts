@@ -46,10 +46,11 @@ export interface ThumbInfo {
  * Resolve the on-disk local thumbnail path for a queue item, or null if no
  * thumb has been confirmed on disk.
  *
- * The thumb file is written asynchronously by `main_playlist_set_thumb` (and
- * reconciled on restore by `main_playlist_touch_thumbs`), which emit
- * `main-playlist-thumb-ready { key, filename }` only *after* the file exists.
- * The frontend records that as `thumbInfo[uri]`. Until an entry is present we
+ * The thumb file is written asynchronously by `main_playlist_set_thumb`, which
+ * emits `main-playlist-thumb-ready { key, filename }` only *after* the file
+ * exists. On restore the frontend instead seeds `thumbInfo` from the
+ * existence-checked `thumbs` list returned by `main_playlist_read`. Either way
+ * the frontend records `thumbInfo[uri]`. Until an entry is present we
  * have no proof the file exists, so requesting it would make the asset protocol
  * log a spurious "File does not exist" error on first paint — callers fall back
  * to the track's own `image_url` / the entity-image chain until then.
@@ -124,8 +125,8 @@ export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
     // by nextExternalKey(), producing duplicate React keys that corrupt
     // reconciliation (phantom rows that survive clear/remove). Thumbnail identity on
     // disk is keyed off the file URI (canonical_slug, backend-side), not this key,
-    // so thumbs cached before restart are still found — repopulated into thumbInfo
-    // by the post-restore main_playlist_touch_thumbs call, not from the manifest.
+    // so thumbs cached before restart are still found — seeded into thumbInfo
+    // from main_playlist_read's existence-checked `thumbs` list, not the manifest.
     key: nextExternalKey(),
     path: m.file,
     title: m.title,
@@ -138,7 +139,8 @@ export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
     format: m.format ?? null,
     liked: 0,
     // image_url is intentionally NOT seeded from m.thumb: the queue thumbnail is
-    // resolved from thumbInfo (populated by touch_thumbs) so Rust remains the
+    // resolved from thumbInfo (seeded from main_playlist_read on restore, and
+    // from main-playlist-thumb-ready during the session) so Rust remains the
     // sole namer of the on-disk file. Library art still resolves via the entity
     // cache in QueuePanel/App.
   }));

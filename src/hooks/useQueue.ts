@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../utils/tauriEvents";
 import { save, open } from "@tauri-apps/plugin-dialog";
@@ -39,6 +39,23 @@ export function useQueue(
       // filename (the frontend never computes it — Rust's canonical_slug is the
       // single source of truth, so there's no JS slug mirror to drift).
       setThumbInfo(prev => ({ ...prev, [key]: { version: (prev[key]?.version ?? 0) + 1, filename } }));
+    });
+  }, []);
+
+  // Seed thumbInfo from the restore read result (the `thumbs` field of
+  // main_playlist_read — each entry is `[uri, filename]`, existence-checked and
+  // named by Rust). Mirrors the event handler's version bump so the WebView
+  // cache busts, and lets restored queue rows paint cached art on first render
+  // without a separate async reconcile round-trip.
+  const seedThumbInfo = useCallback((entries: Array<[string, string]>) => {
+    if (entries.length === 0) return;
+    setThumbInfo(prev => {
+      const next = { ...prev };
+      for (const [key, filename] of entries) {
+        if (!key || !filename) continue;
+        next[key] = { version: (prev[key]?.version ?? 0) + 1, filename };
+      }
+      return next;
     });
   }, []);
 
@@ -511,6 +528,6 @@ export function useQueue(
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
-    thumbInfo,
+    thumbInfo, seedThumbInfo,
   };
 }

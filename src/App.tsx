@@ -149,6 +149,9 @@ function App() {
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
+  // Cached-thumb pairs (`[uri, filename]`) from main_playlist_read, seeded into
+  // thumbInfo when the deferred queue is applied so rows paint art immediately.
+  const pendingRestoreThumbsRef = useRef<Array<[string, string]>>([]);
   // "Latest play" ring buffer (things that replaced the queue). Mirrors
   // recentlyVisitedRef: loaded from the store on mount, written on each play.
   const recentPlaysRef = useRef<RecentPlaySession[]>([]);
@@ -1490,8 +1493,8 @@ function App() {
 
         // Restore queue from main-playlist folder (replaces tauri-store queue keys)
         try {
-          const [{ manifest, state: mpState }, dir] = await Promise.all([
-            invoke<{ manifest: Manifest | null; state: MainPlaylistState | null }>("main_playlist_read"),
+          const [{ manifest, state: mpState, thumbs }, dir] = await Promise.all([
+            invoke<{ manifest: Manifest | null; state: MainPlaylistState | null; thumbs: [string, string][] }>("main_playlist_read"),
             invoke<string>("main_playlist_dir"),
           ]);
           if (manifest) {
@@ -1514,6 +1517,7 @@ function App() {
               }
               const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
               pendingRestoreQueueRef.current = { tracks, index: idx };
+              pendingRestoreThumbsRef.current = thumbs ?? [];
               if (idx >= 0) {
                 pendingRestoreTrackRef.current = tracks[idx];
               }
@@ -1615,15 +1619,13 @@ function App() {
       queueHook.setQueue(queue.tracks);
       queueHook.setQueueIndex(queue.index);
       pendingRestoreQueueRef.current = null;
-      // Reconcile thumbnails cached before restart: ask the backend which track
-      // URIs already have a thumb on disk and re-emit main-playlist-thumb-ready
-      // for each, repopulating thumbInfo. Rust stays the sole namer of the file
-      // (no JS slug recomputation here).
-      const keys = queue.tracks.map(t => t.path).filter((p): p is string => !!p);
-      if (keys.length > 0) {
-        invoke("main_playlist_touch_thumbs", { keys })
-          .catch(e => console.error("main_playlist_touch_thumbs failed:", e));
-      }
+      // Seed thumbnails cached before restart synchronously with the queue. The
+      // backend already existence-checked each thumb and returned its
+      // canonical_slug-derived filename in main_playlist_read's `thumbs`, so
+      // rows paint cached art on the first render with no async round-trip and
+      // Rust stays the sole namer of the file.
+      queueHook.seedThumbInfo(pendingRestoreThumbsRef.current);
+      pendingRestoreThumbsRef.current = [];
     }
   }, [appRestoring]);
 

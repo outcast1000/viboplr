@@ -607,6 +607,12 @@ pub struct MainPlaylistState {
 pub struct MainPlaylistReadResult {
     pub manifest: Option<MixtapeManifest>,
     pub state: Option<MainPlaylistState>,
+    /// `(track file URI, on-disk thumb filename)` for every queued track whose
+    /// cached thumbnail already exists on disk. Seeded into the frontend
+    /// `thumbInfo` map at restore so queue rows paint cached art on the first
+    /// render — replaces the old post-restore `touch_thumbs` round-trip. Empty
+    /// when there is no manifest or no cached thumbs.
+    pub thumbs: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
