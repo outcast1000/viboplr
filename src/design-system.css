@@ -424,6 +424,14 @@
   opacity: 1;
   color: var(--dislike);
 }
+/* The single cycling control renders as `.ds-like-overlay` in every state, so
+   when its rating is "dislike" it carries `.disliked` (not the separate
+   `.ds-dislike-overlay` of the old two-button layout). Keep it visible too, so a
+   disliked item shows its indicator exactly like a liked one does. */
+.ds-like-overlay.disliked {
+  opacity: 1;
+  color: var(--dislike);
+}
 
 .ds-like-overlay:disabled,
 .ds-dislike-overlay:disabled {

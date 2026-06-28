@@ -565,6 +565,15 @@ export function QueuePanel({
                   })) ?? null}
                   fallback={getTrackImage(t)}
                 />
+                {onToggleLike && (
+                  <LikeDislikeButtons
+                    liked={t.liked}
+                    onToggleLike={() => onToggleLike(t)}
+                    onToggleDislike={onToggleDislike ? () => onToggleDislike(t) : undefined}
+                    variant="overlay"
+                    size={14}
+                  />
+                )}
               </div>
               <div
                 className="queue-item-info"
@@ -583,15 +592,6 @@ export function QueuePanel({
                   ) : i === queueIndex ? (
                     <SpinningDisc size={13} playing={!!isPlaying} />
                   ) : null}
-                  {onToggleLike && (
-                    <LikeDislikeButtons
-                      liked={t.liked}
-                      onToggleLike={() => onToggleLike(t)}
-                      onToggleDislike={onToggleDislike ? () => onToggleDislike(t) : undefined}
-                      variant="inline"
-                      size={11}
-                    />
-                  )}
                   <span className="queue-item-title">{t.title}</span>
                   <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
                 </div>
