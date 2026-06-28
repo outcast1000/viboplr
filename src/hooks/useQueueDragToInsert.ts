@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Track, QueueTrack } from "../types";
+import type { QueueTrack } from "../types";
 import { store } from "../store";
 
 /** Pending enqueue captured when a drop (or enqueue) hits duplicates already in
@@ -34,7 +34,7 @@ interface UseQueueDragToInsertDeps {
 export function useQueueDragToInsert({ queueHook, queueCollapsed, setQueueCollapsed, setPendingEnqueue }: UseQueueDragToInsertDeps) {
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
-  function handleTrackDragStart(dragTracks: Track[]) {
+  function handleTrackDragStart(dragTracks: QueueTrack[]) {
     let ghost: HTMLDivElement | null = null;
     const dropTargetRef = { current: null as number | null };
 

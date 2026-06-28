@@ -4,6 +4,7 @@ import type { Track, Artist, Album, Tag, ViewMode, SortField, QueueTrack } from 
 import { formatDuration, isVideoTrack } from "../utils";
 import { store } from "../store";
 import { isLocalTrack } from "../queueEntry";
+import { resolveImageUrl } from "../utils/resolveImageUrl";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { TrackList, computeSelection } from "./TrackList";
 import { AlbumCardArt } from "./AlbumCardArt";
@@ -964,11 +965,22 @@ export function SearchView({
                     />
                     {isLocalVideo(t) ? (
                       <VideoRowThumb trackId={t.id!} alt={t.title} className="entity-list-img" />
-                    ) : t.album_title ? (
-                      <AlbumCardArt album={{ id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album} imagePath={getAlbumImage(t.album_title, t.artist_name)} />
-                    ) : (
-                      <div className="entity-list-img">{t.title[0]?.toUpperCase() ?? "?"}</div>
-                    )}
+                    ) : (() => {
+                      // Thumbnail priority: video frame (above) → album image →
+                      // artist image → default disc. No first-letter fallback.
+                      const img = (t.album_title ? getAlbumImage(t.album_title, t.artist_name) : null)
+                        ?? (t.artist_name ? getArtistImage(t.artist_name) : null);
+                      return img ? (
+                        <div className="entity-list-img"><img src={resolveImageUrl(img)} alt="" /></div>
+                      ) : (
+                        <div className="entity-list-img entity-list-img--disc">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
+                            <circle cx="12" cy="12" r="10" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                        </div>
+                      );
+                    })()}
                     <div className="entity-list-info">
                       <span className="entity-list-name">{t.title}</span>
                       <span className="entity-list-secondary">

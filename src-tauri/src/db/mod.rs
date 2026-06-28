@@ -1255,7 +1255,7 @@ mod tests {
         db.record_play(t1).unwrap(); // deduplicated (same track within 30s)
         db.record_play(t2).unwrap();
 
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 2); // deduped: Song A once + Song B once
 
         let most = db.get_history_most_played(10).unwrap();
@@ -1272,12 +1272,12 @@ mod tests {
         // Same track twice in quick succession → deduplicated
         db.record_play(t1).unwrap();
         db.record_play(t1).unwrap();
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 1);
 
         // Different tracks are NOT deduplicated
         db.record_play(t2).unwrap();
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 2);
     }
 
@@ -1292,7 +1292,7 @@ mod tests {
         db.record_play(with_album).unwrap();
         db.record_play(without_album).unwrap();
 
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         // History stores no album; get_history_recent resolves it by title+artist.
         let a = recent.iter().find(|e| e.display_title == "Song A").expect("Song A in history");
         assert_eq!(a.display_album.as_deref(), Some("Greatest Hits"));
@@ -1361,7 +1361,7 @@ mod tests {
 
         db.record_history_play(track_id).unwrap();
 
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].display_title, "Creep");
         assert_eq!(recent[0].display_artist.as_deref(), Some("Radiohead"));
@@ -1379,7 +1379,7 @@ mod tests {
         // Soft-delete the track
         db.delete_tracks_by_ids(&[track_id]).unwrap();
 
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].display_title, "Smells Like Teen Spirit");
     }
@@ -1394,7 +1394,7 @@ mod tests {
         db.delete_tracks_by_ids(&[track_id]).unwrap();
 
         // Verify ghost
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 1);
 
         // Re-add with same artist+title but different path
@@ -1403,7 +1403,7 @@ mod tests {
 
         // Reconnection happens when the track is played again
         db.record_history_play(track_id2).unwrap();
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent[0].play_count, 1); // deduped within 30s, count unchanged
     }
 
@@ -1414,7 +1414,7 @@ mod tests {
         let track_id = insert_track(&db, "music/creep.mp3", "Creep", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         let ht_id = recent[0].history_track_id;
 
         // Delete track — becomes ghost
@@ -1437,7 +1437,7 @@ mod tests {
         let track_id = insert_track(&db, "music/gone.mp3", "Gone Song", Some(artist_id), None);
 
         db.record_history_play(track_id).unwrap();
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         let ht_id = recent[0].history_track_id;
 
         db.delete_tracks_by_ids(&[track_id]).unwrap();
@@ -1498,7 +1498,7 @@ mod tests {
         // Second call within 30 seconds should be deduplicated
         db.record_history_play(track_id).unwrap();
 
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].play_count, 1);
     }
@@ -1613,7 +1613,7 @@ mod tests {
         let t1 = insert_track(&db, "music/greek.mp3", "Τραγούδι", Some(a1), None);
         db.record_history_play(t1).unwrap();
 
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].display_artist.as_deref(), Some("Σωκράτης"));
         assert_eq!(recent[0].display_title, "Τραγούδι");
@@ -1623,7 +1623,7 @@ mod tests {
         let t2 = insert_track(&db, "music/russian.mp3", "Группа крови", Some(a2), None);
         db.record_history_play(t2).unwrap();
 
-        let recent = db.get_history_recent(10).unwrap();
+        let recent = db.get_history_recent(10, true).unwrap();
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].display_artist.as_deref(), Some("Кино"));
     }

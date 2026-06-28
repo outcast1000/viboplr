@@ -121,8 +121,14 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     // Mixed shelves (e.g. builtin:jump-back-in) tag artist items: render them
     // circular with an artist-image lookup, matching the artist-cards look.
     const isArtist = it.entityKind === "artist";
+    // Album cards: explicit cover → album image → the album's artist image →
+    // (in ShelfCardArt) first-letter placeholder. The artist fallback is only
+    // evaluated when there's no album art, so it adds no fetch when art exists
+    // and never runs for mixed-shelf artist items.
     const src = resolveImageUrl(
-      it.coverUrl ?? (isArtist ? ctx.artistImageFor(it.name) : ctx.albumImageFor(it.name, it.artistName)),
+      it.coverUrl ?? (isArtist
+        ? ctx.artistImageFor(it.name)
+        : (ctx.albumImageFor(it.name, it.artistName) ?? (it.artistName ? ctx.artistImageFor(it.artistName) : null))),
     );
     return (
       <div key={`${idx}-${it.name}`} className={`ds-card home-shelf-card${isArtist ? " ds-card--circular" : ""}`} onClick={onClick} onContextMenu={onCtx}>

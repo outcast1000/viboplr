@@ -42,6 +42,10 @@ interface PlaylistTrack {
   duration_secs: number | null;
   source: string | null;
   image_path: string | null;
+  // Not stored on the playlist row — reconciled from the durable entity_likes
+  // store when tracks are loaded (see loadPlaylistTracks), so queued copies show
+  // the correct like state. -1/0/1; undefined until reconciled.
+  liked?: number;
 }
 
 function formatDate(ts: number): string {
@@ -64,7 +68,7 @@ function playlistTrackToMinimalTrack(t: PlaylistTrack): QueueTrack {
     duration_secs: t.duration_secs ?? null,
     format: null,
     image_url: t.image_path ?? undefined,
-    liked: 0,
+    liked: t.liked ?? 0,
   };
 }
 
@@ -76,20 +80,58 @@ interface PlaylistsViewProps {
   onExportAsMixtape?: (tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
+  onTrackDragStart?: (tracks: QueueTrack[]) => void;
 }
 
 function isLocalPath(source: string | null): boolean {
   return !!source && source.startsWith("file://");
 }
 
-export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction }: PlaylistsViewProps) {
+// Index-based multi-select over the detail track rows, keyed by playlist-track
+// id. Mirrors TrackList's computeSelection: shift = range, meta = toggle, plain
+// = single.
+function computeRowSelection(
+  current: Set<number>,
+  clickedIndex: number,
+  ids: number[],
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<number> {
+  if (shift) {
+    const start = lastIndex ?? 0;
+    const lo = Math.min(start, clickedIndex);
+    const hi = Math.max(start, clickedIndex);
+    const range = new Set(ids.slice(lo, hi + 1));
+    if (meta) {
+      const merged = new Set(current);
+      for (const id of range) merged.add(id);
+      return merged;
+    }
+    return range;
+  }
+  if (meta) {
+    const next = new Set(current);
+    const id = ids[clickedIndex];
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  }
+  return new Set([ids[clickedIndex]]);
+}
+
+export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [refreshingAuto, setRefreshingAuto] = useState(false);
+  // Detail-view multi-select (by playlist-track id) + drag-to-queue handshake.
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<number>>(new Set());
+  const lastClickedTrackRef = useRef<number | null>(null);
+  const didDragRef = useRef(false);
   const artistImages = useImageCache("artist");
+  const albumImages = useImageCache("album");
 
   // Build the queue's PlaylistContext. Auto-playlists ("Made for you") store no
   // image_path, so fall back to the mix's first-artist image — the same raw path
@@ -116,6 +158,24 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     setPlaylists(rows);
   }, []);
 
+  // Fetch a playlist's tracks and reconcile each track's like state from the
+  // durable entity_likes store (playlist rows store none). Without this, tracks
+  // queued from a playlist — including the "Liked"/"Disliked" system playlists —
+  // would always render as neutral in the queue/now-playing like control.
+  const loadPlaylistTracks = useCallback(async (playlistId: number): Promise<PlaylistTrack[]> => {
+    const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId });
+    if (rows.length === 0) return rows;
+    try {
+      const states = await invoke<number[]>("get_track_like_states", {
+        tracks: rows.map(t => ({ title: t.title, artistName: t.artist_name })),
+      });
+      return rows.map((t, i) => ({ ...t, liked: states[i] ?? 0 }));
+    } catch (e) {
+      console.error("Failed to reconcile playlist like states:", e);
+      return rows;
+    }
+  }, []);
+
   // Force-regenerate the algorithmic mixes, then reload. The on-mount refresh
   // (24h-gated) lives in App.tsx; this is the user-initiated override.
   const handleRefreshAuto = useCallback(async () => {
@@ -139,7 +199,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       loadPlaylists().catch(console.error);
       setSelectedPlaylist(prev => {
         if (prev && prev.system_kind) {
-          invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: prev.id })
+          loadPlaylistTracks(prev.id)
             .then(setTracks)
             .catch(console.error);
         }
@@ -152,18 +212,59 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       loadPlaylists().catch(console.error);
     });
     return combineUnlisten(stopLikes, stopPlaylists);
-  }, [loadPlaylists]);
+  }, [loadPlaylists, loadPlaylistTracks]);
 
   const openPlaylist = useCallback(async (pl: Playlist) => {
     setSelectedPlaylist(pl);
-    const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
-    setTracks(rows);
-  }, []);
+    setSelectedTrackIds(new Set());
+    lastClickedTrackRef.current = null;
+    setTracks(await loadPlaylistTracks(pl.id));
+  }, [loadPlaylistTracks]);
 
   const goBack = useCallback(() => {
     setSelectedPlaylist(null);
     setTracks([]);
+    setSelectedTrackIds(new Set());
+    lastClickedTrackRef.current = null;
   }, []);
+
+  // Left-click selection over the detail rows (Cmd/Ctrl = toggle, Shift = range).
+  // Suppressed right after a drag and when the click lands on a hover-tray button.
+  const handleRowClick = useCallback((e: React.MouseEvent, index: number) => {
+    if (didDragRef.current) return;
+    if ((e.target as HTMLElement).closest(".row-hover-action")) return;
+    const ids = tracks.map(t => t.id);
+    setSelectedTrackIds(prev => computeRowSelection(prev, index, ids, lastClickedTrackRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
+    lastClickedTrackRef.current = index;
+  }, [tracks]);
+
+  // Drag-to-queue: past a 5px threshold, hand the dragged tracks (the whole
+  // selection if the pressed row is part of a multi-selection, else just it) to
+  // the shared queue drag handshake.
+  const handleRowMouseDown = useCallback((e: React.MouseEvent, index: number) => {
+    if (e.button !== 0 || !onTrackDragStart) return;
+    if ((e.target as HTMLElement).closest(".row-hover-action")) return;
+    const startX = e.clientX, startY = e.clientY;
+    didDragRef.current = false;
+    const onMove = (ev: MouseEvent) => {
+      if (didDragRef.current) return;
+      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 5) return;
+      didDragRef.current = true;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      const clicked = tracks[index];
+      const source = (selectedTrackIds.has(clicked.id) && selectedTrackIds.size > 1)
+        ? tracks.filter(t => selectedTrackIds.has(t.id))
+        : [clicked];
+      onTrackDragStart(source.map(playlistTrackToMinimalTrack));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }, [tracks, selectedTrackIds, onTrackDragStart]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteConfirm) return;
@@ -186,18 +287,18 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
 
   const handlePlayPlaylist = useCallback(async (e: React.MouseEvent, pl: Playlist) => {
     e.stopPropagation();
-    const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
+    const rows = await loadPlaylistTracks(pl.id);
     if (rows.length > 0) {
       onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, playlistContext(pl));
     }
-  }, [onPlayTracks, playlistContext]);
+  }, [onPlayTracks, playlistContext, loadPlaylistTracks]);
 
   const handleEnqueuePlaylist = useCallback(async (pl: Playlist) => {
-    const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
+    const rows = await loadPlaylistTracks(pl.id);
     if (rows.length > 0) {
       onEnqueueTracks(rows.map(playlistTrackToMinimalTrack));
     }
-  }, [onEnqueueTracks]);
+  }, [onEnqueueTracks, loadPlaylistTracks]);
 
   const showPlaylistMenu = useCallback(async (x: number, y: number, pl: Playlist) => {
     const specs: MenuItemSpec[] = [
@@ -273,44 +374,22 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     return resolveImageUrl(resolved) ?? playlistDefault;
   }, [artistImages]);
 
-  // Resolve artwork for tracks lacking an explicit image_path, using the same
-  // name-based chain as the queue: album image by name → artist image by name.
-  const [resolvedImages, setResolvedImages] = useState<Record<string, string | null>>({});
-  const resolvingRef = useRef<Set<string>>(new Set());
-
-  const trackImageKey = useCallback((t: PlaylistTrack) => `${t.artist_name ?? ""}::${t.album_name ?? ""}::${t.title}`, []);
+  // Per-track artwork via the live entity-image chain: album image → artist
+  // image. getImage requests a fetch on a disk miss and the *-image-ready events
+  // refresh the cache, so a row that started on the artist fallback upgrades to
+  // the album cover once it's retrieved (and a missing image still gets
+  // requested). Mirrors the Home shelf / queue chains — unlike the old
+  // resolve-once pass, which read get_entity_image directly (disk-only, never
+  // fetched, never upgraded).
+  const trackImagePath = useCallback((t: PlaylistTrack): string | null => {
+    if (t.image_path) return t.image_path;
+    return (t.album_name ? albumImages.getImage(t.album_name, t.artist_name ?? null) : null)
+      ?? (t.artist_name ? artistImages.getImage(t.artist_name) : null);
+  }, [albumImages, artistImages]);
 
   const trackImageSrc = useCallback((t: PlaylistTrack): string => {
-    if (t.image_path) return convertFileSrc(t.image_path);
-    const resolved = resolvedImages[trackImageKey(t)];
-    if (resolved) return convertFileSrc(resolved);
-    return playlistDefault;
-  }, [resolvedImages, trackImageKey]);
-
-  useEffect(() => {
-    for (const t of tracks) {
-      if (t.image_path) continue;
-      const key = trackImageKey(t);
-      if (key in resolvedImages || resolvingRef.current.has(key)) continue;
-      resolvingRef.current.add(key);
-      (async () => {
-        try {
-          if (t.album_name) {
-            const albumPath = await invoke<string | null>("get_entity_image", { kind: "album", name: t.album_name, artistName: t.artist_name ?? null });
-            if (albumPath) { setResolvedImages(prev => ({ ...prev, [key]: albumPath })); return; }
-          }
-          if (t.artist_name) {
-            const artistPath = await invoke<string | null>("get_entity_image", { kind: "artist", name: t.artist_name, artistName: null });
-            if (artistPath) { setResolvedImages(prev => ({ ...prev, [key]: artistPath })); return; }
-          }
-          setResolvedImages(prev => ({ ...prev, [key]: null }));
-        } catch (e) {
-          console.error("Failed to resolve playlist track image:", e);
-          setResolvedImages(prev => ({ ...prev, [key]: null }));
-        }
-      })();
-    }
-  }, [tracks, resolvedImages, trackImageKey]);
+    return resolveImageUrl(trackImagePath(t)) ?? playlistDefault;
+  }, [trackImagePath]);
 
   // Hero background: the playlist cover if set, else a collage of up to 4 distinct
   // resolved track images (same idea as the artist hero's album collage).
@@ -322,14 +401,14 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     const out: string[] = [];
     const seen = new Set<string>();
     for (const t of tracks) {
-      const path = t.image_path ?? resolvedImages[trackImageKey(t)];
-      if (!path || seen.has(path)) continue;
-      seen.add(path);
-      out.push(convertFileSrc(path));
+      const u = resolveImageUrl(trackImagePath(t));
+      if (!u || seen.has(u)) continue;
+      seen.add(u);
+      out.push(u);
       if (out.length === 4) break;
     }
     return out;
-  }, [selectedPlaylist, tracks, resolvedImages, trackImageKey, imageUrl]);
+  }, [selectedPlaylist, tracks, trackImagePath, imageUrl]);
 
   // Track-content matches come from the backend (covers materialized rows and the
   // liked/disliked entity_likes projection); name/description match client-side.
@@ -463,18 +542,14 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
           onEnqueue={tracks.length > 0 ? () => onEnqueueTracks(tracks.map(playlistTrackToMinimalTrack)) : undefined}
           overflowItems={detailOverflowItems}
         />
-        <div className="playlists-tracks-table">
-          <div className="playlists-tracks-header">
-            <div className="playlists-col-num">#</div>
-            <div className="playlists-col-title">Title</div>
-            <div className="playlists-col-album">Album</div>
-            <div className="playlists-col-duration">Duration</div>
-          </div>
-          {tracks.map((t) => (
+        <div className="entity-list playlists-track-list">
+          {tracks.map((t, index) => (
             <div
               key={t.id}
-              className="playlists-track-row"
-              onDoubleClick={() => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null)}
+              className={`entity-list-item${selectedTrackIds.has(t.id) ? " selected" : ""}`}
+              onClick={(e) => handleRowClick(e, index)}
+              onMouseDown={(e) => handleRowMouseDown(e, index)}
+              onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null); }}
               onContextMenu={(e) => {
               e.preventDefault();
               const specs: MenuItemSpec[] = [
@@ -499,29 +574,24 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
               }
               showNativeMenu(e.clientX, e.clientY, specs);
             }}>
-              <div className="playlists-col-num">
-                <span className="playlists-track-index">{t.position + 1}</span>
-                <button
-                  className="playlists-track-play"
-                  onClick={() => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null)}
-                  title="Play"
-                >
+              <div className="entity-list-content">
+                <img className="playlists-track-thumb" src={trackImageSrc(t)} alt="" />
+                <div className="entity-list-info">
+                  <span className="entity-list-name">{t.title}</span>
+                  <span className="entity-list-secondary">
+                    {t.artist_name ?? "Unknown"}{t.album_name ? <> {"·"} {t.album_name}</> : null}
+                  </span>
+                </div>
+                <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
+              </div>
+              <span className="row-hover-actions">
+                <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null); }}>
                   <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
                 </button>
-              </div>
-              <div className="playlists-col-title">
-                <img
-                  className="playlists-track-thumb"
-                  src={trackImageSrc(t)}
-                  alt=""
-                />
-                <div className="playlists-track-text">
-                  <span className="playlists-track-name">{t.title}</span>
-                  {t.artist_name && <span className="playlists-track-artist">{t.artist_name}</span>}
-                </div>
-              </div>
-              <div className="playlists-col-album">{t.album_name ?? ""}</div>
-              <div className="playlists-col-duration">{formatDuration(t.duration_secs)}</div>
+                <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueueTracks([playlistTrackToMinimalTrack(t)]); }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+              </span>
             </div>
           ))}
         </div>

@@ -66,6 +66,10 @@
   background: var(--bg-hover);
 }
 
+.history-row.selected {
+  background: rgba(var(--accent-rgb), 0.15);
+}
+
 /* Hover-reveal Play/Enqueue overlay: the row content dims and the shared
    .row-hover-actions buttons (defined in App.css) fade in on top. */
 .history-row-content {

@@ -426,6 +426,7 @@ export function usePlugins(
           async getHistory(opts) {
             return invoke("get_history_recent", {
               limit: opts?.limit ?? 50,
+              resolveAlbums: true,
             });
           },
           async getHistoryPlayCount() {

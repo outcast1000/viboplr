@@ -830,6 +830,12 @@
   border-radius: 50%;
 }
 
+/* Default disc placeholder (track rows with no album/artist art) — dimmed so it
+   reads as a fallback, not real artwork. */
+.entity-list-img--disc {
+  color: var(--text-tertiary);
+}
+
 /* Hover-reveal action tray — shared by the queue panel, the library table
    (over the title/name column), the library list rows and the history rows.
    A frosted, right-anchored tray floats over the row holding the action
@@ -1544,125 +1550,11 @@
   font-size: var(--fs-sm);
 }
 
-.playlists-tracks-table {
-  padding: 0 16px 16px;
-}
-
-.playlists-tracks-header {
-  display: grid;
-  grid-template-columns: 40px 1fr 200px 80px;
-  align-items: center;
-  padding: 4px 16px;
-  margin-bottom: 8px;
-  font-size: var(--fs-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
-}
-
-.playlists-track-row {
-  display: grid;
-  grid-template-columns: 40px 1fr 200px 80px;
-  align-items: center;
-  padding: 6px 16px;
-  border-radius: var(--ds-radius);
-  transition: background 0.15s;
-  cursor: default;
-  user-select: none;
-}
-
-.playlists-track-row:hover {
-  background: var(--bg-hover);
-}
-
-.playlists-col-num {
-  position: relative;
-  text-align: right;
-  padding-right: 16px;
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-}
-
-.playlists-track-index {
-  display: inline-block;
-}
-
-.playlists-track-play {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.playlists-track-play svg {
-  width: 18px;
-  height: 18px;
-}
-
-.playlists-track-row:hover .playlists-track-index {
-  visibility: hidden;
-}
-
-.playlists-track-row:hover .playlists-track-play {
-  display: flex;
-}
-
-.playlists-col-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  font-size: var(--fs-sm);
-}
-
-.playlists-track-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  line-height: 1.3;
-}
-
-.playlists-track-name {
-  color: var(--text-primary);
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.playlists-track-artist {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.playlists-col-album {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding-right: 12px;
-}
-
-.playlists-col-duration {
-  text-align: right;
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
+/* Playlist-detail track list reuses the canonical .entity-list row shell
+   (thumbnail + two-line text + frosted .row-hover-actions tray); only the
+   bottom padding is playlist-specific. */
+.playlists-track-list {
+  padding-bottom: 16px;
 }
 
 .playlists-track-thumb {

@@ -742,9 +742,9 @@
 
 .ptr-art {
   flex-shrink: 0;
-  width: 48px;
-  height: 48px;
-  border-radius: 3px;
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
   overflow: hidden;
   background: var(--bg-tertiary);
 }
@@ -778,7 +778,7 @@
 }
 
 .ptr-title {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -824,7 +824,7 @@
 .ptr-art:empty {
   background: none;
 }
-/* In the header, the art cell is only a width spacer — don't let its 48px
+/* In the header, the art cell is only a width spacer — don't let its 40px
    height inflate the header row (which only holds small-caps labels). */
 .ptr-header .ptr-art {
   height: auto;

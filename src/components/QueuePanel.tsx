@@ -10,7 +10,7 @@ import { useImageCache } from "../hooks/useImageCache";
 import { useFlipList } from "../hooks/useFlipList";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { SpinningDisc } from "./SpinningDisc";
-import { IconHeartFilled, IconThumbsDownFilled } from "./Icons";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./QueuePanel.css";
 
@@ -92,6 +92,8 @@ interface QueuePanelProps {
   onEditPlaylist: () => void;
   onLoadPlaylist: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
+  onToggleLike?: (track: QueueTrack) => void;
+  onToggleDislike?: (track: QueueTrack) => void;
   externalDropTarget: number | null;
   collapsed: boolean;
   onToggleCollapsed: () => void;
@@ -136,7 +138,7 @@ function QueueItemThumb({ localThumb, fallback }: { localThumb: string | null; f
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu,
+  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures,
@@ -581,8 +583,15 @@ export function QueuePanel({
                   ) : i === queueIndex ? (
                     <SpinningDisc size={13} playing={!!isPlaying} />
                   ) : null}
-                  {t.liked === 1 && <IconHeartFilled size={11} className="queue-item-like" />}
-                  {t.liked === -1 && <IconThumbsDownFilled size={11} className="queue-item-dislike" />}
+                  {onToggleLike && (
+                    <LikeDislikeButtons
+                      liked={t.liked}
+                      onToggleLike={() => onToggleLike(t)}
+                      onToggleDislike={onToggleDislike ? () => onToggleDislike(t) : undefined}
+                      variant="inline"
+                      size={11}
+                    />
+                  )}
                   <span className="queue-item-title">{t.title}</span>
                   <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
                 </div>

@@ -9,8 +9,8 @@ pub fn record_play(state: State<'_, AppState>, title: String, artist_name: Optio
 }
 
 #[tauri::command]
-pub fn get_history_recent(state: State<'_, AppState>, limit: i64) -> Result<Vec<HistoryEntry>, String> {
-    state.db.get_history_recent(limit).map_err(|e| e.to_string())
+pub fn get_history_recent(state: State<'_, AppState>, limit: i64, resolve_albums: bool) -> Result<Vec<HistoryEntry>, String> {
+    state.db.get_history_recent(limit, resolve_albums).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

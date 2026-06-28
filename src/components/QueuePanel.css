@@ -395,19 +395,6 @@
   min-width: 0;
 }
 
-.queue-item-like {
-  flex-shrink: 0;
-  align-self: center;
-  color: var(--error);
-}
-
-.queue-item-dislike {
-  flex-shrink: 0;
-  align-self: center;
-  color: var(--warning);
-}
-
-
 .queue-item-artist {
   font-size: var(--fs-xs);
   color: var(--text-secondary);

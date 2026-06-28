@@ -586,45 +586,87 @@ impl Database {
         Ok((imported, skipped))
     }
 
-    pub fn get_history_recent(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
+    pub fn get_history_recent(&self, limit: i64, resolve_albums: bool) -> SqlResult<Vec<HistoryEntry>> {
         let conn = self.conn.lock().unwrap();
-        // History stores no album, so resolve one per row by matching the
-        // display title + artist against the library (diacritic-insensitive, the
-        // same normalization find_track_by_metadata uses). Local copies win, then
-        // subsonic, then anything else; the most-recently-added album breaks
-        // further ties. NULL when no enabled library track matches.
+        // Fast path: pull recent plays straight off the played_at index — no
+        // per-row work. History stores no album; callers that render one (the
+        // Home "Recently played" shelf, the plugin getHistory bridge) pass
+        // resolve_albums=true and pay a single O(library) resolution pass below.
+        // The History view doesn't show albums, so it passes false and skips that
+        // pass — this is what fixes the multi-second open-History freeze: the old
+        // code ran an album-matching correlated subquery for EVERY returned row
+        // (O(rows × tracks), each scan running diacritic normalization), holding
+        // the DB mutex for seconds.
         let mut stmt = conn.prepare(
-            "SELECT hp.id, ht.id, hp.played_at, ht.display_title, ha.display_name,
-                    ht.play_count,
-                    (SELECT al.title
-                       FROM tracks t
-                       JOIN artists ar ON t.artist_id = ar.id
-                       JOIN albums al ON t.album_id = al.id
-                       LEFT JOIN collections co ON t.collection_id = co.id
-                      WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(ht.display_title))
-                        AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(ha.display_name))
-                        AND (t.collection_id IS NULL OR co.enabled = 1)
-                      ORDER BY CASE WHEN co.kind = 'local' THEN 0 WHEN co.kind = 'subsonic' THEN 1 ELSE 2 END,
-                               al.id DESC
-                      LIMIT 1) AS display_album
+            "SELECT hp.id, ht.id, hp.played_at, ht.display_title, ha.display_name, ht.play_count
              FROM history_plays hp
              JOIN history_tracks ht ON ht.id = hp.history_track_id
              JOIN history_artists ha ON ha.id = ht.history_artist_id
              ORDER BY hp.played_at DESC
              LIMIT ?1"
         )?;
-        let rows = stmt.query_map(params![limit], |row| {
-            Ok(HistoryEntry {
-                id: row.get(0)?,
-                history_track_id: row.get(1)?,
-                played_at: row.get(2)?,
-                display_title: row.get(3)?,
-                display_artist: row.get(4)?,
-                play_count: row.get(5)?,
-                display_album: row.get(6)?,
-            })
-        })?;
-        rows.collect()
+        let mut entries: Vec<HistoryEntry> = stmt
+            .query_map(params![limit], |row| {
+                Ok(HistoryEntry {
+                    id: row.get(0)?,
+                    history_track_id: row.get(1)?,
+                    played_at: row.get(2)?,
+                    display_title: row.get(3)?,
+                    display_artist: row.get(4)?,
+                    play_count: row.get(5)?,
+                    display_album: None,
+                })
+            })?
+            .collect::<SqlResult<Vec<_>>>()?;
+
+        if resolve_albums && !entries.is_empty() {
+            // Resolve a library album per entry by matching display title + artist
+            // (diacritic-insensitive, same as find_track_by_metadata). One scan of
+            // the enabled library builds a best-album map — local > subsonic >
+            // other, newest album (highest id) breaks ties — so this is O(library)
+            // once, not O(entries × library). Normalized in Rust via norm_segment
+            // to match the SQL strip_diacritics(unicode_lower(...)).
+            use std::collections::HashMap;
+            use crate::db::likes::norm_segment;
+            let mut amap = conn.prepare(
+                "SELECT t.title, ar.name, al.title,
+                        CASE WHEN co.kind = 'local' THEN 0 WHEN co.kind = 'subsonic' THEN 1 ELSE 2 END,
+                        al.id
+                   FROM tracks t
+                   JOIN artists ar ON t.artist_id = ar.id
+                   JOIN albums al ON t.album_id = al.id
+                   LEFT JOIN collections co ON t.collection_id = co.id
+                  WHERE t.collection_id IS NULL OR co.enabled = 1"
+            )?;
+            let mut best: HashMap<(String, String), (i64, i64, String)> = HashMap::new();
+            let rows = amap.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })?;
+            for row in rows {
+                let (title, artist, album, prio, album_id) = row?;
+                let key = (norm_segment(Some(&title)), norm_segment(Some(&artist)));
+                let replace = match best.get(&key) {
+                    None => true,
+                    Some(&(cur_prio, cur_aid, _)) => prio < cur_prio || (prio == cur_prio && album_id > cur_aid),
+                };
+                if replace {
+                    best.insert(key, (prio, album_id, album));
+                }
+            }
+            for e in entries.iter_mut() {
+                let key = (norm_segment(Some(&e.display_title)), norm_segment(e.display_artist.as_deref()));
+                if let Some((_, _, album)) = best.get(&key) {
+                    e.display_album = Some(album.clone());
+                }
+            }
+        }
+        Ok(entries)
     }
 
     /// Total number of recorded plays. Cheap (`COUNT(*)` over an indexed table);
@@ -634,9 +676,9 @@ impl Database {
         conn.query_row("SELECT COUNT(*) FROM history_plays", [], |row| row.get(0))
     }
 
-    /// One keyset-paginated page of raw plays, newest first, with NO per-row
-    /// album resolution (contrast `get_history_recent`, whose correlated album
-    /// subquery makes it O(plays × tracks)). All joins are on indexed keys, so a
+    /// One keyset-paginated page of raw plays, newest first, with NO album
+    /// resolution at all (contrast `get_history_recent`, which can opt into a
+    /// single O(library) album-resolution pass). All joins are on indexed keys, so a
     /// page is O(limit). Pass `before_ts`/`before_id` = the last row of the
     /// previous page to advance the cursor; pass both `None` for the first page.
     /// Both must be supplied together. Ordering is `(played_at DESC, id DESC)`,

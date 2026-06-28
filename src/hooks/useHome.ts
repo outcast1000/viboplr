@@ -359,7 +359,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const hist = (await invoke<HistoryEntry[]>("get_history_recent", { limit: 60 })) ?? [];
+              const hist = (await invoke<HistoryEntry[]>("get_history_recent", { limit: 60, resolveAlbums: true })) ?? [];
               const seen = new Set<string>();
               const items: HomeShelfItem[] = [];
               for (const h of hist) {

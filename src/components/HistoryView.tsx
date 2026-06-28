@@ -1,8 +1,42 @@
 import { useEffect, useState, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
+import type { ContextMenuTarget } from "../types/contextMenu";
+import { isLocalTrack } from "../queueEntry";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import "./HistoryView.css";
+
+// Index-based multi-select over the currently-visible rows (string keys so
+// tracks and artists can share one ordered list). Mirrors the library's
+// computeSelection: shift = range, meta = toggle, plain = single.
+function computeKeySelection(
+  current: Set<string>,
+  clickedIndex: number,
+  keys: string[],
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<string> {
+  if (shift) {
+    const start = lastIndex ?? 0;
+    const lo = Math.min(start, clickedIndex);
+    const hi = Math.max(start, clickedIndex);
+    const range = new Set(keys.slice(lo, hi + 1));
+    if (meta) {
+      const merged = new Set(current);
+      for (const k of range) merged.add(k);
+      return merged;
+    }
+    return range;
+  }
+  if (meta) {
+    const next = new Set(current);
+    const k = keys[clickedIndex];
+    if (next.has(k)) next.delete(k); else next.add(k);
+    return next;
+  }
+  return new Set([keys[clickedIndex]]);
+}
 
 export interface HistoryViewHandle {
   count: number;
@@ -23,6 +57,7 @@ interface HistoryViewProps {
   onArtistClick: (artistId: number, name?: string) => void;
   onPlayArtist: (artistId: number) => void;
   onEnqueueArtist: (artistId: number) => void;
+  onShowContextMenu?: (x: number, y: number, target: ContextMenuTarget) => void;
 }
 
 const PLAY_ICON = (
@@ -81,7 +116,7 @@ function timespanSinceTs(ts: Timespan): number | null {
 }
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onLocateTrack, onArtistClick, onPlayArtist, onEnqueueArtist }, ref) {
+  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onLocateTrack, onArtistClick, onPlayArtist, onEnqueueArtist, onShowContextMenu }, ref) {
   const [activeTab, setActiveTab] = useState<HistoryTab>("recent");
   const [tracksTimespan, setTracksTimespan] = useState<Timespan>("30-days");
   const [artistsTimespan, setArtistsTimespan] = useState<Timespan>("30-days");
@@ -127,7 +162,9 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   }, []);
 
   const fetchRecent = useCallback(() => {
-    invoke<HistoryEntry[]>("get_history_recent", { limit: 100 })
+    // resolveAlbums:false — the History view never renders the album, so skip the
+    // O(library) album resolution that otherwise froze this query on open.
+    invoke<HistoryEntry[]>("get_history_recent", { limit: 100, resolveAlbums: false })
       .then(setRecentPlays)
       .catch((e) => console.error("Failed to load recent history:", e));
   }, []);
@@ -222,6 +259,106 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     }
     return items;
   }, [visibleTracks, visibleRecent]);
+
+  // --- Multi-select + native context menu over the visible rows ---
+  // Keys use distinct prefixes per list so the same track/artist showing in two
+  // lists doesn't cross-highlight. Recent keys by play-row id (a track can recur);
+  // the others key by entity id. Search lists use sa:/st: to stay distinct.
+  type RowMeta = { kind: "track" | "artist"; histId: number; title: string; artist: string | null };
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const lastClickIndexRef = useRef<number | null>(null);
+
+  const rowMetaByKey = useMemo(() => {
+    const m = new Map<string, RowMeta>();
+    if (visibleArtists) for (const a of visibleArtists) m.set(`${q ? "sa" : "a"}:${a.history_artist_id}`, { kind: "artist", histId: a.history_artist_id, title: a.display_name, artist: null });
+    if (visibleTracks) for (const t of visibleTracks) m.set(`${q ? "st" : "t"}:${t.history_track_id}`, { kind: "track", histId: t.history_track_id, title: t.display_title, artist: t.display_artist ?? null });
+    if (visibleRecent) for (const e of visibleRecent) m.set(`r:${e.id}`, { kind: "track", histId: e.history_track_id, title: e.display_title, artist: e.display_artist ?? null });
+    return m;
+  }, [visibleArtists, visibleTracks, visibleRecent, q]);
+
+  const orderedKeys = useMemo(() => {
+    const keys: string[] = [];
+    if (q) {
+      if (visibleArtists) for (const a of visibleArtists) keys.push(`sa:${a.history_artist_id}`);
+      if (visibleTracks) for (const t of visibleTracks) keys.push(`st:${t.history_track_id}`);
+    } else if (visibleRecent) {
+      for (const e of visibleRecent) keys.push(`r:${e.id}`);
+    } else if (visibleTracks) {
+      for (const t of visibleTracks) keys.push(`t:${t.history_track_id}`);
+    } else if (visibleArtists) {
+      for (const a of visibleArtists) keys.push(`a:${a.history_artist_id}`);
+    }
+    return keys;
+  }, [q, visibleArtists, visibleTracks, visibleRecent]);
+
+  const orderedIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    orderedKeys.forEach((k, i) => m.set(k, i));
+    return m;
+  }, [orderedKeys]);
+
+  // Clear selection whenever the visible set changes (tab / timespan / search).
+  useEffect(() => { setSelectedKeys(new Set()); lastClickIndexRef.current = null; }, [activeTab, tracksTimespan, artistsTimespan, q]);
+
+  const handleRowClick = useCallback((e: React.MouseEvent, key: string) => {
+    const idx = orderedIndex.get(key);
+    if (idx == null) return;
+    setSelectedKeys(prev => computeKeySelection(prev, idx, orderedKeys, lastClickIndexRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
+    lastClickIndexRef.current = idx;
+  }, [orderedIndex, orderedKeys]);
+
+  const reconnectTrackById = useCallback(async (historyTrackId: number): Promise<Track | null> => {
+    try { return await invoke<Track | null>("reconnect_history_track", { historyTrackId }); }
+    catch (e) { console.error("Failed to reconnect track:", e); return null; }
+  }, []);
+
+  const reconnectArtistById = useCallback(async (historyArtistId: number): Promise<number | null> => {
+    try { return await invoke<number | null>("reconnect_history_artist", { historyArtistId }); }
+    catch (e) { console.error("Failed to reconnect artist:", e); return null; }
+  }, []);
+
+  // The history row carries no library id, so a target is resolved on demand by
+  // reconnecting the history row to a real track/artist (same path as play).
+  const showSingleMenu = useCallback(async (key: string, x: number, y: number) => {
+    const meta = rowMetaByKey.get(key);
+    if (!meta || !onShowContextMenu) return;
+    if (meta.kind === "artist") {
+      const artistId = await reconnectArtistById(meta.histId);
+      onShowContextMenu(x, y, { kind: "artist", artistId: artistId ?? undefined, name: meta.title });
+    } else {
+      const track = await reconnectTrackById(meta.histId);
+      if (track) onShowContextMenu(x, y, { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name });
+      else onShowContextMenu(x, y, { kind: "track", title: meta.title, artistName: meta.artist });
+    }
+  }, [rowMetaByKey, onShowContextMenu, reconnectArtistById, reconnectTrackById]);
+
+  const handleRowContextMenu = useCallback((e: React.MouseEvent, key: string) => {
+    e.preventDefault();
+    if (!onShowContextMenu) return;
+    const x = e.clientX, y = e.clientY;
+    // Right-click outside the current selection collapses to just that row.
+    let sel = selectedKeys;
+    if (!sel.has(key)) {
+      sel = new Set([key]);
+      setSelectedKeys(sel);
+      lastClickIndexRef.current = orderedIndex.get(key) ?? null;
+    }
+    if (sel.size <= 1) { void showSingleMenu(key, x, y); return; }
+    const metas = [...sel].map(k => rowMetaByKey.get(k)).filter((m): m is RowMeta => !!m);
+    const tracks = metas.filter(m => m.kind === "track");
+    const artists = metas.filter(m => m.kind === "artist");
+    // A mixed track+artist selection has no single sensible target — act on the clicked row.
+    if (tracks.length && artists.length) { void showSingleMenu(key, x, y); return; }
+    (async () => {
+      if (artists.length) {
+        const ids = (await Promise.all(artists.map(a => reconnectArtistById(a.histId)))).filter((id): id is number => id != null);
+        if (ids.length) onShowContextMenu(x, y, { kind: "multi-artist", artistIds: ids });
+      } else {
+        const ids = (await Promise.all(tracks.map(t => reconnectTrackById(t.histId).then(tr => tr?.id ?? null)))).filter((id): id is number => id != null);
+        if (ids.length) onShowContextMenu(x, y, { kind: "multi-track", trackIds: ids });
+      }
+    })();
+  }, [onShowContextMenu, selectedKeys, orderedIndex, rowMetaByKey, showSingleMenu, reconnectArtistById, reconnectTrackById]);
 
   async function playTrackById(historyTrackId: number) {
     try {
@@ -359,10 +496,14 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
           <div className="history-section">
             <div className="section-title">Artists</div>
             <div className="history-list">
-              {visibleArtists.map((a) => (
+              {visibleArtists.map((a) => {
+                const selKey = `sa:${a.history_artist_id}`;
+                return (
                 <div
                   key={`artist-${a.history_artist_id}`}
-                  className="history-row"
+                  className={`history-row${selectedKeys.has(selKey) ? " selected" : ""}`}
+                  onClick={(e) => handleRowClick(e, selKey)}
+                  onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                   onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
                 >
                   <div className="history-row-content">
@@ -375,7 +516,8 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   </div>
                   <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} onDetails={() => handleArtistDoubleClick(a.history_artist_id)} />
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -387,11 +529,14 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
             <div className="history-list">
               {visibleTracks.map((t) => {
                 const idx = nextFlatIndex();
+                const selKey = `st:${t.history_track_id}`;
                 return (
                   <div
                     key={`search-${t.history_track_id}`}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${selectedKeys.has(selKey) ? " selected" : ""}`}
                     data-history-index={idx}
+                    onClick={(e) => handleRowClick(e, selKey)}
+                    onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                     onDoubleClick={() => playTrackById(t.history_track_id)}
                   >
                     <div className="history-row-content">
@@ -416,11 +561,14 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
             <div className="history-list">
               {recentPlays.map((entry) => {
                 const idx = nextFlatIndex();
+                const selKey = `r:${entry.id}`;
                 return (
                   <div
                     key={entry.id}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${selectedKeys.has(selKey) ? " selected" : ""}`}
                     data-history-index={idx}
+                    onClick={(e) => handleRowClick(e, selKey)}
+                    onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                     onDoubleClick={() => playTrackById(entry.history_track_id)}
                   >
                     <div className="history-row-content">
@@ -447,11 +595,14 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
             <div className="history-list">
               {(currentTracks ?? []).map((t) => {
                 const idx = nextFlatIndex();
+                const selKey = `t:${t.history_track_id}`;
                 return (
                   <div
                     key={`tracks-${tracksTimespan}-${t.history_track_id}`}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}`}
+                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${selectedKeys.has(selKey) ? " selected" : ""}`}
                     data-history-index={idx}
+                    onClick={(e) => handleRowClick(e, selKey)}
+                    onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                     onDoubleClick={() => playTrackById(t.history_track_id)}
                   >
                     <div className="history-row-content">
@@ -477,10 +628,14 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         {!q && activeTab === "artists" && (
           <div className="history-section">
             <div className="history-list">
-              {(currentArtists ?? []).map((a) => (
+              {(currentArtists ?? []).map((a) => {
+                const selKey = `a:${a.history_artist_id}`;
+                return (
                 <div
                   key={`artists-${artistsTimespan}-${a.history_artist_id}`}
-                  className="history-row"
+                  className={`history-row${selectedKeys.has(selKey) ? " selected" : ""}`}
+                  onClick={(e) => handleRowClick(e, selKey)}
+                  onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                   onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
                 >
                   <div className="history-row-content">
@@ -493,7 +648,8 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   </div>
                   <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} onDetails={() => handleArtistDoubleClick(a.history_artist_id)} />
                 </div>
-              ))}
+                );
+              })}
               {currentArtists && currentArtists.length === 0 && (
                 <div className="empty">No artists in this timespan.</div>
               )}

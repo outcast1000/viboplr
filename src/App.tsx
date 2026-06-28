@@ -3078,7 +3078,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onLocateTrack={(t) => library.handleTrackClick(t.key)} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onLocateTrack={(t) => library.handleTrackClick(t.key)} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
             </>
           )}
 
@@ -3092,6 +3092,7 @@ function App() {
               onExportAsMixtape={handleExportAsMixtapeDirect}
               pluginMenuItems={plugins.menuItems}
               onPluginAction={plugins.dispatchContextMenuAction}
+              onTrackDragStart={contextMenuActions.handleTrackDragStart}
             />
           )}
 
@@ -3458,6 +3459,8 @@ function App() {
               firstTrack: first ? { title: first.title, artistName: first.artist_name, isLocal: isLocalTrack(first) } : { title: "", artistName: null, isLocal: false },
             } });
           }}
+          onToggleLike={likeActions.handleToggleLike}
+          onToggleDislike={likeActions.handleToggleDislike}
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={queueCollapsed}
           onToggleCollapsed={handleToggleQueueCollapsed}
