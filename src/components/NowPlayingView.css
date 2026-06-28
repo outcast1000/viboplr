@@ -31,8 +31,26 @@
 }
 
 /* ── Audio state ─────────────────────────────── */
+/* On-surface text regime. With album art present, content sits over a blurred,
+   scrimmed backdrop, so text must be light + shadowed regardless of skin — the
+   same "text on image" tokens DetailHero uses (always light; the scrim
+   guarantees a dark base). Without art, the surface is the skin's own gradient,
+   so fall back to the skin's text colors — that keeps a light skin legible
+   (dark text on a light screen) instead of washing out white-on-light. */
+.np-audio {
+  --np-text-primary: var(--hero-text-primary);
+  --np-text-secondary: var(--hero-text-secondary);
+  --np-text-tertiary: var(--hero-text-tertiary);
+  --np-text-shadow: var(--hero-text-shadow);
+  --np-text-shadow-sm: var(--hero-text-shadow-sm);
+}
 .np-audio--noart {
   background: linear-gradient(160deg, var(--accent-dim), var(--bg-primary) 70%);
+  --np-text-primary: var(--text-primary);
+  --np-text-secondary: var(--text-secondary);
+  --np-text-tertiary: var(--text-tertiary);
+  --np-text-shadow: none;
+  --np-text-shadow-sm: none;
 }
 
 .np-backdrop {
@@ -43,6 +61,21 @@
   filter: blur(48px) brightness(0.45) saturate(1.2);
   transform: scale(1.2); /* hide blurred edges */
   z-index: 0;
+}
+
+/* Fixed dark scrim over the blurred art (skin-independent) so the always-light
+   text stays legible even over a bright/pale album cover. Sits above the
+   backdrop (z 0) and below the content (z 2). Only when art exists — the no-art
+   surface is the skin gradient and keeps the skin's own text colors. */
+.np-audio:not(.np-audio--noart)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 50% 42%, rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.5) 100%),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.25), transparent 30%, rgba(0, 0, 0, 0.45));
 }
 
 /* ── Crossfade between tracks ─────────────────── */
@@ -103,7 +136,7 @@
 
 .np-stage {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -207,13 +240,15 @@
 /* synced states */
 .np-lyric-line--past,
 .np-lyric-line--upcoming {
-  color: var(--text-secondary);
+  color: var(--np-text-secondary);
+  text-shadow: var(--np-text-shadow-sm);
   opacity: 0.38;
   filter: blur(0.5px);
   transform: scale(0.97);
 }
 .np-lyric-line--active {
-  color: var(--text-primary);
+  color: var(--np-text-primary);
+  text-shadow: var(--np-text-shadow);
   opacity: 1;
   font-weight: 800;
   filter: none;
@@ -225,7 +260,7 @@
   cursor: pointer;
 }
 .np-lyrics-scroll--synced:hover .np-lyric-line--seekable:not(.np-lyric-line--active):hover {
-  color: var(--text-primary);
+  color: var(--np-text-primary);
   opacity: 0.85;
   filter: none;
 }
@@ -234,7 +269,8 @@
    .np-lyric-line metrics). No per-line "active" state, so all lines render at a
    single readable level — no dimming or blur. */
 .np-lyric-line--plain {
-  color: var(--text-primary);
+  color: var(--np-text-primary);
+  text-shadow: var(--np-text-shadow-sm);
   opacity: 0.9;
   /* unsynced lyrics have no active line / state changes — no animation */
   transition: none;
@@ -246,7 +282,7 @@
   width: 60%;
   height: 10px;
   border-radius: 5px;
-  background: var(--text-tertiary);
+  background: var(--np-text-tertiary);
   animation: np-lyrics-hint-pulse 1.8s ease-in-out infinite;
 }
 @keyframes np-lyrics-hint-pulse {
@@ -257,7 +293,7 @@
 /* ── Shared metadata line ────────────────────── */
 .np-meta {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   flex: 0 0 auto;
   text-align: center;
   margin-top: 20px;
@@ -268,14 +304,16 @@
   font-weight: 800;
   letter-spacing: -0.01em;
   line-height: 1.15;
-  color: var(--text-primary);
+  color: var(--np-text-primary);
+  text-shadow: var(--np-text-shadow);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .np-subtitle {
   font-size: var(--fs-base);
-  color: var(--text-secondary);
+  color: var(--np-text-secondary);
+  text-shadow: var(--np-text-shadow-sm);
   margin-top: 6px;
   white-space: nowrap;
   overflow: hidden;
@@ -284,13 +322,14 @@
 
 .np-tags {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   flex: 0 0 auto;
   margin-top: 6px;
   text-align: center;
   max-width: 80%;
   font-size: var(--fs-sm);
-  color: var(--text-tertiary);
+  color: var(--np-text-tertiary);
+  text-shadow: var(--np-text-shadow-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
