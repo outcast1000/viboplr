@@ -305,7 +305,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  function handleDeleteRequest() {
+  async function handleDeleteRequest() {
     const cm = contextMenuRef.current;
     if (!cm) return;
     const { target } = cm;
@@ -318,15 +318,30 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (target.kind === "multi-track") {
       setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks`, network: idsOnNetwork(target.trackIds) });
     } else if (target.kind === "queue-multi") {
-      const tracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean);
-      const localTracks = tracks.filter(t => isLocalTrack(t) && parseLibraryId(t.key) != null);
-      if (localTracks.length > 0) {
-        const ids = localTracks.map(t => parseLibraryId(t.key)!);
+      const localTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean).filter(isLocalTrack);
+      // Resolve a library id per local track: prefer the in-memory lib:N key, else
+      // look it up by its (durable) file path. This is what lets ext: queue tracks
+      // be deleted — restored, m3u-loaded, or home-shelf — not just fresh lib:N rows.
+      const ids: number[] = [];
+      for (const t of localTracks) {
+        const keyId = parseLibraryId(t.key);
+        if (keyId != null) { ids.push(keyId); continue; }
+        if (!t.path) continue;
+        try {
+          const resolved = await invoke<number | null>("find_track_id_by_path", { path: t.path });
+          if (resolved != null) ids.push(resolved);
+        } catch (e) {
+          console.error("Failed to resolve track id by path:", e);
+        }
+      }
+      if (ids.length > 0) {
         setDeleteConfirm({
           trackIds: ids,
-          title: localTracks.length === 1 ? localTracks[0].title : `${localTracks.length} tracks`,
+          title: localTracks.length === 1 ? localTracks[0].title : `${ids.length} tracks`,
           network: localTracks.some(t => isNetworkSharePath(t.path)),
         });
+      } else if (localTracks.length > 0) {
+        setDeleteError({ message: `Those tracks aren't in your library, so they can't be moved to the ${trashLabel}.`, failures: [] });
       }
     }
     setContextMenu(null);

@@ -6,7 +6,7 @@ import type { MenuItemSpec } from "../nativeMenu";
 import type { ContextMenuTarget } from "../types/contextMenu";
 import { toPluginTarget } from "../types/contextMenu";
 import { buildPluginMenuSpecs } from "./pluginMenuGroups";
-import { parseLibraryId, isLocalTrack } from "../queueEntry";
+import { isLocalTrack } from "../queueEntry";
 import type { useContextMenuActions } from "../hooks/useContextMenuActions";
 import type { useLibrary } from "../hooks/useLibrary";
 import type { usePlugins } from "../hooks/usePlugins";
@@ -114,7 +114,10 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
 
       // Move to Trash — local tracks only
       if (d.contextMenuActions.handleDeleteRequest) {
-        const localDeletable = selectedTracks.filter(t => isLocalTrack(t) && parseLibraryId(t.key) != null);
+        // Any local (file://) track is deletable: the library id is resolved from
+        // the path at action time (handleDeleteRequest), so ext: keys — restored,
+        // m3u-loaded, home-shelf — work too, not just fresh lib:N rows.
+        const localDeletable = selectedTracks.filter(t => isLocalTrack(t));
         if (localDeletable.length > 0) {
           specs.push({ kind: "separator" });
           const deleteLabel = localDeletable.length === 1 ? `Move to ${d.trashLabel}` : `Move ${localDeletable.length} local tracks to ${d.trashLabel}`;

@@ -495,7 +495,12 @@ export function useHome(opts: UseHomeOptions) {
                     title: t.title,
                     artist_name: t.artist_name ?? undefined,
                     album_title: t.album_title ?? undefined,
-                    image_url: t.image_url ?? undefined,
+                    // Carry the real file:// path + duration so the queued track is a
+                    // first-class local track (Open Folder / delete-by-path work, native
+                    // playback). No image_url: these are library tracks, so their queue
+                    // art resolves via the entity cache (avoids a redundant thumb write).
+                    path: t.path,
+                    duration_secs: t.duration_secs ?? undefined,
                   },
                 })),
               };
@@ -646,7 +651,7 @@ export function useHome(opts: UseHomeOptions) {
               return {
                 status: "ok",
                 items: tracks.map(t => ({
-                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined },
+                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
                 })),
               };
             } catch (e) {
@@ -666,7 +671,7 @@ export function useHome(opts: UseHomeOptions) {
               return {
                 status: "ok",
                 items: tracks.map(t => ({
-                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined },
+                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
                 })),
               };
             } catch (e) {
