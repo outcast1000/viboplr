@@ -27,6 +27,7 @@ import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
 import { buildPluginOverflowItems } from "./utils/heroOverflow";
+import { applyReduceMotionAttr } from "./utils/reducedMotion";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -180,6 +181,7 @@ function App() {
   // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
   const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = useState(true);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
   const [eqCustomPresets, setEqCustomPresets] = useState<{ id: string; name: string; gains: number[] }[]>([]);
   const [eqShowBarControlSimple, setEqShowBarControlSimple] = useState(true);
   const [eqShowBarControlAdvanced, setEqShowBarControlAdvanced] = useState(false);
@@ -1461,6 +1463,7 @@ function App() {
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
+          reduceMotion: savedReduceMotion,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         zoom.hydrate(savedUiZoom, savedMiniZoom);
@@ -1474,6 +1477,7 @@ function App() {
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
+        if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
 
         const [savedEqEnabled, savedEqMode, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb, savedEqBassDb, savedEqTrebleDb, savedEqShowBarSimple, savedEqShowBarAdvanced] = await Promise.all([
           store.get<boolean>("eqEnabled"),
@@ -2302,6 +2306,12 @@ function App() {
   function handleMinimizeToMiniPlayerChange(enabled: boolean) {
     setMinimizeToMiniPlayer(enabled);
     store.set("minimizeToMiniPlayer", enabled);
+  }
+
+  function handleReduceMotionChange(enabled: boolean) {
+    setReduceMotion(enabled);
+    store.set("reduceMotion", enabled);
+    applyReduceMotionAttr(enabled); // toggles the root attr + notifies live JS animations
   }
 
   // Interface zoom. The full-window factor applies immediately only when not in
@@ -3299,6 +3309,8 @@ function App() {
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
+              reduceMotion={reduceMotion}
+              onReduceMotionChange={handleReduceMotionChange}
               uiZoom={zoom.uiZoom}
               onUiZoomChange={handleUiZoomChange}
               miniZoom={zoom.miniZoom}

@@ -19,7 +19,7 @@ import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
 import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
-import { NowPlayingInfoCycler } from "./NowPlayingInfoCycler";
+import { NowPlayingInfoCycler, MarqueeText } from "./NowPlayingInfoCycler";
 import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
@@ -354,6 +354,7 @@ export function NowPlayingBar({
                     ) : (
                       <NowPlayingInfoCycler
                         plain
+                        marquee
                         className="now-artist"
                         items={nowPlayingInfo}
                         sep=" · "
@@ -396,15 +397,19 @@ export function NowPlayingBar({
             {currentTrack && currentTrack.liked === 1 && (
               <IconHeartFilled size={11} className="mini-ultra-heart" />
             )}
-            <span className="mini-ultra-title">
-              {playbackError
-                ? "Playback failed"
-                : currentTrack
-                  ? <><span className="mini-ultra-track">{currentTrack.title}</span><span className="mini-ultra-sep"> — </span><NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} /></>
-                  : loadingTrack
-                    ? `Loading ${loadingTrack.title}…`
-                    : "No track playing"}
-            </span>
+            {playbackError ? (
+              <span className="mini-ultra-title">Playback failed</span>
+            ) : currentTrack ? (
+              <MarqueeText className="mini-ultra-title" enabled restartKey={currentTrack.key}>
+                <span className="mini-ultra-track">{currentTrack.title}</span>
+                <span className="mini-ultra-sep"> — </span>
+                <NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} />
+              </MarqueeText>
+            ) : loadingTrack ? (
+              <span className="mini-ultra-title">{`Loading ${loadingTrack.title}…`}</span>
+            ) : (
+              <span className="mini-ultra-title">No track playing</span>
+            )}
             <div className="mini-progress" style={{ transform: `scaleX(${progress / 100})` }} />
           </div>
         )}
@@ -534,10 +539,16 @@ export function NowPlayingBar({
             {currentTrack ? (
               <>
                 <span className="now-title-row">
-                  <span className="now-title now-link" onClick={() => onTrackClick(currentTrack.key)}>
+                  <MarqueeText
+                    className="now-title now-link"
+                    enabled
+                    restartKey={currentTrack.key}
+                    onClick={() => onTrackClick(currentTrack.key)}
+                    title={currentTrack.title}
+                  >
                     <SlideText text={currentTrack.title} />
                     {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
-                  </span>
+                  </MarqueeText>
                   {/* Visibility + which downloader are decided upstream by
                       `decideDownload` (the EffectiveSource of the winning resolver);
                       `onDownloadTrack` is only set when a downloader owns the source. */}

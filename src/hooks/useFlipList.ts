@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { isReducedMotion } from "../utils/reducedMotion";
 
 /**
  * FLIP reposition animation for a list whose items carry a stable `data-flip-key`.
@@ -32,10 +33,6 @@ function sameOrder(a: string[], b: string[]): boolean {
 export function useFlipList(containerRef: React.RefObject<HTMLElement | null>) {
   const prevTops = useRef<Map<string, number>>(new Map());
   const prevOrder = useRef<string[]>([]);
-  const reduced = useRef(
-    typeof window !== "undefined" &&
-      !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-  );
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -56,7 +53,7 @@ export function useFlipList(containerRef: React.RefObject<HTMLElement | null>) {
     // baseline so the next real reorder still measures from the settled layout.
     const orderChanged = !sameOrder(order, prevOrder.current);
 
-    if (orderChanged && !reduced.current && items.length <= MAX_ANIMATED) {
+    if (orderChanged && !isReducedMotion() && items.length <= MAX_ANIMATED) {
       for (const it of items) {
         const key = it.dataset.flipKey;
         if (key == null) continue;

@@ -901,6 +901,8 @@ interface SettingsPanelProps {
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
+  reduceMotion: boolean;
+  onReduceMotionChange: (enabled: boolean) => void;
   uiZoom: number;
   onUiZoomChange: (factor: number) => void;
   miniZoom: number;
@@ -973,6 +975,8 @@ export function SettingsPanel({
   onTrackVideoHistoryChange,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
+  reduceMotion,
+  onReduceMotionChange,
   uiZoom,
   onUiZoomChange,
   miniZoom,
@@ -1200,6 +1204,13 @@ export function SettingsPanel({
                         <span className="settings-description">Switch to mini player when minimizing the window</span>
                       </div>
                       <ToggleSwitch checked={minimizeToMiniPlayer} onChange={onMinimizeToMiniPlayerChange} />
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Reduce motion</span>
+                        <span className="settings-description">Minimise animations across the app — disables the mini-player text scroll, list reordering, and transitions. Also honoured automatically when your OS "reduce motion" setting is on.</span>
+                      </div>
+                      <ToggleSwitch checked={reduceMotion} onChange={onReduceMotionChange} />
                     </div>
                   </div>
                 </div>

@@ -303,6 +303,33 @@ body {
 .npi--muted { color: var(--text-secondary); }
 .npi--accent { color: var(--accent); }
 
+/* Marquee for overflowing Now Playing info items (mini player). The track is
+   clipped by its viewport (the line's own `overflow: hidden`). When it fits it
+   stays put and ellipsis-truncates; when it overflows, `.npi-marquee` lets it
+   run full-bleed and gently ping-pongs so a long line (e.g. lyrics) can be read.
+   Distance/duration come from per-item `--npi-shift` / `--npi-dur` custom props.
+   Reduced-motion users keep the static ellipsis line — the cycler does not apply
+   `.npi-marquee` then, and the global reduced-motion guard neutralises it too. */
+.npi-track {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.npi-marquee {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  animation: npi-marquee var(--npi-dur, 6s) ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes npi-marquee {
+  0%, 22% { transform: translateX(0); }
+  100%    { transform: translateX(var(--npi-shift, 0)); }
+}
+
 @keyframes slide-text-in {
   from { transform: translateY(60%); opacity: 0; }
   to   { transform: translateY(0); opacity: 1; }
@@ -354,9 +381,11 @@ body {
 }
 
 /* === Reduced motion ===
-   Honour the OS "reduce motion" setting globally: collapse animations and
-   transitions to near-instant so motion-sensitive users get state changes
-   without movement. Per-component guards elsewhere remain as finer overrides. */
+   Honour reduce-motion globally: collapse animations and transitions to
+   near-instant so motion-sensitive users get state changes without movement.
+   Triggered by EITHER the OS "reduce motion" setting OR the in-app toggle
+   (which sets `data-reduce-motion` on the root — see utils/reducedMotion.ts).
+   Per-component guards elsewhere remain as finer overrides. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -366,4 +395,12 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+:root[data-reduce-motion] *,
+:root[data-reduce-motion] *::before,
+:root[data-reduce-motion] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }
