@@ -15,6 +15,17 @@ function activate(api) {
     var c = normName(candidate);
     return q.length > 0 && q === c;
   }
+  // Deezer always populates picture_xl/cover_xl, even when it has no real art for
+  // a matched result. In that case it returns a placeholder URL whose md5-hash
+  // segment is empty (".../images/artist//1000x1000-..." — note the double
+  // slash). That URL 301-redirects to HTML, not an image, so it would be saved
+  // as a "failed image". Treat an empty-hash URL as no image so the provider
+  // chain continues to the next provider instead.
+  function hasRealImage(url) {
+    if (!url) return false;
+    var m = /\/images\/[^/]+\/([^/]*)\//.exec(url);
+    return !!(m && m[1]);
+  }
 
   api.imageProviders.onFetch("artist", async function (name) {
     var resp = await api.network.fetch(
@@ -22,7 +33,7 @@ function activate(api) {
     );
     var data = await resp.json();
     var hit = data && data.data && data.data[0];
-    if (!hit || !hit.picture_xl) return { status: "not_found" };
+    if (!hit || !hasRealImage(hit.picture_xl)) return { status: "not_found" };
     // Deezer searches blindly with limit=1, so a wrong-but-popular artist can be
     // returned (e.g. "Girls" -> Spice Girls). Reject mismatches so the chain
     // continues to another provider instead of caching a wrong image.
@@ -37,7 +48,7 @@ function activate(api) {
     );
     var data = await resp.json();
     var hit = data && data.data && data.data[0];
-    if (!hit || !hit.cover_xl) return { status: "not_found" };
+    if (!hit || !hasRealImage(hit.cover_xl)) return { status: "not_found" };
     // Gate on artist only (not title): a wrong artist means a wrong cover
     // (e.g. "Untitled" by Weezer -> Beau Wanzer), but the title legitimately
     // varies across reissues ("4" -> "4 (Expanded Edition)"), so matching the
