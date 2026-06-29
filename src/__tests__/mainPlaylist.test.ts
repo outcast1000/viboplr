@@ -398,7 +398,7 @@ describe("full Spotify → Mixtape → Queue roundtrip", () => {
 
 describe("album → queue → mixtape → queue roundtrip", () => {
   it("preserves album source, description (review), and metadata through the full trip", () => {
-    // Step 1: AlbumDetailHeader builds context; handleAlbumPlayTracks enriches with cached review
+    // Step 1: AlbumDetail builds context; handleAlbumPlayTracks enriches with cached review
     const albumContext = {
       name: "OK Computer",
       imagePath: "/images/albums/ok-computer.jpg",
@@ -445,7 +445,7 @@ describe("album → queue → mixtape → queue roundtrip", () => {
 
 describe("artist → queue → mixtape → queue roundtrip", () => {
   it("preserves artist source, description (bio), and name through the full trip", () => {
-    // Step 1: ArtistDetailContent builds context; handleArtistPlayTracks enriches with cached bio
+    // Step 1: ArtistDetail builds context; handleArtistPlayTracks enriches with cached bio
     const artistContext = {
       name: "Radiohead",
       imagePath: "/images/artists/radiohead.jpg",

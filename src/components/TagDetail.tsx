@@ -168,6 +168,8 @@ export function TagDetail({ name }: TagDetailProps) {
           onDoubleClick={actions.playTracks}
           onPlay={(t) => actions.playTracks([t], 0)}
           onEnqueue={(t) => actions.enqueueTracks([t])}
+          onStartRadio={actions.startRadio}
+          onLocateTrack={actions.locateTrack}
           onContextMenu={actions.handleTrackContextMenu}
           onArtistClick={actions.navigateToArtist}
           onAlbumClick={actions.navigateToAlbum}

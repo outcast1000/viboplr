@@ -22,8 +22,7 @@
 - **HistoryView.tsx** — Tabbed history: All Time, Last 30 Days, Recent (relative timestamps), Artists. Ghost entry reconnection on double-click. Exposes `reload()` via imperative handle.
 - **CollectionsView.tsx** — Collection management with kind badges, resync, edit (name, enabled, auto-update, frequency).
 - **PlaylistsView.tsx** — Saved playlists grid/detail.
-- **ArtistDetailContent.tsx** — Circular avatar, like/hate, collapsible sections (Top Songs, About, Albums, Similar Artists), horizontal album scroll. Section toggles persisted as `artistSections`.
-- **AlbumDetailHeader.tsx** — 240x240 cover, title, artist (clickable), year, count, play all, like/hate. Section toggles persisted as `albumSections`.
+- **ArtistDetail.tsx** — Circular avatar, like/hate, collapsible sections (Top Songs, About, Albums, Similar Artists), horizontal album scroll. Section toggles persisted as `artistSections`.
 - **TrackDetailView.tsx** — Hero header with album art, quality stats (format, bitrate, sample rate, file size), Last.fm stats, inline tags. Sections: Scrobble History, Similar Tracks, Community Tags, Lyrics (LyricsPanel), Song Explanation (Genius). Section toggles persisted as `trackSections`.
 - **InformationSections.tsx** — Tab-based interface for plugin-provided info. Drag-and-drop reorderable tabs, lazy-loaded with caching.
 - **PluginViewRenderer.tsx** — Renders PluginViewData types: track-list, card-grid, track-row-list, text, stats-grid, buttons, toggles, tabs, layouts, search inputs, progress bars, settings rows.
@@ -46,7 +45,7 @@
 - **ExtensionsView.tsx** — Plugin/extension management (install from gallery, enable/disable, updates).
 - **SettingsPanel.tsx** — Settings UI: providers ordering, dependencies, skins, profiles, toggles.
 - **DetailHero.tsx, DetailHeroBackground.tsx, DetailHeroEffect.tsx** — Shared native detail hero (multi-image crossfade background, FX looks, square/circle art, play/enqueue + overflow). Used by all detail pages and the plugin `detail-header` display kind. Images via `useDetailHeroImages.ts`.
-- **AlbumDetail.tsx, TagDetail.tsx** — Detail-page wrappers composing the hero + track list + information sections for albums/tags.
+- **AlbumDetail.tsx, TagDetail.tsx** — Detail-page wrappers composing the hero + track list + information sections for albums/tags. `AlbumDetail` renders the 240x240 cover, title, clickable artist, year, count, play all, and like/hate; album section toggles persisted as `albumSections`.
 - **DownloadModal.tsx** — Unified download flow (provider-chain resolution, interactive manual search, progress). See conventions.md "Download Track".
 - **BulkEditModal.tsx** — Multi-track tag/metadata bulk editor (`bulk_update_tracks`). Tag suggestions fold in Last.fm community tags via `useCommunityTags` + `appendCommunityTags` (artist-level tags only for multi-track selections).
 - **LikeDislikeButtons.tsx** — Shared like (heart) / dislike (X) button pair, reused across surfaces.

@@ -21,11 +21,11 @@ import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 
-interface ArtistDetailContentProps {
+interface ArtistDetailProps {
   name: string;
 }
 
-export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
+export function ArtistDetail({ name }: ArtistDetailProps) {
   const actions = useDetailActions();
   const state = useDetailState();
   const {
@@ -289,6 +289,8 @@ export function ArtistDetailContent({ name }: ArtistDetailContentProps) {
             onDoubleClick={actions.playTracks}
             onPlay={(t) => actions.playTracks([t], 0)}
             onEnqueue={(t) => actions.enqueueTracks([t])}
+            onStartRadio={actions.startRadio}
+            onLocateTrack={actions.locateTrack}
             onContextMenu={actions.handleTrackContextMenu}
             onArtistClick={actions.navigateToArtist}
             onAlbumClick={actions.navigateToAlbum}

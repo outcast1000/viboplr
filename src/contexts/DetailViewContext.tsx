@@ -23,6 +23,10 @@ export interface DetailViewActions {
   enqueueTracks: (tracks: Track[]) => void;
   playExternal: (tracks: QueueTrack[]) => void;
   enqueueExternal: (tracks: QueueTrack[]) => void;
+  /** Start a radio station seeded from a single track (overlay "radio" action). */
+  startRadio: (track: Track) => void;
+  /** Open a track's detail page (overlay "info" action). */
+  locateTrack: (track: Track) => void;
 
   toggleLike: (track: Track | QueueTrack) => void;
   toggleDislike: (track: Track | QueueTrack) => void;
@@ -93,6 +97,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.navigateToArtist, actions.navigateToAlbum, actions.navigateToTag, actions.navigateToTagByName,
     actions.goBack, actions.canGoBack,
     actions.playTracks, actions.playEntityAll, actions.playAlbum, actions.enqueueTracks,
+    actions.startRadio, actions.locateTrack,
     actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,
     actions.handleInfoTrackContextMenu, actions.handleEntityContextMenu,

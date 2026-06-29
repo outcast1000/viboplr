@@ -86,7 +86,7 @@ import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
 import { buildPluginMenuSpecs } from "./contextMenu/pluginMenuGroups";
 import { toPluginTarget } from "./types/contextMenu";
 import { buildContextMenuSpecs } from "./contextMenu/buildContextMenuSpecs";
-import { ArtistDetailContent } from "./components/ArtistDetailContent";
+import { ArtistDetail } from "./components/ArtistDetail";
 import { AlbumDetail } from "./components/AlbumDetail";
 import { TagDetail } from "./components/TagDetail";
 import { HistoryView } from "./components/HistoryView";
@@ -2419,6 +2419,8 @@ function App() {
     enqueueTracks: contextMenuActions.handleEnqueue,
     playExternal: (tracks) => queueHook.playTracks(tracks, 0),
     enqueueExternal: queueHook.enqueueTracks,
+    startRadio: (t) => contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null }),
+    locateTrack: (t) => library.handleTrackClick(t.key),
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
     toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
@@ -2472,6 +2474,7 @@ function App() {
     },
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
+    library.handleTrackClick, contextMenuActions.startRadio,
     goBack, canGoBack,
     queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,
@@ -3002,7 +3005,7 @@ function App() {
           {library.selectedTrack === null && !library.fallbackTrackName && <>
           {/* Artist detail (unified: library + fallback) */}
           {view === "artists" && (selectedArtist !== null || library.fallbackArtistName) && selectedAlbum === null && (
-            <ArtistDetailContent
+            <ArtistDetail
               name={library.fallbackArtistName ?? artists.find(a => a.id === selectedArtist)?.name ?? "Unknown"}
             />
           )}

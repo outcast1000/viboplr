@@ -130,8 +130,8 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 |------|---------------|-----------------|
 | `home` | `HomeView` (default startup view; renders only when `view === "home"`) | — |
 | `search` (Library) | `SearchView` (always mounted; tabs for Tracks/Artists/Albums/Tags, with empty query showing the full library) | — |
-| `artists` | — (entered only via entity selection from Library) | `ArtistDetailContent` |
-| `albums` | — (entered only via entity selection from Library) | `AlbumDetailHeader` + `TrackList` |
+| `artists` | — (entered only via entity selection from Library) | `ArtistDetail` |
+| `albums` | — (entered only via entity selection from Library) | `AlbumDetail` (hero + `TrackList`) |
 | `tags` | — (entered only via entity selection from Library) | Tag header + `TrackList` |
 | Track detail | — (entered only via track selection) | `TrackDetailView` |
 | `nowplaying` | `NowPlayingView` (lean-back view of the current track) | — |
@@ -268,13 +268,13 @@ The audio view does not show an "up next" panel — the Queue Panel (column 3) i
 
 All detail pages follow a consistent structure (see conventions.md for layout rules):
 
-**Artist Detail** (`ArtistDetailContent.tsx`):
+**Artist Detail** (`ArtistDetail.tsx`):
 - Header: circular avatar + name + like/hate
 - Albums grid
 - Track list (artist's tracks)
 - Information sections (tabs)
 
-**Album Detail** (`AlbumDetailHeader.tsx` + `TrackList`):
+**Album Detail** (`AlbumDetail.tsx` + `TrackList`):
 - Header: 240x240 cover + title + artist (clickable) + year + count + play all + like/hate
 - Track list
 - Information sections (tabs)
