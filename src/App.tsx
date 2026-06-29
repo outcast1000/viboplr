@@ -55,7 +55,7 @@ import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
-import { useNowPlayingInfo, isNowPlayingItemSelected } from "./hooks/useNowPlayingInfo";
+import { useNowPlayingInfo, isNowPlayingItemSelected, nowPlayingItemTop, NOW_PLAYING_TOP_PRESETS } from "./hooks/useNowPlayingInfo";
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useRetrieveModal } from "./hooks/useRetrieveModal";
 import { RetrieveModal } from "./components/RetrieveModal";
@@ -227,6 +227,9 @@ function App() {
   // (mini player + main bar). Empty default → only the combined "Artist · Album"
   // item shows, so the line looks exactly like before until customized.
   const [nowPlayingInfoSelection, setNowPlayingInfoSelection] = useState<Record<string, boolean>>({});
+  // Per-item time-of-persistence multipliers (id → 0/1/2/5/10). Missing = 1, so
+  // an un-customized item dwells for the base interval, exactly as before.
+  const [nowPlayingInfoPersistence, setNowPlayingInfoPersistence] = useState<Record<string, number>>({});
 
   useEffect(() => {
     setTrackRank(null);
@@ -267,6 +270,11 @@ function App() {
     if (!restoredRef.current) return;
     store.set("nowPlayingInfoSelection", nowPlayingInfoSelection);
   }, [nowPlayingInfoSelection]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("nowPlayingInfoPersistence", nowPlayingInfoPersistence);
+  }, [nowPlayingInfoPersistence]);
 
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
@@ -359,25 +367,47 @@ function App() {
     pluginItems: plugins.nowPlayingInfoItems,
     invokeNowPlayingInfo: plugins.invokeNowPlayingInfo,
     selection: nowPlayingInfoSelection,
+    persistence: nowPlayingInfoPersistence,
     positionSecs: playback.positionSecs,
+    pluginsLoaded: plugins.pluginsLoaded,
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
   });
-  const toggleNowPlayingInfo = useCallback((id: string) => {
-    setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: !isNowPlayingItemSelected(id, prev, nowPlayingInfoAvailable) }));
-  }, [nowPlayingInfoAvailable]);
-  // Native checkbox submenu listing every registered info item (built-in +
-  // plugin). Shared by the mini-player menu and the main-bar info area.
+  // Disable an item (hide it entirely). Enabling happens by picking a time, below.
+  const disableNowPlayingInfo = useCallback((id: string) => {
+    setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: false }));
+  }, []);
+  // Enable an item and set its time-of-persistence multiplier in one action.
+  const setNowPlayingInfoTop = useCallback((id: string, top: number) => {
+    setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: true }));
+    setNowPlayingInfoPersistence((prev) => ({ ...prev, [id]: top }));
+  }, []);
+  // Native submenu listing every registered info item (built-in + plugin). Each
+  // item opens a nested radio-style submenu: "Off" plus the time-of-persistence
+  // presets (Preview only / 1× / 2× / 5× / 10×). Shared by the mini-player menu
+  // and the main-bar info area.
   const buildNowPlayingInfoSubmenu = useCallback((): MenuItemSpec => ({
     kind: "submenu",
     text: "Now playing info",
-    items: nowPlayingInfoAvailable.map((d) => ({
-      kind: "check" as const,
-      text: d.label,
-      checked: isNowPlayingItemSelected(d.id, nowPlayingInfoSelection, nowPlayingInfoAvailable),
-      action: () => toggleNowPlayingInfo(d.id),
-    })),
-  }), [nowPlayingInfoAvailable, nowPlayingInfoSelection, toggleNowPlayingInfo]);
+    items: nowPlayingInfoAvailable.map((d): MenuItemSpec => {
+      const enabled = isNowPlayingItemSelected(d.id, nowPlayingInfoSelection, nowPlayingInfoAvailable);
+      const top = nowPlayingItemTop(d.id, nowPlayingInfoPersistence);
+      return {
+        kind: "submenu",
+        text: d.label,
+        items: [
+          { kind: "check" as const, text: "Off", checked: !enabled, action: () => disableNowPlayingInfo(d.id) },
+          { kind: "separator" as const },
+          ...NOW_PLAYING_TOP_PRESETS.map((p) => ({
+            kind: "check" as const,
+            text: p === 0 ? "Preview only" : `${p}×`,
+            checked: enabled && top === p,
+            action: () => setNowPlayingInfoTop(d.id, p),
+          })),
+        ],
+      };
+    }),
+  }), [nowPlayingInfoAvailable, nowPlayingInfoSelection, nowPlayingInfoPersistence, disableNowPlayingInfo, setNowPlayingInfoTop]);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
   // Host-owned "missing required dependency" indicator: cross-reference each
@@ -1487,6 +1517,9 @@ function App() {
 
         const savedNowPlayingInfo = await store.get<Record<string, boolean>>("nowPlayingInfoSelection");
         if (savedNowPlayingInfo && typeof savedNowPlayingInfo === "object") setNowPlayingInfoSelection(savedNowPlayingInfo);
+
+        const savedNowPlayingInfoTop = await store.get<Record<string, number>>("nowPlayingInfoPersistence");
+        if (savedNowPlayingInfoTop && typeof savedNowPlayingInfoTop === "object") setNowPlayingInfoPersistence(savedNowPlayingInfoTop);
 
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);

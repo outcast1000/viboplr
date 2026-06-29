@@ -295,6 +295,14 @@ body {
   animation: slide-text-in 250ms ease-out forwards;
 }
 
+/* Per-type styling for Now Playing info items (NowPlayingInfoCycler). Colors are
+   skin tokens, never hardcoded, so they hold across every skin. Applied to the
+   inner span so they override the line's inherited color. */
+.npi--bold { font-weight: 700; }
+.npi--italic { font-style: italic; }
+.npi--muted { color: var(--text-secondary); }
+.npi--accent { color: var(--accent); }
+
 @keyframes slide-text-in {
   from { transform: translateY(60%); opacity: 0; }
   to   { transform: translateY(0); opacity: 1; }

@@ -32,10 +32,97 @@ export interface NowPlayingInfoSegment {
   badge?: number | null;
 }
 
+/** Designer-controlled visual style for an item type (skin-safe by construction:
+ *  `role` resolves to a skin color token in the cycler, never a hardcoded color).
+ *  Emphasis (`bold`/`italic`) is independent of `role`. */
+export interface NowPlayingInfoStyle {
+  bold?: boolean;
+  italic?: boolean;
+  role?: "muted" | "accent";
+}
+
 /** A fully-resolved info item ready to display (one "card" in the cycle). */
 export interface NowPlayingInfoResolved {
   id: string;
   segments: NowPlayingInfoSegment[];
+  /** Time-of-persistence multiplier (one of NOW_PLAYING_TOP_PRESETS): how many
+   *  base cycle intervals this item dwells before the cycler advances. Set in
+   *  `resolvedItems`; the cycler treats a missing value as 1. */
+  top?: number;
+  /** Built-in per-type style (see NOW_PLAYING_STYLES). Set in `resolvedItems`;
+   *  a missing value renders with the default (inherited) style. */
+  style?: NowPlayingInfoStyle;
+}
+
+/** Allowed time-of-persistence multipliers. 0 = "preview only" (shown once in
+ *  the opening preview pass, then dropped from the steady rotation); 1 = the
+ *  base interval (current behavior); 10 = ten times longer on screen. Used by
+ *  the per-item submenu. */
+export const NOW_PLAYING_TOP_PRESETS = [0, 1, 2, 5, 10] as const;
+
+/** The Last.fm plugin's Now Playing info item, keyed `${pluginId}:${itemId}`.
+ *  Named here so the host can ship a sensible default ToP + style for it (the
+ *  app already hardcodes per-plugin defaults elsewhere, e.g. provider priority). */
+export const NOW_PLAYING_SCROBBLES_ID = "lastfm:scrobbles";
+
+/** Built-in default time-of-persistence per item (before any user override).
+ *  Items not listed default to 1 (the base interval). */
+const NOW_PLAYING_DEFAULT_TOP: Record<string, number> = {
+  [NOW_PLAYING_LYRICS_SYNCED_ID]: 5, // lyrics linger and advance line-by-line
+  [NOW_PLAYING_SCROBBLES_ID]: 0, // preview-only: a quick stat at each track change
+};
+
+/** Time-of-persistence multiplier for an item — the user's override if it's a
+ *  valid preset, else the item's built-in default, else 1. Pure + for tests. */
+export function nowPlayingItemTop(id: string, persistence: Record<string, number>): number {
+  const v = persistence[id];
+  if (v != null && (NOW_PLAYING_TOP_PRESETS as readonly number[]).includes(v)) return v;
+  return NOW_PLAYING_DEFAULT_TOP[id] ?? 1;
+}
+
+/** Built-in per-type styling. Skin-safe by construction: `role` resolves to a
+ *  skin color token in the cycler, never a hardcoded color. Items not listed
+ *  render with the default (inherited) style. */
+const NOW_PLAYING_STYLES: Record<string, NowPlayingInfoStyle> = {
+  "builtin:plays-rank": { role: "accent" }, // a play stat → highlight
+  [NOW_PLAYING_SCROBBLES_ID]: { role: "accent" }, // also a play stat
+  "builtin:source": { role: "muted" },
+  "builtin:quality": { role: "muted" },
+  "builtin:duration": { role: "muted" },
+  "builtin:tags": { role: "muted" },
+  [NOW_PLAYING_LYRICS_SYNCED_ID]: { italic: true }, // quoted/sung text
+  [NOW_PLAYING_LYRICS_PLAIN_ID]: { italic: true },
+};
+
+/** Built-in per-type style for an item, or undefined when it has no special
+ *  styling (renders with the inherited default). Pure + exported for tests. */
+export function nowPlayingItemStyle(id: string): NowPlayingInfoStyle | undefined {
+  return NOW_PLAYING_STYLES[id];
+}
+
+/** Space-joined CSS class list for an item style, using the skin-token-backed
+ *  `.npi--*` classes (defined in base.css). Empty string for the default style.
+ *  Pure + exported for tests. */
+export function nowPlayingStyleClass(style: NowPlayingInfoStyle | undefined): string {
+  if (!style) return "";
+  const cls: string[] = [];
+  if (style.bold) cls.push("npi--bold");
+  if (style.italic) cls.push("npi--italic");
+  if (style.role === "muted") cls.push("npi--muted");
+  if (style.role === "accent") cls.push("npi--accent");
+  return cls.join(" ");
+}
+
+/** The steady-rotation order: items with a positive ToP (top > 0), sorted by ToP
+ *  descending so the longest-dwelling items lead the cycle. "Preview only"
+ *  (top === 0) items are dropped. Stable for equal ToP (keeps display order).
+ *  Pure + exported for tests. */
+export function nowPlayingSteadyOrder<T extends { top?: number }>(items: T[]): T[] {
+  return items
+    .map((it, i) => ({ it, i, top: it.top ?? 1 }))
+    .filter((e) => e.top > 0)
+    .sort((a, b) => b.top - a.top || a.i - b.i)
+    .map((e) => e.it);
 }
 
 /** A registered item, shown as a checkbox in the context-menu checklist.
@@ -47,9 +134,9 @@ export interface NowPlayingInfoDescriptor {
 }
 
 // Built-in items contributed by the core app, in display order. Each declares
-// its own default-enabled state; only Artist · Album is on by default (plus the
-// Last.fm plugin's Scrobbles). Plays and rank share one item (rank is derived
-// from the play count) — it shows e.g. "142 plays · #12".
+// its own default-enabled state; Artist · Album and Synced Lyrics are on by
+// default (plus the Last.fm plugin's Scrobbles). Plays and rank share one item
+// (rank is derived from the play count) — it shows e.g. "142 plays · #12".
 const BUILTIN_DESCRIPTORS: NowPlayingInfoDescriptor[] = [
   { id: NOW_PLAYING_ARTIST_ALBUM_ID, label: "Artist · Album", defaultEnabled: true },
   { id: "builtin:artist", label: "Artist", defaultEnabled: false },
@@ -59,7 +146,10 @@ const BUILTIN_DESCRIPTORS: NowPlayingInfoDescriptor[] = [
   { id: "builtin:quality", label: "Quality", defaultEnabled: false },
   { id: "builtin:duration", label: "Duration", defaultEnabled: false },
   { id: "builtin:tags", label: "Tags", defaultEnabled: false },
-  { id: NOW_PLAYING_LYRICS_SYNCED_ID, label: "Synced Lyrics", defaultEnabled: false },
+  // Synced Lyrics is on by default (at 5× ToP, italic — see NOW_PLAYING_DEFAULT_TOP
+  // / NOW_PLAYING_STYLES). Lyrics only fetch when a lyrics item is enabled, so this
+  // makes the default experience fetch lyrics for each track.
+  { id: NOW_PLAYING_LYRICS_SYNCED_ID, label: "Synced Lyrics", defaultEnabled: true },
   { id: NOW_PLAYING_LYRICS_PLAIN_ID, label: "Plain Lyrics", defaultEnabled: false },
 ];
 
@@ -152,6 +242,8 @@ interface UseNowPlayingInfoArgs {
   pluginItems: { pluginId: string; itemId: string; label: string; defaultEnabled: boolean }[];
   invokeNowPlayingInfo: (pluginId: string, itemId: string, track: PluginTrack) => Promise<NowPlayingInfoResult>;
   selection: Record<string, boolean>;
+  // Per-item time-of-persistence multipliers (id → 1/2/5/10). Missing = 1.
+  persistence: Record<string, number>;
   // Current playback position — drives the "current line" of the Synced Lyrics item.
   positionSecs: number;
   // Plugin info-type bridge — lyrics are fetched through the same cache/chain as
@@ -163,6 +255,12 @@ interface UseNowPlayingInfoArgs {
     onFetchUrl?: (url: string) => void,
   ) => Promise<InfoFetchResult>;
   pluginNames?: Map<string, string>;
+  // True once all plugins have finished activating. Gating the lyrics fetch on
+  // this avoids a startup race: the lyrics info-type row persists in the DB, so
+  // the fetch fires the moment the restored track is set — but if the lyrics
+  // plugin hasn't activated yet, the provider call returns "error", which gets
+  // cached for an hour and suppresses lyrics for the track playing at launch.
+  pluginsLoaded: boolean;
 }
 
 export function useNowPlayingInfo({
@@ -172,9 +270,11 @@ export function useNowPlayingInfo({
   pluginItems,
   invokeNowPlayingInfo,
   selection,
+  persistence,
   positionSecs,
   invokeInfoFetch,
   pluginNames,
+  pluginsLoaded,
 }: UseNowPlayingInfoArgs): {
   availableItems: NowPlayingInfoDescriptor[];
   resolvedItems: NowPlayingInfoResolved[];
@@ -199,7 +299,9 @@ export function useNowPlayingInfo({
   const plainEnabled = isNowPlayingItemSelected(NOW_PLAYING_LYRICS_PLAIN_ID, selection, availableItems);
   const { data: lyricsData } = useLyrics({
     track: currentTrack,
-    enabled: syncedEnabled || plainEnabled,
+    // Wait for plugins so the first fetch reaches the (now-loaded) lyrics
+    // provider instead of caching a spurious "plugin not loaded" error.
+    enabled: pluginsLoaded && (syncedEnabled || plainEnabled),
     invokeInfoFetch,
     pluginNames,
   });
@@ -379,9 +481,12 @@ export function useNowPlayingInfo({
     for (const r of lyricsResolved) byId.set(r.id, r);
     return availableItems
       .filter((d) => isNowPlayingItemSelected(d.id, selection, availableItems))
-      .map((d) => byId.get(d.id))
+      .map((d): NowPlayingInfoResolved | undefined => {
+        const r = byId.get(d.id);
+        return r ? { ...r, top: nowPlayingItemTop(d.id, persistence), style: nowPlayingItemStyle(d.id) } : undefined;
+      })
       .filter((r): r is NowPlayingInfoResolved => r !== undefined);
-  }, [asyncResolved, lyricsResolved, availableItems, selection]);
+  }, [asyncResolved, lyricsResolved, availableItems, selection, persistence]);
 
   return { availableItems, resolvedItems };
 }

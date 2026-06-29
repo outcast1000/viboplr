@@ -358,6 +358,7 @@ export function NowPlayingBar({
                         items={nowPlayingInfo}
                         sep=" · "
                         fallbackText={currentTrack.artist_name || "Unknown"}
+                        cycleResetKey={currentTrack.key}
                       />
                     )}
                   </>
@@ -399,7 +400,7 @@ export function NowPlayingBar({
               {playbackError
                 ? "Playback failed"
                 : currentTrack
-                  ? <><span className="mini-ultra-track">{currentTrack.title}</span><span className="mini-ultra-sep"> — </span><NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} /></>
+                  ? <><span className="mini-ultra-track">{currentTrack.title}</span><span className="mini-ultra-sep"> — </span><NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} /></>
                   : loadingTrack
                     ? `Loading ${loadingTrack.title}…`
                     : "No track playing"}
