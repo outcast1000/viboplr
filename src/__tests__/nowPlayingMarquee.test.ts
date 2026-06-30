@@ -6,8 +6,19 @@ describe("computeMarquee", () => {
     expect(computeMarquee(100, 200)).toBeNull();
   });
 
-  it("returns null when overflow is within the threshold", () => {
-    expect(computeMarquee(203, 200)).toBeNull(); // 3px overflow < threshold
+  it("scrolls on any real overflow (no ellipsis gate)", () => {
+    expect(computeMarquee(200, 200)).toBeNull(); // fits exactly → static
+    expect(computeMarquee(199, 200)).toBeNull(); // fits → static
+    expect(computeMarquee(201, 200)).not.toBeNull(); // 1px overflow → scrolls, never ellipsis
+    expect(computeMarquee(203, 200)).not.toBeNull(); // 3px overflow → scrolls
+  });
+
+  it("floors the glide duration so a small overflow drifts gently instead of twitching", () => {
+    const plan = computeMarquee(230, 200, 45)!; // 30px overflow → ~855ms raw, floored up
+    expect(plan.durMs).toBe(1200);
+    expect(plan.cycleMs).toBe(1600);
+    // A 1px subpixel overflow is floored to the same gentle, imperceptible drift.
+    expect(computeMarquee(201, 200, 45)!.durMs).toBe(1200);
   });
 
   it("returns null when the viewport is too small to measure", () => {

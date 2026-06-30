@@ -10,7 +10,11 @@ import { isReducedMotion, subscribeReducedMotion } from "../utils/reducedMotion"
 const MARQUEE_SPEED_PX_PER_SEC = 45;    // readable glide speed
 const MARQUEE_GLIDE_FRACTION = 0.78;    // per direction: 78% glide / 22% rest at the edge
 const MARQUEE_MIN_VIEWPORT = 20;        // px; below this the viewport isn't meaningfully measurable
-const MARQUEE_OVERFLOW_THRESHOLD = 4;   // px of overflow before it's worth scrolling
+// Floor on one-direction glide time. Speed is constant, so a small shift would
+// otherwise glide in a few hundred ms — a fast, twitchy wiggle. Flooring keeps a
+// short marquee as calm as a long one (long lines already exceed this), which is
+// what makes it safe to scroll on ANY overflow instead of ever ellipsis-truncating.
+const MARQUEE_MIN_DURATION_MS = 1200;
 const MARQUEE_CYCLE_BUFFER_MS = 400;    // grace so the tail is read before the cycler advances
 
 export interface MarqueePlan {
@@ -24,8 +28,9 @@ export interface MarqueePlan {
 
 /**
  * Pure: decide whether content overflows its line and, if so, the marquee
- * geometry + timing. Returns null when it fits, the overflow is negligible, or
- * the viewport is too small to measure. Extracted for unit testing.
+ * geometry + timing. Returns null only when the content fits or the viewport is
+ * too small to measure — any real overflow scrolls (a clipped line never shows
+ * an ellipsis). Extracted for unit testing.
  */
 export function computeMarquee(
   scrollWidth: number,
@@ -34,9 +39,12 @@ export function computeMarquee(
 ): MarqueePlan | null {
   if (clientWidth < MARQUEE_MIN_VIEWPORT) return null;
   const overflow = scrollWidth - clientWidth;
-  if (overflow <= MARQUEE_OVERFLOW_THRESHOLD) return null;
+  // Scroll on ANY real overflow so a clipped line never shows an ellipsis. A 1px
+  // subpixel-rounding overflow is harmless: the duration floor drifts it ~1px over
+  // MARQUEE_MIN_DURATION_MS, which is imperceptible.
+  if (overflow <= 0) return null;
   const travelMs = (overflow / speedPxPerSec) * 1000;
-  const durMs = Math.round(travelMs / MARQUEE_GLIDE_FRACTION);
+  const durMs = Math.max(MARQUEE_MIN_DURATION_MS, Math.round(travelMs / MARQUEE_GLIDE_FRACTION));
   return { shift: overflow, durMs, cycleMs: durMs + MARQUEE_CYCLE_BUFFER_MS };
 }
 

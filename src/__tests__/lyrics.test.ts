@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseLrc,
   currentSyncedLineIndex,
-  syncedLineAt,
+  activeSyncedLine,
   plainLines,
   pickLineByRatio,
   hashStringToRatio,
@@ -42,21 +42,24 @@ describe("currentSyncedLineIndex", () => {
   });
 });
 
-describe("syncedLineAt", () => {
+describe("activeSyncedLine", () => {
   const lines = parseLrc(LRC);
-  it("returns the current line", () => {
-    expect(syncedLineAt(lines, 6)).toBe("Second line");
+  it("returns the line currently being sung", () => {
+    expect(activeSyncedLine(lines, 1)).toBe("First line");
+    expect(activeSyncedLine(lines, 6)).toBe("Second line");
+    expect(activeSyncedLine(lines, 999)).toBe("Third line");
   });
-  it("falls back to the first line before playback reaches the first timestamp", () => {
-    expect(syncedLineAt(lines, 0)).toBe("First line");
+  it("returns null before the first line (intro)", () => {
+    expect(activeSyncedLine(lines, 0)).toBeNull();
   });
-  it("walks back over blank instrumental-gap lines", () => {
-    const gapped = parseLrc(["[00:01.00]Sing", "[00:05.00]", "[00:09.00]"].join("\n"));
-    expect(syncedLineAt(gapped, 10)).toBe("Sing");
+  it("returns null on a blank instrumental-gap line instead of lingering on the last sung line", () => {
+    const gapped = parseLrc(["[00:01.00]Sing", "[00:05.00]", "[00:09.00]Again"].join("\n"));
+    expect(activeSyncedLine(gapped, 3)).toBe("Sing");
+    expect(activeSyncedLine(gapped, 6)).toBeNull();
+    expect(activeSyncedLine(gapped, 10)).toBe("Again");
   });
-  it("returns null when there are no lines or none are sung", () => {
-    expect(syncedLineAt([], 5)).toBeNull();
-    expect(syncedLineAt(parseLrc("[00:01.00]\n[00:02.00]"), 5)).toBeNull();
+  it("returns null when there are no lines", () => {
+    expect(activeSyncedLine([], 5)).toBeNull();
   });
 });
 

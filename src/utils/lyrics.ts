@@ -33,18 +33,16 @@ export function currentSyncedLineIndex(lines: LrcLine[], position: number): numb
   return idx;
 }
 
-/** The synced lyric line to show at `position` seconds: the active line, walking
- *  back over blank (instrumental-gap) lines to the most recent sung line, or the
- *  first line before playback reaches the first timestamp. null if nothing sung. */
-export function syncedLineAt(lines: LrcLine[], position: number): string | null {
-  if (lines.length === 0) return null;
-  let idx = currentSyncedLineIndex(lines, position);
-  if (idx < 0) idx = 0;
-  for (let i = idx; i >= 0; i--) {
-    const t = lines[i].text.trim();
-    if (t) return t;
-  }
-  return null;
+/** The synced lyric line being sung at `position` seconds, or null when nothing
+ *  is currently sung: before the first line (intro) or while the active line is
+ *  blank — the timestamped empty lines LRC uses to mark intros/instrumental
+ *  breaks. Unlike a walk-back lookup, this lets the Now Playing info item drop
+ *  out of the cycle during those gaps instead of lingering on a stale line. */
+export function activeSyncedLine(lines: LrcLine[], position: number): string | null {
+  const idx = currentSyncedLineIndex(lines, position);
+  if (idx < 0) return null;
+  const text = lines[idx].text.trim();
+  return text ? text : null;
 }
 
 /** Non-empty, trimmed lines of plain (unsynced) lyrics text. */

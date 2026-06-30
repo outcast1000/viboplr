@@ -6,7 +6,7 @@ import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { isLocalTrack, parseUrlScheme } from "../queueEntry";
 import { formatDuration } from "../utils";
 import { useLyrics } from "./useLyrics";
-import { parseLrc, syncedLineAt, plainLines, pickLineByRatio, hashStringToRatio } from "../utils/lyrics";
+import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio } from "../utils/lyrics";
 
 interface AudioProps { sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }
 
@@ -310,8 +310,11 @@ export function useNowPlayingInfo({
     () => (lyricsData?.kind === "synced" && lyricsData.text ? parseLrc(lyricsData.text) : null),
     [lyricsData],
   );
+  // Strict "what's being sung right now" — null during intros/instrumental gaps,
+  // so the synced-lyrics item drops out of the cycle instead of showing a stale
+  // line (see activeSyncedLine).
   const syncedText = useMemo(
-    () => (syncedLines ? syncedLineAt(syncedLines, positionSecs) : null),
+    () => (syncedLines ? activeSyncedLine(syncedLines, positionSecs) : null),
     [syncedLines, positionSecs],
   );
   // One line per track, stable across re-renders/cycles: pick by a hash of the
