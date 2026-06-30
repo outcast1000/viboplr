@@ -461,9 +461,13 @@ export interface PluginPlaybackAPI {
   playTracks(tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }): void;
   insertTrack(track: PluginTrack, position: number): void;
   insertTracks(tracks: PluginTrack[], position: number): void;
-  onTrackStarted(handler: (track: Track) => void): () => void;
-  onTrackScrobbled(handler: (track: Track) => void): () => void;
-  onTrackLiked(handler: (track: Track, liked: boolean) => void): () => void;
+  // These receive the currently-playing track, which is a metadata-only
+  // QueueTrack (no DB ids) — NOT a library Track. Plugins must act on metadata
+  // (title/artist_name/album_title/duration_secs); id/album_id/artist_id are
+  // absent at runtime. Resolve a library row on demand via find_track_by_metadata.
+  onTrackStarted(handler: (track: QueueTrack) => void): () => void;
+  onTrackScrobbled(handler: (track: QueueTrack) => void): () => void;
+  onTrackLiked(handler: (track: QueueTrack, liked: boolean) => void): () => void;
   onStreamResolve(
     providerId: string,
     handler: (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>,

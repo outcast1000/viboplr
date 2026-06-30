@@ -126,6 +126,8 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
 
 `debugOnly: true` hides the plugin unless the app is running in debug mode. Plugins reload automatically when the debug mode setting flips.
 
+`autoEnable` (optional, top-level) is an **opt-out** flag for the first-launch auto-enable of **built-in** plugins. On first launch only (no saved `enabledPlugins` list yet), every built-in plugin is enabled automatically — *except* those with `autoEnable: false`, which start disabled. Absent/`true` = enabled on first launch (the default). Once the user has a saved enable/disable list, their choices are always respected. Has no effect on user/gallery-installed plugins.
+
 ## Plugin Lifecycle
 
 1. **Discovery** — `invoke("plugin_list_installed")` scans user and built-in plugin dirs. User plugins override built-in by ID.
@@ -140,26 +142,34 @@ When a plugin's version changes, all its cached information values are deleted, 
 
 Plugins receive an `api` object. The plugin exports `activate(api)` and optionally `deactivate()`. The canonical TypeScript definitions live in `src/types/plugin.ts` (`ViboplrPluginAPI`).
 
+### api.appVersion
+
+Top-level string — the running host app version (semver). Use it for in-plugin feature gating beyond the manifest's `minAppVersion` (e.g. opt into a newer API only when present).
+
 ### api.log(level, message, section?)
 
 Top-level logger. Writes to the app's frontend log stream. Prefer this over `console.log` for persistent diagnostics.
 
 ### api.library
+- `getTrackCount()` — total track count across enabled collections
 - `getTracks(opts?)` — `{ artistId?, albumId?, tagId?, limit?, offset? }`
 - `ftsTracks(query, opts?)` / `ftsArtists(query, opts?)` / `ftsAlbums(query, opts?)` / `ftsTags(query, opts?)` — FTS5 search
 - `getArtists(opts?)` / `getAlbums(opts?)` / `getTags(opts?)` — paginated listings (`getAlbums` accepts `artistId`)
 - `getTrackById(id)` / `getArtistById(id)` / `getAlbumById(id)` / `getTagById(id)`
-- `getHistory(opts?)` / `getMostPlayed(opts?)` — `opts.days` switches to the rolling-window variant
+- `getHistory(opts?)` / `getMostPlayed(opts?)` / `getMostPlayedArtists(opts?)` — `opts.days` switches each to the rolling-window variant. `getMostPlayedArtists` returns `{ history_artist_id, play_count, track_count, display_name, rank }[]`.
 - `getHistoryPlayCount()` / `getHistoryPlaysPage(opts?)` — total play count + a cheap, **album-free**, keyset-paginated page of raw plays (`{ beforeTs?, beforeId?, limit? }`; pass the previous page's last row to advance). Use these to stream a large history in chunks instead of pulling it all via `getHistory` — the latter resolves an album per row (O(plays × tracks)) and can freeze the app on long histories.
 - `recordHistoryPlaysBatch(plays)` — batch import scrobbles, returns `{ imported, skipped }`
-- `applyTags(trackId, tagNames)` — tag tracks
+- `applyTags(trackId, tagNames)` — tag a single track; returns `[{ id, name }]`
+- `applyTagsBulk(assignments)` — apply tags to many tracks in one call. `assignments` is `Array<[trackId, tagNames]>`; returns the count of tracks updated. DB-only (does not write file metadata — that's `bulkUpdateTracks` / `bulk_update_tracks`).
+- `bulkUpdateTracks(trackIds, fields)` — bulk-edit `{ artist_name?, album_title?, year?, tag_names? }`; writes through to audio-file metadata. Mirrors the `BulkEditModal` path.
+- `findDuplicates(opts?)` — duplicate groups by diacritic-normalized title+artist, optionally also matching duration and/or file size within tolerance (`{ matchDuration?, durationToleranceSecs?, matchSize?, sizeTolerancePct?, localOnly? }`). Returns `Track[][]`, each group length ≥ 2 and **keeper-first** (`group[0]` is the highest-quality copy). Backs the `duplicate-finder` plugin.
 - `onTrackAdded(handler)` / `onTrackRemoved(handler)` / `onScanComplete(handler)` — library events
 
 ### api.playback
 - `getCurrentTrack()` / `isPlaying()` / `getPosition()`
 - `playTrack(track)` / `playTracks(tracks, startIndex?, context?)` — `track` is a `PluginTrack`; `context` is `{ name, coverUrl?, source?, metadata? }`
 - `insertTrack(track, position)` / `insertTracks(tracks, position)` — insert into the current queue
-- `onTrackStarted(handler)` / `onTrackScrobbled(handler)` / `onTrackLiked(handler)` — playback events
+- `onTrackStarted(handler)` / `onTrackScrobbled(handler)` / `onTrackLiked(handler)` — playback events. Each handler receives the currently-playing track, which is a metadata-only **`QueueTrack`** (no DB ids — `id`/`album_id`/`artist_id` are absent), **not** a library `Track`. Act on metadata (`title` / `artist_name` / `album_title` / `duration_secs`) and resolve a library row on demand via `find_track_by_metadata` if you need an id. `onTrackLiked` also gets a second `liked: boolean` argument; only **like** dispatches it (dislike never does).
 - `onStreamResolve(providerId, handler)` — handler gets `(title, artistName, albumName, durationSecs)`, returns `{ url, label } | null`
 - `onResolveStreamByUri(scheme, handler)` — handler gets `(id, quality?)` and returns a URL; used for custom URL schemes (e.g., `custom://`)
 
@@ -167,6 +177,8 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 
 ### api.contextMenu
 - `onAction(actionId, handler)` — handle clicks on registered context menu items. Handler receives a `PluginContextMenuTarget`.
+- `registerItem(item)` — register a context-menu item **at runtime** (the dynamic counterpart to static `contributes.contextMenuItems`; use when the item set depends on user state). `item` is `{ id, label, targets, submenuLabel?, order? }` (`PluginDynamicMenuItem`); `id` is the action id routed to `onAction`, `label` is text-only (native menus have no icons), and items sharing a `submenuLabel` (per target kind) are grouped into one native submenu. Returns an unsubscriber.
+- `unregisterItem(itemId)` — drop a runtime-registered item by id.
 
 ### api.home
 - `onFetchShelf(shelfId, handler)` — register a fetch handler for a shelf the plugin contributes (either via `contributes.homeShelves` in the manifest, or via `registerShelf` at runtime). Handler receives `(limit: number)` and returns `Promise<HomeShelfResult>`. Each handler call has a 5-second timeout — slow handlers are treated as `{ status: "error" }` for that cycle. Returns an unsubscriber.
@@ -204,7 +216,7 @@ Contributes items to the cycling **Now Playing info** section (the line that sho
 - `setViewData(viewId, data, opts?)` — render plugin views (see `PluginViewData` types). `opts.scrollKey?: string` enables per-view scroll memory: the host saves/restores the view's scroll position keyed by `scrollKey`. Change it on navigation (new sub-view → opens at top; returning to a prior key → scroll restored); keep it stable across in-place updates so the view doesn't jump.
 - `showNotification(message)` / `navigateToView(viewId)` / `requestAction(action, payload)`
 - `onAction(actionId, handler)` — handle UI action events emitted from plugin views
-- `setBadge(viewId, badge)` — set a sidebar badge: `null | { type: "dot", variant } | { type: "count", value, variant }`
+- `setBadge(viewId, badge)` — set a sidebar badge: `null | { type: "dot", variant, tooltip? } | { type: "count", value, variant }`. `variant` is one of `accent | error | success | warning | muted`.
 
 ### api.storage
 - `get<T>(key)` / `set(key, value)` / `delete(key)` — SQLite-backed key-value storage per plugin
@@ -250,8 +262,9 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 - `onResolveByMetadata(providerId, handler)` — handler receives `(title, artistName, albumName, durationSecs, format)`
 - `onInteractiveSearch(providerId, handler)` — handler receives `(query, limit)` and returns `InteractiveSearchResult[]` for the `DownloadModal` manual-search flow
 - `onInteractiveResolve(providerId, handler)` — handler receives `(matchId, format)` and returns a `DownloadResolveResult`
+- `onGetQualities(providerId, handler)` — synchronous `() => DownloadQualityOption[]` (`{ value, label }[]`); supplies the quality/format choices the `DownloadModal` offers for this provider.
 
-`DownloadResolveResult`: `{ url, headers?, metadata?: { title, artist, album, trackNumber, year, genre, coverUrl } }`.
+`DownloadResolveResult`: `{ url, headers?, metadata?: { title, artist, album, trackNumber, year, genre, coverUrl }, ext? }`. `ext` overrides the saved file extension for the requested format; `ext: "auto"` tells the backend to sniff the container from the downloaded bytes (for originals of unknown format).
 
 ### api.scheduler
 - `register(taskId, intervalMs)` / `unregister(taskId)` / `complete(taskId)` — periodic task registration. Backend emits `plugin-scheduler-due` events at the configured interval.
@@ -259,9 +272,21 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 
 ### api.system
 - `exec(program, args?, opts?)` — run a subprocess, returns `{ exitCode, stdout, stderr }`. **Allow-list only:** currently `yt-dlp` and `ffmpeg`. `opts.cwd` defaults to the app data directory.
+- `getDependency(name)` — read the host's **cached** status for a registered external binary: `{ name, installed, version, origin: "managed" | "system" | null, latest } | null`. **Cache-only — never hits the network.** `latest` stays `null` until the host's own background check populates it (~30s after startup, then daily, or via Settings). Plugins must use this rather than checking GitHub themselves — the host owns release/version checking (see `backend.md` "External Binary Dependencies").
 
 ### api.env
 - `get(key)` — read an environment variable
+
+### api.p2p
+
+Bridge to the host's Rust libp2p engine (`src-tauri/src/p2p/`) — the host side of the `p2p-sharing` plugin. Version-coupled to `outcast1000/viboplr-relay`; bump the plugin's `minAppVersion` when this surface changes so older apps don't pull an incompatible UI shell.
+
+- `start(relayMultiaddr?)` / `stop()` — bring the node up/down.
+- `getStatus()` / `getDiagnostics()` — node state; `getDiagnostics()` returns `P2pDiagnostics` (peer id, listen addrs, NAT status, protocol versions, connected peers, transfer/byte counters, pending dial/search/transfer counts, shared collections, uptime).
+- `getMultiaddrs()` — this node's dialable addresses. `reserveRelay(multiaddr)` — reserve a relay slot for hole-punching.
+- `searchPeer(peerId, multiaddr, query, limit?)` — query a peer's shared library.
+- `streamFromPeer(peerId, multiaddr, trackId)` — resolve a playable URL for a peer's track. `downloadFromPeer(peerId, multiaddr, trackId, destCollectionId)` — pull a copy into a local collection.
+- `getSharedCollections()` / `setSharedCollections(ids)` — which local collections this node shares.
 
 ## Information Sections
 
