@@ -77,6 +77,7 @@ interface PlaylistsViewProps {
   onSearchChange: (query: string) => void;
   onPlayTracks: (tracks: any[], startIndex: number, context?: PlaylistContext | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
+  onStartRadio?: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
   onExportAsMixtape?: (tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
@@ -119,7 +120,7 @@ function computeRowSelection(
   return new Set([ids[clickedIndex]]);
 }
 
-export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart }: PlaylistsViewProps) {
+export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
@@ -591,6 +592,11 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                 <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueueTracks([playlistTrackToMinimalTrack(t)]); }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
                 </button>
+                {onStartRadio && (
+                  <button type="button" className="row-hover-action" title="Start radio" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onStartRadio({ title: t.title, artistName: t.artist_name, coverPath: trackImagePath(t) }); }}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                  </button>
+                )}
               </span>
             </div>
           ))}

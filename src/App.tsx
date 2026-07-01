@@ -3144,6 +3144,7 @@ function App() {
               onSearchChange={(q) => viewSearch.setQuery("playlists", q)}
               onPlayTracks={queueHook.playTracks}
               onEnqueueTracks={queueHook.enqueueTracks}
+              onStartRadio={contextMenuActions.startRadio}
               onExportAsMixtape={handleExportAsMixtapeDirect}
               pluginMenuItems={plugins.menuItems}
               onPluginAction={plugins.dispatchContextMenuAction}
