@@ -3500,6 +3500,7 @@ function App() {
           onLocateTrack={(track) => {
             library.handleTrackClick(track.key);
           }}
+          onStartRadio={(track) => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
           onMoveMultiple={queueHook.moveMultiple}
           onClear={queueHook.clearQueue}
           onSaveAsM3U={queueHook.savePlaylist}

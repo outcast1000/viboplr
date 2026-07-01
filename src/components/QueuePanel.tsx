@@ -84,6 +84,7 @@ interface QueuePanelProps {
   onPlay: (track: QueueTrack, index: number) => void;
   onRemove: (index: number) => void;
   onLocateTrack?: (track: QueueTrack) => void;
+  onStartRadio?: (track: QueueTrack) => void;
   onMoveMultiple: (indices: number[], targetIndex: number) => void;
   onClear: () => void;
   onSaveAsM3U: () => void;
@@ -138,7 +139,7 @@ function QueueItemThumb({ localThumb, fallback }: { localThumb: string | null; f
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove: _onRemove, onLocateTrack, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu, onToggleLike, onToggleDislike,
+  onPlay, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures,
@@ -616,6 +617,16 @@ export function QueuePanel({
                   title="Play"
                 >
                   <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+                </button>
+              )}
+              {onStartRadio && (
+                <button
+                  className="row-hover-action"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); onStartRadio(t); }}
+                  title="Start radio"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
                 </button>
               )}
               {onLocateTrack && (
