@@ -113,7 +113,7 @@ import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { FirstRunPluginModal } from "./components/FirstRunPluginModal";
-import BulkEditModal from "./components/BulkEditModal";
+import BulkEditModal, { type BulkEditResult } from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { PromptModal } from "./components/PromptModal";
 import { PublishSourceModal } from "./components/PublishSourceModal";
@@ -2514,7 +2514,62 @@ function App() {
   const detailViewState: DetailViewState = useMemo(() => ({
     currentTrack: playback.currentTrack,
     playing: playback.playing,
-  }), [playback.currentTrack, playback.playing]);
+    bulkEditKey: searchBulkEditKey,
+  }), [playback.currentTrack, playback.playing, searchBulkEditKey]);
+
+  // After a bulk edit, keep the current detail page pointing at the right entity.
+  // Detail pages refetch on `bulkEditKey`, so an entity that still has tracks just
+  // refreshes in place (dropping tracks that moved elsewhere). When an edit empties
+  // the *viewed* entity — every track renamed/moved out, so the backend's
+  // recompute_counts prunes it — follow the tracks to their new home: albums and
+  // artists have a single destination (the new name); a tag's edit is a set
+  // operation with no single destination, so it falls back to the Library.
+  const handleBulkEditSaved = async (result: BulkEditResult) => {
+    contextMenuActions.setBulkEditTracks(null);
+    library.loadLibrary();
+    library.loadTracks();
+
+    const { view, selectedAlbum, selectedArtist, selectedTag } = library;
+    try {
+      // Album detail (standalone albums view, or an album opened inside artist view).
+      if ((view === "albums" || view === "artists") && selectedAlbum != null) {
+        if (!(result.albumChanged || result.artistChanged)) return;
+        const oldAlbum = library.albums.find(a => a.id === selectedAlbum);
+        if (!oldAlbum) return;
+        const oldTitle = oldAlbum.title;
+        const oldArtist = oldAlbum.artist_name ?? undefined;
+        const stillExists = await invoke<Album | null>("find_album_by_name", { title: oldTitle, artistName: oldArtist ?? null });
+        if (stillExists) return; // still has tracks — stay (refetched via bulkEditKey)
+        const targetTitle = result.albumChanged ? result.newAlbum : oldTitle;
+        const targetArtist = result.artistChanged ? result.newArtist : oldArtist;
+        if (targetTitle) library.navigateToAlbumByName(targetTitle, targetArtist ?? undefined);
+        return;
+      }
+
+      // Artist detail.
+      if (view === "artists" && selectedArtist != null) {
+        if (!result.artistChanged) return;
+        const oldArtist = library.artists.find(a => a.id === selectedArtist);
+        if (!oldArtist) return;
+        const stillExists = await invoke<Artist | null>("find_artist_by_name", { name: oldArtist.name });
+        if (stillExists) return; // still has tracks — stay
+        if (result.newArtist) library.navigateToArtistByName(result.newArtist);
+        return;
+      }
+
+      // Tag detail. A bulk edit can strip the tag from its tracks; if that empties
+      // the tag (pruned) there's no single destination — drop the selection and let
+      // the Library redirect take over.
+      if (view === "tags" && selectedTag != null) {
+        const oldTag = library.tags.find(t => t.id === selectedTag);
+        if (!oldTag) return;
+        const stillExists = await invoke<Tag | null>("find_tag_by_name", { name: oldTag.name });
+        if (!stillExists) library.setSelectedTag(null);
+      }
+    } catch (e) {
+      console.error("Failed to re-point detail view after bulk edit:", e);
+    }
+  };
 
   function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
@@ -3636,7 +3691,7 @@ function App() {
           tagOptions={[...new Set(library.tags.map((t) => t.name))]}
           invokeInfoFetch={plugins.invokeInfoFetch}
           onClose={() => contextMenuActions.setBulkEditTracks(null)}
-          onSave={() => { contextMenuActions.setBulkEditTracks(null); library.loadLibrary(); library.loadTracks(); }}
+          onSave={handleBulkEditSaved}
         />
       )}
 

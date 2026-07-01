@@ -71,10 +71,15 @@ export interface DetailViewActions {
 export interface DetailViewState {
   currentTrack: QueueTrack | null;
   playing: boolean;
+  /** Bumped whenever a bulk edit (Edit Properties) completes. Detail views feed
+   *  this into `useEntityDetail` so they re-fetch their tracks — indexed fields
+   *  (album/artist/title) and tag-only edits aren't captured by the in-place
+   *  trackEvents patch, and moving a track to another album must drop it here. */
+  bulkEditKey: number;
 }
 
 const ActionsContext = createContext<DetailViewActions | null>(null);
-const StateContext = createContext<DetailViewState>({ currentTrack: null, playing: false });
+const StateContext = createContext<DetailViewState>({ currentTrack: null, playing: false, bulkEditKey: 0 });
 
 export function useDetailActions(): DetailViewActions {
   const ctx = useContext(ActionsContext);

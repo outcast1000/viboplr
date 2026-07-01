@@ -8,6 +8,17 @@ import { effectiveTagNames } from "../utils/bulkEditTags";
 import { useCommunityTagsForTracks, type InvokeInfoFetch } from "../hooks/useCommunityTags";
 import { appendCommunityTags } from "../utils/tagSuggestions";
 
+/** Summary of the album-identity fields an edit changed, so callers can re-point
+ *  an album detail page to where the edited tracks now live. */
+export interface BulkEditResult {
+  /** Album title was edited (`newAlbum` holds the value, null = cleared). */
+  albumChanged: boolean;
+  /** Artist was edited (`newArtist` holds the value, null = cleared). */
+  artistChanged: boolean;
+  newAlbum: string | null;
+  newArtist: string | null;
+}
+
 interface BulkEditModalProps {
   tracks: Track[];
   artistOptions: string[];
@@ -18,7 +29,7 @@ interface BulkEditModalProps {
   /** Whether plugins finished loading — re-fetches community tags once ready. */
   pluginsLoaded?: boolean;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (result: BulkEditResult) => void;
 }
 
 interface TagEntry {
@@ -218,7 +229,12 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
             if (t.id != null) emitTrackPatch(t.id, patch);
           }
         }
-        onSave();
+        onSave({
+          albumChanged: dirtyAlbum,
+          artistChanged: dirtyArtist,
+          newAlbum: album || null,
+          newArtist: artist || null,
+        });
       }
     } catch (e) {
       setErrors([String(e)]);

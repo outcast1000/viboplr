@@ -16,6 +16,9 @@ interface EntityDetailConfig {
   invokeInfoFetch?: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   onEntityLike?: (kind: "artist" | "album" | "tag", id: number) => void;
   onEntityDislike?: (kind: "artist" | "album" | "tag", id: number) => void;
+  /** External refetch trigger — bumping this re-runs the load effect (e.g. after
+   *  a bulk edit changes the track set). */
+  reloadSignal?: number;
 }
 
 export interface EntityDetailReturn {
@@ -35,7 +38,7 @@ export interface EntityDetailReturn {
   reload: () => void;
 }
 
-export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEntityLike, onEntityDislike }: EntityDetailConfig): EntityDetailReturn {
+export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEntityLike, onEntityDislike, reloadSignal }: EntityDetailConfig): EntityDetailReturn {
   const [entity, setEntity] = useState<Artist | Album | Tag | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -98,7 +101,7 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     })();
 
     return () => { cancelled = true; };
-  }, [kind, name, artistName, loadKey]);
+  }, [kind, name, artistName, loadKey, reloadSignal]);
 
   useEffect(() => {
     return subscribeTrackEvents(event => {

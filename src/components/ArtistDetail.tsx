@@ -41,7 +41,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     handleToggleDislike: handleToggleArtistDislike,
     handleToggleAlbumLike,
     handleToggleAlbumDislike,
-  } = useEntityDetail({ kind: "artist", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike });
+  } = useEntityDetail({ kind: "artist", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, reloadSignal: state.bulkEditKey });
 
   const artist = entity as Artist | null;
 

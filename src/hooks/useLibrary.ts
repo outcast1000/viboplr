@@ -373,34 +373,42 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   async function navigateToArtistByName(name: string) {
     const result = await invoke<Artist | null>("find_artist_by_name", { name });
-    if (result) {
+    if (result && artists.some(a => a.id === result.id)) {
       handleArtistClick(result.id);
-    } else {
-      onBeforeNavigate?.();
-      setSelectedArtist(null);
-      setSelectedAlbum(null);
-      setSelectedTag(null);
-      setSelectedTrack(null);
-      clearFallback();
-      setFallbackArtistName(name);
-      setView("artists");
+      return;
     }
+    // Either a non-library artist, or a real one not yet in the loaded list (e.g. an
+    // artist just created by a bulk edit, before loadLibrary's refresh lands). The
+    // name-based fallback path is independent of the artists list and still resolves
+    // the real row inside the detail view (useEntityDetail re-runs find_artist_by_name).
+    onBeforeNavigate?.();
+    setSelectedArtist(null);
+    setSelectedAlbum(null);
+    setSelectedTag(null);
+    setSelectedTrack(null);
+    clearFallback();
+    setFallbackArtistName(name);
+    setView("artists");
   }
 
   async function navigateToAlbumByName(name: string, artistName?: string) {
     const result = await invoke<Album | null>("find_album_by_name", { title: name, artistName: artistName ?? null });
-    if (result) {
+    if (result && albums.some(a => a.id === result.id)) {
       handleAlbumClick(result.id, result.artist_id);
-    } else {
-      onBeforeNavigate?.();
-      setSelectedArtist(null);
-      setSelectedAlbum(null);
-      setSelectedTag(null);
-      setSelectedTrack(null);
-      clearFallback();
-      setFallbackAlbumName({ name, artistName });
-      setView("albums");
+      return;
     }
+    // Either a non-library album, or a real one not yet in the loaded list (e.g. an
+    // album just created by a bulk edit, before loadLibrary's refresh lands). The
+    // name-based fallback path is independent of the albums list and still resolves
+    // the real row inside the detail view (useEntityDetail re-runs find_album_by_name).
+    onBeforeNavigate?.();
+    setSelectedArtist(null);
+    setSelectedAlbum(null);
+    setSelectedTag(null);
+    setSelectedTrack(null);
+    clearFallback();
+    setFallbackAlbumName({ name, artistName });
+    setView("albums");
   }
 
   async function navigateToTagByName(name: string) {

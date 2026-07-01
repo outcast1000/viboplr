@@ -38,7 +38,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     handleToggleLike: handleToggleAlbumLike,
     handleToggleDislike: handleToggleAlbumDislike,
     reload,
-  } = useEntityDetail({ kind: "album", name, artistName, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike });
+  } = useEntityDetail({ kind: "album", name, artistName, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, reloadSignal: state.bulkEditKey });
 
   const album = entity as Album | null;
 

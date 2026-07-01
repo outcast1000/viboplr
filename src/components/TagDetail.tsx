@@ -32,7 +32,7 @@ export function TagDetail({ name }: TagDetailProps) {
     sortIndicator,
     handleToggleLike: handleToggleTagLike,
     handleToggleDislike: handleToggleTagDislike,
-  } = useEntityDetail({ kind: "tag", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike });
+  } = useEntityDetail({ kind: "tag", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, reloadSignal: state.bulkEditKey });
 
   const tag = entity as Tag | null;
 
