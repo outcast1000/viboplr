@@ -3133,7 +3133,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onLocateTrack={(t) => library.handleTrackClick(t.key)} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onLocateTrack={(t) => library.handleTrackClick(t.key)} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
             </>
           )}
 
@@ -3145,6 +3145,7 @@ function App() {
               onPlayTracks={queueHook.playTracks}
               onEnqueueTracks={queueHook.enqueueTracks}
               onStartRadio={contextMenuActions.startRadio}
+              onLocateTrack={(title, artistName, albumName) => library.navigateToTrackByName(title, artistName ?? undefined, albumName ?? undefined).catch(console.error)}
               onExportAsMixtape={handleExportAsMixtapeDirect}
               pluginMenuItems={plugins.menuItems}
               onPluginAction={plugins.dispatchContextMenuAction}

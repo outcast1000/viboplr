@@ -11,6 +11,7 @@ import { nextExternalKey } from "../queueEntry";
 import type { ExportTrack } from "./MixtapeExportModal";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
+import { TrackRow } from "./TrackRow";
 import { ViewSearchBar } from "./ViewSearchBar";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
@@ -78,6 +79,7 @@ interface PlaylistsViewProps {
   onPlayTracks: (tracks: any[], startIndex: number, context?: PlaylistContext | null) => void;
   onEnqueueTracks: (tracks: any[]) => void;
   onStartRadio?: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
+  onLocateTrack?: (title: string, artistName: string | null, albumName: string | null) => void;
   onExportAsMixtape?: (tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
@@ -120,7 +122,7 @@ function computeRowSelection(
   return new Set([ids[clickedIndex]]);
 }
 
-export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart }: PlaylistsViewProps) {
+export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onLocateTrack, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
@@ -545,60 +547,47 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         />
         <div className="entity-list playlists-track-list">
           {tracks.map((t, index) => (
-            <div
+            <TrackRow
               key={t.id}
-              className={`entity-list-item${selectedTrackIds.has(t.id) ? " selected" : ""}`}
+              thumb={{ kind: "image", url: trackImageSrc(t) }}
+              title={t.title}
+              selected={selectedTrackIds.has(t.id)}
               onClick={(e) => handleRowClick(e, index)}
               onMouseDown={(e) => handleRowMouseDown(e, index)}
               onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null); }}
               onContextMenu={(e) => {
-              e.preventDefault();
-              const specs: MenuItemSpec[] = [
-                { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
-                { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
-              ];
-              if (isLocalPath(t.source)) {
-                specs.push({ kind: "separator" });
-                specs.push({ kind: "item", text: "Open Containing Folder", action: async () => {
-                  try { await invoke("show_in_folder_path", { filePath: t.source! }); }
-                  catch (err) { console.error("Failed to open containing folder:", err); setFolderError(String(err)); }
-                }});
-              }
-              if (pluginMenuItems && pluginMenuItems.length > 0) {
-                const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
-                if (matching.length > 0) {
+                e.preventDefault();
+                const specs: MenuItemSpec[] = [
+                  { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
+                  { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
+                ];
+                if (isLocalPath(t.source)) {
                   specs.push({ kind: "separator" });
-                  matching.forEach(item => {
-                    specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined }) });
-                  });
+                  specs.push({ kind: "item", text: "Open Containing Folder", action: async () => {
+                    try { await invoke("show_in_folder_path", { filePath: t.source! }); }
+                    catch (err) { console.error("Failed to open containing folder:", err); setFolderError(String(err)); }
+                  }});
                 }
-              }
-              showNativeMenu(e.clientX, e.clientY, specs);
-            }}>
-              <div className="entity-list-content">
-                <img className="playlists-track-thumb" src={trackImageSrc(t)} alt="" />
-                <div className="entity-list-info">
-                  <span className="entity-list-name">{t.title}</span>
-                  <span className="entity-list-secondary">
-                    {t.artist_name ?? "Unknown"}{t.album_name ? <> {"·"} {t.album_name}</> : null}
-                  </span>
-                </div>
-                <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
-              </div>
-              <span className="row-hover-actions">
-                <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null); }}>
-                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                </button>
-                <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueueTracks([playlistTrackToMinimalTrack(t)]); }}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                </button>
-                {onStartRadio && (
-                  <button type="button" className="row-hover-action" title="Start radio" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onStartRadio({ title: t.title, artistName: t.artist_name, coverPath: trackImagePath(t) }); }}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-                  </button>
-                )}
-              </span>
-            </div>
+                if (pluginMenuItems && pluginMenuItems.length > 0) {
+                  const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
+                  if (matching.length > 0) {
+                    specs.push({ kind: "separator" });
+                    matching.forEach(item => {
+                      specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined }) });
+                    });
+                  }
+                }
+                showNativeMenu(e.clientX, e.clientY, specs);
+              }}
+              subtitle={<>{t.artist_name ?? "Unknown"}{t.album_name ? <> {"·"} {t.album_name}</> : null}</>}
+              meta={formatDuration(t.duration_secs)}
+              actions={{
+                onPlay: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null),
+                onEnqueue: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]),
+                onStartRadio: onStartRadio ? () => onStartRadio({ title: t.title, artistName: t.artist_name, coverPath: trackImagePath(t) }) : undefined,
+                onDetails: onLocateTrack ? () => onLocateTrack(t.title, t.artist_name, t.album_name) : undefined,
+              }}
+            />
           ))}
         </div>
         {folderErrorModal}

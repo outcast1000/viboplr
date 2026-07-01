@@ -801,11 +801,14 @@
   text-align: right;
 }
 
+/* Column labels for the selectable table mode. gap/left-padding mirror the
+   TrackRow-based rows (`.entity-list-item` gap 12; `.ptr-rows-selectable .ptr-row`
+   padding 7px 8px) so the header cells line up with the row cells. */
 .ptr-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 0;
+  gap: 12px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border);
   font-size: var(--fs-xs);
   text-transform: uppercase;

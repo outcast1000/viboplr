@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useId } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
+import { computeSelection as computeSelectionGeneric } from "../utils/rowSelection";
 import { parseLibraryId } from "../queueEntry";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { RowHoverActions } from "./RowHoverActions";
 import { SpinningDisc } from "./SpinningDisc";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./TrackList.css";
@@ -72,6 +74,9 @@ function formatDate(epochSecs: number | null): string {
 }
 
 
+// Thin adapter over the shared generic (src/utils/rowSelection.ts): maps the
+// Track[] to their `key`s. Kept as a named export so existing callers/tests
+// (SearchView, computeSelection.test.ts) stay unchanged.
 export function computeSelection(
   current: Set<string>,
   clickedIndex: number,
@@ -80,28 +85,7 @@ export function computeSelection(
   meta: boolean,
   shift: boolean,
 ): Set<string> {
-  if (shift) {
-    const start = lastIndex ?? 0;
-    const lo = Math.min(start, clickedIndex);
-    const hi = Math.max(start, clickedIndex);
-    const range = new Set(tracks.slice(lo, hi + 1).map(t => t.key));
-    if (meta) {
-      const merged = new Set(current);
-      for (const id of range) merged.add(id);
-      return merged;
-    }
-    return range;
-  }
-  if (meta) {
-    const next = new Set(current);
-    if (next.has(tracks[clickedIndex].key)) {
-      next.delete(tracks[clickedIndex].key);
-    } else {
-      next.add(tracks[clickedIndex].key);
-    }
-    return next;
-  }
-  return new Set([tracks[clickedIndex].key]);
+  return computeSelectionGeneric(current, clickedIndex, tracks.map(t => t.key), lastIndex, meta, shift);
 }
 
 interface TrackListProps {
@@ -445,28 +429,12 @@ export function TrackList({
 
   function renderRowActions(t: Track) {
     return (
-      <span className="row-hover-actions">
-        {onPlay && (
-          <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlay(t); }}>
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-          </button>
-        )}
-        {onEnqueue && (
-          <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueue(t); }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-        )}
-        {onStartRadio && (
-          <button type="button" className="row-hover-action" title="Start radio" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onStartRadio(t); }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-          </button>
-        )}
-        {onLocateTrack && (
-          <button type="button" className="row-hover-action" title="Details" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          </button>
-        )}
-      </span>
+      <RowHoverActions
+        onPlay={onPlay ? () => onPlay(t) : undefined}
+        onEnqueue={onEnqueue ? () => onEnqueue(t) : undefined}
+        onStartRadio={onStartRadio ? () => onStartRadio(t) : undefined}
+        onDetails={onLocateTrack ? () => onLocateTrack(t) : undefined}
+      />
     );
   }
 

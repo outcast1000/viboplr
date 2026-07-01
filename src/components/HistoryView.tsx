@@ -4,39 +4,12 @@ import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from 
 import type { ContextMenuTarget } from "../types/contextMenu";
 import { isLocalTrack } from "../queueEntry";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
-import "./HistoryView.css";
-
+import { TrackRow } from "./TrackRow";
 // Index-based multi-select over the currently-visible rows (string keys so
-// tracks and artists can share one ordered list). Mirrors the library's
-// computeSelection: shift = range, meta = toggle, plain = single.
-function computeKeySelection(
-  current: Set<string>,
-  clickedIndex: number,
-  keys: string[],
-  lastIndex: number | null,
-  meta: boolean,
-  shift: boolean,
-): Set<string> {
-  if (shift) {
-    const start = lastIndex ?? 0;
-    const lo = Math.min(start, clickedIndex);
-    const hi = Math.max(start, clickedIndex);
-    const range = new Set(keys.slice(lo, hi + 1));
-    if (meta) {
-      const merged = new Set(current);
-      for (const k of range) merged.add(k);
-      return merged;
-    }
-    return range;
-  }
-  if (meta) {
-    const next = new Set(current);
-    const k = keys[clickedIndex];
-    if (next.has(k)) next.delete(k); else next.add(k);
-    return next;
-  }
-  return new Set([keys[clickedIndex]]);
-}
+// tracks and artists can share one ordered list). The prefixed keys are built
+// by the parent; the algorithm itself is the shared generic.
+import { computeSelection as computeKeySelection } from "../utils/rowSelection";
+import "./HistoryView.css";
 
 export interface HistoryViewHandle {
   count: number;
@@ -57,33 +30,8 @@ interface HistoryViewProps {
   onArtistClick: (artistId: number, name?: string) => void;
   onPlayArtist: (artistId: number) => void;
   onEnqueueArtist: (artistId: number) => void;
+  onStartRadio?: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
   onShowContextMenu?: (x: number, y: number, target: ContextMenuTarget) => void;
-}
-
-const PLAY_ICON = (
-  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z" /></svg>
-);
-const ENQUEUE_ICON = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-);
-const DETAILS_ICON = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-);
-
-function RowActions({ onPlay, onEnqueue, onDetails }: { onPlay: () => void; onEnqueue: () => void; onDetails: () => void }) {
-  return (
-    <span className="row-hover-actions">
-      <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlay(); }}>
-        {PLAY_ICON}
-      </button>
-      <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueue(); }}>
-        {ENQUEUE_ICON}
-      </button>
-      <button type="button" className="row-hover-action" title="Details" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDetails(); }}>
-        {DETAILS_ICON}
-      </button>
-    </span>
-  );
 }
 
 function formatRelativeTime(unixSecs: number): string {
@@ -96,11 +44,44 @@ function formatRelativeTime(unixSecs: number): string {
   return new Date(unixSecs * 1000).toLocaleDateString();
 }
 
-function HistoryArt({ imagePath }: { imagePath: string | null | undefined }) {
-  if (imagePath) {
-    return <img className="history-art" src={resolveImageUrl(imagePath)} alt="" />;
-  }
-  return <div className="history-art history-art-placeholder" />;
+// A history entry — track OR artist — rendered via the shared TrackRow. The row
+// is entity-agnostic (rank in the leading slot, artist-only art with a blank
+// placeholder, plays/relative-time in the subtitle); selection/keyboard/ghost
+// logic stays in the parent, which passes `selected`/`active` + bound actions.
+function HistoryRow({
+  selected, active, dataIndex, rank, imagePath, title, subtitle,
+  onClick, onContextMenu, onDoubleClick, onPlay, onEnqueue, onStartRadio, onDetails,
+}: {
+  selected: boolean;
+  active?: boolean;
+  dataIndex?: number;
+  rank?: number;
+  imagePath: string | null | undefined;
+  title: string;
+  subtitle: React.ReactNode;
+  onClick: (e: React.MouseEvent) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onDoubleClick: () => void;
+  onPlay: () => void;
+  onEnqueue: () => void;
+  onStartRadio?: () => void;   // track rows only (artists have no radio seed)
+  onDetails: () => void;
+}) {
+  return (
+    <TrackRow
+      selected={selected}
+      active={active}
+      dataAttrs={dataIndex != null ? { "data-history-index": dataIndex } : undefined}
+      leading={rank != null ? <span className="history-rank">{rank}</span> : undefined}
+      thumb={imagePath ? { kind: "image", url: resolveImageUrl(imagePath) ?? "" } : { kind: "blank" }}
+      title={title}
+      subtitle={subtitle}
+      onClick={onClick}
+      onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
+      actions={{ onPlay, onEnqueue, onStartRadio, onDetails }}
+    />
+  );
 }
 
 const TIMESPAN_OPTIONS: { key: Timespan; label: string }[] = [
@@ -116,7 +97,7 @@ function timespanSinceTs(ts: Timespan): number | null {
 }
 
 export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
-  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onLocateTrack, onArtistClick, onPlayArtist, onEnqueueArtist, onShowContextMenu }, ref) {
+  function HistoryView({ searchQuery, highlightedIndex, onPlayTrack, onEnqueueTrack, onLocateTrack, onArtistClick, onPlayArtist, onEnqueueArtist, onStartRadio, onShowContextMenu }, ref) {
   const [activeTab, setActiveTab] = useState<HistoryTab>("recent");
   const [tracksTimespan, setTracksTimespan] = useState<Timespan>("30-days");
   const [artistsTimespan, setArtistsTimespan] = useState<Timespan>("30-days");
@@ -499,23 +480,20 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
               {visibleArtists.map((a) => {
                 const selKey = `sa:${a.history_artist_id}`;
                 return (
-                <div
+                <HistoryRow
                   key={`artist-${a.history_artist_id}`}
-                  className={`history-row${selectedKeys.has(selKey) ? " selected" : ""}`}
+                  selected={selectedKeys.has(selKey)}
+                  rank={a.rank}
+                  imagePath={artistImages[a.display_name]}
+                  title={a.display_name}
+                  subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
                   onClick={(e) => handleRowClick(e, selKey)}
                   onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                   onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
-                >
-                  <div className="history-row-content">
-                    <span className="history-rank">{a.rank}</span>
-                    <HistoryArt imagePath={artistImages[a.display_name]} />
-                    <div className="history-info">
-                      <span className="history-title">{a.display_name}</span>
-                      <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} onDetails={() => handleArtistDoubleClick(a.history_artist_id)} />
-                </div>
+                  onPlay={() => playArtistById(a.history_artist_id)}
+                  onEnqueue={() => enqueueArtistById(a.history_artist_id)}
+                  onDetails={() => handleArtistDoubleClick(a.history_artist_id)}
+                />
                 );
               })}
             </div>
@@ -531,24 +509,23 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 const idx = nextFlatIndex();
                 const selKey = `st:${t.history_track_id}`;
                 return (
-                  <div
+                  <HistoryRow
                     key={`search-${t.history_track_id}`}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${selectedKeys.has(selKey) ? " selected" : ""}`}
-                    data-history-index={idx}
+                    selected={selectedKeys.has(selKey)}
+                    active={idx === highlightedIndex}
+                    dataIndex={idx}
+                    rank={t.rank}
+                    imagePath={t.display_artist ? artistImages[t.display_artist] : null}
+                    title={t.display_title}
+                    subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
                     onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                     onDoubleClick={() => playTrackById(t.history_track_id)}
-                  >
-                    <div className="history-row-content">
-                      <span className="history-rank">{t.rank}</span>
-                      <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
-                      <div className="history-info">
-                        <span className="history-title">{t.display_title}</span>
-                        <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
-                      </div>
-                    </div>
-                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} onDetails={() => detailsTrackById(t.history_track_id)} />
-                  </div>
+                    onPlay={() => playTrackById(t.history_track_id)}
+                    onEnqueue={() => enqueueTrackById(t.history_track_id)}
+                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: t.display_artist ? artistImages[t.display_artist] ?? null : null }) : undefined}
+                    onDetails={() => detailsTrackById(t.history_track_id)}
+                  />
                 );
               })}
             </div>
@@ -563,23 +540,22 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 const idx = nextFlatIndex();
                 const selKey = `r:${entry.id}`;
                 return (
-                  <div
+                  <HistoryRow
                     key={entry.id}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${selectedKeys.has(selKey) ? " selected" : ""}`}
-                    data-history-index={idx}
+                    selected={selectedKeys.has(selKey)}
+                    active={idx === highlightedIndex}
+                    dataIndex={idx}
+                    imagePath={entry.display_artist ? artistImages[entry.display_artist] : null}
+                    title={entry.display_title}
+                    subtitle={<>{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
                     onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                     onDoubleClick={() => playTrackById(entry.history_track_id)}
-                  >
-                    <div className="history-row-content">
-                      <HistoryArt imagePath={entry.display_artist ? artistImages[entry.display_artist] : null} />
-                      <div className="history-info">
-                        <span className="history-title">{entry.display_title}</span>
-                        <span className="history-artist">{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</span>
-                      </div>
-                    </div>
-                    <RowActions onPlay={() => playTrackById(entry.history_track_id)} onEnqueue={() => enqueueTrackById(entry.history_track_id)} onDetails={() => detailsTrackById(entry.history_track_id)} />
-                  </div>
+                    onPlay={() => playTrackById(entry.history_track_id)}
+                    onEnqueue={() => enqueueTrackById(entry.history_track_id)}
+                    onStartRadio={onStartRadio ? () => onStartRadio({ title: entry.display_title, artistName: entry.display_artist ?? null, coverPath: entry.display_artist ? artistImages[entry.display_artist] ?? null : null }) : undefined}
+                    onDetails={() => detailsTrackById(entry.history_track_id)}
+                  />
                 );
               })}
               {recentPlays.length === 0 && (
@@ -597,24 +573,23 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                 const idx = nextFlatIndex();
                 const selKey = `t:${t.history_track_id}`;
                 return (
-                  <div
+                  <HistoryRow
                     key={`tracks-${tracksTimespan}-${t.history_track_id}`}
-                    className={`history-row${idx === highlightedIndex ? " highlighted" : ""}${selectedKeys.has(selKey) ? " selected" : ""}`}
-                    data-history-index={idx}
+                    selected={selectedKeys.has(selKey)}
+                    active={idx === highlightedIndex}
+                    dataIndex={idx}
+                    rank={t.rank}
+                    imagePath={t.display_artist ? artistImages[t.display_artist] : null}
+                    title={t.display_title}
+                    subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
                     onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                     onDoubleClick={() => playTrackById(t.history_track_id)}
-                  >
-                    <div className="history-row-content">
-                      <span className="history-rank">{t.rank}</span>
-                      <HistoryArt imagePath={t.display_artist ? artistImages[t.display_artist] : null} />
-                      <div className="history-info">
-                        <span className="history-title">{t.display_title}</span>
-                        <span className="history-artist">{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</span>
-                      </div>
-                    </div>
-                    <RowActions onPlay={() => playTrackById(t.history_track_id)} onEnqueue={() => enqueueTrackById(t.history_track_id)} onDetails={() => detailsTrackById(t.history_track_id)} />
-                  </div>
+                    onPlay={() => playTrackById(t.history_track_id)}
+                    onEnqueue={() => enqueueTrackById(t.history_track_id)}
+                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: t.display_artist ? artistImages[t.display_artist] ?? null : null }) : undefined}
+                    onDetails={() => detailsTrackById(t.history_track_id)}
+                  />
                 );
               })}
               {currentTracks && currentTracks.length === 0 && (
@@ -631,23 +606,20 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
               {(currentArtists ?? []).map((a) => {
                 const selKey = `a:${a.history_artist_id}`;
                 return (
-                <div
+                <HistoryRow
                   key={`artists-${artistsTimespan}-${a.history_artist_id}`}
-                  className={`history-row${selectedKeys.has(selKey) ? " selected" : ""}`}
+                  selected={selectedKeys.has(selKey)}
+                  rank={a.rank}
+                  imagePath={artistImages[a.display_name]}
+                  title={a.display_name}
+                  subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
                   onClick={(e) => handleRowClick(e, selKey)}
                   onContextMenu={(e) => handleRowContextMenu(e, selKey)}
                   onDoubleClick={() => handleArtistDoubleClick(a.history_artist_id)}
-                >
-                  <div className="history-row-content">
-                    <span className="history-rank">{a.rank}</span>
-                    <HistoryArt imagePath={artistImages[a.display_name]} />
-                    <div className="history-info">
-                      <span className="history-title">{a.display_name}</span>
-                      <span className="history-artist">{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-                  <RowActions onPlay={() => playArtistById(a.history_artist_id)} onEnqueue={() => enqueueArtistById(a.history_artist_id)} onDetails={() => handleArtistDoubleClick(a.history_artist_id)} />
-                </div>
+                  onPlay={() => playArtistById(a.history_artist_id)}
+                  onEnqueue={() => enqueueArtistById(a.history_artist_id)}
+                  onDetails={() => handleArtistDoubleClick(a.history_artist_id)}
+                />
                 );
               })}
               {currentArtists && currentArtists.length === 0 && (

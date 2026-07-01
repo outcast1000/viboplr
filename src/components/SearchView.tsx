@@ -7,9 +7,9 @@ import { isLocalTrack } from "../queueEntry";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { TrackList, computeSelection } from "./TrackList";
-import { AlbumCardArt } from "./AlbumCardArt";
+import { TrackRow, type TrackRowThumb } from "./TrackRow";
+import { TrackCard, type TrackCardArt } from "./TrackCard";
 import { ViewModeToggle } from "./ViewModeToggle";
-import { VideoRowThumb } from "./VideoRowThumb";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { toggleSortKey, chainDir, type SortKey, type SortDir } from "../sortChain";
 import { SortButton, LoadMoreSentinel } from "./search/searchShared";
@@ -946,70 +946,55 @@ export function SearchView({
         {searched && activeTab === "tracks" && viewModes.tracks === "list" && (
           <>
             <div className="entity-list">
-              {results.tracks.map((t, i) => (
-                <div
-                  key={t.key}
-                  className={`entity-list-item${currentTrack?.key === t.key ? " playing" : ""}${selectedTrackIds.has(t.key) ? " selected" : ""}`}
-                  onClick={(e) => handleTrackItemClick(e, i)}
-                  onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
-                  onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
-                  onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
-                >
-                  <div className="entity-list-content">
-                    <LikeDislikeButtons
-                      liked={t.liked}
-                      onToggleLike={() => handleTrackLike(t)}
-                      onToggleDislike={() => handleTrackDislike(t)}
-                      variant="inline"
-                      size={12}
-                    />
-                    {isLocalVideo(t) ? (
-                      <VideoRowThumb trackId={t.id!} alt={t.title} className="entity-list-img" />
-                    ) : (() => {
-                      // Thumbnail priority: video frame (above) → album image →
-                      // artist image → default disc. No first-letter fallback.
-                      const img = (t.album_title ? getAlbumImage(t.album_title, t.artist_name) : null)
-                        ?? (t.artist_name ? getArtistImage(t.artist_name) : null);
-                      return img ? (
-                        <div className="entity-list-img"><img src={resolveImageUrl(img)} alt="" /></div>
-                      ) : (
-                        <div className="entity-list-img entity-list-img--disc">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="22" height="22">
-                            <circle cx="12" cy="12" r="10" />
-                            <circle cx="12" cy="12" r="3" />
-                          </svg>
-                        </div>
-                      );
-                    })()}
-                    <div className="entity-list-info">
-                      <span className="entity-list-name">{t.title}</span>
-                      <span className="entity-list-secondary">
-                        {t.artist_name && (
-                          <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
-                        )}
-                        {t.album_title && <> {"\u00B7"} {
-                          <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
-                        }</>}
-                      </span>
-                    </div>
-                    <span className="entity-list-count">{formatDuration(t.duration_secs)}</span>
-                  </div>
-                  <span className="row-hover-actions">
-                    <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}>
-                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                    </button>
-                    <button type="button" className="row-hover-action" title="Enqueue" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onEnqueueTrack(t); }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14"/></svg>
-                    </button>
-                    <button type="button" className="row-hover-action" title="Start radio" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onStartRadio(t); }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-                    </button>
-                    <button type="button" className="row-hover-action" title="Details" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    </button>
-                  </span>
-                </div>
-              ))}
+              {results.tracks.map((t, i) => {
+                // Thumbnail priority: local video frame → album image → artist
+                // image → default disc. No first-letter fallback (matches prior).
+                let thumb: TrackRowThumb;
+                if (isLocalVideo(t)) {
+                  thumb = { kind: "video", trackId: t.id!, alt: t.title };
+                } else {
+                  const img = (t.album_title ? getAlbumImage(t.album_title, t.artist_name) : null)
+                    ?? (t.artist_name ? getArtistImage(t.artist_name) : null);
+                  thumb = img ? { kind: "image", url: resolveImageUrl(img) ?? "" } : { kind: "disc" };
+                }
+                return (
+                  <TrackRow
+                    key={t.key}
+                    thumb={thumb}
+                    title={t.title}
+                    playing={currentTrack?.key === t.key}
+                    selected={selectedTrackIds.has(t.key)}
+                    onClick={(e) => handleTrackItemClick(e, i)}
+                    onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
+                    onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
+                    onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
+                    leading={
+                      <LikeDislikeButtons
+                        liked={t.liked}
+                        onToggleLike={() => handleTrackLike(t)}
+                        onToggleDislike={() => handleTrackDislike(t)}
+                        variant="inline"
+                        size={12}
+                      />
+                    }
+                    subtitle={<>
+                      {t.artist_name && (
+                        <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
+                      )}
+                      {t.album_title && <> {"·"} {
+                        <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
+                      }</>}
+                    </>}
+                    meta={formatDuration(t.duration_secs)}
+                    actions={{
+                      onPlay: () => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); },
+                      onEnqueue: () => onEnqueueTrack(t),
+                      onStartRadio: () => onStartRadio(t),
+                      onDetails: () => onLocateTrack(t),
+                    }}
+                  />
+                );
+              })}
               {results.tracks.length === 0 && (
                 <div className="empty">No tracks found.</div>
               )}
@@ -1022,44 +1007,32 @@ export function SearchView({
           <>
             <div className="tiles-scroll">
               <div className="entity-grid">
-                {results.tracks.map((t, i) => (
-                  <div
-                    key={t.key}
-                    className={`album-card${currentTrack?.key === t.key ? " playing" : ""}${selectedTrackIds.has(t.key) ? " selected" : ""}`}
-                    onClick={(e) => handleTrackItemClick(e, i)}
-                    onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
-                    onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
-                    onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
-                  >
-                    <div className="album-card-art-wrapper" onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}>
-                    {isLocalVideo(t) ? (
-                      <VideoRowThumb trackId={t.id!} alt={t.title} className="album-card-art" />
-                    ) : t.album_title ? (
-                      <AlbumCardArt album={{ id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album} imagePath={getAlbumImage(t.album_title, t.artist_name)} />
-                    ) : (
-                      <div className="album-card-art">{t.title[0]?.toUpperCase() ?? "?"}</div>
-                    )}
-                    <LikeDislikeButtons
+                {results.tracks.map((t, i) => {
+                  const art: TrackCardArt = isLocalVideo(t)
+                    ? { kind: "video", trackId: t.id!, alt: t.title }
+                    : t.album_title
+                    ? { kind: "album", album: { id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album, imagePath: getAlbumImage(t.album_title, t.artist_name) }
+                    : { kind: "letter", text: t.title[0]?.toUpperCase() ?? "?" };
+                  return (
+                    <TrackCard
+                      key={t.key}
+                      art={art}
+                      title={t.title}
+                      subtitle={<>{t.artist_name && <>{t.artist_name} {"·"} </>}{formatDuration(t.duration_secs)}</>}
                       liked={t.liked}
+                      playing={currentTrack?.key === t.key}
+                      selected={selectedTrackIds.has(t.key)}
+                      onClick={(e) => handleTrackItemClick(e, i)}
+                      onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
+                      onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
+                      onContextMenu={(e) => handleTrackItemContextMenu(e, t, i)}
+                      onPlay={() => onPlayTracks([t], 0)}
+                      onLocate={() => onLocateTrack(t)}
                       onToggleLike={() => handleTrackLike(t)}
                       onToggleDislike={() => handleTrackDislike(t)}
-                      variant="overlay"
-                      size={12}
                     />
-                    <button className="album-card-menu-btn" onClick={(e) => { e.stopPropagation(); handleTrackItemContextMenu(e, t, i); }} title="More options">&#x22EF;</button>
-                    <button className="ds-card-play" onClick={(e) => { e.stopPropagation(); onPlayTracks([t], 0); }} title="Play">
-                      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
-                    </button>
-                    </div>
-                    <div className="album-card-body">
-                      <div className="album-card-title" title={t.title}>{t.title}</div>
-                      <div className="album-card-info">
-                        {t.artist_name && <>{t.artist_name} {"\u00B7"} </>}
-                        {formatDuration(t.duration_secs)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {results.tracks.length === 0 && (
                   <div className="empty">No tracks found.</div>
                 )}

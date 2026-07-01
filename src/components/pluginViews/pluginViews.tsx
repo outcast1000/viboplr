@@ -6,7 +6,9 @@ import type { Track, QueueTrack } from "../../types";
 import type { CardGridItem, StatItem, TrackRowItem, BarChartDatum, LineSeries, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../../nativeMenu";
 import { formatDuration, getInitials } from "../../utils";
+import { computeSelection as computeSelectionGeneric } from "../../utils/rowSelection";
 import { ViewSearchBar } from "../ViewSearchBar";
+import { TrackRow } from "../TrackRow";
 import { resolveImageUrl } from "../../utils/resolveImageUrl";
 import { resolveTrackImage } from "../../utils/trackImage";
 import { useImageCache } from "../../hooks/useImageCache";
@@ -381,6 +383,10 @@ interface PluginTrackRowListProps {
  * clicked index, and Cmd/Ctrl+Shift+click extends the existing selection with
  * that range. Exported for unit testing.
  */
+// Thin adapter over the shared generic (src/utils/rowSelection.ts): maps the
+// plugin rows to their string `id`s. Note the array-second argument order is
+// preserved here (differs from the generic's array-third) so existing callers
+// and computeRowSelection.test.ts stay unchanged.
 export function computeRowSelection(
   current: Set<string>,
   items: { id: string }[],
@@ -389,26 +395,7 @@ export function computeRowSelection(
   meta: boolean,
   shift: boolean,
 ): Set<string> {
-  if (shift) {
-    const start = lastIndex ?? 0;
-    const lo = Math.min(start, clickedIndex);
-    const hi = Math.max(start, clickedIndex);
-    const range = new Set(items.slice(lo, hi + 1).map(it => it.id));
-    if (meta) {
-      const merged = new Set(current);
-      for (const id of range) merged.add(id);
-      return merged;
-    }
-    return range;
-  }
-  if (meta) {
-    const next = new Set(current);
-    const id = items[clickedIndex].id;
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    return next;
-  }
-  return new Set([items[clickedIndex].id]);
+  return computeSelectionGeneric(current, clickedIndex, items.map(it => it.id), lastIndex, meta, shift);
 }
 
 // Dispatcher: the `selectable` row list (used by e.g. the YouTube search view)
@@ -655,53 +642,41 @@ function PluginTrackRowsSelectable({
         onFocus={handleListFocus}
       >
         {items.map((item, i) => {
+          // Consistent thumbnail (image_url → album → artist by name), with a
+          // first-letter placeholder on a miss — same chain as the library list.
           const art = imageForRow(item);
           return (
-          <div
-            key={item.id}
-            role="option"
-            id={optionId(i)}
-            aria-selected={selected.has(item.id)}
-            className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}${activeIndex === i ? " ptr-row-active" : ""}`}
-            onMouseDown={(e) => handleRowMouseDown(e, i)}
-            onClick={(e) => handleRowClick(e, i)}
-            onDoubleClick={() => playRow(i)}
-            onContextMenu={onContextMenu ? (e) => handleRowContextMenu(e, i, item) : undefined}
-          >
-            {numbered && <span className="ptr-num">{i + 1}</span>}
-            {/* Consistent thumbnail per row (image_url → album → artist by name),
-                with a first-letter placeholder on a miss — same chain as the
-                library list and queue. */}
-            <div className="ptr-art">
-              {art
-                ? <img src={art} alt="" loading="lazy" decoding="async" />
-                : <span className="ptr-art-fallback">{getInitials(item.title)}</span>}
-            </div>
-            <div className="ptr-info">
-              <span className="ptr-title">{item.title}</span>
-              {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
-            </div>
-            {showHeader && <span className="ptr-album">{item.album ?? ""}</span>}
-            {item.duration && <span className="ptr-duration">{item.duration}</span>}
-            {hasActions && (
-              <span className="row-hover-actions">
-                {actions!.map((a, ai) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    className={`row-hover-action${ai === 0 ? " row-hover-action--play" : ""}`}
-                    title={a.label}
-                    aria-label={a.label}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); onAction?.(a.id, { selectedIds: [item.id], itemId: item.id }); }}
-                  >
-                    {a.icon ? <span className="ptr-hover-glyph">{a.icon}</span> : <span className="ptr-hover-text">{a.label}</span>}
-                  </button>
-                ))}
-              </span>
-            )}
-          </div>
+            <TrackRow
+              key={item.id}
+              // Dual class: `ptr-row` keeps the plugin list's row-level CSS
+              // (content-visibility via `.ptr-rows-cv > .ptr-row`, selection fill,
+              // keyboard accent-ring) while TrackRow supplies the .entity-list-*
+              // internal structure. Selection/active state is carried by the
+              // ptr-* classes here (not TrackRow's selected/active props).
+              className={`ptr-row${selected.has(item.id) ? " ptr-row-selected" : ""}${activeIndex === i ? " ptr-row-active" : ""}`}
+              role="option"
+              id={optionId(i)}
+              ariaSelected={selected.has(item.id)}
+              leading={numbered ? <span className="ptr-num">{i + 1}</span> : undefined}
+              thumb={art ? { kind: "image", url: art } : { kind: "initials", text: getInitials(item.title) }}
+              title={item.title}
+              subtitle={item.subtitle}
+              column={showHeader ? <span className="ptr-album">{item.album ?? ""}</span> : undefined}
+              meta={item.duration ? <span className="ptr-duration">{item.duration}</span> : undefined}
+              onMouseDown={(e) => handleRowMouseDown(e, i)}
+              onClick={(e) => handleRowClick(e, i)}
+              onDoubleClick={() => playRow(i)}
+              onContextMenu={onContextMenu ? (e) => handleRowContextMenu(e, i, item) : undefined}
+              actions={hasActions ? {
+                actions: actions!.map((a, ai) => ({
+                  id: a.id,
+                  label: a.label,
+                  icon: a.icon,
+                  isPlay: ai === 0,
+                  onClick: () => onAction?.(a.id, { selectedIds: [item.id], itemId: item.id }),
+                })),
+              } : undefined}
+            />
           );
         })}
       </div>
