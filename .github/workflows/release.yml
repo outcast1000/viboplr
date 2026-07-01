@@ -45,7 +45,7 @@ jobs:
 
       - name: Cargo test
         working-directory: src-tauri
-        run: cargo test
+        run: cargo test --locked
 
       - name: TypeScript tests
         run: npm test

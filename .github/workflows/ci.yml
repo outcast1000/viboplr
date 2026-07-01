@@ -42,11 +42,11 @@ jobs:
 
       - name: Cargo check
         working-directory: src-tauri
-        run: cargo check
+        run: cargo check --locked
 
       - name: Cargo test
         working-directory: src-tauri
-        run: cargo test
+        run: cargo test --locked
 
   test-ts:
     runs-on: ubuntu-latest
