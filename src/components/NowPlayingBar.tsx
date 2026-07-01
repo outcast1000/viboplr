@@ -103,6 +103,7 @@ interface NowPlayingBarProps {
   miniRestingSize: MiniRestingSize;
   miniWidthSize: MiniWidthSize;
   onCancelCollapseTimer: () => void;
+  onBeginMiniDrag?: () => void;
   onCycleRestingSize: () => void;
   onCycleMiniWidth: () => void;
   onToggleMiniMode: () => void;
@@ -180,7 +181,7 @@ export function NowPlayingBar({
   trackRank,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
-  imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
+  imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute,
   eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqCustomPresets,
@@ -270,7 +271,7 @@ export function NowPlayingBar({
       ? (e: React.MouseEvent) => {
           // macOS: startDragging doesn't enter a modal loop, so dblclick fires normally
           if ((e.target as HTMLElement).closest("button")) return;
-          if (e.buttons === 1) getCurrentWindow().startDragging();
+          if (e.buttons === 1) { onBeginMiniDrag?.(); getCurrentWindow().startDragging(); }
         }
       : (e: React.MouseEvent) => {
           // Windows: delay startDragging so the OS modal drag loop doesn't swallow the second click
@@ -283,6 +284,7 @@ export function NowPlayingBar({
           } else {
             miniDragTimerRef.current = setTimeout(() => {
               miniDragTimerRef.current = null;
+              onBeginMiniDrag?.();
               getCurrentWindow().startDragging();
             }, 100);
           }

@@ -3837,6 +3837,7 @@ function App() {
         miniRestingSize={mini.miniRestingSize}
         miniWidthSize={mini.miniWidthSize}
         onCancelCollapseTimer={mini.cancelCollapseTimer}
+        onBeginMiniDrag={mini.beginMiniDrag}
         onCycleRestingSize={() => mini.setMiniRestingSize(cycleRestingSize(mini.miniRestingSize))}
         onCycleMiniWidth={() => mini.setMiniWidthSize(cycleMiniWidth(mini.miniWidthSize))}
         onToggleMiniMode={mini.toggleMiniMode}

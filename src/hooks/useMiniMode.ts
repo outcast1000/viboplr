@@ -203,6 +203,14 @@ export function useMiniMode(
   // decide whether closing the search panel should land expanded (cursor over)
   // or collapsed to the resting size (cursor away).
   const cursorOverRef = useRef(false);
+  // True while the user is dragging the mini window. On Windows `startDragging`
+  // enters an OS modal move loop during which the window can't be reliably
+  // resized, yet the cursor tracker keeps firing hover events — so hover-expand
+  // would flip the layout to the normal/expanded rows inside a still-compact
+  // window. We suppress hover expand/collapse for the duration of the drag.
+  const draggingRef = useRef(false);
+  const dragEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverControllerRef = useRef<HoverController | null>(null);
 
   const cancelCollapseTimer = useCallback(() => {
     if (collapseTimerRef.current) {
@@ -211,8 +219,31 @@ export function useMiniMode(
     }
   }, []);
 
+  // (Re)arm the timer that ends the drag-suppression window. Called both from
+  // the drag mousedown hint (`beginMiniDrag`) and from each user-driven move
+  // event, so drag is considered over once the window stops moving.
+  const armDragEnd = useCallback((delayMs: number) => {
+    if (dragEndTimerRef.current) clearTimeout(dragEndTimerRef.current);
+    dragEndTimerRef.current = setTimeout(() => {
+      dragEndTimerRef.current = null;
+      draggingRef.current = false;
+    }, delayMs);
+  }, []);
+
+  // Hint from the drag mousedown handler that a drag is starting. The
+  // authoritative end-of-drag signal is the move stream going quiet (see the
+  // save effect below), so this only needs to cover the gap before the first
+  // move event and self-heal if a click-hold produces no moves at all.
+  const beginMiniDrag = useCallback(() => {
+    if (!miniModeRef.current) return;
+    draggingRef.current = true;
+    cancelCollapseTimer();
+    hoverControllerRef.current?.cancel();
+    armDragEnd(600);
+  }, [cancelCollapseTimer, armDragEnd]);
+
   const expandMini = useCallback(async () => {
-    if (!miniModeRef.current || expandingRef.current) return;
+    if (!miniModeRef.current || expandingRef.current || draggingRef.current) return;
     expandingRef.current = true;
     try {
       const win = getCurrentWindow();
@@ -254,7 +285,7 @@ export function useMiniMode(
   }, [currentRestingHeight]);
 
   const collapseMini = useCallback(async () => {
-    if (!miniModeRef.current || expandingRef.current) return;
+    if (!miniModeRef.current || expandingRef.current || draggingRef.current) return;
     expandingRef.current = true;
     try {
       const win = getCurrentWindow();
@@ -460,6 +491,17 @@ export function useMiniMode(
         }
       }, 500);
     };
+    // A window move we didn't initiate ourselves means the user is dragging the
+    // mini window. Keep hover expand/collapse suppressed and treat the drag as
+    // over only once the move stream goes quiet. (Programmatic repositions during
+    // expand/collapse set `expandingRef`, so they're excluded.)
+    const onUserMove = () => {
+      if (!miniModeRef.current || expandingRef.current) return;
+      draggingRef.current = true;
+      hoverControllerRef.current?.cancel();
+      cancelCollapseTimer();
+      armDragEnd(250);
+    };
     win.onResized(save).then(unlisten => {
       if (cancelled) unlisten();
       else cleanups.push(unlisten);
@@ -468,9 +510,14 @@ export function useMiniMode(
       if (cancelled) unlisten();
       else cleanups.push(unlisten);
     });
+    win.onMoved(onUserMove).then(unlisten => {
+      if (cancelled) unlisten();
+      else cleanups.push(unlisten);
+    });
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      if (dragEndTimerRef.current) { clearTimeout(dragEndTimerRef.current); dragEndTimerRef.current = null; }
       cleanups.forEach(fn => fn());
     };
   }, []);
@@ -533,12 +580,14 @@ export function useMiniMode(
       onCollapse: () => { if (!searchOpenRef.current) collapseMini(); },
       isExpanded: () => miniExpandedRef.current,
     });
+    hoverControllerRef.current = controller;
 
     const stopEnter = subscribe("mini-cursor-entered", () => { cursorOverRef.current = true; controller.handleEnter(); });
     const stopLeave = subscribe("mini-cursor-left", () => { cursorOverRef.current = false; controller.handleLeave(); });
 
     return () => {
       controller.cancel();
+      hoverControllerRef.current = null;
       invoke("set_cursor_tracker", { active: false }).catch(console.error);
       stopEnter();
       stopLeave();
@@ -608,6 +657,6 @@ export function useMiniMode(
     miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded,
     cancelCollapseTimer, miniRestingSize, setMiniRestingSize,
     miniWidthSize, setMiniWidthSize, applyMiniZoom,
-    openSearchPanel, closeSearchPanel, searchOpenRef,
+    openSearchPanel, closeSearchPanel, searchOpenRef, beginMiniDrag,
   };
 }
