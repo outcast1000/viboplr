@@ -1,21 +1,34 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-interface AddServerModalProps {
+interface SubsonicServerFormProps {
   onAdded: () => void;
-  onClose: () => void;
+  /** Extra buttons rendered before Test/Connect (e.g. the modal's Cancel). */
+  leadingActions?: ReactNode;
   initialName?: string;
   initialUrl?: string;
   initialUsername?: string;
   initialPassword?: string;
 }
 
-export function AddServerModal({ onAdded, onClose, initialName = "", initialUrl = "", initialUsername = "", initialPassword = "" }: AddServerModalProps) {
+/**
+ * The Subsonic/Navidrome connect form (fields + test + connect), shared by
+ * AddServerModal and the onboarding wizard's music-source step.
+ */
+export function SubsonicServerForm({
+  onAdded,
+  leadingActions,
+  initialName = "",
+  initialUrl = "",
+  initialUsername = "",
+  initialPassword = "",
+}: SubsonicServerFormProps) {
   const [name, setName] = useState(initialName);
   const [url, setUrl] = useState(initialUrl);
   const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState(initialPassword);
   const [testing, setTesting] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   const canTest = url.trim() && username.trim() && password.trim();
@@ -40,6 +53,7 @@ export function AddServerModal({ onAdded, onClose, initialName = "", initialUrl 
 
   async function handleConnect() {
     if (!canTest) return;
+    setConnecting(true);
     try {
       await invoke("add_collection", {
         kind: "subsonic",
@@ -50,7 +64,10 @@ export function AddServerModal({ onAdded, onClose, initialName = "", initialUrl 
       });
       onAdded();
     } catch (e) {
-      alert("Failed to connect: " + e);
+      console.error("Failed to connect to Subsonic server:", e);
+      setStatus(`Failed: ${e}`);
+    } finally {
+      setConnecting(false);
     }
   }
 
@@ -59,63 +76,86 @@ export function AddServerModal({ onAdded, onClose, initialName = "", initialUrl 
   }
 
   return (
+    <>
+      <div className="modal-field">
+        <label>Display Name</label>
+        <input
+          className="ds-input"
+          type="text"
+          placeholder="My Server"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      <div className="modal-field">
+        <label>Server URL</label>
+        <input
+          className="ds-input"
+          type="text"
+          placeholder="https://music.example.com"
+          value={url}
+          onChange={(e) => { setUrl(e.target.value); clearStatus(); }}
+        />
+      </div>
+      <div className="modal-field">
+        <label>Username</label>
+        <input
+          className="ds-input"
+          type="text"
+          value={username}
+          onChange={(e) => { setUsername(e.target.value); clearStatus(); }}
+        />
+      </div>
+      <div className="modal-field">
+        <label>Password</label>
+        <input
+          className="ds-input"
+          type="password"
+          value={password}
+          onChange={(e) => { setPassword(e.target.value); clearStatus(); }}
+        />
+      </div>
+      {status && (
+        <div className={`modal-status ${status.startsWith("Connected") ? "modal-status-ok" : "modal-status-err"}`}>
+          {status}
+        </div>
+      )}
+      <div className="ds-modal-actions">
+        {leadingActions}
+        <button className="ds-btn ds-btn--ghost" onClick={handleTest} disabled={testing || connecting || !canTest}>
+          {testing ? "Testing..." : "Test"}
+        </button>
+        <button className="ds-btn ds-btn--primary" onClick={handleConnect} disabled={connecting || !canTest}>
+          {connecting ? "Connecting..." : "Connect"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+interface AddServerModalProps {
+  onAdded: () => void;
+  onClose: () => void;
+  initialName?: string;
+  initialUrl?: string;
+  initialUsername?: string;
+  initialPassword?: string;
+}
+
+export function AddServerModal({ onAdded, onClose, ...initial }: AddServerModalProps) {
+  return (
     <div className="ds-modal-overlay">
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         <h2 className="ds-modal-title">Add Subsonic Server</h2>
-        <div className="modal-field">
-          <label>Display Name</label>
-          <input
-            className="ds-input"
-            type="text"
-            placeholder="My Server"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-        <div className="modal-field">
-          <label>Server URL</label>
-          <input
-            className="ds-input"
-            type="text"
-            placeholder="https://music.example.com"
-            value={url}
-            onChange={(e) => { setUrl(e.target.value); clearStatus(); }}
-          />
-        </div>
-        <div className="modal-field">
-          <label>Username</label>
-          <input
-            className="ds-input"
-            type="text"
-            value={username}
-            onChange={(e) => { setUsername(e.target.value); clearStatus(); }}
-          />
-        </div>
-        <div className="modal-field">
-          <label>Password</label>
-          <input
-            className="ds-input"
-            type="password"
-            value={password}
-            onChange={(e) => { setPassword(e.target.value); clearStatus(); }}
-          />
-        </div>
-        {status && (
-          <div className={`modal-status ${status.startsWith("Connected") ? "modal-status-ok" : "modal-status-err"}`}>
-            {status}
-          </div>
-        )}
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="ds-btn ds-btn--ghost" onClick={handleTest} disabled={testing || !canTest}>
-            {testing ? "Testing..." : "Test"}
-          </button>
-          <button className="ds-btn ds-btn--primary" onClick={handleConnect} disabled={!canTest}>
-            Connect
-          </button>
-        </div>
+        <SubsonicServerForm
+          onAdded={onAdded}
+          leadingActions={
+            <button className="ds-btn ds-btn--ghost" onClick={onClose}>
+              Cancel
+            </button>
+          }
+          {...initial}
+        />
       </div>
     </div>
   );

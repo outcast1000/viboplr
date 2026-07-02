@@ -112,7 +112,8 @@ import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
-import { FirstRunPluginModal } from "./components/FirstRunPluginModal";
+import { OnboardingWizard } from "./components/OnboardingWizard";
+import { onboardingDecision } from "./components/onboardingSteps";
 import BulkEditModal, { type BulkEditResult } from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { PromptModal } from "./components/PromptModal";
@@ -145,7 +146,7 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
-  const [showFirstRunPluginModal, setShowFirstRunPluginModal] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
@@ -1672,28 +1673,34 @@ function App() {
     }
   }, [appRestoring]);
 
-  // First-run: offer recommended plugins once, after restore completes.
-  // Only marks itself "shown" after a successful gallery load, so an offline
-  // first launch retries on a later launch.
+  // First-run onboarding: decide once after restore completes. Existing
+  // profiles (collections present, or the legacy plugin-recommendations flag
+  // set) are marked complete silently so only fresh profiles see the wizard.
   useEffect(() => {
     if (appRestoring) return;
     let cancelled = false;
     (async () => {
       try {
-        const shown = await store.get<boolean>("pluginRecommendationsShown");
-        if (shown || cancelled) return;
-        // fetchPluginGallery returns the fresh entries and also updates
-        // plugins.galleryPlugins for the render below. Force past the TTL guard
-        // so the first-run prompt always reflects the live index.
-        const entries = await plugins.fetchPluginGallery(true);
+        const complete = await store.get<boolean>("onboardingComplete");
+        if (complete || cancelled) return;
+        const recsShown = await store.get<boolean>("pluginRecommendationsShown");
+        const cols = await invoke<Collection[]>("get_collections");
         if (cancelled) return;
-        if (entries.length > 0) {
-          setShowFirstRunPluginModal(true);
+        const decision = onboardingDecision({
+          onboardingComplete: !!complete,
+          pluginRecommendationsShown: !!recsShown,
+          collectionCount: cols.length,
+        });
+        if (decision === "mark-complete") {
+          await store.set("onboardingComplete", true);
+        } else if (decision === "show") {
+          // Prefetch the gallery for the plugins step; a failure just leaves
+          // that step in its retry state instead of blocking the wizard.
+          plugins.fetchPluginGallery(true).catch(console.error);
+          setShowOnboarding(true);
         }
-        // gallery empty or fetch failed (returns []) => leave the flag unset,
-        // retry on a later launch.
       } catch (e) {
-        console.error("Failed to evaluate first-run plugin recommendations:", e);
+        console.error("Failed to evaluate onboarding state:", e);
       }
     })();
     return () => {
@@ -2296,6 +2303,18 @@ function App() {
   function handleCrossfadeChange(secs: number) {
     setCrossfadeSecs(secs);
     store.set("crossfadeSecs", secs);
+  }
+
+  function handleOnboardingClose() {
+    setShowOnboarding(false);
+    store.set("onboardingComplete", true).catch((e) => {
+      console.error("Failed to persist onboardingComplete:", e);
+    });
+    // Keep the legacy first-run flag consistent — the wizard's plugins step
+    // replaces the old recommendations prompt.
+    store.set("pluginRecommendationsShown", true).catch((e) => {
+      console.error("Failed to persist pluginRecommendationsShown:", e);
+    });
   }
 
   function handleTrackVideoHistoryChange(enabled: boolean) {
@@ -3376,6 +3395,7 @@ function App() {
               updateState={updater.updateState}
               onCheckForUpdates={updater.handleCheckForUpdates}
               onInstallUpdate={updater.handleInstallUpdate}
+              onRunSetupWizard={() => setShowOnboarding(true)}
               backendTimings={backendTimings}
               frontendTimings={getTimingEntries()}
               onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
@@ -3601,21 +3621,41 @@ function App() {
 
 
 
-      {showFirstRunPluginModal && plugins.galleryPlugins.length > 0 && (
-        <FirstRunPluginModal
-          entries={plugins.galleryPlugins}
-          installedIds={new Set(plugins.pluginStates.map((p) => p.id))}
-          onInstallEntry={(entry) => plugins.installFromGallery(entry)}
-          onDone={async () => {
-            setShowFirstRunPluginModal(false);
-            try {
-              await store.set("pluginRecommendationsShown", true);
-            } catch (e) {
-              console.error("Failed to persist pluginRecommendationsShown:", e);
-            }
-          }}
-        />
-      )}
+      {showOnboarding && (() => {
+        const lastfmState = plugins.pluginStates.find((p) => p.id === "lastfm");
+        const lastfmPanelId = lastfmState?.manifest.contributes?.settingsPanel?.id;
+        return (
+          <OnboardingWizard
+            skins={skins}
+            collections={library.collections}
+            onCollectionAdded={() => library.loadLibrary()}
+            galleryPlugins={plugins.galleryPlugins}
+            installedPluginIds={new Set(plugins.pluginStates.map((p) => p.id))}
+            onFetchGallery={() => plugins.fetchPluginGallery(true)}
+            onInstallPlugin={(entry) => plugins.installFromGallery(entry)}
+            onEnablePlugin={(id) => plugins.togglePlugin(id, true)}
+            lastfmInstalled={!!lastfmState}
+            lastfmActive={lastfmState?.status === "active"}
+            lastfmPanelData={lastfmPanelId ? plugins.getViewData("lastfm", lastfmPanelId) : undefined}
+            onLastfmAction={(actionId, data) => plugins.dispatchUIAction("lastfm", actionId, data)}
+            deps={dependencies.deps}
+            depInstalling={dependencies.installing}
+            onInstallDep={dependencies.installDep}
+            onRecheckDeps={() => {
+              dependencies.checkAll(true).catch((e) => {
+                console.error("Failed to recheck dependencies:", e);
+              });
+            }}
+            crossfadeSecs={crossfadeSecs}
+            onCrossfadeChange={handleCrossfadeChange}
+            autoContinueEnabled={autoContinue.enabled}
+            onAutoContinueEnabledChange={autoContinue.setEnabled}
+            resyncProgress={resyncProgress}
+            resyncComplete={resyncComplete}
+            onClose={handleOnboardingClose}
+          />
+        );
+      })()}
       {downloadModal && (() => {
         const parts = downloadModal.providerId.split(":");
         // Built-in providers (e.g. Subsonic) supply options in app code; plugins

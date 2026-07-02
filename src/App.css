@@ -3373,12 +3373,7 @@
   color: var(--text-tertiary);
 }
 
-/* First-run plugin recommendations modal */
-.first-run-intro {
-  color: var(--text-secondary);
-  font-size: var(--fs-sm);
-  margin: 0 0 12px;
-}
+/* Plugin recommendations list (onboarding wizard plugins step) */
 .first-run-list {
   display: flex;
   flex-direction: column;
@@ -3450,4 +3445,297 @@
 }
 .first-run-status.is-failed {
   color: var(--error);
+}
+
+/* Onboarding wizard */
+.onboarding-modal {
+  display: flex;
+  flex-direction: column;
+  max-width: 90vw;
+  height: min(640px, 85vh);
+}
+.onboarding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.onboarding-header .ds-modal-title {
+  margin: 0;
+}
+.onboarding-dots {
+  display: flex;
+  gap: 6px;
+}
+.onboarding-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.onboarding-dot.done {
+  background: var(--accent-dim);
+}
+.onboarding-dot.active {
+  background: var(--accent);
+  transform: scale(1.25);
+}
+.onboarding-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 14px 0;
+  padding-right: 4px;
+}
+.onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.onboarding-footer-nav {
+  display: flex;
+  gap: 8px;
+}
+.onboarding-step-desc {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.onboarding-error {
+  color: var(--error);
+  font-size: var(--fs-xs);
+  margin-top: 8px;
+}
+.onboarding-hint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  margin-top: 16px;
+}
+.onboarding-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+
+/* Welcome step: skin picker */
+.onboarding-skin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.onboarding-skin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-card);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  font: inherit;
+}
+.onboarding-skin-card:hover {
+  background: var(--bg-hover);
+}
+.onboarding-skin-card.active {
+  border-color: var(--accent);
+}
+.onboarding-skin-swatch {
+  display: flex;
+  height: 36px;
+  border-radius: var(--ds-radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  padding: 8px 6px 0 10px;
+  gap: 4px;
+}
+.onboarding-skin-swatch > span {
+  flex: 1;
+  border-radius: 3px 3px 0 0;
+}
+.onboarding-skin-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.onboarding-skin-type {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  text-transform: capitalize;
+}
+
+/* Music step: source options + added collections */
+.onboarding-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.onboarding-option {
+  background: var(--bg-secondary);
+  border-radius: var(--ds-radius);
+  padding: 12px;
+}
+.onboarding-option-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.onboarding-option-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.onboarding-option-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.onboarding-option-body {
+  margin-top: 12px;
+}
+.onboarding-collections {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+}
+.onboarding-collection-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--ds-radius);
+  font-size: var(--fs-sm);
+}
+.onboarding-collection-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.onboarding-collection-kind {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+}
+.onboarding-collection-status {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+/* Dependencies step */
+.onboarding-dep-row {
+  background: var(--bg-secondary);
+  border-radius: var(--ds-radius);
+  padding: 12px;
+  margin-bottom: 8px;
+}
+.onboarding-dep-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.onboarding-dep-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+.onboarding-dep-status {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.onboarding-dep-status.ok {
+  color: var(--success);
+}
+.onboarding-dep-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+}
+.onboarding-dep-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--ds-radius);
+  padding: 6px 10px;
+  margin-top: 10px;
+}
+.onboarding-dep-command code {
+  flex: 1;
+  font-size: var(--fs-xs);
+  user-select: all;
+  overflow-wrap: anywhere;
+}
+.onboarding-dep-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.onboarding-progress-track {
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+.onboarding-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
+
+/* Last.fm step: embedded plugin settings panel */
+.onboarding-plugin-panel {
+  background: var(--bg-secondary);
+  border-radius: var(--ds-radius);
+  padding: 12px;
+}
+
+/* Finish step: shortcut cheat sheet + scan status */
+.onboarding-kbd-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  align-items: center;
+  margin: 12px 0 16px;
+}
+.onboarding-kbd-grid kbd {
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  padding: 2px 8px;
+  justify-self: start;
+  white-space: nowrap;
+}
+.onboarding-kbd-desc {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.onboarding-scan-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-top: 8px;
 }

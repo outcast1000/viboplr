@@ -911,6 +911,7 @@ interface SettingsPanelProps {
   updateState: UpdateState;
   onCheckForUpdates: () => void;
   onInstallUpdate: () => void;
+  onRunSetupWizard?: () => void;
   backendTimings: TimingEntry[];
   frontendTimings: TimingEntry[];
   onFetchBackendTimings: () => void;
@@ -985,6 +986,7 @@ export function SettingsPanel({
   updateState,
   onCheckForUpdates,
   onInstallUpdate,
+  onRunSetupWizard,
   backendTimings,
   frontendTimings,
   onFetchBackendTimings,
@@ -1092,6 +1094,12 @@ export function SettingsPanel({
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
                         Support
                       </button>
+                      {onRunSetupWizard && (
+                        <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onRunSetupWizard}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
+                          Setup Wizard
+                        </button>
+                      )}
                     </div>
                   </div>
                   </div>

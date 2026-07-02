@@ -11,20 +11,20 @@ interface Props {
   onRecheck: () => void;
 }
 
-function getPlatform(): "macos" | "windows" | "linux" {
+export function getPlatform(): "macos" | "windows" | "linux" {
   const p = navigator.platform.toLowerCase();
   if (p.includes("mac")) return "macos";
   if (p.includes("win")) return "windows";
   return "linux";
 }
 
-function getPlatformLabel(platform: "macos" | "windows" | "linux"): string {
+export function getPlatformLabel(platform: "macos" | "windows" | "linux"): string {
   if (platform === "macos") return "macOS";
   if (platform === "windows") return "Windows";
   return "Linux";
 }
 
-function formatBytes(bytes: number): string {
+export function formatBytes(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${Math.round(bytes / 1024)} KB`;
 }

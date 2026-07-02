@@ -57,6 +57,7 @@ const STORE_DEFAULTS = {
   minimizeToMiniPlayer: false,
   heroEffectMode: "by-artist",
   pluginRecommendationsShown: false,
+  onboardingComplete: false,
   uiZoom: 1,
   miniZoom: 1,
 };
