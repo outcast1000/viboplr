@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEventHandler, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type MouseEventHandler, type ReactNode, type SetStateAction } from "react";
 import { nextCycleIndex, nowPlayingSteadyOrder, nowPlayingStyleClass, type NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import { isReducedMotion, subscribeReducedMotion } from "../utils/reducedMotion";
 
@@ -155,6 +155,23 @@ export function MarqueeText({ className, enabled, restartKey, onPlan, onClick, t
   );
 }
 
+/** The cycle phase (which item is up + whether the opening preview pass is
+ *  still running), lifted to the parent. The mini player renders a different
+ *  cycler instance per row (compact ultra vs. expanded/normal), so if this
+ *  state lived inside the component, hover-expanding would remount the cycler
+ *  and replay the preview pass on every mouse-over. `key` tags the track the
+ *  phase belongs to: only an actual track change (key mismatch) restarts the
+ *  cycle — a remount with the same key resumes where the cycle was. */
+export interface NowPlayingCycleState {
+  key: string | undefined;
+  index: number;
+  previewing: boolean;
+}
+
+export function initialCycleState(): NowPlayingCycleState {
+  return { key: undefined, index: 0, previewing: true };
+}
+
 interface NowPlayingInfoCyclerProps {
   items: NowPlayingInfoResolved[];
   className?: string;
@@ -170,6 +187,9 @@ interface NowPlayingInfoCyclerProps {
   /** Changes whenever the current track changes (e.g. its key). Restarts the
    *  cycle and re-runs the preview pass. */
   cycleResetKey?: string;
+  /** Lifted cycle phase, owned by the parent — see NowPlayingCycleState. */
+  cycleState: NowPlayingCycleState;
+  onCycleState: Dispatch<SetStateAction<NowPlayingCycleState>>;
   /** When true, the cycler owns the marquee for its own line (the two-line mini
    *  layout). When false, the line is rendered plain — either there's no overflow
    *  surface (full bar) or an enclosing `MarqueeText` scrolls the whole line (the
@@ -190,7 +210,9 @@ interface NowPlayingInfoCyclerProps {
  *     by ToP descending (largest first), each dwelling for `intervalMs × top`.
  *     Items with `top === 0` ("preview only") are dropped after the preview pass.
  *
- * The phase resets on every `cycleResetKey` change (i.e. every new track).
+ * The phase lives in the parent (`cycleState`/`onCycleState`) and resets only
+ * when `cycleResetKey` actually changes (i.e. a new track) — not when this
+ * instance remounts (the mini player swaps rows on hover-expand).
  *
  * When `marquee` is on, an item that doesn't fit its line scrolls (a gentle
  * ping-pong) so the whole item is readable, and the dwell for that item is
@@ -206,11 +228,14 @@ export function NowPlayingInfoCycler({
   onNavigateToAlbumByName,
   intervalMs = 5_000,
   cycleResetKey,
+  cycleState,
+  onCycleState,
   marquee: marqueeEnabled,
 }: NowPlayingInfoCyclerProps) {
-  const [index, setIndex] = useState(0);
-  // true during the opening preview pass; flips to false once it completes.
-  const [previewing, setPreviewing] = useState(true);
+  // `index` is the position in the active list; `previewing` is true during the
+  // opening preview pass and flips to false once it completes. Both live in the
+  // parent (see NowPlayingCycleState) so they survive this instance remounting.
+  const { index, previewing } = cycleState;
 
   // The steady-rotation list excludes "preview only" (top === 0) items and is
   // ordered by ToP descending, so the longest-dwelling items lead the cycle.
@@ -229,17 +254,22 @@ export function NowPlayingInfoCycler({
   // change (which re-measures) never resets the item's long dwell.
   const marqueeMsRef = useRef(0);
 
-  // New track → restart the cycle and re-run the preview pass.
+  // New track → restart the cycle and re-run the preview pass. Compared against
+  // the state's own key so only a real track change resets — a remount alone
+  // (the mini player swaps cycler instances when hover-expanding the compact
+  // row) resumes the phase instead of replaying the preview.
   useEffect(() => {
-    setIndex(0);
-    setPreviewing(true);
-  }, [cycleResetKey]);
+    onCycleState((s) => (s.key === cycleResetKey ? s : { key: cycleResetKey, index: 0, previewing: true }));
+  }, [cycleResetKey, onCycleState]);
 
   // Clamp the index when the active list shrinks (e.g. user toggles an item off).
   useEffect(() => {
-    const len = previewing ? items.length : steady.length;
-    setIndex((i) => (len === 0 ? 0 : i % len));
-  }, [previewing, items.length, steady.length]);
+    onCycleState((s) => {
+      const len = s.previewing ? items.length : steady.length;
+      const next = len === 0 ? 0 : s.index % len;
+      return next === s.index ? s : { ...s, index: next };
+    });
+  }, [previewing, items.length, steady.length, onCycleState]);
 
   // Self-rescheduling timer. During the preview pass every item dwells for the
   // base interval; afterwards each steady item dwells for `intervalMs × top`.
@@ -252,12 +282,11 @@ export function NowPlayingInfoCycler({
       const clamped = Math.min(index, len - 1);
       const t = setTimeout(() => {
         const next = clamped + 1;
-        if (next >= len) {
-          setPreviewing(false); // preview complete → enter steady rotation
-          setIndex(0);
-        } else {
-          setIndex(next);
-        }
+        onCycleState((s) =>
+          next >= len
+            ? { ...s, index: 0, previewing: false } // preview complete → enter steady rotation
+            : { ...s, index: next },
+        );
       }, Math.max(intervalMs, marqueeMsRef.current));
       return () => clearTimeout(t);
     }
@@ -266,10 +295,10 @@ export function NowPlayingInfoCycler({
     const clamped = Math.min(index, len - 1);
     const mult = steadyRef.current[clamped]?.top ?? 1;
     const t = setTimeout(() => {
-      setIndex((i) => nextCycleIndex(Math.min(i, len - 1), len));
+      onCycleState((s) => ({ ...s, index: nextCycleIndex(Math.min(s.index, len - 1), len) }));
     }, Math.max(intervalMs * mult, marqueeMsRef.current));
     return () => clearTimeout(t);
-  }, [previewing, index, items.length, steady.length, intervalMs]);
+  }, [previewing, index, items.length, steady.length, intervalMs, onCycleState]);
 
   // The list the current index points into depends on the phase. After the
   // preview pass, if every item was "preview only" (steady is empty), fall back

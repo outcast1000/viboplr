@@ -19,7 +19,7 @@ import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
 import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
-import { NowPlayingInfoCycler, MarqueeText } from "./NowPlayingInfoCycler";
+import { NowPlayingInfoCycler, MarqueeText, initialCycleState } from "./NowPlayingInfoCycler";
 import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
@@ -210,6 +210,11 @@ export function NowPlayingBar({
   const sourceHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sourceTooltipRef = useRef<HTMLDivElement | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
+  // Cycle phase for the mini info line, shared by the compact (ultra) and
+  // expanded rows — each renders its own cycler instance, so the phase must
+  // live here or hover-expanding would remount the cycler and replay the
+  // preview pass on every mouse-over.
+  const [miniCycleState, setMiniCycleState] = useState(initialCycleState);
   const [eqOpen, setEqOpen] = useState(false);
   const eqAnchorRef = useRef<HTMLButtonElement>(null);
   const acAnchorRef = useRef<HTMLButtonElement>(null);
@@ -362,6 +367,8 @@ export function NowPlayingBar({
                         sep=" · "
                         fallbackText={currentTrack.artist_name || "Unknown"}
                         cycleResetKey={currentTrack.key}
+                        cycleState={miniCycleState}
+                        onCycleState={setMiniCycleState}
                       />
                     )}
                   </>
@@ -405,7 +412,7 @@ export function NowPlayingBar({
               <MarqueeText className="mini-ultra-title" enabled restartKey={currentTrack.key}>
                 <span className="mini-ultra-track">{currentTrack.title}</span>
                 <span className="mini-ultra-sep"> — </span>
-                <NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} />
+                <NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} cycleState={miniCycleState} onCycleState={setMiniCycleState} />
               </MarqueeText>
             ) : loadingTrack ? (
               <span className="mini-ultra-title">{`Loading ${loadingTrack.title}…`}</span>
