@@ -1,5 +1,5 @@
 // src/skinUtils.ts
-import { SKIN_COLOR_KEYS } from "./types/skin";
+import { SKIN_COLOR_KEYS, OPTIONAL_SKIN_COLOR_KEYS } from "./types/skin";
 import type { SkinColors } from "./types/skin";
 import { LINKS } from "./constants/links";
 
@@ -21,6 +21,9 @@ export function validateSkin(
   const colors = s.colors as Record<string, unknown>;
   for (const key of SKIN_COLOR_KEYS) {
     const val = colors[key];
+    // Optional keys postdate the original schema; older skins may omit them
+    // (they fall back to the default skin's values at inject time).
+    if (val === undefined && OPTIONAL_SKIN_COLOR_KEYS.has(key)) continue;
     if (typeof val !== "string" || !HEX_RE.test(val)) {
       return { ok: false, error: `Invalid color for '${key}': ${String(val)}` };
     }

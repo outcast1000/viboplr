@@ -21,6 +21,15 @@ export const SKIN_COLOR_KEYS = [
 
 export type SkinColorKey = (typeof SKIN_COLOR_KEYS)[number];
 
+// Keys added after the original 15-key schema. Skins published before the
+// addition (e.g. older gallery skins) may lack them: validateSkin() tolerates
+// their absence, and injectSkinCSS() falls back to the default skin's values.
+export const OPTIONAL_SKIN_COLOR_KEYS: ReadonlySet<SkinColorKey> = new Set([
+  "accent-text",
+  "like",
+  "dislike",
+]);
+
 export type SkinColors = Record<SkinColorKey, string>;
 
 export interface SkinInfo {

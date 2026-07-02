@@ -328,12 +328,14 @@ accent, accent-dim, accent-text, border, now-playing-bg,
 success, error, warning, like, dislike
 ```
 
+`accent-text`, `like`, and `dislike` postdate the original 15-key schema and are **optional** (`OPTIONAL_SKIN_COLOR_KEYS` in `types/skin.ts`): `validateSkin()` tolerates their absence and rendering falls back to the default skin's values. New skins should still define all 18.
+
 Plus derived RGB versions (`--bg-primary-rgb`, `--accent-rgb`, `--now-playing-bg-rgb`) for `rgba()` usage.
 
 **Skin JSON format:**
 ```json
 { "name": "", "author": "", "version": "", "type": "dark|light",
-  "colors": { /* 15 hex color values */ }, "customCSS": "/* max 10KB, sanitized */" }
+  "colors": { /* 18 hex color values */ }, "customCSS": "/* max 10KB, sanitized */" }
 ```
 
 **Utilities** (`skinUtils.ts`): `generateSkinCSS()`, `sanitizeCustomCSS()` (strips @import, javascript:, url()), `validateSkin()`.

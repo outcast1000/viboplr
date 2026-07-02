@@ -44,6 +44,26 @@ describe("validateSkin", () => {
     const skin = { ...validSkin, customCSS: "a".repeat(10241) };
     expect(validateSkin(skin).ok).toBe(false);
   });
+
+  it("accepts a skin missing the optional keys (accent-text, like, dislike)", () => {
+    const colors: Record<string, string> = { ...validSkin.colors };
+    delete colors["accent-text"];
+    delete colors["like"];
+    delete colors["dislike"];
+    expect(validateSkin({ ...validSkin, colors })).toEqual({ ok: true });
+  });
+
+  it("rejects a skin missing a required key", () => {
+    const colors: Record<string, string> = { ...validSkin.colors };
+    delete colors["accent"];
+    const result = validateSkin({ ...validSkin, colors });
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects an invalid hex on an optional key when present", () => {
+    const skin = { ...validSkin, colors: { ...validSkin.colors, like: "red" } };
+    expect(validateSkin(skin).ok).toBe(false);
+  });
 });
 
 describe("sanitizeCustomCSS", () => {
