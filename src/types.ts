@@ -57,6 +57,14 @@ export interface QueueTrack {
   liked: number;
 }
 
+// Pre-`convertFileSrc` origin of a resolved track, for the native (mpv)
+// engine, which takes raw filesystem paths / http(s) URLs instead of webview
+// asset URLs. `null`/absent means the source is webview-only (e.g. a
+// transcode-server stream) and must play through the browser engine.
+export type EngineSource =
+  | { kind: "file"; path: string }
+  | { kind: "http"; url: string };
+
 // Result of resolving a track to a playable source. `patch` carries metadata
 // discovered during resolution (e.g. the real file path + format of a local
 // copy matched for a path-less/remote track) so the play path can re-classify
@@ -64,6 +72,7 @@ export interface QueueTrack {
 export interface ResolvedTrackSource {
   src: string;
   patch?: Partial<QueueTrack>;
+  engineSource?: EngineSource | null;
 }
 
 /** The winning playback-resolution entry, surfaced to the now-playing UI. `name`

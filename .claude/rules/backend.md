@@ -35,6 +35,18 @@
 - **timing.rs** — Startup performance profiling.
 - **seed.rs** — Debug-only (`#[cfg(debug_assertions)]`). Fake data seeding.
 - **dependencies.rs** — External binary dependency service (ffmpeg, yt-dlp). See "External Binary Dependencies" below.
+- **mpv_engine/** — Native audio playback engine backed by libmpv, compiled only into the "full" build (`mpv-engine` Cargo feature). See "Native mpv Engine" below.
+
+## Native mpv Engine (`mpv-engine` feature)
+
+The full build carries a native playback engine (`src/mpv_engine/`) as a runtime-selectable alternative to the webview pipeline (Settings > Playback > "Playback engine"). Audio everywhere; **video natively on macOS** via `mpv_engine/video_layer.rs` — an `NSView` + `NSOpenGLContext` inserted BELOW the transparent WKWebView, driven by `mpv_render_context` on a dedicated render thread (deck 0 only, `vo=libmpv`, `hwdec=auto`). The frontend punches a CSS hole over the video container (`.mpv-video-hole` in TrackDetailView.css) and reports container bounds via `engine_set_video_bounds`, so DOM overlays still draw above the video. AppKit rules: view work + `[NSOpenGLContext update]` on the main thread only (off-main `update` traps — this was a real crash), GL render/flush on the render thread, serialized via `CGLLockContext`. On Windows/lean builds video stays on the browser+transcode path.
+
+- **Dual decks** (two libmpv handles, ping-pong): gapless arms the next track on the *active* deck's playlist (mpv transitions sample-accurately); crossfade arms it *paused on the standby deck* and a Rust ramp thread fades deck volumes. If the active track EOFs with a crossfade arm still pending, the engine hard-cuts into the arm (safety net); if the *incoming* deck EOFs mid-fade, the fade is snapped and `engine-ended` fires.
+- **DSP**: EQ maps to one ffmpeg `lavfi=[…]` graph (`mpv_engine/af.rs` — 10 `equalizer` biquads / `bass`+`treble` shelves / `alimiter`, mirroring `src/eqPresets.ts`; unit tests pin the constants). ReplayGain uses mpv-native `replaygain*` options (mpv reads the file tags itself). Both are cached on `EngineHandle` (pending) so Settings changes made before the engine exists apply at creation, and are applied to both decks.
+- **IPC**: commands in `commands/mpv_engine.rs` are registered in **every** build — without the feature they return an error and `engine_capabilities` reports `mpv: false`, so the frontend gates on capability, not build flavor. Events (`engine-position` 4 Hz, `engine-duration`, `engine-track-changed {reason}`, `engine-ended`, `engine-state`, `engine-error {code}`) all carry `track_key` — the native equivalent of the frontend's play-generation guard.
+- **Vendoring**: `scripts/fetch-libmpv.mjs` + `scripts/libmpv.lock.json` download pinned, SHA-256-verified libmpv artifacts into `src-tauri/vendor/libmpv/<platform>` (gitignored). Never point the lock at "latest" — upstream daily builds regress silently; bump deliberately and re-test. macOS post-processing rewrites the dylib's absolute luajit ref to `@rpath` and ad-hoc re-signs. `build.rs` supplies the link search path + rpaths (dev: vendor dir; bundled: `@executable_path/../Frameworks`).
+- **Two builds**: lean (default, browser engine only) and "Viboplr Full" (`--features mpv-engine --config src-tauri/tauri.mpv-{macos,windows}.conf.json` — bundles the dylib/DLL, distinct productName, own updater channel `latest-mpv.json` assembled by `scripts/build-mpv-updater-manifest.mjs` in the release workflow).
+- **Frontend seam**: see frontend.md (`src/playback/nativeEngine.ts` bridge, `usePlayback` native session branches, per-track fallback to the browser engine on `engine-error`).
 
 ## External Binary Dependencies
 

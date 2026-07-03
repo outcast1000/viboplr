@@ -33,6 +33,7 @@ import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
+import { probeEngineCapabilities, nativeEngine } from "./playback/nativeEngine";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
 import { decideDownload } from "./utils/downloadPlan";
@@ -175,6 +176,24 @@ function App() {
   const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
   crossfadeSecsRef.current = crossfadeSecs;
+  // Native (mpv) playback engine: capability is a build fact (probed once via
+  // engine_capabilities), the choice is a persisted setting. usePlayback routes
+  // per-track through the combined ref.
+  const [mpvCapable, setMpvCapable] = useState(false);
+  const [mpvVideoCapable, setMpvVideoCapable] = useState(false);
+  const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("browser");
+  const useNativeEngineRef = useRef(false);
+  useNativeEngineRef.current = mpvCapable && playbackEngine === "native";
+  const useNativeVideoRef = useRef(false);
+  useNativeVideoRef.current = mpvCapable && mpvVideoCapable && playbackEngine === "native";
+  // Assigned to `() => handleNext("auto")` once handleNext exists below.
+  const nativeEndedRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    probeEngineCapabilities().then((caps) => {
+      setMpvCapable(caps.mpv);
+      setMpvVideoCapable(caps.video);
+    });
+  }, []);
   const trackVideoHistoryRef = useRef(true);
   const [trackVideoHistory, setTrackVideoHistory] = useState(true);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
@@ -201,19 +220,20 @@ function App() {
     const url = track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
-    if (parsed.scheme === "file") return { src: convertFileSrc(parsed.path) };
+    if (parsed.scheme === "file") return { src: convertFileSrc(parsed.path), engineSource: { kind: "file", path: parsed.path } };
     if (parsed.scheme === "plugin") {
       const resolved = await resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
-      if (resolved.startsWith("file://")) return { src: convertFileSrc(resolved.substring(7)) };
-      return { src: resolved };
+      if (resolved.startsWith("file://")) return { src: convertFileSrc(resolved.substring(7)), engineSource: { kind: "file", path: resolved.substring(7) } };
+      return { src: resolved, engineSource: resolved.startsWith("http") ? { kind: "http", url: resolved } : null };
     }
     if (parsed.scheme === "external") throw new Error("Cannot play external track directly — requires stream resolver");
-    return { src: await invoke<string>("resolve_subsonic_location", { location: parsed.url }) };
+    const streamUrl = await invoke<string>("resolve_subsonic_location", { location: parsed.url });
+    return { src: streamUrl, engineSource: { kind: "http", url: streamUrl } };
   });
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
     playback.currentTrack?.title ?? null,
@@ -467,9 +487,53 @@ function App() {
     resolveStreamByUri: plugins.resolveStreamByUri,
     streamUriResolverOwner: plugins.streamUriResolverOwner,
     requireDep: dependencies.requireDep,
+    useNativeVideoRef,
     queue: queueHook.queue,
     currentTrack: playback.currentTrack,
   });
+
+  // Native (mpv) video session: punch the CSS hole (see App.css
+  // `.mpv-video-hole`) and keep the native layer aligned with the video
+  // container. Polling covers position-only changes (sidebar collapse, dock
+  // moves) that ResizeObserver would miss; 250ms matches the engine's
+  // position cadence and is imperceptible for layout tracking.
+  useEffect(() => {
+    if (!playback.nativeVideoActive) return;
+    let last = "";
+    const push = () => {
+      const container = playback.videoRef.current?.parentElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const z = zoom.uiZoomRef.current || 1;
+      const key = [rect.left, rect.top, rect.width, rect.height, z]
+        .map((v) => Math.round(v * 100))
+        .join(",");
+      if (key === last) return;
+      last = key;
+      nativeEngine
+        .setVideoBounds(rect.left * z, rect.top * z, rect.width * z, rect.height * z)
+        .catch(console.error);
+    };
+    push();
+    const interval = setInterval(push, 250);
+    return () => clearInterval(interval);
+  }, [playback.nativeVideoActive]);
+
+  // Native video fullscreen has no DOM :fullscreen state, so Escape must be
+  // handled explicitly (capture phase so a focused list's Escape handling
+  // doesn't swallow it).
+  useEffect(() => {
+    if (!playback.nativeFullscreen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        playback.toggleFullscreen();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [playback.nativeFullscreen]);
 
   // Centered, cancelable "Retrieve" modal for user-triggered image/info fetches
   // (preview → Apply). Automatic background image fetching is unaffected.
@@ -1455,7 +1519,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -1476,6 +1540,7 @@ function App() {
           if (savedMuted) notify("Audio is muted from your last session");
         }
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
+        if (savedPlaybackEngine === "native") setPlaybackEngine("native");
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
@@ -2204,6 +2269,10 @@ function App() {
   }, []);
 
   mediaSessionNextRef.current = () => handleNext();
+  // Engine-side "ended with nothing gapless-armed" — the native equivalent of
+  // the media elements' `ended` (gapless is engine-internal, so no
+  // handleGaplessNext check here).
+  nativeEndedRef.current = () => handleNext("auto");
 
   // Deleting the currently-playing track: advance to the nearest surviving track
   // after it, else (Normal mode) auto-continue, else the nearest surviving track
@@ -2303,6 +2372,17 @@ function App() {
   function handleCrossfadeChange(secs: number) {
     setCrossfadeSecs(secs);
     store.set("crossfadeSecs", secs);
+  }
+
+  function handlePlaybackEngineChange(engine: "browser" | "native") {
+    if (engine === playbackEngine) return;
+    // Clean cut: no mid-track engine handoff. The user re-starts playback on
+    // whichever engine they switched to.
+    playback.handleStop();
+    setPlaybackEngine(engine);
+    store.set("playbackEngine", engine).catch((e) => {
+      console.error("Failed to persist playbackEngine:", e);
+    });
   }
 
   function handleOnboardingClose() {
@@ -2751,7 +2831,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -3375,6 +3455,9 @@ function App() {
               onClearImageFailures={handleClearImageFailures}
               crossfadeSecs={crossfadeSecs}
               onCrossfadeChange={handleCrossfadeChange}
+              mpvCapable={mpvCapable}
+              playbackEngine={playbackEngine}
+              onPlaybackEngineChange={handlePlaybackEngineChange}
               rgMode={playback.rgMode}
               onRgModeChange={playback.setRgMode}
               rgPreampDb={playback.rgPreampDb}
@@ -3438,7 +3521,7 @@ function App() {
           </div>
         )}
         <div
-          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}${videoTheater ? " video-container--theater" : ""}`}
+          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}${videoTheater ? " video-container--theater" : ""}${playback.nativeFullscreen ? " video-container--native-fs" : ""}`}
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();

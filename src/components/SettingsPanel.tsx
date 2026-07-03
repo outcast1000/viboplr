@@ -891,6 +891,10 @@ interface SettingsPanelProps {
   onClearImageFailures: () => void;
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
+  /** Whether this build carries the native mpv engine (full build). */
+  mpvCapable: boolean;
+  playbackEngine: "browser" | "native";
+  onPlaybackEngineChange: (engine: "browser" | "native") => void;
   rgMode: "off" | "track" | "album";
   onRgModeChange: (mode: "off" | "track" | "album") => void;
   rgPreampDb: number;
@@ -966,6 +970,9 @@ export function SettingsPanel({
   onClearImageFailures,
   crossfadeSecs,
   onCrossfadeChange,
+  mpvCapable,
+  playbackEngine,
+  onPlaybackEngineChange,
   rgMode,
   onRgModeChange,
   rgPreampDb,
@@ -1108,6 +1115,22 @@ export function SettingsPanel({
                 <div className="settings-group">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
+                    {mpvCapable && (
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Playback engine</span>
+                          <span className="settings-description">mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback.</span>
+                        </div>
+                        <select
+                          className="ds-select"
+                          value={playbackEngine}
+                          onChange={e => onPlaybackEngineChange(e.target.value as "browser" | "native")}
+                        >
+                          <option value="browser">Browser</option>
+                          <option value="native">mpv (beta)</option>
+                        </select>
+                      </div>
+                    )}
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Crossfade</span>

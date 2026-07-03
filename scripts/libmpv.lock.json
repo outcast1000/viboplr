@@ -1,0 +1,17 @@
+{
+  "comment": "Pinned libmpv artifacts vendored by scripts/fetch-libmpv.mjs. Never point these at 'latest' — daily upstream builds have a history of silent regressions; bump deliberately and re-test playback before committing a new pin.",
+  "platforms": {
+    "macos-aarch64": {
+      "source": "eko5624/mpv-mac (self-contained libmpv.2.dylib, ffmpeg statically linked, GPL)",
+      "url": "https://github.com/eko5624/mpv-mac/releases/download/2026-06-29/libmpv-arm64-3f1b23abd0.zip",
+      "sha256": "8f147dd22c516889666156d293b5fad4b01edf988b6b5ca9cdc428bc4088d726",
+      "mpvGitHash": "3f1b23abd0"
+    },
+    "windows-x86_64": {
+      "source": "shinchiro/mpv-winbuild-cmake (libmpv-2.dll, ffmpeg statically linked, GPL)",
+      "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260610/mpv-dev-x86_64-20260610-git-304426c.7z",
+      "sha256": "8cbb25ea784f01afbb3f904217cab1317430a8bcfd5680fd827a866367f71cc9",
+      "mpvGitHash": "304426c"
+    }
+  }
+}

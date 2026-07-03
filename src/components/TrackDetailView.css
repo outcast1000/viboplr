@@ -10,6 +10,59 @@
   position: relative;
 }
 
+/* Native (mpv) video on macOS: the engine renders into a native layer BELOW
+   the transparent webview, so while a native video session is active these
+   rules punch a see-through hole exactly at the video container. The window
+   and body are already transparent (mini-player heritage); `.search-bar` and
+   `.content` inherited the .app background, so they get their own — every
+   other surface (sidebar, queue panel, now-playing bar, splitter) already
+   self-paints. DOM overlays inside the container still draw ABOVE the video. */
+.app.mpv-video-hole {
+  background: transparent;
+}
+.app.mpv-video-hole .search-bar {
+  background: var(--bg-primary);
+}
+.app.mpv-video-hole .content {
+  background: var(--bg-primary);
+}
+.app.mpv-video-hole .video-container {
+  background: transparent;
+}
+/* (The <video> element stays in the DOM for its click/double-click handlers;
+   with no src it paints nothing, so it doesn't cover the hole.) */
+
+/* Theater mode: the (transparent) container overlays the WHOLE main column,
+   so .content — which sits BEHIND it — must not paint either. (In dock mode
+   they don't overlap, which is why .content keeps its background there.) */
+.app.mpv-video-hole.mpv-hole-theater .content {
+  background: transparent;
+}
+
+/* Native fullscreen (mpv video sessions use WINDOW fullscreen — DOM element
+   fullscreen would move the webview to its own space, away from the native
+   layer). The container pins over the entire window and every other surface
+   stops painting so the full-window hole is see-through; the DOM overlays
+   inside the container (FullscreenControls etc.) keep working above the video. */
+.video-container--native-fs {
+  position: fixed !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  z-index: 999;
+}
+.video-container--native-fs .fs-controls {
+  display: block;
+}
+.app.mpv-native-fs .search-bar,
+.app.mpv-native-fs .sidebar,
+.app.mpv-native-fs .queue-panel,
+.app.mpv-native-fs .now-playing,
+.app.mpv-native-fs .content,
+.app.mpv-native-fs .video-splitter {
+  visibility: hidden;
+}
+
 .video-container.collapsed {
   height: 0 !important;
   width: 0 !important;

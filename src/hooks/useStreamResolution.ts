@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource } from "../types";
+import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, type EffectiveSource } from "../queueEntry";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
 
@@ -36,6 +36,10 @@ interface UseStreamResolutionDeps {
   streamUriResolverOwner: (scheme: string) => string | null;
   /** Surfaces the platform-aware dependency install modal (`dependencies.requireDep`). */
   requireDep: (name: string, feature: string) => Promise<boolean>;
+  /** True when the native mpv engine will render video (macOS full build,
+   * engine selected) — mkv/avi/wmv then skip the ffmpeg transcode server and
+   * resolve to a raw file `engineSource` instead. */
+  useNativeVideoRef: React.MutableRefObject<boolean>;
   /** Current queue — drives pruning of stale per-track resolve failures. */
   queue: QueueTrack[];
   /** Currently-playing track — drives transcode-session teardown. */
@@ -59,6 +63,7 @@ export function useStreamResolution({
   resolveStreamByUri,
   streamUriResolverOwner,
   requireDep,
+  useNativeVideoRef,
   queue,
   currentTrack,
 }: UseStreamResolutionDeps) {
@@ -86,12 +91,24 @@ export function useStreamResolution({
   // Build the resolver once. It closes only over stable refs/setters, so the
   // chain stays correct across renders without rebuilding.
   useEffect(() => {
-    const resolveUrl = (url: string): Promise<string> => {
-      if (url.startsWith("http://") || url.startsWith("https://")) return Promise.resolve(url);
+    // Resolves a scheme-prefixed URL to both the webview src and the raw
+    // origin (`engineSource`) the native mpv engine plays directly. Computed
+    // here, at the branch points, because the final `src` alone can't be
+    // classified — convertFileSrc yields `https://asset.localhost/…` on
+    // Windows, which would look like a remote URL.
+    const resolveUrlDetailed = (url: string): Promise<{ src: string; engineSource: EngineSource | null }> => {
+      if (url.startsWith("http://") || url.startsWith("https://")) {
+        return Promise.resolve({ src: url, engineSource: { kind: "http", url } });
+      }
       const parsed = parseUrlScheme(url);
-      if (parsed.scheme === "file") return Promise.resolve(convertFileSrc(parsed.path));
-      if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null).then(r => resolveUrl(r));
-      if (parsed.scheme === "subsonic") return invoke<string>("resolve_subsonic_location", { location: url });
+      if (parsed.scheme === "file") {
+        return Promise.resolve({ src: convertFileSrc(parsed.path), engineSource: { kind: "file", path: parsed.path } });
+      }
+      if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null).then(r => resolveUrlDetailed(r));
+      if (parsed.scheme === "subsonic") {
+        return invoke<string>("resolve_subsonic_location", { location: url })
+          .then(streamUrl => ({ src: streamUrl, engineSource: { kind: "http" as const, url: streamUrl } }));
+      }
       return Promise.reject(new Error(`Unplayable URL scheme: ${url}`));
     };
 
@@ -109,7 +126,7 @@ export function useStreamResolution({
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; resolve: () => Promise<string> }
+      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote OR path-less tracks
@@ -131,7 +148,7 @@ export function useStreamResolution({
               // Carry the matched file's path + format so the play path can
               // re-classify a path-less track (e.g. a Home track-row) as video.
               patch: { path: localMatch.path, format: localMatch.format },
-              resolve: () => Promise.resolve(convertFileSrc(localPath)),
+              resolve: () => Promise.resolve({ src: convertFileSrc(localPath), engineSource: { kind: "file" as const, path: localPath } }),
             });
           }
         } catch (e) {
@@ -142,7 +159,7 @@ export function useStreamResolution({
       // Native resolver first (if track has a known URL)
       if (url) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
-          chain.push({ name: "Direct URL", id: null, sourceUrl: url, effectiveSource: classifyEffectiveSource(url, ownerRef.current), resolve: () => Promise.resolve(url) });
+          chain.push({ name: "Direct URL", id: null, sourceUrl: url, effectiveSource: classifyEffectiveSource(url, ownerRef.current), resolve: () => Promise.resolve({ src: url, engineSource: { kind: "http" as const, url } }) });
         } else {
           chain.push({
             name: nativeResolverName(url),
@@ -151,7 +168,8 @@ export function useStreamResolution({
             effectiveSource: classifyEffectiveSource(url, ownerRef.current),
             resolve: async () => {
               const parsed = parseUrlScheme(url);
-              if (parsed.scheme === "file" && needsTranscode(track)) {
+              // The native engine plays mkv/avi/wmv directly — no transcode.
+              if (parsed.scheme === "file" && needsTranscode(track) && !useNativeVideoRef.current) {
                 if (transcodeSessionRef.current) {
                   invoke("stop_transcode", { sessionId: transcodeSessionRef.current.sessionId }).catch(console.error);
                 }
@@ -163,7 +181,8 @@ export function useStreamResolution({
                     durationSecs: result.durationSecs ?? null,
                     seekOffset: 0,
                   };
-                  return result.url;
+                  // Transcode-server streams are webview-only by design.
+                  return { src: result.url, engineSource: null };
                 } catch (e) {
                   const msg = e instanceof Error ? e.message : String(e);
                   if (msg.includes("ffmpeg is not installed")) {
@@ -172,7 +191,7 @@ export function useStreamResolution({
                   throw e;
                 }
               }
-              return resolveUrl(url);
+              return resolveUrlDetailed(url);
             },
           });
         }
@@ -210,7 +229,7 @@ export function useStreamResolution({
             if (!result) throw new Error("No result");
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
-            return resolveUrl(result.url);
+            return resolveUrlDetailed(result.url);
           },
         };
         chain.push(entry);
@@ -227,7 +246,7 @@ export function useStreamResolution({
           setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
         }
         try {
-          const src = await entry.resolve();
+          const { src, engineSource } = await entry.resolve();
           if (resolveGenerationRef.current !== generation) return { src: "" };
           setResolvingStatus(null);
           // Resolved successfully — clear any prior persistent failure for this track.
@@ -241,7 +260,7 @@ export function useStreamResolution({
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
           }
-          return { src, patch: entry.patch };
+          return { src, patch: entry.patch, engineSource };
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
           lastError = entry.name === "Library" ? "Not in library" : `${entry.name} failed`;

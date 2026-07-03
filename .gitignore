@@ -39,3 +39,6 @@ test-results/
 
 src-tauri/.impeccable/
 .VSCodeCounter/
+
+# Vendored libmpv artifacts (fetched by scripts/fetch-libmpv.mjs)
+src-tauri/vendor/

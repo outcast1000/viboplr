@@ -35,6 +35,8 @@ mod media;
 pub use media::*;
 mod mixtapes;
 pub use mixtapes::*;
+mod mpv_engine;
+pub use mpv_engine::*;
 mod p2p;
 pub use p2p::*;
 mod playlists;
@@ -106,6 +108,8 @@ pub struct AppState {
     pub transcode_sessions: transcode_server::Sessions,
     pub dep_cache: Arc<crate::dependencies::DepCache>,
     pub p2p_node: Arc<tokio::sync::RwLock<Option<P2pNode>>>,
+    #[cfg(feature = "mpv-engine")]
+    pub mpv_engine: Arc<crate::mpv_engine::EngineHandle>,
 }
 
 /// Deserialize into a "double option" so the field can be in three states:
@@ -1100,6 +1104,8 @@ mod tests {
             transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             dep_cache: Arc::new(crate::dependencies::DepCache::new()),
             p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
+            #[cfg(feature = "mpv-engine")]
+            mpv_engine: Default::default(),
         }
     }
 

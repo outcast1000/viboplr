@@ -14,6 +14,7 @@ const STORE_DEFAULTS = {
   queueMode: "normal",
   positionSecs: 0,
   crossfadeSecs: 3,
+  playbackEngine: "browser",
   windowWidth: null,
   windowHeight: null,
   windowX: null,

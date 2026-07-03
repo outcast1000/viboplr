@@ -19,6 +19,8 @@ mod music_publish;
 mod tag_writer;
 mod mixtape;
 mod main_playlist;
+#[cfg(feature = "mpv-engine")]
+mod mpv_engine;
 mod timing;
 mod downloader;
 mod update_checker;
@@ -269,6 +271,18 @@ macro_rules! invoke_handler {
             browse_window::browse_window_send,
             commands::start_transcode,
             commands::stop_transcode,
+            commands::engine_capabilities,
+            commands::engine_play,
+            commands::engine_preload,
+            commands::engine_clear_preload,
+            commands::engine_set_paused,
+            commands::engine_stop,
+            commands::engine_seek,
+            commands::engine_set_volume,
+            commands::engine_set_eq,
+            commands::engine_set_replaygain,
+            commands::engine_start_crossfade,
+            commands::engine_set_video_bounds,
             commands::p2p_start,
             commands::p2p_stop,
             commands::p2p_get_status,
@@ -1271,6 +1285,8 @@ pub fn run() {
                     transcode_sessions,
                     dep_cache,
                     p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
+                    #[cfg(feature = "mpv-engine")]
+                    mpv_engine: Default::default(),
                 });
             });
 

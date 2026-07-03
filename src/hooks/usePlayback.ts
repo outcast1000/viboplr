@@ -1,9 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { QueueTrack, ResolvedTrackSource } from "../types";
+import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme, isLocalTrack } from "../queueEntry";
 import { store } from "../store";
+import { driveProgressMachine } from "../playback/progressMachine";
+import {
+  nativeEngine,
+  type EnginePositionEvent,
+  type EngineDurationEvent,
+  type EngineTrackChangedEvent,
+  type EngineEndedEvent,
+  type EngineStateEvent,
+  type EngineErrorEvent,
+} from "../playback/nativeEngine";
+import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import {
   BANDS,
   BAND_Q,
@@ -111,6 +122,16 @@ export function usePlayback(
   resolveTrackSrcRef: React.RefObject<(track: QueueTrack) => Promise<ResolvedTrackSource>>,
   prefetchNextRef: React.RefObject<() => void>,
   transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>,
+  // True when the mpv engine is compiled in AND the user selected it in
+  // Settings. App owns the capability probe + setting; this ref combines them.
+  useNativeEngineRef: React.RefObject<boolean>,
+  // True when the engine can also render video natively (macOS full build,
+  // engine selected). Gates routing video tracks to the engine.
+  useNativeVideoRef: React.RefObject<boolean>,
+  // App points this at `() => handleNext("auto")` — the engine-side equivalent
+  // of the media elements' `ended` (fires when a native track ends with
+  // nothing gapless-armed).
+  onNativeAutoEndedRef: React.RefObject<() => void>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -168,6 +189,55 @@ export function usePlayback(
   const videoRef = useRef<HTMLVideoElement>(null);
   const activeSlotRef = useRef(activeSlot);
   activeSlotRef.current = activeSlot;
+  // Mirror for the once-mounted engine-event subscriptions, which would
+  // otherwise close over the first render's currentTrack.
+  const currentTrackRef = useRef<QueueTrack | null>(currentTrack);
+  currentTrackRef.current = currentTrack;
+
+  // --- Native (mpv) engine session state ------------------------------------
+  // Non-null while the mpv engine owns playback of `key` (the media elements
+  // are all torn down for the session's duration). The key doubles as the
+  // native play-generation guard: engine events carrying another key are stale.
+  const nativeSessionRef = useRef<{ key: string } | null>(null);
+  // Tracks that failed native playback this session — resolution/preload skip
+  // them so they route through the browser engine (per-track fallback).
+  const nativeBlockedKeysRef = useRef<Set<string>>(new Set());
+  // Gapless-armed next track (mirrors preloadedTrackRef for the native path).
+  // `src` keeps the webview URL so waveforms keep working after promotion.
+  const nativePreloadedRef = useRef<{ key: string; track: QueueTrack; src: string | null } | null>(null);
+  const nativePreloadingRef = useRef(false);
+  // Last position reported by engine-position — the resume point for the
+  // per-track browser fallback on engine-error.
+  const nativeLastPositionRef = useRef(0);
+  // True between issuing engine_start_crossfade and the engine's
+  // track-changed (or any session reset) — stops the progress machine from
+  // re-triggering the fade every position tick.
+  const nativeFadingRef = useRef(false);
+  // True while the native session is a VIDEO session: the engine renders into
+  // a native layer under the webview and App punches the CSS hole + reports
+  // the container bounds while this is set.
+  const [nativeVideoActive, setNativeVideoActive] = useState(false);
+  // Fullscreen for native video sessions = WINDOW fullscreen + the
+  // `.video-container--native-fs` full-window pin (DOM element-fullscreen
+  // would move the webview to its own space, away from the native layer).
+  // This state is the source of truth; the window follows it.
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+
+  function setWindowFullscreen(fullscreen: boolean) {
+    import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().setFullscreen(fullscreen))
+      .catch((e) => console.error("Failed to set window fullscreen:", e));
+  }
+
+  // Leaving the native video session (track ended, fallback, stop) must also
+  // leave fullscreen — otherwise the window stays fullscreen with the app
+  // surfaces hidden by the native-fs CSS.
+  useEffect(() => {
+    if (!nativeVideoActive && nativeFullscreen) {
+      setNativeFullscreen(false);
+      setWindowFullscreen(false);
+    }
+  }, [nativeVideoActive, nativeFullscreen]);
 
   const pendingSrcRef = useRef<string | null>(null);
   const pendingAutoPlayRef = useRef(true);
@@ -552,6 +622,8 @@ export function usePlayback(
     volumeRef.current = volume;
     mutedRef.current = muted;
     const out = effectiveVolume();
+    // The mpv engine tracks volume/mute directly; no-op when it isn't running.
+    nativeEngine.setVolume(volume, muted).catch(console.error);
     // Video bypasses Web Audio, so its volume is set directly.
     if (videoRef.current) videoRef.current.volume = out;
     if (masterGainRef.current) {
@@ -578,6 +650,16 @@ export function usePlayback(
     applyEqToFilters();
     applyLimiter();
     if (masterGainRef.current) masterGainRef.current.gain.value = masterGainValue();
+    // Mirror to the mpv engine (cached backend-side until it runs; no-op on
+    // incapable builds).
+    nativeEngine.setEq({
+      enabled: eqEnabled,
+      mode: eqMode,
+      gains: eqGains,
+      preGainDb: eqPreGainDb,
+      bassDb: eqBassDb,
+      trebleDb: eqTrebleDb,
+    }).catch(console.error);
   }, [eqEnabled, eqMode, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb]);
 
   // Apply ReplayGain to the active chain when the current track changes or the RG
@@ -585,6 +667,16 @@ export function usePlayback(
   useEffect(() => {
     applyReplayGain(activeSlotRef.current, currentTrack);
   }, [currentTrack, rgMode, rgPreampDb, rgPreventClip]);
+
+  // Mirror ReplayGain settings to the mpv engine, which reads the RG tags
+  // natively (per deck, per file) — no per-track resolve needed there.
+  useEffect(() => {
+    nativeEngine.setReplayGain({
+      mode: rgMode,
+      preampDb: rgPreampDb,
+      preventClip: rgPreventClip,
+    }).catch(console.error);
+  }, [rgMode, rgPreampDb, rgPreventClip]);
 
   // Load video source once the element is available after render
   useEffect(() => {
@@ -670,6 +762,10 @@ export function usePlayback(
     preloadReadyRef.current = false;
     isPreloadingRef.current = false;
     preloadPromiseRef.current = null;
+    if (nativePreloadedRef.current) {
+      nativePreloadedRef.current = null;
+      nativeEngine.clearPreload().catch(console.error);
+    }
 
     const inactiveEl = getInactiveAudioElement();
     if (inactiveEl) {
@@ -749,6 +845,145 @@ export function usePlayback(
       preloadPromiseRef.current = null;
     }
   }
+
+  // --- Native (mpv) engine session -----------------------------------------
+  // While a native session owns playback the media elements are torn down;
+  // the `engine-*` events below stand in for timeupdate/ended/error. Only
+  // reads refs, so the once-captured closure in the mount effect stays valid.
+
+  async function nativePreloadNext(next: QueueTrack) {
+    if (nativePreloadingRef.current) return;
+    if (isVideoTrack(next) || nativeBlockedKeysRef.current.has(next.key)) return;
+    nativePreloadingRef.current = true;
+    logPlayback(`Native preload: resolving "${next.artist_name ?? "?"} — ${next.title}"`);
+    try {
+      const resolved = await resolveTrackSrcRef.current(next);
+      if (!resolved.src) return;
+      const enriched = resolved.patch ? { ...next, ...resolved.patch } : next;
+      // Not natively playable (video / webview-only source): stay unarmed —
+      // the engine's `engine-ended` then routes the next track through the
+      // explicit handlePlay path, which picks the right surface.
+      if (isVideoTrack(enriched) || !resolved.engineSource) return;
+      if (!nativeSessionRef.current) return; // session ended while resolving
+      await nativeEngine.preload({
+        source: resolved.engineSource,
+        trackKey: enriched.key,
+        crossfade: crossfadeSecsRef.current > 0,
+      });
+      nativePreloadedRef.current = { key: enriched.key, track: enriched, src: resolved.src };
+      logPlayback(`Native preload: armed "${enriched.title}"`);
+    } catch (e) {
+      console.error("Native preload error:", e);
+    } finally {
+      nativePreloadingRef.current = false;
+    }
+  }
+
+  useEffect(() => {
+    return combineUnlisten(
+      subscribe<EnginePositionEvent>("engine-position", ({ payload }) => {
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        nativeLastPositionRef.current = payload.positionSecs;
+        setPositionSecs(payload.positionSecs);
+
+        // Scrobble threshold — mirrors onTimeUpdate (native sessions are
+        // always audio, but keep the video-history gate for symmetry).
+        const track = currentTrackRef.current;
+        if (!scrobbledRef.current && track && (trackVideoHistoryRef.current || !isVideoTrack(track))) {
+          if (shouldScrobble(payload.positionSecs, track.duration_secs)) {
+            scrobbledRef.current = true;
+            setScrobbled(true);
+            invoke("record_play", { title: track.title, artistName: track.artist_name }).catch(console.error);
+          }
+        }
+
+        const duration = payload.durationSecs ?? track?.duration_secs ?? 0;
+        const actions = driveProgressMachine({
+          position: payload.positionSecs,
+          duration,
+          crossfadeSecs: crossfadeSecsRef.current,
+          next: peekNextRef.current(),
+          preloadedKey: nativePreloadedRef.current?.key ?? null,
+          preloadReady: nativePreloadedRef.current !== null,
+          isPreloading: nativePreloadingRef.current,
+          isCrossfading: nativeFadingRef.current,
+          prefetchRequested: prefetchRequestedRef.current,
+        });
+        if (actions.requestPrefetch) {
+          logPlayback(`Prefetch: requesting auto-continue (native, ${(duration - payload.positionSecs).toFixed(1)}s remaining)`);
+          prefetchRequestedRef.current = true;
+          prefetchNextRef.current();
+        }
+        if (actions.invalidatePreload && nativePreloadedRef.current) {
+          nativePreloadedRef.current = null;
+          nativeEngine.clearPreload().catch(console.error);
+        }
+        if (actions.preloadTrack) nativePreloadNext(actions.preloadTrack);
+        if (actions.startCrossfade) {
+          nativeFadingRef.current = true;
+          nativeEngine.startCrossfade(crossfadeSecsRef.current).catch((e) => {
+            console.error("Native crossfade failed to start:", e);
+            nativeFadingRef.current = false;
+          });
+        }
+      }),
+      subscribe<EngineDurationEvent>("engine-duration", ({ payload }) => {
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        if (payload.durationSecs > 0) setDurationSecs(payload.durationSecs);
+      }),
+      subscribe<EngineTrackChangedEvent>("engine-track-changed", ({ payload }) => {
+        const promoted = nativePreloadedRef.current;
+        if (!promoted || promoted.key !== payload.trackKey) return;
+        // Mirror of handleGaplessNext's state updates for an engine-side swap.
+        // Armed tracks are always audio (video is never gapless/crossfade-armed).
+        nativePreloadedRef.current = null;
+        nativeSessionRef.current = { key: promoted.key };
+        nativeLastPositionRef.current = 0;
+        nativeFadingRef.current = false;
+        setNativeVideoActive(false);
+        trackChangeSourceRef.current = "auto";
+        setCurrentTrack(promoted.track);
+        prefetchRequestedRef.current = false;
+        setCurrentAssetUrl(promoted.src);
+        setPositionSecs(0);
+        setDurationSecs(promoted.track.duration_secs ?? 0);
+        scrobbledRef.current = false;
+        setScrobbled(false);
+        playStartedAtRef.current = Math.floor(Date.now() / 1000);
+        advanceIndexRef.current();
+      }),
+      subscribe<EngineEndedEvent>("engine-ended", ({ payload }) => {
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        nativeSessionRef.current = null;
+        nativePreloadedRef.current = null;
+        nativeFadingRef.current = false;
+        setNativeVideoActive(false);
+        onNativeAutoEndedRef.current();
+      }),
+      subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
+        if (!nativeSessionRef.current) return;
+        if (payload.trackKey && payload.trackKey !== nativeSessionRef.current.key) return;
+        setPlaying(payload.playing);
+      }),
+      subscribe<EngineErrorEvent>("engine-error", ({ payload }) => {
+        // Blocklist regardless of which role the key held — a failed preload
+        // must not be retried natively either.
+        nativeBlockedKeysRef.current.add(payload.trackKey);
+        if (nativePreloadedRef.current?.key === payload.trackKey) nativePreloadedRef.current = null;
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        nativeSessionRef.current = null;
+        nativeFadingRef.current = false;
+        setNativeVideoActive(false);
+        logPlayback(`Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine: ${payload.message}`);
+        const track = currentTrackRef.current;
+        if (track && track.key === payload.trackKey) {
+          // Replay the same track at the same position via the browser engine.
+          pendingSeekRef.current = nativeLastPositionRef.current;
+          handlePlayRef.current(track, "auto");
+        }
+      }),
+    );
+  }, []);
 
   function finishCrossfade() {
     const outgoing = crossfadeOutgoingRef.current;
@@ -1017,7 +1252,7 @@ export function usePlayback(
       // Merge that metadata in so playWithSrc routes video → <video> and the
       // now-playing UI classifies it correctly via currentTrack.
       const playTrack = resolved.patch ? { ...track, ...resolved.patch } : track;
-      await playWithSrc(playTrack, resolved.src, source);
+      await playWithSrc(playTrack, resolved.src, source, resolved.engineSource);
     } catch (e) {
       // A newer play request has superseded this one: its synchronous
       // pause/load aborted this request's in-flight play(). The rejection is
@@ -1039,6 +1274,11 @@ export function usePlayback(
     }
   }
 
+  // Latest handlePlay for the once-mounted engine-event subscriptions (the
+  // function is recreated every render; the effect's closure would go stale).
+  const handlePlayRef = useRef(handlePlay);
+  handlePlayRef.current = handlePlay;
+
   function setPendingSeek(secs: number) {
     pendingSeekRef.current = secs;
   }
@@ -1053,7 +1293,7 @@ export function usePlayback(
     setLoadingTrack(track);
 
     try {
-      await playWithSrc(track, url);
+      await playWithSrc(track, url, "user", url.startsWith("http") ? { kind: "http", url } : null);
     } catch (e) {
       // Superseded by a newer play request — see handlePlay for details.
       if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
@@ -1113,7 +1353,7 @@ export function usePlayback(
     return true;
   }
 
-  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user") {
+  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user", engineSource?: EngineSource | null) {
     // Claim the crossfade machinery, not just the elements. A fade may have
     // (re)started during the caller's async resolve window, and since this function
     // forces slot A below, a surviving interval would keep ramping the active slot's
@@ -1147,6 +1387,49 @@ export function usePlayback(
 
     pendingSeekRef.current = 0;
 
+    // Route eligible tracks to the native mpv engine — audio everywhere the
+    // engine exists, video additionally gated on the platform's native video
+    // capability. On a play-command failure fall straight through to the
+    // browser engine (and blocklist the key so the gapless preload path skips
+    // native for it too).
+    const isVideo = isVideoTrack(track);
+    if (
+      useNativeEngineRef.current &&
+      engineSource &&
+      (!isVideo || useNativeVideoRef.current) &&
+      !nativeBlockedKeysRef.current.has(track.key)
+    ) {
+      nativePreloadedRef.current = null;
+      nativeFadingRef.current = false;
+      nativeLastPositionRef.current = seekTo > 0 ? seekTo : 0;
+      nativeSessionRef.current = { key: track.key };
+      try {
+        await nativeEngine.play({
+          source: engineSource,
+          trackKey: track.key,
+          seekSecs: seekTo > 0 ? seekTo : null,
+          volume: volumeRef.current,
+          muted: mutedRef.current,
+          video: isVideo,
+        });
+        setPlaying(true);
+        setNativeVideoActive(isVideo);
+        return;
+      } catch (e) {
+        console.error("Native engine play failed, falling back to browser engine:", e);
+        logPlayback(`Native play failed for "${track.title}" — browser fallback: ${e instanceof Error ? e.message : String(e)}`);
+        nativeSessionRef.current = null;
+        nativeBlockedKeysRef.current.add(track.key);
+      }
+    }
+    setNativeVideoActive(false);
+    // Leaving a native session for the element path: silence the engine.
+    if (nativeSessionRef.current) {
+      nativeSessionRef.current = null;
+      nativePreloadedRef.current = null;
+      nativeEngine.stop().catch(console.error);
+    }
+
     if (isVideoTrack(track)) {
       if (videoRef.current) {
         videoRef.current.src = src;
@@ -1173,6 +1456,17 @@ export function usePlayback(
   }
 
   function handlePause() {
+    // Native session: the engine owns play/pause; the media elements are empty.
+    // Optimistic UI flip as on the element path; engine-state reconciles.
+    if (nativeSessionRef.current) {
+      const shouldPause = playing;
+      setPlaying(!shouldPause);
+      nativeEngine.setPaused(shouldPause).catch((e) => {
+        console.error("Native pause toggle failed:", e);
+        setPlaying(shouldPause);
+      });
+      return;
+    }
     const el = getMediaElement();
     if (!el) return;
     if (el.paused) {
@@ -1216,6 +1510,13 @@ export function usePlayback(
   function handleStop() {
     cancelCrossfade();
     invalidatePreload();
+    if (nativeSessionRef.current) {
+      nativeSessionRef.current = null;
+      nativePreloadedRef.current = null;
+      nativeFadingRef.current = false;
+      nativeEngine.stop().catch(console.error);
+    }
+    setNativeVideoActive(false);
     const el = getMediaElement();
     if (el) {
       el.pause();
@@ -1289,6 +1590,12 @@ export function usePlayback(
   }
 
   function handleSeek(secs: number) {
+    if (nativeSessionRef.current) {
+      nativeLastPositionRef.current = secs;
+      nativeEngine.seek(secs).catch(console.error);
+      setPositionSecs(secs);
+      return;
+    }
     const el = getMediaElement();
     if (!el) return;
 
@@ -1310,6 +1617,14 @@ export function usePlayback(
   // on every seek — so the true position is currentTime + seekOffset. Reading
   // el.currentTime directly here would make a skip-ahead jump back to the start.
   function seekBy(deltaSecs: number) {
+    if (nativeSessionRef.current) {
+      const current = nativeLastPositionRef.current;
+      const target = durationSecs > 0
+        ? Math.max(0, Math.min(durationSecs, current + deltaSecs))
+        : Math.max(0, current + deltaSecs);
+      handleSeek(target);
+      return;
+    }
     const el = getMediaElement();
     if (!el) return;
 
@@ -1366,45 +1681,26 @@ export function usePlayback(
     // the active slot — letting it start a fade hands one to a track the incoming
     // explicit play doesn't own. Position/scrobble above still run; only the machine
     // is gated.
-    if (
-      canDriveTransitionMachine(isActive, transitioningRef.current) &&
-      effectiveDuration > 0 &&
-      effectiveDuration - effectivePosition > 0
-    ) {
-      const remaining = effectiveDuration - effectivePosition;
-      const cfSecs = crossfadeSecsRef.current;
-      const nextPeek = peekNextRef.current();
-      const needsStreamResolve = nextPeek && (!nextPeek.path || (!nextPeek.path.startsWith("file://") && !nextPeek.path.startsWith("http")));
-      const preloadAt = needsStreamResolve ? 45 : 20;
-
-      if (remaining <= preloadAt) {
-        // If no next track in queue, request auto-continue prefetch
-        if (!prefetchRequestedRef.current && !peekNextRef.current()) {
-          logPlayback(`Prefetch: requesting auto-continue (${remaining.toFixed(1)}s remaining)`);
-          prefetchRequestedRef.current = true;
-          prefetchNextRef.current();
-        }
-
-        // Preload the next track if available
-        const next = peekNextRef.current();
-        if (next) {
-          if (preloadedTrackRef.current?.key !== next.key) {
-            if (preloadedTrackRef.current) invalidatePreload();
-            if (!isPreloadingRef.current) preloadNext(next);
-            return;
-          }
-        }
+    if (canDriveTransitionMachine(isActive, transitioningRef.current)) {
+      const actions = driveProgressMachine({
+        position: effectivePosition,
+        duration: effectiveDuration,
+        crossfadeSecs: crossfadeSecsRef.current,
+        next: peekNextRef.current(),
+        preloadedKey: preloadedTrackRef.current?.key ?? null,
+        preloadReady: preloadReadyRef.current,
+        isPreloading: isPreloadingRef.current,
+        isCrossfading: isCrossfadingRef.current,
+        prefetchRequested: prefetchRequestedRef.current,
+      });
+      if (actions.requestPrefetch) {
+        logPlayback(`Prefetch: requesting auto-continue (${(effectiveDuration - effectivePosition).toFixed(1)}s remaining)`);
+        prefetchRequestedRef.current = true;
+        prefetchNextRef.current();
       }
-
-      // Crossfade trigger
-      if (
-        remaining <= cfSecs &&
-        cfSecs > 0 &&
-        preloadReadyRef.current &&
-        !isCrossfadingRef.current
-      ) {
-        startCrossfade();
-      }
+      if (actions.invalidatePreload) invalidatePreload();
+      if (actions.preloadTrack) preloadNext(actions.preloadTrack);
+      if (actions.startCrossfade) startCrossfade();
     }
   }
 
@@ -1478,6 +1774,14 @@ export function usePlayback(
   }
 
   function toggleFullscreen() {
+    // Native video session: window fullscreen + the native-fs container pin
+    // (see the nativeFullscreen state above).
+    if (nativeSessionRef.current && currentTrack && isVideoTrack(currentTrack)) {
+      const next = !nativeFullscreen;
+      setNativeFullscreen(next);
+      setWindowFullscreen(next);
+      return;
+    }
     const container = videoRef.current?.parentElement;
     if (!container) return;
     // Ignore a toggle while a previous enter/exit is still in flight — firing a
@@ -1536,6 +1840,8 @@ export function usePlayback(
     onPlaySlotA, onPlaySlotB,
     onPauseSlotA, onPauseSlotB,
     toggleFullscreen,
+    nativeVideoActive,
+    nativeFullscreen,
     playbackError, failedTrack, clearPlaybackError,
     loadingTrack,
     eqEnabled, setEqEnabled,
