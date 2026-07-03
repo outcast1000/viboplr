@@ -4036,6 +4036,9 @@ function App() {
               { kind: "check", text: "Dislike", checked: t.liked === -1, action: () => likeActions.handleToggleDislike(t) },
             ];
             specs.push({ kind: "submenu", text: "Rating", items: ratingItems });
+            specs.push({ kind: "item", text: "Start radio from this track", action: () => {
+              contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null });
+            } });
           }
           const widthItems: MenuItemSpec[] = (["small", "medium", "large"] as const).map(size => ({
             kind: "check" as const,
