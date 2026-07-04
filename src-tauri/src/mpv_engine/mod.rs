@@ -244,6 +244,7 @@ impl Engine {
     ) -> Result<Arc<Self>, String> {
         let mut decks = Vec::with_capacity(2);
         for i in 0..2 {
+            log::info!("mpv-engine: creating deck {i}");
             let mpv = Mpv::with_initializer(|init| {
                 init.set_property("vo", "null")?;
                 init.set_property("video", "no")?;
@@ -262,6 +263,20 @@ impl Engine {
                 Ok(())
             })
             .map_err(|e| format!("failed to initialize libmpv (deck {i}): {e}"))?;
+            // Diagnostic hook: VIBOPLR_MPV_LOG_FILE=C:\path\mpv writes full mpv
+            // debug logs per deck (mpv.deck0.log / mpv.deck1.log).
+            if let Ok(base) = std::env::var("VIBOPLR_MPV_LOG_FILE") {
+                let path = format!("{base}.deck{i}.log");
+                if let Err(e) = mpv.set_property("log-file", path.as_str()) {
+                    log::error!("mpv-engine: log-file setup failed: {e}");
+                } else {
+                    log::info!("mpv-engine: deck {i} logging to {path}");
+                }
+            }
+            let mpv_version = mpv
+                .get_property::<String>("mpv-version")
+                .unwrap_or_else(|_| "unknown".into());
+            log::info!("mpv-engine: deck {i} core initialized ({mpv_version})");
             decks.push(Deck { mpv });
         }
 
@@ -277,6 +292,7 @@ impl Engine {
         for i in 0..2 {
             engine.spawn_event_thread(i)?;
         }
+        log::info!("mpv-engine: engine ready (event threads running)");
         Ok(engine)
     }
 
@@ -440,6 +456,7 @@ impl Engine {
         muted: bool,
         video: bool,
     ) -> Result<(), String> {
+        log::info!("mpv-engine: play key={track_key} video={video} url_scheme={}", url.split(':').next().unwrap_or("(path)"));
         if video {
             #[cfg(any(target_os = "macos", windows))]
             self.ensure_video_layer()?;
@@ -484,7 +501,9 @@ impl Engine {
         deck.set_property("pause", false)
             .map_err(|e| format!("mpv unpause failed: {e}"))?;
         deck.command("loadfile", &[url, "replace"])
-            .map_err(|e| format!("mpv loadfile failed: {e}"))
+            .map_err(|e| format!("mpv loadfile failed: {e}"))?;
+        log::info!("mpv-engine: loadfile accepted on deck {active}");
+        Ok(())
     }
 
     /// Arm the next track. `crossfade` picks the transition machinery: standby
