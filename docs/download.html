@@ -68,7 +68,7 @@
           </div>
           <h3>macOS</h3>
           <p class="platform-note">macOS 10.13 (High Sierra) or later</p>
-          <a href="https://github.com/outcast1000/viboplr/releases/download/vundefined/Viboplr_undefined_aarch64.dmg" class="btn btn-primary">Download .dmg</a>
+          <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.150/Viboplr_0.9.150_aarch64.dmg" class="btn btn-primary">Download .dmg</a>
         </div>
         <div class="platform-card reveal" id="download-windows">
           <div class="platform-icon">
@@ -76,11 +76,56 @@
           </div>
           <h3>Windows</h3>
           <p class="platform-note">Windows 10 or later</p>
-          <a href="https://github.com/outcast1000/viboplr/releases/download/vundefined/Viboplr_undefined_x64_en-US.msi" class="btn btn-primary">Download .msi</a>
+          <a href="https://github.com/outcast1000/viboplr/releases/download/v0.9.150/Viboplr_0.9.150_x64-setup.exe" class="btn btn-primary">Download .exe</a>
         </div>
       </div>
     </div>
   </section>
+
+  <!-- Beta builds — populated at page load from the GitHub releases API when a
+       prerelease newer than the current stable exists; hidden otherwise. Beta
+       releases intentionally never rewrite this page (see scripts/bump.mjs),
+       so this section must stay dynamic. -->
+  <section class="section" id="beta-section" hidden>
+    <div class="container">
+      <div class="requirements reveal">
+        <h2>Beta builds</h2>
+        <p class="platform-note" style="margin-bottom: 12px;">
+          Early-access builds published between stable releases — less tested, updated often.
+          Installed betas keep themselves updated when <em>Settings&nbsp;&rarr;&nbsp;Beta updates</em>
+          is enabled, and move back to stable automatically when a newer stable ships.
+          Current beta: <span id="beta-version" class="gradient-text"></span>
+        </p>
+        <div id="beta-assets" class="hero-buttons" style="justify-content: flex-start; flex-wrap: wrap;"></div>
+      </div>
+    </div>
+  </section>
+  <script>
+    (function () {
+      fetch("https://api.github.com/repos/outcast1000/viboplr/releases?per_page=10")
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)); })
+        .then(function (releases) {
+          var newest = (releases || []).filter(function (r) { return !r.draft; })[0];
+          // An "active beta" = the newest release overall is a prerelease.
+          if (!newest || !newest.prerelease) return;
+          var installers = (newest.assets || []).filter(function (a) {
+            return /\.dmg$/.test(a.name) || /-setup\.exe$/.test(a.name);
+          });
+          if (installers.length === 0) return;
+          var list = document.getElementById("beta-assets");
+          installers.forEach(function (a) {
+            var link = document.createElement("a");
+            link.className = "btn btn-outline";
+            link.href = a.browser_download_url;
+            link.textContent = a.name;
+            list.appendChild(link);
+          });
+          document.getElementById("beta-version").textContent = newest.tag_name;
+          document.getElementById("beta-section").hidden = false;
+        })
+        .catch(function (e) { console.warn("Beta lookup failed:", e); });
+    })();
+  </script>
 
   <!-- System Requirements -->
   <section class="section section-alt">

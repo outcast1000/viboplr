@@ -12,7 +12,7 @@
   - The skin-gallery block is injected by `bump.mjs` **after the `Skins` feature**, so keep at least one feature after `Skins`.
   - After editing `features.json`, regenerate `features.html` to match (run the same logic `bump.mjs` Step 6 uses) so the two don't drift before a release.
 - **`plugins.html` / `skins.html`** — gallery pages; entries load dynamically from the gallery repos via `js/gallery.js` (nothing to hand-edit per plugin/skin).
-- **`download.html`, `support.html`, `history.html`** (changelog; also bump-generated).
+- **`download.html`, `support.html`, `history.html`** (changelog; also bump-generated). download.html also has a **beta-builds section** that is populated client-side from the GitHub releases API when the newest release is a prerelease (hidden otherwise) — beta releases never rewrite the site (`bump.mjs` skips all site steps for hyphenated versions), so this section must stay dynamic; don't convert it to bump-written static links.
 
 ## Core vs. plugin on the site
 
