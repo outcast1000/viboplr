@@ -15,6 +15,7 @@ const STORE_DEFAULTS = {
   positionSecs: 0,
   crossfadeSecs: 3,
   playbackEngine: "browser",
+  audioExclusive: false,
   windowWidth: null,
   windowHeight: null,
   windowX: null,

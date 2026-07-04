@@ -283,6 +283,8 @@ macro_rules! invoke_handler {
             commands::engine_set_replaygain,
             commands::engine_start_crossfade,
             commands::engine_set_video_bounds,
+            commands::engine_set_audio_exclusive,
+            commands::engine_get_audio_info,
             commands::p2p_start,
             commands::p2p_stop,
             commands::p2p_get_status,

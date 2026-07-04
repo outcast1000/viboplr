@@ -4,6 +4,7 @@ import {
   formatPlays,
   formatSource,
   formatQuality,
+  formatEngineQuality,
   formatTags,
   nextCycleIndex,
   nowPlayingItemTop,
@@ -89,6 +90,32 @@ describe("formatQuality", () => {
 
   it("returns null when nothing is known", () => {
     expect(formatQuality(null, null)).toBeNull();
+  });
+});
+
+describe("formatEngineQuality", () => {
+  it("shows codec + sample rate + bit depth from mpv sample formats", () => {
+    expect(formatEngineQuality({ codec: "flac", sampleRate: 44100, format: "s16", bitrate: null }))
+      .toBe("FLAC · 44.1 kHz · 16-bit");
+    expect(formatEngineQuality({ codec: "flac", sampleRate: 96000, format: "s32", bitrate: null }))
+      .toBe("FLAC · 96.0 kHz · 32-bit");
+    expect(formatEngineQuality({ codec: "aac", sampleRate: 48000, format: "floatp", bitrate: null }))
+      .toBe("AAC · 48.0 kHz · 32-bit float");
+  });
+
+  it("falls back to bitrate when the sample format is unknown", () => {
+    expect(formatEngineQuality({ codec: "mp3", sampleRate: null, format: null, bitrate: 320000 }))
+      .toBe("MP3 · 320 kbps");
+  });
+
+  it("falls back to sample rate alone", () => {
+    expect(formatEngineQuality({ codec: "vorbis", sampleRate: 44100, format: "weird", bitrate: null }))
+      .toBe("VORBIS · 44.1 kHz");
+  });
+
+  it("returns null for no info / empty info", () => {
+    expect(formatEngineQuality(null)).toBeNull();
+    expect(formatEngineQuality({ codec: null, sampleRate: null, format: null, bitrate: null })).toBeNull();
   });
 });
 

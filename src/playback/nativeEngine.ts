@@ -38,6 +38,24 @@ export interface EngineErrorEvent {
   message: string;
 }
 
+/** mpv media-title updates — ICY StreamTitle for live radio streams. Local
+ * files emit their tag title once; consumers drop titles equal to the
+ * track's own. */
+export interface EngineIcyTitleEvent {
+  trackKey: string;
+  title: string;
+}
+
+/** Live facts about what the engine is decoding (works for remote streams). */
+export interface EngineAudioInfo {
+  codec: string | null;
+  sampleRate: number | null;
+  /** mpv sample format string (e.g. "s16", "s32", "floatp"). */
+  format: string | null;
+  /** Instantaneous bitrate in bits/s. */
+  bitrate: number | null;
+}
+
 export interface EngineCapabilities {
   mpv: boolean;
   /** Native video rendering (macOS full build). */
@@ -122,5 +140,17 @@ export const nativeEngine = {
   },
   setVolume(volume: number, muted: boolean): Promise<void> {
     return whenCapable(() => invoke("engine_set_volume", { volume, muted }));
+  },
+  /** Exclusive device access (bit-perfect). Applies from the next track;
+   * the engine forces gapless-only arming while it's on. */
+  setAudioExclusive(enabled: boolean): Promise<void> {
+    return whenCapable(() => invoke("engine_set_audio_exclusive", { enabled }));
+  },
+  /** What the engine is decoding right now, or null (no native session /
+   * incapable build). */
+  getAudioInfo(): Promise<EngineAudioInfo | null> {
+    return probeEngineCapabilities().then((caps) =>
+      caps.mpv ? invoke<EngineAudioInfo | null>("engine_get_audio_info") : null,
+    );
   },
 };

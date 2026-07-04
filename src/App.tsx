@@ -182,6 +182,7 @@ function App() {
   const [mpvCapable, setMpvCapable] = useState(false);
   const [mpvVideoCapable, setMpvVideoCapable] = useState(false);
   const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("browser");
+  const [audioExclusive, setAudioExclusive] = useState(false);
   const useNativeEngineRef = useRef(false);
   useNativeEngineRef.current = mpvCapable && playbackEngine === "native";
   const useNativeVideoRef = useRef(false);
@@ -1519,7 +1520,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -1541,6 +1542,11 @@ function App() {
         }
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
         if (savedPlaybackEngine === "native") setPlaybackEngine("native");
+        if (savedAudioExclusive) {
+          setAudioExclusive(true);
+          // Cached engine-side until the engine exists; no-op on lean builds.
+          nativeEngine.setAudioExclusive(true).catch(console.error);
+        }
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
@@ -2383,6 +2389,14 @@ function App() {
     store.set("playbackEngine", engine).catch((e) => {
       console.error("Failed to persist playbackEngine:", e);
     });
+  }
+
+  function handleAudioExclusiveChange(enabled: boolean) {
+    setAudioExclusive(enabled);
+    store.set("audioExclusive", enabled).catch((e) => {
+      console.error("Failed to persist audioExclusive:", e);
+    });
+    nativeEngine.setAudioExclusive(enabled).catch(console.error);
   }
 
   function handleOnboardingClose() {
@@ -3458,6 +3472,8 @@ function App() {
               mpvCapable={mpvCapable}
               playbackEngine={playbackEngine}
               onPlaybackEngineChange={handlePlaybackEngineChange}
+              audioExclusive={audioExclusive}
+              onAudioExclusiveChange={handleAudioExclusiveChange}
               rgMode={playback.rgMode}
               onRgModeChange={playback.setRgMode}
               rgPreampDb={playback.rgPreampDb}
@@ -4004,6 +4020,7 @@ function App() {
         positionSecs={playback.positionSecs}
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}
+        icyTitle={playback.icyTitle}
         trackRank={trackRank}
         volume={playback.volume}
         muted={playback.muted}

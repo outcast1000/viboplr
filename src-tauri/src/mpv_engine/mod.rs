@@ -25,6 +25,13 @@
 mod af;
 #[cfg(target_os = "macos")]
 mod video_layer;
+#[cfg(windows)]
+mod video_layer_win;
+
+#[cfg(target_os = "macos")]
+use video_layer::VideoLayer as PlatformVideoLayer;
+#[cfg(windows)]
+use video_layer_win::VideoLayer as PlatformVideoLayer;
 
 pub use af::{EqParams, ReplayGainParams};
 
@@ -44,6 +51,21 @@ pub type EventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 struct DspSettings {
     eq: EqParams,
     rg: ReplayGainParams,
+    /// Exclusive audio-device access (CoreAudio hog mode / WASAPI exclusive).
+    exclusive: bool,
+}
+
+/// Live audio-stream facts read off the active deck — what's actually being
+/// decoded, which works for remote streams where tag-based readers can't.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineAudioInfo {
+    pub codec: Option<String>,
+    pub sample_rate: Option<i64>,
+    /// mpv sample format string (e.g. "s16", "s32", "floatp").
+    pub format: Option<String>,
+    /// Instantaneous bitrate in bits/s (VBR streams fluctuate).
+    pub bitrate: Option<f64>,
 }
 
 #[derive(Default)]
@@ -62,6 +84,7 @@ impl EngineHandle {
         if let Some(engine) = guard.as_ref() {
             return Ok(engine.clone());
         }
+        let ca_bundle = ensure_ca_bundle(app);
         let app_for_engine = app.clone();
         let app = app.clone();
         let sink: EventSink = Arc::new(move |event, payload| {
@@ -74,6 +97,18 @@ impl EngineHandle {
         let dsp = self.pending_dsp.lock().unwrap().clone();
         engine.apply_eq(&dsp.eq)?;
         engine.apply_replaygain(&dsp.rg)?;
+        engine.apply_audio_exclusive(dsp.exclusive)?;
+        // Give the static-OpenSSL TLS stack a CA store (see set_tls_ca_file).
+        // On failure we log and leave verification ON — https sources then
+        // fail closed and fall back to the browser engine per-track.
+        match ca_bundle {
+            Some(ca) => {
+                if let Err(e) = engine.set_tls_ca_file(&ca) {
+                    log::error!("mpv-engine: {e}");
+                }
+            }
+            None => log::error!("mpv-engine: no CA bundle available; https sources will fail verification"),
+        }
         *guard = Some(engine.clone());
         Ok(engine)
     }
@@ -97,6 +132,63 @@ impl EngineHandle {
             None => Ok(()),
         }
     }
+
+    pub fn set_audio_exclusive(&self, enabled: bool) -> Result<(), String> {
+        self.pending_dsp.lock().unwrap().exclusive = enabled;
+        match self.get() {
+            Some(engine) => engine.apply_audio_exclusive(enabled),
+            None => Ok(()),
+        }
+    }
+}
+
+/// A PEM CA bundle for mpv's statically-linked OpenSSL, exported from the
+/// macOS system trust store (`/usr/bin/security`) and cached in the app data
+/// dir for 30 days. Returns None (and https stays fail-closed) on any error.
+fn ensure_ca_bundle(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    use tauri::Manager;
+    let dir = app.path().app_data_dir().ok()?;
+    let path = dir.join("mpv-cacert.pem");
+    let fresh = path
+        .metadata()
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .map(|age| age < Duration::from_secs(30 * 24 * 3600))
+        .unwrap_or(false);
+    if fresh {
+        return Some(path);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("/usr/bin/security")
+            .args([
+                "find-certificate",
+                "-a",
+                "-p",
+                "/System/Library/Keychains/SystemRootCertificates.keychain",
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() || out.stdout.is_empty() {
+            log::error!("mpv-engine: exporting the system CA store failed");
+            return None;
+        }
+        if let Err(e) = std::fs::write(&path, &out.stdout) {
+            log::error!("mpv-engine: writing CA bundle failed: {e}");
+            return None;
+        }
+        return Some(path);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Windows ffmpeg builds typically use schannel (OS trust store); if the
+        // vendored build turns out to use OpenSSL there too, extend this.
+        if path.exists() {
+            return Some(path);
+        }
+        None
+    }
 }
 
 #[derive(Default)]
@@ -117,6 +209,9 @@ struct EngineState {
     /// User volume (0..1) and mute — the ramp thread scales from these.
     volume: f64,
     muted: bool,
+    /// Exclusive device access: a second deck can't open the device while the
+    /// active one holds it, so preload arming is forced to same-deck gapless.
+    exclusive: bool,
     fading: bool,
     /// Bumped when a fade starts or is snapped; a ramp whose generation is
     /// stale exits without touching the decks.
@@ -133,9 +228,10 @@ pub struct Engine {
     sink: EventSink,
     /// Present in production (used for main-thread AppKit work); None in tests.
     app: Option<tauri::AppHandle>,
-    /// macOS native video surface, created lazily on the first video play.
-    #[cfg(target_os = "macos")]
-    video: Mutex<Option<video_layer::VideoLayer>>,
+    /// Native video surface (macOS render layer / Windows wid child window),
+    /// created lazily on the first video play.
+    #[cfg(any(target_os = "macos", windows))]
+    video: Mutex<Option<PlatformVideoLayer>>,
 }
 
 impl Engine {
@@ -156,6 +252,10 @@ impl Engine {
                 init.set_property("idle", "yes")?;
                 init.set_property("terminal", "no")?;
                 init.set_property("audio-client-name", "Viboplr")?;
+                // No magic yt-dlp fallback for unloadable URLs — the app's
+                // stream-resolver chain owns that, and the hook would spawn a
+                // yt-dlp subprocess on every failed load otherwise.
+                init.set_property("ytdl", false)?;
                 if let Some(ao) = ao_override {
                     init.set_property("ao", ao)?;
                 }
@@ -171,7 +271,7 @@ impl Engine {
             state,
             sink,
             app,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             video: Mutex::new(None),
         });
         for i in 0..2 {
@@ -180,9 +280,29 @@ impl Engine {
         Ok(engine)
     }
 
-    /// Whether this engine can render video natively (macOS render layer).
-    pub fn video_supported() -> bool {
-        cfg!(target_os = "macos")
+    /// Windows: create the wid child window and hand it to deck 0 — mpv then
+    /// renders into it itself (no render thread on our side). Ships dark
+    /// behind the `VIBOPLR_WIN_NATIVE_VIDEO=1` capability override until
+    /// validated on a real Windows machine.
+    #[cfg(windows)]
+    fn ensure_video_layer(self: &Arc<Self>) -> Result<(), String> {
+        let mut guard = self.video.lock().unwrap();
+        if guard.is_some() {
+            return Ok(());
+        }
+        let app = self
+            .app
+            .as_ref()
+            .ok_or("video playback needs an app handle (not available in tests)")?;
+        let layer = video_layer_win::VideoLayer::create(app)?;
+        let deck = &self.decks[0].mpv;
+        deck.set_property("wid", layer.wid())
+            .and_then(|_| deck.set_property("vo", "gpu"))
+            .and_then(|_| deck.set_property("hwdec", "auto"))
+            .map_err(|e| format!("mpv wid/vo=gpu failed: {e}"))?;
+        log::info!("WINVIDEO: deck 0 wired — wid={:#x}, vo=gpu, hwdec=auto", layer.wid());
+        *guard = Some(layer);
+        Ok(())
     }
 
     /// Create the native video surface + render thread once. The render
@@ -258,14 +378,14 @@ impl Engine {
     /// Position the video surface (top-left-origin points within the window's
     /// content view). No-op until a video session created the layer.
     pub fn set_video_bounds(&self, x: f64, y: f64, width: f64, height: f64) -> Result<(), String> {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         {
             if let Some(layer) = self.video.lock().unwrap().as_ref() {
                 layer.set_bounds(x, y, width, height);
             }
             Ok(())
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", windows)))]
         {
             let _ = (x, y, width, height);
             Err("native video is not supported on this platform".into())
@@ -273,11 +393,11 @@ impl Engine {
     }
 
     fn set_video_layer_visible(&self, visible: bool) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         if let Some(layer) = self.video.lock().unwrap().as_ref() {
             layer.set_visible(visible);
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", windows)))]
         let _ = visible;
     }
 
@@ -293,6 +413,8 @@ impl Engine {
             .observe_property("time-pos", Format::Double, 1)
             .and_then(|_| client.observe_property("duration", Format::Double, 2))
             .and_then(|_| client.observe_property("pause", Format::Flag, 3))
+            // ICY StreamTitle for radio streams surfaces as media-title.
+            .and_then(|_| client.observe_property("media-title", Format::String, 4))
             .map_err(|e| format!("failed to observe mpv properties: {e}"))?;
 
         let state = self.state.clone();
@@ -319,9 +441,9 @@ impl Engine {
         video: bool,
     ) -> Result<(), String> {
         if video {
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             self.ensure_video_layer()?;
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", windows)))]
             return Err("native video is not supported on this platform".into());
         }
         self.snap_finish_fade();
@@ -367,7 +489,9 @@ impl Engine {
 
     /// Arm the next track. `crossfade` picks the transition machinery: standby
     /// deck (fade / hard-cut safety net) vs. active-deck playlist (gapless).
+    /// Exclusive mode forces gapless — the standby deck can't open the device.
     pub fn preload(&self, url: &str, track_key: &str, crossfade: bool) -> Result<(), String> {
+        let crossfade = crossfade && !self.state.lock().unwrap().exclusive;
         self.clear_preload()?;
         if crossfade {
             let standby = {
@@ -659,6 +783,51 @@ impl Engine {
         }
         Ok(())
     }
+
+    /// Point mpv's TLS stack at a CA bundle. The vendored libmpv links a
+    /// static OpenSSL whose baked-in CA path doesn't exist on user machines,
+    /// so without this every https source fails certificate verification.
+    pub fn set_tls_ca_file(&self, path: &std::path::Path) -> Result<(), String> {
+        let Some(path) = path.to_str() else {
+            return Err("CA bundle path is not valid UTF-8".into());
+        };
+        for deck in &self.decks {
+            deck.mpv
+                .set_property("tls-ca-file", path)
+                .map_err(|e| format!("mpv tls-ca-file failed: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// Exclusive device access. Takes effect when an audio output next opens
+    /// (i.e. from the next track). While on, preload arming is forced to
+    /// same-deck gapless — the standby deck can't open the held device.
+    pub fn apply_audio_exclusive(&self, enabled: bool) -> Result<(), String> {
+        self.state.lock().unwrap().exclusive = enabled;
+        for deck in &self.decks {
+            deck.mpv
+                .set_property("audio-exclusive", enabled)
+                .map_err(|e| format!("mpv audio-exclusive failed: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// What the active deck is actually decoding, or None when the engine
+    /// isn't playing. Works for remote streams that tag readers can't inspect.
+    pub fn audio_info(&self) -> Option<EngineAudioInfo> {
+        let active = {
+            let st = self.state.lock().unwrap();
+            st.current_key.as_ref()?;
+            st.active
+        };
+        let mpv = &self.decks[active].mpv;
+        Some(EngineAudioInfo {
+            codec: mpv.get_property::<String>("audio-codec-name").ok(),
+            sample_rate: mpv.get_property::<i64>("audio-params/samplerate").ok(),
+            format: mpv.get_property::<String>("audio-params/format").ok(),
+            bitrate: mpv.get_property::<f64>("audio-bitrate").ok(),
+        })
+    }
 }
 
 fn run_event_loop(
@@ -797,6 +966,21 @@ fn run_event_loop(
                             sink(
                                 "engine-state",
                                 json!({ "playing": !paused, "trackKey": key }),
+                            );
+                        }
+                    }
+                    ("media-title", PropertyData::Str(title)) => {
+                        // ICY StreamTitle updates for live radio streams. Local
+                        // files also emit this once (their tag title) — the
+                        // frontend drops titles equal to the track's own.
+                        let key = {
+                            let st = state.lock().unwrap();
+                            if deck != st.active { None } else { st.current_key.clone() }
+                        };
+                        if let Some(key) = key {
+                            sink(
+                                "engine-icy-title",
+                                json!({ "trackKey": key, "title": title }),
                             );
                         }
                     }
@@ -1017,6 +1201,118 @@ mod tests {
                 treble_db: -2.0,
             })
             .expect("simple EQ af graph");
+    }
+
+    #[test]
+    fn test_exclusive_mode_forces_gapless_arming() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav_a = dir.path().join("a.wav");
+        let wav_b = dir.path().join("b.wav");
+        write_wav(&wav_a, 0.6);
+        write_wav(&wav_b, 0.4);
+
+        let (sink, rx) = collect_events();
+        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        engine.apply_audio_exclusive(true).expect("exclusive");
+
+        engine
+            .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
+            .expect("play");
+        // Crossfade requested, but exclusive mode must arm same-deck gapless
+        // (the standby deck can't open an exclusively-held device).
+        engine
+            .preload(wav_b.to_str().unwrap(), "trk:b", true)
+            .expect("preload");
+        {
+            let st = engine.state.lock().unwrap();
+            assert_eq!(st.gapless_key.as_deref(), Some("trk:b"), "expected gapless arm");
+            assert!(st.xfade_key.is_none(), "standby deck must not be armed in exclusive mode");
+        }
+
+        let changed = wait_for(&rx, "engine-track-changed", Duration::from_secs(10));
+        assert_eq!(changed["reason"], "gapless");
+        let ended = wait_for(&rx, "engine-ended", Duration::from_secs(10));
+        assert_eq!(ended["trackKey"], "trk:b");
+    }
+
+    /// Export the macOS system trust store as PEM (mirrors ensure_ca_bundle,
+    /// which needs an AppHandle the tests don't have).
+    fn test_ca_bundle(dir: &std::path::Path) -> std::path::PathBuf {
+        let path = dir.join("cacert.pem");
+        let out = std::process::Command::new("/usr/bin/security")
+            .args([
+                "find-certificate",
+                "-a",
+                "-p",
+                "/System/Library/Keychains/SystemRootCertificates.keychain",
+            ])
+            .output()
+            .expect("export system CA store");
+        std::fs::write(&path, &out.stdout).unwrap();
+        path
+    }
+
+    /// Network-dependent — run explicitly:
+    /// `cargo test --features mpv-engine test_https_file -- --ignored --nocapture`
+    /// Proves mpv's https/TLS stack works by playing a remote file to EOF.
+    #[test]
+    #[ignore]
+    fn test_https_file_playback_and_audio_info() {
+        let dir = tempfile::tempdir().unwrap();
+        let (sink, rx) = collect_events();
+        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        engine.set_tls_ca_file(&test_ca_bundle(dir.path())).expect("tls ca");
+        engine
+            .play(
+                "https://github.com/anars/blank-audio/raw/master/2-seconds-of-silence.mp3",
+                "trk:https",
+                None,
+                0.5,
+                false,
+                false,
+            )
+            .expect("play https file");
+        let pos = wait_for(&rx, "engine-position", Duration::from_secs(30));
+        assert_eq!(pos["trackKey"], "trk:https");
+        let info = engine.audio_info().expect("audio info");
+        eprintln!("[https-test] info: {info:?}");
+        assert!(info.codec.is_some());
+        let ended = wait_for(&rx, "engine-ended", Duration::from_secs(30));
+        assert_eq!(ended["trackKey"], "trk:https");
+    }
+
+    /// Network-dependent — run explicitly:
+    /// `cargo test --features mpv-engine test_live_radio -- --ignored --nocapture`
+    /// Plays a public Icecast stream and asserts ICY titles + live audio info.
+    #[test]
+    #[ignore]
+    fn test_live_radio_stream_icy_and_audio_info() {
+        let dir = tempfile::tempdir().unwrap();
+        let (sink, rx) = collect_events();
+        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        engine.set_tls_ca_file(&test_ca_bundle(dir.path())).expect("tls ca");
+        engine
+            .play("https://ice1.somafm.com/groovesalad-128-mp3", "trk:radio", None, 0.5, false, false)
+            .expect("play stream");
+
+        // Position events prove the stream is decoding.
+        let pos = wait_for(&rx, "engine-position", Duration::from_secs(30));
+        assert_eq!(pos["trackKey"], "trk:radio");
+
+        // ICY StreamTitle surfaces via media-title.
+        let icy = wait_for(&rx, "engine-icy-title", Duration::from_secs(30));
+        assert_eq!(icy["trackKey"], "trk:radio");
+        let title = icy["title"].as_str().unwrap_or_default();
+        eprintln!("[radio-test] ICY title: {title}");
+        assert!(!title.is_empty());
+
+        // Live decode facts for a stream no tag reader could inspect.
+        let info = engine.audio_info().expect("audio info");
+        eprintln!("[radio-test] info: {info:?}");
+        assert_eq!(info.codec.as_deref(), Some("mp3"));
+        assert!(info.sample_rate.unwrap_or(0) > 0);
+
+        engine.stop().expect("stop");
     }
 
     #[test]

@@ -89,6 +89,9 @@ interface NowPlayingBarProps {
   positionSecs: number;
   durationSecs: number;
   scrobbled: boolean;
+  /** Live ICY StreamTitle for internet-radio streams (mpv engine) — shown in
+   * place of the static Artist · Album line, which is empty for stations. */
+  icyTitle?: string | null;
   trackRank: number | null;
   volume: number;
   muted: boolean;
@@ -178,6 +181,7 @@ export function NowPlayingBar({
   waveformPeaks,
   currentTrack, playing,
   positionSecs, durationSecs, scrobbled,
+  icyTitle,
   trackRank,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
@@ -606,7 +610,14 @@ export function NowPlayingBar({
                   })()}
                   {/* Static artist · album. The cycling Now Playing info section
                       (Quality, Source, Plays, Tags, …) lives only in the mini
-                      player now — the full bar keeps a plain, always-visible line. */}
+                      player now — the full bar keeps a plain, always-visible line.
+                      For live radio streams the ICY "now streaming" title takes
+                      this slot instead (stations have no artist/album). */}
+                  {icyTitle ? (
+                    <span className="now-artist-album" title={icyTitle}>
+                      <span className="slide-text-enter" key={icyTitle}>{icyTitle}</span>
+                    </span>
+                  ) : (
                   <span className="now-artist-album">
                     {currentTrack.artist_name ? (
                       <span
@@ -626,6 +637,7 @@ export function NowPlayingBar({
                       </>
                     )}
                   </span>
+                  )}
                   {!miniMode && (
                     <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} pluginsLoaded={pluginsLoaded} onTagsChange={setTrackTags} />
                   )}

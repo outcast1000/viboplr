@@ -895,6 +895,8 @@ interface SettingsPanelProps {
   mpvCapable: boolean;
   playbackEngine: "browser" | "native";
   onPlaybackEngineChange: (engine: "browser" | "native") => void;
+  audioExclusive: boolean;
+  onAudioExclusiveChange: (enabled: boolean) => void;
   rgMode: "off" | "track" | "album";
   onRgModeChange: (mode: "off" | "track" | "album") => void;
   rgPreampDb: number;
@@ -973,6 +975,8 @@ export function SettingsPanel({
   mpvCapable,
   playbackEngine,
   onPlaybackEngineChange,
+  audioExclusive,
+  onAudioExclusiveChange,
   rgMode,
   onRgModeChange,
   rgPreampDb,
@@ -1129,6 +1133,22 @@ export function SettingsPanel({
                           <option value="browser">Browser</option>
                           <option value="native">mpv (beta)</option>
                         </select>
+                      </div>
+                    )}
+                    {mpvCapable && playbackEngine === "native" && (
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Exclusive audio access</span>
+                          <span className="settings-description">Opens the output device exclusively (bit-perfect: also disable EQ and ReplayGain and keep volume at 100%). Disables crossfade; applies from the next track. Other apps can't play audio while active.</span>
+                        </div>
+                        <div
+                          className={`ds-toggle ${audioExclusive ? "on" : ""}`}
+                          onClick={() => onAudioExclusiveChange(!audioExclusive)}
+                          role="switch"
+                          aria-checked={audioExclusive}
+                        >
+                          <div className="ds-toggle-thumb" />
+                        </div>
                       </div>
                     )}
                     <div className="settings-row">

@@ -30,10 +30,17 @@ impl EngineSource {
 
 #[tauri::command]
 pub fn engine_capabilities() -> serde_json::Value {
+    // Native video: macOS (render-API layer) is validated; the Windows wid
+    // layer is implemented but ships DARK until validated on real hardware —
+    // enable for a validation session with VIBOPLR_WIN_NATIVE_VIDEO=1.
+    let win_video_override = cfg!(all(feature = "mpv-engine", windows))
+        && std::env::var("VIBOPLR_WIN_NATIVE_VIDEO").is_ok_and(|v| v == "1");
+    if win_video_override {
+        log::info!("WINVIDEO: native video capability enabled via VIBOPLR_WIN_NATIVE_VIDEO=1");
+    }
     serde_json::json!({
         "mpv": cfg!(feature = "mpv-engine"),
-        // Native video rendering (render-API layer) — macOS full build only.
-        "video": cfg!(all(feature = "mpv-engine", target_os = "macos")),
+        "video": cfg!(all(feature = "mpv-engine", target_os = "macos")) || win_video_override,
     })
 }
 
@@ -57,6 +64,41 @@ pub fn engine_play(
     {
         let _ = (app, state, source, track_key, seek_secs, volume, muted, video);
         Err(NOT_AVAILABLE.into())
+    }
+}
+
+#[tauri::command]
+pub fn engine_set_audio_exclusive(
+    state: tauri::State<'_, super::AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    #[cfg(feature = "mpv-engine")]
+    {
+        // Cached on the handle when the engine isn't running; applied at creation.
+        state.mpv_engine.set_audio_exclusive(enabled)
+    }
+    #[cfg(not(feature = "mpv-engine"))]
+    {
+        let _ = (state, enabled);
+        Err(NOT_AVAILABLE.into())
+    }
+}
+
+/// Live codec/samplerate/format/bitrate of whatever the engine is decoding,
+/// or null when no native session is playing.
+#[tauri::command]
+pub fn engine_get_audio_info(
+    state: tauri::State<'_, super::AppState>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(feature = "mpv-engine")]
+    {
+        let info = state.mpv_engine.get().and_then(|engine| engine.audio_info());
+        serde_json::to_value(info).map_err(|e| format!("serialize audio info: {e}"))
+    }
+    #[cfg(not(feature = "mpv-engine"))]
+    {
+        let _ = state;
+        Ok(serde_json::Value::Null)
     }
 }
 

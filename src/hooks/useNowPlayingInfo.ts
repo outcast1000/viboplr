@@ -7,6 +7,7 @@ import { isLocalTrack, parseUrlScheme } from "../queueEntry";
 import { formatDuration } from "../utils";
 import { useLyrics } from "./useLyrics";
 import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio } from "../utils/lyrics";
+import { nativeEngine } from "../playback/nativeEngine";
 
 interface AudioProps { sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }
 
@@ -199,6 +200,43 @@ export function formatQuality(format: string | null | undefined, props: AudioPro
     parts.push(`${props.bitrate} kbps`);
   } else if (props?.sample_rate) {
     parts.push(`${(props.sample_rate / 1000).toFixed(1)} kHz`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/** Bit depth for an mpv sample-format string ("s16" → "16-bit",
+ *  "floatp" → "32-bit float"), or null for unknown formats. */
+function bitDepthFromMpvFormat(format: string | null | undefined): string | null {
+  if (!format) return null;
+  const f = format.toLowerCase().replace(/p$/, ""); // planar variants
+  if (f === "u8" || f === "s8") return "8-bit";
+  if (f === "s16") return "16-bit";
+  if (f === "s24") return "24-bit";
+  if (f === "s32") return "32-bit";
+  if (f === "float" || f === "f32") return "32-bit float";
+  if (f === "double" || f === "f64") return "64-bit float";
+  return null;
+}
+
+/** Quality string from the mpv engine's live decode facts (works for remote
+ *  streams that tag readers can't inspect), or null when nothing is known.
+ *  Pure + exported for tests. */
+export function formatEngineQuality(info: {
+  codec: string | null;
+  sampleRate: number | null;
+  format: string | null;
+  bitrate: number | null;
+} | null): string | null {
+  if (!info) return null;
+  const parts: string[] = [];
+  if (info.codec) parts.push(info.codec.toUpperCase());
+  const depth = bitDepthFromMpvFormat(info.format);
+  if (info.sampleRate && depth) {
+    parts.push(`${(info.sampleRate / 1000).toFixed(1)} kHz · ${depth}`);
+  } else if (info.bitrate && info.bitrate > 0) {
+    parts.push(`${Math.round(info.bitrate / 1000)} kbps`);
+  } else if (info.sampleRate) {
+    parts.push(`${(info.sampleRate / 1000).toFixed(1)} kHz`);
   }
   return parts.length > 0 ? parts.join(" · ") : null;
 }
@@ -406,6 +444,15 @@ export function useNowPlayingInfo({
         return track.duration_secs ? { id, segments: [{ text: formatDuration(track.duration_secs) }] } : null;
       }
       if (id === "builtin:quality") {
+        // Prefer the mpv engine's live decode facts — the only source that
+        // works for remote/streamed audio. Null when no native session plays.
+        try {
+          const engineInfo = await withTimeout(nativeEngine.getAudioInfo(), null);
+          const engineText = formatEngineQuality(engineInfo);
+          if (engineText) return { id, segments: [{ text: engineText }] };
+        } catch (e) {
+          console.error("Failed to resolve engine audio quality:", e);
+        }
         let props: AudioProps | null = null;
         if (track.path && isLocalTrack(track)) {
           try {

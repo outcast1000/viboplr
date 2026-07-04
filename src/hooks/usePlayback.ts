@@ -13,6 +13,7 @@ import {
   type EngineEndedEvent,
   type EngineStateEvent,
   type EngineErrorEvent,
+  type EngineIcyTitleEvent,
 } from "../playback/nativeEngine";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import {
@@ -222,6 +223,10 @@ export function usePlayback(
   // would move the webview to its own space, away from the native layer).
   // This state is the source of truth; the window follows it.
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  // Live stream title (ICY StreamTitle) for internet-radio sessions — the
+  // song the station is currently playing. Null for ordinary tracks (the
+  // engine's media-title then equals the track's own title and is dropped).
+  const [icyTitle, setIcyTitle] = useState<string | null>(null);
 
   function setWindowFullscreen(fullscreen: boolean) {
     import("@tauri-apps/api/window")
@@ -941,6 +946,7 @@ export function usePlayback(
         nativeLastPositionRef.current = 0;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
+        setIcyTitle(null);
         trackChangeSourceRef.current = "auto";
         setCurrentTrack(promoted.track);
         prefetchRequestedRef.current = false;
@@ -958,12 +964,28 @@ export function usePlayback(
         nativePreloadedRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
+        setIcyTitle(null);
         onNativeAutoEndedRef.current();
       }),
       subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
         if (!nativeSessionRef.current) return;
         if (payload.trackKey && payload.trackKey !== nativeSessionRef.current.key) return;
         setPlaying(payload.playing);
+      }),
+      subscribe<EngineIcyTitleEvent>("engine-icy-title", ({ payload }) => {
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        const title = payload.title.trim();
+        const track = currentTrackRef.current;
+        // Only direct http(s) sources can be live streams; local/scheme tracks
+        // report their own tag title (or filename) here — not a live feed.
+        const isDirectStream = !!track?.path && (track.path.startsWith("http://") || track.path.startsWith("https://"));
+        // Before real ICY data arrives, mpv reports the URL's basename — drop it.
+        const urlBasename = track?.path?.split("/").pop() ?? "";
+        if (!isDirectStream || !title || title === track?.title || title === track?.path || title === urlBasename) {
+          setIcyTitle(null);
+        } else {
+          setIcyTitle(title);
+        }
       }),
       subscribe<EngineErrorEvent>("engine-error", ({ payload }) => {
         // Blocklist regardless of which role the key held — a failed preload
@@ -974,6 +996,7 @@ export function usePlayback(
         nativeSessionRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
+        setIcyTitle(null);
         logPlayback(`Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine: ${payload.message}`);
         const track = currentTrackRef.current;
         if (track && track.key === payload.trackKey) {
@@ -1377,6 +1400,7 @@ export function usePlayback(
     setCurrentAssetUrl(src);
     setPositionSecs(seekTo > 0 ? seekTo : 0);
     setDurationSecs(track.duration_secs ?? 0);
+    setIcyTitle(null);
     scrobbledRef.current = false;
     setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
@@ -1517,6 +1541,7 @@ export function usePlayback(
       nativeEngine.stop().catch(console.error);
     }
     setNativeVideoActive(false);
+    setIcyTitle(null);
     const el = getMediaElement();
     if (el) {
       el.pause();
@@ -1842,6 +1867,7 @@ export function usePlayback(
     toggleFullscreen,
     nativeVideoActive,
     nativeFullscreen,
+    icyTitle,
     playbackError, failedTrack, clearPlaybackError,
     loadingTrack,
     eqEnabled, setEqEnabled,
