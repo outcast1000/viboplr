@@ -175,6 +175,14 @@ for (const { path, replace } of versionFiles) {
   }
 }
 
+// Sync Cargo.lock with the bumped Cargo.toml. CI runs `cargo test --locked`,
+// which refuses a stale lock — without this the release commit only passed
+// CI when an editor's rust-analyzer happened to refresh the lock in time
+// (this broke the first beta release).
+console.log("  Syncing Cargo.lock...");
+execSync("cargo update --workspace", { cwd: resolve(root, "src-tauri"), stdio: "pipe" });
+console.log("✓ src-tauri/Cargo.lock");
+
 // ---------------------------------------------------------------------------
 // Steps 3–6 — site updates (badge/URLs, changelog, screenshots, features).
 // Skipped entirely for BETA releases: the public site keeps pointing at the
