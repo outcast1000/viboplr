@@ -33,7 +33,11 @@ function main() {
     process.exit(0);
   }
 
-  const tags = getTags();
+  // A STABLE release's notes span since the previous STABLE (commits shipped
+  // through betas must appear in the stable's notes, not vanish). A BETA's
+  // notes span since the previous tag of any kind — "what's new in this beta".
+  const isStable = !currentTag.includes('-');
+  const tags = getTags().filter((t) => t === currentTag || !isStable || !t.includes('-'));
   const currentIdx = tags.indexOf(currentTag);
   const previousTag = currentIdx >= 0 && currentIdx < tags.length - 1
     ? tags[currentIdx + 1]

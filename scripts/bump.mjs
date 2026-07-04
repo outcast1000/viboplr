@@ -10,6 +10,13 @@
 //   5. Regenerates screenshots (only with --screenshots, requires Vite dev server)
 //   6. Regenerates docs/features.html from docs/features.json
 //   7. Commits, tags, and pushes (with --autocommit)
+//
+// BETA releases: a hyphenated version (e.g. 0.9.152-beta.1) switches to beta
+// mode automatically — the version files are bumped and the tag is pushed
+// (release.yml publishes hyphenated tags as GitHub PRERELEASES, invisible to
+// the stable updater channel), but ALL site updates (steps 3–6) are skipped
+// so viboplr.com keeps advertising the current stable. Beta tags may be cut
+// from any branch; stable releases must be cut from main.
 
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { execSync } from "child_process";
@@ -22,6 +29,16 @@ const args = process.argv.slice(2);
 const autocommit = args.includes("--autocommit");
 const withScreenshots = args.includes("--screenshots");
 let version = args.find((a) => !a.startsWith("--"));
+
+if (version && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) {
+  console.error(`Invalid version "${version}" — expected x.y.z or x.y.z-suffix (e.g. 0.9.152-beta.1)`);
+  process.exit(1);
+}
+// Hyphen = prerelease = beta channel (mirrors the release.yml prerelease guard).
+const isBeta = !!version && version.includes("-");
+if (isBeta) {
+  console.log(`BETA release ${version}: site updates (badge, download URLs, changelog, features) will be SKIPPED.\n`);
+}
 
 
 
@@ -56,8 +73,16 @@ console.log("\n✓ All checks passed\n");
 // ---------------------------------------------------------------------------
 
 const REPO = "outcast1000/viboplr";
-const DMG_URL = `https://github.com/${REPO}/releases/download/v${version}/Viboplr_${version}_aarch64.dmg`;
-const MSI_URL = `https://github.com/${REPO}/releases/download/v${version}/Viboplr_${version}_x64_en-US.msi`;
+// NOTE: computed lazily (see urls()) — `version` may still be undefined here
+// when the patch-number default in Step 2 hasn't run yet. Building these
+// eagerly is what once wrote "vundefined" URLs into the site.
+// Windows ships an NSIS installer (bundle targets: nsis/dmg/app) — not MSI.
+function urls() {
+  return {
+    dmg: `https://github.com/${REPO}/releases/download/v${version}/Viboplr_${version}_aarch64.dmg`,
+    exe: `https://github.com/${REPO}/releases/download/v${version}/Viboplr_${version}_x64-setup.exe`,
+  };
+}
 const DOWNLOAD_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
 
 // ---------------------------------------------------------------------------
@@ -127,8 +152,8 @@ if (!version) {
 
 console.log(`\nBumping version to ${version}...\n`);
 
-if (!/^\d+\.\d+\.\d+$/.test(version)) {
-  console.error("Usage: node scripts/bump.mjs [version]  (e.g. 0.2.0)");
+if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) {
+  console.error("Usage: node scripts/bump.mjs [version]  (e.g. 0.2.0, or 0.2.0-beta.1 for a beta prerelease)");
   process.exit(1);
 }
 
@@ -151,6 +176,14 @@ for (const { path, replace } of versionFiles) {
 }
 
 // ---------------------------------------------------------------------------
+// Steps 3–6 — site updates (badge/URLs, changelog, screenshots, features).
+// Skipped entirely for BETA releases: the public site keeps pointing at the
+// current stable; the beta exists only as a GitHub prerelease.
+// ---------------------------------------------------------------------------
+
+if (!isBeta) {
+
+// ---------------------------------------------------------------------------
 // Step 3 — Update static version badge + download URLs in docs/ pages
 // ---------------------------------------------------------------------------
 
@@ -167,19 +200,21 @@ function updateVersionBadge(html) {
 
 function updateDownloadUrls(html) {
   // Replace existing versioned GitHub release URLs
+  const { dmg, exe } = urls();
   html = html.replace(
     /https:\/\/github\.com\/outcast1000\/viboplr\/releases\/download\/v[^/]+\/Viboplr_[^"]*_aarch64\.dmg/g,
-    DMG_URL
+    dmg
   );
+  // Matches both the current NSIS name and the legacy (broken) MSI links.
   html = html.replace(
-    /https:\/\/github\.com\/outcast1000\/viboplr\/releases\/download\/v[^/]+\/Viboplr_[^"]*_x64_en-US\.msi/g,
-    MSI_URL
+    /https:\/\/github\.com\/outcast1000\/viboplr\/releases\/download\/v[^/]+\/Viboplr_[^"]*_x64[^"]*\.(?:msi|exe)/g,
+    exe
   );
   // Replace placeholder anchor links (first-time setup)
-  html = html.replace(/href="download\.html#download-macos"/g, `href="${DMG_URL}"`);
-  html = html.replace(/href="download\.html#download-windows"/g, `href="${MSI_URL}"`);
-  html = html.replace(/(<a\b[^>]*?)href="#download-macos"/g, `$1href="${DMG_URL}"`);
-  html = html.replace(/(<a\b[^>]*?)href="#download-windows"/g, `$1href="${MSI_URL}"`);
+  html = html.replace(/href="download\.html#download-macos"/g, `href="${dmg}"`);
+  html = html.replace(/href="download\.html#download-windows"/g, `href="${exe}"`);
+  html = html.replace(/(<a\b[^>]*?)href="#download-macos"/g, `$1href="${dmg}"`);
+  html = html.replace(/(<a\b[^>]*?)href="#download-windows"/g, `$1href="${exe}"`);
   return html;
 }
 
@@ -224,9 +259,11 @@ console.log("\nGenerating changelog...\n");
 
 let latestTag = null;
 try {
-  latestTag = git("describe --tags --abbrev=0");
+  // Exclude prerelease (beta) tags: a stable's public changelog must span
+  // since the last STABLE, so commits shipped through betas aren't dropped.
+  latestTag = git("describe --tags --abbrev=0 --exclude='*-*'");
 } catch {
-  // no tags yet
+  // no stable tags yet
 }
 
 const range = latestTag ? `${latestTag}..HEAD` : "HEAD";
@@ -257,8 +294,8 @@ const timelineEntry = `<div class="timeline-entry reveal">
           ${changelogHtml}
         </div>
         <div class="timeline-assets">
-            <a href="${DMG_URL}" class="timeline-asset-link">${DOWNLOAD_ICON} Viboplr_${version}_aarch64.dmg</a>
-            <a href="${MSI_URL}" class="timeline-asset-link">${DOWNLOAD_ICON} Viboplr_${version}_x64_en-US.msi</a>
+            <a href="${urls().dmg}" class="timeline-asset-link">${DOWNLOAD_ICON} Viboplr_${version}_aarch64.dmg</a>
+            <a href="${urls().exe}" class="timeline-asset-link">${DOWNLOAD_ICON} Viboplr_${version}_x64-setup.exe</a>
         </div>
       </div>`;
 
@@ -434,7 +471,7 @@ ${featureSectionsWithGallery}
       <h2>Ready to try <span class="gradient-text">Viboplr</span>?</h2>
       <p>Free, fast, and built for music lovers.</p>
       <div class="hero-buttons">
-        <a href="${DMG_URL}" class="btn btn-primary btn-lg">Download Now</a>
+        <a href="${urls().dmg}" class="btn btn-primary btn-lg">Download Now</a>
       </div>
     </div>
   </section>
@@ -465,9 +502,21 @@ ${featureSectionsWithGallery}
   console.error("⚠ docs/features.json not found — skipping features page generation");
 }
 
+} // end !isBeta (site updates)
+
 // ---------------------------------------------------------------------------
 // Step 7 — Git operations
 // ---------------------------------------------------------------------------
+
+// Stable releases ship the site and MUST come from main; betas may be cut
+// from any branch (e.g. a feature branch under test) and push that branch.
+const currentBranch = git("rev-parse --abbrev-ref HEAD");
+if (!isBeta && currentBranch !== "main") {
+  console.error(`\n✗ Stable releases must be cut from main (currently on "${currentBranch}").`);
+  console.error(`  Use a hyphenated version (e.g. ${version}-beta.1) for a branch beta.`);
+  process.exit(1);
+}
+const pushCmd = `git push origin ${currentBranch} --tags`;
 
 if (autocommit) {
   console.log("\nCommitting and tagging...\n");
@@ -482,13 +531,13 @@ if (autocommit) {
   run("Staging changes...", "git add -A");
   run("Creating release commit...", `git commit -m "release: v${version}"`);
   run("Tagging release...", `git tag v${version}`);
-  run("Pushing to origin...", "git push origin main --tags");
-  console.log(`Done! Released v${version}.`);
+  run("Pushing to origin...", pushCmd);
+  console.log(`Done! Released v${version}${isBeta ? " (beta prerelease)" : ""}.`);
 } else {
   console.log(`\nFiles updated. To commit and tag manually:\n`);
   console.log(`  git add -A`);
   console.log(`  git commit -m "release: v${version}"`);
   console.log(`  git tag v${version}`);
-  console.log(`  git push origin main --tags`);
+  console.log(`  ${pushCmd}`);
   console.log(`\nOr re-run with --autocommit to do this automatically.`);
 }
