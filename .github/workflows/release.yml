@@ -76,11 +76,16 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.get-tag.outputs.tag }}"
+          # Hyphenated tags (v1.2.3-mpv.1, -beta.1, …) become PRERELEASES:
+          # GitHub's releases/latest — which the auto-updater endpoints resolve —
+          # skips prereleases, so branch/test builds can never reach real users.
+          PRERELEASE=false
+          if [[ "$TAG" == *-* ]]; then PRERELEASE=true; fi
           gh release create "$TAG" \
             --title "Viboplr $TAG" \
             --notes-file /tmp/release-body.md \
             --draft=false \
-            --prerelease=false \
+            --prerelease=$PRERELEASE \
             || echo "Release already exists"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,7 +151,8 @@ jobs:
           releaseName: 'Viboplr ${{ needs.ci-and-release.outputs.tag }}'
           releaseBody: ''
           releaseDraft: false
-          prerelease: false
+          # Keep in sync with the create-release step: hyphenated tags = prerelease.
+          prerelease: ${{ contains(needs.ci-and-release.outputs.tag, '-') }}
           includeUpdaterJson: ${{ matrix.variant == 'lean' }}
           args: ${{ matrix.args }}
 
