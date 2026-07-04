@@ -285,6 +285,8 @@ macro_rules! invoke_handler {
             commands::engine_set_video_bounds,
             commands::engine_set_audio_exclusive,
             commands::engine_get_audio_info,
+            commands::app_update_check,
+            commands::app_update_install,
             commands::p2p_start,
             commands::p2p_stop,
             commands::p2p_get_status,
@@ -1287,6 +1289,7 @@ pub fn run() {
                     transcode_sessions,
                     dep_cache,
                     p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
+                    pending_app_update: tokio::sync::Mutex::new(None),
                     #[cfg(feature = "mpv-engine")]
                     mpv_engine: Default::default(),
                 });

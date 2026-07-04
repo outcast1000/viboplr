@@ -897,6 +897,8 @@ interface SettingsPanelProps {
   onPlaybackEngineChange: (engine: "browser" | "native") => void;
   audioExclusive: boolean;
   onAudioExclusiveChange: (enabled: boolean) => void;
+  betaUpdates: boolean;
+  onBetaUpdatesChange: (enabled: boolean) => void;
   rgMode: "off" | "track" | "album";
   onRgModeChange: (mode: "off" | "track" | "album") => void;
   rgPreampDb: number;
@@ -977,6 +979,8 @@ export function SettingsPanel({
   onPlaybackEngineChange,
   audioExclusive,
   onAudioExclusiveChange,
+  betaUpdates,
+  onBetaUpdatesChange,
   rgMode,
   onRgModeChange,
   rgPreampDb,
@@ -1113,6 +1117,20 @@ export function SettingsPanel({
                       )}
                     </div>
                   </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Beta updates</span>
+                        <span className="settings-description">Also receive beta releases through the auto-updater. You'll move back to stable automatically when a newer stable version ships.</span>
+                      </div>
+                      <div
+                        className={`ds-toggle ${betaUpdates ? "on" : ""}`}
+                        onClick={() => onBetaUpdatesChange(!betaUpdates)}
+                        role="switch"
+                        aria-checked={betaUpdates}
+                      >
+                        <div className="ds-toggle-thumb" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 

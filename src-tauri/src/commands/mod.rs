@@ -49,6 +49,8 @@ mod skins_cmd;
 pub use skins_cmd::*;
 mod transcode;
 pub use transcode::*;
+mod updates;
+pub use updates::*;
 mod waveforms;
 pub use waveforms::*;
 mod youtube;
@@ -108,6 +110,8 @@ pub struct AppState {
     pub transcode_sessions: transcode_server::Sessions,
     pub dep_cache: Arc<crate::dependencies::DepCache>,
     pub p2p_node: Arc<tokio::sync::RwLock<Option<P2pNode>>>,
+    /// Update found by the last `app_update_check`, consumed by install.
+    pub pending_app_update: tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>,
     #[cfg(feature = "mpv-engine")]
     pub mpv_engine: Arc<crate::mpv_engine::EngineHandle>,
 }
@@ -1104,6 +1108,7 @@ mod tests {
             transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             dep_cache: Arc::new(crate::dependencies::DepCache::new()),
             p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
+            pending_app_update: tokio::sync::Mutex::new(None),
             #[cfg(feature = "mpv-engine")]
             mpv_engine: Default::default(),
         }

@@ -183,6 +183,8 @@ function App() {
   const [mpvVideoCapable, setMpvVideoCapable] = useState(false);
   const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("browser");
   const [audioExclusive, setAudioExclusive] = useState(false);
+  // Update channel: default stable-only; beta is an explicit opt-in.
+  const [betaUpdates, setBetaUpdates] = useState(false);
   const useNativeEngineRef = useRef(false);
   useNativeEngineRef.current = mpvCapable && playbackEngine === "native";
   const useNativeVideoRef = useRef(false);
@@ -748,7 +750,7 @@ function App() {
   const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
 
   // Updater
-  const updater = useAppUpdater(playback.handleStop);
+  const updater = useAppUpdater(betaUpdates ? "beta" : "stable", playback.handleStop);
 
   // Skins
   const skins = useSkins();
@@ -1520,7 +1522,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -1547,6 +1549,7 @@ function App() {
           // Cached engine-side until the engine exists; no-op on lean builds.
           nativeEngine.setAudioExclusive(true).catch(console.error);
         }
+        if (savedBetaUpdates) setBetaUpdates(true);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
@@ -2397,6 +2400,13 @@ function App() {
       console.error("Failed to persist audioExclusive:", e);
     });
     nativeEngine.setAudioExclusive(enabled).catch(console.error);
+  }
+
+  function handleBetaUpdatesChange(enabled: boolean) {
+    setBetaUpdates(enabled);
+    store.set("betaUpdates", enabled).catch((e) => {
+      console.error("Failed to persist betaUpdates:", e);
+    });
   }
 
   function handleOnboardingClose() {
@@ -3474,6 +3484,8 @@ function App() {
               onPlaybackEngineChange={handlePlaybackEngineChange}
               audioExclusive={audioExclusive}
               onAudioExclusiveChange={handleAudioExclusiveChange}
+              betaUpdates={betaUpdates}
+              onBetaUpdatesChange={handleBetaUpdatesChange}
               rgMode={playback.rgMode}
               onRgModeChange={playback.setRgMode}
               rgPreampDb={playback.rgPreampDb}

@@ -15,6 +15,7 @@ export interface PersistedSettings {
   crossfadeSecs: number | undefined;
   playbackEngine: string | undefined;
   audioExclusive: boolean | undefined;
+  betaUpdates: boolean | undefined;
   trackVideoHistory: boolean | undefined;
   miniMode: boolean | undefined;
   fullWindowWidth: number | null | undefined;
@@ -47,7 +48,7 @@ export interface PersistedSettings {
  */
 export async function readPersistedSettings(store: AppStore): Promise<PersistedSettings> {
   const [
-    vol, muted, crossfadeSecs, playbackEngine, audioExclusive, trackVideoHistory, miniMode,
+    vol, muted, crossfadeSecs, playbackEngine, audioExclusive, betaUpdates, trackVideoHistory, miniMode,
     fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
@@ -60,6 +61,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     store.get<number>("crossfadeSecs"),
     store.get<string>("playbackEngine"),
     store.get<boolean>("audioExclusive"),
+    store.get<boolean>("betaUpdates"),
     store.get<boolean>("trackVideoHistory"),
     store.get<boolean>("miniMode"),
     store.get<number | null>("fullWindowWidth"),
@@ -85,7 +87,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     store.get<number>("miniZoom"),
   ]);
   return {
-    vol, muted, crossfadeSecs, playbackEngine, audioExclusive, trackVideoHistory, miniMode,
+    vol, muted, crossfadeSecs, playbackEngine, audioExclusive, betaUpdates, trackVideoHistory, miniMode,
     fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
     trackSortField, trackSortDir, trackColumns, trackViewMode,
     videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
