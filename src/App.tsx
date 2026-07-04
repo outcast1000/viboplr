@@ -114,7 +114,7 @@ import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
-import { onboardingDecision } from "./components/onboardingSteps";
+import { onboardingDecision, normalizeProfile, type OnboardingProfile } from "./components/onboardingSteps";
 import BulkEditModal, { type BulkEditResult } from "./components/BulkEditModal";
 import PlaybackErrorModal from "./components/PlaybackErrorModal";
 import { PromptModal } from "./components/PromptModal";
@@ -148,6 +148,7 @@ function App() {
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
   const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
@@ -1755,6 +1756,8 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
+        const savedProfile = await store.get<string>("onboardingProfile");
+        if (!cancelled) setOnboardingProfile(normalizeProfile(savedProfile));
         const complete = await store.get<boolean>("onboardingComplete");
         if (complete || cancelled) return;
         const recsShown = await store.get<boolean>("pluginRecommendationsShown");
@@ -2380,7 +2383,9 @@ function App() {
 
   function handleCrossfadeChange(secs: number) {
     setCrossfadeSecs(secs);
-    store.set("crossfadeSecs", secs);
+    store.set("crossfadeSecs", secs).catch((e) => {
+      console.error("Failed to persist crossfadeSecs:", e);
+    });
   }
 
   function handlePlaybackEngineChange(engine: "browser" | "native") {
@@ -2409,8 +2414,12 @@ function App() {
     });
   }
 
-  function handleOnboardingClose() {
+  function handleOnboardingClose(profile: OnboardingProfile) {
     setShowOnboarding(false);
+    setOnboardingProfile(profile);
+    store.set("onboardingProfile", profile).catch((e) => {
+      console.error("Failed to persist onboardingProfile:", e);
+    });
     store.set("onboardingComplete", true).catch((e) => {
       console.error("Failed to persist onboardingComplete:", e);
     });
@@ -2423,7 +2432,9 @@ function App() {
 
   function handleTrackVideoHistoryChange(enabled: boolean) {
     setTrackVideoHistory(enabled);
-    store.set("trackVideoHistory", enabled);
+    store.set("trackVideoHistory", enabled).catch((e) => {
+      console.error("Failed to persist trackVideoHistory:", e);
+    });
   }
 
   function handleMinimizeToMiniPlayerChange(enabled: boolean) {
@@ -3761,8 +3772,11 @@ function App() {
             onCrossfadeChange={handleCrossfadeChange}
             autoContinueEnabled={autoContinue.enabled}
             onAutoContinueEnabledChange={autoContinue.setEnabled}
+            trackVideoHistory={trackVideoHistory}
+            onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
             resyncProgress={resyncProgress}
             resyncComplete={resyncComplete}
+            initialProfile={onboardingProfile}
             onClose={handleOnboardingClose}
           />
         );

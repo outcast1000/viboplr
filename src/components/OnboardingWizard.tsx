@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { audioDir } from "@tauri-apps/api/path";
@@ -13,6 +13,10 @@ import { getPlatform, getPlatformLabel, formatBytes } from "./DependencyModal";
 import { computeInitialSelection, computeInstallEntries } from "./firstRunSelection";
 import {
   type OnboardingStepId,
+  type OnboardingProfile,
+  type ProfilePreset,
+  ONBOARDING_PROFILES,
+  PROFILE_PRESETS,
   visibleSteps,
   missingPluginDeps,
   stepsForDisplay,
@@ -64,14 +68,19 @@ interface OnboardingWizardProps {
   onCrossfadeChange: (secs: number) => void;
   autoContinueEnabled: boolean;
   onAutoContinueEnabledChange: (enabled: boolean) => void;
+  trackVideoHistory: boolean;
+  onTrackVideoHistoryChange: (enabled: boolean) => void;
   resyncProgress: ScanActivity | null;
   resyncComplete: ScanDone | null;
-  /** Marks onboarding complete and closes the wizard. */
-  onClose: () => void;
+  /** Profile preselected on open (stored choice on re-runs, else "normal"). */
+  initialProfile: OnboardingProfile;
+  /** Marks onboarding complete, persists the chosen profile, and closes the wizard. */
+  onClose: (profile: OnboardingProfile) => void;
 }
 
 const STEP_TITLES: Record<OnboardingStepId, string> = {
-  welcome: "Welcome to Viboplr",
+  profile: "Welcome to Viboplr",
+  welcome: "Pick your look",
   music: "Add your music",
   plugins: "Recommended plugins",
   dependencies: "Companion tools",
@@ -81,14 +90,15 @@ const STEP_TITLES: Record<OnboardingStepId, string> = {
 };
 
 export function OnboardingWizard(props: OnboardingWizardProps) {
-  const [stepId, setStepId] = useState<OnboardingStepId>("welcome");
+  const [stepId, setStepId] = useState<OnboardingStepId>("profile");
+  const [profile, setProfile] = useState<OnboardingProfile>(props.initialProfile);
   const [busy, setBusy] = useState(false);
   const { onClose } = props;
 
   const missingDepNames = useMemo(() => missingPluginDeps(props.deps), [props.deps]);
   const steps = useMemo(
-    () => visibleSteps({ missingDepNames, lastfmInstalled: props.lastfmInstalled }),
-    [missingDepNames, props.lastfmInstalled],
+    () => visibleSteps({ missingDepNames, lastfmInstalled: props.lastfmInstalled, profile }),
+    [missingDepNames, props.lastfmInstalled, profile],
   );
   const displaySteps = stepsForDisplay(steps, stepId);
   const next = nextStepId(stepId, steps);
@@ -97,11 +107,11 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
   // Escape finishes setup, like "Skip setup" — but never mid-install.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) onClose();
+      if (e.key === "Escape" && !busy) onClose(profile);
     }
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
-  }, [busy, onClose]);
+  }, [busy, onClose, profile]);
 
   return (
     <div className="ds-modal-overlay">
@@ -122,9 +132,11 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
         </div>
 
         <div className="onboarding-body">
+          {stepId === "profile" && <ProfileStep profile={profile} onSelect={setProfile} />}
           {stepId === "welcome" && <WelcomeStep skins={props.skins} />}
           {stepId === "music" && (
             <MusicStep
+              preset={PROFILE_PRESETS[profile]}
               collections={props.collections}
               resync={props.resyncProgress}
               onCollectionAdded={props.onCollectionAdded}
@@ -132,6 +144,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
           )}
           {stepId === "plugins" && (
             <PluginsStep
+              profile={profile}
               entries={props.galleryPlugins}
               installedIds={props.installedPluginIds}
               onInstall={props.onInstallPlugin}
@@ -164,6 +177,9 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
               onCrossfadeChange={props.onCrossfadeChange}
               autoContinueEnabled={props.autoContinueEnabled}
               onAutoContinueEnabledChange={props.onAutoContinueEnabledChange}
+              showVideoHistoryToggle={PROFILE_PRESETS[profile].showVideoHistoryToggle}
+              trackVideoHistory={props.trackVideoHistory}
+              onTrackVideoHistoryChange={props.onTrackVideoHistoryChange}
             />
           )}
           {stepId === "finish" && (
@@ -173,7 +189,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
 
         <div className="onboarding-footer">
           {stepId !== "finish" ? (
-            <button className="ds-btn ds-btn--ghost" onClick={onClose} disabled={busy}>
+            <button className="ds-btn ds-btn--ghost" onClick={() => onClose(profile)} disabled={busy}>
               Skip setup
             </button>
           ) : (
@@ -190,7 +206,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
                 Continue
               </button>
             ) : (
-              <button className="ds-btn ds-btn--primary" onClick={onClose} disabled={busy}>
+              <button className="ds-btn ds-btn--primary" onClick={() => onClose(profile)} disabled={busy}>
                 Start listening
               </button>
             )}
@@ -211,9 +227,8 @@ function WelcomeStep({ skins }: { skins: SkinsApi }) {
   return (
     <>
       <p className="onboarding-step-desc">
-        Let's set things up — it only takes a minute, and every step is optional.
-        First, pick a look. Hover to preview, click to apply; you can change it
-        anytime in Settings.
+        Pick a look. Hover to preview, click to apply; you can change it anytime
+        in Settings.
       </p>
       <div className="onboarding-skin-grid">
         {skins.installedSkins.map((skin) => (
@@ -239,21 +254,93 @@ function WelcomeStep({ skins }: { skins: SkinsApi }) {
   );
 }
 
+const PROFILE_ICONS: Record<OnboardingProfile, ReactNode> = {
+  normal: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18V5l12-2v13" />
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="16" r="3" />
+    </svg>
+  ),
+  video: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="23 7 16 12 23 17 23 7" />
+      <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+    </svg>
+  ),
+  streaming: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+      <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+      <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+      <line x1="12" y1="20" x2="12.01" y2="20" />
+    </svg>
+  ),
+  server: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+      <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+      <line x1="6" y1="6" x2="6.01" y2="6" />
+      <line x1="6" y1="18" x2="6.01" y2="18" />
+    </svg>
+  ),
+};
+
+function ProfileStep({
+  profile,
+  onSelect,
+}: {
+  profile: OnboardingProfile;
+  onSelect: (p: OnboardingProfile) => void;
+}) {
+  return (
+    <>
+      <p className="onboarding-step-desc">
+        Let's set things up — it only takes a minute, and every step is optional.
+        First, how will you use Viboplr? Your pick just tailors the suggestions
+        in the next steps — every feature stays available no matter what you
+        choose, and you can change anything later.
+      </p>
+      <div className="onboarding-profile-grid">
+        {ONBOARDING_PROFILES.map((id) => {
+          const preset = PROFILE_PRESETS[id];
+          return (
+            <button
+              key={id}
+              className={`onboarding-profile-card${id === profile ? " active" : ""}`}
+              aria-pressed={id === profile}
+              onClick={() => onSelect(id)}
+            >
+              <span className="onboarding-profile-icon">{PROFILE_ICONS[id]}</span>
+              <span className="onboarding-profile-title">{preset.title}</span>
+              <span className="onboarding-profile-desc">{preset.description}</span>
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 function stripTrailingSlashes(path: string): string {
   return path.replace(/[\\/]+$/, "");
 }
 
 function MusicStep({
+  preset,
   collections,
   resync,
   onCollectionAdded,
 }: {
+  preset: ProfilePreset;
   collections: Collection[];
   resync: ScanActivity | null;
   onCollectionAdded: () => void;
 }) {
   const [musicDir, setMusicDir] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<"subsonic" | "manifest" | null>(null);
+  const [expanded, setExpanded] = useState<"subsonic" | "manifest" | null>(
+    preset.subsonicAutoExpand ? "subsonic" : null,
+  );
   const [manifestUrl, setManifestUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -311,14 +398,38 @@ function MusicStep({
     }
   }
 
+  const subsonicOption = (
+    <div className="onboarding-option">
+      <div className="onboarding-option-header">
+        <div>
+          <div className="onboarding-option-title">Subsonic / Navidrome server</div>
+          <div className="onboarding-option-desc">Stream from your own music server</div>
+        </div>
+        <button
+          className="ds-btn ds-btn--secondary ds-btn--sm"
+          onClick={() => setExpanded(expanded === "subsonic" ? null : "subsonic")}
+        >
+          {expanded === "subsonic" ? "Hide" : "Connect…"}
+        </button>
+      </div>
+      {expanded === "subsonic" && (
+        <div className="onboarding-option-body">
+          <SubsonicServerForm
+            onAdded={() => {
+              setExpanded(null);
+              onCollectionAdded();
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <>
-      <p className="onboarding-step-desc">
-        Where does your music live? Add a folder or connect a server — scanning
-        runs in the background while you continue. You can add more sources later
-        under Collections.
-      </p>
+      <p className="onboarding-step-desc">{preset.musicDesc}</p>
       <div className="onboarding-options">
+        {preset.subsonicFirst && subsonicOption}
         {musicDir && !musicDirAdded && (
           <div className="onboarding-option">
             <div className="onboarding-option-header">
@@ -347,30 +458,7 @@ function MusicStep({
             </button>
           </div>
         </div>
-        <div className="onboarding-option">
-          <div className="onboarding-option-header">
-            <div>
-              <div className="onboarding-option-title">Subsonic / Navidrome server</div>
-              <div className="onboarding-option-desc">Stream from your own music server</div>
-            </div>
-            <button
-              className="ds-btn ds-btn--secondary ds-btn--sm"
-              onClick={() => setExpanded(expanded === "subsonic" ? null : "subsonic")}
-            >
-              {expanded === "subsonic" ? "Hide" : "Connect…"}
-            </button>
-          </div>
-          {expanded === "subsonic" && (
-            <div className="onboarding-option-body">
-              <SubsonicServerForm
-                onAdded={() => {
-                  setExpanded(null);
-                  onCollectionAdded();
-                }}
-              />
-            </div>
-          )}
-        </div>
+        {!preset.subsonicFirst && subsonicOption}
         <div className="onboarding-option">
           <div className="onboarding-option-header">
             <div>
@@ -430,6 +518,7 @@ function MusicStep({
 }
 
 function PluginsStep({
+  profile,
   entries,
   installedIds,
   onInstall,
@@ -438,6 +527,7 @@ function PluginsStep({
   onRecheckDeps,
   setBusy,
 }: {
+  profile: OnboardingProfile;
   entries: GalleryPluginEntry[];
   installedIds: Set<string>;
   onInstall: (entry: GalleryPluginEntry) => Promise<{ ok: boolean; error?: string }>;
@@ -446,7 +536,11 @@ function PluginsStep({
   onRecheckDeps: () => void;
   setBusy: (busy: boolean) => void;
 }) {
-  const [checked, setChecked] = useState<Set<string>>(() => computeInitialSelection(entries, installedIds));
+  // Recomputed from the current profile on every visit — the step unmounts on
+  // navigation, so switching profile and coming back re-seeds the selection.
+  const [checked, setChecked] = useState<Set<string>>(() =>
+    computeInitialSelection(entries, installedIds, profile),
+  );
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [done, setDone] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<Set<string>>(new Set());
@@ -458,7 +552,7 @@ function PluginsStep({
   // fire-and-forget). Re-seed the recommended selection once entries arrive,
   // unless the user already interacted with the checkboxes.
   useEffect(() => {
-    if (!touchedRef.current) setChecked(computeInitialSelection(entries, installedIds));
+    if (!touchedRef.current) setChecked(computeInitialSelection(entries, installedIds, profile));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries]);
 
@@ -810,11 +904,17 @@ function PlaybackStep({
   onCrossfadeChange,
   autoContinueEnabled,
   onAutoContinueEnabledChange,
+  showVideoHistoryToggle,
+  trackVideoHistory,
+  onTrackVideoHistoryChange,
 }: {
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
   autoContinueEnabled: boolean;
   onAutoContinueEnabledChange: (enabled: boolean) => void;
+  showVideoHistoryToggle: boolean;
+  trackVideoHistory: boolean;
+  onTrackVideoHistoryChange: (enabled: boolean) => void;
 }) {
   return (
     <>
@@ -861,6 +961,24 @@ function PlaybackStep({
             <span className="ds-toggle-thumb" />
           </button>
         </div>
+        {showVideoHistoryToggle && (
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-label">Track video history</span>
+              <span className="settings-description">
+                Count video plays in your history and stats, like audio
+              </span>
+            </div>
+            <button
+              className={`ds-toggle ${trackVideoHistory ? "on" : ""}`}
+              role="switch"
+              aria-checked={trackVideoHistory}
+              onClick={() => onTrackVideoHistoryChange(!trackVideoHistory)}
+            >
+              <span className="ds-toggle-thumb" />
+            </button>
+          </div>
+        )}
       </div>
     </>
   );

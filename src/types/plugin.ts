@@ -1005,6 +1005,10 @@ export interface GalleryPluginEntry {
   /** Marked as recommended in the gallery index. Optional; absent = false.
    *  Source of truth is the separate outcast1000/viboplr-plugins index.json. */
   recommended?: boolean;
+  /** Onboarding profiles this plugin is pre-checked for ("normal" | "video" |
+   *  "streaming" | "server"). Optional; when absent, `recommended: true` means
+   *  pre-checked for every profile. Source of truth is the gallery index. */
+  profiles?: string[];
   icon?: string;
 }
 

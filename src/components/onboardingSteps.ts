@@ -2,6 +2,7 @@ import type { DependencyInfo } from "../hooks/useDependencies";
 
 /** Canonical step order. Visibility filters this list; it is never reordered. */
 export const ONBOARDING_STEP_ORDER = [
+  "profile",
   "welcome",
   "music",
   "plugins",
@@ -13,17 +14,89 @@ export const ONBOARDING_STEP_ORDER = [
 
 export type OnboardingStepId = (typeof ONBOARDING_STEP_ORDER)[number];
 
+export const ONBOARDING_PROFILES = ["normal", "video", "streaming", "server"] as const;
+export type OnboardingProfile = (typeof ONBOARDING_PROFILES)[number];
+
+/** Coerce a persisted value to a known profile; unknown/absent → "normal". */
+export function normalizeProfile(value: unknown): OnboardingProfile {
+  return ONBOARDING_PROFILES.includes(value as OnboardingProfile)
+    ? (value as OnboardingProfile)
+    : "normal";
+}
+
+/**
+ * Declarative per-profile wizard knobs. All profile-specific behavior lives
+ * here so the whole matrix is visible in one place; step components read
+ * PROFILE_PRESETS[profile] instead of switching on the id inline.
+ */
+export interface ProfilePreset {
+  /** Card title on the profile step. */
+  title: string;
+  /** Card one-liner on the profile step. */
+  description: string;
+  /** Intro copy for the music-sources step. */
+  musicDesc: string;
+  /** List the Subsonic option first on the music step. */
+  subsonicFirst: boolean;
+  /** Auto-expand the Subsonic connect form on the music step. */
+  subsonicAutoExpand: boolean;
+  /** Show the "Track video history" row on the playback step. */
+  showVideoHistoryToggle: boolean;
+}
+
+export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
+  normal: {
+    title: "Local music",
+    description: "Play music files from folders on this computer",
+    musicDesc:
+      "Where does your music live? Add a folder or connect a server — scanning runs in the background while you continue. You can add more sources later under Collections.",
+    subsonicFirst: false,
+    subsonicAutoExpand: false,
+    showVideoHistoryToggle: false,
+  },
+  video: {
+    title: "Video collection",
+    description: "Music videos and concert files, side by side with audio",
+    musicDesc:
+      "Where do your videos live? Add a folder — video files are scanned right alongside audio. You can add more sources later under Collections.",
+    subsonicFirst: false,
+    subsonicAutoExpand: false,
+    showVideoHistoryToggle: true,
+  },
+  streaming: {
+    title: "Streaming",
+    description: "Play from Spotify, TIDAL and YouTube — no local files required",
+    musicDesc:
+      "Streaming plugins are set up in the next step — adding a local source here is optional. You can always add folders or servers later under Collections.",
+    subsonicFirst: false,
+    subsonicAutoExpand: false,
+    showVideoHistoryToggle: false,
+  },
+  server: {
+    title: "Music server",
+    description: "Stream from your Subsonic or Navidrome server",
+    musicDesc:
+      "Connect your server — syncing runs in the background while you continue. You can add more sources later under Collections.",
+    subsonicFirst: true,
+    subsonicAutoExpand: true,
+    showVideoHistoryToggle: false,
+  },
+};
+
 export interface OnboardingStepContext {
   /** Missing external binaries needed by enabled plugins (see missingPluginDeps). */
   missingDepNames: string[];
   /** Whether the Last.fm plugin is installed (any status). */
   lastfmInstalled: boolean;
+  /** The usage profile chosen on the first step. */
+  profile: OnboardingProfile;
 }
 
 export function visibleSteps(ctx: OnboardingStepContext): OnboardingStepId[] {
   return ONBOARDING_STEP_ORDER.filter((id) => {
     if (id === "dependencies") return ctx.missingDepNames.length > 0;
-    if (id === "lastfm") return ctx.lastfmInstalled;
+    // Scrobbling is music-centric — the video profile skips the pitch.
+    if (id === "lastfm") return ctx.lastfmInstalled && ctx.profile !== "video";
     return true;
   });
 }

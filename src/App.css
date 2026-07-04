@@ -3572,6 +3572,45 @@
   text-transform: capitalize;
 }
 
+/* Profile step: usage-profile cards */
+.onboarding-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.onboarding-profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-card);
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  font: inherit;
+}
+.onboarding-profile-card:hover {
+  background: var(--bg-hover);
+}
+.onboarding-profile-card.active {
+  border-color: var(--accent);
+}
+.onboarding-profile-icon {
+  display: flex;
+  color: var(--accent);
+}
+.onboarding-profile-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.onboarding-profile-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
 /* Music step: source options + added collections */
 .onboarding-options {
   display: flex;

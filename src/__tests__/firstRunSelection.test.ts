@@ -23,7 +23,7 @@ describe("computeInitialSelection", () => {
       entry({ id: "b", recommended: false }),
       entry({ id: "c" }), // recommended absent => false
     ];
-    const sel = computeInitialSelection(entries, new Set());
+    const sel = computeInitialSelection(entries, new Set(), "normal");
     expect(sel.has("a")).toBe(true);
     expect(sel.has("b")).toBe(false);
     expect(sel.has("c")).toBe(false);
@@ -31,14 +31,51 @@ describe("computeInitialSelection", () => {
 
   it("does not check recommended entries that are already installed", () => {
     const entries = [entry({ id: "a", recommended: true })];
-    const sel = computeInitialSelection(entries, new Set(["a"]));
+    const sel = computeInitialSelection(entries, new Set(["a"]), "normal");
     expect(sel.has("a")).toBe(false);
   });
 
   it("treats absent recommended as false", () => {
     const entries = [entry({ id: "a" })];
-    const sel = computeInitialSelection(entries, new Set());
+    const sel = computeInitialSelection(entries, new Set(), "normal");
     expect(sel.size).toBe(0);
+  });
+
+  it("pre-checks entries whose profiles include the chosen profile", () => {
+    const entries = [
+      entry({ id: "spotify-browse", profiles: ["streaming"] }),
+      entry({ id: "youtube", profiles: ["streaming", "video"] }),
+      entry({ id: "duplicate-finder", profiles: ["normal"] }),
+    ];
+    const sel = computeInitialSelection(entries, new Set(), "streaming");
+    expect(sel).toEqual(new Set(["spotify-browse", "youtube"]));
+  });
+
+  it("treats profiles-less recommended entries as recommended for every profile", () => {
+    const entries = [entry({ id: "lyrics", recommended: true }), entry({ id: "plain" })];
+    for (const profile of ["normal", "video", "streaming", "server"] as const) {
+      const sel = computeInitialSelection(entries, new Set(), profile);
+      expect(sel.has("lyrics")).toBe(true);
+      expect(sel.has("plain")).toBe(false);
+    }
+  });
+
+  it("lets profiles win over recommended when both are present", () => {
+    const entries = [entry({ id: "x", recommended: true, profiles: ["video"] })];
+    expect(computeInitialSelection(entries, new Set(), "normal").has("x")).toBe(false);
+    expect(computeInitialSelection(entries, new Set(), "video").has("x")).toBe(true);
+  });
+
+  it("never pre-checks installed entries, even on profile match", () => {
+    const entries = [entry({ id: "youtube", profiles: ["video"] })];
+    expect(computeInitialSelection(entries, new Set(["youtube"]), "video").size).toBe(0);
+  });
+
+  it("treats an explicit empty profiles array as pre-checked nowhere (no recommended fallback)", () => {
+    const entries = [entry({ id: "x", recommended: true, profiles: [] })];
+    for (const profile of ["normal", "video", "streaming", "server"] as const) {
+      expect(computeInitialSelection(entries, new Set(), profile).has("x")).toBe(false);
+    }
   });
 });
 
