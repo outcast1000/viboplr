@@ -7,6 +7,10 @@ export function useCollectionActions(deps: {
   playback: { currentTrack: QueueTrack | null; handleStop: () => void };
   queueHook: { queue: QueueTrack[]; removeMultiple: (indices: number[]) => void };
   collections: Collection[];
+  // Fired when a collection change alters the library's track population
+  // (enable/disable, remove). SearchView holds its own results independent of
+  // the `library` hook, so loadLibrary/loadTracks alone leave it stale.
+  onLibraryChanged: () => void;
 }) {
   const [checkingConnectionId, setCheckingConnectionId] = useState<number | null>(null);
   const [connectionResult, setConnectionResult] = useState<{ collectionId: number; ok: boolean; message: string } | null>(null);
@@ -30,15 +34,21 @@ export function useCollectionActions(deps: {
   }
 
   async function handleToggleCollectionEnabled(collection: Collection) {
-    await invoke("update_collection", {
-      collectionId: collection.id,
-      name: collection.name,
-      autoUpdate: collection.auto_update,
-      autoUpdateIntervalMins: collection.auto_update_interval_mins,
-      enabled: !collection.enabled,
-    });
+    try {
+      await invoke("update_collection", {
+        collectionId: collection.id,
+        name: collection.name,
+        autoUpdate: collection.auto_update,
+        autoUpdateIntervalMins: collection.auto_update_interval_mins,
+        enabled: !collection.enabled,
+      });
+    } catch (e) {
+      console.error("Failed to toggle collection enabled:", e);
+      return;
+    }
     deps.library.loadLibrary();
     deps.library.loadTracks();
+    deps.onLibraryChanged();
   }
 
   async function handleCheckConnection(collectionId: number) {
@@ -57,16 +67,22 @@ export function useCollectionActions(deps: {
   }
 
   async function handleSaveCollection(id: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
-    await invoke("update_collection", {
-      collectionId: id,
-      name,
-      autoUpdate,
-      autoUpdateIntervalMins,
-      enabled,
-    });
+    try {
+      await invoke("update_collection", {
+        collectionId: id,
+        name,
+        autoUpdate,
+        autoUpdateIntervalMins,
+        enabled,
+      });
+    } catch (e) {
+      console.error("Failed to save collection:", e);
+      return;
+    }
     setEditingCollection(null);
     deps.library.loadLibrary();
     deps.library.loadTracks();
+    deps.onLibraryChanged();
   }
 
   async function handleRemoveCollectionConfirm() {
@@ -93,6 +109,7 @@ export function useCollectionActions(deps: {
       }
       deps.library.loadLibrary();
       deps.library.loadTracks();
+      deps.onLibraryChanged();
     } catch (e) {
       console.error("Failed to remove collection:", e);
     }

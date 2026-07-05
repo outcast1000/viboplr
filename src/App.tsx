@@ -850,6 +850,14 @@ function App() {
     notify,
   });
 
+  // The library's track population changed (scan, sync, collection
+  // enable/disable/remove): re-run SearchView's active query (it holds its own
+  // results — see searchLibraryKey) and bump Home's revision.
+  const notifyLibraryChanged = () => {
+    setSearchLibraryKey(k => k + 1);
+    setLibraryRevision(k => k + 1);
+  };
+
   // Collection actions
   const collectionActions = useCollectionActions({
     library: {
@@ -865,6 +873,7 @@ function App() {
       removeMultiple: queueHook.removeMultiple,
     },
     collections: library.collections,
+    onLibraryChanged: notifyLibraryChanged,
   });
 
   // Image caches
@@ -1173,10 +1182,7 @@ function App() {
     setResyncProgress,
     setResyncComplete,
     onBulkEditComplete: () => setSearchBulkEditKey(k => k + 1),
-    onLibraryChanged: () => {
-      setSearchLibraryKey(k => k + 1);
-      setLibraryRevision(k => k + 1);
-    },
+    onLibraryChanged: notifyLibraryChanged,
     dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
     notify,
   });
