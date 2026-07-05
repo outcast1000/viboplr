@@ -3778,3 +3778,38 @@
   color: var(--text-secondary);
   margin-top: 8px;
 }
+
+/* Profile switch blocking overlay — shown from switch-start until the process
+   exits (or the switch aborts). Sits above everything, including toasts: a
+   switch-failure toast is still visible because the failure path clears the
+   overlay in the same React commit that raises the toast. In mini mode the
+   window is a 40px bar, so the overlay collapses to a compact single-line
+   status. */
+.profile-switch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(var(--bg-primary-rgb), 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.profile-switch-overlay-label {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.profile-switch-overlay--mini {
+  flex-direction: row;
+  gap: 8px;
+}
+
+.profile-switch-overlay--mini .profile-switch-overlay-label {
+  font-size: var(--fs-xs);
+}

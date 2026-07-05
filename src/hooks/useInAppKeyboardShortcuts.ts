@@ -39,6 +39,9 @@ export interface KeyboardShortcutDeps {
   // Mini-player quick search.
   miniSearchOpen: boolean;
   openMiniSearch: (initialChar: string) => void;
+  // True while a profile switch is in flight — the app is about to relaunch
+  // and its state is already flushed, so shortcuts must not mutate anything.
+  profileSwitchActive: boolean;
 }
 
 export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
@@ -48,6 +51,10 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       const d = ref.current;
+      // The profile-switch overlay blocks pointer events but not this
+      // window-level listener; a mutation here would land after the flush
+      // and be lost on relaunch.
+      if (d.profileSwitchActive) return;
       const { library, playback, queueHook, mini } = d;
       const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
 

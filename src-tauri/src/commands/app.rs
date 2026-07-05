@@ -11,6 +11,132 @@ pub fn get_profile_info(state: State<'_, AppState>) -> Result<serde_json::Value,
     }))
 }
 
+/// The profiles/ dir is the parent of the current profile's data dir.
+fn profiles_dir(state: &AppState) -> Result<std::path::PathBuf, String> {
+    state
+        .app_dir
+        .parent()
+        .map(|p| p.to_path_buf())
+        .ok_or_else(|| "Cannot resolve profiles directory".to_string())
+}
+
+#[tauri::command]
+pub fn list_profiles(state: State<'_, AppState>) -> Result<Vec<crate::profiles::ProfileEntry>, String> {
+    crate::profiles::list_profiles_in(&profiles_dir(&state)?, &state.profile_name)
+}
+
+#[tauri::command]
+pub fn create_profile(state: State<'_, AppState>, name: String) -> Result<(), String> {
+    crate::profiles::create_profile_in(&profiles_dir(&state)?, name.trim())
+}
+
+/// Relaunch the app into another profile: validate → resolve binary → drain
+/// in-flight DB writes → release the single-instance lock → spawn → exit.
+/// The frontend flushes its debounced state (store + queue) *before* invoking
+/// this. `allow_create` is set only by the shortcut-handoff consumer so a warm
+/// shortcut to a deleted profile gets cold-start parity (recreate empty); the
+/// Settings path keeps existence validation.
+#[tauri::command]
+pub fn switch_profile(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    allow_create: Option<bool>,
+) -> Result<(), String> {
+    let name = name.trim().to_string();
+    crate::profiles::validate_profile_name(&name)?;
+    if crate::profiles::same_profile_name(&name, &state.profile_name) {
+        return Err(format!("'{}' is already the active profile.", name));
+    }
+    let profiles_root = profiles_dir(&state)?;
+    if !profiles_root.join(&name).is_dir() {
+        if allow_create.unwrap_or(false) {
+            // Cold-start parity for warm shortcuts: recreate the deleted
+            // profile through the same helper create_profile uses.
+            crate::profiles::create_profile_in(&profiles_root, &name)?;
+        } else {
+            return Err(format!("Profile '{}' no longer exists.", name));
+        }
+    }
+
+    // Resolve and existence-check the binary before anything destructive
+    // (post-destroy failure would leave the session without single-instance
+    // protection). AppImage-safe: current_binary returns $APPIMAGE when set,
+    // never the mount point — but that file can have been moved since launch.
+    let env = app.env();
+    let bin = tauri::process::current_binary(&env)
+        .map_err(|e| format!("Failed to resolve app binary: {}", e))?;
+    if !bin.exists() {
+        return Err(format!(
+            "App binary not found at {} — was it moved? Restart the app manually.",
+            bin.display()
+        ));
+    }
+
+    // Drain any in-flight DB write (e.g. a like invoked moments ago) so the
+    // exit below can't cut a statement off mid-write.
+    state.db.write_barrier();
+
+    // Release the single-instance lock before spawning — otherwise the child
+    // forwards-and-exits against the still-live parent. Release builds only
+    // (the plugin is not registered in debug).
+    #[cfg(not(debug_assertions))]
+    tauri_plugin_single_instance::destroy(&app);
+
+    // env_remove: env takes precedence over argv at startup and the child
+    // inherits our env — an inherited VIBOPLR_PROFILE would silently override
+    // the new --profile.
+    let spawned = std::process::Command::new(&bin)
+        .args(["--profile", &name])
+        .env_remove("VIBOPLR_PROFILE")
+        .spawn();
+    if let Err(e) = spawned {
+        log::error!(
+            "Profile switch spawn failed (single-instance protection is disabled for the rest of this session): {}",
+            e
+        );
+        return Err(format!("Failed to launch profile '{}': {}", name, e));
+    }
+    app.exit(0);
+    Ok(())
+}
+
+/// Consume a switch request stashed by the single-instance callback before the
+/// frontend was ready to receive the live event. Pull-once semantics.
+#[tauri::command]
+pub fn get_pending_profile_switch(
+    pending: State<'_, crate::profiles::PendingProfileSwitch>,
+) -> Option<String> {
+    pending.0.lock().ok()?.take()
+}
+
+/// Write a double-clickable Desktop launcher that opens the app in `name`
+/// (.lnk / wrapper .app / .desktop per platform). Returns the written path.
+#[tauri::command]
+pub fn create_profile_shortcut(app: AppHandle, name: String) -> Result<String, String> {
+    let name = name.trim().to_string();
+    crate::profiles::validate_profile_name(&name)?;
+    let desktop = app
+        .path()
+        .desktop_dir()
+        .map_err(|e| format!("Failed to resolve the Desktop directory: {}", e))?;
+    let env = app.env();
+    let bin = tauri::process::current_binary(&env)
+        .map_err(|e| format!("Failed to resolve app binary: {}", e))?;
+    #[cfg(target_os = "linux")]
+    let appimage = env.appimage.clone().map(std::path::PathBuf::from);
+    #[cfg(not(target_os = "linux"))]
+    let appimage: Option<std::path::PathBuf> = None;
+    crate::profile_shortcuts::create_shortcut_on(
+        &desktop,
+        &name,
+        &app.config().identifier,
+        &bin,
+        appimage.as_deref(),
+    )
+    .map(|p| p.to_string_lossy().to_string())
+}
+
 // --- Debug commands ---
 
 #[tauri::command]

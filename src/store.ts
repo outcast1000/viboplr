@@ -69,6 +69,8 @@ export interface AppStore {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
   init(): Promise<void>;
+  /** Flush pending debounced writes to disk immediately (autoSave is 500ms). */
+  save(): Promise<void>;
 }
 
 class ProfileStore implements AppStore {
@@ -104,6 +106,10 @@ class ProfileStore implements AppStore {
 
   async set(key: string, value: unknown): Promise<void> {
     return (await this.getInner()).set(key, value);
+  }
+
+  async save(): Promise<void> {
+    return (await this.getInner()).save();
   }
 }
 

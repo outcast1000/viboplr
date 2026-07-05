@@ -854,3 +854,13 @@
 .provider-priority-actions {
   justify-content: flex-end;
 }
+
+/* Small bordered pill used for inline status badges (dependency origin,
+   current profile). */
+.settings-pill {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  padding: 1px 6px;
+}

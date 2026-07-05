@@ -40,6 +40,8 @@ import { decideDownload } from "./utils/downloadPlan";
 import { useQueue } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
 import { useToasts } from "./hooks/useToasts";
+import { useProfileSwitch } from "./hooks/useProfileSwitch";
+import ProfileSwitchOverlay from "./components/ProfileSwitchOverlay";
 import { Toasts } from "./components/Toasts";
 import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
@@ -781,6 +783,43 @@ function App() {
   });
 
   const { toasts, notify, dismiss: dismissToast } = useToasts();
+
+  // Stable wrapper so switchToProfile's identity doesn't churn per render.
+  const saveStoreNow = useCallback(() => store.save(), []);
+  const profileSwitch = useProfileSwitch({
+    restoredRef,
+    flushQueue: queueHook.flushNow,
+    saveStore: saveStoreNow,
+    notify,
+  });
+
+  // Profile-switch handoff: a second launch with --profile <other> (e.g. a
+  // profile shortcut double-clicked while the app runs) forwards through the
+  // single-instance callback. The backend stash is the single consumption
+  // point (pull-once take()); the event is only a nudge — so a request is
+  // never delivered twice, even when an event-path attempt fails and the
+  // stash would otherwise replay it. Requests arriving before the deferred
+  // queue restore has been applied stay stashed and are consumed at the end
+  // of the apply-pending-restore effect below: switching earlier would flush
+  // the still-empty queueRef over the profile's saved manifest. allowCreate
+  // gives warm shortcuts cold-start parity — a manually deleted profile is
+  // recreated empty, matching a cold launch.
+  const restoreAppliedRef = useRef(false);
+  const consumePendingProfileSwitch = useCallback(() => {
+    invoke<string | null>("get_pending_profile_switch")
+      .then((name) => {
+        if (name) profileSwitch.switchToProfile(name, { allowCreate: true });
+      })
+      .catch((e) => console.error("Failed to check pending profile switch:", e));
+  }, [profileSwitch.switchToProfile]);
+
+  useEffect(() => {
+    return subscribe<string>("profile-switch-requested", () => {
+      if (!restoreAppliedRef.current) return; // stash consumed after restore applies
+      consumePendingProfileSwitch();
+    });
+  }, [consumePendingProfileSwitch]);
+
   // True while a now-playing-bar like/dislike write is in flight, used to
   // disable the bar's like control as a visual cue (the hook already guards the
   // double-click race functionally).
@@ -1746,7 +1785,12 @@ function App() {
       queueHook.seedThumbInfo(pendingRestoreThumbsRef.current);
       pendingRestoreThumbsRef.current = [];
     }
-  }, [appRestoring]);
+    // Only now is a profile-switch flush safe: the saved queue is applied (or
+    // there was none), so flushing can no longer overwrite it with the empty
+    // default. Consume any switch request stashed during startup.
+    restoreAppliedRef.current = true;
+    consumePendingProfileSwitch();
+  }, [appRestoring, consumePendingProfileSwitch]);
 
   // First-run onboarding: decide once after restore completes. Existing
   // profiles (collections present, or the legacy plugin-recommendations flag
@@ -2149,6 +2193,7 @@ function App() {
     adjustZoom,
     miniSearchOpen: miniSearch.isOpen,
     openMiniSearch: (initialChar) => miniSearch.open(initialChar),
+    profileSwitchActive: profileSwitch.switching !== null,
   });
 
 
@@ -3531,6 +3576,8 @@ function App() {
               devPluginPath={devPluginPath}
               onDevPluginPathChange={handleDevPluginPathChange}
               onReloadPlugins={plugins.reloadAllPlugins}
+              onSwitchProfile={(name) => profileSwitch.switchToProfile(name)}
+              onNotify={notify}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
               dependencies={dependencies}
               autoUpdateManagedDeps={autoUpdateManagedDeps}
@@ -3940,6 +3987,10 @@ function App() {
           onCancel={() => collectionActions.setRemoveCollectionConfirm(null)}
           onConfirm={collectionActions.handleRemoveCollectionConfirm}
         />
+      )}
+
+      {profileSwitch.switching && (
+        <ProfileSwitchOverlay profile={profileSwitch.switching} mini={mini.miniMode} />
       )}
 
       {playback.playbackError && !mini.miniMode && (

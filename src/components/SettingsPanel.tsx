@@ -8,6 +8,8 @@ import type { PluginState } from "../types/plugin";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { store } from "../store";
+import { PromptModal } from "./PromptModal";
+import { getPlatform } from "./DependencyModal";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
 
@@ -729,12 +731,7 @@ function DependenciesSection({
     }
   };
 
-  const platform: "macos" | "windows" | "linux" = (() => {
-    const p = navigator.platform.toLowerCase();
-    if (p.includes("mac")) return "macos";
-    if (p.includes("win")) return "windows";
-    return "linux";
-  })();
+  const platform = getPlatform();
 
   const handleCopyUpgrade = async (name: string, cmd: string) => {
     try {
@@ -787,7 +784,7 @@ function DependenciesSection({
                   </span>
                 )}
                 {installed && dep.origin && (
-                  <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-tertiary)", border: "1px solid var(--border)", borderRadius: "var(--ds-radius)", padding: "1px 6px" }}>
+                  <span className="settings-pill">
                     {dep.origin === "managed" ? "managed by Viboplr" : "system"}
                   </span>
                 )}
@@ -884,6 +881,207 @@ function DependenciesSection({
   );
 }
 
+// Shape returned by the `list_profiles` command.
+interface ProfileEntry {
+  name: string;
+  isCurrent: boolean;
+}
+
+/**
+ * Profiles manager: list existing profiles (current marked, keeping the
+ * path/Copy/Open actions on the current row), switch into another profile,
+ * create a new one (create-and-switch), and write per-profile Desktop
+ * shortcuts. Mirrors the Dependencies section's list shape.
+ */
+function ProfilesSection({
+  profilePath,
+  onSwitchProfile,
+  onNotify,
+}: {
+  profilePath: string | null;
+  onSwitchProfile: (name: string) => Promise<void>;
+  onNotify: (message: string) => void;
+}) {
+  const [profiles, setProfiles] = useState<ProfileEntry[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createBusy, setCreateBusy] = useState(false);
+  const [shortcutBusy, setShortcutBusy] = useState<string | null>(null);
+  const [switchBusy, setSwitchBusy] = useState(false);
+
+  const loadProfiles = useCallback(() => {
+    invoke<ProfileEntry[]>("list_profiles")
+      .then((list) => { setProfiles(list); setLoadError(null); })
+      .catch((e) => { console.error("Failed to list profiles:", e); setLoadError(String(e)); });
+  }, []);
+
+  useEffect(() => { loadProfiles(); }, [loadProfiles]);
+
+  const handleSwitch = (name: string) => {
+    setSwitchBusy(true);
+    // Resolves only on failure (success exits the process). Refresh so a
+    // stale entry (e.g. an externally deleted profile) drops out of the list.
+    onSwitchProfile(name)
+      .catch((e) => console.error("Failed to switch profile:", e))
+      .finally(() => { setSwitchBusy(false); loadProfiles(); });
+  };
+
+  const handleCreate = (name: string) => {
+    if (createBusy) return;
+    setCreateBusy(true);
+    setCreateError(null);
+    invoke("create_profile", { name })
+      .then(() => {
+        setCreating(false);
+        // Route through handleSwitch so a failed follow-up switch still
+        // disables buttons in flight and refreshes the list (the new profile
+        // exists on disk and must appear even when the relaunch fails).
+        handleSwitch(name);
+      })
+      .catch((e) => { console.error("Failed to create profile:", e); setCreateError(String(e)); })
+      .finally(() => setCreateBusy(false));
+  };
+
+  const handleShortcut = (name: string) => {
+    setShortcutBusy(name);
+    invoke<string>("create_profile_shortcut", { name })
+      .then((path) => {
+        const gnomeHint = getPlatform() === "linux"
+          ? " — if it shows as untrusted, right-click it and pick “Allow Launching”"
+          : "";
+        onNotify(`Shortcut created: ${path}${gnomeHint}`);
+      })
+      .catch((e) => {
+        console.error("Failed to create profile shortcut:", e);
+        onNotify(`Couldn't create shortcut: ${e}`);
+      })
+      .finally(() => setShortcutBusy(null));
+  };
+
+  return (
+    <div className="settings-group">
+      <h4 className="settings-group-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        Profiles
+        <button
+          className="ds-btn ds-btn--ghost ds-btn--sm"
+          style={{ marginLeft: "auto" }}
+          onClick={() => { setCreateError(null); setCreating(true); }}
+          disabled={switchBusy}
+        >
+          New profile…
+        </button>
+      </h4>
+      <div className="settings-card">
+        {profiles === null && !loadError && (
+          <div className="settings-row">
+            <span className="settings-label" style={{ color: "var(--text-tertiary)" }}>Loading...</span>
+          </div>
+        )}
+        {loadError && (
+          <>
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-label">Couldn't load profiles</span>
+                <span className="settings-description">{loadError}</span>
+              </div>
+              <div className="settings-row-actions">
+                <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={loadProfiles}>Retry</button>
+              </div>
+            </div>
+            {/* The folder affordances must survive a listing failure — they
+                only need appPaths, not the profile list. */}
+            {profilePath && (
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <span className="settings-label">Profile folder</span>
+                  <span className="settings-description">{profilePath}</span>
+                </div>
+                <div className="settings-row-actions">
+                  <button
+                    className="ds-btn ds-btn--secondary ds-btn--sm"
+                    onClick={() => navigator.clipboard.writeText(profilePath).catch(console.error)}
+                    title="Copy path"
+                  >
+                    Copy
+                  </button>
+                  <button
+                    className="ds-btn ds-btn--secondary ds-btn--sm"
+                    onClick={() => invoke("open_profile_folder").catch(console.error)}
+                  >
+                    Open
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+        {profiles?.map((p) => (
+          <div className="settings-row" key={p.name}>
+            <div className="settings-row-info">
+              <span className="settings-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {p.name}
+                {p.isCurrent && <span className="settings-pill">current</span>}
+              </span>
+              {p.isCurrent && profilePath && (
+                <span className="settings-description">{profilePath}</span>
+              )}
+            </div>
+            <div className="settings-row-actions">
+              {p.isCurrent ? (
+                <>
+                  {/* The current row carries the folder actions; Switch is hidden
+                      (the badge explains why there's nothing to switch to). */}
+                  <button
+                    className="ds-btn ds-btn--secondary ds-btn--sm"
+                    onClick={() => profilePath && navigator.clipboard.writeText(profilePath).catch(console.error)}
+                    title="Copy path"
+                  >
+                    Copy
+                  </button>
+                  <button
+                    className="ds-btn ds-btn--secondary ds-btn--sm"
+                    onClick={() => invoke("open_profile_folder").catch(console.error)}
+                  >
+                    Open
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="ds-btn ds-btn--primary ds-btn--sm"
+                  disabled={switchBusy}
+                  onClick={() => handleSwitch(p.name)}
+                >
+                  Switch
+                </button>
+              )}
+              <button
+                className="ds-btn ds-btn--secondary ds-btn--sm"
+                disabled={shortcutBusy === p.name || switchBusy}
+                onClick={() => handleShortcut(p.name)}
+              >
+                Create shortcut
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {creating && (
+        <PromptModal
+          title="New profile"
+          label="Profiles keep separate libraries, settings, and plugins. The app relaunches into the new profile."
+          placeholder="e.g. work"
+          okLabel="Create"
+          error={createError}
+          busy={createBusy}
+          onSubmit={handleCreate}
+          onCancel={() => setCreating(false)}
+        />
+      )}
+    </div>
+  );
+}
+
 interface SettingsPanelProps {
   onSeedDatabase: () => void;
   onClearDatabase: () => void;
@@ -935,6 +1133,9 @@ interface SettingsPanelProps {
   devPluginPath: string | null;
   onDevPluginPathChange: (path: string | null) => void;
   onReloadPlugins: () => void;
+  // Profiles
+  onSwitchProfile: (name: string) => Promise<void>;
+  onNotify: (message: string) => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
   dependencies?: {
@@ -1015,6 +1216,8 @@ export function SettingsPanel({
   devPluginPath,
   onDevPluginPathChange,
   onReloadPlugins,
+  onSwitchProfile,
+  onNotify,
   onStreamResolverOrderChanged,
   dependencies,
   autoUpdateManagedDeps,
@@ -1023,7 +1226,6 @@ export function SettingsPanel({
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
 
   const [appPaths, setAppPaths] = useState<{ profile: string; logs: string } | null>(null);
-  const [profileName, setProfileName] = useState<string | null>(null);
 
   useEffect(() => {
     if ((settingsTab === "general" || settingsTab === "debug") && !appPaths) {
@@ -1031,12 +1233,7 @@ export function SettingsPanel({
         .then(([profile, logs]) => setAppPaths({ profile, logs }))
         .catch(console.error);
     }
-    if (settingsTab === "general" && profileName === null) {
-      invoke<{ profileName: string }>("get_profile_info")
-        .then(({ profileName }) => setProfileName(profileName))
-        .catch(console.error);
-    }
-  }, [settingsTab, appPaths, profileName]);
+  }, [settingsTab, appPaths]);
 
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
@@ -1297,27 +1494,11 @@ export function SettingsPanel({
                   </div>
                 </div>
 
-                <div className="settings-group">
-                  <div className="settings-group-title">Profile</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Current profile</span>
-                      </div>
-                      <span className="settings-value">{profileName ?? ""}</span>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Profile folder</span>
-                        <span className="settings-description">{appPaths?.profile ?? ""}</span>
-                      </div>
-                      <div className="settings-row-actions">
-                        <button className="ds-btn ds-btn--secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.profile).catch(console.error)} title="Copy path">Copy</button>
-                        <button className="ds-btn ds-btn--secondary" onClick={() => invoke("open_profile_folder").catch(console.error)}>Open</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <ProfilesSection
+                  profilePath={appPaths?.profile ?? null}
+                  onSwitchProfile={onSwitchProfile}
+                  onNotify={onNotify}
+                />
 
                 <DependenciesSection
                   dependencies={dependencies}

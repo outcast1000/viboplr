@@ -116,6 +116,28 @@ export function buildState(queueIndex: number, queueMode: QueueMode): MainPlayli
   return { queueIndex, queueMode };
 }
 
+/**
+ * Immediate drain of the debounced main-playlist write — same payload the
+ * debounced effect in useQueue sends, fired synchronously (used by the
+ * profile-switch flow before relaunch). No-op before restore completes:
+ * flushing pre-restore would overwrite the saved queue with the empty default.
+ * Rejections propagate so the caller can abort the switch.
+ */
+export function flushMainPlaylist(
+  restored: boolean,
+  queue: QueueTrack[],
+  context: PlaylistContext | null,
+  queueIndex: number,
+  queueMode: QueueMode,
+  invokeFn: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
+): Promise<void> {
+  if (!restored) return Promise.resolve();
+  return invokeFn("main_playlist_write", {
+    manifest: buildManifest(queue, context),
+    stateData: buildState(queueIndex, queueMode),
+  }).then(() => undefined);
+}
+
 export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
   return manifest.tracks.map((m): QueueTrack => ({
     // QueueEntry.key is an in-memory identity used for React rendering + multi-select.

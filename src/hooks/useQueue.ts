@@ -4,7 +4,7 @@ import { subscribe } from "../utils/tauriEvents";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import type { QueueTrack, PlaylistLoadResult, PlaylistEntry, QueueMode } from "../types";
 import { trackToQueueEntry, queueEntryToQueueTrack, nextExternalKey } from "../queueEntry";
-import { buildManifest, buildState, diffThumbs, type ThumbInfo } from "../mainPlaylist";
+import { diffThumbs, flushMainPlaylist, type ThumbInfo } from "../mainPlaylist";
 import { stripImageVersion } from "../utils/resolveImageUrl";
 import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
 
@@ -65,19 +65,47 @@ export function useQueue(
   queueIndexRef.current = queueIndex;
   const queueModeRef = useRef(queueMode);
   queueModeRef.current = queueMode;
+  const playlistContextRef = useRef(playlistContext);
+  playlistContextRef.current = playlistContext;
   const queuePanelRef = useRef<HTMLDivElement>(null);
   const dragIndexRef = useRef<number | null>(null);
 
-  // Persist state to main-playlist folder
+  // Immediate ref-based drain of the debounced write below, for the
+  // profile-switch flow. Disarms any pending debounce timer so the same
+  // payload isn't serialized twice. Rejections propagate to the caller
+  // (which aborts the switch and surfaces the error).
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushNow = useCallback((): Promise<void> => {
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    return flushMainPlaylist(
+      restoredRef.current === true,
+      queueRef.current,
+      playlistContextRef.current,
+      queueIndexRef.current,
+      queueModeRef.current,
+      invoke,
+    );
+  }, [restoredRef]);
+
+  // Persist state to main-playlist folder. flushMainPlaylist is the single
+  // payload builder for this write — the flush path above sends the identical
+  // shape by construction, not by parallel maintenance.
   useEffect(() => {
     if (!restoredRef.current) return;
-    const t = setTimeout(() => {
-      invoke("main_playlist_write", {
-        manifest: buildManifest(queue, playlistContext),
-        stateData: buildState(queueIndex, queueMode),
-      }).catch(e => console.error("Failed to write main-playlist:", e));
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null;
+      flushMainPlaylist(true, queue, playlistContext, queueIndex, queueMode, invoke)
+        .catch(e => console.error("Failed to write main-playlist:", e));
     }, 500);
-    return () => clearTimeout(t);
+    return () => {
+      if (persistTimerRef.current) {
+        clearTimeout(persistTimerRef.current);
+        persistTimerRef.current = null;
+      }
+    };
   }, [queue, playlistContext, queueIndex, queueMode]);
 
   // Cover: sync imagePath to main-playlist/cover.jpg
@@ -528,6 +556,6 @@ export function useQueue(
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
-    thumbInfo, seedThumbInfo,
+    thumbInfo, seedThumbInfo, flushNow,
   };
 }

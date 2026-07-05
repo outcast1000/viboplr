@@ -7,6 +7,8 @@ mod entity_image;
 mod image_provider;
 mod logging;
 mod models;
+mod profile_shortcuts;
+mod profiles;
 mod scanner;
 #[cfg(debug_assertions)]
 mod seed;
@@ -46,6 +48,11 @@ macro_rules! invoke_handler {
     ($($extra:path),* $(,)?) => {
         tauri::generate_handler![
             commands::get_profile_info,
+            commands::list_profiles,
+            commands::create_profile,
+            commands::switch_profile,
+            commands::get_pending_profile_switch,
+            commands::create_profile_shortcut,
             commands::add_collection,
             commands::remove_collection,
             commands::update_collection,
@@ -480,25 +487,13 @@ pub fn run() {
 
         if profile.is_none() {
             let args: Vec<String> = std::env::args().collect();
-            let mut i = 1;
-            while i < args.len() {
-                if args[i].starts_with("--profile=") {
-                    profile = Some(
-                        args[i].trim_start_matches("--profile=").to_string(),
-                    );
-                    i += 1;
-                } else if args[i] == "--profile" {
-                    if i + 1 < args.len() {
-                        profile = Some(args[i + 1].clone());
-                        i += 2;
-                    } else {
-                        eprintln!("Error: --profile requires a name argument");
-                        std::process::exit(1);
-                    }
-                } else {
-                    i += 1;
-                }
+            // profile_from_argv treats a dangling `--profile` as absent; at
+            // startup that's a usage error the user should hear about.
+            if args.last().is_some_and(|a| a == "--profile") {
+                eprintln!("Error: --profile requires a name argument");
+                std::process::exit(1);
             }
+            profile = profiles::profile_from_argv(&args);
         }
 
         let name = profile.unwrap_or_else(|| {
@@ -516,12 +511,8 @@ pub fn run() {
             { "default".to_string() }
         });
 
-        // Validate profile name: alphanumeric, hyphens, underscores, 1-64 chars
-        if name.is_empty() || name.len() > 64
-            || !name.chars().next().unwrap().is_alphanumeric()
-            || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-        {
-            eprintln!("Error: invalid profile name '{}'. Must start with an alphanumeric character, contain only alphanumeric characters, hyphens, or underscores, and be 1-64 characters long.", name);
+        if let Err(e) = profiles::validate_profile_name(&name) {
+            eprintln!("Error: {}", e);
             std::process::exit(1);
         }
 
@@ -549,6 +540,14 @@ pub fn run() {
         }
     });
 
+    // Resolve to an existing profile dir's casing before anything reads the
+    // profile path (profile names are case-insensitive identities; without
+    // this a cold `--profile Work` launch would create a case-variant
+    // duplicate of profiles/work on case-sensitive filesystems — a state
+    // create_profile_in rejects and listing would double-mark as current).
+    let profile_name =
+        profiles::canonical_profile_name(&pre_app_data_dir.join("profiles"), &profile_name);
+
     // Read loggingEnabled from the profile's store file
     let logging_enabled = timer.time("check_logging_enabled", || {
         let store_path = pre_app_data_dir
@@ -574,15 +573,32 @@ pub fn run() {
 
     log::info!("Using profile: {}", profile_name);
 
-    let builder = tauri::Builder::default();
+    // Managed before the single-instance plugin registers so its callback can
+    // never observe unmanaged state (it can fire while setup is still running).
+    let builder = tauri::Builder::default().manage(profiles::PendingProfileSwitch::default());
     #[cfg(not(debug_assertions))]
     let builder = timer.time("plugin: single_instance", || {
-        builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        let current_profile = profile_name.clone();
+        builder.plugin(tauri_plugin_single_instance::init(move |app, argv, _cwd| {
             eprintln!("[single_instance] callback fired, argv={:?}", argv);
             // Focus existing window
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
                 let _ = window.set_focus();
+            }
+            // An explicit --profile for a different profile is a switch request
+            // (e.g. a profile shortcut opened while running). Absent flag or the
+            // current profile → focus only, never "switch to default". The
+            // frontend consumes the stash via get_pending_profile_switch; the
+            // event is only a nudge.
+            if let Some(requested) = profiles::pending_switch_request(&argv, &current_profile) {
+                let slot = app.state::<profiles::PendingProfileSwitch>();
+                // Poison-tolerant: a panic elsewhere must not turn a shortcut
+                // double-click into a crash of the running app.
+                if let Ok(mut pending) = slot.0.lock() {
+                    *pending = Some(requested.clone());
+                }
+                let _ = app.emit("profile-switch-requested", requested);
             }
             // Check argv for subsonic:// and viboplr:// deep link URLs
             for arg in &argv {

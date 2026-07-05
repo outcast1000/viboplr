@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { Track } from "../types";
 import {
   buildManifest,
@@ -7,6 +7,7 @@ import {
   contextToExportMetadata,
   contextFromMixtapeMetadata,
   diffThumbs,
+  flushMainPlaylist,
   queueItemLocalThumb,
   tracksFromManifest,
   type Manifest,
@@ -54,6 +55,32 @@ describe("buildState", () => {
   it("round-trips queue playback state", () => {
     const s = buildState(3, "repeat-all");
     expect(s).toEqual({ queueIndex: 3, queueMode: "repeat-all" });
+  });
+});
+
+describe("flushMainPlaylist", () => {
+  it("sends the same payload the debounced writer builds for the same state", async () => {
+    const t = makeTrack();
+    const ctx = { name: "Hits" };
+    const invokeFn = vi.fn().mockResolvedValue(undefined);
+    await flushMainPlaylist(true, [t], ctx, 0, "normal", invokeFn);
+    expect(invokeFn).toHaveBeenCalledExactlyOnceWith("main_playlist_write", {
+      manifest: buildManifest([t], ctx),
+      stateData: buildState(0, "normal"),
+    });
+  });
+
+  it("is a no-op before restore completes", async () => {
+    const invokeFn = vi.fn();
+    await flushMainPlaylist(false, [makeTrack()], null, 0, "normal", invokeFn);
+    expect(invokeFn).not.toHaveBeenCalled();
+  });
+
+  it("propagates rejections instead of swallowing them", async () => {
+    const invokeFn = vi.fn().mockRejectedValue(new Error("disk full"));
+    await expect(
+      flushMainPlaylist(true, [], null, -1, "normal", invokeFn)
+    ).rejects.toThrow("disk full");
   });
 });
 

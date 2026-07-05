@@ -860,3 +860,11 @@
   left: 6px;
   z-index: 1;
 }
+
+/* Inline form/field error text (e.g. a backend validation rejection under a
+   modal input). */
+.ds-form-error {
+  color: var(--error);
+  font-size: var(--fs-xs);
+  margin: 6px 0 0;
+}

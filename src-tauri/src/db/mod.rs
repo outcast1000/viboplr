@@ -166,6 +166,19 @@ pub struct Database {
     conn: Mutex<Connection>,
 }
 
+impl Database {
+    /// Lock-and-drop the connection mutex: blocks until the statement in
+    /// flight *at call time* finishes (used by the profile-switch flow so a
+    /// user action just before switching — e.g. a like — lands before exit).
+    /// It is not a quiescence guarantee: a background writer (scan/sync) can
+    /// re-acquire immediately after, and a statement cut off by the exit is
+    /// rolled back by SQLite journaling — integrity holds, that write is lost.
+    pub fn write_barrier(&self) {
+        // Acquire (blocking until any in-flight write releases) and drop.
+        drop(self.conn.lock());
+    }
+}
+
 // --- db submodules (split out of this file; inherent impl Database methods) ---
 mod albums;
 mod artists;

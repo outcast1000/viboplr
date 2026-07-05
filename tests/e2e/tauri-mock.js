@@ -139,6 +139,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
   switch (cmd) {
     case 'get_profile_info':
       return { storePath: 'mock-store.json' };
+    case 'list_profiles':
+      return [{ name: 'default', isCurrent: true }];
+    case 'get_pending_profile_switch':
+      return null;
     case 'get_artists':
       return TEST_ARTISTS;
     case 'get_albums':
