@@ -5,6 +5,7 @@ import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme, isLocalTrack } from "../queueEntry";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
+import { mediaErrorMessage, describePlaybackFailure, probeNetworkStatus } from "../playback/playbackErrors";
 import {
   nativeEngine,
   type EnginePositionEvent,
@@ -257,6 +258,9 @@ export function usePlayback(
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [failedTrack, setFailedTrack] = useState<QueueTrack | null>(null);
   const [currentAssetUrl, setCurrentAssetUrl] = useState<string | null>(null);
+  // Last source URL handed to playWithSrc — read by the play-failure catch
+  // blocks, where currentAssetUrl would be a stale closure.
+  const lastPlaySrcRef = useRef<string | null>(null);
   const [loadingTrack, setLoadingTrack] = useState<QueueTrack | null>(null);
   const playStartedAtRef = useRef(0);
 
@@ -1283,9 +1287,7 @@ export function usePlayback(
       if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
       console.error("Playback error:", e);
       setCurrentTrack(track);
-      setPlaying(false);
-      setPlaybackError(e instanceof Error ? e.message : String(e));
-      setFailedTrack(track);
+      surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
     } finally {
       // Only the current play closes the transition window — a superseded play
       // must not clear the newer one's flag (the newer play owns it and will clear
@@ -1322,9 +1324,7 @@ export function usePlayback(
       if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
       console.error("Playback error:", e);
       setCurrentTrack(track);
-      setPlaying(false);
-      setPlaybackError(e instanceof Error ? e.message : String(e));
-      setFailedTrack(track);
+      surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
     } finally {
       if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
         setLoadingTrack(null);
@@ -1398,6 +1398,9 @@ export function usePlayback(
     setCurrentTrack(track);
     prefetchRequestedRef.current = false;
     setCurrentAssetUrl(src);
+    // Recorded so a play() rejection's catch can probe the failing source's host
+    // (state would be a stale closure there) — see surfacePlaybackFailure.
+    lastPlaySrcRef.current = src;
     setPositionSecs(seekTo > 0 ? seekTo : 0);
     setDurationSecs(track.duration_secs ?? 0);
     setIcyTitle(null);
@@ -1552,6 +1555,25 @@ export function usePlayback(
     setCurrentAssetUrl(null);
   }
 
+  // Surface a playback failure to the user. The base message shows immediately;
+  // for remote (network-streamed) tracks the network is then probed and the
+  // message upgraded to a connectivity error when the connection — not the file —
+  // is the real problem (WKWebView reports a failed source fetch as "not
+  // supported", see playbackErrors.ts). The functional upgrade only replaces the
+  // exact base message, so it never reopens a dismissed modal or clobbers a
+  // newer failure.
+  function surfacePlaybackFailure(base: string, track: QueueTrack | null, src: string | null) {
+    setPlaybackError(base);
+    setFailedTrack(track);
+    setPlaying(false);
+    if (!track || isLocalTrack(track)) return;
+    probeNetworkStatus(src).then((network) => {
+      const refined = describePlaybackFailure(base, true, network);
+      if (refined === base) return;
+      setPlaybackError(prev => (prev === base ? refined : prev));
+    });
+  }
+
   function onMediaError(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
     const el = e.currentTarget;
     const err = el.error;
@@ -1568,37 +1590,25 @@ export function usePlayback(
       logPlayback(`Ignoring media error from non-active element ${fired} (code ${err.code}); active playback continues`);
       return;
     }
-    const messages: Record<number, string> = {
-      1: "Playback aborted",
-      2: "Network error during playback",
-      3: "File could not be decoded — format may not be supported",
-      4: "File format not supported",
-    };
-    const msg = messages[err.code] || `Playback error (code ${err.code})`;
+    const msg = mediaErrorMessage(err.code);
     console.error("Media error:", msg, err.message);
+    const failingSrc = el.currentSrc || null;
 
     // Attempt transcode fallback for decode/format errors on local video tracks
     if ((err.code === 3 || err.code === 4) && currentTrack) {
-      attemptTranscodeFallback(currentTrack)
+      const track = currentTrack;
+      attemptTranscodeFallback(track)
         .then((handled) => {
-          if (!handled) {
-            setPlaybackError(msg);
-            setFailedTrack(currentTrack);
-            setPlaying(false);
-          }
+          if (!handled) surfacePlaybackFailure(msg, track, failingSrc);
         })
         .catch((te) => {
           console.error("Transcode fallback failed:", te);
-          setPlaybackError(msg);
-          setFailedTrack(currentTrack);
-          setPlaying(false);
+          surfacePlaybackFailure(msg, track, failingSrc);
         });
       return;
     }
 
-    setPlaybackError(msg);
-    setFailedTrack(currentTrack);
-    setPlaying(false);
+    surfacePlaybackFailure(msg, currentTrack, failingSrc);
   }
 
   function clearPlaybackError() {
