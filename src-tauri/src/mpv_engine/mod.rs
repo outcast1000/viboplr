@@ -182,13 +182,86 @@ fn ensure_ca_bundle(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        // Windows ffmpeg builds typically use schannel (OS trust store); if the
-        // vendored build turns out to use OpenSSL there too, extend this.
-        if path.exists() {
-            return Some(path);
+        #[cfg(windows)]
+        {
+            if path.exists() {
+                return Some(path);
+            }
+            if let Some(parent) = path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    log::error!("mpv-engine: creating CA bundle directory failed: {e}");
+                    return None;
+                }
+            }
+            match export_windows_root_certs_pem(&path) {
+                Ok(()) => return Some(path),
+                Err(e) => {
+                    log::error!("mpv-engine: exporting Windows root certificates failed: {e}");
+                    return None;
+                }
+            }
         }
-        None
+
+        #[cfg(not(windows))]
+        {
+            if path.exists() {
+                return Some(path);
+            }
+            None
+        }
     }
+}
+
+#[cfg(windows)]
+fn export_windows_root_certs_pem(path: &std::path::Path) -> Result<(), String> {
+    let dest = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "`\"");
+    let script = format!(
+        "$ErrorActionPreference='Stop'; \
+$store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root','LocalMachine'); \
+$store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly); \
+$sb = New-Object System.Text.StringBuilder; \
+foreach ($cert in $store.Certificates) {{ \
+  $b64 = [System.Convert]::ToBase64String($cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert), [System.Base64FormattingOptions]::InsertLineBreaks); \
+  [void]$sb.AppendLine('-----BEGIN CERTIFICATE-----'); \
+  [void]$sb.AppendLine($b64); \
+  [void]$sb.AppendLine('-----END CERTIFICATE-----'); \
+}}; \
+$store.Close(); \
+[System.IO.File]::WriteAllText(\"{dest}\", $sb.ToString(), [System.Text.Encoding]::ASCII);"
+    );
+
+    let out = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ])
+        .output()
+        .map_err(|e| format!("failed to spawn powershell: {e}"))?;
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        return Err(format!(
+            "powershell exit {}: {}{}{}",
+            out.status,
+            stdout.trim(),
+            if !stdout.trim().is_empty() && !stderr.trim().is_empty() {
+                " | "
+            } else {
+                ""
+            },
+            stderr.trim()
+        ));
+    }
+
+    Ok(())
 }
 
 #[derive(Default)]
@@ -219,7 +292,7 @@ struct EngineState {
 }
 
 struct Deck {
-    mpv: Mpv,
+    mpv: Arc<Mpv>,
 }
 
 pub struct Engine {
@@ -277,7 +350,7 @@ impl Engine {
                 .get_property::<String>("mpv-version")
                 .unwrap_or_else(|_| "unknown".into());
             log::info!("mpv-engine: deck {i} core initialized ({mpv_version})");
-            decks.push(Deck { mpv });
+            decks.push(Deck { mpv: Arc::new(mpv) });
         }
 
         let state = Arc::new(Mutex::new(EngineState { volume: 1.0, ..Default::default() }));
@@ -418,10 +491,7 @@ impl Engine {
     }
 
     fn spawn_event_thread(self: &Arc<Self>, deck: usize) -> Result<(), String> {
-        let client = self.decks[deck]
-            .mpv
-            .create_client(Some(&format!("viboplr-events-{deck}")))
-            .map_err(|e| format!("failed to create mpv event client: {e}"))?;
+        let client = Arc::clone(&self.decks[deck].mpv);
         client
             .disable_deprecated_events()
             .map_err(|e| format!("failed to configure mpv events: {e}"))?;
@@ -850,7 +920,7 @@ impl Engine {
 }
 
 fn run_event_loop(
-    client: Mpv,
+    client: Arc<Mpv>,
     deck: usize,
     engine: Weak<Engine>,
     state: Arc<Mutex<EngineState>>,
