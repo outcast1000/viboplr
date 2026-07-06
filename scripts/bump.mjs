@@ -2,6 +2,9 @@
 
 // Usage: node scripts/bump.mjs [0.2.0] [--autocommit] [--screenshots]
 //
+// With no version argument: bumps patch (0.9.5 -> 0.9.6), or the prerelease
+// counter when the current version is a beta (0.9.151-beta.1 -> 0.9.151-beta.2).
+//
 // Full release orchestrator:
 //   1. Runs CI checks (typecheck, Rust tests, TS tests) — aborts on failure
 //   2. Bumps version in package.json, Cargo.toml, tauri.conf.json
@@ -23,6 +26,7 @@ import { execSync } from "child_process";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 import { generateChangelog } from "./lib/changelog.mjs";
+import { nextVersion } from "./lib/version.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -34,8 +38,23 @@ if (version && !/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) {
   console.error(`Invalid version "${version}" — expected x.y.z or x.y.z-suffix (e.g. 0.9.152-beta.1)`);
   process.exit(1);
 }
+
+// No version given: bump patch, or the prerelease counter when the current
+// version is itself a prerelease (0.9.151-beta.1 -> 0.9.151-beta.2). Computed
+// here, before isBeta, so an auto-bumped beta still skips the site steps.
+if (!version) {
+  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+  try {
+    version = nextVersion(pkg.version);
+  } catch (e) {
+    console.error(`✗ ${e.message}`);
+    process.exit(1);
+  }
+  console.log(`No version specified, bumping ${version.includes("-") ? "prerelease" : "patch"}: ${pkg.version} -> ${version}`);
+}
+
 // Hyphen = prerelease = beta channel (mirrors the release.yml prerelease guard).
-const isBeta = !!version && version.includes("-");
+const isBeta = version.includes("-");
 if (isBeta) {
   console.log(`BETA release ${version}: site updates (badge, download URLs, changelog, features) will be SKIPPED.\n`);
 }
@@ -141,14 +160,6 @@ function markdownToHtml(body) {
 // ---------------------------------------------------------------------------
 // Step 2 — Bump version in source files
 // ---------------------------------------------------------------------------
-
-if (!version) {
-  const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
-  const parts = pkg.version.split(".").map(Number);
-  parts[parts.length - 1] += 1;
-  version = parts.join(".");
-  console.log(`No version specified, bumping patch: ${pkg.version} -> ${version}`);
-}
 
 console.log(`\nBumping version to ${version}...\n`);
 
