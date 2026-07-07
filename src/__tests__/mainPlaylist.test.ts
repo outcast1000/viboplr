@@ -60,14 +60,22 @@ describe("buildState", () => {
 
 describe("flushMainPlaylist", () => {
   it("sends the same payload the debounced writer builds for the same state", async () => {
-    const t = makeTrack();
-    const ctx = { name: "Hits" };
-    const invokeFn = vi.fn().mockResolvedValue(undefined);
-    await flushMainPlaylist(true, [t], ctx, 0, "normal", invokeFn);
-    expect(invokeFn).toHaveBeenCalledExactlyOnceWith("main_playlist_write", {
-      manifest: buildManifest([t], ctx),
-      stateData: buildState(0, "normal"),
-    });
+    // Freeze the clock: the flush and the expected manifest each stamp
+    // created_at from new Date(), and a millisecond tick between the two
+    // fails the deep equality (flaked the v0.9.151 release CI).
+    vi.useFakeTimers();
+    try {
+      const t = makeTrack();
+      const ctx = { name: "Hits" };
+      const invokeFn = vi.fn().mockResolvedValue(undefined);
+      await flushMainPlaylist(true, [t], ctx, 0, "normal", invokeFn);
+      expect(invokeFn).toHaveBeenCalledExactlyOnceWith("main_playlist_write", {
+        manifest: buildManifest([t], ctx),
+        stateData: buildState(0, "normal"),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is a no-op before restore completes", async () => {
