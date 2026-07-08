@@ -26,7 +26,7 @@
       "Lyrics from multiple providers<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "now-playing.webp",
-    "screenshotAlt": "Viboplr now playing lean-back view with album art"
+    "screenshotAlt": "Viboplr now playing view with synced karaoke lyrics"
   },
   {
     "group": "Playback",
@@ -40,9 +40,9 @@
       "Full playback controls"
     ],
     "screenshot": "mini-player.webp",
-    "screenshotAlt": "Viboplr compact mini player mode",
-    "screenshotWidth": 1000,
-    "screenshotHeight": 104
+    "screenshotAlt": "Viboplr mini player with playback controls",
+    "screenshotWidth": 800,
+    "screenshotHeight": 212
   },
   {
     "group": "Library &amp; Sources",
@@ -57,7 +57,7 @@
       "Genre tags from file metadata"
     ],
     "screenshot": "library.webp",
-    "screenshotAlt": "Viboplr library view with artist detail"
+    "screenshotAlt": "Viboplr library albums in tiles view"
   },
   {
     "group": "Library &amp; Sources",
@@ -114,7 +114,7 @@
       "Similar tracks, artists &amp; bios via Last.fm<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "discovery.webp",
-    "screenshotAlt": "Viboplr track detail view with metadata"
+    "screenshotAlt": "Viboplr track detail with a radio queue playing"
   },
   {
     "group": "Make It Yours",
@@ -143,7 +143,7 @@
       "Import custom JSON skins"
     ],
     "screenshot": "skins.webp",
-    "screenshotAlt": "Viboplr skin settings with theme options"
+    "screenshotAlt": "Viboplr installed skins gallery"
   },
   {
     "group": "Powered by Plugins",
@@ -159,6 +159,6 @@
       "No local files needed &mdash; stream via Spotify &amp; YouTube<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "plugins.webp",
-    "screenshotAlt": "Viboplr plugins settings panel"
+    "screenshotAlt": "Viboplr installed plugins in the Extensions view"
   }
 ]

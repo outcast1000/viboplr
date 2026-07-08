@@ -693,6 +693,19 @@ p {
   background: var(--color-bg);
 }
 
+/* Very wide screenshots (mini player bar) keep their natural ratio */
+.feature-image--wide,
+.feature-section:nth-child(even) .feature-image--wide {
+  aspect-ratio: auto;
+  background: transparent;
+  border: none;
+}
+
+.feature-image--wide img {
+  height: auto;
+  object-fit: contain;
+}
+
 .feature-image img {
   width: 100%;
   height: 100%;

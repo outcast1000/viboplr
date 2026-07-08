@@ -25,6 +25,10 @@ export function renderFeaturesHtml(features, version) {
       (f) => {
         const w = f.screenshotWidth || 2560;
         const h = f.screenshotHeight || 1600;
+        // Very wide screenshots (e.g. the mini player bar) would be cropped
+        // beyond recognition by the 4:3 object-fit:cover frame — render those
+        // at their natural ratio instead.
+        const wide = w / h > 2.5;
         const imgTag = f.screenshot
           ? `<img src="assets/screenshots/${f.screenshot}" alt="${f.screenshotAlt || ""}" loading="lazy" width="${w}" height="${h}">`
           : `<span>${f.label} screenshot &mdash; coming soon</span>`;
@@ -47,7 +51,7 @@ ${groupHeader}      <div class="feature-row reveal">
 ${f.items.map((item) => `            <div class="feature-list-item">${item}</div>`).join("\n")}
           </div>
         </div>
-        <div class="feature-image">
+        <div class="feature-image${wide ? " feature-image--wide" : ""}">
           ${imgTag}
         </div>
       </div>
