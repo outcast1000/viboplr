@@ -1,6 +1,8 @@
 [
   {
-    "label": "Playback",
+    "group": "Playback",
+    "groupDescription": "Audiophile-grade playback and lean-back views, for listening and watching.",
+    "label": "Engine",
     "heading": "Hear it the way it was meant to be heard",
     "description": "Gapless playback for seamless album listening. Crossfading from 0 to 10 seconds between tracks. Native codec support for audio and video files &mdash; no transcoding, no plugins.",
     "items": [
@@ -13,19 +15,7 @@
     "screenshotAlt": "Viboplr playback controls and now playing bar"
   },
   {
-    "label": "Home",
-    "heading": "A home screen that knows your library",
-    "description": "Open Viboplr to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.",
-    "items": [
-      "Radio-station carousel seeded from your library",
-      "&ldquo;Recently played&rdquo; &amp; &ldquo;Most played&rdquo; shelves",
-      "&ldquo;Jump back in&rdquo; &amp; &ldquo;Recently added&rdquo;",
-      "Extra shelves contributed by plugins<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "home.webp",
-    "screenshotAlt": "Viboplr home view with radio stations and shelves"
-  },
-  {
+    "group": "Playback",
     "label": "Now Playing",
     "heading": "Lean back and watch the words",
     "description": "A full-screen now-playing view with synced, karaoke-style lyrics that highlight line by line. Playing a video? It expands into a theater mode with an ambient glow sampled from the artwork.",
@@ -39,58 +29,7 @@
     "screenshotAlt": "Viboplr now playing lean-back view with album art"
   },
   {
-    "label": "Library",
-    "heading": "Your collection, always in sync",
-    "description": "Point Viboplr at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.",
-    "items": [
-      "Background folder scanning",
-      "Smart metadata extraction with fallback parsing",
-      "Real-time file watching for instant updates",
-      "Genre tags from file metadata"
-    ],
-    "screenshot": "library.webp",
-    "screenshotAlt": "Viboplr library view with artist detail"
-  },
-  {
-    "label": "Search",
-    "heading": "Find anything in milliseconds",
-    "description": "FTS5-powered full-text search across artists, albums, tracks, and tags. Accent-insensitive and forgiving &mdash; find what you want even when you can't remember the exact spelling.",
-    "items": [
-      "Full-text search with FTS5",
-      "Accent &amp; case insensitive",
-      "Sub-100ms results across entire library",
-      "Search by artist, album, track, or tag"
-    ],
-    "screenshot": "search.webp",
-    "screenshotAlt": "Viboplr full-text search with results"
-  },
-  {
-    "label": "Radio",
-    "heading": "Rediscover your own music",
-    "description": "Start an endless station from any track, artist, or tag and Viboplr builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.",
-    "items": [
-      "One-click radio from any track, artist, or tag",
-      "Auto-continue with weighted strategies",
-      "Mix by same artist, tag, most-played, or liked",
-      "Similar tracks, artists &amp; bios via Last.fm<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "discovery.webp",
-    "screenshotAlt": "Viboplr track detail view with metadata"
-  },
-  {
-    "label": "Servers",
-    "heading": "Local meets streaming, seamlessly",
-    "description": "Point Viboplr at local folders and Subsonic or Navidrome servers for one unified library. Add streaming services through plugins &mdash; they slot straight into the same player, queue, and search.",
-    "items": [
-      "Subsonic &amp; Navidrome support",
-      "Unified library across all sources",
-      "TIDAL Hi-Fi lossless streaming<span class=\"feature-tag\">plugin</span>",
-      "Spotify &amp; YouTube browse and playback<span class=\"feature-tag\">plugin</span>"
-    ],
-    "screenshot": "servers.webp",
-    "screenshotAlt": "Viboplr collections view with local and server sources"
-  },
-  {
+    "group": "Playback",
     "label": "Mini Player",
     "heading": "Always within reach",
     "description": "A compact, always-on-top mini player that stays visible while you work. Draggable, auto-resizing, and just the right amount of information at a glance.",
@@ -106,6 +45,80 @@
     "screenshotHeight": 104
   },
   {
+    "group": "Library &amp; Sources",
+    "groupDescription": "Local folders and music servers, unified into one fast library.",
+    "label": "Library",
+    "heading": "Your collection, always in sync",
+    "description": "Point Viboplr at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.",
+    "items": [
+      "Background folder scanning",
+      "Smart metadata extraction with fallback parsing",
+      "Real-time file watching for instant updates",
+      "Genre tags from file metadata"
+    ],
+    "screenshot": "library.webp",
+    "screenshotAlt": "Viboplr library view with artist detail"
+  },
+  {
+    "group": "Library &amp; Sources",
+    "label": "Search",
+    "heading": "Find anything in milliseconds",
+    "description": "FTS5-powered full-text search across artists, albums, tracks, and tags. Accent-insensitive and forgiving &mdash; find what you want even when you can't remember the exact spelling.",
+    "items": [
+      "Full-text search with FTS5",
+      "Accent &amp; case insensitive",
+      "Sub-100ms results across entire library",
+      "Search by artist, album, track, or tag"
+    ],
+    "screenshot": "search.webp",
+    "screenshotAlt": "Viboplr full-text search with results"
+  },
+  {
+    "group": "Library &amp; Sources",
+    "label": "Servers",
+    "heading": "Local meets streaming, seamlessly",
+    "description": "Point Viboplr at local folders and Subsonic or Navidrome servers for one unified library. Add streaming services through plugins &mdash; they slot straight into the same player, queue, and search.",
+    "items": [
+      "Subsonic &amp; Navidrome support",
+      "Unified library across all sources",
+      "TIDAL Hi-Fi lossless streaming<span class=\"feature-tag\">plugin</span>",
+      "Spotify &amp; YouTube browse and playback<span class=\"feature-tag\">plugin</span>"
+    ],
+    "screenshot": "servers.webp",
+    "screenshotAlt": "Viboplr collections view with local and server sources"
+  },
+  {
+    "group": "Discovery",
+    "groupDescription": "Your own collection, resurfaced &mdash; stations, shelves, and endless queues.",
+    "label": "Home",
+    "heading": "A home screen that knows your library",
+    "description": "Open Viboplr to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.",
+    "items": [
+      "Radio-station carousel seeded from your library",
+      "&ldquo;Recently played&rdquo; &amp; &ldquo;Most played&rdquo; shelves",
+      "&ldquo;Jump back in&rdquo; &amp; &ldquo;Recently added&rdquo;",
+      "Extra shelves contributed by plugins<span class=\"feature-tag\">plugin</span>"
+    ],
+    "screenshot": "home.webp",
+    "screenshotAlt": "Viboplr home view with radio stations and shelves"
+  },
+  {
+    "group": "Discovery",
+    "label": "Radio",
+    "heading": "Rediscover your own music",
+    "description": "Start an endless station from any track, artist, or tag and Viboplr builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.",
+    "items": [
+      "One-click radio from any track, artist, or tag",
+      "Auto-continue with weighted strategies",
+      "Mix by same artist, tag, most-played, or liked",
+      "Similar tracks, artists &amp; bios via Last.fm<span class=\"feature-tag\">plugin</span>"
+    ],
+    "screenshot": "discovery.webp",
+    "screenshotAlt": "Viboplr track detail view with metadata"
+  },
+  {
+    "group": "Make It Yours",
+    "groupDescription": "Shape the app around how you listen.",
     "label": "Keyboard",
     "heading": "Built for power users",
     "description": "Over 35 keyboard shortcuts for everything from playback to navigation. Never leave the keyboard &mdash; control your music as fast as you can think.",
@@ -119,6 +132,7 @@
     "screenshotAlt": "Viboplr keyboard shortcuts overlay"
   },
   {
+    "group": "Make It Yours",
     "label": "Skins",
     "heading": "Make it yours",
     "description": "Choose from 8 built-in skins or install community skins from the gallery. Import your own JSON skin files with 13 customizable color tokens and optional custom CSS.",
@@ -132,14 +146,17 @@
     "screenshotAlt": "Viboplr skin settings with theme options"
   },
   {
-    "label": "Plugins",
+    "group": "Powered by Plugins",
+    "groupDescription": "An orchestrator at heart &mdash; extend Viboplr with streaming services, metadata, and entirely new views.",
+    "label": "Ecosystem",
     "heading": "Extend it your way",
-    "description": "A JavaScript plugin system powers streaming, lyrics, artwork, scrobbling, and downloads. Built-in plugins ship with the app; install more from the in-app gallery, or build your own with custom views, home shelves, context-menu actions, and event hooks.",
+    "description": "A JavaScript plugin system powers streaming, lyrics, artwork, scrobbling, and downloads. Built-in plugins ship with the app; install more from the in-app gallery, or build your own with custom views, home shelves, context-menu actions, and event hooks. You can even run Viboplr with no local collection at all &mdash; the Spotify and YouTube plugins turn it into a pure streaming player.",
     "items": [
       "Streaming, lyrics, artwork &amp; scrobbling plugins",
       "One-click install from the in-app gallery",
       "Custom sidebar views, home shelves &amp; context actions",
-      "Per-plugin storage; structured views (no raw HTML)"
+      "Per-plugin storage; structured views (no raw HTML)",
+      "No local files needed &mdash; stream via Spotify &amp; YouTube<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "plugins.webp",
     "screenshotAlt": "Viboplr plugins settings panel"

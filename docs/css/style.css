@@ -484,6 +484,35 @@ p {
   line-height: 1.6;
 }
 
+/* --- Story Page --- */
+.story-body {
+  max-width: 680px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.story-body h2 {
+  font-size: 1.6rem;
+  margin-bottom: var(--space-xs);
+}
+
+.story-body p {
+  font-size: 1.05rem;
+  line-height: 1.8;
+  color: var(--color-text-muted);
+}
+
+.story-body p + p {
+  margin-top: var(--space-sm);
+}
+
+.story-body a {
+  color: var(--color-accent-end);
+  font-weight: 600;
+}
+
 /* --- Bottom CTA --- */
 .bottom-cta {
   text-align: center;
@@ -512,6 +541,18 @@ p {
   margin-bottom: var(--space-lg);
 }
 
+.cta-story-link {
+  color: var(--color-accent-end);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: rgba(233,30,138,0.35);
+  text-underline-offset: 3px;
+}
+
+.cta-story-link:hover {
+  text-decoration-color: var(--color-accent-end);
+}
+
 .bottom-cta .hero-buttons {
   position: relative;
   z-index: 1;
@@ -524,6 +565,32 @@ p {
 
 .feature-section:nth-child(even) {
   background: var(--color-bg-alt);
+}
+
+/* Force a light background regardless of nth-child position (home-page spotlight) */
+.feature-section.feature-section--light {
+  background: var(--color-bg);
+}
+
+.feature-cta {
+  margin-top: var(--space-sm);
+}
+
+/* Group header opening a titled cluster of feature sections */
+.feature-group-header {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto var(--space-xl);
+}
+
+.feature-group-header h2 {
+  font-size: clamp(1.9rem, 3.5vw, 2.5rem);
+  margin-bottom: var(--space-xs);
+}
+
+.feature-group-header p {
+  color: var(--color-text-muted);
+  font-size: 1.05rem;
 }
 
 .feature-row {
