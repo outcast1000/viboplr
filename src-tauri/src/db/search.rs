@@ -2,6 +2,19 @@
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
 
+/// Build an FTS5 MATCH expression requiring every word to match the row (any
+/// column) and at least one word to match inside the `cols` column set:
+/// `({cols}:w1 OR {cols}:w2 …) AND w1 AND w2 …`. An FTS5 column filter binds
+/// only to the immediately-following phrase, so the naive `{cols}:w1 AND w2`
+/// scopes just the first word — making matches depend on word order (e.g.
+/// "rage rare" missing an album that "rare rage" finds). This form is
+/// order-independent and never drops a row the naive form could match under
+/// some word ordering.
+fn fts_colset_query(cols: &str, words: &[String]) -> String {
+    let scoped: Vec<String> = words.iter().map(|w| format!("{{{cols}}}:{w}")).collect();
+    format!("({}) AND {}", scoped.join(" OR "), words.join(" AND "))
+}
+
 impl Database {
 
     pub fn search_all(&self, query: &str, artist_limit: i64, album_limit: i64, track_limit: i64) -> SqlResult<SearchAllResults> {
@@ -17,11 +30,9 @@ impl Database {
             return Ok(SearchAllResults { artists: vec![], albums: vec![], tracks: vec![] });
         }
 
-        let fts_terms = words.join(" AND ");
-
         // --- Artists: use FTS on artist_name to find matching artist IDs ---
         let artists = {
-            let fts_query = format!("{{artist_name}}:{}", fts_terms);
+            let fts_query = fts_colset_query("artist_name", &words);
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
                  FROM artists a \
@@ -31,7 +42,7 @@ impl Database {
                    JOIN tracks_fts ON tracks_fts.rowid = t.id \
                    WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
                  ) \
-                 ORDER BY a.name LIMIT ?2"
+                 ORDER BY COALESCE(a.liked, 0) DESC, a.name LIMIT ?2"
             )?;
             let rows = stmt.query_map(params![fts_query, artist_limit], |row| {
                 Ok(Artist {
@@ -44,9 +55,9 @@ impl Database {
             rows.collect::<SqlResult<Vec<_>>>()?
         };
 
-        // --- Albums: use FTS on album_title to find matching album IDs ---
+        // --- Albums: FTS on album_title + artist_name to find matching album IDs ---
         let albums = {
-            let fts_query = format!("{{album_title}}:{}", fts_terms);
+            let fts_query = fts_colset_query("album_title artist_name", &words);
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
                  FROM albums al \
@@ -57,15 +68,19 @@ impl Database {
                    JOIN tracks_fts ON tracks_fts.rowid = t.id \
                    WHERE tracks_fts MATCH ?1 AND t.album_id IS NOT NULL \
                  ) \
-                 ORDER BY al.title LIMIT ?2"
+                 ORDER BY COALESCE(al.liked, 0) DESC, al.title LIMIT ?2"
             )?;
             let rows = stmt.query_map(params![fts_query, album_limit], |row| album_from_row(row))?;
             rows.collect::<SqlResult<Vec<_>>>()?
         };
 
         // --- Tracks (reuse FTS) ---
+        // Liked tracks rank first (and disliked last — `liked` is -1/0/1);
+        // the `, t.id` tiebreaker keeps the default insertion order within
+        // each like state.
         let track_opts = TrackQuery {
             limit: Some(track_limit),
+            sort_chain: Some(vec![SortKey { field: "liked".into(), dir: "desc".into() }]),
             ..Default::default()
         };
         let tracks = self.search_tracks_inner(&conn, &track_opts, query)?;
@@ -86,7 +101,10 @@ impl Database {
         if words.is_empty() {
             return Ok(vec![]);
         }
-        let fts_query = format!("{{title artist_name album_title tag_names}}:{}", words.join(" AND "));
+        // Parenthesized so every word is scoped to these columns — the colset
+        // deliberately excludes `path`, and without parens FTS5 would scope
+        // only the first word, letting the rest match on local file paths.
+        let fts_query = format!("{{title artist_name album_title tag_names}}:({})", words.join(" AND "));
         let placeholders: Vec<String> = collection_ids.iter().enumerate()
             .map(|(i, _)| format!("?{}", i + 3))
             .collect();
@@ -270,7 +288,7 @@ impl Database {
                 Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, tags: None, total })
             }
             "artists" => {
-                let fts_query = format!("{{artist_name}}:{}", fts_terms);
+                let fts_query = fts_colset_query("artist_name", &words);
                 let total: i64 = conn.query_row(
                     "SELECT COUNT(DISTINCT a.id) FROM artists a \
                      WHERE a.track_count > 0 \
@@ -320,7 +338,7 @@ impl Database {
                 Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), tags: None, total })
             }
             "albums" => {
-                let fts_query = format!("{{album_title artist_name}}:{}", fts_terms);
+                let fts_query = fts_colset_query("album_title artist_name", &words);
                 let total: i64 = conn.query_row(
                     "SELECT COUNT(DISTINCT al.id) FROM albums al \
                      WHERE al.track_count > 0 \
@@ -366,7 +384,7 @@ impl Database {
                 Ok(SearchEntityResult { tracks: None, albums: Some(albums), artists: None, tags: None, total })
             }
             "tags" => {
-                let fts_query = format!("{{tag_names}}:{}", fts_terms);
+                let fts_query = fts_colset_query("tag_names", &words);
                 let total: i64 = conn.query_row(
                     "SELECT COUNT(DISTINCT tg.id) FROM tags tg \
                      WHERE tg.track_count > 0 \
@@ -608,6 +626,84 @@ fn truncate_chars(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Seed one track with its artist + album, FTS-indexed. Returns the track id.
+    fn seed_track(db: &Database, col_id: i64, path: &str, title: &str, artist: &str, album: &str) -> i64 {
+        let artist_id = db.get_or_create_artist(artist).unwrap();
+        let album_id = db.get_or_create_album(album, Some(artist_id), None).unwrap();
+        let id = db
+            .upsert_track(
+                path, title, Some(artist_id), Some(album_id), None,
+                Some(200.0), Some("mp3"), None, None, Some(col_id), None,
+            )
+            .unwrap();
+        db.update_fts_for_track(id).unwrap();
+        id
+    }
+
+    #[test]
+    fn test_search_all_matches_across_fields_in_any_word_order() {
+        let db = Database::new_in_memory().unwrap();
+        let col = db
+            .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        seed_track(&db, col.id, "ratm/live-and-rare/01.mp3", "Bombtrack", "Rage Against The Machine", "Live & Rare");
+        seed_track(&db, col.id, "ratm/ratm/02.mp3", "Killing in the Name", "Rage Against The Machine", "Rage Against The Machine");
+        db.recompute_counts().unwrap();
+
+        // An album must be findable by artist word + album word, in either order
+        // ("rage" only exists in the artist name, "rare" only in the album title).
+        for q in ["rage rare", "rare rage"] {
+            let res = db.search_all(q, 10, 10, 10).unwrap();
+            assert!(
+                res.albums.iter().any(|a| a.title == "Live & Rare"),
+                "query {q:?} should return the album, got: {:?}",
+                res.albums.iter().map(|a| &a.title).collect::<Vec<_>>()
+            );
+            // The artist section keeps matching artist word + non-artist word.
+            assert!(
+                res.artists.iter().any(|a| a.name == "Rage Against The Machine"),
+                "query {q:?} should return the artist"
+            );
+        }
+
+        // Album-title word + track-title word still matches (the self-titled
+        // album is found via its track "Killing in the Name").
+        let res = db.search_all("rage killing", 10, 10, 10).unwrap();
+        assert!(
+            res.albums.iter().any(|a| a.title == "Rage Against The Machine"),
+            "album-title + track-title words should still match the album"
+        );
+    }
+
+    #[test]
+    fn test_search_all_ranks_liked_results_first() {
+        let db = Database::new_in_memory().unwrap();
+        let col = db
+            .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        // Both rows match "aurora"; the liked artist/album/track sorts LAST by
+        // the default name/insertion order, so a first-place assertion proves
+        // like-priority rather than the default ordering.
+        seed_track(&db, col.id, "a/one.mp3", "Aurora Dawn", "Aurora Band", "Aurora One");
+        let liked_track = seed_track(&db, col.id, "b/two.mp3", "Aurora Dusk", "Aurora Zebra", "Aurora Zwei");
+        db.recompute_counts().unwrap();
+
+        let liked_artist = db.get_or_create_artist("Aurora Zebra").unwrap();
+        let liked_album = db.get_or_create_album("Aurora Zwei", Some(liked_artist), None).unwrap();
+        db.toggle_liked("artists", liked_artist, 1).unwrap();
+        db.toggle_liked("albums", liked_album, 1).unwrap();
+        db.toggle_liked("tracks", liked_track, 1).unwrap();
+
+        let res = db.search_all("aurora", 10, 10, 10).unwrap();
+        assert_eq!(res.artists.first().map(|a| a.name.as_str()), Some("Aurora Zebra"));
+        assert_eq!(res.albums.first().map(|a| a.title.as_str()), Some("Aurora Zwei"));
+        assert_eq!(res.tracks.first().map(|t| t.title.as_str()), Some("Aurora Dusk"));
+        // Unliked rows still present, just ranked after.
+        assert_eq!(res.artists.len(), 2);
+        assert_eq!(res.albums.len(), 2);
+        assert_eq!(res.tracks.len(), 2);
+    }
 
     fn lyrics_type_id(db: &Database) -> i64 {
         // Register a lyrics-kind information type (mirrors a plugin manifest) and
