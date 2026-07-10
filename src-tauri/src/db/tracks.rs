@@ -444,50 +444,9 @@ impl Database {
 
         let fts_query = format!("{{title artist_name album_title tag_names path}}:{}", words.join(" AND "));
 
-        let mut sql = TRACK_SELECT.to_string();
-        sql.push_str(" JOIN tracks_fts ON tracks_fts.rowid = t.id");
-
-        if opts.tag_id.is_some() {
-            sql.push_str(" JOIN track_tags tt ON tt.track_id = t.id");
-        }
-
-        sql.push_str(" WHERE tracks_fts MATCH ?1");
-        let mut param_idx = 2;
-        sql.push_str(&format!(" {}", ENABLED_COLLECTION_FILTER));
-
-        if opts.artist_id.is_some() {
-            sql.push_str(&format!(" AND t.artist_id = ?{}", param_idx));
-            param_idx += 1;
-        }
-        if opts.album_id.is_some() {
-            sql.push_str(&format!(" AND t.album_id = ?{}", param_idx));
-            param_idx += 1;
-        }
-        if opts.tag_id.is_some() {
-            sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
-            param_idx += 1;
-        }
-        if opts.liked_only {
-            sql.push_str(" AND t.liked = 1");
-        }
-        match opts.media_type.as_deref() {
-            Some("audio") => sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
-            Some("video") => sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),
-            _ => {}
-        }
-
-        let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
-        let order = build_order_by(
-            &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
-            liked_fallback, "t.liked", ", t.id",
-            |f| sort_column_sql(Some(f)),
-            "t.id",
-        );
-        sql.push_str(&format!(" {}", order));
-
+        let sql = fts_search_sql(opts);
         let limit = opts.limit.unwrap_or(100);
         let offset = opts.offset.unwrap_or(0);
-        sql.push_str(&format!(" LIMIT ?{} OFFSET ?{}", param_idx, param_idx + 1));
 
         let mut stmt = conn.prepare(&sql)?;
 
@@ -806,4 +765,118 @@ fn duplicate_quality_key(t: &Track) -> (i32, i32, i64, i64, i32, std::cmp::Rever
     let size = t.file_size.unwrap_or(0);
     let liked = if t.liked > 0 { 1 } else { 0 };
     (local, lossless, bitrate, size, liked, std::cmp::Reverse(t.id))
+}
+
+/// SQL for the FTS track search: `?1` is the MATCH expression, followed by
+/// one placeholder per set entity filter, then LIMIT/OFFSET. Split from
+/// `search_tracks_inner` so tests can run EXPLAIN QUERY PLAN on the exact
+/// statement it executes.
+fn fts_search_sql(opts: &TrackQuery) -> String {
+    let mut sql = TRACK_SELECT.to_string();
+    sql.push_str(" JOIN tracks_fts ON tracks_fts.rowid = t.id");
+
+    if opts.tag_id.is_some() {
+        sql.push_str(" JOIN track_tags tt ON tt.track_id = t.id");
+    }
+
+    sql.push_str(" WHERE tracks_fts MATCH ?1");
+    let mut param_idx = 2;
+    sql.push_str(&format!(" {}", ENABLED_COLLECTION_FILTER));
+
+    if opts.artist_id.is_some() {
+        sql.push_str(&format!(" AND t.artist_id = ?{}", param_idx));
+        param_idx += 1;
+    }
+    if opts.album_id.is_some() {
+        sql.push_str(&format!(" AND t.album_id = ?{}", param_idx));
+        param_idx += 1;
+    }
+    if opts.tag_id.is_some() {
+        sql.push_str(&format!(" AND tt.tag_id = ?{}", param_idx));
+        param_idx += 1;
+    }
+    if opts.liked_only {
+        sql.push_str(" AND t.liked = 1");
+    }
+    match opts.media_type.as_deref() {
+        Some("audio") => sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
+        Some("video") => sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),
+        _ => {}
+    }
+
+    // With no explicit sort, order by tracks_fts.rowid (== t.id via the join,
+    // so the output order is unchanged): FTS5 satisfies it with an ordered
+    // scan, letting SQLite stream matches and stop at LIMIT. Anything the
+    // planner can't map onto that scan — build_order_by's `t.id, t.id`
+    // fallback, or even a `, t.id` tiebreaker after the rowid — forces every
+    // match through the joins into a temp-B-tree sorter first.
+    let has_chain_sort = opts.sort_chain.as_ref()
+        .map_or(false, |c| c.iter().any(|k| sort_column_sql(Some(&k.field)).is_some()));
+    let has_legacy_sort = sort_column_sql(opts.sort_field.as_deref()).is_some();
+    if !has_chain_sort && !has_legacy_sort && !opts.liked_only {
+        sql.push_str(" ORDER BY tracks_fts.rowid");
+    } else {
+        let liked_fallback = opts.liked_only && opts.sort_chain.as_ref().map_or(true, |c| c.is_empty());
+        let order = build_order_by(
+            &opts.sort_chain, opts.sort_field.as_deref(), opts.sort_dir.as_deref(),
+            liked_fallback, "t.liked", ", t.id",
+            |f| sort_column_sql(Some(f)),
+            "t.id",
+        );
+        sql.push_str(&format!(" {}", order));
+    }
+
+    sql.push_str(&format!(" LIMIT ?{} OFFSET ?{}", param_idx, param_idx + 1));
+    sql
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan_details(sql: &str) -> Vec<String> {
+        let db = Database::new_in_memory().unwrap();
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        // Placeholder values don't influence the plan, but rusqlite insists
+        // they're bound — NULL for all of them.
+        let nulls = vec![rusqlite::types::Value::Null; stmt.parameter_count()];
+        let refs: Vec<&dyn rusqlite::types::ToSql> =
+            nulls.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+        let rows = stmt.query_map(refs.as_slice(), |r| r.get::<_, String>(3)).unwrap();
+        rows.collect::<SqlResult<Vec<_>>>().unwrap()
+    }
+
+    #[test]
+    fn test_plain_fts_search_streams_without_sorter() {
+        // No explicit sort: the plan must contain no sorter, so SQLite streams
+        // FTS matches in rowid order and stops at LIMIT instead of
+        // materializing every match through the joins into a temp B-tree.
+        let sql = fts_search_sql(&TrackQuery {
+            query: Some("art".into()),
+            ..Default::default()
+        });
+        let details = plan_details(&sql);
+        assert!(
+            !details.iter().any(|d| d.contains("TEMP B-TREE")),
+            "plain FTS search must stream matches, got plan: {details:?}"
+        );
+    }
+
+    #[test]
+    fn test_sorted_fts_search_plan_check_is_sensitive() {
+        // An explicit sort legitimately needs the sorter — this proves the
+        // TEMP B-TREE assertion above isn't passing vacuously (e.g. after a
+        // change to EXPLAIN QUERY PLAN's wording).
+        let sql = fts_search_sql(&TrackQuery {
+            query: Some("art".into()),
+            sort_field: Some("title".into()),
+            ..Default::default()
+        });
+        let details = plan_details(&sql);
+        assert!(
+            details.iter().any(|d| d.contains("TEMP B-TREE")),
+            "explicit sort should use a sorter, got plan: {details:?}"
+        );
+    }
 }

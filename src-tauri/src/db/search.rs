@@ -10,7 +10,14 @@ use super::*;
 /// "rage rare" missing an album that "rare rage" finds). This form is
 /// order-independent and never drops a row the naive form could match under
 /// some word ordering.
+///
+/// A single word gets just `{cols}:w`: the colset match implies the global
+/// one, and the redundant `AND w` would cost a second full posting-list walk
+/// (felt on every keystroke of a query's first word).
 fn fts_colset_query(cols: &str, words: &[String]) -> String {
+    if let [w] = words {
+        return format!("{{{cols}}}:{w}");
+    }
     let scoped: Vec<String> = words.iter().map(|w| format!("{{{cols}}}:{w}")).collect();
     format!("({}) AND {}", scoped.join(" OR "), words.join(" AND "))
 }
@@ -626,6 +633,25 @@ fn truncate_chars(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_fts_colset_query_single_word_has_no_redundant_global_term() {
+        // `({cols}:w) AND w` ≡ `{cols}:w` — a colset match implies the global
+        // one — but FTS5 still evaluates the redundant global term at full
+        // posting-list cost, doubling every first-word-of-a-query keystroke.
+        assert_eq!(
+            fts_colset_query("artist_name", &["\"art\"*".to_string()]),
+            "{artist_name}:\"art\"*"
+        );
+    }
+
+    #[test]
+    fn test_fts_colset_query_multi_word_keeps_order_independent_closure() {
+        assert_eq!(
+            fts_colset_query("album_title artist_name", &["\"rage\"*".to_string(), "\"rare\"*".to_string()]),
+            "({album_title artist_name}:\"rage\"* OR {album_title artist_name}:\"rare\"*) AND \"rage\"* AND \"rare\"*"
+        );
+    }
 
     /// Seed one track with its artist + album, FTS-indexed. Returns the track id.
     fn seed_track(db: &Database, col_id: i64, path: &str, title: &str, artist: &str, album: &str) -> i64 {
