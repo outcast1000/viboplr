@@ -10,7 +10,7 @@ import type { DependencyInfo, InstallProgress } from "../hooks/useDependencies";
 import { PluginViewRenderer } from "./PluginViewRenderer";
 import { SubsonicServerForm } from "./AddServerModal";
 import { getPlatform, getPlatformLabel, formatBytes } from "./DependencyModal";
-import { computeInitialSelection, computeInstallEntries } from "./firstRunSelection";
+import { computeInitialSelection, computeInstallEntries, filterOnboardingEntries } from "./firstRunSelection";
 import {
   type OnboardingStepId,
   type OnboardingProfile,
@@ -536,10 +536,15 @@ function PluginsStep({
   onRecheckDeps: () => void;
   setBusy: (busy: boolean) => void;
 }) {
+  // Experimental plugins never surface in the wizard. The raw `entries` prop
+  // stays in scope so the empty state can still tell "gallery unreachable"
+  // (raw empty) from "loaded but nothing to recommend" (filtered empty).
+  const visibleEntries = filterOnboardingEntries(entries);
+
   // Recomputed from the current profile on every visit — the step unmounts on
   // navigation, so switching profile and coming back re-seeds the selection.
   const [checked, setChecked] = useState<Set<string>>(() =>
-    computeInitialSelection(entries, installedIds, profile),
+    computeInitialSelection(visibleEntries, installedIds, profile),
   );
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [done, setDone] = useState<Set<string>>(new Set());
@@ -552,7 +557,7 @@ function PluginsStep({
   // fire-and-forget). Re-seed the recommended selection once entries arrive,
   // unless the user already interacted with the checkboxes.
   useEffect(() => {
-    if (!touchedRef.current) setChecked(computeInitialSelection(entries, installedIds, profile));
+    if (!touchedRef.current) setChecked(computeInitialSelection(visibleEntries, installedIds, profile));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries]);
 
@@ -577,7 +582,7 @@ function PluginsStep({
     });
   }
 
-  const toInstall = computeInstallEntries(entries, checked, installedIds).filter((e) => !done.has(e.id));
+  const toInstall = computeInstallEntries(visibleEntries, checked, installedIds).filter((e) => !done.has(e.id));
 
   async function handleInstall() {
     if (toInstall.length === 0) return;
@@ -637,6 +642,15 @@ function PluginsStep({
     );
   }
 
+  // The gallery loaded fine — everything was just filtered out (experimental).
+  if (visibleEntries.length === 0) {
+    return (
+      <div className="onboarding-empty">
+        <span>No recommended plugins right now. You can browse and install plugins later from Extensions.</span>
+      </div>
+    );
+  }
+
   return (
     <>
       <p className="onboarding-step-desc">
@@ -645,7 +659,7 @@ function PluginsStep({
         for now.
       </p>
       <div className="first-run-list">
-        {entries.map((entry) => {
+        {visibleEntries.map((entry) => {
           const isInstalled = installedIds.has(entry.id) || done.has(entry.id);
           const isInstalling = installing.has(entry.id);
           const isFailed = failed.has(entry.id);

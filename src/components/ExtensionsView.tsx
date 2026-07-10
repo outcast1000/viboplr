@@ -10,6 +10,7 @@ import { PluginViewRenderer } from "./PluginViewRenderer";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { LINKS } from "../constants/links";
 import { summarizeContributes, describeContributes, skinMockColors } from "../utils/extensionSummary";
+import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
 
 type ExtTab = "skins" | "plugins";
 // Plugins tab layout: the default compact one-per-row list, or the card grid.
@@ -88,6 +89,22 @@ function StatusBadge({ status, update }: { status: string; update?: ExtensionUpd
   }
 }
 
+// Rendered wherever a plugin's stability tier is experimental — installed or
+// not. The tooltip + aria-label carry the disclaimer because the gallery
+// section's banner is the only other place its meaning is spelled out.
+function ExperimentalBadge({ stability }: { stability?: string }) {
+  if (!isExperimental(stability)) return null;
+  return (
+    <span
+      className="ext-badge ext-badge--experimental"
+      title={EXPERIMENTAL_DISCLAIMER}
+      aria-label={`Experimental — ${EXPERIMENTAL_DISCLAIMER}`}
+    >
+      experimental
+    </span>
+  );
+}
+
 function GalleryError({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="ext-gallery-error" role="alert">
@@ -97,12 +114,35 @@ function GalleryError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function SectionHeader({ title, count, action }: { title: string; count: number; action?: React.ReactNode }) {
+function SectionHeader({
+  title, count, action, collapsed, onToggle,
+}: {
+  title: string; count: number; action?: React.ReactNode;
+  // When onToggle is set the title becomes a disclosure button with a chevron
+  // (unpersisted collapse, mirroring the InformationSections pattern).
+  collapsed?: boolean; onToggle?: () => void;
+}) {
   if (count === 0 && !action) return null;
-  return (
-    <div className="ext-section-header">
+  const label = (
+    <>
       <span>{title}</span>
       {count > 0 && <span className="ext-section-count">{count}</span>}
+    </>
+  );
+  return (
+    <div className="ext-section-header">
+      {onToggle ? (
+        <button type="button" className="ext-section-toggle" onClick={onToggle} aria-expanded={!collapsed}>
+          <span className={`section-chevron${collapsed ? " collapsed" : ""}`} aria-hidden="true">
+            <svg width="10" height="10" viewBox="0 0 10 10">
+              <path d="M1 3l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          {label}
+        </button>
+      ) : (
+        label
+      )}
       {action && <span className="ext-section-action">{action}</span>}
     </div>
   );
@@ -135,9 +175,10 @@ function PluginCard({
           <div className="ext-pcard-name">
             <span className="ext-pcard-name-text">{ext.name}</span>
             {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
-            {!installed && ext.recommended && (
+            {!installed && ext.recommended && !isExperimental(ext.stability) && (
               <span className="ext-badge ext-badge--recommended">recommended</span>
             )}
+            <ExperimentalBadge stability={ext.stability} />
             <StatusBadge status={ext.status} update={ext.updateAvailable} />
           </div>
           <div className="ext-pcard-meta">by {ext.author} · v{ext.version}</div>
@@ -240,9 +281,10 @@ function PluginRow({
         <div className="ext-prow-line1">
           <span className="ext-prow-name">{ext.name}</span>
           {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
-          {!installed && ext.recommended && (
+          {!installed && ext.recommended && !isExperimental(ext.stability) && (
             <span className="ext-badge ext-badge--recommended">recommended</span>
           )}
+          <ExperimentalBadge stability={ext.stability} />
           <StatusBadge status={ext.status} update={ext.updateAvailable} />
         </div>
         <div className="ext-prow-line2">
@@ -344,9 +386,10 @@ function PluginDetail({
           <div className="ext-detail-name">
             {ext.name}
             {ext.status === "active" && <span className="ext-badge ext-badge--active">enabled</span>}
-            {!isInstalled && ext.recommended && (
+            {!isInstalled && ext.recommended && !isExperimental(ext.stability) && (
               <span className="ext-badge ext-badge--recommended">recommended</span>
             )}
+            <ExperimentalBadge stability={ext.stability} />
           </div>
           <div className="ext-detail-desc">{ext.description}</div>
           <div className="ext-detail-meta">
@@ -692,11 +735,30 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   // In-app discovery prefers the curated "recommended" subset (the long tail
   // lives on the site, "Browse all"). When the gallery index flags none as
   // recommended, fall back to showing everything available so the section is
-  // never empty — the title reflects which set is shown.
+  // never empty — the title reflects which set is shown. Experimental entries
+  // are pulled out first so they can't reach either pool — they render only
+  // in the collapsed Experimental section below.
   const available = filtered.filter((e) => e.status === "not_installed");
-  const recommendedOnly = available.filter((e) => e.recommended);
-  const discover = (recommendedOnly.length > 0 ? recommendedOnly : available).slice().sort(byName);
+  const { stable: availableStable, experimental: experimentalItems } = partitionByStability(available);
+  const experimentalSorted = experimentalItems.slice().sort(byName);
+  const recommendedOnly = availableStable.filter((e) => e.recommended);
+  const discover = (recommendedOnly.length > 0 ? recommendedOnly : availableStable).slice().sort(byName);
   const discoverTitle = recommendedOnly.length > 0 ? "Recommended" : "Available";
+
+  // Collapsed by default on every visit (unpersisted). The view stays mounted
+  // across navigation (App.tsx display toggle), so re-collapse when it hides.
+  // Auto-expands while a search query has matches inside the section so
+  // results are never stranded behind a collapsed header.
+  const [experimentalOpen, setExperimentalOpen] = useState(false);
+  useEffect(() => {
+    if (!isVisible) setExperimentalOpen(false);
+  }, [isVisible]);
+  const experimentalExpanded = experimentalOpen || (!!searchQuery && experimentalSorted.length > 0);
+
+  // When the discover pool is empty but experimental entries exist, the
+  // Available header is dropped and its "Browse all" action moves onto the
+  // Experimental header — one flag keeps the two render sites in sync.
+  const browseAllOnExperimental = discover.length === 0 && experimentalSorted.length > 0;
 
   const detailExt = detail ? allExtensions.find((e) => e.id === detail.id && e.kind === "plugin") || null : null;
   // If the open plugin disappears (e.g. uninstalled from its detail page), drop
@@ -709,8 +771,11 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const galleryLoading = tab === "skins" ? skinGalleryLoading : pluginGalleryLoading;
   const galleryError = tab === "skins" ? skinGalleryError : pluginGalleryError;
   const retryGallery = tab === "skins" ? onFetchSkinGallery : onFetchPluginGallery;
-  const showGallerySkeleton = !!galleryLoading && discover.length === 0 && !searchQuery;
-  const showGalleryError = !galleryLoading && !!galleryError && discover.length === 0;
+  // Gate on the whole not-installed pool (stable + experimental), not just
+  // discover — skeletons and the error banner must never render above a
+  // populated Experimental section.
+  const showGallerySkeleton = !!galleryLoading && available.length === 0 && !searchQuery;
+  const showGalleryError = !galleryLoading && !!galleryError && available.length === 0;
 
   const browseAll = (
     <button
@@ -880,8 +945,34 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             <SectionHeader title="Installed" count={installedRest.length} />
             {renderPluginCollection(installedRest)}
 
-            <SectionHeader title={discoverTitle} count={discover.length} action={browseAll} />
+            {!browseAllOnExperimental && (
+              <SectionHeader title={discoverTitle} count={discover.length} action={browseAll} />
+            )}
             {renderPluginCollection(discover)}
+
+            {experimentalSorted.length > 0 && (
+              <>
+                <SectionHeader
+                  title="Experimental"
+                  count={experimentalSorted.length}
+                  action={browseAllOnExperimental ? browseAll : undefined}
+                  collapsed={!experimentalExpanded}
+                  // Toggle against what's visible, not the raw flag — while a
+                  // search auto-expands the section, a plain flip would flip
+                  // the flag invisibly and leave the section stuck open after
+                  // the search clears.
+                  onToggle={() => setExperimentalOpen(!experimentalExpanded)}
+                />
+                {experimentalExpanded && (
+                  <>
+                    <div className="ds-banner ds-banner--warning ext-experimental-banner">
+                      {EXPERIMENTAL_DISCLAIMER}
+                    </div>
+                    {renderPluginCollection(experimentalSorted)}
+                  </>
+                )}
+              </>
+            )}
 
             {showGallerySkeleton && (
               pluginViewMode === "list" ? (

@@ -2474,6 +2474,11 @@
   color: var(--accent);
   border: 1px solid rgba(var(--accent-rgb), 0.35);
 }
+.ext-badge--experimental {
+  background: rgba(var(--warning-rgb), 0.15);
+  color: var(--warning);
+  border: 1px solid rgba(var(--warning-rgb), 0.35);
+}
 
 /* Detail Pane */
 .ext-detail { padding: 24px; }
@@ -2617,6 +2622,21 @@
   opacity: 0.7;
 }
 .ext-section-action { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.ext-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+.ext-section-toggle:hover { color: var(--text-primary); }
+.ext-experimental-banner { margin: 4px 16px 8px; }
 .ext-browse-all {
   background: none;
   border: none;

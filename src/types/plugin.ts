@@ -112,6 +112,9 @@ export interface PluginManifest {
   autoEnable?: boolean;
   contributes?: PluginManifestContributes;
   updateUrl?: string;
+  /** Plugin maturity ("experimental" | "stable"). Absent = stable; unrecognized
+   *  values are treated as experimental-tier (fail-safe). See utils/pluginStability.ts. */
+  stability?: string;
 }
 
 // -- Installed plugin from backend --
@@ -1010,6 +1013,10 @@ export interface GalleryPluginEntry {
    *  pre-checked for every profile. Source of truth is the gallery index. */
   profiles?: string[];
   icon?: string;
+  /** Plugin maturity ("experimental" | "stable"). Absent = stable; unrecognized
+   *  values are treated as experimental-tier (fail-safe). Mirrors the manifest
+   *  field for pre-install presentation. Source of truth is the gallery index. */
+  stability?: string;
 }
 
 export interface PluginGalleryIndex {
@@ -1082,6 +1089,10 @@ export interface ExtensionItem {
   /** Featured in the gallery index (plugins and skins). Drives the
    *  "Recommended" badge on not-installed gallery entries. */
   recommended?: boolean;
+  /** Plugin maturity ("experimental" | "stable"). Installed plugins: manifest
+   *  value, falling back to the gallery entry (dev source exempt). Gallery
+   *  entries: the index value. Absent = stable. */
+  stability?: string;
 }
 
 export type ExtensionFilter = "all" | "plugins" | "skins" | "installed" | "updates" | "gallery";

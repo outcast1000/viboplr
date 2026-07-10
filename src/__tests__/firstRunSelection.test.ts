@@ -3,6 +3,7 @@ import type { GalleryPluginEntry } from "../types/plugin";
 import {
   computeInitialSelection,
   computeInstallEntries,
+  filterOnboardingEntries,
 } from "../components/firstRunSelection";
 
 function entry(over: Partial<GalleryPluginEntry> & { id: string }): GalleryPluginEntry {
@@ -98,5 +99,38 @@ describe("computeInstallEntries", () => {
   it("returns empty when nothing is checked", () => {
     const result = computeInstallEntries(entries, new Set(), new Set());
     expect(result).toEqual([]);
+  });
+});
+
+describe("filterOnboardingEntries", () => {
+  it("excludes experimental entries even when recommended or profiled", () => {
+    const entries = [
+      entry({ id: "a", recommended: true }),
+      entry({ id: "b", recommended: true, stability: "experimental" }),
+      entry({ id: "c", profiles: ["normal"], stability: "experimental" }),
+    ];
+    const visible = filterOnboardingEntries(entries);
+    expect(visible.map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it("excludes unknown stability values (fail-safe)", () => {
+    const entries = [entry({ id: "a", stability: "beta" }), entry({ id: "b", stability: "stable" })];
+    expect(filterOnboardingEntries(entries).map((e) => e.id)).toEqual(["b"]);
+  });
+
+  it("keeps stable and unmarked entries; empty input stays empty", () => {
+    const entries = [entry({ id: "a" }), entry({ id: "b", stability: "stable" })];
+    expect(filterOnboardingEntries(entries)).toHaveLength(2);
+    expect(filterOnboardingEntries([])).toEqual([]);
+  });
+
+  it("composes with computeInitialSelection: filtered experimental never pre-checks", () => {
+    const entries = [
+      entry({ id: "a", recommended: true }),
+      entry({ id: "b", recommended: true, stability: "experimental" }),
+    ];
+    const sel = computeInitialSelection(filterOnboardingEntries(entries), new Set(), "normal");
+    expect(sel.has("a")).toBe(true);
+    expect(sel.has("b")).toBe(false);
   });
 });

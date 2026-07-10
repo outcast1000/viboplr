@@ -35,6 +35,10 @@
   var recSection = document.getElementById('galleryRecommended');
   var recGrid = document.getElementById('galleryRecommendedGrid');
   var allTitle = document.getElementById('galleryAllTitle');
+  // Optional "Experimental" group (plugins page only) — mirrors the app's
+  // collapsed Experimental section so both surfaces tell the same story.
+  var expSection = document.getElementById('galleryExperimental');
+  var expGrid = document.getElementById('galleryExperimentalGrid');
   if (!grid) return;
 
   var allItems = [];
@@ -43,6 +47,15 @@
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
+  }
+
+  // Duplicates the app's stability rule (src/utils/pluginStability.ts) — the
+  // site has no build step so it can't import it. Keep the two in sync:
+  // absent / "" / "stable" are stable; anything else (unknown values
+  // included) is experimental-tier.
+  function isExperimental(value) {
+    var v = String(value == null ? '' : value).trim().toLowerCase();
+    return v !== '' && v !== 'stable';
   }
 
   function setStatus(msg, isError) {
@@ -84,7 +97,12 @@
   }
 
   function pluginCard(p) {
-    var rec = p.recommended ? '<span class="gallery-badge">Recommended</span>' : '';
+    // Experimental wins over Recommended — an entry carrying both must not
+    // advertise itself as recommended (matches the app's exclusion rule).
+    var exp = isExperimental(p.stability);
+    var rec = exp
+      ? '<span class="gallery-badge gallery-badge--experimental">Experimental</span>'
+      : (p.recommended ? '<span class="gallery-badge">Recommended</span>' : '');
     var repo = repoFromUpdateUrl(p.updateUrl);
     var install = installButton('install-plugin', p.installUrl);
     var links = '';
@@ -97,7 +115,7 @@
     }
     var id = p.id ? '<span class="gallery-card-id">' + esc(p.id) + '</span>' : '';
     return (
-      '<div class="gallery-card' + (p.recommended ? ' gallery-card--rec' : '') + '">' +
+      '<div class="gallery-card' + (p.recommended && !exp ? ' gallery-card--rec' : '') + '">' +
         '<div class="gallery-card-icon">' + pluginIcon(p) + '</div>' +
         '<div class="gallery-card-body">' +
           '<div class="gallery-card-head"><h3>' + esc(p.name) + '</h3>' + rec + '</div>' +
@@ -163,13 +181,19 @@
     if (allTitle) allTitle.hidden = !on;
   }
 
+  function setExpVisible(on) {
+    if (expSection) expSection.hidden = !on;
+  }
+
   function render(items, searching) {
     var card = KIND === 'plugins' ? pluginCard : skinCard;
 
     if (!items.length) {
       grid.innerHTML = '';
       if (recGrid) recGrid.innerHTML = '';
+      if (expGrid) expGrid.innerHTML = '';
       setRecVisible(false);
+      setExpVisible(false);
       setStatus('No ' + KIND + ' match your search.');
       if (countEl) countEl.textContent = '';
       return;
@@ -179,19 +203,36 @@
       countEl.textContent = items.length + ' ' + (items.length === 1 ? KIND.slice(0, -1) : KIND);
     }
 
+    // Experimental entries render only in their own group below the main list
+    // (never in Recommended or the main grid). While searching, results stay a
+    // single flat list — the card badge carries the tier there.
+    var splitExperimental = expGrid && !searching;
+    var experimental = splitExperimental
+      ? items.filter(function (it) { return isExperimental(it.stability); })
+      : [];
+    // Alphabetical within the group (the recommended-first pre-sort must not
+    // leak an ordering the suppressed badge can no longer explain) — matches
+    // the app's Experimental section.
+    experimental.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+    var mainItems = splitExperimental
+      ? items.filter(function (it) { return !isExperimental(it.stability); })
+      : items;
+    if (expGrid) expGrid.innerHTML = experimental.map(card).join('');
+    setExpVisible(experimental.length > 0);
+
     // Split into a "Recommended" group + the rest, but only when the page has
     // the recommended container, there's at least one recommended item, and the
     // user isn't searching (search shows a single flat result list).
-    var recommended = recGrid && !searching ? items.filter(function (it) { return it.recommended; }) : [];
+    var recommended = recGrid && !searching ? mainItems.filter(function (it) { return it.recommended; }) : [];
     if (recommended.length) {
-      var rest = items.filter(function (it) { return !it.recommended; });
+      var rest = mainItems.filter(function (it) { return !it.recommended; });
       recGrid.innerHTML = recommended.map(card).join('');
       grid.innerHTML = rest.map(card).join('');
       setRecVisible(true);
     } else {
       if (recGrid) recGrid.innerHTML = '';
       setRecVisible(false);
-      grid.innerHTML = items.map(card).join('');
+      grid.innerHTML = mainItems.map(card).join('');
     }
   }
 

@@ -58,6 +58,7 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
    ```
    - `id` **must** match the plugin's `manifest.json` `id` exactly (it's the override/storage key).
    - `updateUrl` is the only load-bearing field for install. `name`/`description`/`version`/`minAppVersion` are display metadata for the gallery list; the *real* version/min-app gate is enforced from the live `update.json` at install time. Keep them roughly in sync with the manifest.
+   - Optional behavior fields: `recommended` / `profiles` (onboarding pre-selection) and `stability` (`"experimental"` moves the entry into the gallery's collapsed Experimental section in-app and the Experimental group on the site, excludes it from onboarding, and badges already-installed copies until the plugin's own manifest carries the field — see "Manifest Format").
 
 3. **Commit & push `index.json`.** Live for everyone on their next Extensions open — no host app release required.
 
@@ -127,6 +128,8 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
 `debugOnly: true` hides the plugin unless the app is running in debug mode. Plugins reload automatically when the debug mode setting flips.
 
 `autoEnable` (optional, top-level) is an **opt-out** flag for the first-launch auto-enable of **built-in** plugins. On first launch only (no saved `enabledPlugins` list yet), every built-in plugin is enabled automatically — *except* those with `autoEnable: false`, which start disabled. Absent/`true` = enabled on first launch (the default). Once the user has a saved enable/disable list, their choices are always respected. Has no effect on user/gallery-installed plugins.
+
+`stability` (optional, top-level) declares plugin maturity. Absent = stable; `"experimental"` gives the plugin an "Experimental" badge (with a disclaimer tooltip) in the Extensions view, quarantines its gallery entry into a collapsed "Experimental" section, and excludes it from the onboarding wizard's recommendations. **Unrecognized values are treated as experimental-tier (fail-safe)** — never as stable — and the UI always renders the tier label "Experimental" rather than echoing the raw value. The gallery `index.json` entry mirrors the field for pre-install presentation; installed copies fall back to the gallery entry's value when their manifest lacks the field (dev plugins exempt — their local manifest is authoritative). One shared classifier (`src/utils/pluginStability.ts`) implements the rule for the app; `docs/js/gallery.js` carries a synced copy for the site. A future built-in plugin marked experimental should also set `autoEnable: false` so first-launch auto-enable doesn't switch it on.
 
 ## Plugin Lifecycle
 

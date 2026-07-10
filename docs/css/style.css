@@ -1450,6 +1450,17 @@ p {
   background: var(--gradient-accent);
 }
 
+.gallery-badge--experimental {
+  background: #a16207;
+}
+
+.gallery-section-note {
+  max-width: var(--container-max);
+  margin: 0 auto var(--space-md);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
 .gallery-card-actions {
   margin-top: var(--space-sm);
   display: flex;

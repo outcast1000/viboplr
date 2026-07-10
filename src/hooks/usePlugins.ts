@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
+import { isExperimental } from "../utils/pluginStability";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
@@ -1544,11 +1545,16 @@ export function usePlugins(
 
       // Auto-enable all built-in plugins on first launch only
       // (when no enabledPlugins key exists in the store yet).
-      // Plugins with autoEnable: false in their manifest are skipped.
+      // Plugins with autoEnable: false in their manifest are skipped, as are
+      // experimental-tier plugins — experimental is opt-in by definition.
       // Once the user has a saved list, respect their choices.
       if (enabled === null) {
         for (const plugin of installed) {
-          if (plugin.builtin && plugin.manifest.autoEnable !== false) {
+          if (
+            plugin.builtin &&
+            plugin.manifest.autoEnable !== false &&
+            !isExperimental(plugin.manifest.stability)
+          ) {
             enabledSet.add(plugin.id);
           }
         }

@@ -1,5 +1,16 @@
 import type { GalleryPluginEntry } from "../types/plugin";
 import type { OnboardingProfile } from "./onboardingSteps";
+import { isExperimental } from "../utils/pluginStability";
+
+/**
+ * Entries the onboarding wizard is allowed to surface: experimental plugins
+ * never appear in the wizard regardless of `recommended`/`profiles`. The
+ * wizard filters once through this helper so the rendered rows, the initial
+ * selection, and the install set can never disagree.
+ */
+export function filterOnboardingEntries(entries: GalleryPluginEntry[]): GalleryPluginEntry[] {
+  return entries.filter((e) => !isExperimental(e.stability));
+}
 
 /**
  * IDs that should start checked in the wizard's plugins step: entries whose

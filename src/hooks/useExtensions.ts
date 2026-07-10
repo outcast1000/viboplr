@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
+import { resolveInstalledStability } from "../utils/pluginStability";
 import type {
   ExtensionUpdate,
   ExtensionItem,
@@ -298,9 +299,15 @@ export function useExtensions(props: UseExtensionsProps) {
   const extensions: ExtensionItem[] = useMemo(() => {
     const items: ExtensionItem[] = [];
 
+    const galleryEntryById = new Map(galleryPlugins.map((e) => [e.id, e]));
     for (const ps of pluginStates) {
       const update = updates.find(
         (u) => u.id === ps.id && u.kind === "plugin",
+      );
+      const stability = resolveInstalledStability(
+        ps.manifest.stability,
+        galleryEntryById.get(ps.id)?.stability,
+        ps.dev === true,
       );
       items.push({
         id: ps.id,
@@ -326,6 +333,7 @@ export function useExtensions(props: UseExtensionsProps) {
         homepage: ps.manifest.homepage,
         minAppVersion: ps.manifest.minAppVersion,
         updateUrl: ps.manifest.updateUrl,
+        stability,
       });
     }
 
@@ -371,6 +379,7 @@ export function useExtensions(props: UseExtensionsProps) {
         minAppVersion: entry.minAppVersion,
         updateUrl: entry.updateUrl,
         recommended: entry.recommended === true,
+        stability: entry.stability,
       });
     }
 
