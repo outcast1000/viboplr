@@ -80,8 +80,36 @@
     </div>
   </section>
 
-  <!-- How submission works -->
+  <!-- Build your own -->
   <section class="section section-alt">
+    <div class="container">
+      <div class="gallery-steps reveal">
+        <h2>Build your own plugin</h2>
+        <p class="gallery-steps-intro">A plugin is two files of plain JavaScript — no build step, no framework.</p>
+        <div class="gallery-steps-grid">
+          <div class="gallery-step">
+            <span class="gallery-step-num">1</span>
+            <h3>Write two files</h3>
+            <p>A <code>manifest.json</code> declares what your plugin adds — lyrics, artwork, streaming, views. An <code>index.js</code> implements it against the <a href="plugin-dev.html#api">plugin API</a>.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">2</span>
+            <h3>Develop it live in the app</h3>
+            <p>Point <strong>Settings &rarr; Developer &rarr; Dev plugin folder</strong> at your working folder. Edit, hit Reload, see it running — <a href="plugin-dev.html#develop">no packaging needed</a>.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">3</span>
+            <h3>Publish to the gallery</h3>
+            <p>Zip it, publish a GitHub release with an <code>update.json</code>, and submit it below. Installed copies <a href="plugin-dev.html#publish">auto-update</a> from your releases.</p>
+          </div>
+        </div>
+        <p class="gallery-steps-note">Quickstart, sandbox rules, and the full API reference live in the <a href="plugin-dev.html">plugin developer docs</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How submission works -->
+  <section class="section">
     <div class="container">
       <div class="gallery-steps reveal">
         <h2>How to add a plugin</h2>
@@ -119,7 +147,7 @@
         <p>Submit it to the gallery with a single form — no pull request needed. A bot validates your release and opens it for review.</p>
         <div class="hero-buttons" style="margin-top: 1.5rem;">
           <a href="https://github.com/outcast1000/viboplr-plugins/issues/new?template=submit-plugin.yml" class="btn btn-primary" target="_blank" rel="noopener">Submit a plugin</a>
-          <a href="https://github.com/outcast1000/viboplr-plugins" class="btn btn-outline" target="_blank" rel="noopener">Gallery repo</a>
+          <a href="plugin-dev.html" class="btn btn-outline">Plugin docs</a>
         </div>
       </div>
     </div>

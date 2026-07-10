@@ -518,6 +518,8 @@ p {
   text-align: center;
   padding: var(--space-3xl) 0;
   position: relative;
+  /* The 600px ::before glow otherwise causes page-level horizontal scroll on phones */
+  overflow: hidden;
 }
 
 .bottom-cta::before {
@@ -1622,5 +1624,200 @@ p {
 @media (max-width: 768px) {
   .gallery-steps-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Plugin developer docs (plugin-dev.html) ===== */
+.docs-body {
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.docs-body h2 {
+  font-size: 1.6rem;
+  margin-bottom: var(--space-sm);
+}
+
+.docs-body h2 + p,
+.docs-body .docs-lead {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-md);
+}
+
+.docs-body p {
+  line-height: 1.65;
+}
+
+.docs-body p code,
+.docs-body li code,
+.docs-body td code,
+.docs-body th code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.docs-code {
+  background: var(--color-bg-dark);
+  color: #e8e8f0;
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin: var(--space-sm) 0 var(--space-md);
+  overflow-x: auto;
+}
+
+.docs-code pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.83rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.docs-code-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+  margin-bottom: 6px;
+}
+
+.docs-list {
+  margin: 0 0 var(--space-md) 1.25rem;
+}
+
+ul.docs-list {
+  list-style: disc;
+}
+
+ol.docs-list {
+  list-style: decimal;
+}
+
+.docs-list li {
+  margin-bottom: var(--space-xs);
+  line-height: 1.6;
+  padding-left: 4px;
+}
+
+.docs-list li::marker {
+  color: var(--color-accent-end);
+  font-weight: 600;
+}
+
+/* Anchor TOC chips for the API reference */
+.api-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: var(--space-sm) 0 var(--space-lg);
+}
+
+.api-toc a {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.api-toc a:hover {
+  color: var(--color-accent-end);
+  border-color: var(--color-accent-end);
+}
+
+/* One namespace = one group */
+.api-group {
+  margin-bottom: var(--space-lg);
+  scroll-margin-top: calc(var(--nav-height) + var(--space-sm));
+}
+
+.api-group h3 {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.api-group h3 .api-ns {
+  background: var(--gradient-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.api-group-desc {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-sm);
+}
+
+.api-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.api-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.api-table th {
+  text-align: left;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+  background: var(--color-bg-alt);
+  padding: 10px 14px;
+}
+
+.api-table td {
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  vertical-align: top;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.api-table td:first-child {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.docs-note {
+  background: var(--color-bg-alt);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-accent-end);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin: var(--space-sm) 0 var(--space-md);
+}
+
+.docs-note code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+@media (max-width: 768px) {
+  .api-table td:first-child {
+    white-space: normal;
+    word-break: break-word;
   }
 }

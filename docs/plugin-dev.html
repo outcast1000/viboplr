@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Build a Plugin — Viboplr</title>
+  <meta name="description" content="Plugin developer documentation for Viboplr — quickstart, the full plugin API reference, sandbox rules, and how to package and publish to the gallery.">
+  <link rel="canonical" href="https://viboplr.com/plugin-dev.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://viboplr.com/plugin-dev.html">
+  <meta property="og:title" content="Build a Plugin — Viboplr">
+  <meta property="og:description" content="Plugin developer documentation for Viboplr — quickstart, API reference, and publishing guide.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Build a Plugin — Viboplr">
+  <meta name="twitter:description" content="Plugin developer documentation for Viboplr — quickstart, API reference, and publishing guide.">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
+          <path d="M138.24 138.24 L256 281.6 L373.76 138.24" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M138.24 235.52 L256 378.88 L373.76 235.52" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
+        </svg>
+        iboPLR
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="plugins.html" class="nav-link active">Plugins</a>
+        <a href="skins.html" class="nav-link">Skins</a>
+        <a href="support.html" class="nav-link nav-link--sponsor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          Support
+        </a>
+        <a href="download.html" class="nav-cta">Get Viboplr</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="download-hero">
+    <div class="container">
+      <h1 class="animate-in">Build a <span class="gradient-text">plugin</span></h1>
+      <p class="animate-in animate-delay-1">A Viboplr plugin is two files of plain JavaScript — no build step, no framework. If you can write a fetch call, you can put lyrics, artwork, streaming sources, or whole views inside the app.</p>
+      <div class="hero-buttons animate-in animate-delay-2">
+        <a href="#quickstart" class="btn btn-primary">Quickstart</a>
+        <a href="#api" class="btn btn-outline">API reference</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quickstart -->
+  <section class="section" id="quickstart">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Quickstart</h2>
+        <p class="docs-lead">A plugin is a folder with a manifest and a script. That's the whole toolchain.</p>
+        <div class="docs-code">
+          <pre>my-plugin/
+├── manifest.json    metadata + what the plugin contributes
+└── index.js         the code, plain JavaScript</pre>
+        </div>
+        <p>The manifest declares who you are and what the plugin adds to the app. This one contributes an information section to artist detail pages:</p>
+        <div class="docs-code">
+          <span class="docs-code-label">manifest.json</span>
+          <pre>{
+  "id": "my-plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "author": "Your Name",
+  "description": "Fun facts about the artist you're playing",
+  "minAppVersion": "0.9.5",
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "artist_facts",
+        "name": "Facts",
+        "entity": "artist",
+        "displayKind": "rich_text",
+        "ttl": 604800
+      }
+    ]
+  }
+}</pre>
+        </div>
+        <p>The script receives the <code>api</code> object, registers handlers in <code>activate</code>, and returns its exports:</p>
+        <div class="docs-code">
+          <span class="docs-code-label">index.js</span>
+          <pre>function activate(api) {
+  api.informationTypes.onFetch("artist_facts", function (entity) {
+    var url = "https://api.example.com/facts?artist="
+      + encodeURIComponent(entity.name);
+    return api.network.fetch(url).then(function (resp) {
+      if (resp.status !== 200) {
+        return { status: "error", message: "HTTP " + resp.status };
+      }
+      return resp.json().then(function (data) {
+        if (!data.summary) return { status: "not_found" };
+        return { status: "ok", value: { summary: data.summary } };
+      });
+    });
+  });
+}
+
+function deactivate() {}
+
+return { activate: activate, deactivate: deactivate };</pre>
+        </div>
+        <p>Fetch handlers resolve to <code>{ status: "ok", value }</code>, <code>{ status: "not_found" }</code>, or <code>{ status: "error", message? }</code> — the app takes care of caching (per-type <code>ttl</code>, in seconds), retries, and rendering. That's a complete, publishable plugin.</p>
+        <div class="docs-note">
+          The best documentation is working code: every built-in plugin lives in
+          <a href="https://github.com/outcast1000/viboplr/tree/main/src-tauri/plugins" target="_blank" rel="noopener"><code>src-tauri/plugins</code></a>
+          in the app repo — lyrics providers, artwork sources, Last.fm scrobbling, and more, all in the same two-file format.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Run it locally -->
+  <section class="section section-alt" id="develop">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Run it in the app</h2>
+        <p class="docs-lead">Point the app at your working folder — no packaging needed while you develop.</p>
+        <ol class="docs-list">
+          <li>In Viboplr, open <strong>Settings &rarr; General</strong> and enable <strong>Debug mode</strong>.</li>
+          <li>Under <strong>Developer &rarr; Dev plugin folder</strong>, choose your plugin's folder. It loads immediately and overrides any installed copy with the same <code>id</code>.</li>
+          <li>Edit <code>index.js</code> or <code>manifest.json</code>, then hit <strong>Reload</strong> to pick up the changes.</li>
+        </ol>
+        <p>Plugin <code>console.log</code> output lands in the webview devtools, and <code>api.log(level, message)</code> writes to the app's persistent log. Installed plugins live in the app data directory under <code>plugins/</code>, but for development the dev folder is all you need.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- What plugins can contribute -->
+  <section class="section" id="contributes">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>What a plugin can add</h2>
+        <p class="docs-lead">Everything a plugin contributes is declared under <code>contributes</code> in the manifest, then wired up with a matching <code>api</code> handler in <code>activate</code>.</p>
+        <div class="api-table-wrap">
+          <table class="api-table">
+            <thead><tr><th>Manifest key</th><th>What it adds</th></tr></thead>
+            <tbody>
+              <tr><td>informationTypes</td><td>Metadata sections on artist, album, track, and tag detail pages — bios, lyrics, stats, similar artists, reviews.</td></tr>
+              <tr><td>imageProviders</td><td>Artist and album artwork sources, tried in user-configurable priority order.</td></tr>
+              <tr><td>streamResolvers</td><td>Playback fallbacks — given a track's metadata, return a playable URL when no local source exists.</td></tr>
+              <tr><td>downloadProviders</td><td>Download sources for the unified download modal: by URI scheme, by metadata, or interactive search.</td></tr>
+              <tr><td>contextMenuItems</td><td>Right-click actions on tracks, albums, artists, playlists, and multi-track selections — on every surface.</td></tr>
+              <tr><td>sidebarItems</td><td>Full custom views in the sidebar, rendered from declarative view data (lists, cards, charts, settings rows…).</td></tr>
+              <tr><td>homeShelves</td><td>Horizontal shelves on the Home page — album cards, artist cards, playlist cards, or track rows.</td></tr>
+              <tr><td>settingsPanel</td><td>A tab of your own inside the app's Settings.</td></tr>
+              <tr><td>eventHooks</td><td>Reactions to app events: <code>track:started</code>, <code>track:scrobbled</code>, <code>track:liked</code>, <code>track:added</code>, <code>track:removed</code>, <code>scan:complete</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top: var(--space-sm);">Shelves, context-menu items, and now-playing info items can also be registered at runtime (<code>api.home.registerShelf</code>, <code>api.contextMenu.registerItem</code>, <code>api.nowPlayingInfo.registerItem</code>) when the set depends on user state.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- API reference -->
+  <section class="section section-alt" id="api">
+    <div class="container">
+      <div class="docs-body">
+        <h2>API reference</h2>
+        <p class="docs-lead">The <code>api</code> object passed to <code>activate</code> is the plugin's entire world — every capability below is available to any plugin, and nothing else is. The canonical TypeScript definitions live in <a href="https://github.com/outcast1000/viboplr/blob/main/src/types/plugin.ts" target="_blank" rel="noopener"><code>src/types/plugin.ts</code></a>.</p>
+
+        <div class="api-toc">
+          <a href="#api-top">top-level</a>
+          <a href="#api-library">library</a>
+          <a href="#api-playback">playback</a>
+          <a href="#api-contextmenu">contextMenu</a>
+          <a href="#api-home">home</a>
+          <a href="#api-nowplayinginfo">nowPlayingInfo</a>
+          <a href="#api-ui">ui</a>
+          <a href="#api-storage">storage</a>
+          <a href="#api-network">network</a>
+          <a href="#api-collections">collections</a>
+          <a href="#api-playlists">playlists</a>
+          <a href="#api-informationtypes">informationTypes</a>
+          <a href="#api-imageproviders">imageProviders</a>
+          <a href="#api-downloads">downloads</a>
+          <a href="#api-scheduler">scheduler</a>
+          <a href="#api-system">system</a>
+          <a href="#api-env">env</a>
+          <a href="#api-p2p">p2p</a>
+        </div>
+
+        <div class="api-group reveal" id="api-top">
+          <h3><span class="api-ns">api</span> — top level</h3>
+          <p class="api-group-desc">Host information and logging.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>appVersion</td><td>The running app version (semver string) — for feature-gating beyond the manifest's <code>minAppVersion</code>.</td></tr>
+                <tr><td>log(level, message, section?)</td><td>Write to the app's persistent log (<code>"error"</code> / <code>"warn"</code> / <code>"info"</code>). Prefer this over <code>console.log</code> for diagnostics.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-library">
+          <h3><span class="api-ns">api.library</span></h3>
+          <p class="api-group-desc">Read the user's library, search it, and react to library events.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>getTrackCount()</td><td>Total track count across enabled collections.</td></tr>
+                <tr><td>getTracks(opts?)</td><td>Tracks, filtered by <code>artistId</code> / <code>albumId</code> / <code>tagId</code> with <code>limit</code> / <code>offset</code>.</td></tr>
+                <tr><td>ftsTracks(query, opts?)</td><td>Full-text search over tracks; <code>ftsArtists</code> / <code>ftsAlbums</code> / <code>ftsTags</code> do the same per entity.</td></tr>
+                <tr><td>getArtists / getAlbums / getTags(opts?)</td><td>Paginated entity listings (<code>getAlbums</code> accepts <code>artistId</code>).</td></tr>
+                <tr><td>getTrackById(id) …</td><td>Single-entity lookups: <code>getArtistById</code>, <code>getAlbumById</code>, <code>getTagById</code>.</td></tr>
+                <tr><td>getHistory / getMostPlayed / getMostPlayedArtists(opts?)</td><td>Play history and most-played charts; <code>opts.days</code> switches to a rolling window.</td></tr>
+                <tr><td>getHistoryPlayCount() / getHistoryPlaysPage(opts?)</td><td>Total play count and cheap keyset-paginated raw plays — use these to stream long histories.</td></tr>
+                <tr><td>recordHistoryPlaysBatch(plays)</td><td>Batch-import scrobbles; returns <code>{ imported, skipped }</code>.</td></tr>
+                <tr><td>applyTags(trackId, tagNames)</td><td>Tag a single track (database only).</td></tr>
+                <tr><td>applyTagsBulk(assignments)</td><td>Tag many tracks in one call: <code>Array&lt;[trackId, tagNames]&gt;</code>.</td></tr>
+                <tr><td>bulkUpdateTracks(trackIds, fields)</td><td>Bulk-edit artist / album / year / tags, written through to file metadata.</td></tr>
+                <tr><td>findDuplicates(opts?)</td><td>Duplicate track groups by normalized title + artist, keeper-first.</td></tr>
+                <tr><td>onTrackAdded / onTrackRemoved / onScanComplete(handler)</td><td>Library events.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-playback">
+          <h3><span class="api-ns">api.playback</span></h3>
+          <p class="api-group-desc">Control playback, feed the queue, and resolve streams. Event handlers receive metadata-only tracks (title, artist, album, duration) — no database ids.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>getCurrentTrack() / isPlaying() / getPosition()</td><td>Current playback state (synchronous).</td></tr>
+                <tr><td>playTrack(track)</td><td>Play a single track.</td></tr>
+                <tr><td>playTracks(tracks, startIndex?, context?)</td><td>Play a list; <code>context</code> (<code>{ name, coverUrl?, source? }</code>) gives the queue its banner.</td></tr>
+                <tr><td>insertTrack(track, position) / insertTracks(tracks, position)</td><td>Insert into the current queue (<code>-1</code> = end).</td></tr>
+                <tr><td>onTrackStarted / onTrackScrobbled / onTrackLiked(handler)</td><td>Playback events; the scrobble threshold is 50% or 4 minutes.</td></tr>
+                <tr><td>onStreamResolve(providerId, handler)</td><td>Register a stream fallback: <code>(title, artist, album, duration) &rarr; { url, label } | null</code>.</td></tr>
+                <tr><td>onResolveStreamByUri(scheme, handler)</td><td>Resolve a custom URL scheme (e.g. <code>myservice://id</code>) to a playable URL.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-contextmenu">
+          <h3><span class="api-ns">api.contextMenu</span></h3>
+          <p class="api-group-desc">Right-click actions on every track, album, artist, and playlist surface.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>onAction(actionId, handler)</td><td>Handle clicks on your menu items; the handler receives the target (ids when available, always title/artist metadata).</td></tr>
+                <tr><td>registerItem(item)</td><td>Add a menu item at runtime (<code>{ id, label, targets, submenuLabel?, order? }</code>); returns an unsubscriber.</td></tr>
+                <tr><td>unregisterItem(itemId)</td><td>Remove a runtime-registered item.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-home">
+          <h3><span class="api-ns">api.home</span></h3>
+          <p class="api-group-desc">Shelves on the Home page. Fetch handlers have a 5-second budget — serve from cached state, not live network calls.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>onFetchShelf(shelfId, handler)</td><td>Resolve a shelf's items: <code>(limit) &rarr; { status: "ok", items } | { status: "empty" } | { status: "error" }</code>.</td></tr>
+                <tr><td>registerShelf(descriptor)</td><td>Add a shelf at runtime (<code>{ id, title, displayKind, limit?, icon? }</code>).</td></tr>
+                <tr><td>unregisterShelf(shelfId)</td><td>Remove a runtime-registered shelf.</td></tr>
+                <tr><td>onItemClick(shelfId, handler)</td><td>Take over card clicks — e.g. navigate into your own view instead of playing.</td></tr>
+                <tr><td>onResolvePlay(shelfId, handler)</td><td>Resolve a playlist card's tracks lazily when the user presses play.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-nowplayinginfo">
+          <h3><span class="api-ns">api.nowPlayingInfo</span></h3>
+          <p class="api-group-desc">Items for the cycling info line in the mini player (the line under the track title).</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>registerItem({ id, label, priority? })</td><td>Add an item; the user toggles it in the mini player's context menu.</td></tr>
+                <tr><td>unregisterItem(id)</td><td>Remove a registered item.</td></tr>
+                <tr><td>onFetch(id, handler)</td><td>Resolve the item's text for the current track: <code>(track) &rarr; { status: "ok", text } | { status: "empty" } | { status: "error" }</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-ui">
+          <h3><span class="api-ns">api.ui</span></h3>
+          <p class="api-group-desc">Render sidebar views and talk to the host UI. Views are declarative — you send data (lists, cards, charts, inputs, settings rows), the app renders native, skin-aware components.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>setViewData(viewId, data, opts?)</td><td>Render or update a plugin view; <code>opts.scrollKey</code> gives it per-view scroll memory.</td></tr>
+                <tr><td>showNotification(message)</td><td>Show a toast.</td></tr>
+                <tr><td>navigateToView(viewId)</td><td>Navigate to one of your views.</td></tr>
+                <tr><td>requestAction(action, payload)</td><td>Request a host-level action (play with context, navigate to an entity, downloads…).</td></tr>
+                <tr><td>onAction(actionId, handler)</td><td>Handle button / toggle / input events fired from your views.</td></tr>
+                <tr><td>setBadge(viewId, badge)</td><td>Dot or count badge on your sidebar item (<code>null</code> to clear).</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-storage">
+          <h3><span class="api-ns">api.storage</span></h3>
+          <p class="api-group-desc">Persistent state, scoped to your plugin. Key-value pairs live in the app database; files live in the plugin's own data directory.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>get(key) / set(key, value) / delete(key)</td><td>JSON key-value store.</td></tr>
+                <tr><td>cacheFile(subdir, filename, url)</td><td>Download a URL into the plugin cache; returns the local path.</td></tr>
+                <tr><td>getCachePath / listCacheDirs / deleteCacheDir</td><td>Inspect and prune the flat file cache.</td></tr>
+                <tr><td>files.writeJson / readJson / writeText / readText</td><td>Nested file I/O; paths are string arrays of segments.</td></tr>
+                <tr><td>files.download(path, url)</td><td>Fetch a URL through the host and write it to disk.</td></tr>
+                <tr><td>files.getPath / exists / list / remove / copy / move</td><td>File management inside the plugin's directory.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-network">
+          <h3><span class="api-ns">api.network</span></h3>
+          <p class="api-group-desc">All network access goes through the host — no CORS restrictions, no direct <code>fetch</code>.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>fetch(url, init?)</td><td>HTTP request proxied through Rust; returns <code>{ status, text(), json() }</code>.</td></tr>
+                <tr><td>openUrl(url)</td><td>Open a URL in the system browser.</td></tr>
+                <tr><td>onDeepLink(handler)</td><td>Receive deep links (e.g. OAuth callbacks) delivered to the app.</td></tr>
+                <tr><td>openBrowseWindow(url, opts?)</td><td>Embedded browser window with <code>eval</code> / messaging — for services without an API.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-collections">
+          <h3><span class="api-ns">api.collections</span></h3>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>getLocalCollections()</td><td>The user's local-folder collections as <code>[{ id, name, path }]</code> — e.g. as download destinations.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-playlists">
+          <h3><span class="api-ns">api.playlists</span></h3>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>save(data) / list() / delete(id) / getTracks(id)</td><td>Saved playlists — source-aware and image-aware.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-informationtypes">
+          <h3><span class="api-ns">api.informationTypes</span></h3>
+          <p class="api-group-desc">Provide values for the information sections you declare in the manifest, and read the shared cache. Values are keyed by entity name, so metadata is shared across libraries. Display kinds include <code>rich_text</code>, <code>lyrics</code>, <code>entity_list</code>, <code>stat_grid</code>, <code>tag_list</code>, <code>ranked_list</code>, <code>image_gallery</code>, and more.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>onFetch(infoTypeId, handler)</td><td>Provide a value: <code>(entity) &rarr; { status: "ok", value } | { status: "not_found" } | { status: "error" }</code>.</td></tr>
+                <tr><td>searchValues(query, opts?)</td><td>Substring-search across all cached values (any type — lyrics, bios, reviews…), with optional type / field / entity filters.</td></tr>
+                <tr><td>getValuesForEntity(entity)</td><td>Every cached value for one entity.</td></tr>
+                <tr><td>getValue(typeId, entity)</td><td>One cached value, or <code>null</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-imageproviders">
+          <h3><span class="api-ns">api.imageProviders</span></h3>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>onFetch(entity, handler)</td><td>Provide artwork for <code>"artist"</code> or <code>"album"</code>: <code>(name, artistName?) &rarr; { status: "ok", url }</code> (or base64 <code>data</code>); the host downloads, caches, and falls through the provider chain on miss.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-downloads">
+          <h3><span class="api-ns">api.downloads</span></h3>
+          <p class="api-group-desc">Plug into the unified downloader — queueing, progress, tagging, and cover embedding are handled by the host.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>enqueue(request)</td><td>Queue a download (<code>{ title, artistName?, uri?, format?, provider?, … }</code>); returns its id.</td></tr>
+                <tr><td>onResolveByUri(providerId, handler)</td><td>Resolve a download for a URI scheme you own.</td></tr>
+                <tr><td>onResolveByMetadata(providerId, handler)</td><td>Resolve by <code>(title, artist, album, duration, format)</code> — automatic fallback downloads.</td></tr>
+                <tr><td>onInteractiveSearch(providerId, handler)</td><td>Power the manual search inside the download modal.</td></tr>
+                <tr><td>onInteractiveResolve(providerId, handler)</td><td>Resolve the search result the user picked.</td></tr>
+                <tr><td>onGetQualities(providerId, handler)</td><td>Supply the quality / format options the modal offers for your provider.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-scheduler">
+          <h3><span class="api-ns">api.scheduler</span></h3>
+          <p class="api-group-desc">Periodic background tasks, persisted across restarts.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>register(taskId, intervalMs) / unregister(taskId)</td><td>Schedule / remove a recurring task.</td></tr>
+                <tr><td>onDue(taskId, handler)</td><td>Run when the task comes due.</td></tr>
+                <tr><td>complete(taskId)</td><td>Mark the run finished so the next interval starts.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-system">
+          <h3><span class="api-ns">api.system</span></h3>
+          <p class="api-group-desc">Subprocesses are allow-listed by the host — currently <code>yt-dlp</code> and <code>ffmpeg</code>. Declare what you use via <code>binaryDependencies</code> in the manifest; plugins cannot add new binaries.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>exec(program, args?, opts?)</td><td>Run an allow-listed binary; returns <code>{ exitCode, stdout, stderr }</code>.</td></tr>
+                <tr><td>getDependency(name)</td><td>The host's cached status for a binary: <code>{ installed, version, origin, latest }</code> — never hits the network yourself.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-env">
+          <h3><span class="api-ns">api.env</span></h3>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>get(key)</td><td>Read an allow-listed build-time environment variable (e.g. an API key baked into a build), or <code>null</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="api-group reveal" id="api-p2p">
+          <h3><span class="api-ns">api.p2p</span></h3>
+          <p class="api-group-desc">Bridge to the host's built-in libp2p engine — peer discovery, library search, streaming, and transfers between Viboplr nodes.</p>
+          <div class="api-table-wrap">
+            <table class="api-table">
+              <tbody>
+                <tr><td>start(relayMultiaddr?) / stop()</td><td>Bring the node up or down.</td></tr>
+                <tr><td>getStatus() / getDiagnostics()</td><td>Node state, NAT status, peers, transfer counters.</td></tr>
+                <tr><td>getMultiaddrs() / reserveRelay(multiaddr)</td><td>This node's dialable addresses; reserve a relay slot for hole-punching.</td></tr>
+                <tr><td>searchPeer(peerId, multiaddr, query, limit?)</td><td>Query a peer's shared library.</td></tr>
+                <tr><td>streamFromPeer / downloadFromPeer(…)</td><td>Play a peer's track, or pull a copy into a local collection.</td></tr>
+                <tr><td>getSharedCollections() / setSharedCollections(ids)</td><td>Which local collections this node shares.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Sandbox & permissions -->
+  <section class="section" id="sandbox">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>The sandbox</h2>
+        <p class="docs-lead">Plugins run inside the app with a deliberately small surface — everything flows through <code>api</code>.</p>
+        <ul class="docs-list">
+          <li><strong>No DOM, no direct network.</strong> There is no <code>window</code>, <code>document</code>, or <code>fetch</code>. You get <code>console</code>, timers, and the standard built-ins (<code>JSON</code>, <code>Math</code>, <code>Promise</code>, …); HTTP goes through <code>api.network.fetch</code>, files through <code>api.storage</code>.</li>
+          <li><strong>Scoped storage.</strong> Key-value data and files are namespaced to your plugin — you can't read another plugin's data or arbitrary paths.</li>
+          <li><strong>Allow-listed subprocesses.</strong> <code>api.system.exec</code> only runs binaries the host registers (currently <code>yt-dlp</code> and <code>ffmpeg</code>).</li>
+          <li><strong>Declared API usage.</strong> The optional <code>apiUsage</code> manifest field (<code>[{ "api": "network.fetch", "reason": "…" }]</code>) tells users what your plugin touches and why — shown in the Extensions view.</li>
+          <li><strong>Version gates.</strong> <code>minAppVersion</code> blocks install and update on older apps. Bumping your plugin's <code>version</code> clears its cached information values, forcing a clean re-fetch.</li>
+          <li><strong>Maturity flags.</strong> <code>"stability": "experimental"</code> badges the plugin and keeps it out of onboarding recommendations; <code>debugOnly: true</code> hides it outside debug mode.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Package & publish -->
+  <section class="section section-alt" id="publish">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Package &amp; publish</h2>
+        <p class="docs-lead">Plugins live in their own GitHub repos. The gallery is just an index that points at your releases — you ship updates by publishing a release, and installed copies auto-update within a day.</p>
+        <ol class="docs-list">
+          <li><strong>Zip it.</strong> Create <code>my-plugin.zip</code> with <code>manifest.json</code> and <code>index.js</code> at the <em>zip root</em> (no wrapper folder).</li>
+          <li><strong>Describe it.</strong> Add an <code>update.json</code> next to the zip in the same release:</li>
+        </ol>
+        <div class="docs-code">
+          <span class="docs-code-label">update.json</span>
+          <pre>{
+  "version": "1.0.0",
+  "minAppVersion": "0.9.5",
+  "file": "https://github.com/you/my-plugin/releases/download/v1.0.0/my-plugin.zip",
+  "changelog": "First release"
+}</pre>
+        </div>
+        <ol class="docs-list" start="3">
+          <li><strong>Release it.</strong> Publish a GitHub release with both assets. The permanent endpoint <code>…/releases/latest/download/update.json</code> is what the app checks (about every 24 hours) for updates.</li>
+          <li><strong>Submit it.</strong> Paste that <code>update.json</code> URL into the <a href="https://github.com/outcast1000/viboplr-plugins/issues/new?template=submit-plugin.yml" target="_blank" rel="noopener">gallery submission form</a>. A bot validates your release and opens a PR; a maintainer merges it, and your plugin appears in the <a href="plugins.html">gallery</a> and in the app's Extensions view.</li>
+        </ol>
+        <div class="docs-note">
+          Full submission details are in the <a href="https://github.com/outcast1000/viboplr-plugins#submitting-a-plugin" target="_blank" rel="noopener">gallery repo's guide</a>. For a working release pipeline (package script + CI), see the <a href="https://github.com/outcast1000/viboplr-youtube" target="_blank" rel="noopener">YouTube plugin repo</a>.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="bottom-cta">
+    <div class="container reveal">
+      <h2>Ship your first <span class="gradient-text">plugin</span></h2>
+      <p>Two files, an idea, and the gallery does the rest.</p>
+      <div class="hero-buttons">
+        <a href="https://github.com/outcast1000/viboplr/tree/main/src-tauri/plugins" class="btn btn-primary" target="_blank" rel="noopener">Read example plugins</a>
+        <a href="plugins.html" class="btn btn-outline">Browse the gallery</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="support.html" class="footer-link">Support</a>
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <span class="footer-link">Built with Tauri + React</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>
