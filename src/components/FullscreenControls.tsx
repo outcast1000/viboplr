@@ -3,6 +3,7 @@ import type { QueueTrack, QueueMode } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration } from "../utils";
+import { usePlaybackPosition } from "../playback/positionStore";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
@@ -11,7 +12,6 @@ interface FullscreenControlsProps {
   waveformPeaks: number[] | null;
   currentTrack: QueueTrack | null;
   playing: boolean;
-  positionSecs: number;
   durationSecs: number;
   scrobbled: boolean;
   volume: number;
@@ -52,7 +52,7 @@ const IDLE_TIMEOUT = 3000;
 export function FullscreenControls({
   waveformPeaks,
   currentTrack, playing,
-  positionSecs, durationSecs, scrobbled,
+  durationSecs, scrobbled,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath,
@@ -61,6 +61,9 @@ export function FullscreenControls({
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onNavigateToArtistByName, onNavigateToAlbumByName,
 }: FullscreenControlsProps) {
+  // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
+  // only this overlay.
+  const positionSecs = usePlaybackPosition();
   const [visible, setVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const timerRef = useRef<number>(0);

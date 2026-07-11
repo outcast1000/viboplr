@@ -68,7 +68,6 @@ interface TrackDetailViewProps {
   track: Track;
   albumImagePath: string | null;
   artistImagePath: string | null;
-  positionSecs: number;
   isCurrentTrack: boolean;
   onPlay: () => void;
   onPlayAt: (secs: number) => void;
@@ -99,7 +98,7 @@ function prettifyTagKey(key: string): string {
 
 export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
-  positionSecs, isCurrentTrack,
+  isCurrentTrack,
   onPlay, onPlayAt, onShowInFolder, onWatchOnYoutube, onStartRadio,
   onToggleLike, onToggleDislike,
 }: TrackDetailViewProps) {
@@ -361,7 +360,7 @@ export function TrackDetailView({
           tabOrder={tabOrder}
           onTabOrderChange={handleTabOrderChange}
           onTitleData={handleTitleData}
-          positionSecs={isCurrentTrack ? positionSecs : 0}
+          livePosition={isCurrentTrack}
           customTabs={[
             {
               id: "details",

@@ -34,6 +34,7 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
 import { probeEngineCapabilities, nativeEngine } from "./playback/nativeEngine";
+import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
 import { decideDownload } from "./utils/downloadPlan";
@@ -337,7 +338,11 @@ function App() {
   const pluginPlayingRef = useRef(false);
   pluginPlayingRef.current = playback.playing;
   const pluginPositionRef = useRef(0);
-  pluginPositionRef.current = playback.positionSecs;
+  // Position lives in the external positionStore (not React state), so the
+  // plugin-facing ref is kept fresh by subscription instead of per-render.
+  useEffect(() => subscribePlaybackPosition(() => {
+    pluginPositionRef.current = getPlaybackPosition();
+  }), []);
   const pluginTrackToQueueTrack = useCallback((info: PluginTrack): QueueTrack => {
     return {
       key: nextExternalKey(),
@@ -397,7 +402,6 @@ function App() {
     invokeNowPlayingInfo: plugins.invokeNowPlayingInfo,
     selection: nowPlayingInfoSelection,
     persistence: nowPlayingInfoPersistence,
-    positionSecs: playback.positionSecs,
     pluginsLoaded: plugins.pluginsLoaded,
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
@@ -2070,7 +2074,10 @@ function App() {
     }
     invoke<Track>("get_track_by_id", { trackId: libId })
       .then(t => { if (!cancelled) setDetailTrack(t); })
-      .catch(() => { if (!cancelled) setDetailTrack(null); });
+      .catch(e => {
+        console.error("Failed to load track detail:", e);
+        if (!cancelled) setDetailTrack(null);
+      });
     return () => { cancelled = true; };
   }, [library.selectedTrack, detailTrackLocal]);
 
@@ -3185,7 +3192,6 @@ function App() {
                   (track.album_title ? albumImageCache.getImage(track.album_title, track.artist_name) : null)
                     || track.image_url || null}
                 artistImagePath={track.artist_name ? artistImageCache.getImage(track.artist_name) : null}
-                positionSecs={isCurrentTrack ? playback.positionSecs : 0}
                 isCurrentTrack={isCurrentTrack}
                 onPlay={() => queueHook.playTracks([track], 0)}
                 onPlayAt={(secs: number) => {
@@ -3239,7 +3245,6 @@ function App() {
                 track={syntheticTrack}
                 albumImagePath={albumImg}
                 artistImagePath={artistImg}
-                positionSecs={0}
                 isCurrentTrack={false}
                 onPlay={() => queueHook.playTracks([syntheticTrack], 0)}
                 onPlayAt={() => {}}
@@ -3356,7 +3361,6 @@ function App() {
           {view === "nowplaying" && (
             <NowPlayingView
               track={playback.currentTrack}
-              positionSecs={playback.positionSecs}
               lyrics={nowPlayingLyrics}
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
@@ -3676,7 +3680,6 @@ function App() {
             waveformPeaks={waveformPeaks}
             currentTrack={playback.currentTrack}
             playing={playback.playing}
-            positionSecs={playback.positionSecs}
             durationSecs={playback.durationSecs}
             scrobbled={playback.scrobbled}
             volume={playback.volume}
@@ -4100,7 +4103,6 @@ function App() {
         waveformPeaks={waveformPeaks}
         currentTrack={playback.currentTrack}
         playing={playback.playing}
-        positionSecs={playback.positionSecs}
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}
         icyTitle={playback.icyTitle}

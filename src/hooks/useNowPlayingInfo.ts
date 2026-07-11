@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
 import type { NowPlayingInfoResult, PluginTrack } from "../types/plugin";
@@ -8,6 +8,11 @@ import { formatDuration } from "../utils";
 import { useLyrics } from "./useLyrics";
 import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio } from "../utils/lyrics";
 import { nativeEngine } from "../playback/nativeEngine";
+import { subscribePlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
+
+// Stand-in subscription while no synced lyrics exist — keeps the
+// useSyncExternalStore call unconditional without ticking on position.
+const noopSubscribe = () => () => {};
 
 interface AudioProps { sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }
 
@@ -282,8 +287,6 @@ interface UseNowPlayingInfoArgs {
   selection: Record<string, boolean>;
   // Per-item time-of-persistence multipliers (id → 1/2/5/10). Missing = 1.
   persistence: Record<string, number>;
-  // Current playback position — drives the "current line" of the Synced Lyrics item.
-  positionSecs: number;
   // Plugin info-type bridge — lyrics are fetched through the same cache/chain as
   // the track-detail Lyrics tab (via useLyrics), only when a lyrics item is on.
   invokeInfoFetch: (
@@ -309,7 +312,6 @@ export function useNowPlayingInfo({
   invokeNowPlayingInfo,
   selection,
   persistence,
-  positionSecs,
   invokeInfoFetch,
   pluginNames,
   pluginsLoaded,
@@ -350,10 +352,12 @@ export function useNowPlayingInfo({
   );
   // Strict "what's being sung right now" — null during intros/instrumental gaps,
   // so the synced-lyrics item drops out of the cycle instead of showing a stale
-  // line (see activeSyncedLine).
-  const syncedText = useMemo(
-    () => (syncedLines ? activeSyncedLine(syncedLines, positionSecs) : null),
-    [syncedLines, positionSecs],
+  // line (see activeSyncedLine). Reads the external position store with a
+  // line-level snapshot (a string), so the host re-renders only when the sung
+  // LINE changes — not on every ~4 Hz position tick.
+  const syncedText = useSyncExternalStore(
+    syncedLines ? subscribePlaybackPosition : noopSubscribe,
+    () => (syncedLines ? activeSyncedLine(syncedLines, getPlaybackPosition()) : null),
   );
   // One line per track, stable across re-renders/cycles: pick by a hash of the
   // track + lyrics so it doesn't flicker, while still varying between songs.

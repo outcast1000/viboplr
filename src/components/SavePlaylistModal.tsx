@@ -22,6 +22,7 @@ interface SavePlaylistModalProps {
 export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSave, onClose }: SavePlaylistModalProps) {
   const [name, setName] = useState(defaultName);
   const [imagePath, setImagePath] = useState<string | null>(defaultImage ?? null);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const [source, setSource] = useState(info?.source ?? "");
   const [description, setDescription] = useState(info?.description ?? "");
@@ -33,7 +34,11 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
     try {
       const path = await invoke<string>("paste_clipboard_to_playlist_images");
       setImagePath(path);
-    } catch { /* clipboard empty or no image */ }
+      setImageError(null);
+    } catch (e) {
+      console.error("Failed to paste playlist image:", e);
+      setImageError("No image in clipboard");
+    }
   }
 
   async function handleSetImage() {
@@ -45,12 +50,17 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
       try {
         const copied = await invoke<string>("copy_to_playlist_images", { sourcePath: selected });
         setImagePath(copied);
-      } catch { /* ignore */ }
+        setImageError(null);
+      } catch (e) {
+        console.error("Failed to set playlist image:", e);
+        setImageError("Failed to set image");
+      }
     }
   }
 
   function handleRemoveImage() {
     setImagePath(null);
+    setImageError(null);
   }
 
   function openImageMenu(e: React.MouseEvent<HTMLButtonElement>) {
@@ -123,6 +133,7 @@ export function SavePlaylistModal({ defaultName, defaultImage, title, info, onSa
             </div>
           </div>
         </div>
+        {imageError && <p className="ds-form-error">{imageError}</p>}
         <div className="modal-field">
           <label>Name</label>
           <input

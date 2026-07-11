@@ -22,6 +22,17 @@ pub fn build_entity_key(kind: &str, name_or_title: &str, artist_name: Option<&st
     }
 }
 
+/// SQL expression that reads the durable like state for the current `tracks`
+/// row from `entity_likes` (0 when no matching row). The track `entity_key`
+/// (see `build_entity_key`) is rebuilt inline with the registered
+/// `strip_diacritics` / `unicode_lower` scalar functions, matching
+/// `norm_segment`'s normalization (lowercase, then strip diacritics). Shared
+/// by the full reconcile below and the per-track `refresh_track_after_ingest`.
+pub(crate) const TRACK_DURABLE_LIKE_EXPR: &str = "COALESCE((SELECT el.liked FROM entity_likes el \
+    WHERE el.kind = 'track' AND el.entity_key = 'track:' \
+      || strip_diacritics(unicode_lower(COALESCE((SELECT name FROM artists WHERE id = tracks.artist_id), ''))) \
+      || ':' || strip_diacritics(unicode_lower(tracks.title))), 0)";
+
 impl Database {
     /// Upsert (or delete when liked==0) an entity_likes row.
     pub fn set_entity_like(&self, kind: &str, entity_key: &str, liked: i32, metadata: Option<&str>, updated_at: i64) -> SqlResult<()> {
@@ -142,18 +153,14 @@ impl Database {
     /// while the track is not yet in the library, or after a delete + re-add /
     /// re-scan (which reinserts the row with `liked = 0`). Only rows whose value
     /// actually changes are written. Idempotent; safe to run on every startup and
-    /// after every track ingest.
-    ///
-    /// The track `entity_key` (see `build_entity_key`) is rebuilt inline with the
-    /// registered `strip_diacritics` / `unicode_lower` scalar functions, matching
-    /// `norm_segment`'s normalization (lowercase, then strip diacritics).
+    /// after bulk ingest (scan/sync). Single-track ingest paths use the scoped
+    /// `refresh_track_after_ingest` instead.
     pub fn reconcile_track_likes_from_entity_likes(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        let durable = "COALESCE((SELECT el.liked FROM entity_likes el \
-            WHERE el.kind = 'track' AND el.entity_key = 'track:' \
-              || strip_diacritics(unicode_lower(COALESCE((SELECT name FROM artists WHERE id = tracks.artist_id), ''))) \
-              || ':' || strip_diacritics(unicode_lower(tracks.title))), 0)";
-        let sql = format!("UPDATE tracks SET liked = {d} WHERE liked <> {d}", d = durable);
+        let sql = format!(
+            "UPDATE tracks SET liked = {d} WHERE liked <> {d}",
+            d = TRACK_DURABLE_LIKE_EXPR
+        );
         conn.execute(&sql, [])?;
         Ok(())
     }

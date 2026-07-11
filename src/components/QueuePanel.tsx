@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration } from "../utils";
@@ -71,6 +71,154 @@ function computeIndexSelection(
   }
   return new Set([clickedIndex]);
 }
+
+interface QueueRowProps {
+  track: QueueTrack;
+  index: number;
+  isCurrent: boolean;
+  isPlaying: boolean;
+  isSelected: boolean;
+  dropAbove: boolean;
+  dropBelow: boolean;
+  isDraggedRow: boolean;
+  localThumb: string | null;
+  resolving: { error: string | null; trying: string | null } | null;
+  resolveFailure: string | null;
+  showRadio: boolean;
+  showLocate: boolean;
+  showLikes: boolean;
+  showDislike: boolean;
+  getTrackImage: (t: QueueTrack) => string | null;
+  observeVisible: (el: Element, cb: () => void) => () => void;
+  onRowMouseDown: (e: React.MouseEvent, index: number) => void;
+  onRowClick: (e: React.MouseEvent, index: number) => void;
+  onRowContextMenu: (e: React.MouseEvent, index: number) => void;
+  onRowInfoEnter: (e: React.MouseEvent<HTMLDivElement>, track: QueueTrack) => void;
+  onRowInfoLeave: () => void;
+  onPlay: (track: QueueTrack, index: number) => void;
+  onStartRadio: (track: QueueTrack) => void;
+  onLocateTrack: (track: QueueTrack) => void;
+  onToggleLike: (track: QueueTrack) => void;
+  onToggleDislike: (track: QueueTrack) => void;
+}
+
+// Memoized so panel-level state changes (drag drop-target, selection, tooltip)
+// only re-render the rows whose props actually changed — a large queue must not
+// pay a full-list re-render per mousemove.
+const QueueRow = memo(function QueueRow({
+  track: t, index: i, isCurrent, isPlaying, isSelected, dropAbove, dropBelow, isDraggedRow,
+  localThumb, resolving, resolveFailure, showRadio, showLocate, showLikes, showDislike,
+  getTrackImage, observeVisible,
+  onRowMouseDown, onRowClick, onRowContextMenu, onRowInfoEnter, onRowInfoLeave,
+  onPlay, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike,
+}: QueueRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null);
+  // Entity-image lookups invoke the backend (and can trigger a provider fetch)
+  // on a cache miss, so they are gated on the row actually scrolling into
+  // view — mounting a large queue must not fire a lookup per row.
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    return observeVisible(el, () => setVisible(true));
+  }, [observeVisible]);
+
+  return (
+    <div
+      ref={rowRef}
+      data-queue-index={i}
+      data-flip-key={t.key}
+      className={
+        `queue-item${isCurrent ? ` queue-current${isPlaying ? "" : " paused"}` : ""}${isSelected ? " selected" : ""}`
+        + `${dropAbove ? " drop-above" : ""}`
+        + `${dropBelow ? " drop-below" : ""}`
+        + `${isDraggedRow ? " dragging" : ""}`
+      }
+      onMouseDown={(e) => onRowMouseDown(e, i)}
+      onClick={(e) => onRowClick(e, i)}
+      onDoubleClick={() => onPlay(t, i)}
+      onContextMenu={(e) => onRowContextMenu(e, i)}
+    >
+      <div className="queue-item-content">
+        <div className="queue-item-art-wrapper">
+          <QueueItemThumb
+            localThumb={localThumb}
+            fallback={visible ? getTrackImage(t) : null}
+          />
+          {showLikes && (
+            <LikeDislikeButtons
+              liked={t.liked}
+              onToggleLike={() => onToggleLike(t)}
+              onToggleDislike={showDislike ? () => onToggleDislike(t) : undefined}
+              variant="overlay"
+              size={14}
+            />
+          )}
+        </div>
+        <div
+          className="queue-item-info"
+          onMouseEnter={(e) => onRowInfoEnter(e, t)}
+          onMouseLeave={onRowInfoLeave}
+        >
+          <div className="queue-item-line1">
+            {resolving ? (
+              <span
+                className="queue-item-resolving-icon"
+                title={resolving.error ? `${resolving.error} · Trying ${resolving.trying}…` : `Trying ${resolving.trying}…`}
+              />
+            ) : isCurrent ? (
+              <SpinningDisc size={13} playing={isPlaying} />
+            ) : null}
+            <span className="queue-item-title">{t.title}</span>
+            <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
+          </div>
+          <div className="queue-item-line2">
+            <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+            {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
+          </div>
+          {resolveFailure && !resolving ? (
+            <div className="queue-item-status queue-item-status-failed">
+              <svg className="queue-resolving-fail-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span className="queue-resolving-error">Couldn't play · {resolveFailure}</span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div className="row-hover-actions">
+        {!isCurrent && (
+          <button
+            className="row-hover-action row-hover-action--play"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
+            title="Play"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+          </button>
+        )}
+        {showRadio && (
+          <button
+            className="row-hover-action"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onStartRadio(t); }}
+            title="Start radio"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+          </button>
+        )}
+        {showLocate && (
+          <button
+            className="row-hover-action"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
+            title="Details"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
 
 interface QueuePanelProps {
   queue: QueueTrack[];
@@ -259,6 +407,46 @@ export function QueuePanel({
     }),
   [videoFrames, albumImages, artistImages]);
 
+  // One IntersectionObserver for the whole list (not one per row). Rows
+  // register via observeVisible and get a single became-visible callback,
+  // which gates their image resolution to on-screen rows.
+  const visibilityCbs = useRef(new Map<Element, () => void>());
+  const visibilityObs = useRef<IntersectionObserver | null>(null);
+  const observeVisible = useCallback((el: Element, cb: () => void) => {
+    if (!visibilityObs.current) {
+      visibilityObs.current = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const hit = visibilityCbs.current.get(entry.target);
+          if (hit) {
+            visibilityCbs.current.delete(entry.target);
+            visibilityObs.current?.unobserve(entry.target);
+            hit();
+          }
+        }
+      }, { rootMargin: "200px" });
+    }
+    visibilityCbs.current.set(el, cb);
+    visibilityObs.current.observe(el);
+    return () => {
+      visibilityCbs.current.delete(el);
+      visibilityObs.current?.unobserve(el);
+    };
+  }, []);
+  useEffect(() => () => visibilityObs.current?.disconnect(), []);
+
+  // Latest props/state for the stable row handlers below (queue.md "Ref-Based
+  // State Access") — the handlers keep one identity across renders so the
+  // memoized rows don't re-render whenever the panel does.
+  const latestRef = useRef({ selectedIndices, onPlay, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu });
+  latestRef.current = { selectedIndices, onPlay, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu };
+
+  const rowPlay = useCallback((t: QueueTrack, i: number) => latestRef.current.onPlay(t, i), []);
+  const rowStartRadio = useCallback((t: QueueTrack) => latestRef.current.onStartRadio?.(t), []);
+  const rowLocateTrack = useCallback((t: QueueTrack) => latestRef.current.onLocateTrack?.(t), []);
+  const rowToggleLike = useCallback((t: QueueTrack) => latestRef.current.onToggleLike?.(t), []);
+  const rowToggleDislike = useCallback((t: QueueTrack) => latestRef.current.onToggleDislike?.(t), []);
+
   // Scroll to currently playing track when panel opens or un-collapses
   useEffect(() => {
     if (!collapsed && queueIndex >= 0 && queuePanelRef.current) {
@@ -287,7 +475,7 @@ export function QueuePanel({
     if (pendingEnqueue && countdown === 0) onAllowAll();
   }, [countdown, pendingEnqueue]);
 
-  function handleClick(e: React.MouseEvent, _track: QueueTrack, index: number) {
+  const handleRowClick = useCallback((e: React.MouseEvent, index: number) => {
     // Ignore click if we just finished a drag
     if (didDragRef.current) return;
 
@@ -295,16 +483,12 @@ export function QueuePanel({
     const shift = e.shiftKey;
 
     const newSelection = computeIndexSelection(
-      selectedIndices, index,
+      latestRef.current.selectedIndices, index,
       lastClickedIndexRef.current, meta, shift,
     );
     setSelectedIndices(newSelection);
     lastClickedIndexRef.current = index;
-  }
-
-  function handleDoubleClick(track: QueueTrack, index: number) {
-    onPlay(track, index);
-  }
+  }, []);
 
   function findQueueIndex(el: Element | null): number | null {
     while (el) {
@@ -315,13 +499,14 @@ export function QueuePanel({
     return null;
   }
 
-  function handleMouseDown(e: React.MouseEvent, index: number) {
+  const handleRowMouseDown = useCallback((e: React.MouseEvent, index: number) => {
     if (e.button !== 0) return;
 
     // Determine which indices we're dragging
+    const selected = latestRef.current.selectedIndices;
     let indices: number[];
-    if (selectedIndices.has(index) && selectedIndices.size > 1) {
-      indices = [...selectedIndices].sort((a, b) => a - b);
+    if (selected.has(index) && selected.size > 1) {
+      indices = [...selected].sort((a, b) => a - b);
     } else {
       indices = [index];
     }
@@ -388,7 +573,7 @@ export function QueuePanel({
       removeGhost();
 
       if (didDragRef.current && dragIndicesRef.current && dropTargetRef.current !== null) {
-        onMoveMultiple(dragIndicesRef.current, dropTargetRef.current);
+        latestRef.current.onMoveMultiple(dragIndicesRef.current, dropTargetRef.current);
       }
 
       dragIndicesRef.current = null;
@@ -401,18 +586,30 @@ export function QueuePanel({
 
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
-  }
+  }, []);
 
-  function handleContextMenu(e: React.MouseEvent, index: number) {
+  const handleRowContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     e.preventDefault();
-    if (selectedIndices.size > 1 && selectedIndices.has(index)) {
-      onContextMenu(e, [...selectedIndices].sort((a, b) => a - b));
+    const selected = latestRef.current.selectedIndices;
+    if (selected.size > 1 && selected.has(index)) {
+      latestRef.current.onContextMenu(e, [...selected].sort((a, b) => a - b));
     } else {
       setSelectedIndices(new Set([index]));
       lastClickedIndexRef.current = index;
-      onContextMenu(e, [index]);
+      latestRef.current.onContextMenu(e, [index]);
     }
-  }
+  }, []);
+
+  const handleRowInfoEnter = useCallback((e: React.MouseEvent<HTMLDivElement>, track: QueueTrack) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    tooltipTimerRef.current = setTimeout(() => setTooltip({ track, anchorX: rect.left, anchorY: rect.top }), 400);
+  }, []);
+
+  const handleRowInfoLeave = useCallback(() => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    setTooltip(null);
+    setTooltipPos(null);
+  }, []);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Escape") {
@@ -541,106 +738,40 @@ export function QueuePanel({
       )}
       <div className="queue-list" ref={queueListRef}>
         {queue.map((t, i) => (
-          <div
+          <QueueRow
             key={t.key}
-            data-queue-index={i}
-            data-flip-key={t.key}
-            className={
-              `queue-item${i === queueIndex ? ` queue-current${isPlaying ? "" : " paused"}` : ""}${selectedIndices.has(i) ? " selected" : ""}`
-              + `${(dropTarget === i || externalDropTarget === i) ? " drop-above" : ""}`
-              + `${((dropTarget === i + 1 || externalDropTarget === i + 1) && i === queue.length - 1) ? " drop-below" : ""}`
-              + `${isDragging && dragIndicesRef.current?.includes(i) ? " dragging" : ""}`
-            }
-            onMouseDown={(e) => handleMouseDown(e, i)}
-            onClick={(e) => handleClick(e, t, i)}
-            onDoubleClick={() => handleDoubleClick(t, i)}
-            onContextMenu={(e) => handleContextMenu(e, i)}
-          >
-            <div className="queue-item-content">
-              <div className="queue-item-art-wrapper">
-                <QueueItemThumb
-                  localThumb={resolveImageUrl(queueItemLocalThumb({
-                    mainPlaylistDir,
-                    uri: t.path,
-                    thumbInfo,
-                  })) ?? null}
-                  fallback={getTrackImage(t)}
-                />
-                {onToggleLike && (
-                  <LikeDislikeButtons
-                    liked={t.liked}
-                    onToggleLike={() => onToggleLike(t)}
-                    onToggleDislike={onToggleDislike ? () => onToggleDislike(t) : undefined}
-                    variant="overlay"
-                    size={14}
-                  />
-                )}
-              </div>
-              <div
-                className="queue-item-info"
-                onMouseEnter={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  tooltipTimerRef.current = setTimeout(() => setTooltip({ track: t, anchorX: rect.left, anchorY: rect.top }), 400);
-                }}
-                onMouseLeave={() => { if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current); setTooltip(null); setTooltipPos(null); }}
-              >
-                <div className="queue-item-line1">
-                  {resolvingStatus?.key === t.key ? (
-                    <span
-                      className="queue-item-resolving-icon"
-                      title={resolvingStatus.error ? `${resolvingStatus.error} · Trying ${resolvingStatus.trying}…` : `Trying ${resolvingStatus.trying}…`}
-                    />
-                  ) : i === queueIndex ? (
-                    <SpinningDisc size={13} playing={!!isPlaying} />
-                  ) : null}
-                  <span className="queue-item-title">{t.title}</span>
-                  <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
-                </div>
-                <div className="queue-item-line2">
-                  <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
-                  {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
-                </div>
-                {resolveFailures?.[t.key] && resolvingStatus?.key !== t.key ? (
-                  <div className="queue-item-status queue-item-status-failed">
-                    <svg className="queue-resolving-fail-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    <span className="queue-resolving-error">Couldn't play · {resolveFailures[t.key]}</span>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-            <div className="row-hover-actions">
-              {i !== queueIndex && (
-                <button
-                  className="row-hover-action row-hover-action--play"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onPlay(t, i); }}
-                  title="Play"
-                >
-                  <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
-                </button>
-              )}
-              {onStartRadio && (
-                <button
-                  className="row-hover-action"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onStartRadio(t); }}
-                  title="Start radio"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-                </button>
-              )}
-              {onLocateTrack && (
-                <button
-                  className="row-hover-action"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onLocateTrack(t); }}
-                  title="Details"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                </button>
-              )}
-            </div>
-          </div>
+            track={t}
+            index={i}
+            isCurrent={i === queueIndex}
+            isPlaying={i === queueIndex ? !!isPlaying : false}
+            isSelected={selectedIndices.has(i)}
+            dropAbove={dropTarget === i || externalDropTarget === i}
+            dropBelow={i === queue.length - 1 && (dropTarget === i + 1 || externalDropTarget === i + 1)}
+            isDraggedRow={isDragging && (dragIndicesRef.current?.includes(i) ?? false)}
+            localThumb={resolveImageUrl(queueItemLocalThumb({
+              mainPlaylistDir,
+              uri: t.path,
+              thumbInfo,
+            })) ?? null}
+            resolving={resolvingStatus?.key === t.key ? resolvingStatus : null}
+            resolveFailure={resolveFailures?.[t.key] ?? null}
+            showRadio={!!onStartRadio}
+            showLocate={!!onLocateTrack}
+            showLikes={!!onToggleLike}
+            showDislike={!!onToggleDislike}
+            getTrackImage={getTrackImage}
+            observeVisible={observeVisible}
+            onRowMouseDown={handleRowMouseDown}
+            onRowClick={handleRowClick}
+            onRowContextMenu={handleRowContextMenu}
+            onRowInfoEnter={handleRowInfoEnter}
+            onRowInfoLeave={handleRowInfoLeave}
+            onPlay={rowPlay}
+            onStartRadio={rowStartRadio}
+            onLocateTrack={rowLocateTrack}
+            onToggleLike={rowToggleLike}
+            onToggleDislike={rowToggleDislike}
+          />
         ))}
         {queue.length === 0 && (
           <div className={`queue-empty${externalDropTarget !== null ? " drop-highlight" : ""}`}>

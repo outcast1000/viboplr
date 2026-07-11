@@ -350,7 +350,9 @@ pub fn scan_folder(
     removed
 }
 
-pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) {
+/// Ingest one media file. Returns the upserted track's id, or `None` when the
+/// file was skipped (0-byte, unchanged since last scan) or the upsert failed.
+pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<i64> {
     // Compute relative path by stripping collection root
     let relative_path = match collection_root {
         Some(root) => path
@@ -365,7 +367,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
 
     // Skip 0-byte files
     if metadata.as_ref().map(|m| m.len() == 0).unwrap_or(false) {
-        return;
+        return None;
     }
     let modified_at = metadata
         .as_ref()
@@ -383,7 +385,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         && scan_state.map(|(_, has_extra)| !has_extra).unwrap_or(false);
     if let (Some(stored), Some(current)) = (stored_modified, modified_at) {
         if stored >= current && !needs_tag_backfill {
-            return; // Unchanged and already processed for tags
+            return None; // Unchanged and already processed for tags
         }
         info!("Updated file: {}", relative_path);
     } else if stored_modified.is_some() {
@@ -407,7 +409,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             .ok()
             .map(|f| f.properties().duration().as_secs_f64())
             .filter(|&d| d > 0.0);
-        if let Ok(track_id) = db.upsert_track(
+        return match db.upsert_track(
             &relative_path,
             &title,
             None,
@@ -420,13 +422,16 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             collection_id,
             None,
         ) {
-            for tag_name in extract_video_tags(path, collection_root) {
-                if let Ok(tag_id) = db.get_or_create_tag(&tag_name) {
-                    let _ = db.add_track_tag(track_id, tag_id);
+            Ok(track_id) => {
+                for tag_name in extract_video_tags(path, collection_root) {
+                    if let Ok(tag_id) = db.get_or_create_tag(&tag_name) {
+                        let _ = db.add_track_tag(track_id, tag_id);
+                    }
                 }
+                Some(track_id)
             }
-        }
-        return;
+            Err(_) => None,
+        };
     }
 
     let tags = read_tags(path);
@@ -441,7 +446,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         .as_ref()
         .and_then(|title| db.get_or_create_album(title, artist_id, tags.year).ok());
 
-    if let Ok(track_id) = db.upsert_track(
+    match db.upsert_track(
         &relative_path,
         &tags.title,
         artist_id,
@@ -454,12 +459,16 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
         collection_id,
         tags.year,
     ) {
-        if let Some(genre) = &tags.genre {
-            if let Ok(tag_id) = db.get_or_create_tag(genre) {
-                let _ = db.add_track_tag(track_id, tag_id);
+        Ok(track_id) => {
+            if let Some(genre) = &tags.genre {
+                if let Ok(tag_id) = db.get_or_create_tag(genre) {
+                    let _ = db.add_track_tag(track_id, tag_id);
+                }
             }
+            let _ = db.set_track_extra_tags(track_id, tags.extra_tags.as_deref());
+            Some(track_id)
         }
-        let _ = db.set_track_extra_tags(track_id, tags.extra_tags.as_deref());
+        Err(_) => None,
     }
 }
 

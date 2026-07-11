@@ -1200,6 +1200,56 @@ mod tests {
     }
 
     #[test]
+    fn test_refresh_track_after_ingest() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Björk").unwrap();
+        let album_id = db.get_or_create_album("Homogenic", Some(artist_id), Some(1997)).unwrap();
+        // A durable like recorded before the track exists in the library.
+        db.set_entity_like("track", &likes::build_entity_key("track", "Jóga", Some("Björk")), 1, None, 100).unwrap();
+
+        let track_id = insert_track(&db, "music/joga.mp3", "Jóga", Some(artist_id), Some(album_id));
+        let tag_id = db.get_or_create_tag("Electronic").unwrap();
+        db.add_track_tag(track_id, tag_id).unwrap();
+
+        db.refresh_track_after_ingest(track_id).unwrap();
+
+        // FTS row exists without a full rebuild
+        let hits = db.get_tracks(&TrackQuery { query: Some("Joga".to_string()), limit: Some(100), ..Default::default() }).unwrap();
+        assert_eq!(hits.len(), 1, "FTS should find the track without rebuild_fts");
+        assert_eq!(hits[0].id, track_id);
+        // Counts updated for its artist/album/tags
+        assert_eq!(db.get_artist_by_id(artist_id).unwrap().unwrap().track_count, 1);
+        assert_eq!(db.get_album_by_id(album_id).unwrap().unwrap().track_count, 1);
+        assert_eq!(db.get_tag_by_id(tag_id).unwrap().unwrap().track_count, 1);
+        // Like state mirrored from the durable entity_likes store
+        assert_eq!(db.get_track_by_id(track_id).unwrap().liked, 1);
+    }
+
+    #[test]
+    fn test_recount_and_prune_entities() {
+        let db = test_db();
+        let artist_id = db.get_or_create_artist("Solo Artist").unwrap();
+        let album_id = db.get_or_create_album("Only Album", Some(artist_id), None).unwrap();
+        let keep_id = db.get_or_create_artist("Kept Artist").unwrap();
+        let keep_album = db.get_or_create_album("Kept Album", Some(keep_id), None).unwrap();
+        let t1 = insert_track(&db, "music/one.mp3", "One", Some(artist_id), Some(album_id));
+        insert_track(&db, "music/two.mp3", "Two", Some(keep_id), Some(keep_album));
+        insert_track(&db, "music/three.mp3", "Three", Some(keep_id), Some(keep_album));
+        db.recompute_counts().unwrap();
+
+        // Removing the only track orphans its artist and album; prune drops both.
+        db.remove_track_by_id(t1).unwrap();
+        db.recount_and_prune_entities(Some(artist_id), Some(album_id)).unwrap();
+        assert!(db.get_album_by_id(album_id).unwrap().is_none(), "orphaned album should be pruned");
+        assert!(db.get_artist_by_id(artist_id).unwrap().is_none(), "orphaned artist should be pruned");
+
+        // Entities that still own tracks are kept and recounted.
+        db.recount_and_prune_entities(Some(keep_id), Some(keep_album)).unwrap();
+        assert_eq!(db.get_artist_by_id(keep_id).unwrap().unwrap().track_count, 2);
+        assert_eq!(db.get_album_by_id(keep_album).unwrap().unwrap().track_count, 2);
+    }
+
+    #[test]
     fn test_search_fts() {
         let db = test_db();
         let artist_id = db.get_or_create_artist("Pink Floyd").unwrap();

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { RendererProps } from "./index";
 import type { LyricsData } from "../../types/informationTypes";
+import { usePlaybackPosition } from "../../playback/positionStore";
 
 interface LrcLine {
   time: number;
@@ -44,7 +45,9 @@ export function LyricsRenderer({ data, onAction, context }: RendererProps) {
   const activeLineRef = useRef<HTMLDivElement>(null);
   const userScrollTimeout = useRef<number>(0);
 
-  const positionSecs = context?.positionSecs ?? 0;
+  // Live position only when the host says this entity is the playing track;
+  // otherwise the hook opts out of per-tick re-renders and returns 0.
+  const positionSecs = usePlaybackPosition(context?.livePosition ?? false);
   const lrcLines = d?.kind === "synced" && d?.text ? parseLrc(d.text) : null;
   const currentLineIdx = lrcLines ? getCurrentLineIndex(lrcLines, positionSecs) : -1;
 

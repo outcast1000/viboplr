@@ -29,7 +29,9 @@ interface InformationSectionsProps {
   /** Filter sections by placement. "header" shows ranked_list/tag_list/image_gallery; "below" shows everything else. Omit to show all. */
   placement?: "header" | "below";
   customTabs?: CustomTab[];
-  positionSecs?: number;
+  /** True when the entity is the currently playing track — lets position-aware
+      renderers (lyrics) subscribe to the live playback position. */
+  livePosition?: boolean;
   invokeInfoFetch: (
     pluginId: string,
     infoTypeId: string,
@@ -63,7 +65,7 @@ export function InformationSections({
   exclude,
   placement,
   customTabs,
-  positionSecs,
+  livePosition,
   invokeInfoFetch,
   pluginNames,
   tabOrder,
@@ -379,7 +381,7 @@ export function InformationSections({
                 )}
               </div>
             ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
-              <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={positionSecs != null ? { positionSecs } : undefined} onTrackContextMenu={onTrackContextMenu} onEntityContextMenu={onEntityContextMenu} />
+              <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={livePosition != null ? { livePosition } : undefined} onTrackContextMenu={onTrackContextMenu} onEntityContextMenu={onEntityContextMenu} />
             ) : s.state.kind === "empty" ? (
               <div className="info-section-empty">No data available</div>
             ) : null;

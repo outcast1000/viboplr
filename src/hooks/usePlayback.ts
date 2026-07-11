@@ -17,6 +17,7 @@ import {
   type EngineIcyTitleEvent,
 } from "../playback/nativeEngine";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
+import { setPlaybackPosition, getPlaybackPosition, subscribePlaybackPosition } from "../playback/positionStore";
 import {
   BANDS,
   BAND_Q,
@@ -137,7 +138,10 @@ export function usePlayback(
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [positionSecs, setPositionSecs] = useState(0);
+  // The live position deliberately does NOT live in React state — it ticks
+  // ~4×/sec and would re-render the whole tree from App down. It goes to the
+  // external positionStore instead; display surfaces subscribe individually
+  // via usePlaybackPosition().
   const [durationSecs, setDurationSecs] = useState(0);
   const [volume, setVolume] = useState(1.0);
   const [muted, setMuted] = useState(false);
@@ -761,7 +765,12 @@ export function usePlayback(
   useEffect(() => {
     if (currentTrack) logPlayback(`Track changed: ${currentTrack.artist_name ?? "?"} — ${currentTrack.title} (key=${currentTrack.key})`);
   }, [currentTrack]);
-  useEffect(() => { if (restoredRef.current) store.set("positionSecs", positionSecs); }, [positionSecs]);
+  // Position persistence: subscribe to the external store (position is not
+  // React state — see the comment at the top of the hook). store.set is
+  // debounced by the store layer's autoSave, same as the old per-tick effect.
+  useEffect(() => subscribePlaybackPosition(() => {
+    if (restoredRef.current) store.set("positionSecs", getPlaybackPosition());
+  }), []);
   useEffect(() => { if (restoredRef.current) store.set("volume", volume); }, [volume]);
   useEffect(() => { if (restoredRef.current) store.set("muted", muted); }, [muted]);
 
@@ -893,7 +902,7 @@ export function usePlayback(
       subscribe<EnginePositionEvent>("engine-position", ({ payload }) => {
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
         nativeLastPositionRef.current = payload.positionSecs;
-        setPositionSecs(payload.positionSecs);
+        setPlaybackPosition(payload.positionSecs);
 
         // Scrobble threshold — mirrors onTimeUpdate (native sessions are
         // always audio, but keep the video-history gate for symmetry).
@@ -955,7 +964,7 @@ export function usePlayback(
         setCurrentTrack(promoted.track);
         prefetchRequestedRef.current = false;
         setCurrentAssetUrl(promoted.src);
-        setPositionSecs(0);
+        setPlaybackPosition(0);
         setDurationSecs(promoted.track.duration_secs ?? 0);
         scrobbledRef.current = false;
         setScrobbled(false);
@@ -1096,7 +1105,7 @@ export function usePlayback(
     setCurrentTrack(nextTrack);
     prefetchRequestedRef.current = false;
     setCurrentAssetUrl(incoming.src);
-    setPositionSecs(0);
+    setPlaybackPosition(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
     setScrobbled(false);
@@ -1191,7 +1200,7 @@ export function usePlayback(
     setCurrentTrack(nextTrack);
     prefetchRequestedRef.current = false;
     setCurrentAssetUrl(inactiveEl.src);
-    setPositionSecs(0);
+    setPlaybackPosition(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
     scrobbledRef.current = false;
     setScrobbled(false);
@@ -1401,7 +1410,7 @@ export function usePlayback(
     // Recorded so a play() rejection's catch can probe the failing source's host
     // (state would be a stale closure there) — see surfacePlaybackFailure.
     lastPlaySrcRef.current = src;
-    setPositionSecs(seekTo > 0 ? seekTo : 0);
+    setPlaybackPosition(seekTo > 0 ? seekTo : 0);
     setDurationSecs(track.duration_secs ?? 0);
     setIcyTitle(null);
     scrobbledRef.current = false;
@@ -1551,7 +1560,7 @@ export function usePlayback(
       el.currentTime = 0;
     }
     setPlaying(false);
-    setPositionSecs(0);
+    setPlaybackPosition(0);
     setCurrentAssetUrl(null);
   }
 
@@ -1628,7 +1637,7 @@ export function usePlayback(
     if (nativeSessionRef.current) {
       nativeLastPositionRef.current = secs;
       nativeEngine.seek(secs).catch(console.error);
-      setPositionSecs(secs);
+      setPlaybackPosition(secs);
       return;
     }
     const el = getMediaElement();
@@ -1639,12 +1648,12 @@ export function usePlayback(
       const url = `${transcodeSessionRef.current.baseUrl}?seek=${secs}`;
       (el as HTMLVideoElement).src = url;
       (el as HTMLVideoElement).play().catch(console.error);
-      setPositionSecs(secs);
+      setPlaybackPosition(secs);
       return;
     }
 
     el.currentTime = secs;
-    setPositionSecs(secs);
+    setPlaybackPosition(secs);
   }
 
   // Relative seek (skip forward/back). For a transcoded video the element's
@@ -1696,7 +1705,7 @@ export function usePlayback(
       : null;
     const transcodeOffset = transcodeSession ? transcodeSession.seekOffset : 0;
     const absolutePosition = el.currentTime + transcodeOffset;
-    setPositionSecs(absolutePosition);
+    setPlaybackPosition(absolutePosition);
 
     // Scrobble threshold check (Last.FM rules) — optionally skip video tracks
     if (!scrobbledRef.current && currentTrack && (trackVideoHistoryRef.current || !isVideoTrack(currentTrack))) {
@@ -1858,7 +1867,6 @@ export function usePlayback(
     trackChangeSourceRef,
     currentAssetUrl,
     playing, setPlaying, scrobbled,
-    positionSecs, setPositionSecs,
     durationSecs, setDurationSecs,
     volume, setVolume,
     muted, setMuted, toggleMute,

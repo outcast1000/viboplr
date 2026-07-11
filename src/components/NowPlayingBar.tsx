@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { usePlaybackPosition } from "../playback/positionStore";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode, ResolvedSource } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
@@ -86,7 +87,6 @@ interface NowPlayingBarProps {
   waveformPeaks: number[] | null;
   currentTrack: QueueTrack | null;
   playing: boolean;
-  positionSecs: number;
   durationSecs: number;
   scrobbled: boolean;
   /** Live ICY StreamTitle for internet-radio streams (mpv engine) — shown in
@@ -180,7 +180,7 @@ interface NowPlayingBarProps {
 export function NowPlayingBar({
   waveformPeaks,
   currentTrack, playing,
-  positionSecs, durationSecs, scrobbled,
+  durationSecs, scrobbled,
   icyTitle,
   trackRank,
   volume, muted, queueMode,
@@ -206,6 +206,9 @@ export function NowPlayingBar({
   invokeInfoFetch,
   pluginsLoaded,
 }: NowPlayingBarProps) {
+  // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
+  // only this bar, not the whole tree.
+  const positionSecs = usePlaybackPosition();
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sourceTooltipOpen, setSourceTooltipOpen] = useState(false);

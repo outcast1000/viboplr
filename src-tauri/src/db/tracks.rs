@@ -259,6 +259,95 @@ impl Database {
         )
     }
 
+    /// Targeted post-ingest maintenance for a single track: refresh its FTS
+    /// row, recompute its artist/album/tag counts, and mirror its like state
+    /// from the durable `entity_likes` store. The scoped equivalent of
+    /// `rebuild_fts()` + `recompute_counts()` +
+    /// `reconcile_track_likes_from_entity_likes()`, so per-track ingest paths
+    /// (downloads, upgrades) don't pay three full-library passes.
+    pub fn refresh_track_after_ingest(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        Self::update_fts_for_track_inner(&conn, track_id)?;
+        conn.execute(
+            &format!(
+                "UPDATE artists SET track_count = (
+                   SELECT COUNT(*) FROM tracks t WHERE t.artist_id = artists.id {cf}
+                 ) WHERE artists.id = (SELECT artist_id FROM tracks WHERE id = ?1)",
+                cf = ENABLED_COLLECTION_FILTER_STANDALONE
+            ),
+            params![track_id],
+        )?;
+        conn.execute(
+            &format!(
+                "UPDATE albums SET track_count = (
+                   SELECT COUNT(*) FROM tracks t WHERE t.album_id = albums.id {cf}
+                 ) WHERE albums.id = (SELECT album_id FROM tracks WHERE id = ?1)",
+                cf = ENABLED_COLLECTION_FILTER_STANDALONE
+            ),
+            params![track_id],
+        )?;
+        conn.execute(
+            &format!(
+                "UPDATE tags SET track_count = (
+                   SELECT COUNT(*) FROM track_tags tt
+                   JOIN tracks t ON t.id = tt.track_id
+                   WHERE tt.tag_id = tags.id {cf}
+                 ) WHERE tags.id IN (SELECT tag_id FROM track_tags WHERE track_id = ?1)",
+                cf = ENABLED_COLLECTION_FILTER_STANDALONE
+            ),
+            params![track_id],
+        )?;
+        conn.execute(
+            &format!(
+                "UPDATE tracks SET liked = {d} WHERE id = ?1 AND liked <> {d}",
+                d = likes::TRACK_DURABLE_LIKE_EXPR
+            ),
+            params![track_id],
+        )?;
+        Ok(())
+    }
+
+    /// Recompute track counts for a specific artist/album and delete them when
+    /// orphaned (same rules as `recompute_counts`). For flows that may detach a
+    /// track from its previous artist/album (e.g. an upgrade that rewrote
+    /// metadata), scoped so they don't pay a full-library recount.
+    pub fn recount_and_prune_entities(&self, artist_id: Option<i64>, album_id: Option<i64>) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        if let Some(album_id) = album_id {
+            conn.execute(
+                "DELETE FROM albums WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM tracks WHERE album_id = ?1)",
+                params![album_id],
+            )?;
+            conn.execute(
+                &format!(
+                    "UPDATE albums SET track_count = (
+                       SELECT COUNT(*) FROM tracks t WHERE t.album_id = albums.id {cf}
+                     ) WHERE albums.id = ?1",
+                    cf = ENABLED_COLLECTION_FILTER_STANDALONE
+                ),
+                params![album_id],
+            )?;
+        }
+        if let Some(artist_id) = artist_id {
+            conn.execute(
+                "DELETE FROM artists WHERE id = ?1
+                   AND NOT EXISTS (SELECT 1 FROM tracks WHERE artist_id = ?1)
+                   AND NOT EXISTS (SELECT 1 FROM albums WHERE artist_id = ?1)",
+                params![artist_id],
+            )?;
+            conn.execute(
+                &format!(
+                    "UPDATE artists SET track_count = (
+                       SELECT COUNT(*) FROM tracks t WHERE t.artist_id = artists.id {cf}
+                     ) WHERE artists.id = ?1",
+                    cf = ENABLED_COLLECTION_FILTER_STANDALONE
+                ),
+                params![artist_id],
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn get_tracks(&self, opts: &TrackQuery) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
 
@@ -527,6 +616,7 @@ impl Database {
     pub fn remove_track_by_id(&self, track_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM tracks WHERE id = ?1", params![track_id])?;
+        conn.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![track_id])?;
         Ok(())
     }
 

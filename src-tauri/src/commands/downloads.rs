@@ -367,10 +367,14 @@ pub async fn add_downloaded_track(
         .map_err(|e| e.to_string())?
         .path;
     tauri::async_runtime::spawn_blocking(move || {
-        scanner::process_media_file(&db, &file_path, Some(collection_id), collection_root.as_deref());
-        let _ = db.rebuild_fts();
-        let _ = db.recompute_counts();
-        let _ = db.reconcile_track_likes_from_entity_likes();
+        match scanner::process_media_file(&db, &file_path, Some(collection_id), collection_root.as_deref()) {
+            Some(track_id) => {
+                if let Err(e) = db.refresh_track_after_ingest(track_id) {
+                    log::error!("Failed to refresh track {} after ingest: {}", track_id, e);
+                }
+            }
+            None => log::warn!("Downloaded file was not ingested: {}", file_path.display()),
+        }
         Ok::<(), String>(())
     })
     .await
@@ -496,16 +500,27 @@ pub async fn confirm_track_upgrade(
         std::fs::rename(new_file, &final_path)
             .map_err(|e| format!("Failed to rename file: {}", e))?;
 
-        // Remove old track from DB and re-scan the new file
+        // Remove old track from DB (drops its FTS row too) and re-scan the new file
+        let old_artist_id = track.artist_id;
+        let old_album_id = track.album_id;
         let _ = db.remove_track_by_id(track.id);
         let collection_id = track.collection_id;
         let collection_root = collection_id
             .and_then(|cid| db.get_collection_by_id(cid).ok())
             .and_then(|c| c.path);
-        crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref());
-        let _ = db.rebuild_fts();
-        let _ = db.recompute_counts();
-        let _ = db.reconcile_track_likes_from_entity_likes();
+        match crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref()) {
+            Some(new_id) => {
+                if let Err(e) = db.refresh_track_after_ingest(new_id) {
+                    log::error!("Failed to refresh track {} after upgrade: {}", new_id, e);
+                }
+            }
+            None => log::warn!("Upgraded file was not ingested: {}", final_path.display()),
+        }
+        // The upgrade may have rewritten artist/album metadata; recount the old
+        // entities and drop them if the removed track was their last reference.
+        if let Err(e) = db.recount_and_prune_entities(old_artist_id, old_album_id) {
+            log::error!("Failed to recount old entities after upgrade: {}", e);
+        }
 
         Ok(())
     }).await.map_err(|e| e.to_string())?
@@ -566,10 +581,14 @@ pub async fn save_track_as_copy(
         let collection_root = collection_id
             .and_then(|cid| db.get_collection_by_id(cid).ok())
             .and_then(|c| c.path);
-        crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref());
-        let _ = db.rebuild_fts();
-        let _ = db.recompute_counts();
-        let _ = db.reconcile_track_likes_from_entity_likes();
+        match crate::scanner::process_media_file(&db, &final_path, collection_id, collection_root.as_deref()) {
+            Some(new_id) => {
+                if let Err(e) = db.refresh_track_after_ingest(new_id) {
+                    log::error!("Failed to refresh track {} after save-as-copy: {}", new_id, e);
+                }
+            }
+            None => log::warn!("Saved copy was not ingested: {}", final_path.display()),
+        }
 
         Ok(())
     }).await.map_err(|e| e.to_string())?

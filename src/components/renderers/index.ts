@@ -19,7 +19,7 @@ export interface RendererProps {
   onEntityClick?: (kind: string, id?: number, name?: string) => void;
   onAction?: (actionId: string, payload?: unknown) => void;
   resolveEntity?: (kind: string, name: string) => { id?: number; imageSrc?: string } | undefined;
-  context?: { positionSecs?: number };
+  context?: { livePosition?: boolean };
   onTrackContextMenu?: (e: MouseEvent, trackInfo: { trackId?: number; title: string; artistName: string | null }) => void;
   onEntityContextMenu?: (e: MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;
 }

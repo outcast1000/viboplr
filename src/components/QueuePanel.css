@@ -242,6 +242,10 @@
   transition: background 0.1s;
   font-size: var(--fs-sm);
   gap: 6px;
+  /* Skip layout/paint for offscreen rows so very large queues stay cheap; the
+     intrinsic size (36px thumb + 2x8px padding) keeps the scrollbar stable. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
 }
 
 .queue-item-content {

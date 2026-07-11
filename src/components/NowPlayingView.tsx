@@ -7,12 +7,12 @@ import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
 import { parseLrc, currentSyncedLineIndex } from "../utils/lyrics";
+import { usePlaybackPosition } from "../playback/positionStore";
 import "./NowPlayingView.css";
 
 interface NowPlayingViewProps {
   style?: CSSProperties;
   track: QueueTrack | null;
-  positionSecs: number;
   lyrics: UseLyricsResult;
   /** Image-provider chain lookups (album → artist fallback). Called during render
       so the async cache-resolve re-render is picked up, same as HomeShelf/cards. */
@@ -28,13 +28,14 @@ interface NowPlayingViewProps {
     text doesn't auto-scroll (no timing to follow). */
 function NowPlayingLyrics({
   data,
-  positionSecs,
   onSeek,
 }: {
   data: LyricsData;
-  positionSecs: number;
   onSeek?: (secs: number) => void;
 }) {
+  // Subscribed at this leaf so the ~4 Hz position tick re-renders only the
+  // lyrics panel, not the whole view (or App).
+  const positionSecs = usePlaybackPosition();
   const synced = useMemo(
     () => (data.kind === "synced" && data.text ? parseLrc(data.text) : null),
     [data.kind, data.text],
@@ -179,7 +180,6 @@ function CrossfadeLayer({ top, children }: { top: boolean; children: ReactNode }
 export function NowPlayingView({
   style,
   track,
-  positionSecs,
   lyrics,
   getAlbumImage,
   getArtistImage,
@@ -289,7 +289,7 @@ export function NowPlayingView({
         </div>
         <div className="np-lyrics-col">
           {lyrics.status === "loaded" && lyrics.data ? (
-            <NowPlayingLyrics key={track.key} data={lyrics.data} positionSecs={positionSecs} onSeek={onSeek} />
+            <NowPlayingLyrics key={track.key} data={lyrics.data} onSeek={onSeek} />
           ) : lyrics.status === "loading" ? (
             <div className="np-lyrics-hint" aria-hidden="true" />
           ) : null}
