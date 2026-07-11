@@ -434,7 +434,7 @@ return { activate: activate, deactivate: deactivate };</pre>
             <table class="api-table">
               <tbody>
                 <tr><td>exec(program, args?, opts?)</td><td>Run an allow-listed binary; returns <code>{ exitCode, stdout, stderr }</code>.</td></tr>
-                <tr><td>getDependency(name)</td><td>The host's cached status for a binary: <code>{ installed, version, origin, latest }</code> — never hits the network yourself.</td></tr>
+                <tr><td>getDependency(name)</td><td>The host's cached status for a binary: <code>{ installed, version, origin, latest }</code> — never hits the network yourself. A cold cache may trigger one local version probe, so the first call of a session can take seconds.</td></tr>
               </tbody>
             </table>
           </div>

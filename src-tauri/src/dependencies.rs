@@ -1,8 +1,8 @@
-use serde::Serialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::sync::{Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +23,13 @@ pub struct ManagedSource {
     pub asset_windows: Option<&'static str>,
     pub asset_linux_x64: Option<&'static str>,
     pub asset_linux_arm64: Option<&'static str>,
+    /// Platform-independent zipapp asset from the same release, runnable by a
+    /// system Python. On macOS the installer prefers this over the PyInstaller
+    /// one-file binary when a suitable Python is present: the one-file form
+    /// re-extracts itself on every launch so Gatekeeper re-assesses it every
+    /// time (~16s per invocation); the zipapp is a stable on-disk file that
+    /// starts in under a second.
+    pub asset_zipapp: Option<&'static str>,
     pub checksums_asset: &'static str,
 }
 
@@ -154,6 +161,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_windows: Some("yt-dlp.exe"),
             asset_linux_x64: Some("yt-dlp_linux"),
             asset_linux_arm64: Some("yt-dlp_linux_aarch64"),
+            asset_zipapp: Some("yt-dlp"),
             checksums_asset: "SHA2-256SUMS",
         }),
     },
@@ -208,6 +216,12 @@ const LATEST_VERSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 pub struct DepCache {
     entries: Mutex<HashMap<String, DepStatus>>,
     latest: Mutex<HashMap<String, (Instant, Option<String>)>>,
+    /// Names with a version probe currently running. `check_single` claims a
+    /// name here before spawning, so concurrent callers wait for that one
+    /// probe instead of each spawning their own copy of the binary (a slow
+    /// probe used to fan out into dozens of leaked processes).
+    in_flight: Mutex<HashSet<String>>,
+    probe_done: Condvar,
 }
 
 impl DepCache {
@@ -215,6 +229,8 @@ impl DepCache {
         Self {
             entries: Mutex::new(HashMap::new()),
             latest: Mutex::new(HashMap::new()),
+            in_flight: Mutex::new(HashSet::new()),
+            probe_done: Condvar::new(),
         }
     }
 
@@ -340,11 +356,25 @@ pub fn tokio_command_with_path(program: &str) -> tokio::process::Command {
     cmd
 }
 
-pub fn check_single(name: &str, cache: &DepCache) -> DepStatus {
-    if let Some(cached) = cache.get(name) {
-        return cached;
-    }
+/// Upper bound for a version probe. yt-dlp's PyInstaller binary can take
+/// 15-20s to start on macOS, so this must be generous — it exists to bound
+/// the damage of a wedged binary, not to police slow ones.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Removes the in-flight claim and wakes waiters even if the probe panics.
+struct ProbeClaim<'a> {
+    cache: &'a DepCache,
+    name: &'a str,
+}
+
+impl Drop for ProbeClaim<'_> {
+    fn drop(&mut self) {
+        self.cache.in_flight.lock().unwrap().remove(self.name);
+        self.cache.probe_done.notify_all();
+    }
+}
+
+pub fn check_single(name: &str, cache: &DepCache) -> DepStatus {
     let def = match REGISTRY.iter().find(|d| d.name == name) {
         Some(d) => d,
         None => {
@@ -356,11 +386,66 @@ pub fn check_single(name: &str, cache: &DepCache) -> DepStatus {
         }
     };
 
+    // Single-flight: exactly one thread runs the probe for a given name;
+    // everyone else blocks until its result lands in the cache. Loop because
+    // a waiter can wake to find the entry already invalidated again.
+    loop {
+        if let Some(cached) = cache.get(name) {
+            return cached;
+        }
+        {
+            let mut in_flight = cache.in_flight.lock().unwrap();
+            if in_flight.contains(name) {
+                drop(
+                    cache
+                        .probe_done
+                        .wait_while(in_flight, |set| set.contains(name))
+                        .unwrap(),
+                );
+                continue;
+            }
+            in_flight.insert(name.to_string());
+        }
+        let _claim = ProbeClaim { cache, name };
+        let status = run_probe(def);
+        // Publish before the claim drops, so woken waiters find the result.
+        cache.set(name, status.clone());
+        return status;
+    }
+}
+
+/// The binary `command_with_path` would run, if it can be located: the
+/// managed copy first, then the augmented PATH. Used to key the persistent
+/// probe cache; when this returns None the spawn is still attempted so any
+/// exotic PATH resolution keeps working.
+fn resolve_binary(name: &str) -> Option<(PathBuf, DepOrigin)> {
+    if let Some(path) = managed_binary_path(name) {
+        return Some((path, DepOrigin::Managed));
+    }
+    let filename = binary_filename(name);
+    std::env::split_paths(&augmented_path())
+        .map(|dir| dir.join(&filename))
+        .find(|candidate| candidate.is_file())
+        .map(|path| (path, DepOrigin::System))
+}
+
+fn run_probe(def: &DependencyDef) -> DepStatus {
+    let resolved = resolve_binary(def.name);
+
+    // The version is a property of the binary file: if this exact file
+    // (path + mtime + size) was probed before — even in a past session —
+    // reuse that result instead of paying the probe again.
+    if let Some((path, origin)) = &resolved {
+        if let Some(version) = persisted_probe_version(def.name, path) {
+            return DepStatus::Installed { version, origin: *origin };
+        }
+    }
+
     let mut cmd = command_with_path(def.name);
     cmd.args(def.version_args);
 
-    let status = match cmd.output() {
-        Ok(output) if output.status.success() => {
+    match output_with_timeout(&mut cmd, PROBE_TIMEOUT) {
+        Ok(Some(output)) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let version = (def.parse_version)(&stdout)
                 .unwrap_or_else(|| "unknown".to_string());
@@ -371,14 +456,136 @@ pub fn check_single(name: &str, cache: &DepCache) -> DepStatus {
             } else {
                 DepOrigin::System
             };
+            if let Some((path, _)) = &resolved {
+                persist_probe_version(def.name, path, &version);
+            }
             DepStatus::Installed { version, origin }
         }
-        Ok(_) => DepStatus::NotFound,
+        Ok(Some(_)) => DepStatus::NotFound,
+        Ok(None) => DepStatus::Error {
+            message: format!(
+                "{} did not answer a version check within {}s",
+                def.name,
+                PROBE_TIMEOUT.as_secs()
+            ),
+        },
         Err(_) => DepStatus::NotFound,
-    };
+    }
+}
 
-    cache.set(name, status.clone());
-    status
+/// `Command::output()` with an upper bound: returns Ok(None) if the child
+/// doesn't exit in time, killing its whole process group so helper children
+/// (PyInstaller binaries fork a bootstrap pair) die with it. The child's
+/// output must fit the OS pipe buffer — fine for version banners.
+fn output_with_timeout(
+    cmd: &mut std::process::Command,
+    timeout: Duration,
+) -> std::io::Result<Option<std::process::Output>> {
+    use std::process::Stdio;
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        // Own process group, so the timeout path can kill probe + children
+        // together instead of orphaning the children.
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
+    let mut child = cmd.spawn()?;
+    let deadline = Instant::now() + timeout;
+    loop {
+        if child.try_wait()?.is_some() {
+            return child.wait_with_output().map(Some);
+        }
+        if Instant::now() >= deadline {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as i32), libc::SIGKILL);
+            }
+            let _ = child.kill();
+            let _ = child.wait(); // reap
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+// --- Persistent probe cache ---
+//
+// Version probes are expensive (yt-dlp's PyInstaller binary takes ~15s to
+// boot on macOS), so successful results are persisted next to the managed
+// binaries, keyed by the probed file's identity (path + mtime + size). Any
+// change to the binary — install, update, uninstall exposing a system copy —
+// changes the key and forces a real probe. Failures are never persisted.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ProbeCacheEntry {
+    path: String,
+    mtime_secs: u64,
+    size: u64,
+    version: String,
+}
+
+fn probe_cache_file() -> Option<PathBuf> {
+    managed_bin_dir().map(|d| d.join(".probe-cache.json"))
+}
+
+fn file_stamp(path: &Path) -> Option<(u64, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some((mtime, meta.len()))
+}
+
+fn read_probe_cache(file: &Path) -> HashMap<String, ProbeCacheEntry> {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn lookup_probe_cache(file: &Path, name: &str, binary: &Path) -> Option<String> {
+    let entry = read_probe_cache(file).remove(name)?;
+    let (mtime_secs, size) = file_stamp(binary)?;
+    (Path::new(&entry.path) == binary && entry.mtime_secs == mtime_secs && entry.size == size)
+        .then_some(entry.version)
+}
+
+fn store_probe_cache(file: &Path, name: &str, binary: &Path, version: &str) {
+    let Some((mtime_secs, size)) = file_stamp(binary) else { return };
+    let mut map = read_probe_cache(file);
+    map.insert(
+        name.to_string(),
+        ProbeCacheEntry {
+            path: binary.to_string_lossy().into_owned(),
+            mtime_secs,
+            size,
+            version: version.to_string(),
+        },
+    );
+    // Temp + rename so a crash mid-write can't leave torn JSON behind.
+    let tmp = file.with_extension("tmp");
+    let Ok(json) = serde_json::to_string(&map) else { return };
+    if std::fs::write(&tmp, json).is_ok() {
+        let _ = std::fs::rename(&tmp, file);
+    }
+}
+
+fn persisted_probe_version(name: &str, binary: &Path) -> Option<String> {
+    lookup_probe_cache(&probe_cache_file()?, name, binary)
+}
+
+fn persist_probe_version(name: &str, binary: &Path, version: &str) {
+    if let Some(file) = probe_cache_file() {
+        store_probe_cache(&file, name, binary, version);
+    }
 }
 
 pub fn is_available(name: &str, cache: &DepCache) -> bool {
@@ -465,6 +672,104 @@ fn sha256_hex(data: &[u8]) -> String {
         .collect()
 }
 
+/// How the managed copy of a dependency is materialized on disk.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+enum InstallShape {
+    /// The platform's standalone binary, installed as `{bin}/{name}`.
+    Binary(&'static str),
+    /// The zipapp asset installed as `{bin}/{name}.pyz`, plus a shell wrapper
+    /// at `{bin}/{name}` that execs it under the given Python interpreter.
+    Zipapp { asset: &'static str, python: PathBuf },
+}
+
+fn zipapp_filename(name: &str) -> String {
+    format!("{}.pyz", name)
+}
+
+/// Minimum interpreter for the zipapp form (yt-dlp's own requirement).
+#[cfg(target_os = "macos")]
+const ZIPAPP_MIN_PYTHON: (u32, u32) = (3, 10);
+
+/// Parse "Python 3.14.4" (stdout or stderr) into (major, minor).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // caller is macOS-only
+fn parse_python_version(output: &str) -> Option<(u32, u32)> {
+    let rest = output.trim().strip_prefix("Python ")?;
+    let mut segments = rest.split('.');
+    let major = segments.next()?.trim().parse().ok()?;
+    let minor = segments.next()?.trim().parse().ok()?;
+    Some((major, minor))
+}
+
+/// A Python new enough for the zipapp, from the usual install locations.
+/// Probed with the same bounded runner as dependency checks.
+#[cfg(target_os = "macos")]
+fn find_zipapp_python() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/opt/homebrew/bin/python3"),
+        PathBuf::from("/usr/local/bin/python3"),
+        PathBuf::from("/opt/local/bin/python3"),
+    ];
+    // Apple's /usr/bin/python3 is a stub that pops the Command Line Tools
+    // install dialog when they're absent — only consider it when installed.
+    if Path::new("/Library/Developer/CommandLineTools").is_dir() {
+        candidates.push(PathBuf::from("/usr/bin/python3"));
+    }
+    candidates.into_iter().find(|python| {
+        if !python.is_file() {
+            return false;
+        }
+        let mut cmd = std::process::Command::new(python);
+        cmd.arg("--version");
+        match output_with_timeout(&mut cmd, Duration::from_secs(10)) {
+            Ok(Some(out)) if out.status.success() => {
+                let text = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                parse_python_version(&text).is_some_and(|v| v >= ZIPAPP_MIN_PYTHON)
+            }
+            _ => false,
+        }
+    })
+}
+
+/// Prefer the zipapp form where it can run; fall back to the platform binary.
+fn choose_install_shape(name: &str, managed: &ManagedSource) -> Result<InstallShape, String> {
+    #[cfg(target_os = "macos")]
+    if let Some(asset) = managed.asset_zipapp {
+        if let Some(python) = find_zipapp_python() {
+            log::info!("Installing {} as zipapp under {}", name, python.display());
+            return Ok(InstallShape::Zipapp { asset, python });
+        }
+    }
+    managed
+        .platform_asset()
+        .map(InstallShape::Binary)
+        .ok_or_else(|| format!("{} has no managed binary for this platform", name))
+}
+
+/// Write the `{bin}/{name}` launcher for a zipapp install. Rewritten on every
+/// install so its mtime tracks updates (it keys the persistent probe cache).
+fn write_zipapp_wrapper(bin_dir: &Path, name: &str, python: &Path) -> Result<(), String> {
+    let script = format!(
+        "#!/bin/sh\n# Written by Viboplr: runs the managed {} zipapp under the system Python.\nexec \"{}\" \"{}\" \"$@\"\n",
+        name,
+        python.display(),
+        bin_dir.join(zipapp_filename(name)).display(),
+    );
+    let tmp = bin_dir.join(format!(".{}.wrapper", name));
+    std::fs::write(&tmp, script).map_err(|e| format!("Wrapper write error: {}", e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Wrapper chmod error: {}", e))?;
+    }
+    std::fs::rename(&tmp, bin_dir.join(binary_filename(name)))
+        .map_err(|e| format!("Wrapper install error: {}", e))
+}
+
 /// Download + checksum-verify + atomically install the managed copy of `name`.
 /// `progress` is called with (downloaded, total) as the body streams in.
 /// Returns the installed version.
@@ -478,10 +783,13 @@ pub fn install_managed(
         .managed
         .as_ref()
         .ok_or_else(|| format!("{} is not a managed dependency", name))?;
-    let asset = managed
-        .platform_asset()
-        .ok_or_else(|| format!("{} has no managed binary for this platform", name))?;
     let bin_dir = managed_bin_dir().ok_or("Managed bin directory not initialized")?;
+
+    let shape = choose_install_shape(name, managed)?;
+    let (asset, dest_filename) = match &shape {
+        InstallShape::Binary(asset) => (*asset, binary_filename(name)),
+        InstallShape::Zipapp { asset, .. } => (*asset, zipapp_filename(name)),
+    };
 
     let client = http_client()?;
     let base = format!("https://github.com/{}/releases/latest/download", managed.repo);
@@ -496,7 +804,7 @@ pub fn install_managed(
     }
     let total = resp.content_length();
 
-    let temp_path = bin_dir.join(format!(".{}.download", binary_filename(name)));
+    let temp_path = bin_dir.join(format!(".{}.download", dest_filename));
     let result: Result<String, String> = (|| {
         let mut data: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
         let mut buf = [0u8; 64 * 1024];
@@ -539,9 +847,20 @@ pub fn install_managed(
 
         // Atomic rename handles concurrent profiles; on Windows a running
         // binary holds a lock, so surface that as a retryable error.
-        let final_path = bin_dir.join(binary_filename(name));
+        let final_path = bin_dir.join(&dest_filename);
         std::fs::rename(&temp_path, &final_path)
             .map_err(|e| format!("Install error (is {} running?): {}", name, e))?;
+
+        match &shape {
+            InstallShape::Zipapp { python, .. } => {
+                write_zipapp_wrapper(bin_dir, name, python)?;
+            }
+            InstallShape::Binary(_) => {
+                // Drop the companion zipapp if a previous install used that
+                // shape — the binary just overwrote its wrapper.
+                let _ = std::fs::remove_file(bin_dir.join(zipapp_filename(name)));
+            }
+        }
 
         cache.invalidate(name);
         match check_single(name, cache) {
@@ -567,6 +886,10 @@ pub fn uninstall_managed(name: &str, cache: &DepCache) -> Result<DepStatus, Stri
     }
     if let Some(path) = managed_binary_path(name) {
         std::fs::remove_file(&path).map_err(|e| format!("Failed to remove {}: {}", name, e))?;
+    }
+    // Companion zipapp, if the managed copy was the wrapper shape.
+    if let Some(dir) = managed_bin_dir() {
+        let _ = std::fs::remove_file(dir.join(zipapp_filename(name)));
     }
     cache.invalidate(name);
     Ok(check_single(name, cache))
@@ -740,6 +1063,127 @@ mod tests {
         let cache = DepCache::new();
         cache.set("ffmpeg", DepStatus::Installed { version: "7.1".to_string(), origin: DepOrigin::System });
         assert!(is_available("ffmpeg", &cache));
+    }
+
+    #[test]
+    fn test_check_single_concurrent_single_flight() {
+        // fictional-tool doesn't exist, so probes fail fast — this exercises
+        // the claim/wait/wake plumbing across threads without hanging.
+        let cache = std::sync::Arc::new(DepCache::new());
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let cache = std::sync::Arc::clone(&cache);
+                std::thread::spawn(move || check_single("fictional-tool", &cache))
+            })
+            .collect();
+        for h in handles {
+            assert!(matches!(h.join().unwrap(), DepStatus::NotFound));
+        }
+        assert!(cache.in_flight.lock().unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_output_with_timeout_kills_slow_child() {
+        let mut cmd = std::process::Command::new("/bin/sleep");
+        cmd.arg("30");
+        let start = Instant::now();
+        let result = output_with_timeout(&mut cmd, Duration::from_millis(300)).unwrap();
+        assert!(result.is_none());
+        assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_output_with_timeout_captures_output() {
+        let mut cmd = std::process::Command::new("/bin/echo");
+        cmd.arg("hello");
+        let output = output_with_timeout(&mut cmd, Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
+    }
+
+    #[test]
+    fn test_probe_cache_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_file = dir.path().join("probe-cache.json");
+        let binary = dir.path().join("fake-bin");
+        std::fs::write(&binary, b"binary-bytes").unwrap();
+
+        assert!(lookup_probe_cache(&cache_file, "yt-dlp", &binary).is_none());
+        store_probe_cache(&cache_file, "yt-dlp", &binary, "2026.07.04");
+        assert_eq!(
+            lookup_probe_cache(&cache_file, "yt-dlp", &binary),
+            Some("2026.07.04".to_string())
+        );
+        // A different dependency name doesn't match this entry.
+        assert!(lookup_probe_cache(&cache_file, "ffmpeg", &binary).is_none());
+    }
+
+    #[test]
+    fn test_parse_python_version() {
+        assert_eq!(parse_python_version("Python 3.14.4\n"), Some((3, 14)));
+        assert_eq!(parse_python_version("Python 3.9.6"), Some((3, 9)));
+        assert_eq!(parse_python_version("Python 3.10"), Some((3, 10)));
+        assert_eq!(parse_python_version("not python"), None);
+        assert_eq!(parse_python_version(""), None);
+    }
+
+    #[test]
+    fn test_choose_install_shape_binary_fallback() {
+        // No zipapp asset declared → always the platform binary.
+        let managed = ManagedSource {
+            repo: "example/tool",
+            asset_macos: Some("tool_macos"),
+            asset_windows: Some("tool.exe"),
+            asset_linux_x64: Some("tool_linux"),
+            asset_linux_arm64: Some("tool_linux_aarch64"),
+            asset_zipapp: None,
+            checksums_asset: "SHA2-256SUMS",
+        };
+        let shape = choose_install_shape("tool", &managed).unwrap();
+        assert!(matches!(shape, InstallShape::Binary(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_zipapp_wrapper() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let python = Path::new("/opt/homebrew/bin/python3");
+        write_zipapp_wrapper(dir.path(), "yt-dlp", python).unwrap();
+
+        let wrapper = dir.path().join("yt-dlp");
+        let script = std::fs::read_to_string(&wrapper).unwrap();
+        assert!(script.starts_with("#!/bin/sh\n"));
+        assert!(script.contains("/opt/homebrew/bin/python3"));
+        assert!(script.contains(&dir.path().join("yt-dlp.pyz").display().to_string()));
+        assert!(script.trim_end().ends_with("\"$@\""));
+
+        let mode = std::fs::metadata(&wrapper).unwrap().permissions().mode();
+        assert_eq!(mode & 0o755, 0o755);
+    }
+
+    #[test]
+    fn test_probe_cache_invalidated_by_binary_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_file = dir.path().join("probe-cache.json");
+        let binary = dir.path().join("fake-bin");
+        std::fs::write(&binary, b"v1").unwrap();
+        store_probe_cache(&cache_file, "yt-dlp", &binary, "1.0");
+
+        // Changing the size always breaks the stamp (mtime granularity can
+        // be too coarse to rely on within a test).
+        std::fs::write(&binary, b"v2-longer-content").unwrap();
+        assert!(lookup_probe_cache(&cache_file, "yt-dlp", &binary).is_none());
+
+        // A different path never matches, even with identical content.
+        let other = dir.path().join("other-bin");
+        std::fs::write(&other, b"v1").unwrap();
+        assert!(lookup_probe_cache(&cache_file, "yt-dlp", &other).is_none());
     }
 
     #[test]

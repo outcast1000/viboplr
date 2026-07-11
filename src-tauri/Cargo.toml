@@ -57,6 +57,10 @@ async-trait = "0.1"
 trash = "5"
 libmpv2 = { version = "6.0.0", optional = true }
 
+# Process-group kill for timed-out dependency version probes (dependencies.rs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
 objc = "0.2"

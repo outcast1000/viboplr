@@ -275,7 +275,7 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 
 ### api.system
 - `exec(program, args?, opts?)` — run a subprocess, returns `{ exitCode, stdout, stderr }`. **Allow-list only:** currently `yt-dlp` and `ffmpeg`. `opts.cwd` defaults to the app data directory.
-- `getDependency(name)` — read the host's **cached** status for a registered external binary: `{ name, installed, version, origin: "managed" | "system" | null, latest } | null`. **Cache-only — never hits the network.** `latest` stays `null` until the host's own background check populates it (~30s after startup, then daily, or via Settings). Plugins must use this rather than checking GitHub themselves — the host owns release/version checking (see `backend.md` "External Binary Dependencies").
+- `getDependency(name)` — read the host's **cached** status for a registered external binary: `{ name, installed, version, origin: "managed" | "system" | null, latest } | null`. **Cache-only — never hits the network.** On a cold cache the host may run a one-shot local `--version` probe (single-flight and timeout-bounded, with the result persisted across sessions keyed by the binary file's identity), so the first call of a session can take seconds — but concurrent calls never spawn extra processes. `latest` stays `null` until the host's own background check populates it (~30s after startup, then daily, or via Settings). Plugins must use this rather than checking GitHub themselves — the host owns release/version checking (see `backend.md` "External Binary Dependencies").
 
 ### api.env
 - `get(key)` — read an environment variable

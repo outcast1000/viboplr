@@ -6987,6 +6987,7 @@ dependencies = [
  "env_logger",
  "futures",
  "image",
+ "libc",
  "libmpv2",
  "libp2p",
  "lofty",
