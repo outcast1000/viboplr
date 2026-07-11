@@ -62,7 +62,7 @@
 ## Hooks (src/hooks/)
 
 - **usePlayback.ts** — Dual A/B audio element architecture for gapless/crossfade. Crossfade via setInterval volume ramp. Video tracks don't crossfade. `currentTrack` is `QueueTrack | null`. Also owns the **native mpv session branches**: when the full build's engine is selected (`useNativeEngineRef`), eligible audio routes through `src/playback/nativeEngine.ts` instead of the elements — `nativeSessionRef` marks the session, `engine-*` events stand in for element events, and any `engine-error` blocklists the key + replays the same track at the same position on the browser engine (per-track fallback). The scrobble/preload/crossfade decision logic is extracted to `src/playback/progressMachine.ts` (pure, unit-tested) and driven by BOTH `timeupdate` and `engine-position`.
-- **src/playback/nativeEngine.ts** — Typed invoke/listen bridge to the mpv engine (`engine_*` commands, `engine-*` events). Capability probed once via `engine_capabilities` (present in every build); all control methods no-op on incapable builds. EQ/ReplayGain settings are mirrored to it from usePlayback's existing effects (cached backend-side until the engine runs).
+- **src/playback/nativeEngine.ts** — Typed invoke/listen bridge to the mpv engine (`engine_*` commands, `engine-*` events). Capability probed via `engine_capabilities` and cached; `refreshEngineCapabilities()` drops the cache and re-probes (used after an engine-component install — backend load failures aren't cached, so a fresh install unlocks live, no restart). All control methods no-op when incapable. EQ/ReplayGain settings are mirrored to it from usePlayback's existing effects (cached backend-side until the engine runs).
 - **src/playback/progressMachine.ts** — `driveProgressMachine()`: given position/duration/arming state, decides prefetch / preload (20s lead, 45s when the next track needs stream resolution) / crossfade-start. Single source of truth for both engines.
 - **useQueue.ts** — Queue management using `QueueTrack[]`. `playTracks()` / `enqueueTracks()` / `playNextInQueue()`. Duplicate detection via `findDuplicates()`. Image stamping uses name-based lookup (no DB IDs).
 - **useLibrary.ts** — Library data queries, column configuration, view modes, sort/filter state.
@@ -99,6 +99,7 @@
 - **useCollectionActions.ts** — Collection CRUD/resync action handlers for `CollectionsView`.
 - **useExtensions.ts** — Extension/plugin install, enable/disable, update checking for `ExtensionsView`.
 - **useDependencies.ts** — External-binary dependency state (install/update/progress/check). See `backend.md` "External Binary Dependencies".
+- **useEngineComponent.ts** — Install state + actions for the downloadable libmpv engine component (Settings > Playback): status, streamed `engine-component-progress`, install/uninstall invokes, and a `refreshEngineCapabilities()` re-probe on completion. See `backend.md` "Native mpv Engine".
 - **useVideoFrames.ts** — Video frame thumbnail caching/extraction bridge (`video_frames.rs`).
 - **useMiniSearch.ts** — Mini-mode quick-search state for `MiniSearchPanel`.
 

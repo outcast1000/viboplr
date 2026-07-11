@@ -1,15 +1,19 @@
 #!/usr/bin/env node
 // Fetches the pinned libmpv artifacts (scripts/libmpv.lock.json) into
-// src-tauri/vendor/libmpv/<platform>/ for the `mpv-engine` Cargo feature.
+// src-tauri/vendor/libmpv/<platform>/. libmpv is loaded at RUNTIME
+// (src-tauri/src/mpv_engine/ffi.rs) — nothing links against it — so the
+// vendor dir serves dev/test runs, the Full-build bundling configs, and
+// scripts/package-engine-component.mjs (the downloadable component).
 //
 //   node scripts/fetch-libmpv.mjs           # current platform only
 //   node scripts/fetch-libmpv.mjs --all     # every platform in the lock file
 //   node scripts/fetch-libmpv.mjs --force   # re-fetch even if stamp matches
 //
 // macOS post-processing: the eko5624 dylib references luajit via an absolute
-// CI-runner path — rewritten to @rpath and ad-hoc re-signed (install_name_tool
-// invalidates the signature). A libmpv.dylib symlink is created so `-lmpv`
-// resolves at link time.
+// CI-runner path — rewritten to @loader_path (same dir as the mpv dylib, so
+// it resolves wherever the pair lands: Frameworks/, the engine-component
+// dir, or the vendor dir — without any executable rpaths) and ad-hoc
+// re-signed (install_name_tool invalidates the signature).
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -67,22 +71,20 @@ function postProcessMacos(platformDir) {
     }
   }
   const mpvDylib = path.join(libDir, "libmpv.2.dylib");
-  // Rewrite any absolute (CI-runner) luajit reference to @rpath.
+  // Rewrite any absolute (CI-runner) or @rpath luajit reference to
+  // @loader_path — the two dylibs always ship side by side.
   const otool = execFileSync("otool", ["-L", mpvDylib], { encoding: "utf8" });
   for (const line of otool.split("\n")) {
-    const m = line.trim().match(/^(\/\S*libluajit[^\s]*\.dylib)/);
+    const m = line.trim().match(/^((?:\/\S*|@rpath\/\S*)libluajit[^\s]*\.dylib)/);
     if (m) {
       const base = path.basename(m[1]);
-      console.log(`  rewriting ${m[1]} -> @rpath/${base}`);
-      execFileSync("install_name_tool", ["-change", m[1], `@rpath/${base}`, mpvDylib]);
+      console.log(`  rewriting ${m[1]} -> @loader_path/${base}`);
+      execFileSync("install_name_tool", ["-change", m[1], `@loader_path/${base}`, mpvDylib]);
     }
   }
   for (const f of fs.readdirSync(libDir).filter((f) => f.endsWith(".dylib") && !fs.lstatSync(path.join(libDir, f)).isSymbolicLink())) {
     execFileSync("codesign", ["-f", "-s", "-", path.join(libDir, f)]);
   }
-  const linkName = path.join(libDir, "libmpv.dylib");
-  fs.rmSync(linkName, { force: true });
-  fs.symlinkSync("libmpv.2.dylib", linkName);
 }
 
 function postProcessWindows(platformDir) {

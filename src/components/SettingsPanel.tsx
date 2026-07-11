@@ -5,6 +5,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { PluginState } from "../types/plugin";
+import type { EngineComponentStatus } from "../playback/nativeEngine";
+import type { InstallProgress } from "../hooks/useDependencies";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { store } from "../store";
@@ -1089,8 +1091,14 @@ interface SettingsPanelProps {
   onClearImageFailures: () => void;
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
-  /** Whether this build carries the native mpv engine (full build). */
+  /** Whether libmpv is currently loadable (bundled, downloaded, or system). */
   mpvCapable: boolean;
+  /** Install state of the downloadable libmpv component, if known. */
+  engineComponent: EngineComponentStatus | null;
+  /** Download progress while the component installs, else null. */
+  engineComponentInstalling: InstallProgress | null;
+  onEngineComponentInstall: () => Promise<void>;
+  onEngineComponentUninstall: () => Promise<void>;
   playbackEngine: "browser" | "native";
   onPlaybackEngineChange: (engine: "browser" | "native") => void;
   audioExclusive: boolean;
@@ -1176,6 +1184,10 @@ export function SettingsPanel({
   crossfadeSecs,
   onCrossfadeChange,
   mpvCapable,
+  engineComponent,
+  engineComponentInstalling,
+  onEngineComponentInstall,
+  onEngineComponentUninstall,
   playbackEngine,
   onPlaybackEngineChange,
   audioExclusive,
@@ -1226,6 +1238,7 @@ export function SettingsPanel({
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
 
   const [appPaths, setAppPaths] = useState<{ profile: string; logs: string } | null>(null);
+  const [engineComponentError, setEngineComponentError] = useState<string | null>(null);
 
   useEffect(() => {
     if ((settingsTab === "general" || settingsTab === "debug") && !appPaths) {
@@ -1234,6 +1247,22 @@ export function SettingsPanel({
         .catch(console.error);
     }
   }, [settingsTab, appPaths]);
+
+  function handleEngineComponentInstall() {
+    setEngineComponentError(null);
+    onEngineComponentInstall().catch((e) => {
+      console.error("Failed to install engine component:", e);
+      setEngineComponentError(String(e));
+    });
+  }
+
+  function handleEngineComponentUninstall() {
+    setEngineComponentError(null);
+    onEngineComponentUninstall().catch((e) => {
+      console.error("Failed to remove engine component:", e);
+      setEngineComponentError(String(e));
+    });
+  }
 
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
@@ -1334,20 +1363,79 @@ export function SettingsPanel({
                 <div className="settings-group">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
-                    {mpvCapable && (
+                    {(mpvCapable || engineComponent?.available) && (
                       <div className="settings-row">
                         <div className="settings-row-info">
                           <span className="settings-label">Playback engine</span>
-                          <span className="settings-description">mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback.</span>
+                          <span className="settings-description">
+                            {mpvCapable
+                              ? "mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback."
+                              : `mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). One-time download${engineComponent?.sizeMb ? ` (~${Math.round(engineComponent.sizeMb)} MB)` : ""}.`}
+                          </span>
+                          {engineComponentError && (
+                            <span className="settings-description" style={{ color: "var(--error)" }}>
+                              {engineComponentError}
+                            </span>
+                          )}
                         </div>
-                        <select
-                          className="ds-select"
-                          value={playbackEngine}
-                          onChange={e => onPlaybackEngineChange(e.target.value as "browser" | "native")}
-                        >
-                          <option value="browser">Browser</option>
-                          <option value="native">mpv (beta)</option>
-                        </select>
+                        {mpvCapable ? (
+                          <select
+                            className="ds-select"
+                            value={playbackEngine}
+                            onChange={e => onPlaybackEngineChange(e.target.value as "browser" | "native")}
+                          >
+                            <option value="browser">Browser</option>
+                            <option value="native">mpv (beta)</option>
+                          </select>
+                        ) : (
+                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            {engineComponentInstalling && (
+                              <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-tertiary)" }}>
+                                {engineComponentInstalling.total
+                                  ? `${Math.round((engineComponentInstalling.downloaded / engineComponentInstalling.total) * 100)}%`
+                                  : "…"}
+                              </span>
+                            )}
+                            <button
+                              className="ds-btn ds-btn--primary ds-btn--sm"
+                              onClick={handleEngineComponentInstall}
+                              disabled={!!engineComponentInstalling}
+                            >
+                              {engineComponentInstalling ? "Downloading..." : "Download engine"}
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {engineComponent?.installed && (
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">mpv engine component</span>
+                          <span className="settings-description">
+                            Downloaded libmpv{engineComponent.installedVersion ? ` (${engineComponent.installedVersion})` : ""}.
+                            {engineComponent.loaded && engineComponent.origin === "managed"
+                              ? " In use — removing it takes effect after a restart."
+                              : ""}
+                          </span>
+                        </div>
+                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {engineComponent.updateAvailable && (
+                            <button
+                              className="ds-btn ds-btn--primary ds-btn--sm"
+                              onClick={handleEngineComponentInstall}
+                              disabled={!!engineComponentInstalling}
+                            >
+                              {engineComponentInstalling ? "Updating..." : "Update"}
+                            </button>
+                          )}
+                          <button
+                            className="ds-btn ds-btn--ghost ds-btn--sm"
+                            onClick={handleEngineComponentUninstall}
+                            disabled={!!engineComponentInstalling}
+                          >
+                            Remove
+                          </button>
+                        </span>
                       </div>
                     )}
                     {mpvCapable && playbackEngine === "native" && (

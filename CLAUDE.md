@@ -10,9 +10,9 @@ npm run tauri dev                    # Dev mode (Vite + Tauri)
 npm run tauri build                  # Production build
 cd src-tauri && cargo check          # Rust compilation check
 cd src-tauri && cargo check --release # Release build check (verifies cfg gating)
-node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv (required once before mpv-engine builds)
-cd src-tauri && cargo test --features mpv-engine --lib  # Full-build check + native engine tests
-npm run tauri dev -- --features mpv-engine              # Dev mode with the native mpv engine
+node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv (dev/tests load it at runtime; engine tests self-skip without it)
+cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
+node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
 npx tsc --noEmit                     # TypeScript type-check
 npm run test:all                     # All tests (Rust + TS + E2E)
 npm test                             # TypeScript tests only

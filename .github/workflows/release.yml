@@ -104,11 +104,14 @@ jobs:
           - platform: windows-latest
             variant: lean
             args: ''
-          # "Viboplr Full" — bundles libmpv (mpv-engine feature). Distinct
-          # productName keeps release assets from colliding with the lean
-          # build; its updater manifest (latest-mpv.json) is assembled by the
-          # mpv-updater-manifest job below, so tauri-action's own updater JSON
-          # is disabled for these entries.
+          # "Viboplr Full" — bundles libmpv so the engine works offline out
+          # of the box (the engine itself is compiled into every build now
+          # and loads libmpv at runtime; --features mpv-engine is a no-op
+          # kept for compatibility). Distinct productName keeps release
+          # assets from colliding with the lean build; its updater manifest
+          # (latest-mpv.json) is assembled by the mpv-updater-manifest job
+          # below, so tauri-action's own updater JSON is disabled for these
+          # entries.
           - platform: macos-latest
             variant: mpv
             args: '--target aarch64-apple-darwin --features mpv-engine --config src-tauri/tauri.mpv-macos.conf.json'

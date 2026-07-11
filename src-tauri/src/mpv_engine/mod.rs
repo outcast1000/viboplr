@@ -1,4 +1,10 @@
-//! Native playback engine backed by libmpv (the `mpv-engine` full-build feature).
+//! Native playback engine backed by libmpv.
+//!
+//! Compiled into every build; libmpv itself is loaded at runtime (`ffi.rs`) —
+//! from the bundled Frameworks dir (Full build), the downloadable engine
+//! component (`component.rs`), the dev vendor dir, or a system install. When
+//! no library is available, `engine_capabilities` reports `mpv: false` and
+//! the frontend stays on the browser engine.
 //!
 //! Audio-only (`vo=null`, `video=no`), built around **two decks** (libmpv
 //! handles) in a ping-pong arrangement:
@@ -23,6 +29,9 @@
 //! `engine-error {code}`.
 
 mod af;
+mod api;
+pub mod component;
+pub mod ffi;
 #[cfg(target_os = "macos")]
 mod video_layer;
 #[cfg(windows)]
@@ -34,9 +43,11 @@ use video_layer::VideoLayer as PlatformVideoLayer;
 use video_layer_win::VideoLayer as PlatformVideoLayer;
 
 pub use af::{EqParams, ReplayGainParams};
+pub use api::libmpv_available;
+pub use ffi::set_component_dir;
 
 use af::{build_af_graph, replaygain_mode_value};
-use libmpv2::{events::Event, mpv_end_file_reason, Format, Mpv};
+use api::{mpv_end_file_reason, Event, Format, Mpv};
 use serde_json::json;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -425,7 +436,7 @@ impl Engine {
                         return;
                     }
                 };
-                use libmpv2::render::{OpenGLInitParams, RenderParam, RenderParamApiType};
+                use api::render::{OpenGLInitParams, RenderParam, RenderParamApiType};
                 let mut rctx = match engine.decks[0].mpv.create_render_context(vec![
                     RenderParam::ApiType(RenderParamApiType::OpenGl),
                     RenderParam::InitParams(OpenGLInitParams {
@@ -445,8 +456,7 @@ impl Engine {
                 });
                 let _ = ready_tx.send(Ok(()));
                 video_layer::run_render_loop(render_state, glctx, cgl, |width, height| {
-                    rctx.render::<video_layer::GlLibrary>(0, width, height, true)
-                        .map_err(|e| e.to_string())
+                    rctx.render(0, width, height, true).map_err(|e| e.to_string())
                 });
             })
             .map_err(|e| format!("failed to spawn video render thread: {e}"))?;
@@ -1009,8 +1019,8 @@ fn run_event_loop(
                 }
             }
             Ok(Event::PropertyChange { name, change, .. }) => {
-                use libmpv2::events::PropertyData;
-                match (name, change) {
+                use api::PropertyData;
+                match (name.as_str(), change) {
                     ("time-pos", PropertyData::Double(pos)) => {
                         if last_position_emit.elapsed() >= POSITION_EMIT_INTERVAL {
                             let st = state.lock().unwrap();
@@ -1079,7 +1089,7 @@ fn run_event_loop(
             Ok(_) => {}
             Err(e) => {
                 // Decode/load failures surface here (EndFile with an error
-                // reason is mapped to Err by libmpv2).
+                // reason is mapped to Err by api::Mpv::wait_event).
                 let (kind, key) = {
                     let mut st = state.lock().unwrap();
                     if deck == st.active {
@@ -1145,6 +1155,18 @@ mod tests {
         (sink, rx)
     }
 
+    /// None (test skipped) when no libmpv is resolvable — plain `cargo test`
+    /// must stay green on machines without vendored/downloaded artifacts.
+    fn try_test_engine(sink: EventSink) -> Option<Arc<Engine>> {
+        if !api::libmpv_available() {
+            eprintln!(
+                "[engine-test] SKIPPED — libmpv not available (run `node scripts/fetch-libmpv.mjs`)"
+            );
+            return None;
+        }
+        Some(Engine::new(sink, Some("null"), None).expect("engine init"))
+    }
+
     fn wait_for(
         rx: &mpsc::Receiver<(String, serde_json::Value)>,
         event: &str,
@@ -1173,7 +1195,7 @@ mod tests {
         write_wav(&wav_b, 0.4);
 
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
 
         engine
             .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
@@ -1201,7 +1223,7 @@ mod tests {
         write_wav(&wav_b, 0.5);
 
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
 
         engine
             .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
@@ -1232,7 +1254,7 @@ mod tests {
         write_wav(&wav_b, 0.4);
 
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
 
         engine
             .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
@@ -1256,7 +1278,7 @@ mod tests {
         write_wav(&wav, 0.4);
 
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
 
         // Full advanced chain + pre-gain: the af property rejects invalid
         // graphs, and playback to EOF proves the graph actually runs.
@@ -1301,7 +1323,7 @@ mod tests {
         write_wav(&wav_b, 0.4);
 
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
         engine.apply_audio_exclusive(true).expect("exclusive");
 
         engine
@@ -1349,7 +1371,7 @@ mod tests {
     fn test_https_file_playback_and_audio_info() {
         let dir = tempfile::tempdir().unwrap();
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
         engine.set_tls_ca_file(&test_ca_bundle(dir.path())).expect("tls ca");
         engine
             .play(
@@ -1378,7 +1400,7 @@ mod tests {
     fn test_live_radio_stream_icy_and_audio_info() {
         let dir = tempfile::tempdir().unwrap();
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
         engine.set_tls_ca_file(&test_ca_bundle(dir.path())).expect("tls ca");
         engine
             .play("https://ice1.somafm.com/groovesalad-128-mp3", "trk:radio", None, 0.5, false, false)
@@ -1411,7 +1433,7 @@ mod tests {
         std::fs::write(&bogus, b"this is not audio data at all").unwrap();
 
         let (sink, rx) = collect_events();
-        let engine = Engine::new(sink, Some("null"), None).expect("engine init");
+        let Some(engine) = try_test_engine(sink) else { return };
         engine
             .play(bogus.to_str().unwrap(), "trk:bad", None, 1.0, false, false)
             .expect("play command itself should be accepted");

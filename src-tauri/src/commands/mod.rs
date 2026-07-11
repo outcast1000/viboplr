@@ -112,7 +112,6 @@ pub struct AppState {
     pub p2p_node: Arc<tokio::sync::RwLock<Option<P2pNode>>>,
     /// Update found by the last `app_update_check`, consumed by install.
     pub pending_app_update: tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>,
-    #[cfg(feature = "mpv-engine")]
     pub mpv_engine: Arc<crate::mpv_engine::EngineHandle>,
 }
 
@@ -1109,7 +1108,6 @@ mod tests {
             dep_cache: Arc::new(crate::dependencies::DepCache::new()),
             p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
             pending_app_update: tokio::sync::Mutex::new(None),
-            #[cfg(feature = "mpv-engine")]
             mpv_engine: Default::default(),
         }
     }

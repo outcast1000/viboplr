@@ -21,7 +21,6 @@ mod music_publish;
 mod tag_writer;
 mod mixtape;
 mod main_playlist;
-#[cfg(feature = "mpv-engine")]
 mod mpv_engine;
 mod timing;
 mod downloader;
@@ -279,6 +278,9 @@ macro_rules! invoke_handler {
             commands::start_transcode,
             commands::stop_transcode,
             commands::engine_capabilities,
+            commands::engine_component_status,
+            commands::engine_component_install,
+            commands::engine_component_uninstall,
             commands::engine_play,
             commands::engine_preload,
             commands::engine_clear_preload,
@@ -645,6 +647,8 @@ pub fn run() {
 
             // Managed binary copies (yt-dlp etc.) are shared across profiles.
             dependencies::set_managed_bin_dir(app_data_dir.join("bin"));
+            // The downloadable libmpv engine component lives beside them.
+            mpv_engine::set_component_dir(app_data_dir.join("engine"));
 
             // Migrate legacy data from root app_data_dir to profiles/default/.
             // Gated by a sentinel file so this is a true one-shot — once the
@@ -1306,7 +1310,6 @@ pub fn run() {
                     dep_cache,
                     p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
                     pending_app_update: tokio::sync::Mutex::new(None),
-                    #[cfg(feature = "mpv-engine")]
                     mpv_engine: Default::default(),
                 });
             });

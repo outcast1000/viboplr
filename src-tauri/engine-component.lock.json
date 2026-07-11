@@ -1,0 +1,17 @@
+{
+  "comment": "Pinned, ready-to-load libmpv engine-component artifacts the app can download at runtime (Settings > Playback). Baked into the binary at compile time (mpv_engine/component.rs). Artifacts are produced ONCE per pin bump by scripts/package-engine-component.mjs (from the post-processed vendor dir fetched per scripts/libmpv.lock.json) and uploaded to the rolling 'engine-components' GitHub release — the sha256 here pins the exact bytes, so the rolling tag is safe. An entry with empty url/sha256 is a placeholder: install reports 'not published' for that platform.",
+  "platforms": {
+    "macos-aarch64": {
+      "version": "3f1b23abd0",
+      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-macos-aarch64-3f1b23abd0.zip",
+      "sha256": "51370a1003b1499a7f6db9bea3adea669783b3b857b7057d1fb9ed9a0e62440d",
+      "size_mb": 41.2
+    },
+    "windows-x86_64": {
+      "version": "304426c",
+      "url": "https://github.com/outcast1000/viboplr/releases/download/engine-components/engine-libmpv-windows-x86_64-304426c.zip",
+      "sha256": "e786b7cbc0f4f7aa67c562eeb09819bad798dad44139c9ed555bdef36259ac25",
+      "size_mb": 45.4
+    }
+  }
+}

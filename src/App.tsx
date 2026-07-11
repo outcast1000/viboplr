@@ -33,7 +33,8 @@ import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
 import { usePlayback } from "./hooks/usePlayback";
-import { probeEngineCapabilities, nativeEngine } from "./playback/nativeEngine";
+import { probeEngineCapabilities, nativeEngine, type EngineCapabilities } from "./playback/nativeEngine";
+import { useEngineComponent } from "./hooks/useEngineComponent";
 import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
@@ -195,12 +196,16 @@ function App() {
   useNativeVideoRef.current = mpvCapable && mpvVideoCapable && playbackEngine === "native";
   // Assigned to `() => handleNext("auto")` once handleNext exists below.
   const nativeEndedRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    probeEngineCapabilities().then((caps) => {
-      setMpvCapable(caps.mpv);
-      setMpvVideoCapable(caps.video);
-    });
+  const applyEngineCapabilities = useCallback((caps: EngineCapabilities) => {
+    setMpvCapable(caps.mpv);
+    setMpvVideoCapable(caps.video);
   }, []);
+  useEffect(() => {
+    probeEngineCapabilities().then(applyEngineCapabilities);
+  }, [applyEngineCapabilities]);
+  // Downloadable libmpv component (Settings > Playback); re-probes
+  // capabilities after install so the native engine unlocks live.
+  const engineComponent = useEngineComponent(applyEngineCapabilities);
   const trackVideoHistoryRef = useRef(true);
   const [trackVideoHistory, setTrackVideoHistory] = useState(true);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
@@ -3546,6 +3551,10 @@ function App() {
               crossfadeSecs={crossfadeSecs}
               onCrossfadeChange={handleCrossfadeChange}
               mpvCapable={mpvCapable}
+              engineComponent={engineComponent.status}
+              engineComponentInstalling={engineComponent.installing}
+              onEngineComponentInstall={engineComponent.install}
+              onEngineComponentUninstall={engineComponent.uninstall}
               playbackEngine={playbackEngine}
               onPlaybackEngineChange={handlePlaybackEngineChange}
               audioExclusive={audioExclusive}

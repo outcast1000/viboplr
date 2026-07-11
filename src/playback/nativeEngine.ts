@@ -1,8 +1,11 @@
-// Typed bridge to the native mpv playback engine (`mpv-engine` full-build
-// feature). Capability is probed once via `engine_capabilities` — present in
-// every build — so the frontend gates on capability, not build flavor. All
-// control methods silently no-op on incapable builds; only `play` requires the
-// caller to have checked capability first (usePlayback gates on it).
+// Typed bridge to the native mpv playback engine. The engine is compiled
+// into every build; libmpv itself is loaded at runtime (bundled with the
+// Full build, or downloaded on demand as the "engine component" — see
+// Settings > Playback). Capability is probed via `engine_capabilities` and
+// cached; `refreshEngineCapabilities` re-probes after a component install,
+// which the backend picks up without a restart. All control methods silently
+// no-op when incapable; only `play` requires the caller to have checked
+// capability first (usePlayback gates on it).
 
 import { invoke } from "@tauri-apps/api/core";
 import type { EngineSource } from "../types";
@@ -56,25 +59,51 @@ export interface EngineAudioInfo {
   bitrate: number | null;
 }
 
+/** Install state of the downloadable libmpv component (Rust `ComponentStatus`). */
+export interface EngineComponentStatus {
+  /** A pinned artifact is published for this platform. */
+  available: boolean;
+  /** The managed copy is present in the engine dir. */
+  installed: boolean;
+  installedVersion: string | null;
+  lockVersion: string | null;
+  updateAvailable: boolean;
+  /** Where the loader found libmpv: env | bundled | managed | vendored | system. */
+  origin: string | null;
+  /** libmpv is loaded in this process right now. */
+  loaded: boolean;
+  /** Approximate download size in MB, for the install button label. */
+  sizeMb: number | null;
+}
+
 export interface EngineCapabilities {
   mpv: boolean;
-  /** Native video rendering (macOS full build). */
+  /** Native video rendering (macOS). */
   video: boolean;
+  component: EngineComponentStatus | null;
 }
 
 let capabilityPromise: Promise<EngineCapabilities> | null = null;
 
-/** This build's engine capabilities. Cached after the first probe. */
+/** This session's engine capabilities. Cached after the first probe. */
 export function probeEngineCapabilities(): Promise<EngineCapabilities> {
   if (!capabilityPromise) {
     capabilityPromise = invoke<EngineCapabilities>("engine_capabilities")
-      .then((caps) => ({ mpv: !!caps.mpv, video: !!caps.video }))
+      .then((caps) => ({ mpv: !!caps.mpv, video: !!caps.video, component: caps.component ?? null }))
       .catch((e) => {
         console.error("Failed to probe engine capabilities:", e);
-        return { mpv: false, video: false };
+        return { mpv: false, video: false, component: null };
       });
   }
   return capabilityPromise;
+}
+
+/** Drop the cached probe and re-ask the backend — call after installing or
+ * removing the engine component (load failures aren't cached backend-side,
+ * so a fresh install becomes usable immediately). */
+export function refreshEngineCapabilities(): Promise<EngineCapabilities> {
+  capabilityPromise = null;
+  return probeEngineCapabilities();
 }
 
 /** Whether this build carries the mpv engine at all. */
