@@ -186,10 +186,11 @@ function activate(api) {
     return m + ":" + (ss < 10 ? "0" : "") + ss;
   }
   // Mirror the backend's strip_diacritics(unicode_lower(...)) so dedup/matching
-  // lines up with the rest of the app (Björk == Bjork, etc.).
+  // lines up with the rest of the app (Björk == Bjork, Γιάννης == ΓΙΑΝΝΗΣ, etc.).
+  // \p{M} strips ALL combining marks, like the backend — not just U+0300–U+036F.
   function norm(s) {
     if (!s) return "";
-    return String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+    return String(s).normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
   }
   function songKey(title, artist) { return norm(artist) + "" + norm(title); }
 
@@ -381,8 +382,11 @@ function activate(api) {
     };
   }
 
+  // Relevance rank on norm()-folded strings: case/diacritic-insensitive, so an
+  // unaccented query still ranks accented titles (and all-caps Greek, which by
+  // convention drops the tonos) as exact/prefix/substring matches.
   function rank(title, q) {
-    var t = (title || "").toLowerCase();
+    var t = norm(title);
     if (t === q) return 0;
     if (t.indexOf(q) === 0) return 1;
     if (t.indexOf(q) >= 0) return 2;
@@ -396,7 +400,7 @@ function activate(api) {
     state.nav = [];
     renderBrowse();
     var res = await searchAll(query, PER_SERVER_LIMIT);
-    var q = query.toLowerCase();
+    var q = norm(query);
     function sortByRank(list, titleOf) {
       list.sort(function (a, b) {
         var d = rank(titleOf(a), q) - rank(titleOf(b), q);

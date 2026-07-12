@@ -1,7 +1,7 @@
 {
   "id": "subsonic-browse",
   "name": "Subsonic Browse",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Viboplr",
   "description": "Search, stream, and download across multiple Subsonic/Navidrome servers live — no indexing. A discovery layer for servers you visit, separate from your indexed Library.",
   "minAppVersion": "0.9.4",
@@ -13,7 +13,7 @@
   ],
   "contributes": {
     "sidebarItems": [
-      { "id": "subsonic-browse", "label": "Servers", "icon": "globe" }
+      { "id": "subsonic-browse", "label": "Subsonic", "icon": "globe" }
     ],
     "streamResolvers": [
       { "id": "subsonic-browse", "name": "Subsonic Servers" }
