@@ -67,13 +67,16 @@ unsafe extern "system" {
     fn GetStockObject(i: i32) -> isize;
     fn GetLastError() -> u32;
     fn SetLayeredWindowAttributes(hwnd: isize, cr_key: u32, b_alpha: u8, dw_flags: u32) -> i32;
+    fn GetWindowLongPtrW(hwnd: isize, n_index: i32) -> isize;
+    fn SetWindowLongPtrW(hwnd: isize, n_index: i32, dw_new_long: isize) -> isize;
 }
 
 const WS_CHILD: u32 = 0x4000_0000;
 const WS_DISABLED: u32 = 0x0800_0000; // never takes input — clicks go to the webview
 const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
-const WS_EX_LAYERED: u32 = 0x0008_0000; // DWM-composited child (Win8+) — VIBOPLR_WIN_VIDEO_LAYERED=1
+const WS_EX_LAYERED: isize = 0x0008_0000; // DWM-composited child (Win8+) — VIBOPLR_WIN_VIDEO_LAYERED=1
 const LWA_ALPHA: u32 = 0x0000_0002;
+const GWL_EXSTYLE: i32 = -20;
 const SWP_NOACTIVATE: u32 = 0x0010;
 const SWP_NOZORDER: u32 = 0x0004;
 const HWND_BOTTOM: isize = 1;
@@ -208,17 +211,13 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         log::info!("WINVIDEO: window class registered (atom={atom})");
     }
 
-    // Validation scaffolding: VIBOPLR_WIN_VIDEO_LAYERED=1 adds WS_EX_LAYERED.
-    // A layered child window (Win8+) is composited directly by DWM as its own
-    // surface, bypassing the parent's redirection bitmap — the redirection
-    // path is where every non-layered present model failed to show. Pair with
-    // bit-blt (the default; don't set d3d11-flip in VIBOPLR_MPV_OPTS): flip
-    // swapchains don't present into layered windows.
-    let layered = std::env::var("VIBOPLR_WIN_VIDEO_LAYERED").is_ok_and(|v| v == "1");
-    let ex_style = if layered { WS_EX_LAYERED } else { 0 };
+    // Created WITHOUT WS_EX_LAYERED: passing it at create time aborts child
+    // creation on this system (CreateWindowExW → NULL, err=0). The style is
+    // added after creation via SetWindowLongPtr below — the documented,
+    // reliable way to make a child layered.
     let hwnd = unsafe {
         CreateWindowExW(
-            ex_style,
+            0,
             class_name.as_ptr(),
             std::ptr::null(),
             WS_CHILD | WS_DISABLED | WS_CLIPSIBLINGS,
@@ -236,14 +235,23 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         let err = unsafe { GetLastError() };
         return Err(format!("CreateWindowExW failed (err={err})"));
     }
-    if layered {
+
+    // Validation scaffolding: VIBOPLR_WIN_VIDEO_LAYERED=1 promotes the child to
+    // WS_EX_LAYERED after creation. A layered child (Win8+) is composited
+    // directly by DWM as its own surface, bypassing the parent's redirection
+    // bitmap — the redirection path is where every non-layered present model
+    // failed to show. Pair with bit-blt (the default; don't set d3d11-flip in
+    // VIBOPLR_MPV_OPTS): flip swapchains don't present into layered windows.
+    if std::env::var("VIBOPLR_WIN_VIDEO_LAYERED").is_ok_and(|v| v == "1") {
+        let ex = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+        unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED) };
         // Fully opaque; DWM then composites the child's rendered pixels.
         let ok = unsafe { SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA) };
         if ok == 0 {
             let err = unsafe { GetLastError() };
             log::error!("WINVIDEO: SetLayeredWindowAttributes failed (err={err})");
         } else {
-            log::info!("WINVIDEO: child is WS_EX_LAYERED, opaque alpha (VIBOPLR_WIN_VIDEO_LAYERED=1)");
+            log::info!("WINVIDEO: child promoted to WS_EX_LAYERED, opaque alpha (VIBOPLR_WIN_VIDEO_LAYERED=1)");
         }
     }
 
