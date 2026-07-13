@@ -412,22 +412,14 @@ impl Engine {
             .ok_or("video playback needs an app handle (not available in tests)")?;
         let layer = video_layer_win::VideoLayer::create(app)?;
         let deck = &self.decks[0].mpv;
-        // Validation scaffolding: VIBOPLR_WIN_VIDEO_VO overrides the video
-        // output driver (e.g. direct3d) — vo is set here at wire time, after
-        // the VIBOPLR_MPV_OPTS creation hook, so it needs its own override.
-        let vo = std::env::var("VIBOPLR_WIN_VIDEO_VO").unwrap_or_else(|_| "gpu".into());
-        // Present model is mpv's DEFAULT (flip-model) — that's what composited
-        // in the working direct-child config (test C). Earlier forced bit-blt
-        // was a dead end (redirection surface never composited). A d3d11-flip
-        // entry in VIBOPLR_MPV_OPTS still overrides (applied at deck creation).
+        // Present model is mpv's DEFAULT (flip-model) — what composited in the
+        // working direct-child config. A d3d11-flip entry in VIBOPLR_MPV_OPTS
+        // still overrides (applied at deck creation).
         deck.set_property("wid", layer.wid())
-            .and_then(|_| deck.set_property("vo", vo.as_str()))
+            .and_then(|_| deck.set_property("vo", "gpu"))
             .and_then(|_| deck.set_property("hwdec", "auto"))
-            .map_err(|e| format!("mpv wid/vo={vo} failed: {e}"))?;
-        log::info!(
-            "WINVIDEO: deck 0 wired — wid={:#x}, vo={vo}, hwdec=auto (present=mpv default unless VIBOPLR_MPV_OPTS)",
-            layer.wid()
-        );
+            .map_err(|e| format!("mpv wid/vo=gpu failed: {e}"))?;
+        log::debug!("mpv-engine: deck 0 wired to video child (wid={:#x}, vo=gpu, hwdec=auto)", layer.wid());
         *guard = Some(layer);
         Ok(())
     }

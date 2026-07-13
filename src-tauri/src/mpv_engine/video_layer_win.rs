@@ -1,22 +1,19 @@
 //! Windows native video surface for the mpv engine — `wid` embedding.
 //!
 //! Unlike the macOS render-API layer, on Windows mpv renders **itself**: we
-//! create a child HWND inside the Tauri window and hand it to deck 0 via mpv's
-//! `wid` property with `vo=gpu`. No render thread on our side.
+//! create a child HWND inside the Tauri window, position it over the video
+//! container, and hand it to deck 0 via mpv's `wid` property (`vo=gpu`). No
+//! render thread on our side.
 //!
-//! Composition finding (PoC, real hardware): a plain/disabled/clipsiblings
-//! child at any z-order or present model stays transparent — mpv nests its
-//! render window inside ours and that middle layer never joins the DWM
-//! composition of the transparent (blur-behind glass) main window. mpv as a
-//! DIRECT child of the main window DOES composite. So the child is now created
-//! to mirror mpv's own embedded window exactly (bare `WS_CHILD | WS_VISIBLE`,
-//! top z-order) — the config most likely to composite while keeping our
-//! container positioning. Present model is mpv's default (flip); a
-//! `d3d11-flip` entry in `VIBOPLR_MPV_OPTS` overrides.
-//!
-//! VALIDATION LOGGING: every step logs with a `WINVIDEO:` prefix (visible in
-//! the profile log when file logging is on). These logs are temporary scaffolding
-//! for the first Windows validation session — remove once validated.
+//! The child must mirror mpv's own embedded window to composite behind the
+//! transparent (DWM blur-behind glass) main window: bare `WS_CHILD |
+//! WS_VISIBLE` at the top of the sibling z-order. A disabled / clip-siblings /
+//! bottom-z child never joined the composition (mpv nests its render window
+//! inside ours; the middle layer stayed invisible). WebView2 composites its
+//! own content above the child via DirectComposition, so the video shows
+//! through the CSS hole, DOM overlays draw on top, and input reaches the
+//! webview — no `WS_EX_TRANSPARENT` needed. Present model is mpv's default
+//! (flip); a `d3d11-flip` entry in `VIBOPLR_MPV_OPTS` overrides.
 
 use std::ffi::c_void;
 use std::sync::mpsc;
@@ -69,19 +66,12 @@ unsafe extern "system" {
     fn GetModuleHandleW(lp_module_name: *const u16) -> isize;
     fn GetStockObject(i: i32) -> isize;
     fn GetLastError() -> u32;
-    fn SetLayeredWindowAttributes(hwnd: isize, cr_key: u32, b_alpha: u8, dw_flags: u32) -> i32;
-    fn GetWindowLongPtrW(hwnd: isize, n_index: i32) -> isize;
-    fn SetWindowLongPtrW(hwnd: isize, n_index: i32, dw_new_long: isize) -> isize;
 }
 
 const WS_CHILD: u32 = 0x4000_0000;
 const WS_VISIBLE: u32 = 0x1000_0000; // mpv's own embedded child is WS_CHILD | WS_VISIBLE
-const WS_EX_LAYERED: isize = 0x0008_0000; // DWM-composited child (Win8+) — VIBOPLR_WIN_VIDEO_LAYERED=1
-const LWA_ALPHA: u32 = 0x0000_0002;
-const GWL_EXSTYLE: i32 = -20;
 const SWP_NOACTIVATE: u32 = 0x0010;
 const SWP_NOZORDER: u32 = 0x0004;
-const HWND_BOTTOM: isize = 1;
 const SW_HIDE: i32 = 0;
 const SW_SHOWNA: i32 = 8; // show without activating
 const BLACK_BRUSH: i32 = 4;
@@ -92,10 +82,6 @@ fn wide(s: &str) -> Vec<u16> {
 
 pub struct VideoLayer {
     hwnd: isize,
-    /// False in `mainwindow` wid mode: `hwnd` is the Tauri main window itself
-    /// (mpv creates + owns its own render child), so we don't position or
-    /// hide it — bounds/visibility are no-ops.
-    owns_child: bool,
     app: tauri::AppHandle,
 }
 
@@ -113,20 +99,6 @@ impl VideoLayer {
             .ok_or("main window not found")?;
         let parent = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
 
-        // Validation scaffolding: VIBOPLR_WIN_WID_MODE=mainwindow hands mpv the
-        // MAIN window HWND as wid (exact prior-art parity — mpv creates its own
-        // render child, which may composite where our child doesn't). mpv then
-        // fills the whole window, so bounds/visibility are no-ops and the UI is
-        // hidden — this is purely a "does native video composite at all" probe.
-        if std::env::var("VIBOPLR_WIN_WID_MODE").is_ok_and(|v| v == "mainwindow") {
-            log::info!(
-                "WINVIDEO: WID MODE mainwindow — handing MAIN window hwnd={parent:#x} to mpv (no child; bounds/visibility no-op; UI will be hidden)"
-            );
-            return Ok(VideoLayer { hwnd: parent, owns_child: false, app: app.clone() });
-        }
-
-        log::info!("WINVIDEO: creating child window, parent hwnd={parent:#x}");
-
         let (tx, rx) = mpsc::channel::<Result<isize, String>>();
         app.run_on_main_thread(move || {
             let _ = tx.send(unsafe { create_child_window(parent) });
@@ -136,8 +108,8 @@ impl VideoLayer {
             .recv_timeout(Duration::from_secs(5))
             .map_err(|_| "timed out creating the video child window".to_string())??;
 
-        log::info!("WINVIDEO: child window created, hwnd={hwnd:#x} (mpv-style WS_CHILD|WS_VISIBLE, top z-order)");
-        Ok(VideoLayer { hwnd, owns_child: true, app: app.clone() })
+        log::debug!("mpv-engine: video child window created (hwnd={hwnd:#x})");
+        Ok(VideoLayer { hwnd, app: app.clone() })
     }
 
     /// The window handle mpv renders into (`wid` property).
@@ -149,9 +121,6 @@ impl VideoLayer {
     /// (frontend pre-multiplies its zoom factor); Win32 child coordinates are
     /// physical pixels, so scale by the window's scale factor here.
     pub fn set_bounds(&self, x: f64, y: f64, width: f64, height: f64) {
-        if !self.owns_child {
-            return; // mainwindow wid mode — mpv fills the window itself
-        }
         let scale = self
             .app
             .get_webview_window("main")
@@ -166,22 +135,14 @@ impl VideoLayer {
         };
         if ok == 0 {
             let err = unsafe { GetLastError() };
-            log::error!("WINVIDEO: SetWindowPos failed (err={err}) hwnd={:#x}", self.hwnd);
-        } else {
-            log::info!(
-                "WINVIDEO: bounds logical=({x:.0},{y:.0} {width:.0}x{height:.0}) scale={scale} physical=({px},{py} {pw}x{ph})"
-            );
+            log::error!("mpv-engine: video SetWindowPos failed (err={err})");
         }
     }
 
     pub fn set_visible(&self, visible: bool) {
-        if !self.owns_child {
-            return; // mainwindow wid mode — never hide the app's own window
-        }
         unsafe {
             ShowWindow(self.hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
         }
-        log::info!("WINVIDEO: set_visible({visible}) hwnd={:#x}", self.hwnd);
     }
 }
 
@@ -208,20 +169,11 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         if err != 1410 {
             return Err(format!("RegisterClassW failed (err={err})"));
         }
-        log::info!("WINVIDEO: window class already registered");
-    } else {
-        log::info!("WINVIDEO: window class registered (atom={atom})");
     }
 
-    // Mimic mpv's own embedded window as closely as possible: bare
-    // WS_CHILD | WS_VISIBLE, no WS_DISABLED / WS_CLIPSIBLINGS. mpv rendering as
-    // a DIRECT child of the main window is the one thing that composited here
-    // (test C); our earlier child (disabled + clipsiblings, bottom z-order)
-    // never did, at any present model or z-order. This is the first config
-    // that structurally matches mpv's working child — it settles whether the
-    // failure was our window STYLE (fixable) or the nesting itself. Clicks
-    // inside the video rect are captured for now; WS_EX_TRANSPARENT
-    // pass-through is a follow-up once compositing is confirmed.
+    // Bare WS_CHILD | WS_VISIBLE at the top of the sibling z-order — mpv's own
+    // embedded-window shape, the one that composites behind the transparent
+    // main window (see module docs).
     let hwnd = unsafe {
         CreateWindowExW(
             0,
@@ -241,37 +193,6 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
     if hwnd == 0 {
         let err = unsafe { GetLastError() };
         return Err(format!("CreateWindowExW failed (err={err})"));
-    }
-
-    // Legacy/known-bad path kept env-gated: VIBOPLR_WIN_VIDEO_LAYERED=1 promotes
-    // the child to WS_EX_LAYERED after creation (SLWA errored 87 on this
-    // system; a plain layered child stayed transparent).
-    if std::env::var("VIBOPLR_WIN_VIDEO_LAYERED").is_ok_and(|v| v == "1") {
-        let ex = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
-        unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED) };
-        let ok = unsafe { SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA) };
-        if ok == 0 {
-            let err = unsafe { GetLastError() };
-            log::error!("WINVIDEO: SetLayeredWindowAttributes failed (err={err})");
-        } else {
-            log::info!("WINVIDEO: child promoted to WS_EX_LAYERED, opaque alpha (VIBOPLR_WIN_VIDEO_LAYERED=1)");
-        }
-    }
-
-    // Default: leave the child at the TOP of the sibling z-order, where mpv's
-    // own wid-created child sits (its working spot). VIBOPLR_WIN_VIDEO_ZORDER=
-    // bottom pushes it below WebView2 (lets DOM overlay, but our bottom-z child
-    // never composited — kept only as a lever).
-    if std::env::var("VIBOPLR_WIN_VIDEO_ZORDER").as_deref() == Ok("bottom") {
-        let ok = unsafe { SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 1, 1, SWP_NOACTIVATE) };
-        if ok == 0 {
-            let err = unsafe { GetLastError() };
-            log::error!("WINVIDEO: HWND_BOTTOM SetWindowPos failed (err={err})");
-        } else {
-            log::info!("WINVIDEO: child pushed to BOTTOM of z-order (VIBOPLR_WIN_VIDEO_ZORDER=bottom)");
-        }
-    } else {
-        log::info!("WINVIDEO: child at TOP of z-order (mpv-style child)");
     }
     Ok(hwnd)
 }
