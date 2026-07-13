@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme, isLocalTrack } from "../queueEntry";
+import { needsTranscode } from "./useStreamResolution";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
 import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus } from "../playback/playbackErrors";
@@ -718,6 +719,12 @@ export function usePlayback(
   // the user may never resume. Real playback still flows through handlePlay.
   async function loadRestoredVideoPreview(track: QueueTrack) {
     if (!isVideoTrack(track) || !isLocalTrack(track)) return;
+    // Never spin up the ffmpeg transcode server just for a restored first-frame
+    // preview: mkv/avi/wmv would each launch a transcode session on every
+    // startup (and the webview <video> can't decode them without it anyway).
+    // They play fine on demand when the user presses play — native mpv, or a
+    // transcode session on the browser engine.
+    if (needsTranscode(track)) return;
     let resolved: ResolvedTrackSource;
     try {
       resolved = await resolveTrackSrcRef.current(track);

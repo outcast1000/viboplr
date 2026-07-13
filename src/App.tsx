@@ -509,9 +509,11 @@ function App() {
 
   // Native (mpv) video session: punch the CSS hole (see App.css
   // `.mpv-video-hole`) and keep the native layer aligned with the video
-  // container. Polling covers position-only changes (sidebar collapse, dock
-  // moves) that ResizeObserver would miss; 250ms matches the engine's
-  // position cadence and is imperceptible for layout tracking.
+  // container. A ResizeObserver tracks size changes within a frame so the
+  // native child follows a window/pane resize immediately — without it the
+  // grown container's newly-exposed area flashes the transparent window until
+  // the next poll. The 250ms poll still covers position-only changes (sidebar
+  // collapse, dock moves) that ResizeObserver can't see.
   useEffect(() => {
     if (!playback.nativeVideoActive) return;
     let last = "";
@@ -531,7 +533,13 @@ function App() {
     };
     push();
     const interval = setInterval(push, 250);
-    return () => clearInterval(interval);
+    const container = playback.videoRef.current?.parentElement;
+    const ro = container ? new ResizeObserver(() => push()) : null;
+    ro?.observe(container!);
+    return () => {
+      clearInterval(interval);
+      ro?.disconnect();
+    };
   }, [playback.nativeVideoActive]);
 
   // Native video fullscreen has no DOM :fullscreen state, so Escape must be
