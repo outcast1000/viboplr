@@ -39,6 +39,17 @@
   background: transparent;
 }
 
+/* While the container is actively resizing, paint the hole opaque so the
+   native child (which trails the async bounds update by a frame) doesn't
+   expose the transparent window at the grown edge. The DOM resizes in lockstep
+   with the window, so this cover has no lag; it reverts to transparent once
+   resizing settles (~200ms). Higher specificity than the transparent rules
+   above so it wins while the class is present. */
+.app.mpv-video-hole.mpv-video-resizing .video-container,
+.app.mpv-video-hole.mpv-video-resizing.mpv-hole-theater .content {
+  background: var(--bg-primary);
+}
+
 /* Native fullscreen (mpv video sessions use WINDOW fullscreen — DOM element
    fullscreen would move the webview to its own space, away from the native
    layer). The container pins over the entire window and every other surface
