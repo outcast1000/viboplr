@@ -3559,6 +3559,8 @@ function App() {
               onPlaybackEngineChange={handlePlaybackEngineChange}
               audioExclusive={audioExclusive}
               onAudioExclusiveChange={handleAudioExclusiveChange}
+              eqEnabled={playback.eqEnabled}
+              volume={playback.volume}
               betaUpdates={betaUpdates}
               onBetaUpdatesChange={handleBetaUpdatesChange}
               rgMode={playback.rgMode}

@@ -7,6 +7,7 @@ import type { UpdateState } from "../hooks/useAppUpdater";
 import type { PluginState } from "../types/plugin";
 import type { EngineComponentStatus } from "../playback/nativeEngine";
 import type { InstallProgress } from "../hooks/useDependencies";
+import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { store } from "../store";
@@ -1103,6 +1104,10 @@ interface SettingsPanelProps {
   onPlaybackEngineChange: (engine: "browser" | "native") => void;
   audioExclusive: boolean;
   onAudioExclusiveChange: (enabled: boolean) => void;
+  /** For the bit-perfect indicator on the exclusive-audio row. */
+  eqEnabled: boolean;
+  /** Player volume, 0..1. */
+  volume: number;
   betaUpdates: boolean;
   onBetaUpdatesChange: (enabled: boolean) => void;
   rgMode: "off" | "track" | "album";
@@ -1192,6 +1197,8 @@ export function SettingsPanel({
   onPlaybackEngineChange,
   audioExclusive,
   onAudioExclusiveChange,
+  eqEnabled,
+  volume,
   betaUpdates,
   onBetaUpdatesChange,
   rgMode,
@@ -1443,6 +1450,17 @@ export function SettingsPanel({
                         <div className="settings-row-info">
                           <span className="settings-label">Exclusive audio access</span>
                           <span className="settings-description">Opens the output device exclusively (bit-perfect: also disable EQ and ReplayGain and keep volume at 100%). Disables crossfade; applies from the next track. Other apps can't play audio while active.</span>
+                          {audioExclusive && (
+                            isBitPerfect({ exclusive: audioExclusive, eqEnabled, rgMode, volume }) ? (
+                              <span style={{ fontSize: "var(--fs-xs)", color: "var(--success)", fontWeight: 500 }}>
+                                ● Bit-perfect
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)" }}>
+                                ○ Not bit-perfect: {bitPerfectBlockers({ exclusive: audioExclusive, eqEnabled, rgMode, volume }).join(" · ")}
+                              </span>
+                            )
+                          )}
                         </div>
                         <div
                           className={`ds-toggle ${audioExclusive ? "on" : ""}`}
