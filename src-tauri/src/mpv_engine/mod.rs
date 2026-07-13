@@ -421,15 +421,24 @@ impl Engine {
         // flip-model swapchains there — mpv renders frames nobody displays
         // (validated on real hardware: VO init + frames "shown", screen shows
         // the desktop through the window). Bit-blt goes through the classic
-        // GDI redirection path, which layered windows do composite.
+        // GDI redirection path. A d3d11-flip entry in VIBOPLR_MPV_OPTS wins
+        // over this default (wire-time sets run after the creation hook, so
+        // the default must yield or the experiment is silently overridden).
         deck.set_property("wid", layer.wid())
-            .and_then(|_| deck.set_property("d3d11-flip", false))
-            .and_then(|_| deck.set_property("vo", vo.as_str()))
+            .map_err(|e| format!("mpv wid failed: {e}"))?;
+        let flip_overridden = std::env::var("VIBOPLR_MPV_OPTS")
+            .is_ok_and(|opts| opts.contains("d3d11-flip"));
+        if !flip_overridden {
+            deck.set_property("d3d11-flip", false)
+                .map_err(|e| format!("mpv d3d11-flip failed: {e}"))?;
+        }
+        deck.set_property("vo", vo.as_str())
             .and_then(|_| deck.set_property("hwdec", "auto"))
             .map_err(|e| format!("mpv wid/vo={vo} failed: {e}"))?;
         log::info!(
-            "WINVIDEO: deck 0 wired — wid={:#x}, vo={vo}, hwdec=auto, d3d11-flip=no",
-            layer.wid()
+            "WINVIDEO: deck 0 wired — wid={:#x}, vo={vo}, hwdec=auto, d3d11-flip={}",
+            layer.wid(),
+            if flip_overridden { "from VIBOPLR_MPV_OPTS" } else { "no" }
         );
         *guard = Some(layer);
         Ok(())

@@ -203,12 +203,22 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         return Err(format!("CreateWindowExW failed (err={err})"));
     }
 
-    // Below every sibling — most importantly WebView2's child HWND, so the
-    // transparent webview (and all DOM overlays) composite above the video.
-    let ok = unsafe { SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 1, 1, SWP_NOACTIVATE) };
-    if ok == 0 {
-        let err = unsafe { GetLastError() };
-        log::error!("WINVIDEO: initial HWND_BOTTOM SetWindowPos failed (err={err})");
+    // Validation scaffolding: VIBOPLR_WIN_VIDEO_ZORDER=top leaves the child at
+    // the TOP of the sibling stack (where a freshly created window lands, and
+    // where mpv's own wid-created child sits in the working prior art) — DOM
+    // can't overlay the video there, but it bisects whether the child's
+    // content composites at all. Default: bottom, below WebView2's child
+    // HWND, so the transparent webview (and all DOM overlays) composite
+    // above the video.
+    let zorder = std::env::var("VIBOPLR_WIN_VIDEO_ZORDER").unwrap_or_default();
+    if zorder == "top" {
+        log::info!("WINVIDEO: leaving child at TOP of sibling z-order (VIBOPLR_WIN_VIDEO_ZORDER=top)");
+    } else {
+        let ok = unsafe { SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 1, 1, SWP_NOACTIVATE) };
+        if ok == 0 {
+            let err = unsafe { GetLastError() };
+            log::error!("WINVIDEO: initial HWND_BOTTOM SetWindowPos failed (err={err})");
+        }
     }
     Ok(hwnd)
 }
