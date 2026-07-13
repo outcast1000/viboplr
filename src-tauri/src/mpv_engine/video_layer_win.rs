@@ -66,11 +66,14 @@ unsafe extern "system" {
     fn GetModuleHandleW(lp_module_name: *const u16) -> isize;
     fn GetStockObject(i: i32) -> isize;
     fn GetLastError() -> u32;
+    fn SetLayeredWindowAttributes(hwnd: isize, cr_key: u32, b_alpha: u8, dw_flags: u32) -> i32;
 }
 
 const WS_CHILD: u32 = 0x4000_0000;
 const WS_DISABLED: u32 = 0x0800_0000; // never takes input — clicks go to the webview
 const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
+const WS_EX_LAYERED: u32 = 0x0008_0000; // DWM-composited child (Win8+) — VIBOPLR_WIN_VIDEO_LAYERED=1
+const LWA_ALPHA: u32 = 0x0000_0002;
 const SWP_NOACTIVATE: u32 = 0x0010;
 const SWP_NOZORDER: u32 = 0x0004;
 const HWND_BOTTOM: isize = 1;
@@ -84,6 +87,10 @@ fn wide(s: &str) -> Vec<u16> {
 
 pub struct VideoLayer {
     hwnd: isize,
+    /// False in `mainwindow` wid mode: `hwnd` is the Tauri main window itself
+    /// (mpv creates + owns its own render child), so we don't position or
+    /// hide it — bounds/visibility are no-ops.
+    owns_child: bool,
     app: tauri::AppHandle,
 }
 
@@ -100,6 +107,19 @@ impl VideoLayer {
             .get_webview_window("main")
             .ok_or("main window not found")?;
         let parent = window.hwnd().map_err(|e| e.to_string())?.0 as isize;
+
+        // Validation scaffolding: VIBOPLR_WIN_WID_MODE=mainwindow hands mpv the
+        // MAIN window HWND as wid (exact prior-art parity — mpv creates its own
+        // render child, which may composite where our child doesn't). mpv then
+        // fills the whole window, so bounds/visibility are no-ops and the UI is
+        // hidden — this is purely a "does native video composite at all" probe.
+        if std::env::var("VIBOPLR_WIN_WID_MODE").is_ok_and(|v| v == "mainwindow") {
+            log::info!(
+                "WINVIDEO: WID MODE mainwindow — handing MAIN window hwnd={parent:#x} to mpv (no child; bounds/visibility no-op; UI will be hidden)"
+            );
+            return Ok(VideoLayer { hwnd: parent, owns_child: false, app: app.clone() });
+        }
+
         log::info!("WINVIDEO: creating child window, parent hwnd={parent:#x}");
 
         let (tx, rx) = mpsc::channel::<Result<isize, String>>();
@@ -112,7 +132,7 @@ impl VideoLayer {
             .map_err(|_| "timed out creating the video child window".to_string())??;
 
         log::info!("WINVIDEO: child window created, hwnd={hwnd:#x} (hidden, bottom of z-order)");
-        Ok(VideoLayer { hwnd, app: app.clone() })
+        Ok(VideoLayer { hwnd, owns_child: true, app: app.clone() })
     }
 
     /// The window handle mpv renders into (`wid` property).
@@ -124,6 +144,9 @@ impl VideoLayer {
     /// (frontend pre-multiplies its zoom factor); Win32 child coordinates are
     /// physical pixels, so scale by the window's scale factor here.
     pub fn set_bounds(&self, x: f64, y: f64, width: f64, height: f64) {
+        if !self.owns_child {
+            return; // mainwindow wid mode — mpv fills the window itself
+        }
         let scale = self
             .app
             .get_webview_window("main")
@@ -147,6 +170,9 @@ impl VideoLayer {
     }
 
     pub fn set_visible(&self, visible: bool) {
+        if !self.owns_child {
+            return; // mainwindow wid mode — never hide the app's own window
+        }
         unsafe {
             ShowWindow(self.hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
         }
@@ -182,9 +208,17 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         log::info!("WINVIDEO: window class registered (atom={atom})");
     }
 
+    // Validation scaffolding: VIBOPLR_WIN_VIDEO_LAYERED=1 adds WS_EX_LAYERED.
+    // A layered child window (Win8+) is composited directly by DWM as its own
+    // surface, bypassing the parent's redirection bitmap — the redirection
+    // path is where every non-layered present model failed to show. Pair with
+    // bit-blt (the default; don't set d3d11-flip in VIBOPLR_MPV_OPTS): flip
+    // swapchains don't present into layered windows.
+    let layered = std::env::var("VIBOPLR_WIN_VIDEO_LAYERED").is_ok_and(|v| v == "1");
+    let ex_style = if layered { WS_EX_LAYERED } else { 0 };
     let hwnd = unsafe {
         CreateWindowExW(
-            0,
+            ex_style,
             class_name.as_ptr(),
             std::ptr::null(),
             WS_CHILD | WS_DISABLED | WS_CLIPSIBLINGS,
@@ -201,6 +235,16 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
     if hwnd == 0 {
         let err = unsafe { GetLastError() };
         return Err(format!("CreateWindowExW failed (err={err})"));
+    }
+    if layered {
+        // Fully opaque; DWM then composites the child's rendered pixels.
+        let ok = unsafe { SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA) };
+        if ok == 0 {
+            let err = unsafe { GetLastError() };
+            log::error!("WINVIDEO: SetLayeredWindowAttributes failed (err={err})");
+        } else {
+            log::info!("WINVIDEO: child is WS_EX_LAYERED, opaque alpha (VIBOPLR_WIN_VIDEO_LAYERED=1)");
+        }
     }
 
     // Validation scaffolding: VIBOPLR_WIN_VIDEO_ZORDER=top leaves the child at
