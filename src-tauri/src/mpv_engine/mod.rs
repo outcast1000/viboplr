@@ -416,29 +416,17 @@ impl Engine {
         // output driver (e.g. direct3d) — vo is set here at wire time, after
         // the VIBOPLR_MPV_OPTS creation hook, so it needs its own override.
         let vo = std::env::var("VIBOPLR_WIN_VIDEO_VO").unwrap_or_else(|_| "gpu".into());
-        // Bit-blt presentation, NOT flip-model: our child HWND lives inside a
-        // layered (transparent) top-level window, and DWM does not composite
-        // flip-model swapchains there — mpv renders frames nobody displays
-        // (validated on real hardware: VO init + frames "shown", screen shows
-        // the desktop through the window). Bit-blt goes through the classic
-        // GDI redirection path. A d3d11-flip entry in VIBOPLR_MPV_OPTS wins
-        // over this default (wire-time sets run after the creation hook, so
-        // the default must yield or the experiment is silently overridden).
+        // Present model is mpv's DEFAULT (flip-model) — that's what composited
+        // in the working direct-child config (test C). Earlier forced bit-blt
+        // was a dead end (redirection surface never composited). A d3d11-flip
+        // entry in VIBOPLR_MPV_OPTS still overrides (applied at deck creation).
         deck.set_property("wid", layer.wid())
-            .map_err(|e| format!("mpv wid failed: {e}"))?;
-        let flip_overridden = std::env::var("VIBOPLR_MPV_OPTS")
-            .is_ok_and(|opts| opts.contains("d3d11-flip"));
-        if !flip_overridden {
-            deck.set_property("d3d11-flip", false)
-                .map_err(|e| format!("mpv d3d11-flip failed: {e}"))?;
-        }
-        deck.set_property("vo", vo.as_str())
+            .and_then(|_| deck.set_property("vo", vo.as_str()))
             .and_then(|_| deck.set_property("hwdec", "auto"))
             .map_err(|e| format!("mpv wid/vo={vo} failed: {e}"))?;
         log::info!(
-            "WINVIDEO: deck 0 wired — wid={:#x}, vo={vo}, hwdec=auto, d3d11-flip={}",
-            layer.wid(),
-            if flip_overridden { "from VIBOPLR_MPV_OPTS" } else { "no" }
+            "WINVIDEO: deck 0 wired — wid={:#x}, vo={vo}, hwdec=auto (present=mpv default unless VIBOPLR_MPV_OPTS)",
+            layer.wid()
         );
         *guard = Some(layer);
         Ok(())

@@ -1,15 +1,18 @@
 //! Windows native video surface for the mpv engine — `wid` embedding.
 //!
 //! Unlike the macOS render-API layer, on Windows mpv renders **itself**: we
-//! create a disabled child HWND inside the Tauri window, push it to the BOTTOM
-//! of the sibling z-order (below WebView2's own child HWND, so the transparent
-//! webview + all DOM overlays composite above the video), and hand it to deck 0
-//! via mpv's `wid` property with `vo=gpu`. No render thread on our side.
+//! create a child HWND inside the Tauri window and hand it to deck 0 via mpv's
+//! `wid` property with `vo=gpu`. No render thread on our side.
 //!
-//! Prior art: nini22P/tauri-plugin-libmpv uses exactly this shape and reports
-//! Windows fully working. Enabled whenever the mpv engine is selected (PoC);
-//! presentation must be bit-blt (`d3d11-flip=no`) — flip-model swapchains in
-//! a child of our layered (transparent) top-level window aren't composited.
+//! Composition finding (PoC, real hardware): a plain/disabled/clipsiblings
+//! child at any z-order or present model stays transparent — mpv nests its
+//! render window inside ours and that middle layer never joins the DWM
+//! composition of the transparent (blur-behind glass) main window. mpv as a
+//! DIRECT child of the main window DOES composite. So the child is now created
+//! to mirror mpv's own embedded window exactly (bare `WS_CHILD | WS_VISIBLE`,
+//! top z-order) — the config most likely to composite while keeping our
+//! container positioning. Present model is mpv's default (flip); a
+//! `d3d11-flip` entry in `VIBOPLR_MPV_OPTS` overrides.
 //!
 //! VALIDATION LOGGING: every step logs with a `WINVIDEO:` prefix (visible in
 //! the profile log when file logging is on). These logs are temporary scaffolding
@@ -72,8 +75,7 @@ unsafe extern "system" {
 }
 
 const WS_CHILD: u32 = 0x4000_0000;
-const WS_DISABLED: u32 = 0x0800_0000; // never takes input — clicks go to the webview
-const WS_CLIPSIBLINGS: u32 = 0x0400_0000;
+const WS_VISIBLE: u32 = 0x1000_0000; // mpv's own embedded child is WS_CHILD | WS_VISIBLE
 const WS_EX_LAYERED: isize = 0x0008_0000; // DWM-composited child (Win8+) — VIBOPLR_WIN_VIDEO_LAYERED=1
 const LWA_ALPHA: u32 = 0x0000_0002;
 const GWL_EXSTYLE: i32 = -20;
@@ -134,7 +136,7 @@ impl VideoLayer {
             .recv_timeout(Duration::from_secs(5))
             .map_err(|_| "timed out creating the video child window".to_string())??;
 
-        log::info!("WINVIDEO: child window created, hwnd={hwnd:#x} (hidden, bottom of z-order)");
+        log::info!("WINVIDEO: child window created, hwnd={hwnd:#x} (mpv-style WS_CHILD|WS_VISIBLE, top z-order)");
         Ok(VideoLayer { hwnd, owns_child: true, app: app.clone() })
     }
 
@@ -211,16 +213,21 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         log::info!("WINVIDEO: window class registered (atom={atom})");
     }
 
-    // Created WITHOUT WS_EX_LAYERED: passing it at create time aborts child
-    // creation on this system (CreateWindowExW → NULL, err=0). The style is
-    // added after creation via SetWindowLongPtr below — the documented,
-    // reliable way to make a child layered.
+    // Mimic mpv's own embedded window as closely as possible: bare
+    // WS_CHILD | WS_VISIBLE, no WS_DISABLED / WS_CLIPSIBLINGS. mpv rendering as
+    // a DIRECT child of the main window is the one thing that composited here
+    // (test C); our earlier child (disabled + clipsiblings, bottom z-order)
+    // never did, at any present model or z-order. This is the first config
+    // that structurally matches mpv's working child — it settles whether the
+    // failure was our window STYLE (fixable) or the nesting itself. Clicks
+    // inside the video rect are captured for now; WS_EX_TRANSPARENT
+    // pass-through is a follow-up once compositing is confirmed.
     let hwnd = unsafe {
         CreateWindowExW(
             0,
             class_name.as_ptr(),
             std::ptr::null(),
-            WS_CHILD | WS_DISABLED | WS_CLIPSIBLINGS,
+            WS_CHILD | WS_VISIBLE,
             0,
             0,
             1,
@@ -236,16 +243,12 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         return Err(format!("CreateWindowExW failed (err={err})"));
     }
 
-    // Validation scaffolding: VIBOPLR_WIN_VIDEO_LAYERED=1 promotes the child to
-    // WS_EX_LAYERED after creation. A layered child (Win8+) is composited
-    // directly by DWM as its own surface, bypassing the parent's redirection
-    // bitmap — the redirection path is where every non-layered present model
-    // failed to show. Pair with bit-blt (the default; don't set d3d11-flip in
-    // VIBOPLR_MPV_OPTS): flip swapchains don't present into layered windows.
+    // Legacy/known-bad path kept env-gated: VIBOPLR_WIN_VIDEO_LAYERED=1 promotes
+    // the child to WS_EX_LAYERED after creation (SLWA errored 87 on this
+    // system; a plain layered child stayed transparent).
     if std::env::var("VIBOPLR_WIN_VIDEO_LAYERED").is_ok_and(|v| v == "1") {
         let ex = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
         unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_LAYERED) };
-        // Fully opaque; DWM then composites the child's rendered pixels.
         let ok = unsafe { SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA) };
         if ok == 0 {
             let err = unsafe { GetLastError() };
@@ -255,22 +258,20 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         }
     }
 
-    // Validation scaffolding: VIBOPLR_WIN_VIDEO_ZORDER=top leaves the child at
-    // the TOP of the sibling stack (where a freshly created window lands, and
-    // where mpv's own wid-created child sits in the working prior art) — DOM
-    // can't overlay the video there, but it bisects whether the child's
-    // content composites at all. Default: bottom, below WebView2's child
-    // HWND, so the transparent webview (and all DOM overlays) composite
-    // above the video.
-    let zorder = std::env::var("VIBOPLR_WIN_VIDEO_ZORDER").unwrap_or_default();
-    if zorder == "top" {
-        log::info!("WINVIDEO: leaving child at TOP of sibling z-order (VIBOPLR_WIN_VIDEO_ZORDER=top)");
-    } else {
+    // Default: leave the child at the TOP of the sibling z-order, where mpv's
+    // own wid-created child sits (its working spot). VIBOPLR_WIN_VIDEO_ZORDER=
+    // bottom pushes it below WebView2 (lets DOM overlay, but our bottom-z child
+    // never composited — kept only as a lever).
+    if std::env::var("VIBOPLR_WIN_VIDEO_ZORDER").as_deref() == Ok("bottom") {
         let ok = unsafe { SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 1, 1, SWP_NOACTIVATE) };
         if ok == 0 {
             let err = unsafe { GetLastError() };
-            log::error!("WINVIDEO: initial HWND_BOTTOM SetWindowPos failed (err={err})");
+            log::error!("WINVIDEO: HWND_BOTTOM SetWindowPos failed (err={err})");
+        } else {
+            log::info!("WINVIDEO: child pushed to BOTTOM of z-order (VIBOPLR_WIN_VIDEO_ZORDER=bottom)");
         }
+    } else {
+        log::info!("WINVIDEO: child at TOP of z-order (mpv-style child)");
     }
     Ok(hwnd)
 }
