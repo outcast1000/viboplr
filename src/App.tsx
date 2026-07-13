@@ -186,12 +186,11 @@ function App() {
   // per-track through the combined ref.
   const [mpvCapable, setMpvCapable] = useState(false);
   const [mpvVideoCapable, setMpvVideoCapable] = useState(false);
-  // Gates the see-through hole: the hole stays OPAQUE (app background) until
-  // the native child is positioned + rendering, then reveals. Prevents the
-  // transparent-window flash while video establishes (start / enter
-  // now-playing / resize), when the DOM hole would otherwise go transparent
-  // before the async-positioned child catches up. See the bounds effect +
-  // `.mpv-video-ready` CSS.
+  // Gates the see-through hole opaque until bounds have settled (this timer,
+  // set in the bounds effect) — covers resize / enter-now-playing. The
+  // className ANDs this with `playback.nativeVideoPresenting` (first frame
+  // actually on screen) so a fresh start also stays opaque until mpv is
+  // painting, not just until the settle timer elapses. See `.mpv-video-ready`.
   const [videoReady, setVideoReady] = useState(false);
   const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("browser");
   const [audioExclusive, setAudioExclusive] = useState(false);
@@ -2970,7 +2969,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
