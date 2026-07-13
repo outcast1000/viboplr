@@ -31,18 +31,12 @@ pub fn engine_capabilities() -> serde_json::Value {
     // Loads libmpv on first probe (load failures are not cached, so a
     // component installed mid-session flips this on the next probe).
     let mpv = crate::mpv_engine::libmpv_available();
-    // Native video: macOS (render-API layer) is validated; the Windows wid
-    // layer is implemented but ships DARK until validated on real hardware —
-    // enable for a validation session with VIBOPLR_WIN_NATIVE_VIDEO=1.
-    let win_video_override = cfg!(windows)
-        && mpv
-        && std::env::var("VIBOPLR_WIN_NATIVE_VIDEO").is_ok_and(|v| v == "1");
-    if win_video_override {
-        log::info!("WINVIDEO: native video capability enabled via VIBOPLR_WIN_NATIVE_VIDEO=1");
-    }
     serde_json::json!({
         "mpv": mpv,
-        "video": (cfg!(target_os = "macos") && mpv) || win_video_override,
+        // Native video: macOS (render-API layer, validated) and Windows (wid
+        // layer, PoC — the WINVIDEO diagnostic logs stay until it's visually
+        // confirmed on real hardware).
+        "video": mpv && (cfg!(target_os = "macos") || cfg!(windows)),
         "component": crate::mpv_engine::component::status(),
     })
 }

@@ -7,9 +7,9 @@
 //! via mpv's `wid` property with `vo=gpu`. No render thread on our side.
 //!
 //! Prior art: nini22P/tauri-plugin-libmpv uses exactly this shape and reports
-//! Windows fully working. This implementation is compile-verified from macOS
-//! but NOT yet validated on a Windows machine — it ships dark behind the
-//! `VIBOPLR_WIN_NATIVE_VIDEO=1` env override (see `engine_capabilities`).
+//! Windows fully working. Enabled whenever the mpv engine is selected (PoC);
+//! presentation must be bit-blt (`d3d11-flip=no`) — flip-model swapchains in
+//! a child of our layered (transparent) top-level window aren't composited.
 //!
 //! VALIDATION LOGGING: every step logs with a `WINVIDEO:` prefix (visible in
 //! the profile log when file logging is on). These logs are temporary scaffolding

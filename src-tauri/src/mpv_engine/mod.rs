@@ -399,9 +399,7 @@ impl Engine {
     }
 
     /// Windows: create the wid child window and hand it to deck 0 — mpv then
-    /// renders into it itself (no render thread on our side). Ships dark
-    /// behind the `VIBOPLR_WIN_NATIVE_VIDEO=1` capability override until
-    /// validated on a real Windows machine.
+    /// renders into it itself (no render thread on our side).
     #[cfg(windows)]
     fn ensure_video_layer(self: &Arc<Self>) -> Result<(), String> {
         let mut guard = self.video.lock().unwrap();
