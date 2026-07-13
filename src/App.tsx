@@ -540,7 +540,13 @@ function App() {
       clearInterval(interval);
       ro?.disconnect();
     };
-  }, [playback.nativeVideoActive]);
+    // Re-run on view / fullscreen changes too: the shared <video> reparents
+    // into a different container when entering now-playing (theater) or
+    // fullscreen, so we must re-read the container, push bounds immediately,
+    // and re-point the ResizeObserver — otherwise the new container's bounds
+    // lag until the next 250ms poll and the grown hole flashes the transparent
+    // window. (These are the layout vars declared before this effect.)
+  }, [playback.nativeVideoActive, library.view, playback.nativeFullscreen]);
 
   // Native video fullscreen has no DOM :fullscreen state, so Escape must be
   // handled explicitly (capture phase so a focused list's Escape handling
