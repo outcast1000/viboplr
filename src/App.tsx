@@ -186,10 +186,13 @@ function App() {
   // per-track through the combined ref.
   const [mpvCapable, setMpvCapable] = useState(false);
   const [mpvVideoCapable, setMpvVideoCapable] = useState(false);
-  // True while the native-video container is actively resizing — drives an
-  // opaque cover over the hole so the trailing native child doesn't expose the
-  // transparent window (see the bounds effect + `.mpv-video-resizing` CSS).
-  const [videoResizing, setVideoResizing] = useState(false);
+  // Gates the see-through hole: the hole stays OPAQUE (app background) until
+  // the native child is positioned + rendering, then reveals. Prevents the
+  // transparent-window flash while video establishes (start / enter
+  // now-playing / resize), when the DOM hole would otherwise go transparent
+  // before the async-positioned child catches up. See the bounds effect +
+  // `.mpv-video-ready` CSS.
+  const [videoReady, setVideoReady] = useState(false);
   const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("browser");
   const [audioExclusive, setAudioExclusive] = useState(false);
   // Update channel: default stable-only; beta is an explicit opt-in.
@@ -535,36 +538,34 @@ function App() {
         .setVideoBounds(rect.left * z, rect.top * z, rect.width * z, rect.height * z)
         .catch(console.error);
     };
+    // Keep the hole opaque until bounds have settled + the first frame is up,
+    // then reveal. Any (re)establish or resize re-arms it, so establishing the
+    // child / entering now-playing / dragging never exposes the transparent
+    // window — the region shows the app background until the video is actually
+    // there. `videoReady` defaults false so the very first render with the hole
+    // is already opaque (no gap before this effect runs).
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
+    const armReveal = () => {
+      setVideoReady(false);
+      clearTimeout(readyTimer);
+      readyTimer = setTimeout(() => setVideoReady(true), 250);
+    };
     push();
+    armReveal();
     const interval = setInterval(push, 250);
     const container = playback.videoRef.current?.parentElement;
-    // While the container is actively resizing, paint the hole opaque
-    // (`.mpv-video-resizing`, CSS below). The DOM resizes synchronously with
-    // the window but the native child HWND trails the async bounds update by a
-    // frame, so the grown edge would flash the transparent window; the opaque
-    // DOM cover keeps up and hides it, reverting once resizing settles. Skip
-    // the ResizeObserver's initial callback so video-start / view-entry don't
-    // blank for the debounce window.
-    let firstRO = true;
-    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const ro = container
       ? new ResizeObserver(() => {
           push();
-          if (firstRO) {
-            firstRO = false;
-            return;
-          }
-          setVideoResizing(true);
-          clearTimeout(resizeTimer);
-          resizeTimer = setTimeout(() => setVideoResizing(false), 200);
+          armReveal();
         })
       : null;
     ro?.observe(container!);
     return () => {
       clearInterval(interval);
       ro?.disconnect();
-      clearTimeout(resizeTimer);
-      setVideoResizing(false);
+      clearTimeout(readyTimer);
+      setVideoReady(false);
     };
     // Re-run on view / fullscreen changes too: the shared <video> reparents
     // into a different container when entering now-playing (theater) or
@@ -2969,7 +2970,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoResizing ? "mpv-video-resizing" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
