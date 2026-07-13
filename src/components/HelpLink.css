@@ -1,0 +1,23 @@
+.help-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid var(--text-tertiary);
+  border-radius: 50%;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: text-bottom;
+  flex-shrink: 0;
+}
+.help-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

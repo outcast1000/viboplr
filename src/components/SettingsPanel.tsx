@@ -12,6 +12,7 @@ import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { store } from "../store";
 import { PromptModal } from "./PromptModal";
+import { HelpLink } from "./HelpLink";
 import { getPlatform } from "./DependencyModal";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
@@ -872,7 +873,7 @@ function DependenciesSection({
         })}
         <div className="settings-row">
           <div className="settings-row-info">
-            <span className="settings-label">Keep dependencies up to date automatically</span>
+            <span className="settings-label">Keep dependencies up to date automatically<HelpLink anchor="dependencies" topic="managed dependencies" /></span>
             <span className="settings-description">
               Silently update Viboplr-managed binaries (e.g. yt-dlp) when a newer release is available. Binaries installed via a package manager are never touched.
             </span>
@@ -966,6 +967,7 @@ function ProfilesSection({
     <div className="settings-group">
       <h4 className="settings-group-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         Profiles
+        <HelpLink anchor="profiles" topic="profiles" />
         <button
           className="ds-btn ds-btn--ghost ds-btn--sm"
           style={{ marginLeft: "auto" }}
@@ -1352,7 +1354,7 @@ export function SettingsPanel({
                   </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">Beta updates</span>
+                        <span className="settings-label">Beta updates<HelpLink anchor="beta-updates" topic="beta updates" /></span>
                         <span className="settings-description">Also receive beta releases through the auto-updater. You'll move back to stable automatically when a newer stable version ships.</span>
                       </div>
                       <div
@@ -1373,7 +1375,7 @@ export function SettingsPanel({
                     {(mpvCapable || engineComponent?.available) && (
                       <div className="settings-row">
                         <div className="settings-row-info">
-                          <span className="settings-label">Playback engine</span>
+                          <span className="settings-label">Playback engine<HelpLink anchor="playback-engine" topic="the playback engine" /></span>
                           <span className="settings-description">
                             {mpvCapable
                               ? "mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback."
@@ -1417,7 +1419,7 @@ export function SettingsPanel({
                     {engineComponent?.installed && (
                       <div className="settings-row">
                         <div className="settings-row-info">
-                          <span className="settings-label">mpv engine component</span>
+                          <span className="settings-label">mpv engine component<HelpLink anchor="playback-engine" topic="the mpv engine component" /></span>
                           <span className="settings-description">
                             Downloaded libmpv{engineComponent.installedVersion ? ` (${engineComponent.installedVersion})` : ""}.
                             {engineComponent.loaded && engineComponent.origin === "managed"
@@ -1448,8 +1450,8 @@ export function SettingsPanel({
                     {mpvCapable && playbackEngine === "native" && (
                       <div className="settings-row">
                         <div className="settings-row-info">
-                          <span className="settings-label">Exclusive audio access</span>
-                          <span className="settings-description">Opens the output device exclusively (bit-perfect: also disable EQ and ReplayGain and keep volume at 100%). Disables crossfade; applies from the next track. Other apps can't play audio while active.</span>
+                          <span className="settings-label">Exclusive audio access<HelpLink anchor="exclusive-audio" topic="exclusive audio access" /></span>
+                          <span className="settings-description">Opens the output device exclusively for bit-perfect playback — other apps can't play audio while active. Disables crossfade; applies from the next track.</span>
                           {audioExclusive && (
                             isBitPerfect({ exclusive: audioExclusive, eqEnabled, rgMode, volume }) ? (
                               <span style={{ fontSize: "var(--fs-xs)", color: "var(--success)", fontWeight: 500 }}>
@@ -1474,7 +1476,7 @@ export function SettingsPanel({
                     )}
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">Crossfade</span>
+                        <span className="settings-label">Crossfade<HelpLink anchor="crossfade" topic="crossfade" /></span>
                         <span className="settings-description">Smooth transition between tracks</span>
                       </div>
                       <div className="settings-row-control settings-row-slider">
@@ -1492,7 +1494,7 @@ export function SettingsPanel({
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">ReplayGain</span>
+                        <span className="settings-label">ReplayGain<HelpLink anchor="replaygain" topic="ReplayGain" /></span>
                         <span className="settings-description">Normalize loudness across tracks using embedded ReplayGain tags</span>
                       </div>
                       <select
@@ -1592,7 +1594,7 @@ export function SettingsPanel({
                   <div className="settings-card">
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">Track video history</span>
+                        <span className="settings-label">Track video history<HelpLink anchor="video-history" topic="video history" /></span>
                         <span className="settings-description">Record playback of video files</span>
                       </div>
                       <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} />

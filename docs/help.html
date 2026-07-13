@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Help — Viboplr</title>
+  <meta name="description" content="Plain-language explanations of Viboplr's settings and features — playback engines, exclusive audio, ReplayGain, profiles, and more.">
+  <link rel="canonical" href="https://viboplr.com/help.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://viboplr.com/help.html">
+  <meta property="og:title" content="Help — Viboplr">
+  <meta property="og:description" content="Plain-language explanations of Viboplr's settings and features.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Help — Viboplr">
+  <meta name="twitter:description" content="Plain-language explanations of Viboplr's settings and features.">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!--
+    IMPORTANT: section ids on this page are linked from inside the app
+    (the HelpLink "?" icons in Settings open help.html#<id>). Old app
+    versions link into whatever is live here, so ids are ADD-ONLY:
+    never rename or remove one — only add new sections.
+  -->
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
+          <path d="M138.24 138.24 L256 281.6 L373.76 138.24" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M138.24 235.52 L256 378.88 L373.76 235.52" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
+        </svg>
+        iboPLR
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="plugins.html" class="nav-link">Plugins</a>
+        <a href="skins.html" class="nav-link">Skins</a>
+        <a href="help.html" class="nav-link active">Help</a>
+        <a href="support.html" class="nav-link nav-link--sponsor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          Support
+        </a>
+        <a href="download.html" class="nav-cta">Get Viboplr</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="download-hero">
+    <div class="container">
+      <h1 class="animate-in">Viboplr <span class="gradient-text">help</span></h1>
+      <p class="animate-in animate-delay-1">The short version of every setting lives in the app. This page is the long version — what each option actually does and when you'd want it.</p>
+      <div class="hero-buttons animate-in animate-delay-2">
+        <a href="#playback-engine" class="btn btn-outline">Playback engine</a>
+        <a href="#exclusive-audio" class="btn btn-outline">Exclusive audio</a>
+        <a href="#replaygain" class="btn btn-outline">ReplayGain</a>
+        <a href="#profiles" class="btn btn-outline">Profiles</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Playback engine -->
+  <section class="section" id="playback-engine">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Playback engine</h2>
+        <p class="docs-lead">Viboplr can play audio through two different engines: the browser engine and mpv.</p>
+        <p>The <strong>Browser</strong> engine plays audio through the system webview. It works everywhere with nothing to install, and it is the default.</p>
+        <p>The <strong>mpv</strong> engine is a native audio engine built on <a href="https://mpv.io" target="_blank" rel="noopener">libmpv</a>, the same playback core used by the mpv media player. Compared to the browser engine it:</p>
+        <ul class="docs-list">
+          <li>Decodes every supported format natively — FLAC, ALAC, Opus, and friends — without transcoding.</li>
+          <li>Plays back-to-back tracks with sample-accurate gapless transitions.</li>
+          <li>On macOS, also renders video natively (beta).</li>
+          <li>Unlocks <a href="#exclusive-audio">exclusive audio access</a> for bit-perfect output.</li>
+        </ul>
+        <p>The <strong>mpv engine component</strong> is the one-time download that contains libmpv. The "Viboplr Full" build ships with it bundled; the standard build downloads it on demand from Settings &rarr; Playback and you can remove it there at any time. If the engine can't play a particular track, Viboplr automatically falls back to the browser engine for that track.</p>
+        <div class="docs-note">
+          Switching engines stops the current playback — playback resumes on the new engine with the next track you play.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Exclusive audio -->
+  <section class="section section-alt" id="exclusive-audio">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Exclusive audio access</h2>
+        <p class="docs-lead">Bypass the operating system's mixer and talk to your audio device directly.</p>
+        <p>Normally every app's sound goes through the OS mixer, which can resample and requantize audio before it reaches your DAC. With exclusive access (CoreAudio "hog mode" on macOS, WASAPI exclusive mode on Windows), Viboplr opens the output device for itself: samples travel from the file to the device untouched. This is the foundation of <em>bit-perfect</em> playback, and it matters most with an external DAC and lossless files.</p>
+        <p>For truly bit-perfect output, the whole chain has to leave the samples alone:</p>
+        <ul class="docs-list">
+          <li>Turn the <strong>equalizer off</strong> — EQ reshapes the signal by design.</li>
+          <li>Set <strong>ReplayGain to Off</strong> — volume normalization changes sample values.</li>
+          <li>Keep the <strong>volume at 100%</strong> — any software attenuation rewrites samples.</li>
+        </ul>
+        <p>You don't have to keep that checklist in your head: while exclusive access is on, the settings row shows a live <strong>● Bit-perfect</strong> indicator, and when the stream isn't bit-perfect it names exactly what's in the way.</p>
+        <p>Trade-offs while it's active:</p>
+        <ul class="docs-list">
+          <li><strong>No other app can play sound</strong> — the device is yours alone, including system sounds.</li>
+          <li><strong>Crossfade is disabled</strong> — fading needs two overlapping audio streams, and an exclusive device only allows one. Gapless playback still works.</li>
+          <li>Changes <strong>apply from the next track</strong>, when the device is reopened.</li>
+        </ul>
+        <div class="docs-note">
+          Available only with the <a href="#playback-engine">mpv playback engine</a>.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Crossfade -->
+  <section class="section" id="crossfade">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Crossfade</h2>
+        <p class="docs-lead">Fade the current track out while the next one fades in.</p>
+        <p>The slider sets the overlap length, up to 10 seconds. At <strong>0 (Off)</strong>, tracks instead play <em>gapless</em> — the next track starts the instant the current one ends, which is what you want for live albums and continuous mixes. With the mpv engine, gapless transitions are sample-accurate.</p>
+        <p>Video tracks never crossfade, and crossfade is unavailable while <a href="#exclusive-audio">exclusive audio access</a> is active.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ReplayGain -->
+  <section class="section section-alt" id="replaygain">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>ReplayGain</h2>
+        <p class="docs-lead">Even out loudness differences between tracks, using tags stored in your files.</p>
+        <p>Albums are mastered at wildly different loudness levels, so shuffling your library means riding the volume knob. ReplayGain fixes this: a tagging tool analyzes each file once and writes the measured loudness into its tags, and players adjust playback volume to match. Viboplr <strong>reads</strong> these tags — it doesn't compute them. Popular taggers include foobar2000, MusicBrainz Picard, and loudgain; files without tags simply play at their original volume.</p>
+        <ul class="docs-list">
+          <li><strong>Track</strong> mode gives every track the same loudness — best for shuffle and mixed playlists.</li>
+          <li><strong>Album</strong> mode applies one adjustment per album, preserving the intended quiet-to-loud dynamics between its songs — best when you listen to full albums.</li>
+          <li><strong>Pre-amp</strong> adds a fixed gain on top, since ReplayGain's reference level is fairly quiet.</li>
+          <li><strong>Prevent clipping</strong> caps the total gain using the track's peak tag, so a loud master pushed further by pre-amp never distorts.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Beta updates -->
+  <section class="section" id="beta-updates">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Beta updates</h2>
+        <p class="docs-lead">Get pre-release builds through the normal auto-updater.</p>
+        <p>With beta updates on, the updater also offers beta releases — new features land there first, with a bit less polish. You're never stranded on the beta track: as soon as a stable release newer than your beta ships, the updater moves you back to stable automatically. Every update, beta or stable, is cryptographically signature-verified before install.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Dependencies -->
+  <section class="section section-alt" id="dependencies">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>External dependencies</h2>
+        <p class="docs-lead">A few features rely on well-known command-line tools — currently <code>ffmpeg</code> and <code>yt-dlp</code>.</p>
+        <p>Some plugins and features (YouTube playback and downloads, video thumbnails, format conversion) shell out to these tools rather than reimplementing them. Settings &rarr; Dependencies shows what's needed, what's installed, and where each copy comes from:</p>
+        <ul class="docs-list">
+          <li><strong>Managed</strong> — Viboplr installed it for you ("Install for me") into its own folder, and can update or remove it. A managed copy always takes precedence over a system one.</li>
+          <li><strong>System</strong> — found on your PATH, e.g. installed via Homebrew or winget. Viboplr never modifies these; update them with your package manager.</li>
+        </ul>
+        <p><strong>Keep dependencies up to date automatically</strong> applies only to managed copies: Viboplr checks daily and silently installs new releases. This matters most for <code>yt-dlp</code>, where an outdated version is the usual reason YouTube stops working.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Profiles -->
+  <section class="section" id="profiles">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Profiles</h2>
+        <p class="docs-lead">Completely separate libraries in one app — like browser profiles.</p>
+        <p>Each profile has its own library database, collections, play history, settings, plugins, and skin. Nothing is shared. Use them to keep contexts apart: your music vs. a shared family library, audiobooks, DJ sets, or a scratch profile for experiments.</p>
+        <p>Create and switch profiles from Settings &rarr; General. Switching restarts the app into the chosen profile, and the window title shows the profile name whenever you're not on the default one. You can also create a desktop shortcut that launches straight into a specific profile.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Video history -->
+  <section class="section section-alt" id="video-history">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Track video history</h2>
+        <p class="docs-lead">Choose whether video playback counts toward your listening history.</p>
+        <p>By default, only audio tracks are recorded to play history (and scrobbled to Last.fm, if you use the plugin) — watching music videos won't skew your most-played charts. Turn this on if you want video plays recorded too. The usual rules still apply: a play counts after half the track or 4 minutes, whichever comes first, and tracks under 30 seconds are never recorded.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="bottom-cta">
+    <div class="container reveal">
+      <h2>Still <span class="gradient-text">stuck?</span></h2>
+      <p>Ask a question or report a problem — issues and ideas are equally welcome.</p>
+      <div class="hero-buttons">
+        <a href="https://github.com/outcast1000/viboplr/issues" class="btn btn-primary" target="_blank" rel="noopener">Open an issue</a>
+        <a href="features.html" class="btn btn-outline">Browse all features</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="support.html" class="footer-link">Support</a>
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <span class="footer-link">Built with Tauri + React</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>
