@@ -127,9 +127,17 @@ html, body, #root {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: transparent;
+  /* Opaque backstop: the body is the layer behind everything, so any transient
+     transparent gap in the DOM (startup before first paint, video-hole layers
+     mid-transition) shows the app background, never the desktop. It goes
+     transparent only when we actually need see-through: the mini player, and a
+     confirmed-presenting native video (both add `.window-transparent`). */
+  background: var(--bg-primary);
   color: var(--text-primary);
   font-size: var(--fs-base);
+}
+body.window-transparent {
+  background: transparent;
 }
 
 /* Scrollbar */

@@ -574,6 +574,18 @@ function App() {
     // window. (These are the layout vars declared before this effect.)
   }, [playback.nativeVideoActive, library.view, playback.nativeFullscreen]);
 
+  // Let the (opaque-by-default) body go transparent only when see-through is
+  // actually wanted: the mini player, or a native video that is positioned +
+  // presenting. Every other moment — startup, establishing/changing video,
+  // resizing — the opaque body backstops the hole so the desktop never shows;
+  // worst case is the app background. See base.css `.window-transparent`.
+  useEffect(() => {
+    const seeThrough =
+      mini.miniMode ||
+      (playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting);
+    document.body.classList.toggle("window-transparent", seeThrough);
+  }, [mini.miniMode, playback.nativeVideoActive, videoReady, playback.nativeVideoPresenting]);
+
   // Native video fullscreen has no DOM :fullscreen state, so Escape must be
   // handled explicitly (capture phase so a focused list's Escape handling
   // doesn't swallow it).
