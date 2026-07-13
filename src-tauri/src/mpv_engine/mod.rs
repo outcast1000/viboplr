@@ -357,6 +357,24 @@ impl Engine {
                     log::info!("mpv-engine: deck {i} logging to {path}");
                 }
             }
+            // Diagnostic hook: VIBOPLR_MPV_OPTS="key=val;key=val" applies raw
+            // mpv options to both decks at creation — lets validation sessions
+            // try candidate fixes (e.g. d3d11-flip=no) via env vars instead of
+            // one release build per hypothesis. Not for production use.
+            if let Ok(opts) = std::env::var("VIBOPLR_MPV_OPTS") {
+                for pair in opts.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                    let Some((key, val)) = pair.split_once('=') else {
+                        log::error!("mpv-engine: VIBOPLR_MPV_OPTS entry without '=': {pair}");
+                        continue;
+                    };
+                    match mpv.set_property(key.trim(), val.trim()) {
+                        Ok(()) => log::info!("mpv-engine: deck {i} option override {key}={val}"),
+                        Err(e) => {
+                            log::error!("mpv-engine: deck {i} option override {key}={val} failed: {e}")
+                        }
+                    }
+                }
+            }
             let mpv_version = mpv
                 .get_property::<String>("mpv-version")
                 .unwrap_or_else(|_| "unknown".into());
@@ -396,11 +414,25 @@ impl Engine {
             .ok_or("video playback needs an app handle (not available in tests)")?;
         let layer = video_layer_win::VideoLayer::create(app)?;
         let deck = &self.decks[0].mpv;
+        // Validation scaffolding: VIBOPLR_WIN_VIDEO_VO overrides the video
+        // output driver (e.g. direct3d) — vo is set here at wire time, after
+        // the VIBOPLR_MPV_OPTS creation hook, so it needs its own override.
+        let vo = std::env::var("VIBOPLR_WIN_VIDEO_VO").unwrap_or_else(|_| "gpu".into());
+        // Bit-blt presentation, NOT flip-model: our child HWND lives inside a
+        // layered (transparent) top-level window, and DWM does not composite
+        // flip-model swapchains there — mpv renders frames nobody displays
+        // (validated on real hardware: VO init + frames "shown", screen shows
+        // the desktop through the window). Bit-blt goes through the classic
+        // GDI redirection path, which layered windows do composite.
         deck.set_property("wid", layer.wid())
-            .and_then(|_| deck.set_property("vo", "gpu"))
+            .and_then(|_| deck.set_property("d3d11-flip", false))
+            .and_then(|_| deck.set_property("vo", vo.as_str()))
             .and_then(|_| deck.set_property("hwdec", "auto"))
-            .map_err(|e| format!("mpv wid/vo=gpu failed: {e}"))?;
-        log::info!("WINVIDEO: deck 0 wired — wid={:#x}, vo=gpu, hwdec=auto", layer.wid());
+            .map_err(|e| format!("mpv wid/vo={vo} failed: {e}"))?;
+        log::info!(
+            "WINVIDEO: deck 0 wired — wid={:#x}, vo={vo}, hwdec=auto, d3d11-flip=no",
+            layer.wid()
+        );
         *guard = Some(layer);
         Ok(())
     }
