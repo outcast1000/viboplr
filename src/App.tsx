@@ -4153,6 +4153,7 @@ function App() {
       <NowPlayingBar
         waveformPeaks={waveformPeaks}
         currentTrack={playback.currentTrack}
+        nativeVideoActive={playback.nativeVideoActive}
         playing={playback.playing}
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}

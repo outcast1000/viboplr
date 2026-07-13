@@ -86,6 +86,9 @@ function SlideText({ text, className }: { text: string; className?: string }) {
 interface NowPlayingBarProps {
   waveformPeaks: number[] | null;
   currentTrack: QueueTrack | null;
+  /** Native mpv video session active — EQ works on video there (lavfi graph),
+   * unlike the browser engine where the <video> isn't in the Web Audio graph. */
+  nativeVideoActive: boolean;
   playing: boolean;
   durationSecs: number;
   scrobbled: boolean;
@@ -179,7 +182,7 @@ interface NowPlayingBarProps {
 
 export function NowPlayingBar({
   waveformPeaks,
-  currentTrack, playing,
+  currentTrack, nativeVideoActive, playing,
   durationSecs, scrobbled,
   icyTitle,
   trackRank,
@@ -226,6 +229,10 @@ export function NowPlayingBar({
   const eqAnchorRef = useRef<HTMLButtonElement>(null);
   const acAnchorRef = useRef<HTMLButtonElement>(null);
   const isVideo = currentTrack ? isVideoTrack(currentTrack) : false;
+  // EQ is available for audio always, and for video only on the native mpv
+  // engine (lavfi graph on the deck). Browser-engine video can't be EQ'd —
+  // its <video> element isn't wired into the Web Audio graph.
+  const eqAvailable = !isVideo || nativeVideoActive;
   // Tags for the current track, shown inline in the subtitle. The track is a
   // QueueTrack (no DB id), so resolve to a library row by metadata. The tag
   // popover edits keep this in sync via onTagsChange so the subtitle updates live.
@@ -738,7 +745,7 @@ export function NowPlayingBar({
 
         {/* Audio group: equalizer (+ inline knobs) · mute · volume */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">
-          {!isVideo && eqShowBarControl && (
+          {eqAvailable && eqShowBarControl && (
             <EqBarControl
               mode={eqMode}
               enabled={eqEnabled}
@@ -755,9 +762,9 @@ export function NowPlayingBar({
             <button
               ref={eqAnchorRef}
               className={`g-btn g-btn-sm now-playing-eq-btn ${eqEnabled && (eqMode === "simple" ? (eqBassDb !== 0 || eqTrebleDb !== 0) : eqPreset !== "flat") ? "active" : ""}`}
-              onClick={() => !isVideo && setEqOpen(o => !o)}
-              disabled={isVideo}
-              title={isVideo ? "EQ unavailable on video tracks" : "Equalizer"}
+              onClick={() => eqAvailable && setEqOpen(o => !o)}
+              disabled={!eqAvailable}
+              title={eqAvailable ? "Equalizer" : "EQ unavailable for video on the browser engine"}
               aria-label="Equalizer"
             >
               <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -766,7 +773,7 @@ export function NowPlayingBar({
                 <rect x="12" y="9" width="2" height="5" />
               </svg>
             </button>
-            {eqOpen && !isVideo && (
+            {eqOpen && eqAvailable && (
               <EqPopover
                 enabled={eqEnabled}
                 mode={eqMode}
