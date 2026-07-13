@@ -1,11 +1,11 @@
 // Playback failure message resolution.
 //
-// WKWebView reports a failed network fetch of a media source as
+// WKWebView reports a failed fetch of a media source as
 // MEDIA_ERR_SRC_NOT_SUPPORTED (code 4) or a NotSupportedError play() rejection —
 // the same signals as a genuinely unsupported format. Without disambiguation, a
-// dead internet connection surfaces as "File format not supported" for tracks
-// that stream from the network. These helpers classify the network state so the
-// error the user sees names the real problem.
+// dead internet connection (remote tracks) or a deleted/moved file (local
+// tracks) surfaces as "File format not supported". These helpers classify the
+// real cause so the error the user sees names the real problem.
 
 export type NetworkStatus = "ok" | "offline" | "unreachable";
 
@@ -20,6 +20,8 @@ export const OFFLINE_PLAYBACK_ERROR =
   "No internet connection — this track streams from the network";
 export const UNREACHABLE_PLAYBACK_ERROR =
   "The streaming source could not be reached — check your connection";
+export const FILE_NOT_FOUND_PLAYBACK_ERROR =
+  "File not found — it may have been moved or deleted";
 
 export function mediaErrorMessage(code: number): string {
   return MEDIA_ERROR_MESSAGES[code] || `Playback error (code ${code})`;
@@ -36,6 +38,14 @@ export function describePlaybackFailure(
 ): string {
   if (!isRemote || network === "ok") return base;
   return network === "offline" ? OFFLINE_PLAYBACK_ERROR : UNREACHABLE_PLAYBACK_ERROR;
+}
+
+// Local-track counterpart of describePlaybackFailure: `base` is kept while the
+// file is still on disk (then the failure really is about the content); a
+// missing file overrides it, since the browser reported the failed asset://
+// fetch as a format error.
+export function describeLocalPlaybackFailure(base: string, fileExists: boolean): string {
+  return fileExists ? base : FILE_NOT_FOUND_PLAYBACK_ERROR;
 }
 
 const PROBE_TIMEOUT_MS = 4000;

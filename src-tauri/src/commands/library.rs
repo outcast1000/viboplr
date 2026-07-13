@@ -266,6 +266,15 @@ pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<Strin
     }
 }
 
+/// Whether a local file currently exists on disk. Used by the playback error
+/// path to tell a missing file apart from a genuinely unsupported format —
+/// WKWebView reports a failed asset:// fetch as MEDIA_ERR_SRC_NOT_SUPPORTED,
+/// the same code as an undecodable file.
+#[tauri::command]
+pub fn file_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
 #[tauri::command]
 pub fn resolve_subsonic_location(
     state: State<'_, AppState>,

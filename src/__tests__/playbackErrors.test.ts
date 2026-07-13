@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   mediaErrorMessage,
   describePlaybackFailure,
+  describeLocalPlaybackFailure,
   OFFLINE_PLAYBACK_ERROR,
   UNREACHABLE_PLAYBACK_ERROR,
+  FILE_NOT_FOUND_PLAYBACK_ERROR,
 } from "../playback/playbackErrors";
 
 describe("mediaErrorMessage", () => {
@@ -43,5 +45,22 @@ describe("describePlaybackFailure", () => {
   it("also overrides play() rejection messages, not just media error text", () => {
     expect(describePlaybackFailure("The operation is not supported.", true, "offline"))
       .toBe(OFFLINE_PLAYBACK_ERROR);
+  });
+});
+
+describe("describeLocalPlaybackFailure", () => {
+  const base = "File format not supported";
+
+  it("keeps the base message while the file exists on disk", () => {
+    expect(describeLocalPlaybackFailure(base, true)).toBe(base);
+  });
+
+  it("reports a missing file instead of 'not supported' when the file is gone", () => {
+    expect(describeLocalPlaybackFailure(base, false)).toBe(FILE_NOT_FOUND_PLAYBACK_ERROR);
+  });
+
+  it("also overrides play() rejection messages, not just media error text", () => {
+    expect(describeLocalPlaybackFailure("The operation is not supported.", false))
+      .toBe(FILE_NOT_FOUND_PLAYBACK_ERROR);
   });
 });

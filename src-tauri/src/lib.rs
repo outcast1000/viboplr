@@ -80,6 +80,7 @@ macro_rules! invoke_handler {
             commands::get_tracks_by_paths,
             commands::get_tracks_by_artist,
             commands::get_track_path,
+            commands::file_exists,
             commands::resolve_subsonic_location,
             commands::toggle_liked,
             commands::set_entity_like_state,

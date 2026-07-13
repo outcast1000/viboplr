@@ -5,7 +5,7 @@ import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme, isLocalTrack } from "../queueEntry";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
-import { mediaErrorMessage, describePlaybackFailure, probeNetworkStatus } from "../playback/playbackErrors";
+import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus } from "../playback/playbackErrors";
 import {
   nativeEngine,
   type EnginePositionEvent,
@@ -1564,18 +1564,30 @@ export function usePlayback(
     setCurrentAssetUrl(null);
   }
 
-  // Surface a playback failure to the user. The base message shows immediately;
-  // for remote (network-streamed) tracks the network is then probed and the
-  // message upgraded to a connectivity error when the connection — not the file —
-  // is the real problem (WKWebView reports a failed source fetch as "not
-  // supported", see playbackErrors.ts). The functional upgrade only replaces the
-  // exact base message, so it never reopens a dismissed modal or clobbers a
-  // newer failure.
+  // Surface a playback failure to the user. The base message shows immediately,
+  // then the real cause is probed and the message upgraded when the content
+  // isn't the actual problem (WKWebView reports a failed source fetch as "not
+  // supported", see playbackErrors.ts): remote tracks probe the network for a
+  // connectivity error; local tracks probe the disk for a missing file. The
+  // functional upgrade only replaces the exact base message, so it never reopens
+  // a dismissed modal or clobbers a newer failure.
   function surfacePlaybackFailure(base: string, track: QueueTrack | null, src: string | null) {
     setPlaybackError(base);
     setFailedTrack(track);
     setPlaying(false);
-    if (!track || isLocalTrack(track)) return;
+    if (!track) return;
+    if (isLocalTrack(track)) {
+      const parsed = parseUrlScheme(track.path!);
+      if (parsed.scheme !== "file") return;
+      invoke<boolean>("file_exists", { path: parsed.path })
+        .then((exists) => {
+          const refined = describeLocalPlaybackFailure(base, exists);
+          if (refined === base) return;
+          setPlaybackError(prev => (prev === base ? refined : prev));
+        })
+        .catch((e) => console.error("Failed to probe playback file existence:", e));
+      return;
+    }
     probeNetworkStatus(src).then((network) => {
       const refined = describePlaybackFailure(base, true, network);
       if (refined === base) return;
