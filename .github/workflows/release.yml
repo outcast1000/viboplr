@@ -96,28 +96,15 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # Single "lean" build per platform. The native engine is compiled into
+      # every build and loads libmpv at runtime (downloadable engine
+      # component); there is no separate bundled "Full" flavor to produce.
       matrix:
         include:
           - platform: macos-latest
-            variant: lean
             args: '--target aarch64-apple-darwin'
           - platform: windows-latest
-            variant: lean
             args: ''
-          # "Viboplr Full" — bundles libmpv so the engine works offline out
-          # of the box (the engine itself is compiled into every build now
-          # and loads libmpv at runtime; --features mpv-engine is a no-op
-          # kept for compatibility). Distinct productName keeps release
-          # assets from colliding with the lean build; its updater manifest
-          # (latest-mpv.json) is assembled by the mpv-updater-manifest job
-          # below, so tauri-action's own updater JSON is disabled for these
-          # entries.
-          - platform: macos-latest
-            variant: mpv
-            args: '--target aarch64-apple-darwin --features mpv-engine --config src-tauri/tauri.mpv-macos.conf.json'
-          - platform: windows-latest
-            variant: mpv
-            args: '--features mpv-engine --config src-tauri/tauri.mpv-windows.conf.json'
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -137,10 +124,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Fetch pinned libmpv
-        if: matrix.variant == 'mpv'
-        run: node scripts/fetch-libmpv.mjs
-
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -156,21 +139,5 @@ jobs:
           releaseDraft: false
           # Keep in sync with the create-release step: hyphenated tags = prerelease.
           prerelease: ${{ contains(needs.ci-and-release.outputs.tag, '-') }}
-          includeUpdaterJson: ${{ matrix.variant == 'lean' }}
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
-
-  mpv-updater-manifest:
-    needs: [ci-and-release, build]
-    if: needs.ci-and-release.outputs.tag != ''
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-      - name: Assemble latest-mpv.json
-        run: node scripts/build-mpv-updater-manifest.mjs "${{ needs.ci-and-release.outputs.tag }}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
