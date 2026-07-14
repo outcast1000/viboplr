@@ -186,6 +186,12 @@ function App() {
   // per-track through the combined ref.
   const [mpvCapable, setMpvCapable] = useState(false);
   const [mpvVideoCapable, setMpvVideoCapable] = useState(false);
+  // Gates the see-through hole opaque until bounds have settled (this timer,
+  // set in the bounds effect) — covers resize / enter-now-playing. The
+  // className ANDs this with `playback.nativeVideoPresenting` (first frame
+  // actually on screen) so a fresh start also stays opaque until mpv is
+  // painting, not just until the settle timer elapses. See `.mpv-video-ready`.
+  const [videoReady, setVideoReady] = useState(false);
   const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("browser");
   const [audioExclusive, setAudioExclusive] = useState(false);
   // Update channel: default stable-only; beta is an explicit opt-in.
@@ -509,9 +515,11 @@ function App() {
 
   // Native (mpv) video session: punch the CSS hole (see App.css
   // `.mpv-video-hole`) and keep the native layer aligned with the video
-  // container. Polling covers position-only changes (sidebar collapse, dock
-  // moves) that ResizeObserver would miss; 250ms matches the engine's
-  // position cadence and is imperceptible for layout tracking.
+  // container. A ResizeObserver tracks size changes within a frame so the
+  // native child follows a window/pane resize immediately — without it the
+  // grown container's newly-exposed area flashes the transparent window until
+  // the next poll. The 250ms poll still covers position-only changes (sidebar
+  // collapse, dock moves) that ResizeObserver can't see.
   useEffect(() => {
     if (!playback.nativeVideoActive) return;
     let last = "";
@@ -529,10 +537,66 @@ function App() {
         .setVideoBounds(rect.left * z, rect.top * z, rect.width * z, rect.height * z)
         .catch(console.error);
     };
+    // Keep the hole opaque until bounds have settled + the first frame is up,
+    // then reveal. A (re)establish re-arms it — video (re)start, or the <video>
+    // reparenting when this effect re-runs on a view/fullscreen change — so
+    // those transitions never expose the transparent window before the
+    // async-positioned native child has caught up. Resize deliberately does NOT
+    // re-arm it (see the ResizeObserver below), so the video stays visible and
+    // tracks the drag instead of blanking. `videoReady` defaults false so the
+    // very first render with the hole is already opaque (no gap before this
+    // effect runs).
+    let readyTimer: ReturnType<typeof setTimeout> | undefined;
+    const armReveal = () => {
+      setVideoReady(false);
+      clearTimeout(readyTimer);
+      readyTimer = setTimeout(() => setVideoReady(true), 250);
+    };
     push();
+    armReveal();
     const interval = setInterval(push, 250);
-    return () => clearInterval(interval);
-  }, [playback.nativeVideoActive]);
+    const container = playback.videoRef.current?.parentElement;
+    const ro = container
+      ? new ResizeObserver(() => {
+          // Track bounds every frame, but do NOT re-arm the reveal here.
+          // Re-arming on every resize tick held the hole opaque (app bg) for
+          // the whole drag + 250ms, which read as "the video turns black
+          // while resizing". Keeping it revealed lets the native surface
+          // track the resize live: on macOS the render layer repaints
+          // synchronously at the new size (set_bounds handshake), on Windows
+          // the child window follows via SetWindowPos and mpv repaints — so
+          // there's content under the hole, not a blank.
+          push();
+        })
+      : null;
+    ro?.observe(container!);
+    return () => {
+      clearInterval(interval);
+      ro?.disconnect();
+      clearTimeout(readyTimer);
+      setVideoReady(false);
+    };
+    // Re-run on view / fullscreen changes too: the shared <video> reparents
+    // into a different container when entering now-playing (theater) or
+    // fullscreen, so we must re-read the container, push bounds immediately,
+    // and re-point the ResizeObserver — otherwise the new container's bounds
+    // lag until the next 250ms poll and the grown hole flashes the transparent
+    // window. (These are the layout vars declared before this effect.)
+  }, [playback.nativeVideoActive, library.view, playback.nativeFullscreen]);
+
+  // Let the (opaque-by-default) body go transparent only when see-through is
+  // actually wanted: the mini player, or a native video that is *presenting*.
+  // Deliberately NOT gated on `videoReady` — that toggles during resize, which
+  // would flip the whole window opaque↔transparent (a DWM recomposition flash)
+  // and regress the resize case. So the body backstops only the not-yet-
+  // presenting phase (startup, start/switch playing) so the desktop never
+  // shows there; once presenting it stays transparent and the hole-cover
+  // (`.mpv-video-ready`) handles resize on its own. See base.css.
+  useEffect(() => {
+    const seeThrough =
+      mini.miniMode || (playback.nativeVideoActive && playback.nativeVideoPresenting);
+    document.body.classList.toggle("window-transparent", seeThrough);
+  }, [mini.miniMode, playback.nativeVideoActive, playback.nativeVideoPresenting]);
 
   // Native video fullscreen has no DOM :fullscreen state, so Escape must be
   // handled explicitly (capture phase so a focused list's Escape handling
@@ -2929,7 +2993,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -4113,6 +4177,7 @@ function App() {
       <NowPlayingBar
         waveformPeaks={waveformPeaks}
         currentTrack={playback.currentTrack}
+        nativeVideoActive={playback.nativeVideoActive}
         playing={playback.playing}
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}

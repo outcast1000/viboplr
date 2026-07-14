@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme, isLocalTrack } from "../queueEntry";
+import { needsTranscode } from "./useStreamResolution";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
 import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus } from "../playback/playbackErrors";
@@ -223,6 +224,14 @@ export function usePlayback(
   // a native layer under the webview and App punches the CSS hole + reports
   // the container bounds while this is set.
   const [nativeVideoActive, setNativeVideoActive] = useState(false);
+  // True once the current native video session is actually presenting frames
+  // (first engine-position event). App keeps the see-through hole opaque until
+  // this flips, so a fresh start never reveals the transparent window before
+  // mpv has painted into the child. Reset per session start; a fallback timer
+  // flips it even if no position event arrives (stall safety).
+  const [nativeVideoPresenting, setNativeVideoPresenting] = useState(false);
+  const nativeVideoPresentingRef = useRef(false);
+  const presentingFallbackRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Fullscreen for native video sessions = WINDOW fullscreen + the
   // `.video-container--native-fs` full-window pin (DOM element-fullscreen
   // would move the webview to its own space, away from the native layer).
@@ -718,6 +727,12 @@ export function usePlayback(
   // the user may never resume. Real playback still flows through handlePlay.
   async function loadRestoredVideoPreview(track: QueueTrack) {
     if (!isVideoTrack(track) || !isLocalTrack(track)) return;
+    // Never spin up the ffmpeg transcode server just for a restored first-frame
+    // preview: mkv/avi/wmv would each launch a transcode session on every
+    // startup (and the webview <video> can't decode them without it anyway).
+    // They play fine on demand when the user presses play — native mpv, or a
+    // transcode session on the browser engine.
+    if (needsTranscode(track)) return;
     let resolved: ResolvedTrackSource;
     try {
       resolved = await resolveTrackSrcRef.current(track);
@@ -903,6 +918,17 @@ export function usePlayback(
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
         nativeLastPositionRef.current = payload.positionSecs;
         setPlaybackPosition(payload.positionSecs);
+
+        // First position tick of a video session = frames are on screen; let
+        // App reveal the hole (until now it's held opaque to avoid the flash).
+        if (!nativeVideoPresentingRef.current) {
+          const t = currentTrackRef.current;
+          if (t && isVideoTrack(t)) {
+            nativeVideoPresentingRef.current = true;
+            setNativeVideoPresenting(true);
+            clearTimeout(presentingFallbackRef.current);
+          }
+        }
 
         // Scrobble threshold — mirrors onTimeUpdate (native sessions are
         // always audio, but keep the video-history gate for symmetry).
@@ -1439,6 +1465,19 @@ export function usePlayback(
       nativeFadingRef.current = false;
       nativeLastPositionRef.current = seekTo > 0 ? seekTo : 0;
       nativeSessionRef.current = { key: track.key };
+      // New session: hold the hole opaque until this session's first frame
+      // presents (or the fallback fires), so start never flashes transparent.
+      nativeVideoPresentingRef.current = false;
+      setNativeVideoPresenting(false);
+      clearTimeout(presentingFallbackRef.current);
+      if (isVideo) {
+        presentingFallbackRef.current = setTimeout(() => {
+          if (!nativeVideoPresentingRef.current) {
+            nativeVideoPresentingRef.current = true;
+            setNativeVideoPresenting(true);
+          }
+        }, 1500);
+      }
       try {
         await nativeEngine.play({
           source: engineSource,
@@ -1896,6 +1935,7 @@ export function usePlayback(
     onPauseSlotA, onPauseSlotB,
     toggleFullscreen,
     nativeVideoActive,
+    nativeVideoPresenting,
     nativeFullscreen,
     icyTitle,
     playbackError, failedTrack, clearPlaybackError,
