@@ -30,6 +30,14 @@ export interface EngineEndedEvent {
   trackKey: string;
 }
 
+/** mpv reconfigured its video output — the accurate "first frame is on screen"
+ * signal for a video session. Position ticks advance earlier (before the VO
+ * paints), so the frontend waits for this before revealing the native surface
+ * to avoid a desktop/background flash at video start. */
+export interface EngineVideoReconfigEvent {
+  trackKey: string;
+}
+
 export interface EngineStateEvent {
   playing: boolean;
   trackKey: string | null;

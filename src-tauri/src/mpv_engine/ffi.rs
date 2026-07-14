@@ -49,6 +49,10 @@ pub const MPV_EVENT_END_FILE: mpv_event_id = 7;
 pub const MPV_EVENT_FILE_LOADED: mpv_event_id = 8;
 /// Deprecated event still delivered by default; the engine turns it off.
 pub const MPV_EVENT_IDLE: mpv_event_id = 11;
+/// Video output (re)configured — fires when a new file's video params are
+/// known and the first frame is about to be painted. Later than `time-pos`,
+/// which advances before the VO has anything on screen.
+pub const MPV_EVENT_VIDEO_RECONFIG: mpv_event_id = 17;
 pub const MPV_EVENT_PROPERTY_CHANGE: mpv_event_id = 22;
 
 #[repr(C)]

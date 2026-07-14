@@ -208,6 +208,9 @@ pub enum Event {
     StartFile,
     FileLoaded,
     EndFile(u32),
+    /// Video output (re)configured — the accurate "first frame is coming up"
+    /// signal. `time-pos` starts advancing earlier, before the VO paints.
+    VideoReconfig,
     PropertyChange {
         name: String,
         change: PropertyData,
@@ -337,6 +340,7 @@ impl Mpv {
             ffi::MPV_EVENT_SHUTDOWN => Some(Ok(Event::Shutdown)),
             ffi::MPV_EVENT_START_FILE => Some(Ok(Event::StartFile)),
             ffi::MPV_EVENT_FILE_LOADED => Some(Ok(Event::FileLoaded)),
+            ffi::MPV_EVENT_VIDEO_RECONFIG => Some(Ok(Event::VideoReconfig)),
             ffi::MPV_EVENT_END_FILE => {
                 let end = unsafe { &*(raw.data as *const ffi::mpv_event_end_file) };
                 if end.error != 0 {
