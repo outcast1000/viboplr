@@ -6,7 +6,7 @@ import { parseUrlScheme, isLocalTrack } from "../queueEntry";
 import { needsTranscode } from "./useStreamResolution";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
-import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus } from "../playback/playbackErrors";
+import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus, VIDEO_CODEC_PLAYBACK_ERROR } from "../playback/playbackErrors";
 import {
   nativeEngine,
   type EnginePositionEvent,
@@ -1824,19 +1824,19 @@ export function usePlayback(
         attemptTranscodeFallback(track)
           .then((handled) => {
             if (!handled) {
-              setPlaybackError("Video codec not supported");
+              setPlaybackError(VIDEO_CODEC_PLAYBACK_ERROR);
               setFailedTrack(track);
               setPlaying(false);
             }
           })
           .catch((te) => {
             console.error("Transcode fallback failed:", te);
-            setPlaybackError("Video codec not supported");
+            setPlaybackError(VIDEO_CODEC_PLAYBACK_ERROR);
             setFailedTrack(track);
             setPlaying(false);
           });
       } else {
-        setPlaybackError("Video codec not supported");
+        setPlaybackError(VIDEO_CODEC_PLAYBACK_ERROR);
         setFailedTrack(currentTrack);
         setPlaying(false);
       }

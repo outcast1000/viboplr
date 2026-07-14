@@ -22,9 +22,26 @@ export const UNREACHABLE_PLAYBACK_ERROR =
   "The streaming source could not be reached — check your connection";
 export const FILE_NOT_FOUND_PLAYBACK_ERROR =
   "File not found — it may have been moved or deleted";
+export const VIDEO_CODEC_PLAYBACK_ERROR = "Video codec not supported";
 
 export function mediaErrorMessage(code: number): string {
   return MEDIA_ERROR_MESSAGES[code] || `Playback error (code ${code})`;
+}
+
+// Format/codec failures — as opposed to network or missing-file failures — are
+// the ones the native mpv engine can often play where WKWebView can't, so the
+// app offers "install the mpv engine and retry" on these. Keyed off the
+// resolved user-facing message: it only lands on one of these strings when the
+// cause really is the content, because network/missing-file cases resolve to
+// their own messages first (see describe*PlaybackFailure).
+const FORMAT_PLAYBACK_ERRORS = new Set<string>([
+  MEDIA_ERROR_MESSAGES[3],
+  MEDIA_ERROR_MESSAGES[4],
+  VIDEO_CODEC_PLAYBACK_ERROR,
+]);
+
+export function isFormatPlaybackError(error: string | null | undefined): boolean {
+  return !!error && FORMAT_PLAYBACK_ERRORS.has(error);
 }
 
 // Pick the user-facing message for a playback failure. `base` is the browser's
