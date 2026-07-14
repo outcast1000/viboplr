@@ -997,20 +997,32 @@ fn run_event_loop(
                 }
             }
             Ok(Event::VideoReconfig) => {
-                // The active deck reconfigured its video output — the first
-                // frame is now being painted into the native surface. This is
-                // the accurate "presenting" signal: `time-pos` (engine-position)
-                // advances earlier, before the VO paints, so the frontend holds
-                // the see-through hole opaque until THIS fires to avoid a
-                // desktop/background flash at video start. Fires per file (and
-                // may fire again on resolution changes — harmless, the frontend
-                // acts on the first only).
-                let key = {
+                // The active deck reconfigured its video output. Candidate
+                // "presenting" signal (see PlaybackRestart below). Fires per
+                // file (and again on resolution changes — harmless).
+                let (is_active, key) = {
                     let st = state.lock().unwrap();
-                    if deck != st.active { None } else { st.current_key.clone() }
+                    (deck == st.active, st.current_key.clone())
                 };
-                if let Some(key) = key {
-                    sink("engine-video-reconfig", json!({ "trackKey": key }));
+                log::info!("mpv-engine: VDBG VideoReconfig deck={deck} active={is_active} key={key:?}");
+                if is_active {
+                    if let Some(key) = key {
+                        sink("engine-video-reconfig", json!({ "trackKey": key }));
+                    }
+                }
+            }
+            Ok(Event::PlaybackRestart) => {
+                // mpv is now displaying the first frame after load/seek — later
+                // than VideoReconfig, so a stronger "frame on screen" signal.
+                let (is_active, key) = {
+                    let st = state.lock().unwrap();
+                    (deck == st.active, st.current_key.clone())
+                };
+                log::info!("mpv-engine: VDBG PlaybackRestart deck={deck} active={is_active} key={key:?}");
+                if is_active {
+                    if let Some(key) = key {
+                        sink("engine-playback-restart", json!({ "trackKey": key }));
+                    }
                 }
             }
             Ok(Event::EndFile(reason)) => {

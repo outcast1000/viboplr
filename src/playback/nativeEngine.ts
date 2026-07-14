@@ -38,6 +38,12 @@ export interface EngineVideoReconfigEvent {
   trackKey: string;
 }
 
+/** mpv (re)started playback after load/seek — displaying the first frame. Later
+ * than video-reconfig; a candidate "surface is ready to reveal" signal. */
+export interface EnginePlaybackRestartEvent {
+  trackKey: string;
+}
+
 export interface EngineStateEvent {
   playing: boolean;
   trackKey: string | null;

@@ -14,6 +14,7 @@ import {
   type EngineTrackChangedEvent,
   type EngineEndedEvent,
   type EngineVideoReconfigEvent,
+  type EnginePlaybackRestartEvent,
   type EngineStateEvent,
   type EngineErrorEvent,
   type EngineIcyTitleEvent,
@@ -234,6 +235,8 @@ export function usePlayback(
   const [nativeVideoPresenting, setNativeVideoPresenting] = useState(false);
   const nativeVideoPresentingRef = useRef(false);
   const presentingFallbackRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // VDBG: one-shot guard so we only log the FIRST engine-position per session.
+  const firstPosLoggedRef = useRef<string | null>(null);
   // Fullscreen for native video sessions = WINDOW fullscreen + the
   // `.video-container--native-fs` full-window pin (DOM element-fullscreen
   // would move the webview to its own space, away from the native layer).
@@ -578,6 +581,7 @@ export function usePlayback(
   // timer as a stall backstop.
   function markNativeVideoPresenting() {
     if (nativeVideoPresentingRef.current) return;
+    logPlayback(`VDBG markPresenting t=${Math.round(performance.now())} nativeSession=${!!nativeSessionRef.current} — reveal hole + clear preview`);
     nativeVideoPresentingRef.current = true;
     setNativeVideoPresenting(true);
     clearTimeout(presentingFallbackRef.current);
@@ -941,6 +945,11 @@ export function usePlayback(
         nativeLastPositionRef.current = payload.positionSecs;
         setPlaybackPosition(payload.positionSecs);
 
+        if (firstPosLoggedRef.current !== payload.trackKey) {
+          firstPosLoggedRef.current = payload.trackKey;
+          logPlayback(`VDBG recv first-position t=${Math.round(performance.now())} pos=${payload.positionSecs.toFixed(3)} presenting=${nativeVideoPresentingRef.current}`);
+        }
+
         // NOTE: presenting is NOT flipped here. `time-pos` advances before the
         // video output has painted a frame into the native surface, so revealing
         // the see-through hole on the first tick flashes the empty window
@@ -1026,8 +1035,16 @@ export function usePlayback(
       subscribe<EngineVideoReconfigEvent>("engine-video-reconfig", ({ payload }) => {
         // mpv painted its first frame — reveal the native surface now (the
         // hole has been held opaque since the session started).
-        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        const match = nativeSessionRef.current?.key === payload.trackKey;
+        logPlayback(`VDBG recv video-reconfig t=${Math.round(performance.now())} match=${match} key=${payload.trackKey}`);
+        if (!match) return;
         markNativeVideoPresenting();
+      }),
+      subscribe<EnginePlaybackRestartEvent>("engine-playback-restart", ({ payload }) => {
+        // VDBG: observe-only for now — logs the timing so we can compare it to
+        // video-reconfig and first-position and pick the right reveal signal.
+        const match = nativeSessionRef.current?.key === payload.trackKey;
+        logPlayback(`VDBG recv playback-restart t=${Math.round(performance.now())} match=${match} key=${payload.trackKey}`);
       }),
       subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
         if (!nativeSessionRef.current) return;
@@ -1282,6 +1299,7 @@ export function usePlayback(
       useNativeEngineRef.current &&
       useNativeVideoRef.current &&
       !nativeBlockedKeysRef.current.has(track.key);
+    logPlayback(`VDBG handlePlay t=${Math.round(performance.now())} key=${track.key} video=${isVideoTrack(track)} keepPreviewFrame=${keepPreviewFrame} previewMatch=${previewLoadedKeyRef.current === track.key} nativeEngine=${useNativeEngineRef.current} nativeVideo=${useNativeVideoRef.current} blocked=${nativeBlockedKeysRef.current.has(track.key)}`);
     // A real playback session supersedes any restored preview frame.
     previewLoadedKeyRef.current = null;
     if (eqEnabledRef.current) ensureAudioGraph();
@@ -1510,6 +1528,7 @@ export function usePlayback(
       if (isVideo) {
         presentingFallbackRef.current = setTimeout(markNativeVideoPresenting, 1500);
       }
+      logPlayback(`VDBG native-play begin t=${Math.round(performance.now())} isVideo=${isVideo} key=${track.key} videoElHasSrc=${!!videoRef.current?.src}`);
       try {
         await nativeEngine.play({
           source: engineSource,
@@ -1521,6 +1540,7 @@ export function usePlayback(
         });
         setPlaying(true);
         setNativeVideoActive(isVideo);
+        logPlayback(`VDBG native-play resolved t=${Math.round(performance.now())} nativeVideoActive=${isVideo} videoElHasSrc=${!!videoRef.current?.src}`);
         return;
       } catch (e) {
         console.error("Native engine play failed, falling back to browser engine:", e);
