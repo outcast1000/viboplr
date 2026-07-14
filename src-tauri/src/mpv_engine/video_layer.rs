@@ -22,7 +22,7 @@ use objc::{class, msg_send, sel, sel_impl};
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::Manager;
 
 #[link(name = "OpenGL", kind = "framework")]
@@ -92,6 +92,12 @@ pub struct RenderState {
     /// mpv reported a new frame.
     frame_pending: bool,
     shutdown: bool,
+    /// Bumped by `set_bounds` when it needs a synchronous repaint at a new
+    /// size; the render loop stores the serial it painted into
+    /// `rendered_serial`, letting the resize path block until the surface
+    /// actually holds content at the new size (see `set_bounds`).
+    resize_serial: u64,
+    rendered_serial: u64,
 }
 
 pub struct VideoLayer {
@@ -161,7 +167,29 @@ impl VideoLayer {
             st.width = (width.max(1.0) * scale) as i32;
             st.height = (height.max(1.0) * scale) as i32;
             st.frame_pending = true; // repaint at the new size
-            cv.notify_one();
+            st.resize_serial += 1;
+            let want = st.resize_serial;
+            cv.notify_all();
+            // Block (briefly) until the render thread has drawn + flushed at
+            // the NEW size. `[ctx update]` just reallocated the GL surface, so
+            // it's momentarily black; AppKit composites the layer right after
+            // this main-thread block returns, and the surface shows through a
+            // transparent CSS hole — so returning before the repaint lands is
+            // exactly what flashes black during a live window resize. Gating
+            // here keeps a content-filled surface under the compositor. The
+            // timeout means a stalled render can never hang the resize loop —
+            // worst case degrades to the old behavior (a single flash).
+            let deadline = Instant::now() + Duration::from_millis(120);
+            while st.rendered_serial < want {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                let (guard, timeout) = cv.wait_timeout(st, remaining).unwrap();
+                st = guard;
+                if timeout.timed_out() {
+                    break;
+                }
+            }
         });
         if let Err(e) = run {
             log::error!("mpv-engine: set_bounds main-thread dispatch failed: {e}");
@@ -192,11 +220,14 @@ impl VideoLayer {
     }
 
     /// Wake the render thread with a new-frame signal (mpv update callback).
+    /// `notify_all` (not `notify_one`) because `set_bounds` also parks on this
+    /// condvar during the resize handshake — a lone wakeup could rouse that
+    /// waiter and leave the render thread asleep on the pending frame.
     pub fn signal_frame(state: &Arc<(Mutex<RenderState>, Condvar)>) {
         let (lock, cv) = &**state;
         if let Ok(mut st) = lock.lock() {
             st.frame_pending = true;
-            cv.notify_one();
+            cv.notify_all();
         }
     }
 }
@@ -261,7 +292,7 @@ pub fn run_render_loop(
         CGLSetCurrentContext(cgl as *mut c_void);
     }
     loop {
-        let (width, height) = {
+        let (width, height, serial) = {
             let (lock, cv) = &*state;
             let mut st = lock.lock().unwrap();
             loop {
@@ -275,7 +306,7 @@ pub fn run_render_loop(
                 st = guard;
             }
             st.frame_pending = false;
-            (st.width.max(1), st.height.max(1))
+            (st.width.max(1), st.height.max(1), st.resize_serial)
         };
 
         unsafe {
@@ -288,6 +319,16 @@ pub fn run_render_loop(
             let ctx = glctx as id;
             let _: () = msg_send![ctx, flushBuffer];
             CGLUnlockContext(cgl as *mut c_void);
+        }
+
+        // Ack the resize serial we just presented so a `set_bounds` caller
+        // blocked in the resize handshake can return now that the surface
+        // holds content at the new size.
+        let (lock, cv) = &*state;
+        let mut st = lock.lock().unwrap();
+        if serial > st.rendered_serial {
+            st.rendered_serial = serial;
+            cv.notify_all();
         }
     }
 }

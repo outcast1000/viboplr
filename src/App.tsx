@@ -538,11 +538,14 @@ function App() {
         .catch(console.error);
     };
     // Keep the hole opaque until bounds have settled + the first frame is up,
-    // then reveal. Any (re)establish or resize re-arms it, so establishing the
-    // child / entering now-playing / dragging never exposes the transparent
-    // window — the region shows the app background until the video is actually
-    // there. `videoReady` defaults false so the very first render with the hole
-    // is already opaque (no gap before this effect runs).
+    // then reveal. A (re)establish re-arms it — video (re)start, or the <video>
+    // reparenting when this effect re-runs on a view/fullscreen change — so
+    // those transitions never expose the transparent window before the
+    // async-positioned native child has caught up. Resize deliberately does NOT
+    // re-arm it (see the ResizeObserver below), so the video stays visible and
+    // tracks the drag instead of blanking. `videoReady` defaults false so the
+    // very first render with the hole is already opaque (no gap before this
+    // effect runs).
     let readyTimer: ReturnType<typeof setTimeout> | undefined;
     const armReveal = () => {
       setVideoReady(false);
@@ -555,8 +558,15 @@ function App() {
     const container = playback.videoRef.current?.parentElement;
     const ro = container
       ? new ResizeObserver(() => {
+          // Track bounds every frame, but do NOT re-arm the reveal here.
+          // Re-arming on every resize tick held the hole opaque (app bg) for
+          // the whole drag + 250ms, which read as "the video turns black
+          // while resizing". Keeping it revealed lets the native surface
+          // track the resize live: on macOS the render layer repaints
+          // synchronously at the new size (set_bounds handshake), on Windows
+          // the child window follows via SetWindowPos and mpv repaints — so
+          // there's content under the hole, not a blank.
           push();
-          armReveal();
         })
       : null;
     ro?.observe(container!);

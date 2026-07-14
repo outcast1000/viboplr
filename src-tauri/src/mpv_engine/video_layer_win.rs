@@ -64,7 +64,6 @@ unsafe extern "system" {
     ) -> i32;
     fn ShowWindow(hwnd: isize, n_cmd_show: i32) -> i32;
     fn GetModuleHandleW(lp_module_name: *const u16) -> isize;
-    fn GetStockObject(i: i32) -> isize;
     fn GetLastError() -> u32;
 }
 
@@ -74,7 +73,6 @@ const SWP_NOACTIVATE: u32 = 0x0010;
 const SWP_NOZORDER: u32 = 0x0004;
 const SW_HIDE: i32 = 0;
 const SW_SHOWNA: i32 = 8; // show without activating
-const BLACK_BRUSH: i32 = 4;
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
@@ -158,7 +156,11 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         h_instance: instance,
         h_icon: 0,
         h_cursor: 0,
-        hbr_background: unsafe { GetStockObject(BLACK_BRUSH) },
+        // NULL brush (not BLACK_BRUSH): don't let GDI erase the client area.
+        // mpv paints the whole surface itself, and while the window is being
+        // live-resized larger, WM_ERASEBKGND would otherwise flash the
+        // newly-exposed strip black before mpv's next present catches up.
+        hbr_background: 0,
         lpsz_menu_name: std::ptr::null(),
         lpsz_class_name: class_name.as_ptr(),
     };
