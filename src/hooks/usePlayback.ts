@@ -1033,18 +1033,20 @@ export function usePlayback(
         onNativeAutoEndedRef.current();
       }),
       subscribe<EngineVideoReconfigEvent>("engine-video-reconfig", ({ payload }) => {
-        // mpv painted its first frame — reveal the native surface now (the
-        // hole has been held opaque since the session started).
+        // Observe-only: fires when the VO is reconfigured — earlier than the
+        // real first present on Windows vo=gpu, so revealing here flashed the
+        // desktop. The reveal is driven by playback-restart below instead.
         const match = nativeSessionRef.current?.key === payload.trackKey;
         logPlayback(`VDBG recv video-reconfig t=${Math.round(performance.now())} match=${match} key=${payload.trackKey}`);
-        if (!match) return;
-        markNativeVideoPresenting();
       }),
       subscribe<EnginePlaybackRestartEvent>("engine-playback-restart", ({ payload }) => {
-        // VDBG: observe-only for now — logs the timing so we can compare it to
-        // video-reconfig and first-position and pick the right reveal signal.
+        // mpv is now displaying the first frame after load — the accurate
+        // "surface has real pixels" signal. Reveal the native hole now (held
+        // opaque, with the preview frame bridging, since the session started).
         const match = nativeSessionRef.current?.key === payload.trackKey;
         logPlayback(`VDBG recv playback-restart t=${Math.round(performance.now())} match=${match} key=${payload.trackKey}`);
+        if (!match) return;
+        markNativeVideoPresenting();
       }),
       subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
         if (!nativeSessionRef.current) return;
@@ -1368,7 +1370,7 @@ export function usePlayback(
       // Merge that metadata in so playWithSrc routes video → <video> and the
       // now-playing UI classifies it correctly via currentTrack.
       const playTrack = resolved.patch ? { ...track, ...resolved.patch } : track;
-      await playWithSrc(playTrack, resolved.src, source, resolved.engineSource);
+      await playWithSrc(playTrack, resolved.src, source, resolved.engineSource, keepPreviewFrame);
     } catch (e) {
       // A newer play request has superseded this one: its synchronous
       // pause/load aborted this request's in-flight play(). The rejection is
@@ -1465,7 +1467,7 @@ export function usePlayback(
     return true;
   }
 
-  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user", engineSource?: EngineSource | null) {
+  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user", engineSource?: EngineSource | null, keepVideoElement = false) {
     // Claim the crossfade machinery, not just the elements. A fade may have
     // (re)started during the caller's async resolve window, and since this function
     // forces slot A below, a surviving interval would keep ramping the active slot's
@@ -1473,9 +1475,13 @@ export function usePlayback(
     // when no fade is running. (handlePlay/handlePlayUrl also gate the machine via
     // transitioningRef; this is the second line of defense at the moment of takeover.)
     cancelCrossfade();
-    // Stop all elements
+    // Stop all elements. The <video> is kept ONLY when a restored preview frame is
+    // bridging the hole for a native-video start (keepVideoElement) — tearing it
+    // down here is what collapsed the frame to the app background. markNativeVideo-
+    // Presenting clears it once mpv actually presents; the native branch below never
+    // uses the element, and the browser fallback path overwrites its src.
     [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
-    if (videoRef.current) {
+    if (videoRef.current && !keepVideoElement) {
       videoRef.current.pause();
       videoRef.current.removeAttribute("src");
       videoRef.current.load();
