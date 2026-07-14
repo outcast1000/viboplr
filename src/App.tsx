@@ -35,6 +35,7 @@ import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 import { usePlayback } from "./hooks/usePlayback";
 import { probeEngineCapabilities, nativeEngine, type EngineCapabilities } from "./playback/nativeEngine";
 import { useEngineComponent } from "./hooks/useEngineComponent";
+import { isFormatPlaybackError } from "./playback/playbackErrors";
 import { getPlaybackPosition, subscribePlaybackPosition } from "./playback/positionStore";
 import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
@@ -212,6 +213,9 @@ function App() {
   // Downloadable libmpv component (Settings > Playback); re-probes
   // capabilities after install so the native engine unlocks live.
   const engineComponent = useEngineComponent(applyEngineCapabilities);
+  // Track a format-failed file to replay once the mpv engine is enabled from
+  // the Playback Failed modal (the retry effect below fires when it's ready).
+  const pendingMpvRetryRef = useRef<QueueTrack | null>(null);
   const trackVideoHistoryRef = useRef(true);
   const [trackVideoHistory, setTrackVideoHistory] = useState(true);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
@@ -2517,6 +2521,9 @@ function App() {
 
   function handlePlaybackEngineChange(engine: "browser" | "native") {
     if (engine === playbackEngine) return;
+    // A manual switch cancels any pending "install mpv & retry" so the old
+    // failed track can't get auto-replayed by the retry effect.
+    pendingMpvRetryRef.current = null;
     // Clean cut: no mid-track engine handoff. The user re-starts playback on
     // whichever engine they switched to.
     playback.handleStop();
@@ -2525,6 +2532,37 @@ function App() {
       console.error("Failed to persist playbackEngine:", e);
     });
   }
+
+  // Playback Failed modal → "Install mpv engine & play": download libmpv if
+  // needed, switch to the native engine, and replay the file that WKWebView
+  // couldn't. The replay is deferred to the effect below so it runs after
+  // mpvCapable/playbackEngine (and useNativeEngineRef) have settled.
+  async function handleEnableMpvAndRetry() {
+    const track = playback.failedTrack;
+    if (!track) return;
+    pendingMpvRetryRef.current = track;
+    try {
+      if (!mpvCapable) {
+        await engineComponent.install(); // refreshes capabilities → flips mpvCapable
+      }
+      setPlaybackEngine("native");
+      store.set("playbackEngine", "native").catch((e) => {
+        console.error("Failed to persist playbackEngine:", e);
+      });
+      playback.clearPlaybackError();
+    } catch (e) {
+      console.error("Failed to enable the mpv engine for playback:", e);
+      pendingMpvRetryRef.current = null; // leave the error modal up to Skip/Dismiss
+    }
+  }
+
+  useEffect(() => {
+    const track = pendingMpvRetryRef.current;
+    if (track && mpvCapable && playbackEngine === "native") {
+      pendingMpvRetryRef.current = null;
+      playback.handlePlay(track, "user");
+    }
+  }, [mpvCapable, playbackEngine]);
 
   function handleAudioExclusiveChange(enabled: boolean) {
     setAudioExclusive(enabled);
@@ -4081,12 +4119,23 @@ function App() {
         <PlaybackErrorModal
           error={playback.playbackError}
           trackTitle={playback.failedTrack?.title ?? null}
-          onDismiss={playback.clearPlaybackError}
-          onSkip={() => { playback.clearPlaybackError(); handleNext(); }}
+          onDismiss={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); }}
+          onSkip={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); handleNext(); }}
           onSearchYoutube={playback.failedTrack ? () => {
             const ft = playback.failedTrack!;
             contextMenuActions.watchOnYoutube(ft.title, ft.artist_name ?? null, ft.duration_secs ?? null);
           } : undefined}
+          mpvSuggestion={
+            isFormatPlaybackError(playback.playbackError)
+              && !(mpvCapable && playbackEngine === "native")
+              && (mpvCapable || (engineComponent.status?.available ?? false))
+              ? {
+                  needsInstall: !mpvCapable,
+                  installing: engineComponent.installing !== null,
+                  onEnable: handleEnableMpvAndRetry,
+                }
+              : null
+          }
         />
       )}
 
