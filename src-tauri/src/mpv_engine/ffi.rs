@@ -49,14 +49,10 @@ pub const MPV_EVENT_END_FILE: mpv_event_id = 7;
 pub const MPV_EVENT_FILE_LOADED: mpv_event_id = 8;
 /// Deprecated event still delivered by default; the engine turns it off.
 pub const MPV_EVENT_IDLE: mpv_event_id = 11;
-/// Video output (re)configured — fires when a new file's video params are
-/// known and the first frame is about to be painted. Later than `time-pos`,
-/// which advances before the VO has anything on screen.
-pub const MPV_EVENT_VIDEO_RECONFIG: mpv_event_id = 17;
 /// Playback (re)started after load/seek — mpv has decoded and is displaying the
-/// first frame of the new content. Later than `VideoReconfig` (which fires when
-/// the VO is merely reconfigured), so it's the stronger "frame is on screen"
-/// signal on self-presenting VOs (Windows `vo=gpu`).
+/// first frame of the new content. Later than `time-pos`/video reconfig, so the
+/// truest "frame is on screen" signal on self-presenting VOs (Windows `vo=gpu`);
+/// the frontend reveals the native video hole on it.
 pub const MPV_EVENT_PLAYBACK_RESTART: mpv_event_id = 21;
 pub const MPV_EVENT_PROPERTY_CHANGE: mpv_event_id = 22;
 

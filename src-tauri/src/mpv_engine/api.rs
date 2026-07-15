@@ -208,11 +208,9 @@ pub enum Event {
     StartFile,
     FileLoaded,
     EndFile(u32),
-    /// Video output (re)configured — the accurate "first frame is coming up"
-    /// signal. `time-pos` starts advancing earlier, before the VO paints.
-    VideoReconfig,
     /// Playback (re)started — mpv is now displaying the first frame after a
-    /// load/seek. Later than `VideoReconfig`.
+    /// load/seek. Later than `time-pos`/`VideoReconfig`, so the truest
+    /// "frame is on screen" signal for revealing the native video surface.
     PlaybackRestart,
     PropertyChange {
         name: String,
@@ -343,7 +341,6 @@ impl Mpv {
             ffi::MPV_EVENT_SHUTDOWN => Some(Ok(Event::Shutdown)),
             ffi::MPV_EVENT_START_FILE => Some(Ok(Event::StartFile)),
             ffi::MPV_EVENT_FILE_LOADED => Some(Ok(Event::FileLoaded)),
-            ffi::MPV_EVENT_VIDEO_RECONFIG => Some(Ok(Event::VideoReconfig)),
             ffi::MPV_EVENT_PLAYBACK_RESTART => Some(Ok(Event::PlaybackRestart)),
             ffi::MPV_EVENT_END_FILE => {
                 let end = unsafe { &*(raw.data as *const ffi::mpv_event_end_file) };

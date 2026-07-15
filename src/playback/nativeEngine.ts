@@ -30,16 +30,11 @@ export interface EngineEndedEvent {
   trackKey: string;
 }
 
-/** mpv reconfigured its video output — the accurate "first frame is on screen"
- * signal for a video session. Position ticks advance earlier (before the VO
- * paints), so the frontend waits for this before revealing the native surface
- * to avoid a desktop/background flash at video start. */
-export interface EngineVideoReconfigEvent {
-  trackKey: string;
-}
-
-/** mpv (re)started playback after load/seek — displaying the first frame. Later
- * than video-reconfig; a candidate "surface is ready to reveal" signal. */
+/** mpv (re)started playback after load/seek — it is now displaying the first
+ * frame. The decode clock (position) and VO reconfig both fire earlier, before
+ * the frame is actually on screen, so this is the signal the video pipeline
+ * waits for before revealing the native surface (avoids a background/desktop
+ * flash at video start). */
 export interface EnginePlaybackRestartEvent {
   trackKey: string;
 }

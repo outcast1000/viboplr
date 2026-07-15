@@ -13,7 +13,6 @@ import {
   type EngineDurationEvent,
   type EngineTrackChangedEvent,
   type EngineEndedEvent,
-  type EngineVideoReconfigEvent,
   type EnginePlaybackRestartEvent,
   type EngineStateEvent,
   type EngineErrorEvent,
@@ -227,16 +226,15 @@ export function usePlayback(
   // the container bounds while this is set.
   const [nativeVideoActive, setNativeVideoActive] = useState(false);
   // True once the current native video session is actually presenting frames
-  // (the `engine-video-reconfig` signal — mpv's first frame is on screen; NOT
-  // `engine-position`, whose clock advances before the VO paints). App keeps the
-  // see-through hole opaque until this flips, so a fresh start never reveals the
-  // transparent window before mpv has painted into the child. Reset per session
-  // start; a fallback timer flips it even if no reconfig arrives (stall safety).
+  // (the `engine-playback-restart` signal — mpv is displaying its first frame;
+  // NOT `engine-position`/VO-reconfig, which fire before the frame is on
+  // screen). App keeps the see-through hole opaque until this flips, so a fresh
+  // start never reveals the transparent window before mpv has painted into the
+  // child. Reset per session start; a fallback timer flips it even if the
+  // signal never arrives (stall safety).
   const [nativeVideoPresenting, setNativeVideoPresenting] = useState(false);
   const nativeVideoPresentingRef = useRef(false);
   const presentingFallbackRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // VDBG: one-shot guard so we only log the FIRST engine-position per session.
-  const firstPosLoggedRef = useRef<string | null>(null);
   // Fullscreen for native video sessions = WINDOW fullscreen + the
   // `.video-container--native-fs` full-window pin (DOM element-fullscreen
   // would move the webview to its own space, away from the native layer).
@@ -577,11 +575,10 @@ export function usePlayback(
   // FIRST (mpv's first frame is up behind the transparent hole), then remove the
   // preview one frame later: the preview still and mpv's first frame are the
   // same picture, so this hands off with no gap to background/desktop. Idempotent
-  // (first caller wins); driven by `engine-video-reconfig`, with the fallback
+  // (first caller wins); driven by `engine-playback-restart`, with the fallback
   // timer as a stall backstop.
   function markNativeVideoPresenting() {
     if (nativeVideoPresentingRef.current) return;
-    logPlayback(`VDBG markPresenting t=${Math.round(performance.now())} nativeSession=${!!nativeSessionRef.current} — reveal hole + clear preview`);
     nativeVideoPresentingRef.current = true;
     setNativeVideoPresenting(true);
     clearTimeout(presentingFallbackRef.current);
@@ -945,16 +942,11 @@ export function usePlayback(
         nativeLastPositionRef.current = payload.positionSecs;
         setPlaybackPosition(payload.positionSecs);
 
-        if (firstPosLoggedRef.current !== payload.trackKey) {
-          firstPosLoggedRef.current = payload.trackKey;
-          logPlayback(`VDBG recv first-position t=${Math.round(performance.now())} pos=${payload.positionSecs.toFixed(3)} presenting=${nativeVideoPresentingRef.current}`);
-        }
-
         // NOTE: presenting is NOT flipped here. `time-pos` advances before the
         // video output has painted a frame into the native surface, so revealing
         // the see-through hole on the first tick flashes the empty window
         // (background, then desktop) until mpv's real first present. The
-        // accurate signal is `engine-video-reconfig` below.
+        // accurate signal is `engine-playback-restart` (see its subscription).
 
         // Scrobble threshold — mirrors onTimeUpdate (native sessions are
         // always audio, but keep the video-history gate for symmetry).
@@ -1032,20 +1024,13 @@ export function usePlayback(
         setIcyTitle(null);
         onNativeAutoEndedRef.current();
       }),
-      subscribe<EngineVideoReconfigEvent>("engine-video-reconfig", ({ payload }) => {
-        // Observe-only: fires when the VO is reconfigured — earlier than the
-        // real first present on Windows vo=gpu, so revealing here flashed the
-        // desktop. The reveal is driven by playback-restart below instead.
-        const match = nativeSessionRef.current?.key === payload.trackKey;
-        logPlayback(`VDBG recv video-reconfig t=${Math.round(performance.now())} match=${match} key=${payload.trackKey}`);
-      }),
       subscribe<EnginePlaybackRestartEvent>("engine-playback-restart", ({ payload }) => {
         // mpv is now displaying the first frame after load — the accurate
-        // "surface has real pixels" signal. Reveal the native hole now (held
-        // opaque, with the preview frame bridging, since the session started).
-        const match = nativeSessionRef.current?.key === payload.trackKey;
-        logPlayback(`VDBG recv playback-restart t=${Math.round(performance.now())} match=${match} key=${payload.trackKey}`);
-        if (!match) return;
+        // "surface has real pixels" signal (the decode clock / VO reconfig both
+        // fire earlier, before the frame is actually on screen). Reveal the
+        // native hole now; it's been held opaque, with the restored preview
+        // frame bridging it, since the session started.
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
         markNativeVideoPresenting();
       }),
       subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
@@ -1301,7 +1286,6 @@ export function usePlayback(
       useNativeEngineRef.current &&
       useNativeVideoRef.current &&
       !nativeBlockedKeysRef.current.has(track.key);
-    logPlayback(`VDBG handlePlay t=${Math.round(performance.now())} key=${track.key} video=${isVideoTrack(track)} keepPreviewFrame=${keepPreviewFrame} previewMatch=${previewLoadedKeyRef.current === track.key} nativeEngine=${useNativeEngineRef.current} nativeVideo=${useNativeVideoRef.current} blocked=${nativeBlockedKeysRef.current.has(track.key)}`);
     // A real playback session supersedes any restored preview frame.
     previewLoadedKeyRef.current = null;
     if (eqEnabledRef.current) ensureAudioGraph();
@@ -1526,7 +1510,7 @@ export function usePlayback(
       nativeLastPositionRef.current = seekTo > 0 ? seekTo : 0;
       nativeSessionRef.current = { key: track.key };
       // New session: hold the hole opaque until this session's first frame
-      // presents (engine-video-reconfig) or the fallback fires, so start never
+      // presents (engine-playback-restart) or the fallback fires, so start never
       // flashes transparent over an empty native surface.
       nativeVideoPresentingRef.current = false;
       setNativeVideoPresenting(false);
@@ -1534,7 +1518,6 @@ export function usePlayback(
       if (isVideo) {
         presentingFallbackRef.current = setTimeout(markNativeVideoPresenting, 1500);
       }
-      logPlayback(`VDBG native-play begin t=${Math.round(performance.now())} isVideo=${isVideo} key=${track.key} videoElHasSrc=${!!videoRef.current?.src}`);
       try {
         await nativeEngine.play({
           source: engineSource,
@@ -1546,7 +1529,6 @@ export function usePlayback(
         });
         setPlaying(true);
         setNativeVideoActive(isVideo);
-        logPlayback(`VDBG native-play resolved t=${Math.round(performance.now())} nativeVideoActive=${isVideo} videoElHasSrc=${!!videoRef.current?.src}`);
         return;
       } catch (e) {
         console.error("Native engine play failed, falling back to browser engine:", e);
