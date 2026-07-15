@@ -39,11 +39,11 @@ function useReadyFrameProjection(
   }, [readyFrames, trackIds]);
 }
 
-// A video-frame candidate: a metadata key plus a way to resolve its library
+// A video-frame candidate: a path-based key plus a way to resolve its library
 // track id. The id-resolution is the ONLY thing that differs between the queue
 // and shelf surfaces — everything downstream is shared.
 interface VideoFrameCandidate {
-  key: string; // shelfVideoKey(artist, title)
+  key: string; // shelfVideoKey(path)
   resolveId: () => Promise<number | null>;
 }
 
