@@ -21,6 +21,8 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { nextTriState } from "../likeKeys";
 import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel } from "../utils/autoPlaylist";
 import { useImageCache } from "../hooks/useImageCache";
+import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
+import { resolveTrackImage, pickEntityImagePath } from "../utils/trackImage";
 import "./PlaylistsView.css";
 
 interface Playlist {
@@ -401,26 +403,48 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     return resolveImageUrl(resolved) ?? playlistDefault;
   }, [artistImages]);
 
-  // Per-track artwork via the live entity-image chain: album image → artist
-  // image. getImage requests a fetch on a disk miss and the *-image-ready events
-  // refresh the cache, so a row that started on the artist fallback upgrades to
-  // the album cover once it's retrieved (and a missing image still gets
-  // requested). Mirrors the Home shelf / queue chains — unlike the old
-  // resolve-once pass, which read get_entity_image directly (disk-only, never
-  // fetched, never upgraded).
-  const trackImagePath = useCallback((t: PlaylistTrack): string | null => {
-    if (t.image_path) return t.image_path;
-    return (t.album_name ? albumImages.getImage(t.album_name, t.artist_name ?? null) : null)
-      ?? (t.artist_name ? artistImages.getImage(t.artist_name) : null);
-  }, [albumImages, artistImages]);
+  // Per-track artwork via the shared render-time chain (resolveTrackImage):
+  // explicit image → video first-frame → album image → artist image. Album/artist
+  // go through useImageCache (fetches on a disk miss and refreshes on the
+  // *-image-ready events, so a row upgrades from the artist fallback to the album
+  // cover once retrieved). Video frames come from the queue's on-demand extractor
+  // via useQueueVideoFrames (keyed by artist::title), so a video row shows its
+  // captured first frame instead of the generic disc — matching the queue panel,
+  // which previously had this branch when the playlist detail didn't. Returns a
+  // ready-to-render url (the video frame is already a converted asset URL and is
+  // used verbatim; every other candidate goes through resolveImageUrl inside).
+  const videoFrameProxy = useMemo(() => tracks.map(playlistTrackToMinimalTrack), [tracks]);
+  const videoFrames = useQueueVideoFrames(videoFrameProxy);
+
+  const resolvedTrackImage = useCallback((t: PlaylistTrack): string | null =>
+    resolveTrackImage(
+      { title: t.title, artist_name: t.artist_name, album_title: t.album_name, image_url: t.image_path ?? undefined },
+      {
+        albumImageFor: albumImages.getImage,
+        artistImageFor: artistImages.getImage,
+        videoFrame: videoFrames[shelfVideoKey(t.artist_name, t.title)] ?? null,
+      },
+    ),
+  [videoFrames, albumImages, artistImages]);
 
   // Per-row thumbnail. Falls back to the shared disc placeholder (the same
   // default every other track surface uses — Library list, queue, history) when
-  // no album/artist art resolves, rather than the playlist cover image.
+  // no art resolves, rather than the playlist cover image.
   const trackThumb = useCallback((t: PlaylistTrack): TrackRowThumb => {
-    const url = resolveImageUrl(trackImagePath(t));
+    const url = resolvedTrackImage(t);
     return url ? { kind: "image", url } : { kind: "disc" };
-  }, [trackImagePath]);
+  }, [resolvedTrackImage]);
+
+  // Raw (unconverted) entity-image path for the radio seed's coverPath: startRadio
+  // stamps it as a PlaylistContext imagePath and converts it downstream, so it
+  // must stay raw — and must not be a video frame (already converted, and not a
+  // meaningful station cover). Album image → artist image, no video branch.
+  const rawTrackImagePath = useCallback((t: PlaylistTrack): string | null =>
+    t.image_path ?? pickEntityImagePath(
+      { title: t.title, artist_name: t.artist_name, album_title: t.album_name },
+      { albumImageFor: albumImages.getImage, artistImageFor: artistImages.getImage },
+    ),
+  [albumImages, artistImages]);
 
   // Hero background: the playlist cover if set, else a collage of up to 4 distinct
   // resolved track images (same idea as the artist hero's album collage).
@@ -432,14 +456,14 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     const out: string[] = [];
     const seen = new Set<string>();
     for (const t of tracks) {
-      const u = resolveImageUrl(trackImagePath(t));
+      const u = resolvedTrackImage(t);
       if (!u || seen.has(u)) continue;
       seen.add(u);
       out.push(u);
       if (out.length === 4) break;
     }
     return out;
-  }, [selectedPlaylist, tracks, trackImagePath, imageUrl]);
+  }, [selectedPlaylist, tracks, resolvedTrackImage, imageUrl]);
 
   // Track-content matches come from the backend (covers materialized rows and the
   // liked/disliked entity_likes projection); name/description match client-side.
@@ -621,7 +645,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
               actions={{
                 onPlay: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null),
                 onEnqueue: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]),
-                onStartRadio: onStartRadio ? () => onStartRadio({ title: t.title, artistName: t.artist_name, coverPath: trackImagePath(t) }) : undefined,
+                onStartRadio: onStartRadio ? () => onStartRadio({ title: t.title, artistName: t.artist_name, coverPath: rawTrackImagePath(t) }) : undefined,
                 onDetails: onLocateTrack ? () => onLocateTrack(t.title, t.artist_name, t.album_name) : undefined,
               }}
             />
