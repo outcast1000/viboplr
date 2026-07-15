@@ -96,6 +96,17 @@ pub fn engine_set_audio_exclusive(
     state.mpv_engine.set_audio_exclusive(enabled)
 }
 
+/// Letterbox / uncovered-window fill for native video, so it matches the active
+/// skin's `--bg-primary` instead of mpv's default black. `color` is an mpv color
+/// string (e.g. `#RRGGBB`). Cached on the handle when the engine isn't running.
+#[tauri::command]
+pub fn engine_set_video_background(
+    state: tauri::State<'_, super::AppState>,
+    color: String,
+) -> Result<(), String> {
+    state.mpv_engine.set_video_background(color)
+}
+
 /// Live codec/samplerate/format/bitrate of whatever the engine is decoding,
 /// or null when no native session is playing.
 #[tauri::command]

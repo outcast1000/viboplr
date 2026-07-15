@@ -184,6 +184,12 @@ export const nativeEngine = {
   setAudioExclusive(enabled: boolean): Promise<void> {
     return whenCapable(() => invoke("engine_set_audio_exclusive", { enabled }));
   },
+  /** Letterbox / uncovered-window fill for native video, matched to the active
+   * skin's --bg-primary (mpv paints black there by default). `color` is an mpv
+   * color string (e.g. "#RRGGBB"). Cached backend-side until the engine runs. */
+  setVideoBackground(color: string): Promise<void> {
+    return whenCapable(() => invoke("engine_set_video_background", { color }));
+  },
   /** What the engine is decoding right now, or null (no native session /
    * incapable build). */
   getAudioInfo(): Promise<EngineAudioInfo | null> {
