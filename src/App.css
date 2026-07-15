@@ -1378,7 +1378,7 @@
   color: var(--text-secondary);
 }
 
-/* Branded cover for the Liked / Disliked Songs detail hero (no stored image). */
+/* Branded cover for the Liked / Disliked Tracks detail hero (no stored image). */
 .playlist-hero-system-cover {
   width: 100%;
   height: 100%;

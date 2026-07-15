@@ -165,21 +165,33 @@ impl Database {
         Ok(())
     }
 
-    /// Create the two protected system playlists if missing. Idempotent.
+    /// Create the two protected system playlists if missing, and keep their
+    /// display names at the canonical value. Idempotent — runs every startup, so
+    /// databases created before a rename (e.g. the legacy "Liked Songs" /
+    /// "Disliked Songs") are migrated to the current name in place.
     pub fn ensure_system_playlists(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        for (kind, name) in [("liked", "Liked Songs"), ("disliked", "Disliked Songs")] {
-            // Check if playlist already exists
-            let exists: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM playlists WHERE system_kind = ?1",
+        for (kind, name) in [("liked", "Liked Tracks"), ("disliked", "Disliked Tracks")] {
+            let existing: Option<String> = conn.query_row(
+                "SELECT name FROM playlists WHERE system_kind = ?1",
                 params![kind],
                 |r| r.get(0),
-            )?;
-            if exists == 0 {
-                conn.execute(
-                    "INSERT INTO playlists (name, system_kind) VALUES (?1, ?2)",
-                    params![name, kind],
-                )?;
+            ).optional()?;
+            match existing {
+                None => {
+                    conn.execute(
+                        "INSERT INTO playlists (name, system_kind) VALUES (?1, ?2)",
+                        params![name, kind],
+                    )?;
+                }
+                // Rename a legacy system playlist to the current canonical name.
+                Some(current) if current != name => {
+                    conn.execute(
+                        "UPDATE playlists SET name = ?1 WHERE system_kind = ?2",
+                        params![name, kind],
+                    )?;
+                }
+                _ => {}
             }
         }
         Ok(())

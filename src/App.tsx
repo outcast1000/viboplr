@@ -3507,6 +3507,8 @@ function App() {
               pluginMenuItems={plugins.menuItems}
               onPluginAction={plugins.dispatchContextMenuAction}
               onTrackDragStart={contextMenuActions.handleTrackDragStart}
+              onToggleLike={likeActions.handleToggleLike}
+              onToggleDislike={likeActions.handleToggleDislike}
             />
           )}
 

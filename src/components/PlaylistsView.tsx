@@ -11,12 +11,14 @@ import { nextExternalKey } from "../queueEntry";
 import type { ExportTrack } from "./MixtapeExportModal";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
-import { TrackRow } from "./TrackRow";
+import { TrackRow, type TrackRowThumb } from "./TrackRow";
 import { ViewSearchBar } from "./ViewSearchBar";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { nextTriState } from "../likeKeys";
 import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel } from "../utils/autoPlaylist";
 import { useImageCache } from "../hooks/useImageCache";
 import "./PlaylistsView.css";
@@ -84,6 +86,11 @@ interface PlaylistsViewProps {
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
   onTrackDragStart?: (tracks: QueueTrack[]) => void;
+  // Canonical like/dislike (useLikeActions) — metadata-keyed, so a track can be
+  // unliked here even when it's no longer in the library. On the "Liked Tracks"
+  // system playlist an unlike drops the row on the next entity_likes reload.
+  onToggleLike?: (track: QueueTrack) => void;
+  onToggleDislike?: (track: QueueTrack) => void;
 }
 
 function isLocalPath(source: string | null): boolean {
@@ -122,7 +129,7 @@ function computeRowSelection(
   return new Set([ids[clickedIndex]]);
 }
 
-export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onLocateTrack, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart }: PlaylistsViewProps) {
+export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onLocateTrack, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart, onToggleLike, onToggleDislike }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
@@ -200,8 +207,13 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   useEffect(() => {
     const stopLikes = subscribe("entity-likes-changed", () => {
       loadPlaylists().catch(console.error);
+      // Reconcile the open playlist's rows from the durable entity_likes store so
+      // the per-row like indicator stays correct. For the projected "Liked/Disliked
+      // Tracks" system playlists this also re-runs the projection, so an unliked
+      // track drops out of the list. (Reading uses `prev` to avoid the stale-closure
+      // capture of selectedPlaylist inside this long-lived subscription.)
       setSelectedPlaylist(prev => {
-        if (prev && prev.system_kind) {
+        if (prev) {
           loadPlaylistTracks(prev.id)
             .then(setTracks)
             .catch(console.error);
@@ -268,6 +280,18 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }, [tracks, selectedTrackIds, onTrackDragStart]);
+
+  // Like/dislike a detail row through the canonical metadata-keyed path
+  // (useLikeActions, wired from App). The row is reflected optimistically for
+  // instant feedback; the entity-likes-changed reload then reconciles the
+  // authoritative state — and on "Liked/Disliked Tracks" re-projects the list so
+  // a no-longer-qualifying track drops out.
+  const rateTrack = useCallback((t: PlaylistTrack, action: "like" | "dislike") => {
+    const qt = playlistTrackToMinimalTrack(t);
+    setTracks(prev => prev.map(x => (x.id === t.id ? { ...x, liked: nextTriState(x.liked ?? 0, action) } : x)));
+    if (action === "like") onToggleLike?.(qt);
+    else onToggleDislike?.(qt);
+  }, [onToggleLike, onToggleDislike]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteConfirm) return;
@@ -390,8 +414,12 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       ?? (t.artist_name ? artistImages.getImage(t.artist_name) : null);
   }, [albumImages, artistImages]);
 
-  const trackImageSrc = useCallback((t: PlaylistTrack): string => {
-    return resolveImageUrl(trackImagePath(t)) ?? playlistDefault;
+  // Per-row thumbnail. Falls back to the shared disc placeholder (the same
+  // default every other track surface uses — Library list, queue, history) when
+  // no album/artist art resolves, rather than the playlist cover image.
+  const trackThumb = useCallback((t: PlaylistTrack): TrackRowThumb => {
+    const url = resolveImageUrl(trackImagePath(t));
+    return url ? { kind: "image", url } : { kind: "disc" };
   }, [trackImagePath]);
 
   // Hero background: the playlist cover if set, else a collage of up to 4 distinct
@@ -517,7 +545,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       ? heroBgImages
       : autoArtistSrc ? [autoArtistSrc] : [];
 
-    // Liked / Disliked Songs carry no image_path; give them the same branded
+    // Liked / Disliked Tracks carry no image_path; give them the same branded
     // gradient + icon cover as their list shortcut instead of the generic disc.
     const detailArt = isProtectedSystem(selectedPlaylist) && !selectedPlaylist.image_path ? (
       <div className={`playlist-hero-system-cover playlist-hero-system-cover--${selectedPlaylist.system_kind}`}>
@@ -549,7 +577,16 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
           {tracks.map((t, index) => (
             <TrackRow
               key={t.id}
-              thumb={{ kind: "image", url: trackImageSrc(t) }}
+              thumb={trackThumb(t)}
+              leading={onToggleLike ? (
+                <LikeDislikeButtons
+                  liked={t.liked ?? 0}
+                  onToggleLike={() => rateTrack(t, "like")}
+                  onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
+                  variant="inline"
+                  size={12}
+                />
+              ) : undefined}
               title={t.title}
               selected={selectedTrackIds.has(t.id)}
               onClick={(e) => handleRowClick(e, index)}

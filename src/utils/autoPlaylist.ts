@@ -19,7 +19,7 @@ export function isAuto(p: PlaylistLike): boolean {
   return !!p.system_kind && p.system_kind.startsWith("auto:");
 }
 
-/** A protected, undeletable system playlist (Liked / Disliked Songs). */
+/** A protected, undeletable system playlist (Liked / Disliked Tracks). */
 export function isProtectedSystem(p: PlaylistLike): boolean {
   return p.system_kind === "liked" || p.system_kind === "disliked";
 }
