@@ -407,13 +407,12 @@ pub async fn extract_video_frames(
             return Err(format!("Video file not found: {}", fs_path));
         }
 
-        let video_exts = ["mp4", "m4v", "mov", "webm"];
         let is_video = video_path.extension()
             .and_then(|e| e.to_str())
-            .map(|e| video_exts.contains(&e.to_lowercase().as_str()))
+            .map(|e| crate::scanner::VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
             .unwrap_or(false);
         if !is_video {
-            return Err("Track is not a video file".to_string());
+            return Err(format!("Track is not a supported video file: {}", fs_path));
         }
 
         let (paths, timestamps) = crate::video_frames::extract_frames(&app_dir, track_id, video_path)?;

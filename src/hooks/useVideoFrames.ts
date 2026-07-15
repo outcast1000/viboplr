@@ -65,7 +65,7 @@ export function useVideoFrames(track: Track | null): VideoFramesState {
           if (result.timestamps) setTimestamps(result.timestamps);
         }
       } catch (e) {
-        console.error("Failed to extract video frames:", e);
+        console.error(`Failed to extract video frames for ${track.path}:`, e);
       } finally {
         if (!cancelled) setLoading(false);
       }

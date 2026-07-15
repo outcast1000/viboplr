@@ -15,7 +15,7 @@ const AUDIO_EXTENSIONS: &[&str] = &[
     "mp3", "flac", "aac", "m4a", "wav", "opus", "alac", "wma",
 ];
 
-const VIDEO_EXTENSIONS: &[&str] = &[
+pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv",
 ];
 
