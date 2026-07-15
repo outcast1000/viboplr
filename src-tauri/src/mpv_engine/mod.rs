@@ -64,6 +64,10 @@ struct DspSettings {
     rg: ReplayGainParams,
     /// Exclusive audio-device access (CoreAudio hog mode / WASAPI exclusive).
     exclusive: bool,
+    /// Letterbox / uncovered-window fill for native video (mpv `background-color`),
+    /// pushed from the frontend to match the active skin's `--bg-primary`. None =
+    /// leave mpv's default (black).
+    video_bg: Option<String>,
 }
 
 /// Live audio-stream facts read off the active deck — what's actually being
@@ -109,6 +113,9 @@ impl EngineHandle {
         engine.apply_eq(&dsp.eq)?;
         engine.apply_replaygain(&dsp.rg)?;
         engine.apply_audio_exclusive(dsp.exclusive)?;
+        if let Some(ref bg) = dsp.video_bg {
+            engine.apply_video_background(bg);
+        }
         // Give the static-OpenSSL TLS stack a CA store (see set_tls_ca_file).
         // On failure we log and leave verification ON — https sources then
         // fail closed and fall back to the browser engine per-track.
@@ -150,6 +157,14 @@ impl EngineHandle {
             Some(engine) => engine.apply_audio_exclusive(enabled),
             None => Ok(()),
         }
+    }
+
+    pub fn set_video_background(&self, color: String) -> Result<(), String> {
+        self.pending_dsp.lock().unwrap().video_bg = Some(color.clone());
+        if let Some(engine) = self.get() {
+            engine.apply_video_background(&color);
+        }
+        Ok(())
     }
 }
 
@@ -891,6 +906,23 @@ impl Engine {
         Ok(())
     }
 
+    /// Letterbox / uncovered-window fill for native video. mpv paints black
+    /// there by default; this matches it to the app skin's `--bg-primary`.
+    /// Non-fatal: a bad/unsupported color must never break playback, so errors
+    /// are logged, not propagated. (On `vo=gpu` the border may still fall back
+    /// to black — coloring it fully is a `vo=gpu-next` `--border-background`
+    /// feature — but transparent-frame fill and any honoring VO pick this up.)
+    pub fn apply_video_background(&self, color: &str) {
+        for deck in &self.decks {
+            // `background=color` is the default fill mode; set it defensively in
+            // case a profile changed it, then the color itself.
+            let _ = deck.mpv.set_property("background", "color");
+            if let Err(e) = deck.mpv.set_property("background-color", color) {
+                log::warn!("mpv-engine: background-color failed: {e}");
+            }
+        }
+    }
+
     pub fn apply_replaygain(&self, rg: &ReplayGainParams) -> Result<(), String> {
         for deck in &self.decks {
             deck.mpv
@@ -994,6 +1026,19 @@ fn run_event_loop(
                     if let Err(e) = client.command("seek", &[&format!("{secs:.3}"), "absolute"]) {
                         log::error!("mpv-engine: pending seek failed: {e}");
                     }
+                }
+            }
+            Ok(Event::PlaybackRestart) => {
+                // mpv is now displaying the first frame after load/seek. This is
+                // the accurate "frame is on screen" signal (StartFile / time-pos
+                // / video-reconfig all fire earlier, before the VO has actually
+                // painted), so the frontend reveals the native video hole on it.
+                let key = {
+                    let st = state.lock().unwrap();
+                    if deck != st.active { None } else { st.current_key.clone() }
+                };
+                if let Some(key) = key {
+                    sink("engine-playback-restart", json!({ "trackKey": key }));
                 }
             }
             Ok(Event::EndFile(reason)) => {

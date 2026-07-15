@@ -294,6 +294,7 @@ macro_rules! invoke_handler {
             commands::engine_start_crossfade,
             commands::engine_set_video_bounds,
             commands::engine_set_audio_exclusive,
+            commands::engine_set_video_background,
             commands::engine_get_audio_info,
             commands::app_update_check,
             commands::app_update_install,

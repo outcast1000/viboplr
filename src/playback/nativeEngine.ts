@@ -30,6 +30,15 @@ export interface EngineEndedEvent {
   trackKey: string;
 }
 
+/** mpv (re)started playback after load/seek — it is now displaying the first
+ * frame. The decode clock (position) and VO reconfig both fire earlier, before
+ * the frame is actually on screen, so this is the signal the video pipeline
+ * waits for before revealing the native surface (avoids a background/desktop
+ * flash at video start). */
+export interface EnginePlaybackRestartEvent {
+  trackKey: string;
+}
+
 export interface EngineStateEvent {
   playing: boolean;
   trackKey: string | null;
@@ -174,6 +183,12 @@ export const nativeEngine = {
    * the engine forces gapless-only arming while it's on. */
   setAudioExclusive(enabled: boolean): Promise<void> {
     return whenCapable(() => invoke("engine_set_audio_exclusive", { enabled }));
+  },
+  /** Letterbox / uncovered-window fill for native video, matched to the active
+   * skin's --bg-primary (mpv paints black there by default). `color` is an mpv
+   * color string (e.g. "#RRGGBB"). Cached backend-side until the engine runs. */
+  setVideoBackground(color: string): Promise<void> {
+    return whenCapable(() => invoke("engine_set_video_background", { color }));
   },
   /** What the engine is decoding right now, or null (no native session /
    * incapable build). */

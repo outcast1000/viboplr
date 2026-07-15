@@ -13,6 +13,7 @@ import {
   type EngineDurationEvent,
   type EngineTrackChangedEvent,
   type EngineEndedEvent,
+  type EnginePlaybackRestartEvent,
   type EngineStateEvent,
   type EngineErrorEvent,
   type EngineIcyTitleEvent,
@@ -225,10 +226,12 @@ export function usePlayback(
   // the container bounds while this is set.
   const [nativeVideoActive, setNativeVideoActive] = useState(false);
   // True once the current native video session is actually presenting frames
-  // (first engine-position event). App keeps the see-through hole opaque until
-  // this flips, so a fresh start never reveals the transparent window before
-  // mpv has painted into the child. Reset per session start; a fallback timer
-  // flips it even if no position event arrives (stall safety).
+  // (the `engine-playback-restart` signal — mpv is displaying its first frame;
+  // NOT `engine-position`/VO-reconfig, which fire before the frame is on
+  // screen). App keeps the see-through hole opaque until this flips, so a fresh
+  // start never reveals the transparent window before mpv has painted into the
+  // child. Reset per session start; a fallback timer flips it even if the
+  // signal never arrives (stall safety).
   const [nativeVideoPresenting, setNativeVideoPresenting] = useState(false);
   const nativeVideoPresentingRef = useRef(false);
   const presentingFallbackRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -564,6 +567,26 @@ export function usePlayback(
     el.pause();
     el.removeAttribute("src");
     el.load();
+  }
+
+  // Reveal the native video surface for the current session: flip presenting so
+  // App drops the opaque backstop over the hole, and tear down any restored
+  // preview <video> frame that was bridging the gap. Ordering matters — reveal
+  // FIRST (mpv's first frame is up behind the transparent hole), then remove the
+  // preview one frame later: the preview still and mpv's first frame are the
+  // same picture, so this hands off with no gap to background/desktop. Idempotent
+  // (first caller wins); driven by `engine-playback-restart`, with the fallback
+  // timer as a stall backstop.
+  function markNativeVideoPresenting() {
+    if (nativeVideoPresentingRef.current) return;
+    nativeVideoPresentingRef.current = true;
+    setNativeVideoPresenting(true);
+    clearTimeout(presentingFallbackRef.current);
+    // Clear the preview frame a beat after the reveal, only while a native
+    // session still owns the element (a browser fallback may have reclaimed it).
+    requestAnimationFrame(() => {
+      if (nativeSessionRef.current) stopMediaElement(videoRef.current);
+    });
   }
 
   // ReplayGain --------------------------------------------------------------
@@ -919,16 +942,11 @@ export function usePlayback(
         nativeLastPositionRef.current = payload.positionSecs;
         setPlaybackPosition(payload.positionSecs);
 
-        // First position tick of a video session = frames are on screen; let
-        // App reveal the hole (until now it's held opaque to avoid the flash).
-        if (!nativeVideoPresentingRef.current) {
-          const t = currentTrackRef.current;
-          if (t && isVideoTrack(t)) {
-            nativeVideoPresentingRef.current = true;
-            setNativeVideoPresenting(true);
-            clearTimeout(presentingFallbackRef.current);
-          }
-        }
+        // NOTE: presenting is NOT flipped here. `time-pos` advances before the
+        // video output has painted a frame into the native surface, so revealing
+        // the see-through hole on the first tick flashes the empty window
+        // (background, then desktop) until mpv's real first present. The
+        // accurate signal is `engine-playback-restart` (see its subscription).
 
         // Scrobble threshold — mirrors onTimeUpdate (native sessions are
         // always audio, but keep the video-history gate for symmetry).
@@ -1005,6 +1023,15 @@ export function usePlayback(
         setNativeVideoActive(false);
         setIcyTitle(null);
         onNativeAutoEndedRef.current();
+      }),
+      subscribe<EnginePlaybackRestartEvent>("engine-playback-restart", ({ payload }) => {
+        // mpv is now displaying the first frame after load — the accurate
+        // "surface has real pixels" signal (the decode clock / VO reconfig both
+        // fire earlier, before the frame is actually on screen). Reveal the
+        // native hole now; it's been held opaque, with the restored preview
+        // frame bridging it, since the session started.
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        markNativeVideoPresenting();
       }),
       subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
         if (!nativeSessionRef.current) return;
@@ -1246,6 +1273,19 @@ export function usePlayback(
     // not-fully-stopped outgoing element can't start a fade against the replaced
     // track. Cleared in `finally` (guarded by generation).
     transitioningRef.current = true;
+    // If a decoded preview frame for THIS track is already painted in the
+    // <video> element and we're about to play it as native video, keep that
+    // frame up: it bridges the gap over the (opaque) hole until the native
+    // engine presents, instead of collapsing to the app background. It's torn
+    // down by markNativeVideoPresenting once mpv's first frame is on screen. A
+    // never-played preview fires no timeupdate/ended, so keeping it is safe from
+    // the stray-event concern below.
+    const keepPreviewFrame =
+      isVideoTrack(track) &&
+      previewLoadedKeyRef.current === track.key &&
+      useNativeEngineRef.current &&
+      useNativeVideoRef.current &&
+      !nativeBlockedKeysRef.current.has(track.key);
     // A real playback session supersedes any restored preview frame.
     previewLoadedKeyRef.current = null;
     if (eqEnabledRef.current) ensureAudioGraph();
@@ -1259,7 +1299,7 @@ export function usePlayback(
     // already-replaced queue. Detaching the source (stopMediaElement) removes both
     // the stray timeupdate and the stray `ended` at the source.
     [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
-    stopMediaElement(videoRef.current);
+    if (!keepPreviewFrame) stopMediaElement(videoRef.current);
     // Reuse in-flight preload resolution for the same track instead of starting over
     const inflight = preloadPromiseRef.current;
     const reusePreload = inflight !== null && inflight.key === track.key;
@@ -1314,7 +1354,7 @@ export function usePlayback(
       // Merge that metadata in so playWithSrc routes video → <video> and the
       // now-playing UI classifies it correctly via currentTrack.
       const playTrack = resolved.patch ? { ...track, ...resolved.patch } : track;
-      await playWithSrc(playTrack, resolved.src, source, resolved.engineSource);
+      await playWithSrc(playTrack, resolved.src, source, resolved.engineSource, keepPreviewFrame);
     } catch (e) {
       // A newer play request has superseded this one: its synchronous
       // pause/load aborted this request's in-flight play(). The rejection is
@@ -1411,7 +1451,7 @@ export function usePlayback(
     return true;
   }
 
-  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user", engineSource?: EngineSource | null) {
+  async function playWithSrc(track: QueueTrack, src: string, source: "user" | "auto" = "user", engineSource?: EngineSource | null, keepVideoElement = false) {
     // Claim the crossfade machinery, not just the elements. A fade may have
     // (re)started during the caller's async resolve window, and since this function
     // forces slot A below, a surviving interval would keep ramping the active slot's
@@ -1419,9 +1459,13 @@ export function usePlayback(
     // when no fade is running. (handlePlay/handlePlayUrl also gate the machine via
     // transitioningRef; this is the second line of defense at the moment of takeover.)
     cancelCrossfade();
-    // Stop all elements
+    // Stop all elements. The <video> is kept ONLY when a restored preview frame is
+    // bridging the hole for a native-video start (keepVideoElement) — tearing it
+    // down here is what collapsed the frame to the app background. markNativeVideo-
+    // Presenting clears it once mpv actually presents; the native branch below never
+    // uses the element, and the browser fallback path overwrites its src.
     [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
-    if (videoRef.current) {
+    if (videoRef.current && !keepVideoElement) {
       videoRef.current.pause();
       videoRef.current.removeAttribute("src");
       videoRef.current.load();
@@ -1466,17 +1510,13 @@ export function usePlayback(
       nativeLastPositionRef.current = seekTo > 0 ? seekTo : 0;
       nativeSessionRef.current = { key: track.key };
       // New session: hold the hole opaque until this session's first frame
-      // presents (or the fallback fires), so start never flashes transparent.
+      // presents (engine-playback-restart) or the fallback fires, so start never
+      // flashes transparent over an empty native surface.
       nativeVideoPresentingRef.current = false;
       setNativeVideoPresenting(false);
       clearTimeout(presentingFallbackRef.current);
       if (isVideo) {
-        presentingFallbackRef.current = setTimeout(() => {
-          if (!nativeVideoPresentingRef.current) {
-            nativeVideoPresentingRef.current = true;
-            setNativeVideoPresenting(true);
-          }
-        }, 1500);
+        presentingFallbackRef.current = setTimeout(markNativeVideoPresenting, 1500);
       }
       try {
         await nativeEngine.play({

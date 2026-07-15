@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
 import { BUILTIN_SKINS } from "../skins";
 import { generateSkinCSS, buildStarterSkin, skinSubmissionUrl, validateSkin } from "../skinUtils";
+import { nativeEngine } from "../playback/nativeEngine";
 import type { SkinInfo, SkinColors, GallerySkinEntry } from "../types/skin";
 import defaultSkin from "../skins/default.json";
 
@@ -25,6 +26,10 @@ function injectSkinCSS(skin: SkinInfo) {
   const colors = { ...defaultSkin.colors, ...skin.colors } as SkinColors;
   el.textContent = generateSkinCSS(colors, skin.customCSS);
   document.documentElement.dataset.skinType = skin.type;
+  // Match the native-video letterbox fill to the skin background (mpv paints
+  // black there by default). No-ops on the browser engine; cached backend-side
+  // until the native engine exists, so this can run before any playback.
+  nativeEngine.setVideoBackground(colors["bg-primary"]).catch(console.error);
 }
 
 export function useSkins() {
