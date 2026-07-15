@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { BUILTIN_SHELF_DESCRIPTORS, isShelfVisible } from "../hooks/useHome";
 import "./CustomizeHomeModal.css";
 
@@ -30,6 +30,21 @@ export interface CustomizeHomeModalProps {
 export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
   const titleById = new Map(BUILTIN_SHELF_DESCRIPTORS.map((d) => [d.id, d.title]));
   const descById = new Map(BUILTIN_SHELF_DESCRIPTORS.map((d) => [d.id, d.description]));
+
+  const [query, setQuery] = useState("");
+
+  const visibleCount = props.builtInOrder.filter((id) => isShelfVisible(id, props.visibility)).length;
+
+  const filteredOrder = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return props.builtInOrder;
+    return props.builtInOrder.filter((id) => {
+      const title = titleById.get(id) ?? id;
+      const desc = descById.get(id) ?? "";
+      return title.toLowerCase().includes(q) || desc.toLowerCase().includes(q);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, props.builtInOrder]);
 
   // Drag-reorder state for built-in rows. Refs drive the drag (no re-render churn);
   // the state mirrors are only for the dragging/drag-over visual styling.
@@ -125,37 +140,55 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
   }
 
   return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Customize Home</h2>
-        <p className="customize-home-hint">Drag to reorder. The first shown shelf becomes the carousel.</p>
+    <div className="ds-modal-overlay home-customize-overlay">
+      <div className="ds-modal ds-modal--lg customize-home-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="customize-home-header">
+          <h2 className="ds-modal-title">Customize Home</h2>
+          <span className="customize-home-count">{visibleCount} of {props.builtInOrder.length} shown</span>
+        </div>
+        <p className="customize-home-hint">Drag <span className="customize-home-handle-inline">⠿</span> to reorder. The first shown shelf becomes the carousel.</p>
+
+        <input
+          className="ds-search customize-home-search"
+          type="text"
+          placeholder="Search shelves…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
 
         <div className="customize-home-list">
-          {props.builtInOrder.map((id) => (
-            <div
-              key={id}
-              data-shelf-id={id}
-              className={
-                "customize-home-row" +
-                (draggingId === id ? " dragging" : "") +
-                (dragOverId === id ? " drag-over" : "")
-              }
-            >
-              <span
-                className="customize-home-handle"
-                onMouseDown={(e) => handleHandleMouseDown(e, id)}
-                title="Drag to reorder"
-              >⠿</span>
-              <div className="customize-home-text">
-                <span className="customize-home-title">{titleById.get(id) ?? id}</span>
-                {descById.get(id) && <span className="customize-home-desc">{descById.get(id)}</span>}
+          {filteredOrder.length === 0 && (
+            <div className="customize-home-empty">No shelves match "{query}"</div>
+          )}
+          {filteredOrder.map((id) => {
+            const visible = isShelfVisible(id, props.visibility);
+            return (
+              <div
+                key={id}
+                data-shelf-id={id}
+                className={
+                  "customize-home-row" +
+                  (visible ? "" : " off") +
+                  (draggingId === id ? " dragging" : "") +
+                  (dragOverId === id ? " drag-over" : "")
+                }
+              >
+                <span
+                  className="customize-home-handle"
+                  onMouseDown={(e) => handleHandleMouseDown(e, id)}
+                  title="Drag to reorder"
+                >⠿</span>
+                <div className="customize-home-text">
+                  <span className="customize-home-title">{titleById.get(id) ?? id}</span>
+                  {descById.get(id) && <span className="customize-home-desc">{descById.get(id)}</span>}
+                </div>
+                <Toggle
+                  checked={visible}
+                  onChange={() => props.onToggle(id)}
+                />
               </div>
-              <Toggle
-                checked={isShelfVisible(id, props.visibility)}
-                onChange={() => props.onToggle(id)}
-              />
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="ds-modal-actions">
