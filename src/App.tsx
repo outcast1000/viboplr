@@ -207,9 +207,9 @@ function App() {
     setMpvCapable(caps.mpv);
     setMpvVideoCapable(caps.video);
   }, []);
-  useEffect(() => {
-    probeEngineCapabilities().then(applyEngineCapabilities);
-  }, [applyEngineCapabilities]);
+  // The probe itself is kicked off inside the restore effect below (in
+  // parallel with the rest of restore, awaited right before appRestoring
+  // flips false) — see the comment there for why.
   // Downloadable libmpv component (Settings > Playback); re-probes
   // capabilities after install so the native engine unlocks live.
   const engineComponent = useEngineComponent(applyEngineCapabilities);
@@ -1640,6 +1640,16 @@ function App() {
   // Restore persisted state on mount
   useEffect(() => {
     (async () => {
+      // Kick off the mpv capability probe now, in parallel with the rest of
+      // restore below — it's awaited (never rejects; probeEngineCapabilities
+      // catches internally) right before appRestoring flips false, so
+      // mpvCapable/mpvVideoCapable are guaranteed settled by the time the
+      // restored queue/track become playable. Without this, the first play
+      // after launch (e.g. a restored video) could read a stale
+      // mpvCapable=false and fall through to the browser engine — invisible
+      // for most formats, but visible for codecs (e.g. HEVC) the webview
+      // <video> can't decode, which then fall to the ffmpeg transcode path.
+      const engineCapabilityPromise = probeEngineCapabilities().then(applyEngineCapabilities);
       try {
         await timeAsync("store.init", () => store.init());
         // Startup always lands on Home; `view` and selected-entity state are
@@ -1829,6 +1839,7 @@ function App() {
         console.error("Failed to restore state:", e);
         await getCurrentWindow().show();
       }
+      await timeAsync("engineCapabilities", () => engineCapabilityPromise);
       restoredRef.current = true;
       setAppRestoring(false);
       await Promise.all([
