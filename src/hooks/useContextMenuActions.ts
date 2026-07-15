@@ -284,6 +284,20 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         setFolderError(String(e));
       }
       setContextMenu(null);
+    } else if (cm && cm.target.kind === "video" && cm.target.track) {
+      const t = cm.target.track;
+      try {
+        const libId = parseLibraryId(t.key);
+        if (libId != null) {
+          await invoke("show_in_folder", { trackId: libId });
+        } else if (t.path) {
+          await invoke("show_in_folder_path", { filePath: t.path });
+        }
+      } catch (e) {
+        console.error("Failed to open containing folder:", e);
+        setFolderError(String(e));
+      }
+      setContextMenu(null);
     }
   }
 
@@ -342,6 +356,23 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         });
       } else if (localTracks.length > 0) {
         setDeleteError({ message: `Those tracks aren't in your library, so they can't be moved to the ${trashLabel}.`, failures: [] });
+      }
+    } else if (target.kind === "video" && target.track && target.track.isLocal) {
+      // The playing video is an id-less QueueTrack: resolve its library id from
+      // the lib:N key, falling back to a path lookup (restored/m3u/external keys).
+      const t = target.track;
+      let id = parseLibraryId(t.key);
+      if (id == null && t.path) {
+        try {
+          id = await invoke<number | null>("find_track_id_by_path", { path: t.path });
+        } catch (e) {
+          console.error("Failed to resolve track id by path:", e);
+        }
+      }
+      if (id != null) {
+        setDeleteConfirm({ trackIds: [id], title: t.title, network: isNetworkSharePath(t.path) });
+      } else {
+        setDeleteError({ message: `That track isn't in your library, so it can't be moved to the ${trashLabel}.`, failures: [] });
       }
     }
     setContextMenu(null);

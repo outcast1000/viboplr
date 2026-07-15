@@ -3742,7 +3742,20 @@ function App() {
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();
-            buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "video", dockSide: videoLayout.dockSide, fitMode: videoLayout.fitMode } });
+            const ct = playback.currentTrack;
+            buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
+              kind: "video",
+              dockSide: videoLayout.dockSide,
+              fitMode: videoLayout.fitMode,
+              track: ct ? {
+                key: ct.key,
+                path: ct.path,
+                title: ct.title,
+                artistName: ct.artist_name,
+                durationSecs: ct.duration_secs,
+                isLocal: isLocalTrack(ct),
+              } : undefined,
+            } });
           }}
           style={{
             display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',

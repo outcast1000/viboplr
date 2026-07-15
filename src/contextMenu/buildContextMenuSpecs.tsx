@@ -6,7 +6,7 @@ import type { MenuItemSpec } from "../nativeMenu";
 import type { ContextMenuTarget } from "../types/contextMenu";
 import { toPluginTarget } from "../types/contextMenu";
 import { buildPluginMenuSpecs } from "./pluginMenuGroups";
-import { isLocalTrack } from "../queueEntry";
+import { isLocalTrack, parseLibraryId } from "../queueEntry";
 import type { useContextMenuActions } from "../hooks/useContextMenuActions";
 import type { useLibrary } from "../hooks/useLibrary";
 import type { usePlugins } from "../hooks/usePlugins";
@@ -47,6 +47,34 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       (["top", "bottom", "left", "right"] as const).forEach(side => {
         specs.push({ kind: "check", text: side[0].toUpperCase() + side.slice(1), checked: target.dockSide === side, action: () => d.videoLayout.setDockSide(side) });
       });
+
+      // Track actions for the playing video — same set the queue context menu
+      // offers for a single QueueTrack. Ids resolve on demand at action time
+      // (handleShowInFolder / handleDeleteRequest read the target's key/path).
+      const t = target.track;
+      if (t) {
+        specs.push({ kind: "separator" });
+        if (t.isLocal) {
+          specs.push({ kind: "item", text: "Open Containing Folder", action: d.contextMenuActions.handleShowInFolder });
+        }
+        specs.push({ kind: "item", text: "Find in YouTube", action: () => d.contextMenuActions.watchOnYoutube(t.title, t.artistName, t.durationSecs) });
+        specs.push({ kind: "item", text: "Start radio from this track", action: () => d.contextMenuActions.startRadio({ title: t.title, artistName: t.artistName, coverPath: null }) });
+        const libId = parseLibraryId(t.key);
+        if (libId != null) {
+          specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(`lib:${libId}`) });
+        }
+        if (t.isLocal && d.contextMenuActions.handleDeleteRequest) {
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "item", text: `Move to ${d.trashLabel}`, action: d.contextMenuActions.handleDeleteRequest });
+        }
+        // Plugin-registered track actions (Universal Track Actions convention).
+        const matching = d.plugins.menuItems.filter(item => item.targets.includes("track"));
+        const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), d.plugins.dispatchContextMenuAction);
+        if (pluginSpecs.length > 0) {
+          specs.push({ kind: "separator" });
+          specs.push(...pluginSpecs);
+        }
+      }
     } else if (target.kind === "queue-multi") {
       const count = target.indices.length;
       const selectedTracks = target.indices.map(i => d.queueHook.queue[i]).filter(Boolean);
