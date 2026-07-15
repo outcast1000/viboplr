@@ -1,11 +1,11 @@
 {
   "id": "lyrics-search",
   "name": "Lyrics Search",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Viboplr",
-  "description": "Search the lyrics cached in your library and jump straight to the matching track.",
+  "description": "Search the lyrics cached in your library, filter the matches by artist, title or album, and jump straight to the track.",
   "minAppVersion": "0.9.141",
-  "icon": "M21 21l-4.35-4.35M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z",
+  "icon": "M9 17V4c3 .5 4.5 2.5 3.5 5.5M4 17a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0M12.8 15a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0M18.3 17.3L21 20",
   "apiUsage": [
     { "api": "informationTypes.searchValues", "reason": "Search cached lyrics stored in the library" },
     { "api": "playback.playTracks", "reason": "Play a track from a search result" }
@@ -15,7 +15,7 @@
       {
         "id": "lyrics-search",
         "label": "Lyrics Search",
-        "icon": "M21 21l-4.35-4.35M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z"
+        "icon": "M9 17V4c3 .5 4.5 2.5 3.5 5.5M4 17a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0M12.8 15a3.2 3.2 0 1 0 6.4 0 3.2 3.2 0 1 0-6.4 0M18.3 17.3L21 20"
       }
     ]
   }

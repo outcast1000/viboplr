@@ -14,7 +14,9 @@ function activate(api) {
 
   var state = {
     query: "",
-    results: [],
+    filter: "", // optional metadata filter, applied client-side over the matches
+    rawResults: [], // every lyrics match resolved to a library track
+    results: [], // rawResults after the metadata filter
     searching: false,
     error: null,
     searched: false, // becomes true after the first search so we can show "no results"
@@ -28,6 +30,36 @@ function activate(api) {
     return m + ":" + (s < 10 ? "0" : "") + s;
   }
 
+  // Lower-case + strip diacritics, mirroring the host's SQL search
+  // (strip_diacritics(unicode_lower(...))) so "Björk" matches "bjork".
+  function norm(s) {
+    return String(s == null ? "" : s)
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
+  // Narrow the resolved lyrics matches with a generic, global-search-style
+  // filter: every whitespace-separated term must appear (diacritic-insensitive)
+  // somewhere in the track's title, artist, or album. Empty filter = keep all.
+  function applyFilter() {
+    var terms = norm(state.filter).split(/\s+/).filter(Boolean);
+    if (terms.length === 0) {
+      state.results = state.rawResults.slice();
+      return;
+    }
+    state.results = state.rawResults.filter(function (r) {
+      var t = r.track || {};
+      var hay = norm(
+        (t.title || "") + " " + (t.artist_name || "") + " " + (t.album_title || "")
+      );
+      for (var i = 0; i < terms.length; i++) {
+        if (hay.indexOf(terms[i]) === -1) return false;
+      }
+      return true;
+    });
+  }
+
   function render() {
     var children = [
       {
@@ -38,7 +70,17 @@ function activate(api) {
         submitOnly: true,
         buttonLabel: "Search",
       },
+      // A second, live-filtering box that narrows the matches by any metadata
+      // (artist, title, album) — e.g. lyrics "heaven" filtered to "Bush".
+      {
+        type: "search-input",
+        placeholder: "Filter results (optional)… artist, title or album",
+        action: "filter",
+        value: state.filter,
+      },
     ];
+
+    var metaFilter = state.filter.trim();
 
     if (state.searching) {
       children.push({ type: "loading", message: "Searching lyrics…" });
@@ -51,7 +93,8 @@ function activate(api) {
           state.results.length +
           " match" +
           (state.results.length === 1 ? "" : "es") +
-          " for “" + state.query + "”",
+          " for “" + state.query + "”" +
+          (metaFilter ? " matching “" + metaFilter + "”" : ""),
         className: "plugin-muted",
       });
       children.push({
@@ -78,19 +121,32 @@ function activate(api) {
         }),
       });
     } else if (state.searched) {
+      var noneMsg;
+      if (!state.query) {
+        noneMsg = "Type a word or line to search your saved lyrics.";
+      } else if (state.rawResults.length > 0 && metaFilter) {
+        // Lyrics matched, but the metadata filter removed them all.
+        noneMsg =
+          "No matches for “" + state.query + "” matching “" +
+          metaFilter + "”. Clear the filter to see all " +
+          state.rawResults.length + " lyric match" +
+          (state.rawResults.length === 1 ? "" : "es") + ".";
+      } else {
+        noneMsg = "No saved lyrics match “" + state.query + "”.";
+      }
       children.push({
         type: "text",
-        content: state.query
-          ? "No saved lyrics match “" + state.query + "”."
-          : "Type a word or line to search your saved lyrics.",
+        content: noneMsg,
         className: "plugin-muted",
       });
     } else {
       children.push({
         type: "text",
         content:
-          "Search the lyrics cached in your library. Lyrics are saved when you " +
-          "view them on a track's page (the Lyrics tab / LRCLIB).",
+          "Search the lyrics cached in your library, then optionally narrow the " +
+          "matches by artist, title or album (e.g. lyrics “heaven” filtered to " +
+          "“Bush”). Lyrics are saved when you view them on a track's page (the " +
+          "Lyrics tab / LRCLIB).",
         className: "plugin-muted",
       });
     }
@@ -109,6 +165,7 @@ function activate(api) {
     state.error = null;
 
     if (!q) {
+      state.rawResults = [];
       state.results = [];
       state.searching = false;
       render();
@@ -133,9 +190,10 @@ function activate(api) {
       .then(
         function (matches) {
           // Keep only matches we resolved to a playable library track.
-          state.results = (Array.isArray(matches) ? matches : []).filter(function (m) {
+          state.rawResults = (Array.isArray(matches) ? matches : []).filter(function (m) {
             return m && m.track;
           });
+          applyFilter();
           state.searching = false;
           render();
         },
@@ -150,6 +208,14 @@ function activate(api) {
 
   api.ui.onAction("search", function (data) {
     runSearch(data && (data.query != null ? data.query : data.value));
+  });
+
+  // Live metadata filter — re-narrows the already-fetched matches, no re-fetch.
+  api.ui.onAction("filter", function (data) {
+    var v = data && (data.query != null ? data.query : data.value);
+    state.filter = String(v == null ? "" : v);
+    applyFilter();
+    render();
   });
 
   api.ui.onAction("play", function (data) {
