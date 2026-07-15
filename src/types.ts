@@ -55,6 +55,8 @@ export interface QueueTrack {
   format: string | null;
   image_url?: string;
   liked: number;
+  /** File size in bytes, when known (e.g. converted from a library Track). Not persisted across restarts. */
+  file_size?: number | null;
 }
 
 // Pre-`convertFileSrc` origin of a resolved track, for the native (mpv)

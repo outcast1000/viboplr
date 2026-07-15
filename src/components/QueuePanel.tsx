@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
-import { formatDuration } from "../utils";
+import { formatDuration, formatFileSize } from "../utils";
 import { queueItemLocalThumb, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
@@ -140,20 +140,22 @@ const QueueRow = memo(function QueueRow({
       onContextMenu={(e) => onRowContextMenu(e, i)}
     >
       <div className="queue-item-content">
+        {showLikes && (
+          <div className="queue-item-like">
+            <LikeDislikeButtons
+              liked={t.liked}
+              onToggleLike={() => onToggleLike(t)}
+              onToggleDislike={showDislike ? () => onToggleDislike(t) : undefined}
+              variant="inline"
+              size={13}
+            />
+          </div>
+        )}
         <div className="queue-item-art-wrapper">
           <QueueItemThumb
             localThumb={localThumb}
             fallback={visible ? getTrackImage(t) : null}
           />
-          {showLikes && (
-            <LikeDislikeButtons
-              liked={t.liked}
-              onToggleLike={() => onToggleLike(t)}
-              onToggleDislike={showDislike ? () => onToggleDislike(t) : undefined}
-              variant="overlay"
-              size={14}
-            />
-          )}
         </div>
         <div
           className="queue-item-info"
@@ -173,8 +175,16 @@ const QueueRow = memo(function QueueRow({
             <span className="queue-item-duration">{formatDuration(t.duration_secs)}</span>
           </div>
           <div className="queue-item-line2">
-            <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
-            {t.album_title && <span className="queue-item-album">{t.album_title}</span>}
+            <span className="queue-item-artist-album">
+              <span className="queue-item-artist">{t.artist_name || "Unknown"}</span>
+              {t.album_title && (
+                <>
+                  <span className="queue-item-sep"> · </span>
+                  <span className="queue-item-album">{t.album_title}</span>
+                </>
+              )}
+            </span>
+            {t.file_size != null && <span className="queue-item-size">{formatFileSize(t.file_size)}</span>}
           </div>
           {resolveFailure && !resolving ? (
             <div className="queue-item-status queue-item-status-failed">

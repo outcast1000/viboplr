@@ -106,6 +106,7 @@ export function trackToQueueTrack(track: Track): QueueTrack {
     format: track.format,
     image_url: track.image_url,
     liked: track.liked,
+    file_size: track.file_size,
   };
 }
 

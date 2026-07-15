@@ -399,24 +399,26 @@
   min-width: 0;
 }
 
-.queue-item-artist {
+.queue-item-artist-album {
   font-size: var(--fs-xs);
-  color: var(--text-secondary);
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
+}
+
+.queue-item-artist {
+  color: var(--text-secondary);
+}
+
+.queue-item-sep {
+  color: var(--text-secondary);
+  display: none;
 }
 
 .queue-item-album {
-  font-size: var(--fs-xs);
   color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-  flex-shrink: 0;
   display: none;
 }
 
@@ -428,15 +430,28 @@
   display: none;
 }
 
+.queue-item-size {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  flex-shrink: 0;
+  display: none;
+}
+
+.queue-item-like {
+  flex-shrink: 0;
+  display: none;
+}
+
 .queue-item-art-wrapper {
   position: relative;
   flex-shrink: 0;
   width: 36px;
   height: 36px;
-  /* Always rendered (no width gate): the thumb now hosts the like/dislike
-     overlay, so it must stay visible even in a narrow panel — otherwise the
-     row would have no like affordance at all. */
-  display: block;
+  display: none;
 }
 
 .queue-item-thumb {
@@ -453,38 +468,6 @@
   justify-content: center;
   background: var(--bg-secondary);
   color: var(--text-tertiary);
-}
-
-/* Tristate like/dislike overlaid on the queue thumb. Reuses the shared `overlay`
-   variant from design-system.css (bare glyph + drop-shadow for legibility;
-   hidden when neutral, kept visible when liked/disliked via .liked/.disliked).
-   Here it's centered and sized for the 36px thumb instead of the large
-   tile-card corner. The control box is kept to the button size (not inset:0) so
-   clicks elsewhere on the thumb still fall through to row select/play. */
-.queue-item-art-wrapper .ds-like-control--overlay {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-.queue-item-art-wrapper .ds-like-overlay {
-  width: 26px;
-  height: 26px;
-  /* Heavier shadow than the card default — the glyph sits on a small, busy 36px
-     thumbnail, so it needs more separation to stay legible. */
-  filter: drop-shadow(0 1px 4px rgba(var(--overlay-inverse), 0.85));
-}
-/* Once a rating is set, back the colored glyph with a soft dark chip so it reads
-   as a deliberate badge over the artwork rather than a floating icon — this is
-   what gives the active state its prominence on the thumb. */
-.queue-item-art-wrapper .ds-like-overlay.liked,
-.queue-item-art-wrapper .ds-like-overlay.disliked {
-  background: rgba(var(--overlay-inverse), 0.45);
-}
-/* Neutral glyph reveals on row hover; liked/disliked stays on via the shared
-   opacity rules. (Queue rows aren't .ds-card, so the card-hover reveal in
-   design-system.css doesn't apply — wire the row-hover reveal explicitly.) */
-.queue-item:hover .queue-item-art-wrapper .ds-like-overlay {
-  opacity: 1;
 }
 
 .queue-info-bar {
@@ -533,9 +516,22 @@
   .queue-context-name { font-size: var(--fs-sm); }
 }
 
+@container queue (min-width: 230px) {
+  .queue-item-like { display: flex; }
+}
+
+@container queue (min-width: 270px) {
+  .queue-item-art-wrapper { display: block; }
+}
+
 @container queue (min-width: 330px) {
   .queue-item-duration { display: block; }
-  .queue-item-album { display: block; }
+  .queue-item-sep { display: inline; }
+  .queue-item-album { display: inline; }
+}
+
+@container queue (min-width: 420px) {
+  .queue-item-size { display: block; }
 }
 
 
