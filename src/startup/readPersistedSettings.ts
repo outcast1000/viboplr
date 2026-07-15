@@ -44,55 +44,51 @@ export interface PersistedSettings {
 /**
  * Batch-read all primary persisted settings. Startup intentionally does NOT
  * restore `view` or selected-entity state (always lands on Home), so those keys
- * are not read here. `store.get` is a pure read with no side effects.
+ * are not read here. These are pure reads with no side effects.
+ *
+ * This pulls the whole store in ONE IPC round-trip via `store.entries()` rather
+ * than one `store.get` per key (~29 IPCs, ~100ms on the first-paint critical
+ * path). It is behaviorally identical to per-key `get`: the store's Rust cache
+ * is seeded with the configured defaults and then overlaid with the on-disk
+ * file, and both `get` and `entries` read that same merged cache — so a Map
+ * built from `entries()` returns exactly what `get(key)` would, including
+ * default-seeded keys, and `undefined` for keys absent from both. See
+ * tauri-plugin-store `store.rs` (`cache` seeded from defaults; `load()` extends
+ * it; `get`/`entries` both read `cache`).
  */
 export async function readPersistedSettings(store: AppStore): Promise<PersistedSettings> {
-  const [
-    vol, muted, crossfadeSecs, playbackEngine, audioExclusive, betaUpdates, trackVideoHistory, miniMode,
-    fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
-    trackSortField, trackSortDir, trackColumns, trackViewMode,
-    videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
-    mediaTypeFilter, trackLikedFirst,
-    lastDownloadDest, searchViewModes, pluginViewMode,
-    minimizeToMiniPlayer, reduceMotion, uiZoom, miniZoom,
-  ] = await Promise.all([
-    store.get<number>("volume"),
-    store.get<boolean>("muted"),
-    store.get<number>("crossfadeSecs"),
-    store.get<string>("playbackEngine"),
-    store.get<boolean>("audioExclusive"),
-    store.get<boolean>("betaUpdates"),
-    store.get<boolean>("trackVideoHistory"),
-    store.get<boolean>("miniMode"),
-    store.get<number | null>("fullWindowWidth"),
-    store.get<number | null>("fullWindowHeight"),
-    store.get<number | null>("fullWindowX"),
-    store.get<number | null>("fullWindowY"),
-    store.get<string | null>("trackSortField"),
-    store.get<string>("trackSortDir"),
-    store.get<ColumnConfig[] | null>("trackColumns"),
-    store.get<string | null>("trackViewMode"),
-    store.get<VideoLayoutState | null>("videoLayout"),
-    store.get<boolean>("sidebarCollapsed"),
-    store.get<boolean>("queueCollapsed"),
-    store.get<number | null>("queueWidth"),
-    store.get<string>("mediaTypeFilter"),
-    store.get<boolean>("trackLikedFirst"),
-    store.get<string | null>("lastDownloadDest"),
-    store.get<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
-    store.get<string | null>("pluginViewMode"),
-    store.get<boolean>("minimizeToMiniPlayer"),
-    store.get<boolean>("reduceMotion"),
-    store.get<number>("uiZoom"),
-    store.get<number>("miniZoom"),
-  ]);
+  const map = new Map<string, unknown>(await store.entries());
+  const read = <T>(key: string): T | undefined =>
+    map.has(key) ? (map.get(key) as T) : undefined;
   return {
-    vol, muted, crossfadeSecs, playbackEngine, audioExclusive, betaUpdates, trackVideoHistory, miniMode,
-    fullWindowWidth, fullWindowHeight, fullWindowX, fullWindowY,
-    trackSortField, trackSortDir, trackColumns, trackViewMode,
-    videoLayout, sidebarCollapsed, queueCollapsed, queueWidth,
-    mediaTypeFilter, trackLikedFirst,
-    lastDownloadDest, searchViewModes, pluginViewMode,
-    minimizeToMiniPlayer, reduceMotion, uiZoom, miniZoom,
+    vol: read<number>("volume"),
+    muted: read<boolean>("muted"),
+    crossfadeSecs: read<number>("crossfadeSecs"),
+    playbackEngine: read<string>("playbackEngine"),
+    audioExclusive: read<boolean>("audioExclusive"),
+    betaUpdates: read<boolean>("betaUpdates"),
+    trackVideoHistory: read<boolean>("trackVideoHistory"),
+    miniMode: read<boolean>("miniMode"),
+    fullWindowWidth: read<number | null>("fullWindowWidth"),
+    fullWindowHeight: read<number | null>("fullWindowHeight"),
+    fullWindowX: read<number | null>("fullWindowX"),
+    fullWindowY: read<number | null>("fullWindowY"),
+    trackSortField: read<string | null>("trackSortField"),
+    trackSortDir: read<string>("trackSortDir"),
+    trackColumns: read<ColumnConfig[] | null>("trackColumns"),
+    trackViewMode: read<string | null>("trackViewMode"),
+    videoLayout: read<VideoLayoutState | null>("videoLayout"),
+    sidebarCollapsed: read<boolean>("sidebarCollapsed"),
+    queueCollapsed: read<boolean>("queueCollapsed"),
+    queueWidth: read<number | null>("queueWidth"),
+    mediaTypeFilter: read<string>("mediaTypeFilter"),
+    trackLikedFirst: read<boolean>("trackLikedFirst"),
+    lastDownloadDest: read<string | null>("lastDownloadDest"),
+    searchViewModes: read<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
+    pluginViewMode: read<string | null>("pluginViewMode"),
+    minimizeToMiniPlayer: read<boolean>("minimizeToMiniPlayer"),
+    reduceMotion: read<boolean>("reduceMotion"),
+    uiZoom: read<number>("uiZoom"),
+    miniZoom: read<number>("miniZoom"),
   };
 }

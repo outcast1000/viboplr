@@ -1834,6 +1834,12 @@ function App() {
       await Promise.all([
         timeAsync("loadLibrary", () => library.loadLibrary()),
       ]);
+      // Persist the frontend startup timings to the on-disk log so every cold
+      // start leaves a cross-session record of the perceived-startup path
+      // (they otherwise live only in Settings and vanish on close). The window
+      // is already visible by now, so this never gates first paint.
+      invoke("record_frontend_startup_timings", { entries: getTimingEntries() })
+        .catch(e => console.error("Failed to log frontend startup timings:", e));
     })();
   }, []);
 

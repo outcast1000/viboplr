@@ -68,6 +68,8 @@ const STORE_DEFAULTS = {
 export interface AppStore {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
+  /** All key-value pairs in one IPC round-trip (vs one `get` per key). */
+  entries<T = unknown>(): Promise<Array<[string, T]>>;
   init(): Promise<void>;
   /** Flush pending debounced writes to disk immediately (autoSave is 500ms). */
   save(): Promise<void>;
@@ -102,6 +104,10 @@ class ProfileStore implements AppStore {
 
   async get<T>(key: string): Promise<T | undefined> {
     return (await this.getInner()).get<T>(key);
+  }
+
+  async entries<T = unknown>(): Promise<Array<[string, T]>> {
+    return (await this.getInner()).entries<T>();
   }
 
   async set(key: string, value: unknown): Promise<void> {

@@ -150,6 +150,7 @@ macro_rules! invoke_handler {
             commands::download_url_to_playlist_images,
             commands::generate_playlist_composite,
             commands::get_startup_timings,
+            commands::record_frontend_startup_timings,
             commands::test_collection_connection,
             commands::subsonic_test_connection,
             commands::search_youtube,
@@ -622,8 +623,21 @@ pub fn run() {
     let builder = timer.time("plugin: process", || builder.plugin(tauri_plugin_process::init()));
     let builder = timer.time("plugin: global_shortcut", || builder.plugin(tauri_plugin_global_shortcut::Builder::new().build()));
 
+    // Evaluate the invoke handler + Tauri context up front so we can bracket the
+    // otherwise-invisible gap between context generation and our setup body. That
+    // interval lives entirely inside .build() — Tauri creating the webview window
+    // and initializing plugin setups — and has historically been the single
+    // largest (and completely unmeasured) chunk of backend startup.
+    let invoke_handler = timer.time("invoke_handler", || get_invoke_handler());
+    let context = timer.time("generate_context", || tauri::generate_context!());
+    let build_start = std::time::Instant::now();
+
     builder
-        .setup(|app| {
+        .setup(move |app| {
+            // First line of setup: record how long .build() took to reach here
+            // (webview creation + plugin setup init). duration = now - build_start.
+            timing::timer().record("tauri_build_webview", build_start);
+
             // Register Rust-side deep link handler to ensure URLs reach the frontend
             use tauri_plugin_deep_link::DeepLinkExt;
             let handle = app.handle().clone();
@@ -1365,8 +1379,8 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(timer.time("invoke_handler", || get_invoke_handler()))
-        .build(timer.time("generate_context", || tauri::generate_context!()))
+        .invoke_handler(invoke_handler)
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| {
             match &event {

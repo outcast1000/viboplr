@@ -199,6 +199,39 @@ pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
     crate::timing::timer().get_entries()
 }
 
+/// Persist the frontend startup timings to the on-disk log. They otherwise live
+/// only in Settings → Startup Timings and vanish when the app closes, so cold
+/// starts leave no cross-session record of the perceived-startup path (the
+/// window stays hidden until the frontend restore chain calls window.show()).
+/// The frontend clock (performance.now) is a different origin from the backend
+/// Instant clock, so these are logged as their own timeline, not summed with it.
+#[tauri::command]
+pub fn record_frontend_startup_timings(entries: Vec<crate::timing::TimingEntry>) {
+    let mut total = 0.0;
+    for e in &entries {
+        log::info!(
+            "Startup[fe]: {} \u{2014} {:.1}ms (offset {:.1}ms)",
+            e.label,
+            e.duration_ms,
+            e.offset_ms
+        );
+        total += e.duration_ms;
+    }
+    // window.restore ends the moment getCurrentWindow().show() resolves, so its
+    // offset+duration is the time-to-visible-window on the frontend clock.
+    if let Some(visible) = entries
+        .iter()
+        .find(|e| e.label == "window.restore")
+        .map(|e| e.offset_ms + e.duration_ms)
+    {
+        log::info!(
+            "Startup[fe]: time-to-window-visible \u{2014} {:.1}ms (frontend clock)",
+            visible
+        );
+    }
+    log::info!("Startup[fe]: frontend work total \u{2014} {:.1}ms", total);
+}
+
 /// Determines if a collection is due for an auto-update based on its settings and last sync time.
 ///
 /// Returns true if:
