@@ -1839,7 +1839,18 @@ function App() {
         console.error("Failed to restore state:", e);
         await getCurrentWindow().show();
       }
-      await timeAsync("engineCapabilities", () => engineCapabilityPromise);
+      // Bounded: a slow or stalled libmpv load (native dlopen at startup) must
+      // never wedge the whole restore behind it — queue/track restoration and
+      // library load both happen after this point. On timeout, mpvCapable
+      // simply settles a moment later via the same promise's applyEngineCapabilities
+      // callback (still attached, still running) and only the very next play
+      // risks the original browser-engine fallback race this was meant to close.
+      await timeAsync("engineCapabilities", () =>
+        Promise.race([
+          engineCapabilityPromise,
+          new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+        ])
+      );
       restoredRef.current = true;
       setAppRestoring(false);
       await Promise.all([
