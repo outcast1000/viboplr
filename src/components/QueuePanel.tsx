@@ -413,7 +413,7 @@ export function QueuePanel({
       albumImageFor: albumImages.getImage,
       artistImageFor: artistImages.getImage,
       // Video frame URLs from the queue are already converted — passed verbatim.
-      videoFrame: videoFrames[shelfVideoKey(t.artist_name, t.title)] ?? null,
+      videoFrame: videoFrames[shelfVideoKey(t.path)] ?? null,
     }),
   [videoFrames, albumImages, artistImages]);
 

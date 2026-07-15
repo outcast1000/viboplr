@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "./useHome";
-import type { QueueTrack, Track } from "../types";
+import type { QueueTrack } from "../types";
 import { isVideoTrack } from "../utils";
 import { useVideoFrameQueue } from "./useVideoFrameQueueContext";
 import type { VideoFrameQueue } from "../videoFrameQueue";
 
-// Metadata identity used to key a track's resolved video frame. Matches the keys
-// the queue and home shelves already use for their image maps.
-export function shelfVideoKey(artistName: string | null | undefined, title: string): string {
-  return `${artistName ?? ""}::${title}`;
+// Identity used to key a track's resolved video frame: the track's own
+// scheme-prefixed path, which uniquely identifies the file. Only rows that are
+// themselves video AND carry a path become candidates, so a keyed entry always
+// has a path; path-less rows produce the empty key, never match a candidate, and
+// fall back to entity art. Keying by path (not artist+title) also stops two
+// same-titled videos from sharing — and swapping — one frame.
+export function shelfVideoKey(path: string | null | undefined): string {
+  return path ?? "";
 }
 
 // Read the queue's stable ready-frame snapshot and project it onto a
@@ -75,27 +79,30 @@ function useVideoFrameMap(candidates: VideoFrameCandidate[]): Record<string, str
   return useReadyFrameProjection(frameQueue, trackIds);
 }
 
-// For a `track-rows` shelf: resolve each track to a library id via metadata and
-// enqueue first-frame extraction for the video ones. Non track-rows shelves
-// produce no candidates. Shared by HomeShelf (row cards) and HeroCarousel (the
-// promoted shelf) so both surfaces get video thumbnails.
+// For a `track-rows` shelf: enqueue first-frame extraction for rows that are
+// themselves video files (carry a video path), resolving the library id by exact
+// path. Non track-rows shelves — and rows without a path (history-backed) — produce
+// no candidates. Shared by HomeShelf (row cards) and HeroCarousel (the promoted
+// shelf) so both surfaces get video thumbnails.
 export function useShelfVideoFrames(shelf: ResolvedShelf): Record<string, string> {
   const candidates = useMemo<VideoFrameCandidate[]>(() => {
     if (shelf.displayKind !== "track-rows") return [];
     const out: VideoFrameCandidate[] = [];
     for (const item of shelf.items) {
-      const track = (item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } }).track;
-      if (track.image_url) continue;
+      const track = (item as {
+        track: { title: string; artist_name?: string; album_title?: string; format?: string | null; path?: string | null; image_url?: string };
+      }).track;
+      // A frame is only shown when the row ITSELF is a video (by its own
+      // path/format), resolved by exact path — never inferred from a fuzzy
+      // metadata match. History-backed shelves (Recently played / Most played)
+      // carry no path or format, so they no longer borrow a same-titled video's
+      // frame for an audio play; they fall back to album/artist art. Mirrors
+      // useQueueVideoFrames.
+      const path = track.path;
+      if (track.image_url || !path || !isVideoTrack({ format: track.format ?? null, path })) continue;
       out.push({
-        key: shelfVideoKey(track.artist_name, track.title),
-        resolveId: async () => {
-          const lib = await invoke<Track | null>("find_track_by_metadata", {
-            title: track.title,
-            artistName: track.artist_name ?? null,
-            albumName: track.album_title ?? null,
-          });
-          return lib && lib.id != null && isVideoTrack(lib) ? lib.id : null;
-        },
+        key: shelfVideoKey(path),
+        resolveId: () => invoke<number | null>("find_track_id_by_path", { path }),
       });
     }
     return out;
@@ -104,8 +111,7 @@ export function useShelfVideoFrames(shelf: ResolvedShelf): Record<string, string
 }
 
 // For a queue: resolve each video track to its library id by path and enqueue
-// first-frame extraction. The QueueTrack already says it's a video and carries a
-// path, so we skip the metadata round-trip the shelf needs.
+// first-frame extraction. Same path-based identity as the shelf hook above.
 export function useQueueVideoFrames(queue: QueueTrack[]): Record<string, string> {
   const candidates = useMemo<VideoFrameCandidate[]>(() => {
     const out: VideoFrameCandidate[] = [];
@@ -113,7 +119,7 @@ export function useQueueVideoFrames(queue: QueueTrack[]): Record<string, string>
       if (t.image_url || !isVideoTrack(t) || !t.path) continue;
       const path = t.path;
       out.push({
-        key: shelfVideoKey(t.artist_name, t.title),
+        key: shelfVideoKey(path),
         resolveId: () => invoke<number | null>("find_track_id_by_path", { path }),
       });
     }

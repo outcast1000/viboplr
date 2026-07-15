@@ -175,14 +175,14 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
     );
   }
   // track-rows
-  const it = item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } };
+  const it = item as { track: { title: string; artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
   // Shared chain (image_url → video frame → album → artist), identical to the
   // queue panel. Video frame URLs from the queue are already converted and used
   // verbatim; everything else goes through resolveImageUrl inside the helper.
   const src = resolveTrackImage(it.track, {
     albumImageFor: ctx.albumImageFor,
     artistImageFor: ctx.artistImageFor,
-    videoFrame: ctx.videoFrames[shelfVideoKey(it.track.artist_name, it.track.title)] ?? null,
+    videoFrame: ctx.videoFrames[shelfVideoKey(it.track.path)] ?? null,
   });
   return (
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>

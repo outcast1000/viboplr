@@ -422,7 +422,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       {
         albumImageFor: albumImages.getImage,
         artistImageFor: artistImages.getImage,
-        videoFrame: videoFrames[shelfVideoKey(t.artist_name, t.title)] ?? null,
+        videoFrame: videoFrames[shelfVideoKey(t.source)] ?? null,
       },
     ),
   [videoFrames, albumImages, artistImages]);

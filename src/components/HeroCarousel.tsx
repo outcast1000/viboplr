@@ -61,10 +61,10 @@ function slideFor(
     return { coverSrc: resolveImagePath(it.coverUrl ?? fallback), title: it.name, subtitle: it.subtitle ?? null };
   }
   // track-rows
-  const it = item as { track: { title: string; artist_name?: string; album_title?: string; image_url?: string } };
+  const it = item as { track: { title: string; artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
   const explicit = it.track.image_url ?? null;
   // Video frame URLs are already converted — do NOT pass them through resolveImagePath.
-  const videoFrame = !explicit ? videoFrames[shelfVideoKey(it.track.artist_name, it.track.title)] ?? null : null;
+  const videoFrame = !explicit ? videoFrames[shelfVideoKey(it.track.path)] ?? null : null;
   if (videoFrame) return { coverSrc: videoFrame, title: it.track.title, subtitle: it.track.artist_name ?? null };
   const path =
     explicit ??
