@@ -1,7 +1,7 @@
 {
   "name": "viboplr",
   "private": true,
-  "version": "0.9.157",
+  "version": "0.9.158",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
