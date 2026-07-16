@@ -1361,6 +1361,17 @@ export function usePlayback(
       // expected and belongs to a track that's no longer current — discard it.
       if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
       console.error("Playback error:", e);
+      // Resolution failed before playWithSrc ever ran, so a previous native
+      // session (if any) was never told to stop — it would otherwise keep
+      // playing/rendering underneath the error modal. Tear it down here,
+      // mirroring handleStop's native cleanup.
+      if (nativeSessionRef.current) {
+        nativeSessionRef.current = null;
+        nativePreloadedRef.current = null;
+        nativeFadingRef.current = false;
+        setNativeVideoActive(false);
+        nativeEngine.stop().catch(console.error);
+      }
       setCurrentTrack(track);
       surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
     } finally {
