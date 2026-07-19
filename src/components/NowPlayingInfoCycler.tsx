@@ -16,6 +16,12 @@ const MARQUEE_MIN_VIEWPORT = 20;        // px; below this the viewport isn't mea
 // what makes it safe to scroll on ANY overflow instead of ever ellipsis-truncating.
 const MARQUEE_MIN_DURATION_MS = 1200;
 const MARQUEE_CYCLE_BUFFER_MS = 400;    // grace so the tail is read before the cycler advances
+// A line must hold still this long before it begins scrolling. Frequently-changing
+// content (synced lyrics ticking line-by-line) keeps resetting this timer, so it
+// never scrolls — it stays put and ellipsis-truncates, calm. Only genuinely stable
+// content (a long Artist · Album) survives the settle and glides. This is what keeps
+// the marquee from restart-storming on lyrics.
+const MARQUEE_SETTLE_MS = 1200;
 
 export interface MarqueePlan {
   /** px to translate the track left so its tail becomes visible. */
@@ -84,6 +90,10 @@ interface MarqueeTextProps {
  */
 export function MarqueeText({ className, enabled, restartKey, onPlan, onClick, title, children }: MarqueeTextProps) {
   const [plan, setPlan] = useState<MarqueePlan | null>(null);
+  // The marquee only engages once the current plan has held still for the settle
+  // window. Any plan change (a new/wider/narrower line) resets it, so content that
+  // keeps changing — synced lyrics — never actually scrolls; it truncates instead.
+  const [settled, setSettled] = useState(false);
   const reducedRef = useRef(false);
   const viewportRef = useRef<HTMLSpanElement | null>(null);
   const trackRef = useRef<HTMLSpanElement | null>(null);
@@ -125,6 +135,15 @@ export function MarqueeText({ className, enabled, restartKey, onPlan, onClick, t
   // Measure before paint when the content/track restarts.
   useLayoutEffect(() => { measure(); }, [restartKey, measure]);
 
+  // Hold still before scrolling: reset on every plan change and re-arm the timer.
+  // A line that keeps changing (lyrics) never reaches `settled`, so it stays put.
+  useEffect(() => {
+    if (!plan) { setSettled(false); return; }
+    setSettled(false);
+    const t = setTimeout(() => setSettled(true), MARQUEE_SETTLE_MS);
+    return () => clearTimeout(t);
+  }, [plan]);
+
   const setViewport = useCallback((el: HTMLSpanElement | null) => {
     if (roRef.current && viewportRef.current) roRef.current.unobserve(viewportRef.current);
     viewportRef.current = el;
@@ -143,12 +162,15 @@ export function MarqueeText({ className, enabled, restartKey, onPlan, onClick, t
     return <span className={className} onClick={onClick} title={title}>{children}</span>;
   }
 
-  const style = plan
+  // Only scroll once the plan has settled; until then (and for ever-changing
+  // content) the line sits at origin and ellipsis-truncates.
+  const scrolling = !!plan && settled;
+  const style = scrolling
     ? ({ "--npi-shift": `${-plan.shift}px`, "--npi-dur": `${plan.durMs}ms` } as CSSProperties)
     : undefined;
   return (
     <span ref={setViewport} className={className} onClick={onClick} title={title}>
-      <span key={restartKey} ref={setTrack} className={plan ? "npi-track npi-marquee" : "npi-track"} style={style}>
+      <span key={restartKey} ref={setTrack} className={scrolling ? "npi-track npi-marquee" : "npi-track"} style={style}>
         {children}
       </span>
     </span>
@@ -313,6 +335,11 @@ export function NowPlayingInfoCycler({
 
   // Re-key on index + content so a cycle change AND a track change both animate.
   const animKey = `${index}:${active.id}:${active.segments.map((s) => s.text).join("|")}`;
+  // Marquee-track identity keys on the item only (NOT its text). A synced-lyrics
+  // line change swaps the inner text (which re-runs the crossfade) but must NOT
+  // remount the scrolling track — otherwise the glide jumps back to the left on
+  // every lyric line. Only cycling to a different item (or a new track) restarts.
+  const itemKey = `${index}:${active.id}`;
   const styleClass = nowPlayingStyleClass(active.style);
   const content = active.segments.map((seg, i) => {
     const navable = !plain && !!seg.nav;
@@ -340,24 +367,26 @@ export function NowPlayingInfoCycler({
     );
   });
 
-  const slide = <span className={styleClass ? `slide-text-enter ${styleClass}` : "slide-text-enter"}>{content}</span>;
+  // Keyed on the full content so each item/line swap re-runs the crossfade — even
+  // when the enclosing marquee track is NOT remounting (see `itemKey`).
+  const slide = (
+    <span key={animKey} className={styleClass ? `slide-text-enter ${styleClass}` : "slide-text-enter"}>
+      {content}
+    </span>
+  );
 
   // Non-marquee callers (full bar, or the compact row where an outer MarqueeText
   // scrolls the whole line) keep the original two-span structure.
   if (!marqueeEnabled) {
     marqueeMsRef.current = 0;
-    return (
-      <span className={className}>
-        <span key={animKey}>{slide}</span>
-      </span>
-    );
+    return <span className={className}>{slide}</span>;
   }
 
   return (
     <MarqueeText
       className={className}
       enabled
-      restartKey={animKey}
+      restartKey={itemKey}
       onPlan={(p) => { marqueeMsRef.current = p?.cycleMs ?? 0; }}
     >
       {slide}
