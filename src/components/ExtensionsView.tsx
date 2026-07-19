@@ -181,7 +181,7 @@ function PluginCard({
             <ExperimentalBadge stability={ext.stability} />
             <StatusBadge status={ext.status} update={ext.updateAvailable} />
           </div>
-          <div className="ext-pcard-meta">by {ext.author} · v{ext.version}</div>
+          <div className="ext-pcard-meta">by {ext.author}{ext.version ? ` · v${ext.version}` : ""}</div>
         </div>
         {installed && ext.source !== "dev" && (
           <button
@@ -288,7 +288,7 @@ function PluginRow({
           <StatusBadge status={ext.status} update={ext.updateAvailable} />
         </div>
         <div className="ext-prow-line2">
-          <span className="ext-prow-meta">by {ext.author} · v{ext.version}</span>
+          <span className="ext-prow-meta">by {ext.author}{ext.version ? ` · v${ext.version}` : ""}</span>
           {ext.description && <span className="ext-prow-sep" aria-hidden="true">·</span>}
           {ext.description && <span className="ext-prow-desc">{ext.description}</span>}
         </div>
@@ -393,7 +393,7 @@ function PluginDetail({
           </div>
           <div className="ext-detail-desc">{ext.description}</div>
           <div className="ext-detail-meta">
-            By <strong>{ext.author}</strong> {"·"} v{ext.version} {"·"} Plugin
+            By <strong>{ext.author}</strong>{ext.version ? <> {"·"} v{ext.version}</> : null} {"·"} Plugin
             {isInstalled && (<>{" · "}{ext.status === "active" ? "Enabled" : "Disabled"}</>)}
             {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
           </div>
@@ -491,8 +491,12 @@ function PluginDetail({
       <div className="ext-detail-section">
         <div className="ext-detail-section-title">Information</div>
         <div className="ext-detail-info-grid">
-          <span className="ext-detail-info-label">Version</span>
-          <span>{ext.version}</span>
+          {ext.version && (
+            <>
+              <span className="ext-detail-info-label">Version</span>
+              <span>{ext.version}</span>
+            </>
+          )}
           <span className="ext-detail-info-label">Author</span>
           <span>{ext.author}</span>
           {ext.homepage && (

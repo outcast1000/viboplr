@@ -1001,7 +1001,10 @@ export interface GalleryPluginEntry {
   name: string;
   author: string;
   description: string;
-  version: string;
+  /** Display-only version. The gallery index frequently omits this for
+   *  externally-maintained plugins (the real version lives in each plugin's
+   *  own update.json/manifest and is enforced at install), so treat as optional. */
+  version?: string;
   minAppVersion?: string;
   updateUrl?: string;
   files?: string[];
@@ -1070,7 +1073,9 @@ export interface ExtensionItem {
   kind: "plugin" | "skin";
   name: string;
   author: string;
-  version: string;
+  /** Undefined for not-installed gallery entries whose index omits a version
+   *  (installed plugins always carry their manifest version). */
+  version?: string;
   description: string;
   status: "active" | "disabled" | "incompatible" | "error" | "not_installed";
   updateAvailable?: ExtensionUpdate;
