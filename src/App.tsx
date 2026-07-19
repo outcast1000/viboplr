@@ -1071,6 +1071,14 @@ function App() {
       for (const id of deletedIds) {
         videoFrameQueueRef.current?.evict(id);
       }
+      // A deletion changes the library's track population, so refresh Home too —
+      // otherwise a deleted track lingers on content shelves (Recently added,
+      // Never played, …) until the next resync / manual refresh / 24h staleness.
+      // Bumping the revision re-runs the generic shelf refresh (all shelves, no
+      // per-shelf wiring). We only bump the Home revision here (not the full
+      // notifyLibraryChanged) because SearchView already handles deletes via the
+      // searchDeletedBatch above.
+      setLibraryRevision(k => k + 1);
     },
     onCurrentTrackDeleted: (indices) => currentTrackDeletedRef.current(indices),
     onShowMenu: (state) => showNativeMenuRef.current?.(state),
