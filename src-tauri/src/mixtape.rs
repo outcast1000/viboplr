@@ -1,5 +1,5 @@
 use crate::entity_image::canonical_slug;
-use crate::models::{MixtapeManifest, MixtapePreview, MixtapeTrack, MixtapeType};
+use crate::models::{BundleManifest, MixtapePreview, BundleTrack, MixtapeType};
 use image::imageops::FilterType;
 use image::GenericImageView;
 use std::collections::HashMap;
@@ -27,15 +27,15 @@ pub fn thumb_archive_path(position: usize) -> String {
     format!("thumbs/{:02}.jpg", position + 1)
 }
 
-/// Build a MixtapeManifest from export options and resolved track data.
+/// Build a BundleManifest from export options and resolved track data.
 pub fn build_manifest(
     title: String,
     mixtape_type: MixtapeType,
     metadata: HashMap<String, String>,
     created_by: Option<String>,
-    tracks: Vec<MixtapeTrack>,
-) -> MixtapeManifest {
-    MixtapeManifest {
+    tracks: Vec<BundleTrack>,
+) -> BundleManifest {
+    BundleManifest {
         version: 1,
         title,
         mixtape_type,
@@ -95,7 +95,7 @@ pub fn build_mixtape<F>(
     dest_path: &Path,
     cover_path: Option<&Path>,
     track_sources: &[MixtapeTrackSource],
-    mut manifest: MixtapeManifest,
+    mut manifest: BundleManifest,
     include_thumbs: bool,
     cancel: &AtomicBool,
     mut on_progress: F,
@@ -161,7 +161,7 @@ where
             None
         };
 
-        track_entries.push(MixtapeTrack {
+        track_entries.push(BundleTrack {
             title: source.title.clone(),
             artist: source.artist.clone(),
             album: source.album.clone(),
@@ -217,7 +217,7 @@ where
 pub fn build_playlist_mixtape(
     dest_path: &Path,
     cover_path: Option<&Path>,
-    mut manifest: MixtapeManifest,
+    mut manifest: BundleManifest,
     thumb_paths: &[Option<String>],
     include_thumbs: bool,
 ) -> Result<u64, String> {
@@ -297,7 +297,7 @@ pub fn read_mixtape(path: &Path, temp_dir: &Path) -> Result<MixtapePreview, Stri
         manifest_file
             .read_to_string(&mut manifest_str)
             .map_err(|e| format!("Failed to read manifest: {}", e))?;
-        serde_json::from_str::<MixtapeManifest>(&manifest_str)
+        serde_json::from_str::<BundleManifest>(&manifest_str)
             .map_err(|e| format!("Failed to parse manifest: {}", e))?
     };
 
@@ -350,7 +350,7 @@ pub fn extract_mixtape<F>(
     options: &ExtractOptions,
     cancel: &AtomicBool,
     mut on_progress: F,
-) -> Result<MixtapeManifest, String>
+) -> Result<BundleManifest, String>
 where
     F: FnMut(u32, u32, &str),
 {
@@ -367,7 +367,7 @@ where
         manifest_file
             .read_to_string(&mut manifest_str)
             .map_err(|e| format!("Failed to read manifest: {}", e))?;
-        serde_json::from_str::<MixtapeManifest>(&manifest_str)
+        serde_json::from_str::<BundleManifest>(&manifest_str)
             .map_err(|e| format!("Failed to parse manifest: {}", e))?
     };
 
@@ -471,7 +471,7 @@ mod tests {
             MixtapeType::Custom,
             HashMap::new(),
             Some("alex".into()),
-            vec![MixtapeTrack {
+            vec![BundleTrack {
                 title: "Track 1".into(),
                 artist: "Artist".into(),
                 album: None,
@@ -497,7 +497,7 @@ mod tests {
             vec![],
         );
         let json = serde_json::to_string(&manifest).unwrap();
-        let parsed: MixtapeManifest = serde_json::from_str(&json).unwrap();
+        let parsed: BundleManifest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.title, "Roundtrip Test");
         assert_eq!(parsed.version, 1);
     }
@@ -548,7 +548,7 @@ mod tests {
         let mut manifest_file = archive.by_name("manifest.json").unwrap();
         let mut manifest_str = String::new();
         manifest_file.read_to_string(&mut manifest_str).unwrap();
-        let parsed: MixtapeManifest = serde_json::from_str(&manifest_str).unwrap();
+        let parsed: BundleManifest = serde_json::from_str(&manifest_str).unwrap();
         assert_eq!(parsed.title, "Test");
         assert_eq!(parsed.tracks.len(), 1);
         assert_eq!(parsed.tracks[0].title, "Song One");

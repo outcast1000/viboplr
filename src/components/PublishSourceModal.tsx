@@ -79,7 +79,9 @@ export function PublishSourceModal({ trackIds, collectionId, defaultName, trackC
             <label style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--text-secondary)", marginBottom: 4 }}>Base URL (where you'll host it)</label>
             <input className="ds-input" value={baseUrl} placeholder="https://you.github.io/my-music/" onChange={(e) => setBaseUrl(e.target.value)} />
             <p style={{ fontSize: "var(--fs-2xs)", color: "var(--text-tertiary)", margin: "4px 0 12px" }}>
-              Track URLs are built from this. For GitHub Pages use <code>https://&lt;user&gt;.github.io/&lt;repo&gt;/</code> and create the repo with that name.
+              This is where you'll host the folder — the shareable manifest link is built from it. Track refs inside the
+              manifest stay relative, so you can re-host it anywhere without rebuilding. For GitHub Pages use{" "}
+              <code>https://&lt;user&gt;.github.io/&lt;repo&gt;/</code> and create the repo with that name.
             </p>
 
             <label style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--text-secondary)", marginBottom: 4 }}>Output folder</label>

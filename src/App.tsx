@@ -2917,6 +2917,37 @@ function App() {
     setShowSavePlaylistModal(true);
   }
 
+  async function handlePublishQueue() {
+    const localTracks = queueHook.queue.filter(isLocalTrack);
+    if (localTracks.length === 0) {
+      notify("The queue has no local tracks to share.");
+      return;
+    }
+    // Resolve a library id per local track: prefer the in-memory lib:N key, else
+    // look it up by its (durable) file path — mirrors the queue delete path so
+    // restored / m3u-loaded / external-keyed local tracks resolve too. Dedupe so
+    // a track queued twice isn't bundled twice.
+    const ids: number[] = [];
+    const seen = new Set<number>();
+    for (const t of localTracks) {
+      let id = parseLibraryId(t.key);
+      if (id == null && t.path) {
+        try {
+          id = await invoke<number | null>("find_track_id_by_path", { path: t.path });
+        } catch (e) {
+          console.error("Failed to resolve track id by path:", e);
+          id = null;
+        }
+      }
+      if (id != null && !seen.has(id)) { seen.add(id); ids.push(id); }
+    }
+    if (ids.length === 0) {
+      notify("Those tracks aren't in your library, so they can't be shared.");
+      return;
+    }
+    setPublishTarget({ trackIds: ids, trackCount: ids.length, defaultName: queueHook.playlistContext?.name || "" });
+  }
+
   function handleQueueExportAsMixtape() {
     const tracks = queueHook.queue;
     if (tracks.length === 0) return;
@@ -3927,6 +3958,7 @@ function App() {
           onExportAsMixtape={handleQueueExportAsMixtape}
           onEditPlaylist={handleEditPlaylist}
           onLoadPlaylist={() => queueHook.loadPlaylist(setMixtapePreviewPath)}
+          onPublishQueue={handlePublishQueue}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];

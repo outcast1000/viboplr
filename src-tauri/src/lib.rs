@@ -17,6 +17,7 @@ mod skins;
 mod subsonic;
 mod sync;
 mod manifest_sync;
+mod bundle_ref;
 mod music_publish;
 mod tag_writer;
 mod mixtape;

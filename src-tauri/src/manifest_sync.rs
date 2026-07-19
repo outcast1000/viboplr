@@ -35,7 +35,11 @@ pub struct Manifest {
 #[derive(Debug, Deserialize)]
 pub struct ManifestTrack {
     pub title: String,
-    /// Direct, playable URL (http/https). Stored as the track `path`.
+    /// The track's audio reference: an absolute http(s) URL, or a path relative
+    /// to the manifest URL (Option C). Aliases keep legacy (`url`) and
+    /// mixtape-shaped (`file`) manifests parseable. Resolved to an absolute URL
+    /// and stored as the track `path` (see `bundle_ref::resolve_subscribe_ref`).
+    #[serde(alias = "src", alias = "file")]
     pub url: String,
     #[serde(default)]
     pub album: Option<String>,
@@ -113,12 +117,20 @@ pub fn fetch_manifest(
 }
 
 /// Ingest an already-parsed manifest into the given collection: upsert every
-/// track (keyed by its URL) and prune any collection track no longer listed.
-/// Returns the number of pruned tracks. Pure (no network) so it's unit-testable.
+/// track (keyed by its resolved URL) and prune any collection track no longer
+/// listed. Returns the number of pruned tracks. Pure (no network) so it's
+/// unit-testable.
+///
+/// `base_url` is the URL the manifest was fetched from — relative track refs are
+/// resolved against it (Option C). A ref that can't be resolved to an http(s)
+/// URL is dropped (and thus pruned if it was present before); this is the
+/// reader-side guardrail, so a manifest can never point the app at `file://` or a
+/// private scheme.
 pub fn ingest_manifest(
     db: &Arc<Database>,
     manifest: &Manifest,
     collection_id: i64,
+    base_url: &str,
     progress_callback: impl Fn(u64, u64) + Send,
 ) -> Result<u64, String> {
     let start = std::time::Instant::now();
@@ -138,16 +150,25 @@ pub fn ingest_manifest(
     let items: Vec<ManifestIngestTrack> = manifest
         .tracks
         .iter()
-        .map(|t| ManifestIngestTrack {
-            title: t.title.clone(),
-            artist: t.artist.clone().or_else(|| default_artist.map(str::to_string)),
-            album: t.album.clone(),
-            duration_secs: t.duration_secs,
-            track_number: t.track_number,
-            format: t.format.clone().or_else(|| format_from_url(&t.url)),
-            year: t.year,
-            url: t.url.clone(),
-            tags: t.tags.clone().unwrap_or_default(),
+        .filter_map(|t| {
+            let resolved = match crate::bundle_ref::resolve_subscribe_ref(base_url, &t.url) {
+                Some(u) => u,
+                None => {
+                    log::warn!("Skipping manifest track '{}' — unresolvable/disallowed ref: {}", t.title, t.url);
+                    return None;
+                }
+            };
+            Some(ManifestIngestTrack {
+                title: t.title.clone(),
+                artist: t.artist.clone().or_else(|| default_artist.map(str::to_string)),
+                album: t.album.clone(),
+                duration_secs: t.duration_secs,
+                track_number: t.track_number,
+                format: t.format.clone().or_else(|| format_from_url(&resolved)),
+                year: t.year,
+                url: resolved,
+                tags: t.tags.clone().unwrap_or_default(),
+            })
         })
         .collect();
 
@@ -184,7 +205,7 @@ pub fn sync_manifest(
             Ok(0)
         }
         FetchOutcome::Fetched { manifest, etag, last_modified } => {
-            let removed = ingest_manifest(db, &manifest, collection_id, progress_callback)?;
+            let removed = ingest_manifest(db, &manifest, collection_id, url, progress_callback)?;
             let _ = db.set_manifest_http_cache(collection_id, etag.as_deref(), last_modified.as_deref());
             Ok(removed)
         }
@@ -242,7 +263,7 @@ mod tests {
                  "tracks": [ { "title": "T1", "url": "https://h/t1.flac" } ] }"#,
         )
         .unwrap();
-        ingest_manifest(&db, &m, cid, |_, _| {}).unwrap();
+        ingest_manifest(&db, &m, cid, "https://example.com/manifest.json", |_, _| {}).unwrap();
         assert_eq!(db.get_collection_by_id(cid).unwrap().name, "Aurora — Demos");
     }
 
@@ -257,12 +278,98 @@ mod tests {
             ] }"#,
         )
         .unwrap();
-        let removed = ingest_manifest(&db, &m, cid, |_, _| {}).unwrap();
+        let removed = ingest_manifest(&db, &m, cid, "https://example.com/manifest.json", |_, _| {}).unwrap();
         assert_eq!(removed, 0);
 
         let mut paths = db.get_track_paths_for_collection(cid).unwrap();
         paths.sort();
         assert_eq!(paths, vec!["https://h/t1.flac".to_string(), "https://h/t2.mp3".to_string()]);
+    }
+
+    #[test]
+    fn test_ingest_resolves_relative_refs_against_manifest_url() {
+        // Option C: a portable manifest with relative `src` refs resolves each
+        // against the URL it was fetched from. `file`/`url`/`src` all deserialize.
+        let db = test_db();
+        let cid = manifest_collection(&db);
+        let m: Manifest = serde_json::from_str(
+            r#"{ "artist": "Aurora", "tracks": [
+                { "title": "T1", "src": "tracks/t1.flac" },
+                { "title": "T2", "url": "https://cdn.other/t2.mp3" }
+            ] }"#,
+        )
+        .unwrap();
+        ingest_manifest(&db, &m, cid, "https://h/mixes/manifest.json", |_, _| {}).unwrap();
+        let mut paths = db.get_track_paths_for_collection(cid).unwrap();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec![
+                "https://cdn.other/t2.mp3".to_string(),        // absolute passes through
+                "https://h/mixes/tracks/t1.flac".to_string(), // relative joined to manifest dir
+            ]
+        );
+    }
+
+    #[test]
+    fn test_publish_then_subscribe_roundtrip() {
+        // Full Option-C loop with the real production functions: publish a bundle
+        // (which now emits relative `src`), then subscribe to its manifest exactly
+        // as the HTTP client would and confirm every relative ref resolves back to
+        // the hosting URL. This is the end-to-end proof the two halves agree.
+        let tmp = tempfile::tempdir().unwrap();
+        let src_audio = tmp.path().join("song.flac");
+        std::fs::write(&src_audio, b"fake flac bytes").unwrap();
+
+        let dest = tmp.path().join("bundle");
+        let tracks = vec![crate::music_publish::PublishTrack {
+            title: "Drift".into(),
+            artist: Some("Aurora".into()),
+            album: Some("Demos".into()),
+            duration_secs: Some(210.0),
+            track_number: Some(1),
+            format: Some("flac".into()),
+            src_path: src_audio.to_string_lossy().to_string(),
+            tags: vec!["ambient".into()],
+        }];
+        let base = "https://aurora.example.com/mymusic";
+        let res = crate::music_publish::export_music_source(
+            dest.to_str().unwrap(), "My Music", base, &tracks,
+        )
+        .unwrap();
+        assert_eq!(res.exported, 1);
+
+        // Read the published manifest exactly as a subscriber's HTTP client would.
+        let manifest_json = std::fs::read_to_string(dest.join("manifest.json")).unwrap();
+        let manifest: Manifest = serde_json::from_str(&manifest_json).unwrap();
+
+        // Subscribe: ingest against the manifest's own URL (its hosting base).
+        let db = test_db();
+        let cid = manifest_collection(&db);
+        ingest_manifest(&db, &manifest, cid, &res.manifest_url, |_, _| {}).unwrap();
+
+        // The relative `src` resolved back to the hosted absolute URL, and the
+        // portable manifest carries no baked-in base.
+        assert!(!manifest_json.contains(base), "manifest should not bake in the base URL");
+        let paths = db.get_track_paths_for_collection(cid).unwrap();
+        assert_eq!(paths, vec![format!("{}/tracks/aurora-drift.flac", base)]);
+    }
+
+    #[test]
+    fn test_ingest_drops_disallowed_refs() {
+        // A manifest naming a local/private ref must not be ingested (guardrail).
+        let db = test_db();
+        let cid = manifest_collection(&db);
+        let m: Manifest = serde_json::from_str(
+            r#"{ "tracks": [
+                { "title": "Evil", "src": "file:///etc/passwd" },
+                { "title": "Good", "src": "tracks/ok.mp3" }
+            ] }"#,
+        )
+        .unwrap();
+        ingest_manifest(&db, &m, cid, "https://h/manifest.json", |_, _| {}).unwrap();
+        let paths = db.get_track_paths_for_collection(cid).unwrap();
+        assert_eq!(paths, vec!["https://h/tracks/ok.mp3".to_string()]);
     }
 
     #[test]
@@ -277,7 +384,7 @@ mod tests {
             ] }"#,
         )
         .unwrap();
-        ingest_manifest(&db, &m1, cid, |_, _| {}).unwrap();
+        ingest_manifest(&db, &m1, cid, "https://example.com/manifest.json", |_, _| {}).unwrap();
 
         // T2 dropped from the manifest → it should be pruned on re-ingest.
         let m2: Manifest = serde_json::from_str(
@@ -286,7 +393,7 @@ mod tests {
             ] }"#,
         )
         .unwrap();
-        let removed = ingest_manifest(&db, &m2, cid, |_, _| {}).unwrap();
+        let removed = ingest_manifest(&db, &m2, cid, "https://example.com/manifest.json", |_, _| {}).unwrap();
         assert_eq!(removed, 1);
         assert_eq!(
             db.get_track_paths_for_collection(cid).unwrap(),
@@ -306,7 +413,7 @@ mod tests {
             ] }"#,
         )
         .unwrap();
-        ingest_manifest(&db, &m, cid, |_, _| {}).unwrap();
+        ingest_manifest(&db, &m, cid, "https://example.com/manifest.json", |_, _| {}).unwrap();
         assert_eq!(
             db.get_track_paths_for_collection(cid).unwrap(),
             vec!["https://h/good.flac".to_string()]
@@ -323,7 +430,7 @@ mod tests {
             ] }"#,
         )
         .unwrap();
-        ingest_manifest(&db, &m, cid, |_, _| {}).unwrap();
+        ingest_manifest(&db, &m, cid, "https://example.com/manifest.json", |_, _| {}).unwrap();
 
         // Incremental FTS maintenance: the row is findable by title, artist, and tag.
         assert!(db.search_all("Zephyr", 5, 5, 5).unwrap().tracks.iter().any(|t| t.title == "Zephyr Drift"));
@@ -332,7 +439,7 @@ mod tests {
 
         // And after re-ingesting without it, the pruned track leaves the index.
         let empty: Manifest = serde_json::from_str(r#"{ "tracks": [] }"#).unwrap();
-        ingest_manifest(&db, &empty, cid, |_, _| {}).unwrap();
+        ingest_manifest(&db, &empty, cid, "https://example.com/manifest.json", |_, _| {}).unwrap();
         assert!(db.search_all("Zephyr", 5, 5, 5).unwrap().tracks.is_empty());
     }
 

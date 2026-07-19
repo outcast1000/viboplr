@@ -121,8 +121,8 @@ pub fn export_mixtape_playlist_only(
 
     let app_dir = state.app_dir.clone();
 
-    let track_entries: Vec<crate::models::MixtapeTrack> = options.tracks.iter().map(|t| {
-        crate::models::MixtapeTrack {
+    let track_entries: Vec<crate::models::BundleTrack> = options.tracks.iter().map(|t| {
+        crate::models::BundleTrack {
             title: t.title.clone(),
             artist: t.artist.clone().unwrap_or_default(),
             album: t.album.clone(),

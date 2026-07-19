@@ -6,7 +6,7 @@ use super::*;
 #[tauri::command]
 pub async fn main_playlist_write(
     state: State<'_, AppState>,
-    manifest: Option<crate::models::MixtapeManifest>,
+    manifest: Option<crate::models::BundleManifest>,
     state_data: Option<crate::models::MainPlaylistState>,
 ) -> Result<(), String> {
     let dir = state.app_dir.clone();

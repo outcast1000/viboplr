@@ -138,7 +138,10 @@ pub fn export_music_source(
 
         let mut entry = serde_json::Map::new();
         entry.insert("title".into(), serde_json::Value::String(t.title.clone()));
-        entry.insert("url".into(), serde_json::Value::String(format!("{}/tracks/{}", base, filename)));
+        // Option C: emit a **relative** ref (resolved by subscribers against the
+        // manifest URL). This keeps the manifest portable — re-hosting at a new
+        // base needs no rebuild — and no per-track absolute URL is baked in.
+        entry.insert("src".into(), serde_json::Value::String(format!("tracks/{}", filename)));
         if let Some(a) = &t.artist {
             entry.insert("artist".into(), serde_json::Value::String(a.clone()));
         }
@@ -340,15 +343,17 @@ mod tests {
         assert!(dest.join("index.html").exists());
         assert!(dest.join("PUBLISH.md").exists());
 
-        // Manifest is valid, names the source, and URLs point under the base.
+        // Manifest is valid, names the source, and refs are relative + portable
+        // (Option C — no base URL baked into per-track refs).
         let m: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(dest.join("manifest.json")).unwrap()).unwrap();
         assert_eq!(m["name"], "My Mix");
         assert_eq!(m["tracks"].as_array().unwrap().len(), 2);
         assert_eq!(
-            m["tracks"][0]["url"],
-            "https://me.example.com/music/tracks/bloc-party-positive-tension.m4a"
+            m["tracks"][0]["src"],
+            "tracks/bloc-party-positive-tension.m4a"
         );
+        assert!(m["tracks"][0].get("url").is_none());
         assert_eq!(m["tracks"][0]["artist"], "Bloc Party");
         // Optional fields omitted when absent.
         assert!(m["tracks"][1].get("album").is_none());

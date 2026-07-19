@@ -451,8 +451,12 @@ pub enum MixtapeImportMode {
     JustPlay,
 }
 
+/// The shared "bundle" manifest: one schema for mixtape (`.mixtape` ZIP), the
+/// live-queue snapshot (`main_playlist.rs`), and — wire-compatibly — published
+/// music sources (`manifest_sync` reads this shape via aliases). See
+/// `SHAREABLE-BUNDLES-PLAN.md` (Option C).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MixtapeManifest {
+pub struct BundleManifest {
     pub version: u32,
     pub title: String,
     #[serde(rename = "type")]
@@ -464,18 +468,22 @@ pub struct MixtapeManifest {
     pub created_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cover: Option<String>,
-    pub tracks: Vec<MixtapeTrack>,
+    pub tracks: Vec<BundleTrack>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MixtapeTrack {
+pub struct BundleTrack {
     pub title: String,
     pub artist: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_secs: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The track's audio reference: a relative in-archive/hosted path or an
+    /// absolute URL. `src` is the forward name (shared with published sources);
+    /// `file` is kept as the serialized name for the existing mixtape/live-queue
+    /// wire format, with `src` accepted as an alias.
+    #[serde(default, alias = "src", skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumb: Option<String>,
@@ -486,7 +494,7 @@ pub struct MixtapeTrack {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MixtapePreview {
-    pub manifest: MixtapeManifest,
+    pub manifest: BundleManifest,
     pub cover_temp_path: Option<String>,
     pub file_size: u64,
     pub total_duration_secs: f64,
@@ -605,7 +613,7 @@ pub struct MainPlaylistState {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MainPlaylistReadResult {
-    pub manifest: Option<MixtapeManifest>,
+    pub manifest: Option<BundleManifest>,
     pub state: Option<MainPlaylistState>,
     /// `(track file URI, on-disk thumb filename)` for every queued track whose
     /// cached thumbnail already exists on disk. Seeded into the frontend

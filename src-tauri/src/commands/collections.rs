@@ -174,13 +174,14 @@ pub fn add_collection(
             // Ingest the already-validated manifest in the background (DB work +
             // progress events) so the command returns promptly.
             let db = state.db.clone();
+            let base_url = manifest_url.to_string();
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let _ = app.emit(
                     "sync-progress",
                     SyncProgress { collection: collection_name.clone(), synced: 0, total: 0, collection_id },
                 );
-                match crate::manifest_sync::ingest_manifest(&db, &manifest, collection_id, |synced, total| {
+                match crate::manifest_sync::ingest_manifest(&db, &manifest, collection_id, &base_url, |synced, total| {
                     let _ = app.emit(
                         "sync-progress",
                         SyncProgress { collection: collection_name.clone(), synced, total, collection_id },

@@ -1,7 +1,7 @@
 use crate::entity_image::canonical_slug;
 use crate::image_provider;
 use crate::models::{
-    ImageSource, MainPlaylistReadResult, MainPlaylistState, MixtapeManifest,
+    ImageSource, MainPlaylistReadResult, MainPlaylistState, BundleManifest,
 };
 use std::path::{Path, PathBuf};
 
@@ -51,7 +51,7 @@ fn atomic_write(dest: &Path, bytes: &[u8]) -> Result<(), String> {
 
 pub fn write(
     profile_dir: &Path,
-    manifest: Option<&MixtapeManifest>,
+    manifest: Option<&BundleManifest>,
     state: Option<&MainPlaylistState>,
 ) -> Result<(), String> {
     ensure_dirs(profile_dir)?;
@@ -68,7 +68,7 @@ pub fn write(
 
 pub fn read(profile_dir: &Path) -> Result<MainPlaylistReadResult, String> {
     let f = folder(profile_dir);
-    let manifest = read_json::<MixtapeManifest>(&f.join(MANIFEST_FILE));
+    let manifest = read_json::<BundleManifest>(&f.join(MANIFEST_FILE));
     let state = read_json::<MainPlaylistState>(&f.join(STATE_FILE));
     // Existence-check cached thumbs inline so the frontend can seed `thumbInfo`
     // synchronously with the restored queue (replaces the old post-restore
@@ -133,7 +133,7 @@ pub fn gc(profile_dir: &Path) -> Result<(), String> {
     // Bail in that case and leave every thumb in place.
     let manifest_path = f.join(MANIFEST_FILE);
     let manifest = match std::fs::read_to_string(&manifest_path) {
-        Ok(contents) => match serde_json::from_str::<MixtapeManifest>(&contents) {
+        Ok(contents) => match serde_json::from_str::<BundleManifest>(&contents) {
             Ok(m) => Some(m),
             Err(e) => {
                 log::warn!(
@@ -314,8 +314,8 @@ mod tests {
         assert!(folder(t.path()).join(THUMBS_DIR).is_dir());
     }
 
-    fn sample_manifest() -> MixtapeManifest {
-        MixtapeManifest {
+    fn sample_manifest() -> BundleManifest {
+        BundleManifest {
             version: 1,
             title: "Test".into(),
             mixtape_type: MixtapeType::Custom,
@@ -413,8 +413,8 @@ mod tests {
 
     /// A track whose `file` URI produces `canonical_slug(file).jpg` on disk and
     /// carries a non-null `thumb` so gc() treats it as referenced.
-    fn referenced_track(file: &str) -> crate::models::MixtapeTrack {
-        crate::models::MixtapeTrack {
+    fn referenced_track(file: &str) -> crate::models::BundleTrack {
+        crate::models::BundleTrack {
             title: "t".into(),
             artist: "a".into(),
             album: None,
@@ -453,14 +453,14 @@ mod tests {
         // string (a JS-side slug mirror that can diverge for non-ASCII / long
         // URIs). Here the manifest's thumb string is deliberately WRONG; the
         // real on-disk file follows the Rust slug. gc must keep the real file.
-        use crate::models::MixtapeTrack;
+        use crate::models::BundleTrack;
         let t = tmp();
         ensure_dirs(t.path()).unwrap();
         let uri = "spotify://Björk-track";
         let real = format!("{}.jpg", canonical_slug(uri)); // what set_thumb actually writes
         std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&real), b"x").unwrap();
         let mut m = sample_manifest();
-        m.tracks.push(MixtapeTrack {
+        m.tracks.push(BundleTrack {
             title: "t".into(),
             artist: "a".into(),
             album: None,
@@ -484,14 +484,14 @@ mod tests {
         // canonical_slug(file), regardless of whether `thumb` is set. A thumb
         // whose slug matches a current track's file is kept even though that
         // track carries thumb: None.
-        use crate::models::MixtapeTrack;
+        use crate::models::BundleTrack;
         let t = tmp();
         ensure_dirs(t.path()).unwrap();
         let keep = thumb_filename("spotify://keep");
         std::fs::write(folder(t.path()).join(THUMBS_DIR).join(&keep), b"x").unwrap();
         std::fs::write(folder(t.path()).join(THUMBS_DIR).join("orphan.jpg"), b"x").unwrap();
         let mut m = sample_manifest();
-        m.tracks.push(MixtapeTrack {
+        m.tracks.push(BundleTrack {
             title: "t".into(),
             artist: "a".into(),
             album: None,
@@ -529,7 +529,7 @@ mod tests {
         ensure_dirs(t.path()).unwrap();
         std::fs::write(folder(t.path()).join(THUMBS_DIR).join("a.jpg"), b"x").unwrap();
         std::fs::write(folder(t.path()).join(THUMBS_DIR).join("b.jpg"), b"x").unwrap();
-        // Corrupt manifest (valid file, invalid JSON for MixtapeManifest).
+        // Corrupt manifest (valid file, invalid JSON for BundleManifest).
         std::fs::write(folder(t.path()).join(MANIFEST_FILE), "{not valid json").unwrap();
         gc(t.path()).unwrap();
         assert!(folder(t.path()).join(THUMBS_DIR).join("a.jpg").exists());
