@@ -26,10 +26,13 @@ function injectSkinCSS(skin: SkinInfo) {
   const colors = { ...defaultSkin.colors, ...skin.colors } as SkinColors;
   el.textContent = generateSkinCSS(colors, skin.customCSS);
   document.documentElement.dataset.skinType = skin.type;
-  // Match the native-video letterbox fill to the skin background (mpv paints
-  // black there by default). No-ops on the browser engine; cached backend-side
-  // until the native engine exists, so this can run before any playback.
-  nativeEngine.setVideoBackground(colors["bg-primary"]).catch(console.error);
+  // Match the native-video letterbox fill to the skin's video-bg color (the
+  // same var the browser-engine .video-container uses), so both engines
+  // letterbox identically. No-ops on the browser engine; cached backend-side
+  // until the native engine exists, so this can run before any playback. The
+  // defaultSkin merge above guarantees video-bg is set even for skins that
+  // omit the optional key.
+  nativeEngine.setVideoBackground(colors["video-bg"]).catch(console.error);
 }
 
 export function useSkins() {

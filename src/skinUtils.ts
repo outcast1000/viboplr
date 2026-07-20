@@ -80,7 +80,7 @@ export function slugifySkinName(name: string): string {
 }
 
 // A complete, valid neutral palette (the Default Dark Blue look) used to seed a
-// brand-new user skin. Every one of the 18 keys is present and valid so the
+// brand-new user skin. Every one of the 19 keys is present and valid so the
 // starter passes validateSkin() and renders immediately — the author then tweaks
 // values in their editor and hits Refresh.
 const STARTER_COLORS: SkinColors = {
@@ -102,6 +102,7 @@ const STARTER_COLORS: SkinColors = {
   "warning": "#ff9500",
   "like": "#ff4d6a",
   "dislike": "#ff9500",
+  "video-bg": "#000000",
 };
 
 export interface StarterSkin {

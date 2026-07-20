@@ -21,6 +21,7 @@
     "warning": "#ffca28",
     "accent-text": "#ffffff",
     "like": "#ff4d6a",
-    "dislike": "#ffca28"
+    "dislike": "#ffca28",
+    "video-bg": "#000000"
   }
 }

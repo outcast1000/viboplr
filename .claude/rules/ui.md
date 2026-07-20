@@ -320,15 +320,17 @@ Plugin-registered actions appear on all applicable targets automatically. Search
 
 Skins control all colors via CSS custom properties on `:root`.
 
-**18 color keys** (defined in `types/skin.ts` → `SkinColors`):
+**19 color keys** (defined in `types/skin.ts` → `SkinColors`):
 ```
 bg-primary, bg-secondary, bg-tertiary, bg-surface, bg-hover,
 text-primary, text-secondary, text-tertiary,
 accent, accent-dim, accent-text, border, now-playing-bg,
-success, error, warning, like, dislike
+success, error, warning, like, dislike, video-bg
 ```
 
-`accent-text`, `like`, and `dislike` postdate the original 15-key schema and are **optional** (`OPTIONAL_SKIN_COLOR_KEYS` in `types/skin.ts`): `validateSkin()` tolerates their absence and rendering falls back to the default skin's values. New skins should still define all 18.
+`accent-text`, `like`, `dislike`, and `video-bg` postdate the original 15-key schema and are **optional** (`OPTIONAL_SKIN_COLOR_KEYS` in `types/skin.ts`): `validateSkin()` tolerates their absence and rendering falls back to the default skin's values. New skins should still define all 19.
+
+`video-bg` is the letterbox/pillarbox fill behind video — both the browser `<video>` container and the native mpv layer read it (`useSkins.ts` mirrors it to mpv's `background-color`), so both engines surround video identically. It is independent from `bg-primary` so a **light** skin can keep a cinema-black surround without darkening the whole app; the built-in skins all set it to black.
 
 Plus derived RGB versions (`--bg-primary-rgb`, `--accent-rgb`, `--now-playing-bg-rgb`) for `rgba()` usage.
 

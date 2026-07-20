@@ -17,6 +17,7 @@ export const SKIN_COLOR_KEYS = [
   "warning",
   "like",
   "dislike",
+  "video-bg",
 ] as const;
 
 export type SkinColorKey = (typeof SKIN_COLOR_KEYS)[number];
@@ -28,6 +29,7 @@ export const OPTIONAL_SKIN_COLOR_KEYS: ReadonlySet<SkinColorKey> = new Set([
   "accent-text",
   "like",
   "dislike",
+  "video-bg",
 ]);
 
 export type SkinColors = Record<SkinColorKey, string>;

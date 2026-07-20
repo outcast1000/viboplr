@@ -1,7 +1,7 @@
 
 /* Video player */
 .video-container {
-  background: var(--bg-primary);
+  background: var(--video-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -41,14 +41,16 @@
 
 /* The hole is see-through only once the native video is READY (positioned +
    first frame up) — `.mpv-video-ready`. Until then (establishing, entering
-   now-playing, or resizing) it stays opaque with the app background, so the
-   DOM hole never goes transparent before the async-positioned native child
-   has caught up (which is what flashed the transparent window). Higher
+   now-playing, or resizing) it stays opaque with the video-letterbox fill, so
+   the DOM hole never goes transparent before the async-positioned native child
+   has caught up (which is what flashed the transparent window). Using
+   --video-bg (not --bg-primary) means the placeholder matches the letterbox
+   mpv will paint, so there's no color flash when the frame arrives. Higher
    specificity than the transparent rules above, so opaque wins while not
    ready. */
 .app.mpv-video-hole:not(.mpv-video-ready) .video-container,
 .app.mpv-video-hole.mpv-hole-theater:not(.mpv-video-ready) .content {
-  background: var(--bg-primary);
+  background: var(--video-bg);
 }
 
 /* Native fullscreen (mpv video sessions use WINDOW fullscreen — DOM element
@@ -143,7 +145,7 @@
   width: auto !important;
   height: auto !important;
   z-index: 5;
-  background: var(--bg-primary);
+  background: var(--video-bg);
 }
 .video-container--theater.collapsed {
   height: auto !important;

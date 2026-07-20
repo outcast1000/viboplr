@@ -3,7 +3,7 @@ import { buildStarterSkin, skinSubmissionUrl, validateSkin } from "../skinUtils"
 import { SKIN_COLOR_KEYS } from "../types/skin";
 
 describe("buildStarterSkin", () => {
-  it("produces a skin that passes validateSkin with all 18 color keys", () => {
+  it("produces a skin that passes validateSkin with all 19 color keys", () => {
     const s = buildStarterSkin();
     const v = validateSkin(s);
     expect(v.ok).toBe(true);
