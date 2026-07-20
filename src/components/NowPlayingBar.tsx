@@ -229,6 +229,10 @@ export function NowPlayingBar({
   const [eqOpen, setEqOpen] = useState(false);
   const eqAnchorRef = useRef<HTMLButtonElement>(null);
   const acAnchorRef = useRef<HTMLButtonElement>(null);
+  // Scrub preview over the seek track: pct drives the waveform's ghost tint,
+  // x positions the floating time bubble (px within .now-seek-wrap).
+  const [seekHover, setSeekHover] = useState<{ pct: number; x: number } | null>(null);
+  const seekWrapRef = useRef<HTMLDivElement>(null);
   const isVideo = currentTrack ? isVideoTrack(currentTrack) : false;
   // EQ is available for audio always, and for video only on the native mpv
   // engine (lavfi graph on the deck). Browser-engine video can't be EQ'd —
@@ -501,38 +505,56 @@ export function NowPlayingBar({
 
   return (
     <footer className="now-playing">
-      <div className="now-seek-bar">
-        <span className="now-seek-time now-seek-elapsed">{formatDuration(positionSecs)}</span>
-        {/* The waveform lives in its own middle track that flexes between the two
-            time labels; the seek math maps against THIS wrapper (not the full bar)
-            so the click position still lines up with the visible waveform. */}
-        <div
-          className="now-seek-track"
-          onClick={(e) => {
-            if (!durationSecs) return;
-            const rect = e.currentTarget.getBoundingClientRect();
-            const pct = (e.clientX - rect.left) / rect.width;
-            onSeek(pct * durationSecs);
-          }}
-        >
-          {waveformPeaks ? (
-            <WaveformSeekBar
-              peaks={waveformPeaks}
-              progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
-              accentColor="rgba(83, 168, 255, 0.7)"
-              dimColor="rgba(255, 255, 255, 0.15)"
-            />
-          ) : durationSecs > 0 ? (
-            <SegmentedSeekBar
-              progress={positionSecs / durationSecs}
-              durationSecs={durationSecs}
-            />
-          ) : null}
+      <div className="now-seek-wrap" ref={seekWrapRef}>
+        <div className="now-seek-bar">
+          <span className="now-seek-time now-seek-elapsed">{formatDuration(positionSecs)}</span>
+          {/* The waveform lives in its own middle track that flexes between the two
+              time labels; the seek math maps against THIS wrapper (not the full bar)
+              so the click position still lines up with the visible waveform. */}
+          <div
+            className="now-seek-track"
+            onClick={(e) => {
+              if (!durationSecs) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const pct = (e.clientX - rect.left) / rect.width;
+              onSeek(pct * durationSecs);
+            }}
+            onMouseMove={(e) => {
+              if (!durationSecs) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+              const wrapLeft = seekWrapRef.current?.getBoundingClientRect().left ?? rect.left;
+              setSeekHover({ pct, x: e.clientX - wrapLeft });
+            }}
+            onMouseLeave={() => setSeekHover(null)}
+          >
+            {waveformPeaks ? (
+              <WaveformSeekBar
+                peaks={waveformPeaks}
+                progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
+                hoverPct={seekHover?.pct ?? null}
+              />
+            ) : durationSecs > 0 ? (
+              <SegmentedSeekBar
+                progress={positionSecs / durationSecs}
+                durationSecs={durationSecs}
+              />
+            ) : null}
+          </div>
+          <span className="now-seek-time now-seek-total">
+            {formatDuration(durationSecs)}
+            {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
+          </span>
         </div>
-        <span className="now-seek-time now-seek-total">
-          {formatDuration(durationSecs)}
-          {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
-        </span>
+        {seekHover !== null && durationSecs > 0 && (
+          <div className="now-seek-bubble" style={{ left: seekHover.x }}>
+            {formatDuration(seekHover.pct * durationSecs)}
+            <span className="now-seek-bubble-delta">
+              {(seekHover.pct * durationSecs >= positionSecs ? "+" : "-") +
+                formatDuration(Math.abs(seekHover.pct * durationSecs - positionSecs))}
+            </span>
+          </div>
+        )}
       </div>
       <div className="now-main">
         <div className="now-info">

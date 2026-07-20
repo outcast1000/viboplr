@@ -160,8 +160,6 @@ export function FullscreenControls({
           <WaveformSeekBar
             peaks={waveformPeaks}
             progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
-            accentColor="rgba(83, 168, 255, 0.8)"
-            dimColor="rgba(255, 255, 255, 0.2)"
           />
         ) : (
           <div className="fs-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
