@@ -51,18 +51,17 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
      "name": "YouTube",
      "author": "Viboplr",
      "description": "Play and download tracks from YouTube via yt-dlp",
-     "version": "1.0.0",
      "minAppVersion": "0.9.4",
      "updateUrl": "https://github.com/outcast1000/viboplr-youtube/releases/latest/download/update.json"
    }
    ```
    - `id` **must** match the plugin's `manifest.json` `id` exactly (it's the override/storage key).
-   - `updateUrl` is the only load-bearing field for install. `name`/`description`/`version`/`minAppVersion` are display metadata for the gallery list; the *real* version/min-app gate is enforced from the live `update.json` at install time. Keep them roughly in sync with the manifest.
+   - `updateUrl` is the only load-bearing field for install. `name`/`description` are display metadata you maintain by hand; **`version` and `minAppVersion` are auto-synced from your live `update.json` by the gallery's reconcile bot** (`scripts/reconcile-versions.mjs` — daily + on release), so you don't hand-maintain them (omit them and the bot backfills; the submission bot also seeds `version` on merge). The *real* version/min-app gate is always enforced from the live `update.json` at install regardless.
    - Optional behavior fields: `recommended` / `profiles` (onboarding pre-selection) and `stability` (`"experimental"` moves the entry into the gallery's collapsed Experimental section in-app and the Experimental group on the site, excludes it from onboarding, and badges already-installed copies until the plugin's own manifest carries the field — see "Manifest Format").
 
 3. **Commit & push `index.json`.** Live for everyone on their next Extensions open — no host app release required.
 
-**After registration, updates are automatic** — the app re-checks each `updateUrl` ~every 24h and auto-updates installed copies. Touch `index.json` again only when display metadata changes materially (rename, description, or a `minAppVersion` bump you want shown pre-install).
+**After registration, updates are automatic** — the app re-checks each `updateUrl` ~every 24h and auto-updates installed copies, and the gallery's reconcile bot keeps each entry's displayed `version`/`minAppVersion` in step with its live `update.json`. Touch `index.json` by hand again only for material display changes (rename, description, `recommended`/`stability`).
 
 ## Manifest Format
 
