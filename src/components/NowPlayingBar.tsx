@@ -501,29 +501,34 @@ export function NowPlayingBar({
 
   return (
     <footer className="now-playing">
-      <div
-        className="now-seek-bar"
-        onClick={(e) => {
-          if (!durationSecs) return;
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pct = (e.clientX - rect.left) / rect.width;
-          onSeek(pct * durationSecs);
-        }}
-      >
-        {waveformPeaks ? (
-          <WaveformSeekBar
-            peaks={waveformPeaks}
-            progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
-            accentColor="rgba(83, 168, 255, 0.7)"
-            dimColor="rgba(255, 255, 255, 0.15)"
-          />
-        ) : durationSecs > 0 ? (
-          <SegmentedSeekBar
-            progress={positionSecs / durationSecs}
-            durationSecs={durationSecs}
-          />
-        ) : null}
+      <div className="now-seek-bar">
         <span className="now-seek-time now-seek-elapsed">{formatDuration(positionSecs)}</span>
+        {/* The waveform lives in its own middle track that flexes between the two
+            time labels; the seek math maps against THIS wrapper (not the full bar)
+            so the click position still lines up with the visible waveform. */}
+        <div
+          className="now-seek-track"
+          onClick={(e) => {
+            if (!durationSecs) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const pct = (e.clientX - rect.left) / rect.width;
+            onSeek(pct * durationSecs);
+          }}
+        >
+          {waveformPeaks ? (
+            <WaveformSeekBar
+              peaks={waveformPeaks}
+              progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
+              accentColor="rgba(83, 168, 255, 0.7)"
+              dimColor="rgba(255, 255, 255, 0.15)"
+            />
+          ) : durationSecs > 0 ? (
+            <SegmentedSeekBar
+              progress={positionSecs / durationSecs}
+              durationSecs={durationSecs}
+            />
+          ) : null}
+        </div>
         <span className="now-seek-time now-seek-total">
           {formatDuration(durationSecs)}
           {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
