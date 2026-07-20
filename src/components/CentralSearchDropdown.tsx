@@ -1,6 +1,9 @@
 import { useRef, useEffect, useState } from "react";
-import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
+import type { Track, SearchAllResults, SearchResultItem } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { AlbumCardArt } from "./AlbumCardArt";
+import { ArtistCardArt } from "./ArtistCardArt";
+import { TrackArtFallback } from "./TrackArtFallback";
 import "./CentralSearchDropdown.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -38,33 +41,10 @@ interface CentralSearchDropdownProps {
   getArtistImage: (name: string) => string | null;
 }
 
-function ArtistImage({ artist, getArtistImage }: {
-  artist: Artist;
-  getArtistImage: (name: string) => string | null;
-}) {
-  const path = getArtistImage(artist.name);
-  if (path) {
-    return <img className="result-img result-img-round" src={resolveImageUrl(path)} alt="" />;
-  }
-  const initial = (artist.name[0] ?? "?").toUpperCase();
-  return <span className="result-img-fallback result-img-round">{initial}</span>;
-}
-
-function AlbumImage({ album, getAlbumImage, getArtistImage }: {
-  album: Album;
-  getAlbumImage: (title: string, artistName?: string | null) => string | null;
-  getArtistImage: (name: string) => string | null;
-}) {
-  const albumPath = getAlbumImage(album.title, album.artist_name);
-  const artistPath = album.artist_name ? getArtistImage(album.artist_name) : null;
-  const imagePath = albumPath || artistPath;
-  if (imagePath) {
-    return <img className="result-img" src={resolveImageUrl(imagePath)} alt="" />;
-  }
-  const initial = (album.title[0] ?? "?").toUpperCase();
-  return <span className="result-img-fallback">{initial}</span>;
-}
-
+// Track art mirrors the queue's chain (queue.md "Image Resolution"): album image
+// → artist image → the shared audio/video placeholder (SpinningDisc / FilmStrip).
+// Album and artist rows reuse the library's AlbumCardArt / ArtistCardArt so their
+// miss-state placeholders (title letter / artist initials) match everywhere.
 function TrackImage({ track, getAlbumImage, getArtistImage }: {
   track: Track;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
@@ -76,8 +56,11 @@ function TrackImage({ track, getAlbumImage, getArtistImage }: {
   if (imagePath) {
     return <img className="result-img" src={resolveImageUrl(imagePath)} alt="" />;
   }
-  const initial = (track.title[0] ?? "?").toUpperCase();
-  return <span className="result-img-fallback">{initial}</span>;
+  return (
+    <span className="result-img-fallback">
+      <TrackArtFallback track={track} size={18} />
+    </span>
+  );
 }
 
 export function CentralSearchDropdown({
@@ -233,7 +216,7 @@ export function CentralSearchDropdown({
                     }}
                   >
                     <div className="result-art">
-                      <AlbumImage album={album} getAlbumImage={getAlbumImage} getArtistImage={getArtistImage} />
+                      <AlbumCardArt album={album} imagePath={getAlbumImage(album.title, album.artist_name)} />
                     </div>
                     <div className="result-info">
                       <div className="result-title">{album.title}</div>
@@ -260,8 +243,8 @@ export function CentralSearchDropdown({
                       onResultClick({ kind: "artist", data: artist });
                     }}
                   >
-                    <div className="result-art">
-                      <ArtistImage artist={artist} getArtistImage={getArtistImage} />
+                    <div className="result-art result-art-round">
+                      <ArtistCardArt artist={artist} imagePath={getArtistImage(artist.name)} />
                     </div>
                     <div className="result-info">
                       <div className="result-title">{artist.name}</div>

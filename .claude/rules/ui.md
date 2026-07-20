@@ -111,7 +111,7 @@ Navigation items (top to bottom):
 - **Home** (Cmd+0) — curated landing surface (`HomeView`), default startup view
 - Library (Cmd+1) — unified search/browse view rendered by `SearchView` with tabs for Tracks, Artists, Albums, Tags
 - History (Cmd+2)
-- **Now Playing** (Cmd+3) — lean-back view of the current track (`NowPlayingView`). Its sidebar icon reflects playback state: a spinning disc (`SpinningDisc`) for audio, a `FilmReel` for video, both frozen when paused.
+- **Now Playing** (Cmd+3) — lean-back view of the current track (`NowPlayingView`). Its sidebar icon reflects playback state: a spinning disc (`SpinningDisc`) for audio, a `FilmStrip` for video, both frozen when paused.
 - Playlists
 - Plugin sidebar items (below separator)
 - Bottom: Collections, Extensions (with update count badge), Settings (with update badge)

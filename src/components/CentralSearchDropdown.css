@@ -177,8 +177,22 @@
   letter-spacing: 0.05em;
 }
 
-.result-img-round {
+/* Artist rows are round, matching the circular artist artwork everywhere else. */
+.result-art-round {
   border-radius: 50%;
+}
+
+/* Reuse the library card-art components (AlbumCardArt / ArtistCardArt) inside the
+   compact 36px result row: strip their card-sized margins and shrink the
+   letter/initials fallback so it fits, while keeping their shape + fallback
+   vocabulary consistent with the Library. */
+.central-search-result .result-art .album-card-art,
+.central-search-result .result-art .artist-card-art {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
 }
 
 .central-search-footer {

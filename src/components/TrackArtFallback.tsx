@@ -1,11 +1,11 @@
 import { isVideoTrack } from "../utils";
 import { SpinningDisc } from "./SpinningDisc";
-import { FilmReel } from "./FilmReel";
+import { FilmStrip } from "./FilmStrip";
 
 /**
  * Uniform, type-aware placeholder icon for a track that has no resolvable
- * artwork: a static film reel for video, a static vinyl disc for audio (reusing
- * the app's SpinningDisc/FilmReel vocabulary, frozen). Meant to sit inside a
+ * artwork: a static film strip for video, a static vinyl disc for audio (reusing
+ * the app's SpinningDisc/FilmStrip vocabulary, frozen). Meant to sit inside a
  * surface's existing flat, centered placeholder container and inherit its color
  * via `currentColor` — it renders only the icon, not its own background.
  *
@@ -22,6 +22,6 @@ export function TrackArtFallback({
 }) {
   const isVideo = isVideoTrack({ format: track.format ?? null, path: track.path });
   return isVideo
-    ? <FilmReel size={size} playing={false} />
+    ? <FilmStrip size={size} playing={false} />
     : <SpinningDisc size={size} playing={false} />;
 }
