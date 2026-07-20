@@ -163,6 +163,9 @@ export interface LikedEntityInfo {
   artist_name: string | null;
   album_title: string | null;
   image_url: string | null;
+  // Scheme-prefixed path frozen at like-time (from the track's `source`), or
+  // null for artist/album likes and path-less external tracks.
+  path: string | null;
 }
 
 export interface HistoryArtistStats {

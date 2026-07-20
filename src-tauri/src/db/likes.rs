@@ -105,6 +105,10 @@ impl Database {
                 artist_name: str_field("artist_name"),
                 album_title: str_field("album_title"),
                 image_url: str_field("image_url"),
+                // `source` is the track's scheme-prefixed path (set by
+                // trackLikePayload); surface it as `path` so track-rows shelves
+                // can resolve the live row/video-frame by exact path.
+                path: str_field("source"),
             });
         }
         Ok(out)
@@ -335,7 +339,7 @@ mod tests {
     fn test_pick_liked_entities_recent_order_and_parsing() {
         let db = test_db();
         // liked, with metadata, at increasing updated_at
-        db.set_entity_like("track", "track:a:one", 1, Some(r#"{"name":"One","title":"One","artist_name":"A","album_title":"AlbA","image_url":"/c/a.jpg"}"#), 100).unwrap();
+        db.set_entity_like("track", "track:a:one", 1, Some(r#"{"name":"One","title":"One","artist_name":"A","album_title":"AlbA","image_url":"/c/a.jpg","source":"file:///m/one.mp4"}"#), 100).unwrap();
         db.set_entity_like("track", "track:b:two", 1, Some(r#"{"name":"Two","title":"Two","artist_name":"B"}"#), 200).unwrap();
         // a dislike must be excluded
         db.set_entity_like("track", "track:c:three", -1, Some(r#"{"name":"Three"}"#), 300).unwrap();
@@ -350,6 +354,11 @@ mod tests {
         assert_eq!(one.artist_name.as_deref(), Some("A"));
         assert_eq!(one.album_title.as_deref(), Some("AlbA"));
         assert_eq!(one.image_url.as_deref(), Some("/c/a.jpg"));
+        // `source` in the metadata is surfaced as `path`.
+        assert_eq!(one.path.as_deref(), Some("file:///m/one.mp4"));
+        // A like with no `source` yields no path.
+        let two = rows.iter().find(|r| r.name == "Two").unwrap();
+        assert_eq!(two.path, None);
 
         // kind filter selects the artist like only
         let artists = db.pick_liked_entities("artist", "recent", 10).unwrap();

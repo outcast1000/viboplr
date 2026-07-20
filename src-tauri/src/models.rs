@@ -355,6 +355,11 @@ pub struct LikedEntityInfo {
     pub artist_name: Option<String>,
     pub album_title: Option<String>,
     pub image_url: Option<String>,
+    /// The liked track's scheme-prefixed path, frozen into the like metadata as
+    /// `source` at like-time. Lets consumers resolve the exact library row (and
+    /// thus a live video frame) instead of relying on the stale `image_url`
+    /// snapshot. `None` for artist/album likes and path-less external tracks.
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

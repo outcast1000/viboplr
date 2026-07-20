@@ -9,6 +9,8 @@ import type {
 import type { RecentlyVisitedEntry } from "../utils/recentlyVisited";
 import { type RecentPlaySession, sessionKey, sessionSubtitle } from "../utils/recentPlays";
 import { store } from "../store";
+import { isVideoTrack } from "../utils";
+import { isLocalTrack } from "../queueEntry";
 
 const STALE_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
@@ -124,6 +126,32 @@ function radioStationItem(id: string, seed: RadioSeedLike, coverUrl: string | nu
       },
     ],
   } as unknown as HomeShelfItem;
+}
+
+// Map a liked-track row (from the metadata-keyed entity_likes store) to a
+// track-rows item. For a LOCAL video, DROP the frozen image_url: it was
+// captured at like-time and — before the async video frame was ready — often
+// froze the artist image, which then masks the real frame forever. With
+// image_url unset, HomeShelf resolves the live chain (video frame → album →
+// artist) by exact path instead. We only drop it for local videos because
+// frame extraction is local-only (extract_video_frames rejects remote tracks),
+// so a non-local video's frame is never available — there the frozen image_url
+// IS the right fallback, so we keep it. Non-video rows also keep it (their only
+// artwork when the track isn't in the library). Scoped to these liked
+// track-rows shelves, so a plugin's genuinely-explicit image_url on a video
+// elsewhere (queue / now-playing) is unaffected.
+function likedTrackRowItem(r: LikedEntityInfo): HomeShelfItem {
+  const path = r.path ?? undefined;
+  const dropImageUrl = isVideoTrack({ format: null, path }) && isLocalTrack({ path });
+  return {
+    track: {
+      title: r.name,
+      artist_name: r.artist_name ?? undefined,
+      album_title: r.album_title ?? undefined,
+      path,
+      image_url: dropImageUrl ? undefined : (r.image_url ?? undefined),
+    },
+  };
 }
 
 // Resolve a cover image (album image first, artist image fallback) for a seed.
@@ -518,17 +546,7 @@ export function useHome(opts: UseHomeOptions) {
             try {
               const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "recent", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
-              return {
-                status: "ok",
-                items: rows.map(r => ({
-                  track: {
-                    title: r.name,
-                    artist_name: r.artist_name ?? undefined,
-                    album_title: r.album_title ?? undefined,
-                    image_url: r.image_url ?? undefined,
-                  },
-                })),
-              };
+              return { status: "ok", items: rows.map(likedTrackRowItem) };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -582,17 +600,7 @@ export function useHome(opts: UseHomeOptions) {
             try {
               const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
-              return {
-                status: "ok",
-                items: rows.map(r => ({
-                  track: {
-                    title: r.name,
-                    artist_name: r.artist_name ?? undefined,
-                    album_title: r.album_title ?? undefined,
-                    image_url: r.image_url ?? undefined,
-                  },
-                })),
-              };
+              return { status: "ok", items: rows.map(likedTrackRowItem) };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
