@@ -79,6 +79,7 @@ macro_rules! invoke_handler {
             commands::set_album_year,
             commands::get_tracks_by_ids,
             commands::get_tracks_by_paths,
+            commands::resolve_dropped_paths,
             commands::get_tracks_by_artist,
             commands::get_track_path,
             commands::file_exists,

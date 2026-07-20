@@ -234,6 +234,53 @@ pub fn find_duplicate_tracks(
         .map_err(|e| e.to_string())
 }
 
+/// A file-manager drop resolved into a playable queue entry. `path` is a
+/// `file://` URI (natively playable, like a local library track's path), so the
+/// frontend can enqueue it without a collection or DB row. Field names mirror
+/// the frontend `QueueTrack` shape.
+#[derive(Serialize)]
+pub struct DroppedTrack {
+    pub path: String,
+    pub title: String,
+    pub artist_name: Option<String>,
+    pub album_title: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub format: Option<String>,
+}
+
+/// Resolve paths dropped from the OS file manager into playable queue tracks.
+/// Each input may be a file or a directory: directories are walked recursively
+/// for supported media, non-media files are ignored. Tags are read on the fly
+/// (the files need not be in any collection). Duplicate absolute paths — e.g. a
+/// file dropped alongside its parent folder — are de-duplicated. No `AppState`
+/// is needed: this reads the filesystem directly, independent of the library.
+#[tauri::command]
+pub fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrack>, String> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for p in paths {
+        // Drops arrive as bare absolute paths on macOS/Windows, but strip a
+        // `file://` prefix defensively so a URI-shaped path also works.
+        let raw = p.strip_prefix("file://").unwrap_or(&p);
+        for file in scanner::collect_dropped_media(std::path::Path::new(raw)) {
+            let abs = file.to_string_lossy().to_string();
+            if !seen.insert(abs.clone()) {
+                continue;
+            }
+            let meta = scanner::read_dropped_media(&file);
+            out.push(DroppedTrack {
+                path: format!("file://{}", abs),
+                title: meta.title,
+                artist_name: meta.artist,
+                album_title: meta.album,
+                duration_secs: meta.duration_secs,
+                format: meta.format,
+            });
+        }
+    }
+    Ok(out)
+}
+
 // --- Track path command ---
 
 #[tauri::command]

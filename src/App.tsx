@@ -48,6 +48,7 @@ import ProfileSwitchOverlay from "./components/ProfileSwitchOverlay";
 import { Toasts } from "./components/Toasts";
 import { useLibrary, DEFAULT_TRACK_COLUMNS } from "./hooks/useLibrary";
 import { useEventListeners } from "./hooks/useEventListeners";
+import { useFileDrop } from "./hooks/useFileDrop";
 import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
@@ -1087,6 +1088,16 @@ function App() {
   // playActions is constructed before contextMenuActions, so the enqueue-entity
   // actions reach the dedup-aware handleEnqueue through this ref (updated each render).
   handleEnqueueRef.current = contextMenuActions.handleEnqueue;
+
+  // Drag files/folders from the OS file manager into the app to enqueue them.
+  const { isDragging: fileDragOver } = useFileDrop({
+    enqueue: (tracks) => contextMenuActions.handleEnqueue(tracks as unknown as Track[]),
+    findDuplicates: queueHook.findDuplicates,
+    expandQueue: () => {
+      if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
+    },
+    notify,
+  });
 
   // Download-orchestration engine: ordered provider list, priorities, the backend
   // resolve-request bridge, the download modal, and every download trigger.
@@ -4514,6 +4525,18 @@ function App() {
       )}
 
       <Toasts toasts={toasts} onDismiss={dismissToast} />
+
+      {fileDragOver && (
+        <div className="file-drop-overlay" aria-hidden="true">
+          <div className="file-drop-overlay-card">
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 16V4M12 4l-4 4M12 4l4 4" />
+              <path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
+            </svg>
+            <span>Drop to add to your queue</span>
+          </div>
+        </div>
+      )}
 
     </div>
     </VideoFrameQueueProvider>

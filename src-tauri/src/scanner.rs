@@ -19,7 +19,7 @@ pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv",
 ];
 
-fn is_media_file(path: &Path) -> bool {
+pub fn is_media_file(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .map(|e| {
@@ -472,6 +472,77 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
     }
 }
 
+/// Metadata for a file being added straight to the queue via a file-manager
+/// drop, without going through a collection scan. Reuses the scanner's tag
+/// reading so drag-dropped files parse identically to scanned ones.
+pub struct DroppedMedia {
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_secs: Option<f64>,
+    /// Lower-cased file extension (mp3, flac, mp4, …), or None if absent.
+    pub format: Option<String>,
+}
+
+/// Read queue-ready metadata for a single media file. Mirrors
+/// `process_media_file`'s split: video files use the filename as title (they
+/// carry no readable tags) and only probe for duration; audio files go through
+/// the full `read_tags` path (embedded tags, then filename fallback).
+pub fn read_dropped_media(path: &Path) -> DroppedMedia {
+    let format = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase());
+
+    if is_video_file(path) {
+        let title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let duration_secs = Probe::open(path)
+            .and_then(|p| p.read())
+            .ok()
+            .map(|f| f.properties().duration().as_secs_f64())
+            .filter(|&d| d > 0.0);
+        return DroppedMedia { title, artist: None, album: None, duration_secs, format };
+    }
+
+    let tags = read_tags(path);
+    DroppedMedia {
+        title: tags.title,
+        artist: tags.artist,
+        album: tags.album,
+        duration_secs: tags.duration_secs,
+        format,
+    }
+}
+
+/// Expand a dropped path into the media files it contains. A file resolves to
+/// itself when it's a supported media file (else nothing); a directory is
+/// walked recursively for media files (sorted by path for stable ordering,
+/// 0-byte files skipped — matching `scan_folder`).
+pub fn collect_dropped_media(path: &Path) -> Vec<PathBuf> {
+    if path.is_file() {
+        return if is_media_file(path) { vec![path.to_path_buf()] } else { Vec::new() };
+    }
+    if path.is_dir() {
+        let mut files: Vec<PathBuf> = WalkDir::new(path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.file_type().is_file()
+                    && is_media_file(e.path())
+                    && e.metadata().map(|m| m.len() > 0).unwrap_or(false)
+            })
+            .map(|e| e.path().to_path_buf())
+            .collect();
+        files.sort();
+        return files;
+    }
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,5 +729,62 @@ mod tests {
         let tags = extract_video_tags(path, None);
         assert!(tags.contains(&"Live".to_string()));
         assert!(!tags.contains(&"B".to_string())); // folder names not added
+    }
+
+    #[test]
+    fn test_collect_dropped_media_single_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let song = dir.path().join("song.mp3");
+        std::fs::write(&song, b"data").unwrap();
+        let note = dir.path().join("notes.txt");
+        std::fs::write(&note, b"data").unwrap();
+
+        // A media file resolves to itself.
+        assert_eq!(collect_dropped_media(&song), vec![song.clone()]);
+        // A non-media file resolves to nothing.
+        assert!(collect_dropped_media(&note).is_empty());
+        // A path that doesn't exist resolves to nothing.
+        assert!(collect_dropped_media(&dir.path().join("nope.mp3")).is_empty());
+    }
+
+    #[test]
+    fn test_collect_dropped_media_directory_recursive_sorted() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(dir.path().join("b.flac"), b"data").unwrap();
+        std::fs::write(dir.path().join("a.mp3"), b"data").unwrap();
+        std::fs::write(dir.path().join("cover.jpg"), b"data").unwrap(); // non-media, skipped
+        std::fs::write(sub.join("c.m4a"), b"data").unwrap();
+        std::fs::write(dir.path().join("empty.mp3"), b"").unwrap(); // 0-byte, skipped
+
+        let found = collect_dropped_media(dir.path());
+        let names: Vec<String> = found
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        // Recursive, media-only, 0-byte skipped, sorted by full path.
+        assert_eq!(names, vec!["a.mp3", "b.flac", "c.m4a"]);
+    }
+
+    #[test]
+    fn test_read_dropped_media_video_uses_filename() {
+        // Video files carry no readable tags — title comes from the filename and
+        // the format is the lower-cased extension. (File need not exist: the
+        // duration probe just yields None.)
+        let meta = read_dropped_media(Path::new("/clips/My Concert.MP4"));
+        assert_eq!(meta.title, "My Concert");
+        assert!(meta.artist.is_none());
+        assert!(meta.album.is_none());
+        assert_eq!(meta.format.as_deref(), Some("mp4"));
+    }
+
+    #[test]
+    fn test_read_dropped_media_audio_filename_fallback() {
+        // A missing/untagged audio file falls back to filename parsing.
+        let meta = read_dropped_media(Path::new("/Music/Radiohead - Creep.mp3"));
+        assert_eq!(meta.title, "Creep");
+        assert_eq!(meta.artist.as_deref(), Some("Radiohead"));
+        assert_eq!(meta.format.as_deref(), Some("mp3"));
     }
 }
