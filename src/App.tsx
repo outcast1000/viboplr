@@ -2948,7 +2948,37 @@ function App() {
     setPublishTarget({ trackIds: ids, trackCount: ids.length, defaultName: queueHook.playlistContext?.name || "" });
   }
 
-  function handleQueueExportAsMixtape() {
+  // Resolve a default mixtape cover from the queue when no playlist context
+  // supplies one: the first track's album image, then artist image, then any
+  // explicit per-track image_url. Mirrors the queue thumbnail chain
+  // (album -> artist), all name-based via the entity-image cache.
+  async function resolveFirstAlbumCover(tracks: QueueTrack[]): Promise<string | null> {
+    const first = tracks.find(t => t.album_title || t.artist_name || t.image_url);
+    if (!first) return null;
+    try {
+      if (first.album_title) {
+        const albumImg = await invoke<string | null>("get_entity_image", {
+          kind: "album",
+          name: first.album_title,
+          artistName: first.artist_name ?? null,
+        });
+        if (albumImg) return albumImg;
+      }
+      if (first.artist_name) {
+        const artistImg = await invoke<string | null>("get_entity_image", {
+          kind: "artist",
+          name: first.artist_name,
+          artistName: null,
+        });
+        if (artistImg) return artistImg;
+      }
+    } catch (err) {
+      console.error("Failed to resolve default mixtape cover:", err);
+    }
+    return stripImageVersion(first.image_url ?? null);
+  }
+
+  async function handleQueueExportAsMixtape() {
     const tracks = queueHook.queue;
     if (tracks.length === 0) return;
     const exportTracks: ExportTrack[] = tracks.map(t => ({
@@ -2964,7 +2994,10 @@ function App() {
     setMixtapeExportDefaultTitle(queueHook.playlistContext?.name || "");
     // Strip the entity cache's #v=N cache-buster: this becomes a persisted
     // mixtape cover path, and the backend treats it as a literal filesystem path.
-    setMixtapeExportDefaultCover(stripImageVersion(queueHook.playlistContext?.imagePath ?? null));
+    // When the queue has no playlist-context cover (e.g. a hand-built queue),
+    // default to the first album's image so the mixtape isn't cover-less.
+    const contextCover = stripImageVersion(queueHook.playlistContext?.imagePath ?? null);
+    setMixtapeExportDefaultCover(contextCover ?? (await resolveFirstAlbumCover(tracks)));
     setMixtapeExportDefaultMetadata(contextToExportMetadata(queueHook.playlistContext));
     const ctxSource = queueHook.playlistContext?.source;
     setMixtapeExportDefaultType(ctxSource === "album" ? "album" : ctxSource === "artist" ? "best_of_artist" : "custom");

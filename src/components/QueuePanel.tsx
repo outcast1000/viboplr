@@ -344,12 +344,11 @@ export function QueuePanel({
     const specs: MenuItemSpec[] = [
       { kind: "item", text: "Save as Playlist", action: onSaveToPlaylists },
       { kind: "item", text: "Export as M3U", action: onSaveAsM3U },
-      { kind: "item", text: "Export as Mixtape", action: onExportAsMixtape },
     ];
     showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
       console.error("Failed to show save playlist menu:", err)
     );
-  }, [onSaveToPlaylists, onSaveAsM3U, onExportAsMixtape]);
+  }, [onSaveToPlaylists, onSaveAsM3U]);
 
   const openShareMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
