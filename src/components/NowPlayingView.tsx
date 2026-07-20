@@ -2,12 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
-import { isVideoTrack, getInitials } from "../utils";
+import { isVideoTrack } from "../utils";
 import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
 import { parseLrc, currentSyncedLineIndex } from "../utils/lyrics";
 import { usePlaybackPosition } from "../playback/positionStore";
+import { TrackArtFallback } from "./TrackArtFallback";
 import "./NowPlayingView.css";
 
 interface NowPlayingViewProps {
@@ -283,7 +284,7 @@ export function NowPlayingView({
             />
           ) : (
             <div key={track.key} className="np-art np-art--placeholder np-enter">
-              {getInitials(track.title)}
+              <TrackArtFallback track={track} size={72} />
             </div>
           )}
         </div>

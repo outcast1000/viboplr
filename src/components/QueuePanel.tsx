@@ -10,6 +10,7 @@ import { useImageCache } from "../hooks/useImageCache";
 import { useFlipList } from "../hooks/useFlipList";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { SpinningDisc } from "./SpinningDisc";
+import { TrackArtFallback } from "./TrackArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./QueuePanel.css";
@@ -155,6 +156,7 @@ const QueueRow = memo(function QueueRow({
           <QueueItemThumb
             localThumb={localThumb}
             fallback={visible ? getTrackImage(t) : null}
+            track={t}
           />
         </div>
         <div
@@ -268,7 +270,7 @@ interface QueuePanelProps {
 
 const AUTO_APPROVE_SECS = 10;
 
-function QueueItemThumb({ localThumb, fallback }: { localThumb: string | null; fallback: string | null }) {
+function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | null; fallback: string | null; track: QueueTrack }) {
   const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
 
   const src = [localThumb, fallback].find(s => s && !failedSrcs.has(s)) ?? null;
@@ -276,10 +278,7 @@ function QueueItemThumb({ localThumb, fallback }: { localThumb: string | null; f
   if (!src) {
     return (
       <div className="queue-item-thumb queue-item-thumb-placeholder">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
-          <circle cx="12" cy="12" r="10" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
+        <TrackArtFallback track={track} size={14} />
       </div>
     );
   }

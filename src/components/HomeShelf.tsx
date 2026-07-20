@@ -6,6 +6,7 @@ import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { resolveTrackImage } from "../utils/trackImage";
+import { TrackArtFallback } from "./TrackArtFallback";
 import "./HomeView.css";
 
 // First track's album image, falling back to its artist image — the on-demand
@@ -29,11 +30,12 @@ function playlistFallbackImage(
 // on a load failure that src is dropped and the next is tried. When every
 // candidate is missing or fails, the first-letter placeholder renders instead of
 // the browser's broken-image glyph. Mirrors QueueItemThumb in QueuePanel.tsx.
-function ShelfCardArt({ candidates, name }: { candidates: (string | null | undefined)[]; name: string }) {
+function ShelfCardArt({ candidates, name, fallback }: { candidates: (string | null | undefined)[]; name: string; fallback?: React.ReactNode }) {
   const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
   const src = candidates.find((s): s is string => !!s && !failedSrcs.has(s)) ?? null;
   if (!src) {
-    return <div className="home-shelf-card-fallback">{name[0]?.toUpperCase() ?? "?"}</div>;
+    // Track-rows pass a type-aware icon; entity cards fall back to the letter.
+    return <div className="home-shelf-card-fallback">{fallback ?? (name[0]?.toUpperCase() ?? "?")}</div>;
   }
   return (
     <img
@@ -187,7 +189,7 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   return (
     <div key={`${idx}-${it.track.title}`} className="ds-card home-shelf-card home-shelf-card--track" onClick={onClick} onContextMenu={onCtx}>
       <div className="ds-card-art">
-        <ShelfCardArt candidates={[src]} name={it.track.title} />
+        <ShelfCardArt candidates={[src]} name={it.track.title} fallback={<TrackArtFallback track={it.track} size={40} />} />
         {playButton(shelf, item, ctx)}
       </div>
       <div className="ds-card-body">

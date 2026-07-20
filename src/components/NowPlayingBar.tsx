@@ -18,6 +18,7 @@ import { SegmentedSeekBar } from "./SegmentedSeekBar";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
+import { TrackArtFallback } from "./TrackArtFallback";
 import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
 import { NowPlayingInfoCycler, MarqueeText, initialCycleState } from "./NowPlayingInfoCycler";
@@ -344,10 +345,7 @@ export function NowPlayingBar({
                   <CrossfadeArt className="now-mini-art" src={resolveImageUrl(imagePath)} />
                 ) : (
                   <div className="now-mini-art now-mini-art-placeholder">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="18" height="18">
-                      <circle cx="12" cy="12" r="10" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
+                    <TrackArtFallback track={currentTrack ?? {}} size={18} />
                   </div>
                 )}
               </div>
@@ -538,10 +536,7 @@ export function NowPlayingBar({
               <CrossfadeArt className="now-art" src={resolveImageUrl(imagePath)} />
             ) : (
               <div className="now-art now-art-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" width="24" height="24">
-                  <circle cx="12" cy="12" r="10" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
+                <TrackArtFallback track={currentTrack ?? {}} size={24} />
               </div>
             )}
           </div>
