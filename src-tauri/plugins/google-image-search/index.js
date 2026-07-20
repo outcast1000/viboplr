@@ -2,18 +2,35 @@ var SEARCH_TIMEOUT = 15000;
 var CAPTCHA_TIMEOUT = 180000; // 3 minutes once user is solving
 var SETTLE_DELAY = 3000;
 var POLL_INTERVAL = 500;
+// Anti-captcha tuning. Google throws its "unusual traffic" wall when a fresh
+// cookie jar hits a search deep-link, or when searches arrive in a burst. We
+// (1) warm up a real browsing session once per app run, (2) auto-dismiss the
+// GDPR consent wall so it never reaches the user, and (3) serialize searches
+// with a small gap so a library scan doesn't read like a bot.
+var WARMUP_URL = "https://www.google.com/ncr"; // ncr = no country redirect
+var WARMUP_SETTLE = 2500;
+var WARMUP_TIMEOUT = 12000;
+var CONSENT_EXTEND = 10000; // give the page time to redirect after auto-consent
+var MIN_GAP = 700;          // floor between consecutive Google page loads (ms)
+var GAP_JITTER = 900;       // + random 0..GAP_JITTER, so the cadence isn't robotic
 var suffixes = { artist: "musician", album: "album cover", tag: "music genre" };
 
-// Probes the page for either a captcha or a usable image result.
-// Sends one message per poll: "captcha", "image-result", or "none".
+// Probes the page for a consent wall, a captcha, or a usable image result.
+// Sends one message per poll: "consent", "captcha", "image-result", or "none".
+// Consent (GDPR) and captcha (reCAPTCHA) are distinct: consent is dismissible
+// in JS without a human; only a real captcha gets surfaced to the user.
 var PROBE_SCRIPT =
   '(function() {' +
   '  try {' +
   '    var url = location.href || "";' +
+  '    var body = (document.body && document.body.innerText) || "";' +
+  '    var isConsent = url.indexOf("consent.google.com") !== -1' +
+  '      || !!document.getElementById("L2AGLb") || !!document.getElementById("W0wltc")' +
+  '      || /before you continue/i.test(body);' +
+  '    if (isConsent) { window.__viboplr.send("consent", { url: url }); return; }' +
   '    var isCaptcha = url.indexOf("/sorry/") !== -1' +
-  '      || url.indexOf("consent.google.com") !== -1' +
   '      || !!document.querySelector("form#captcha-form, iframe[src*=\\"recaptcha\\"], iframe[src*=\\"/sorry/\\"], #recaptcha")' +
-  '      || /unusual traffic|before you continue|automated queries/i.test(document.body && document.body.innerText || "");' +
+  '      || /unusual traffic|automated queries/i.test(body);' +
   '    if (isCaptcha) { window.__viboplr.send("captcha", { url: url }); return; }' +
   '    var imgs = document.querySelectorAll("img");' +
   '    for (var i = 0; i < imgs.length; i++) {' +
@@ -94,17 +111,106 @@ function stripDataUriPrefix(dataUri) {
   return dataUri.substring(idx + 1);
 }
 
-// While one search is showing a captcha to the user, others wait — otherwise
-// every concurrent image fetch would pop its own window.
-var captchaGate = Promise.resolve();
+function delay(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+// Clicks past Google's GDPR consent interstitial. Reject-all is preferred
+// (privacy) but either button sets the SOCS cookie and lets the search through.
+var CONSENT_DISMISS_SCRIPT =
+  '(function() {' +
+  '  try {' +
+  '    var ids = ["W0wltc", "L2AGLb"];' + // Reject all, then Accept all
+  '    for (var i = 0; i < ids.length; i++) {' +
+  '      var b = document.getElementById(ids[i]);' +
+  '      if (b) { b.click(); window.__viboplr.send("consent-clicked", { id: ids[i] }); return; }' +
+  '    }' +
+  '    var re = /^(reject all|accept all|i agree|agree|accept the use of cookies)$/i;' +
+  '    var btns = document.querySelectorAll("button, input[type=submit], [role=button]");' +
+  '    for (var j = 0; j < btns.length; j++) {' +
+  '      var t = ((btns[j].innerText || btns[j].value || "") + "").trim();' +
+  '      if (re.test(t)) { btns[j].click(); window.__viboplr.send("consent-clicked", { text: t }); return; }' +
+  '    }' +
+  '    window.__viboplr.send("consent-none", null);' +
+  '  } catch (e) { window.__viboplr.send("consent-none", null); }' +
+  '})();';
+
+// Warm up a real Google session ONCE per app run: load the homepage (not a
+// search), accept/reject the consent wall, and let cookies (NID/SOCS/CONSENT)
+// settle into the shared WKWebView store. Later search windows inherit them, so
+// the first *search* no longer looks like a cold, cookie-less bot hit — which
+// is what triggers the "verify you're human" wall in the first place.
+var warmupPromise = null;
+function ensureWarmedUp(api) {
+  if (warmupPromise) return warmupPromise;
+  warmupPromise = new Promise(function (resolve) {
+    api.network
+      .openBrowseWindow(WARMUP_URL, {
+        visible: false,
+        title: "Viboplr — Google verification",
+        width: 1024,
+        height: 768,
+      })
+      .then(function (handle) {
+        var done = false;
+        var settleTimer = null;
+        var deadline = null;
+        function finish() {
+          if (done) return;
+          done = true;
+          if (settleTimer) clearTimeout(settleTimer);
+          if (deadline) clearTimeout(deadline);
+          handle.close().catch(console.error);
+          resolve();
+        }
+        handle.onMessage(function (msg) {
+          // Consent handled — give the redirect a moment, then we're warm.
+          if (msg.type === "consent-clicked") setTimeout(finish, 1200);
+        });
+        settleTimer = setTimeout(function () {
+          // Whether or not a consent wall is present, cookies are seeded by now.
+          handle.eval(CONSENT_DISMISS_SCRIPT).catch(console.error);
+          setTimeout(finish, 2000);
+        }, WARMUP_SETTLE);
+        deadline = setTimeout(finish, WARMUP_TIMEOUT);
+      })
+      .catch(function (e) {
+        api.log("warn", "Google warm-up failed: " + e);
+        resolve(); // Never block searches on a warm-up failure.
+      });
+  });
+  return warmupPromise;
+}
+
+// Serialize every Google search and space them out. Bursts of concurrent
+// searches are the fastest way to trip the abuse wall; one-at-a-time with a
+// jittered gap reads as human. (Google is the last-resort image provider, so
+// serial resolution is an acceptable trade for not getting captcha-walled.) A
+// search showing a captcha holds the chain until the user clears it, so no
+// other window pops in the meantime.
+var searchChain = Promise.resolve();
+var lastLoadAt = 0;
+function noop() {}
 
 function searchGoogleImages(api, name, entity) {
-  var searchUrl = buildSearchUrl(name, entity);
-  // Wait for any in-progress captcha to clear before starting.
-  var waitForGate = captchaGate;
+  var run = searchChain.then(function () {
+    return ensureWarmedUp(api).then(function () {
+      var now = Date.now();
+      var wait = Math.max(0, lastLoadAt + MIN_GAP + Math.random() * GAP_JITTER - now);
+      return delay(wait).then(function () {
+        lastLoadAt = Date.now();
+        return runOneSearch(api, name, entity);
+      });
+    });
+  });
+  // Keep the chain alive even if this search rejects.
+  searchChain = run.then(noop, noop);
+  return run;
+}
 
-  return waitForGate.then(function () {
-    return api.network
+function runOneSearch(api, name, entity) {
+  var searchUrl = buildSearchUrl(name, entity);
+  return api.network
     .openBrowseWindow(searchUrl, {
       visible: false,
       title: "Viboplr — Google verification",
@@ -117,36 +223,37 @@ function searchGoogleImages(api, name, entity) {
         var pollTimer = null;
         var deadline = null;
         var captchaShown = false;
-        var gateRelease = null;
+        var consentClicked = false;
 
         function finish(result) {
           if (settled) return;
           settled = true;
           if (pollTimer) clearInterval(pollTimer);
           if (deadline) clearTimeout(deadline);
-          if (gateRelease) { gateRelease(); gateRelease = null; }
           handle.close().catch(console.error);
           resolve(result);
         }
 
-        function extendDeadlineForCaptcha() {
+        function extendDeadline(ms) {
           if (deadline) clearTimeout(deadline);
-          deadline = setTimeout(function () { finish(null); }, CAPTCHA_TIMEOUT);
+          deadline = setTimeout(function () { finish(null); }, ms);
         }
 
         handle.onMessage(function (msg) {
           if (msg.type === "image-result") {
             finish(msg.data);
+          } else if (msg.type === "consent" && !consentClicked) {
+            // GDPR wall — dismiss it silently and keep polling. Never surfaced.
+            consentClicked = true;
+            handle.eval(CONSENT_DISMISS_SCRIPT).catch(console.error);
+            extendDeadline(CONSENT_EXTEND);
           } else if (msg.type === "captcha" && !captchaShown) {
+            // Genuine reCAPTCHA — only a human can clear it. Surface the window.
             captchaShown = true;
             api.log("info", "Google asked for captcha verification; surfacing browse window");
             handle.eval(BANNER_SCRIPT).catch(console.error);
             handle.show().catch(console.error);
-            extendDeadlineForCaptcha();
-            // Block other concurrent searches until this one finishes.
-            captchaGate = new Promise(function (release) {
-              gateRelease = release;
-            });
+            extendDeadline(CAPTCHA_TIMEOUT);
           }
         });
 
@@ -164,7 +271,6 @@ function searchGoogleImages(api, name, entity) {
         }, SEARCH_TIMEOUT);
       });
     });
-  });
 }
 
 function handleImageFetch(api, entity) {
