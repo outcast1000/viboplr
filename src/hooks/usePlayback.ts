@@ -1701,6 +1701,19 @@ export function usePlayback(
       logPlayback(`Ignoring media error from non-active element ${fired} (code ${err.code}); active playback continues`);
       return;
     }
+    // A restored first-frame preview (loadRestoredVideoPreview loaded the source
+    // but the user hasn't pressed play yet) that failed to decode — e.g. HEVC/x265
+    // in an mp4 the webview <video> can't handle. Do NOT spin up the ffmpeg
+    // transcode server (which also autoplays) or surface an error modal for a frame
+    // nobody asked to play: leave the preview blank and wait. previewLoadedKeyRef
+    // stays set so the first real play routes through handlePlay, which re-resolves
+    // properly — native mpv (decodes HEVC), or a transcode session on the browser
+    // engine. This is the whole point of the preview being a decode probe, not a
+    // playback commitment.
+    if (currentTrack && previewLoadedKeyRef.current === currentTrack.key) {
+      logPlayback(`Restored preview for "${currentTrack.title}" couldn't decode in the webview (code ${err.code}); deferring to first play.`);
+      return;
+    }
     const msg = mediaErrorMessage(err.code);
     console.error("Media error:", msg, err.message);
     const failingSrc = el.currentSrc || null;
@@ -1870,6 +1883,17 @@ export function usePlayback(
       el.pause();
       el.removeAttribute("src");
       el.load();
+      // A restored preview probe (loadRestoredVideoPreview, not yet played) whose
+      // video stream the webview can't decode — the common HEVC/x265-in-mp4 case:
+      // the container parses (so this fires) but videoWidth stays 0. Don't spin up
+      // the ffmpeg transcode server (which also autoplays) or show a codec modal
+      // for a frame nobody asked to play. Defer to the first real play, which
+      // re-resolves via handlePlay — native mpv decodes HEVC directly; the browser
+      // engine transcodes then. previewLoadedKeyRef stays set so play routes there.
+      if (currentTrack && previewLoadedKeyRef.current === currentTrack.key) {
+        logPlayback(`Restored preview for "${currentTrack.title}" has no webview-decodable video; deferring to first play.`);
+        return;
+      }
       if (currentTrack) {
         const track = currentTrack;
         attemptTranscodeFallback(track)
