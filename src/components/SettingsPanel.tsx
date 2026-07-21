@@ -1113,6 +1113,8 @@ interface SettingsPanelProps {
   volume: number;
   betaUpdates: boolean;
   onBetaUpdatesChange: (enabled: boolean) => void;
+  telemetryEnabled: boolean;
+  onTelemetryEnabledChange: (enabled: boolean) => void;
   rgMode: "off" | "track" | "album";
   onRgModeChange: (mode: "off" | "track" | "album") => void;
   rgPreampDb: number;
@@ -1206,6 +1208,8 @@ export function SettingsPanel({
   volume,
   betaUpdates,
   onBetaUpdatesChange,
+  telemetryEnabled,
+  onTelemetryEnabledChange,
   rgMode,
   onRgModeChange,
   rgPreampDb,
@@ -1367,6 +1371,20 @@ export function SettingsPanel({
                         onClick={() => onBetaUpdatesChange(!betaUpdates)}
                         role="switch"
                         aria-checked={betaUpdates}
+                      >
+                        <div className="ds-toggle-thumb" />
+                      </div>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Anonymous usage statistics<HelpLink anchor="telemetry" topic="anonymous usage statistics" /></span>
+                        <span className="settings-description">Send anonymous, privacy-preserving usage data — no track titles, file paths, or personal information — to help improve Viboplr. Turn this off any time.</span>
+                      </div>
+                      <div
+                        className={`ds-toggle ${telemetryEnabled ? "on" : ""}`}
+                        onClick={() => onTelemetryEnabledChange(!telemetryEnabled)}
+                        role="switch"
+                        aria-checked={telemetryEnabled}
                       >
                         <div className="ds-toggle-thumb" />
                       </div>

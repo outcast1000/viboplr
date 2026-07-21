@@ -18,6 +18,7 @@ import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { subscribeTrackEvents } from "./trackEvents";
+import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
@@ -198,6 +199,8 @@ function App() {
   const [audioExclusive, setAudioExclusive] = useState(false);
   // Update channel: default stable-only; beta is an explicit opt-in.
   const [betaUpdates, setBetaUpdates] = useState(false);
+  // Anonymous usage telemetry: default on (opt-out). See telemetry.ts.
+  const [telemetryEnabled, setTelemetryEnabled] = useState(true);
   const useNativeEngineRef = useRef(false);
   useNativeEngineRef.current = mpvCapable && playbackEngine === "native";
   const useNativeVideoRef = useRef(false);
@@ -708,6 +711,10 @@ function App() {
     if (track && track.key !== prevTrackKeyRef.current) {
       prevTrackKeyRef.current = track.key;
       plugins.dispatchEvent("track:started", track);
+      trackTelemetry("track_played", {
+        media: isVideoTrack(track) ? "video" : "audio",
+        source: sourceClass(track.path),
+      });
     }
   }, [playback.currentTrack, plugins.dispatchEvent]);
 
@@ -1676,7 +1683,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -1705,6 +1712,38 @@ function App() {
           nativeEngine.setAudioExclusive(true).catch(console.error);
         }
         if (savedBetaUpdates) setBetaUpdates(true);
+        // Anonymous usage telemetry (opt-out; see telemetry.ts). Absent key ⇒
+        // on. Mirror the flag into the telemetry module, then emit the startup
+        // heartbeat + a one-time install event.
+        const telemetryOn = savedTelemetryEnabled !== false;
+        setTelemetryEnabled(telemetryOn);
+        syncTelemetryEnabled(telemetryOn);
+        if (telemetryOn) {
+          // Enriched startup heartbeat + one-time install event. Fire-and-forget;
+          // never blocks startup. All props anonymous + low-cardinality (bucketed
+          // library size, small counts, build flavor, release channel).
+          void (async () => {
+            const [trackCount, cols, buildFlavor, enabledPlugins, installReported] = await Promise.all([
+              invoke<number>("get_track_count").catch(() => null),
+              invoke<Collection[]>("get_collections").catch(() => null),
+              invoke<string>("app_build_flavor").catch(() => null),
+              store.get<string[]>("enabledPlugins").catch(() => null),
+              store.get<boolean>("telemetryInstallReported").catch(() => null),
+            ]);
+            trackTelemetry("app_started", {
+              channel: savedBetaUpdates ? "beta" : "stable",
+              ...(buildFlavor ? { build: buildFlavor } : {}),
+              ...(trackCount != null ? { tracks_bucket: bucketCount(trackCount) } : {}),
+              ...(cols ? { collections: cols.length } : {}),
+              ...(enabledPlugins ? { plugins_enabled: enabledPlugins.length } : {}),
+            });
+            if (!installReported) {
+              trackTelemetry("app_installed");
+              store.set("telemetryInstallReported", true).catch((e) =>
+                console.error("Failed to persist telemetryInstallReported:", e));
+            }
+          })();
+        }
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
@@ -2525,6 +2564,7 @@ function App() {
       setScanning(true);
       setScanProgress({ scanned: 0, total: 0 });
       await invoke("add_collection", { kind: "local", name: folderName, path: selected });
+      trackTelemetry("collection_added", { kind: "local" });
       library.loadLibrary();
     }
   }
@@ -2579,6 +2619,7 @@ function App() {
     // whichever engine they switched to.
     playback.handleStop();
     setPlaybackEngine(engine);
+    trackTelemetry("engine_selected", { engine });
     store.set("playbackEngine", engine).catch((e) => {
       console.error("Failed to persist playbackEngine:", e);
     });
@@ -2627,6 +2668,14 @@ function App() {
     setBetaUpdates(enabled);
     store.set("betaUpdates", enabled).catch((e) => {
       console.error("Failed to persist betaUpdates:", e);
+    });
+  }
+
+  function handleTelemetryEnabledChange(enabled: boolean) {
+    setTelemetryEnabled(enabled);
+    syncTelemetryEnabled(enabled);
+    store.set("telemetryEnabled", enabled).catch((e) => {
+      console.error("Failed to persist telemetryEnabled:", e);
     });
   }
 
@@ -3789,6 +3838,8 @@ function App() {
               volume={playback.volume}
               betaUpdates={betaUpdates}
               onBetaUpdatesChange={handleBetaUpdatesChange}
+              telemetryEnabled={telemetryEnabled}
+              onTelemetryEnabledChange={handleTelemetryEnabledChange}
               rgMode={playback.rgMode}
               onRgModeChange={playback.setRgMode}
               rgPreampDb={playback.rgPreampDb}

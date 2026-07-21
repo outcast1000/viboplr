@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { type PluginState } from "../types/plugin";
+import { track as trackTelemetry } from "../telemetry";
 
 export interface InstallInstructions {
   macos: string;
@@ -231,6 +232,7 @@ export function useDependencies(pluginStates: PluginState[]) {
       if (!shownModalsRef.current.has(name)) {
         shownModalsRef.current.add(name);
         setModalState({ dep, feature });
+        trackTelemetry("dependency_missing", { name });
       }
       return false;
     },
@@ -248,6 +250,7 @@ export function useDependencies(pluginStates: PluginState[]) {
       if (dep.status === "installed") return true;
       shownModalsRef.current.add(name);
       setModalState({ dep, feature });
+      trackTelemetry("dependency_missing", { name });
       return false;
     },
     [checkDep],

@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
 import { isExperimental } from "../utils/pluginStability";
 import { getVersion } from "@tauri-apps/api/app";
+import { track as trackTelemetry } from "../telemetry";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
 import type { Track, QueueTrack, Collection } from "../types";
@@ -1988,6 +1989,7 @@ export function usePlugins(
           updateUrl: entry.updateUrl,
         });
         await loadPlugins();
+        trackTelemetry("plugin_installed", { id: entry.id });
         return { ok: true };
       } catch (e) {
         return { ok: false, error: String(e) };

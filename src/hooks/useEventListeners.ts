@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
+import { track as trackTelemetry, bucketCount } from "../telemetry";
 
 interface ResyncProgress {
   collectionId: number;
@@ -91,6 +92,10 @@ export function useEventListeners(opts: EventListenerOptions) {
         });
         setTimeout(() => setResyncComplete(null), 3000);
       }
+      trackTelemetry("scan_completed", {
+        added_bucket: bucketCount(event.payload.newTracks ?? 0),
+        removed_bucket: bucketCount(event.payload.removedTracks ?? 0),
+      });
       loadLibrary();
       loadTracks();
       onLibraryChanged?.();
@@ -143,6 +148,10 @@ export function useEventListeners(opts: EventListenerOptions) {
         removedTracks: event.payload.removedTracks ?? 0,
       });
       setTimeout(() => setResyncComplete(null), 3000);
+      trackTelemetry("scan_completed", {
+        added_bucket: bucketCount(event.payload.newTracks ?? 0),
+        removed_bucket: bucketCount(event.payload.removedTracks ?? 0),
+      });
       loadLibrary();
       loadTracks();
       onLibraryChanged?.();
@@ -201,6 +210,7 @@ export function useEventListeners(opts: EventListenerOptions) {
       const title = e.payload?.trackTitle ?? "track";
       const reason = e.payload?.error ? ` — ${e.payload.error}` : "";
       notify?.(`Download failed: “${title}”${reason}`);
+      trackTelemetry("download_failed");
     });
 
     return combineUnlisten(stopComplete, stopError);

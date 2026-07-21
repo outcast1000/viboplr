@@ -3,6 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, type EffectiveSource } from "../queueEntry";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
+import { track as trackTelemetry, sourceClass } from "../telemetry";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 
@@ -274,6 +275,7 @@ export function useStreamResolution({
       // Record a persistent failure for this track so the queue row keeps
       // explaining what happened even after playback moves to another track.
       setResolveFailures(prev => ({ ...prev, [track.key]: lastError ?? "no source found" }));
+      trackTelemetry("stream_resolve_failed", { source: sourceClass(track.path) });
       throw new Error(`No playback source found for: ${track.title}`);
     };
   }, [resolveTrackSrcRef, transcodeSessionRef, resolveStreamByUriRef, streamResolversRef]);

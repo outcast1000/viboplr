@@ -3,6 +3,18 @@ use super::*;
 
 // --- Profile commands ---
 
+/// Build flavor for anonymous telemetry: "full" (the mpv-engine build) vs
+/// "lean". Compile-time constant, no side effects — deliberately NOT part of
+/// `engine_capabilities` (which loads libmpv on first probe).
+#[tauri::command]
+pub fn app_build_flavor() -> &'static str {
+    if cfg!(feature = "mpv-engine") {
+        "full"
+    } else {
+        "lean"
+    }
+}
+
 #[tauri::command]
 pub fn get_profile_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({

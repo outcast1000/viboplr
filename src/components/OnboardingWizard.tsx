@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { audioDir } from "@tauri-apps/api/path";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Collection } from "../types";
+import { track as trackTelemetry } from "../telemetry";
 import type { GalleryPluginEntry, PluginViewData } from "../types/plugin";
 import type { SkinInfo } from "../types/skin";
 import type { DependencyInfo, InstallProgress } from "../hooks/useDependencies";
@@ -361,6 +362,7 @@ function MusicStep({
     setError(null);
     try {
       await invoke("add_collection", { kind: "local", name: folderName, path: clean });
+      trackTelemetry("collection_added", { kind: "local" });
       onCollectionAdded();
     } catch (e) {
       console.error("Failed to add local collection:", e);
@@ -387,6 +389,7 @@ function MusicStep({
     try {
       const name = new URL(url).host;
       await invoke("add_collection", { kind: "manifest", name, url });
+      trackTelemetry("collection_added", { kind: "manifest" });
       setManifestUrl("");
       setExpanded(null);
       onCollectionAdded();

@@ -16,6 +16,7 @@ export interface PersistedSettings {
   playbackEngine: string | undefined;
   audioExclusive: boolean | undefined;
   betaUpdates: boolean | undefined;
+  telemetryEnabled: boolean | undefined;
   trackVideoHistory: boolean | undefined;
   miniMode: boolean | undefined;
   fullWindowWidth: number | null | undefined;
@@ -68,6 +69,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     playbackEngine: read<string>("playbackEngine"),
     audioExclusive: read<boolean>("audioExclusive"),
     betaUpdates: read<boolean>("betaUpdates"),
+    telemetryEnabled: read<boolean>("telemetryEnabled"),
     trackVideoHistory: read<boolean>("trackVideoHistory"),
     miniMode: read<boolean>("miniMode"),
     fullWindowWidth: read<number | null>("fullWindowWidth"),

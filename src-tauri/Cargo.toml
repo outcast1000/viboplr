@@ -55,6 +55,7 @@ libp2p = { version = "=0.56", features = [
 futures = "0.3"
 async-trait = "0.1"
 trash = "5"
+tauri-plugin-aptabase = "1.0.0"
 
 # Process-group kill for timed-out dependency version probes (dependencies.rs).
 [target.'cfg(unix)'.dependencies]

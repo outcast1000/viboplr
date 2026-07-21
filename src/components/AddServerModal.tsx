@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { track as trackTelemetry } from "../telemetry";
 
 interface SubsonicServerFormProps {
   onAdded: () => void;
@@ -62,6 +63,7 @@ export function SubsonicServerForm({
         username: username.trim(),
         password: password.trim(),
       });
+      trackTelemetry("collection_added", { kind: "subsonic" });
       onAdded();
     } catch (e) {
       console.error("Failed to connect to Subsonic server:", e);

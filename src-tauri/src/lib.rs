@@ -24,6 +24,7 @@ mod mixtape;
 mod main_playlist;
 mod mpv_engine;
 mod timing;
+mod telemetry;
 mod downloader;
 mod update_checker;
 mod video_frames;
@@ -282,6 +283,7 @@ macro_rules! invoke_handler {
             commands::start_transcode,
             commands::stop_transcode,
             commands::engine_capabilities,
+            commands::app_build_flavor,
             commands::engine_component_status,
             commands::engine_component_install,
             commands::engine_component_uninstall,
@@ -624,6 +626,9 @@ pub fn run() {
     let builder = timer.time("plugin: updater", || builder.plugin(tauri_plugin_updater::Builder::new().build()));
     let builder = timer.time("plugin: process", || builder.plugin(tauri_plugin_process::init()));
     let builder = timer.time("plugin: global_shortcut", || builder.plugin(tauri_plugin_global_shortcut::Builder::new().build()));
+    // Anonymous usage telemetry (self-hosted Aptabase). No-op unless an
+    // APTABASE_APP_KEY was baked in at build time — see telemetry.rs.
+    let builder = timer.time("plugin: aptabase", || telemetry::register(builder));
 
     // Evaluate the invoke handler + Tauri context up front so we can bracket the
     // otherwise-invisible gap between context generation and our setup body. That
@@ -633,6 +638,18 @@ pub fn run() {
     let invoke_handler = timer.time("invoke_handler", || get_invoke_handler());
     let context = timer.time("generate_context", || tauri::generate_context!());
     let build_start = std::time::Instant::now();
+
+    // tauri-plugin-aptabase spawns its flush loop via `tokio::spawn` during
+    // plugin setup and drives a final reqwest flush on `RunEvent::Exit` — both
+    // need a Tokio reactor entered on the main thread, which Tauri does NOT do
+    // for setup/run (hence the "there is no reactor running" panic). Enter the
+    // shared async runtime here for the app's whole lifetime — equivalent to a
+    // `#[tokio::main]` entry, and purely additive (nothing here block_on's on the
+    // main thread). Harmless when telemetry is disabled. Both bindings must
+    // outlive build() + run(); the handle is declared first so it outlives the
+    // guard that borrows it.
+    let tokio_rt_handle = tauri::async_runtime::handle();
+    let _tokio_rt_guard = tokio_rt_handle.inner().enter();
 
     builder
         .setup(move |app| {

@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
 import { BUILTIN_SKINS } from "../skins";
 import { generateSkinCSS, buildStarterSkin, skinSubmissionUrl, validateSkin } from "../skinUtils";
+import { track as trackTelemetry } from "../telemetry";
 import { nativeEngine } from "../playback/nativeEngine";
 import type { SkinInfo, SkinColors, GallerySkinEntry } from "../types/skin";
 import defaultSkin from "../skins/default.json";
@@ -101,6 +102,7 @@ export function useSkins() {
     previewRef.current = false;
     setActiveSkinId(id);
     store.set("skin", id);
+    trackTelemetry("skin_applied");
   }, []);
 
   const refreshUserSkins = useCallback(async () => {
