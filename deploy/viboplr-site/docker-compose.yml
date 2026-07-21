@@ -1,0 +1,16 @@
+services:
+  viboplr-site:
+    image: nginx:alpine
+    container_name: viboplr-site
+    restart: unless-stopped
+    volumes:
+      # Static site content synced here by the GitHub Actions deploy (VPS_PATH)
+      - /home/alex/viboplr-site:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - nginx-proxy-manager
+
+networks:
+  # Existing Nginx Proxy Manager network; NPM proxies to http://viboplr-site:80
+  nginx-proxy-manager:
+    external: true

@@ -112,6 +112,59 @@ npx tsc --noEmit
 npm run test:all
 ```
 
+## Deploy the Static Website to a VPS
+
+The marketing/docs website is the `docs/` folder. You can deploy it to your own VPS using the included script.
+
+### 1) One-time VPS setup
+
+- Create a web root folder on your VPS (example: `/var/www/viboplr-site`)
+- Point your web server (Nginx/Apache/Caddy) at that folder
+- Set up SSH key auth from your machine to the VPS user
+
+### 2) Deploy from this repo
+
+Run with explicit arguments:
+
+```powershell
+npm run deploy:site:vps -- -Host your.vps.ip.or.domain -User youruser -RemotePath /var/www/viboplr-site
+```
+
+Or set environment variables once (PowerShell):
+
+```powershell
+$env:VPS_HOST = "your.vps.ip.or.domain"
+$env:VPS_USER = "youruser"
+$env:VPS_PATH = "/var/www/viboplr-site"
+$env:VPS_PORT = "22"
+npm run deploy:site:vps
+```
+
+The deploy script archives `docs/`, uploads it over SSH, and publishes it into your VPS target directory. If `rsync` is available on the VPS, it performs a synced deploy with `--delete`; otherwise it replaces the directory contents.
+
+### 3) Automatic deploy via GitHub Actions
+
+The workflow `.github/workflows/deploy-vps.yml` deploys `docs/` to your VPS over SSH (private-key auth) on every push to `main` that touches `docs/`, and can also be run manually from the Actions tab.
+
+Add these repository secrets under **Settings → Secrets and variables → Actions**:
+
+| Secret | Description | Example |
+|--------|-------------|---------|
+| `VPS_SSH_PRIVATE_KEY` | The private key (full contents, including header/footer lines) whose public key is in the VPS user's `~/.ssh/authorized_keys` | `-----BEGIN OPENSSH PRIVATE KEY-----` ... |
+| `VPS_HOST` | VPS hostname or IP | `your.vps.ip.or.domain` |
+| `VPS_USER` | SSH user on the VPS | `youruser` |
+| `VPS_PATH` | Absolute web root path on the VPS | `/var/www/viboplr-site` |
+| `VPS_PORT` | SSH port (optional, defaults to `22`) | `22` |
+
+Generate a dedicated deploy key pair (recommended) and authorize it on the VPS:
+
+```bash
+ssh-keygen -t ed25519 -C "viboplr-deploy" -f viboplr-deploy -N ""
+ssh-copy-id -i viboplr-deploy.pub youruser@your.vps.ip.or.domain
+```
+
+Then paste the contents of the private key file (`viboplr-deploy`) into the `VPS_SSH_PRIVATE_KEY` secret. The workflow pins the host key via `ssh-keyscan` and uses `rsync -az --delete` for a clean synced deploy.
+
 ### Supported Formats
 
 **Audio**: MP3, FLAC, AAC/M4A, WAV, ALAC, OPUS, WMA (best-effort)

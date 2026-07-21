@@ -27,6 +27,11 @@ dist-ssr
 .env
 src-tauri/.cargo/
 
+# VPS deploy SSH keys (never commit private keys)
+viboplr-deploy
+viboplr-deploy.pub
+*.pem
+
 .claude/worktrees/
 .superpowers/
 docs/superpowers/

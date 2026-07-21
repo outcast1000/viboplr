@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "deploy:site:vps": "pwsh -NoProfile -File scripts/deploy-site-vps.ps1",
     "bump": "node scripts/bump.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
