@@ -31,7 +31,7 @@
 - **CentralSearchDropdown.tsx** — Global search (Cmd+K) with grouped results (Artists, Albums, Tracks), dynamic slot allocation (~7 items), 200ms debounce. Enter plays, Cmd+Enter enqueues.
 - **ContextMenu.tsx** — Right-click context menu. Smart clamped positioning. Provider favicons.
 - **ViewModeToggle.tsx** — Basic/list/tiles toggle.
-- **WaveformSeekBar.tsx** — Waveform visualization via Web Audio API (RMS amplitude, 95th percentile normalization, 1/sec buckets capped at 400). Cached as `{app_dir}/waveforms/v2/{track_id}.json`.
+- **WaveformSeekBar.tsx** — Waveform visualization via Web Audio API (RMS amplitude, max-RMS normalization). `useWaveform` computes a **width-independent** source peak array at one bucket per second (last bucket = remainder) and caches it as `{app_dir}/waveforms/{md5(key)}.json` where `key` is `v3::artist::title::duration` (bump the prefix when bucketing/normalization changes to invalidate old caches). `WaveformSeekBar` renders it by measuring its own canvas width and downsampling (average) to `min(peaks.length, maxBars)` bars, packing as many bars as fit without any *painted* bar dropping below `MIN_BAR_WIDTH_PX` (3px; `maxBars = floor(w·(1−BAR_GAP_RATIO) / MIN_BAR_WIDTH_PX)`, so the gap is accounted for). It re-fits via a `ResizeObserver` on the canvas (any layout-driven width change, not just window resizes), so the same cached array adapts to both the now-playing bar and the fullscreen bar. Draws a SoundCloud-style mirror (bright upper lobe + dim reflection below `AXIS_RATIO`).
 - **LyricsPanel.tsx** — Synced lyrics with timed highlighting and auto-scroll (5s pause on manual scroll), plain lyrics display, edit mode with kind selector, provider badges.
 - **AlbumCardArt.tsx, ArtistCardArt.tsx, TagCardArt.tsx** — Entity card images with lazy loading via IntersectionObserver.
 - **AddServerModal.tsx, EditCollectionModal.tsx** — Collection modals.
@@ -49,7 +49,7 @@
 - **DownloadModal.tsx** — Unified download flow (provider-chain resolution, interactive manual search, progress). See conventions.md "Download Track".
 - **BulkEditModal.tsx** — Multi-track tag/metadata bulk editor (`bulk_update_tracks`). Tag suggestions fold in Last.fm community tags via `useCommunityTags` + `appendCommunityTags` (artist-level tags only for multi-track selections).
 - **LikeDislikeButtons.tsx** — Shared like (heart) / dislike (X) button pair, reused across surfaces.
-- **SegmentedSeekBar.tsx** — Segmented (non-waveform) seek bar variant for the Now Playing bar.
+- **SegmentedSeekBar.tsx** — Segmented (non-waveform) seek bar variant for the Now Playing bar (shown when no waveform exists, e.g. remote/subsonic tracks). Blocks are laid out **proportional to time** — one per second, or per minute when seconds pack below `MIN_SEG_WIDTH` (3px) — so a block's left edge lands on that exact second/minute mark under the linear seek-click map, and the final block is the leftover remainder (narrower). Uses the same `AXIS_RATIO` mirror (bright upper lobe + dim reflection) as `WaveformSeekBar` so the fallback reads consistently.
 - **AutoContinuePopover.tsx, EqPopover.tsx** — Popover controls for auto-continue strategy weights and the equalizer.
 - **MiniSearchPanel.tsx** — Quick-search panel for mini mode (opened by typing when no input is focused).
 - **TitleLineInfo.tsx** — Renders the `title_line` information display kind inline in detail headers.

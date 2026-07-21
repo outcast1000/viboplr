@@ -11,32 +11,20 @@ const GAP = 1.5;
 const MIN_SEG_WIDTH = 3;
 const PADDING = 3;
 const RADIUS = 2;
+/** Mirror axis (fraction of height): bright lobe above, dim reflection below.
+ *  Matches WaveformSeekBar so the no-waveform fallback reads the same. */
+const AXIS_RATIO = 0.62;
 
 function getSkinColors(canvas: HTMLCanvasElement) {
   const style = getComputedStyle(canvas);
   const accent = style.getPropertyValue("--accent-rgb").trim() || "83, 168, 255";
   const overlay = style.getPropertyValue("--overlay-base").trim() || "255, 255, 255";
   return {
-    playedSec: `rgba(${accent}, 0.45)`,
-    unplayedSec: `rgba(${overlay}, 0.08)`,
-    playedMin: `rgba(${accent}, 0.45)`,
-    unplayedMin: `rgba(${overlay}, 0.08)`,
-    strokeMin: `rgba(${overlay}, 0.12)`,
+    playedTop: `rgba(${accent}, 0.5)`,
+    playedBot: `rgba(${accent}, 0.24)`,
+    unplayedTop: `rgba(${overlay}, 0.12)`,
+    unplayedBot: `rgba(${overlay}, 0.06)`,
   };
-}
-
-function strokeRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.stroke();
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number, stroke?: string) {
@@ -84,31 +72,28 @@ export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarPro
 
     ctx.clearRect(0, 0, w, h);
 
-    // Determine segment mode: try 1-second first, fall back to 1-minute
-    let segmentSecs = 1;
-    let segCount = Math.ceil(durationSecs / segmentSecs);
-    let totalGaps = (segCount - 1) * GAP;
-    let segWidth = (w - totalGaps) / segCount;
-
-    let minuteMode = false;
-    if (segWidth < MIN_SEG_WIDTH) {
-      segmentSecs = 60;
-      segCount = Math.ceil(durationSecs / segmentSecs);
-      totalGaps = (segCount - 1) * GAP;
-      segWidth = (w - totalGaps) / segCount;
-      minuteMode = true;
-    }
+    // Blocks are real time units, laid out proportional to time so their edges
+    // land on exact marks: clicking the start of a block seeks to that exact
+    // second/minute. One block per second, or per minute when seconds would
+    // pack below the min width. The final block is the leftover remainder, so
+    // it's narrower than a full block (it does NOT stretch to a full unit).
+    const unit = (1 / durationSecs) * w - GAP < MIN_SEG_WIDTH ? 60 : 1;
+    const segCount = Math.ceil(durationSecs / unit);
 
     const colors = getSkinColors(canvas);
-    const playedColor = minuteMode ? colors.playedMin : colors.playedSec;
-    const unplayedColor = minuteMode ? colors.unplayedMin : colors.unplayedSec;
     const playedX = progress * w;
-    const barH = h - PADDING * 2;
+    const axis = h * AXIS_RATIO;
+    const topMax = axis - PADDING;
+    const botMax = h - axis - PADDING;
 
     const elapsed = performance.now() - growStartRef.current;
 
     for (let i = 0; i < segCount; i++) {
-      const x = i * (segWidth + GAP);
+      // Time-proportional bounds: block i spans [i·unit, (i+1)·unit) seconds,
+      // clamped to the track end (so the last block is the remainder).
+      const x = ((i * unit) / durationSecs) * w;
+      const segEnd = (Math.min((i + 1) * unit, durationSecs) / durationSecs) * w;
+      const segWidth = Math.max(1, segEnd - x - GAP);
 
       // Grow animation with stagger
       let eased = 1;
@@ -117,42 +102,37 @@ export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarPro
         eased = barProgress < 1 ? 1 - Math.pow(1 - barProgress, 3) : 1;
       }
 
-      const currentH = Math.max(1, barH * eased);
-      const y = PADDING + (barH - currentH) / 2;
-      const segEnd = x + segWidth;
+      const topH = Math.max(1, topMax * eased);
+      const botH = Math.max(1, botMax * eased);
+      const rTop = Math.min(RADIUS, segWidth / 2, topH / 2);
+      const rBot = Math.min(RADIUS, segWidth / 2, botH / 2);
 
-      const r = Math.min(RADIUS, segWidth / 2, currentH / 2);
-      const stroke = minuteMode ? colors.strokeMin : undefined;
+      // Bright upper lobe + dim lower reflection, split at the mirror axis.
+      const drawSeg = (top: string, bot: string) => {
+        ctx.fillStyle = top;
+        roundRect(ctx, x, axis - topH, segWidth, topH, rTop);
+        ctx.fillStyle = bot;
+        roundRect(ctx, x, axis + 1, segWidth, botH, rBot);
+      };
 
       if (playedX <= x) {
-        ctx.fillStyle = unplayedColor;
-        roundRect(ctx, x, y, segWidth, currentH, r, stroke);
+        drawSeg(colors.unplayedTop, colors.unplayedBot);
       } else if (playedX >= segEnd) {
-        ctx.fillStyle = playedColor;
-        roundRect(ctx, x, y, segWidth, currentH, r, stroke);
+        drawSeg(colors.playedTop, colors.playedBot);
       } else {
-        const splitX = playedX;
         ctx.save();
         ctx.beginPath();
-        ctx.rect(x, y, splitX - x, currentH);
+        ctx.rect(x, 0, playedX - x, h);
         ctx.clip();
-        ctx.fillStyle = playedColor;
-        roundRect(ctx, x, y, segWidth, currentH, r);
+        drawSeg(colors.playedTop, colors.playedBot);
         ctx.restore();
 
         ctx.save();
         ctx.beginPath();
-        ctx.rect(splitX, y, segEnd - splitX, currentH);
+        ctx.rect(playedX, 0, segEnd - playedX, h);
         ctx.clip();
-        ctx.fillStyle = unplayedColor;
-        roundRect(ctx, x, y, segWidth, currentH, r);
+        drawSeg(colors.unplayedTop, colors.unplayedBot);
         ctx.restore();
-
-        if (stroke) {
-          ctx.strokeStyle = stroke;
-          ctx.lineWidth = 1;
-          strokeRoundRect(ctx, x, y, segWidth, currentH, r);
-        }
       }
     }
 

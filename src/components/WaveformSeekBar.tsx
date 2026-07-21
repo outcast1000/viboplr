@@ -13,6 +13,31 @@ interface WaveformSeekBarProps {
  *  above it, the quieter reflection below (SoundCloud-style asymmetry). */
 const AXIS_RATIO = 0.62;
 
+/** Minimum *painted* bar width (px), excluding the gap. The bar count is packed
+ *  as high as the width allows without any painted bar dropping below this. */
+const MIN_BAR_WIDTH_PX = 3;
+/** Gap between bars, as a fraction of each bar's slot. */
+const BAR_GAP_RATIO = 0.2;
+
+/** Aggregate a fine source peak array down to `target` bars by averaging each
+ *  span, so one width-independent cached array renders at any bar count. */
+function downsamplePeaks(peaks: number[], target: number): number[] {
+  if (target >= peaks.length) return peaks;
+  const out = new Array<number>(target);
+  for (let i = 0; i < target; i++) {
+    const start = Math.floor((i * peaks.length) / target);
+    const end = Math.max(start + 1, Math.floor(((i + 1) * peaks.length) / target));
+    let sum = 0;
+    let n = 0;
+    for (let j = start; j < end && j < peaks.length; j++) {
+      sum += peaks[j];
+      n++;
+    }
+    out[i] = n > 0 ? sum / n : 0;
+  }
+  return out;
+}
+
 function getSkinColors(canvas: HTMLCanvasElement) {
   const style = getComputedStyle(canvas);
   return {
@@ -32,6 +57,7 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
   const prevPeaksKeyRef = useRef("");
   const GROW_DURATION = 400; // ms
   const STAGGER_PER_BAR = 2; // ms per bar
+  const MAX_STAGGER_SPAN = 600; // ms — cap total stagger so high bar counts still reveal promptly
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -52,9 +78,17 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
     ctx.clearRect(0, 0, w, h);
 
     const c = getSkinColors(canvas);
-    const barCount = peaks.length;
+    // Fit as many bars as the width allows without dropping below the minimum
+    // bar width, then downsample the fine source peaks to that many bars.
+    // Cap the count so each painted bar (after the gap) stays ≥ MIN_BAR_WIDTH_PX.
+    const maxBars = Math.max(1, Math.floor((w * (1 - BAR_GAP_RATIO)) / MIN_BAR_WIDTH_PX));
+    const bars = peaks.length > maxBars ? downsamplePeaks(peaks, maxBars) : peaks;
+    const barCount = bars.length;
+    // Compress the per-bar stagger so the total reveal span stays bounded even
+    // for high bar counts.
+    const stagger = Math.min(STAGGER_PER_BAR, MAX_STAGGER_SPAN / barCount);
     const totalBarWidth = w / barCount;
-    const gap = Math.max(0.5, totalBarWidth * 0.2);
+    const gap = Math.max(0.5, totalBarWidth * BAR_GAP_RATIO);
     const barWidth = totalBarWidth - gap;
     const axis = h * AXIS_RATIO;
     const topMax = axis - 2;
@@ -75,12 +109,12 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
       // Apply per-bar grow factor with stagger
       let eased = 1;
       if (growRef.current < 1) {
-        const barProgress = Math.min(1, Math.max(0, (elapsed - i * STAGGER_PER_BAR) / GROW_DURATION));
+        const barProgress = Math.min(1, Math.max(0, (elapsed - i * stagger) / GROW_DURATION));
         eased = barProgress < 1 ? 1 - Math.pow(1 - barProgress, 3) : 1; // ease-out cubic
       }
 
-      const topH = Math.max(2, peaks[i] * topMax * eased);
-      const botH = Math.max(1, peaks[i] * botMax * eased);
+      const topH = Math.max(2, bars[i] * topMax * eased);
+      const botH = Math.max(1, bars[i] * botMax * eased);
       const played = x + barWidth <= playedX;
       // Forward scrub: ghost-tint the span between the playhead and the cursor
       const ghosted = !played && hoverX != null && hoverX > playedX && x + barWidth <= hoverX;
@@ -114,7 +148,7 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
     ctx.restore();
 
     // Check if animation is still running
-    const totalDuration = GROW_DURATION + peaks.length * STAGGER_PER_BAR;
+    const totalDuration = GROW_DURATION + barCount * stagger;
     if (elapsed < totalDuration) {
       growRef.current = elapsed / totalDuration;
       frameRef.current = requestAnimationFrame(draw);
@@ -139,13 +173,18 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
     return () => cancelAnimationFrame(frameRef.current);
   }, [draw]);
 
+  // Re-fit the bar count to the canvas width on any layout-driven resize — not
+  // just window resizes (e.g. queue panel toggling, sidebar collapse). draw()
+  // reads canvas.clientWidth fresh, so a redraw is all that's needed.
   useEffect(() => {
-    const onResize = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = requestAnimationFrame(draw);
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    });
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, [draw]);
 
   return (

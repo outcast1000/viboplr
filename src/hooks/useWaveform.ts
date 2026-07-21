@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-const MAX_BUCKETS = 400;
+// Peaks are stored at a fixed one-bucket-per-second source resolution (width-
+// independent), and WaveformSeekBar downsamples them to fit its render width —
+// so one cached array serves both the now-playing bar and the fullscreen bar.
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 
 interface WaveformCache {
@@ -14,7 +16,7 @@ function waveformKey(artistName: string | null, title: string, durationSecs: num
   const artist = (artistName ?? "unknown").toLowerCase().trim();
   const t = title.toLowerCase().trim();
   const d = Math.round(durationSecs ?? 0);
-  return `v2::${artist}::${t}::${d}`;
+  return `v3::${artist}::${t}::${d}`;
 }
 
 export function useWaveform(
@@ -68,15 +70,24 @@ export function useWaveform(
         if (cancelled) return;
 
         const channelData = audioBuffer.getChannelData(0);
-        const numBuckets = Math.min(Math.ceil(audioBuffer.duration), MAX_BUCKETS);
-        const bucketSize = Math.floor(channelData.length / numBuckets);
-        if (bucketSize === 0) return;
+        const totalSamples = channelData.length;
+        const durationSecs = audioBuffer.duration;
+
+        // One bucket per second (last bucket = leftover remainder). This fixed,
+        // width-independent resolution is what WaveformSeekBar downsamples to fit.
+        const samplesPerBucket = audioBuffer.sampleRate; // one second of samples
+        const numBuckets = Math.max(1, Math.ceil(durationSecs));
+        if (samplesPerBucket === 0) return;
 
         const result: number[] = new Array(numBuckets);
         for (let i = 0; i < numBuckets; i++) {
+          const start = Math.floor(i * samplesPerBucket);
+          const end = Math.min(Math.floor((i + 1) * samplesPerBucket), totalSamples);
+          if (end <= start) {
+            result[i] = 0;
+            continue;
+          }
           let sumSq = 0;
-          const start = i * bucketSize;
-          const end = Math.min(start + bucketSize, channelData.length);
           for (let j = start; j < end; j++) {
             sumSq += channelData[j] * channelData[j];
           }
