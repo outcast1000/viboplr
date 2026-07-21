@@ -47,15 +47,25 @@ interface UseContextMenuActionsDeps {
   };
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;
+  /**
+   * When false, a safe "move to Trash/Recycle Bin" delete skips the confirmation
+   * modal and runs immediately. Permanent (network-share) deletes always confirm
+   * regardless — they can't be undone.
+   */
+  confirmTrashDelete: boolean;
   onTracksDeleted?: (deletedIds: number[]) => void;
   onShowMenu?: (state: ContextMenuState) => void;
 }
 
 export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
-  const { library, queueHook, playback, playActions, queueCollapsed, setQueueCollapsed, onTracksDeleted, onCurrentTrackDeleted, onShowMenu } = deps;
+  const { library, queueHook, playback, playActions, queueCollapsed, setQueueCollapsed, confirmTrashDelete, onTracksDeleted, onCurrentTrackDeleted, onShowMenu } = deps;
 
   const [contextMenu, setContextMenuState] = useState<ContextMenuState | null>(null);
   const contextMenuRef = useRef<ContextMenuState | null>(null);
+  // Mirrored in a ref so the (async) delete handler reads the live preference,
+  // not the value captured when its native-menu action closure was built.
+  const confirmTrashDeleteRef = useRef(confirmTrashDelete);
+  confirmTrashDeleteRef.current = confirmTrashDelete;
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string; network?: boolean } | null>(null);
@@ -323,14 +333,17 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     const cm = contextMenuRef.current;
     if (!cm) return;
     const { target } = cm;
+    setContextMenu(null);
     // A network-share file can't go to the Recycle Bin — deleting it is
     // permanent. Flag the confirm modal when any selected track lives there.
     const idsOnNetwork = (ids: number[]) =>
       ids.some(id => isNetworkSharePath(library.tracks.find(t => t.id === id)?.path));
+
+    let request: { trackIds: number[]; title: string; network: boolean } | null = null;
     if (target.kind === "track" && target.trackId && target.isLocal) {
-      setDeleteConfirm({ trackIds: [target.trackId], title: target.title, network: idsOnNetwork([target.trackId]) });
+      request = { trackIds: [target.trackId], title: target.title, network: idsOnNetwork([target.trackId]) };
     } else if (target.kind === "multi-track") {
-      setDeleteConfirm({ trackIds: target.trackIds, title: `${target.trackIds.length} tracks`, network: idsOnNetwork(target.trackIds) });
+      request = { trackIds: target.trackIds, title: `${target.trackIds.length} tracks`, network: idsOnNetwork(target.trackIds) };
     } else if (target.kind === "queue-multi") {
       const localTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean).filter(isLocalTrack);
       // Resolve a library id per local track: prefer the in-memory lib:N key, else
@@ -349,11 +362,11 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         }
       }
       if (ids.length > 0) {
-        setDeleteConfirm({
+        request = {
           trackIds: ids,
           title: localTracks.length === 1 ? localTracks[0].title : `${ids.length} tracks`,
           network: localTracks.some(t => isNetworkSharePath(t.path)),
-        });
+        };
       } else if (localTracks.length > 0) {
         setDeleteError({ message: `Those tracks aren't in your library, so they can't be moved to the ${trashLabel}.`, failures: [] });
       }
@@ -370,18 +383,30 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         }
       }
       if (id != null) {
-        setDeleteConfirm({ trackIds: [id], title: t.title, network: isNetworkSharePath(t.path) });
+        request = { trackIds: [id], title: t.title, network: isNetworkSharePath(t.path) };
       } else {
         setDeleteError({ message: `That track isn't in your library, so it can't be moved to the ${trashLabel}.`, failures: [] });
       }
     }
-    setContextMenu(null);
+
+    if (!request) return;
+    // Skip the confirmation only for safe (reversible) trash deletes when the
+    // user has turned it off. Permanent network-share deletes always confirm.
+    if (!request.network && !confirmTrashDeleteRef.current) {
+      await performDelete(request.trackIds, request.title);
+    } else {
+      setDeleteConfirm(request);
+    }
   }
 
   async function handleDeleteConfirm() {
     if (!deleteConfirm) return;
     const { trackIds, title } = deleteConfirm;
     setDeleteConfirm(null);
+    await performDelete(trackIds, title);
+  }
+
+  async function performDelete(trackIds: number[], title: string) {
     try {
       const result: { deletedIds: number[]; deletedPaths: string[]; failures: { title: string; reason: string }[] } = await invoke("delete_tracks", { trackIds });
       const deletedPaths = new Set(result.deletedPaths as string[]);

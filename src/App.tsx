@@ -224,6 +224,7 @@ function App() {
   // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
   const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = useState(true);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
+  const [confirmTrashDelete, setConfirmTrashDelete] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
   const [eqCustomPresets, setEqCustomPresets] = useState<{ id: string; name: string; gains: number[] }[]>([]);
   const [eqShowBarControlSimple, setEqShowBarControlSimple] = useState(true);
@@ -1067,6 +1068,7 @@ function App() {
     playActions,
     queueCollapsed,
     setQueueCollapsed,
+    confirmTrashDelete,
     onTracksDeleted: (deletedIds: number[]) => {
       setSearchDeletedBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
       for (const id of deletedIds) {
@@ -1683,6 +1685,7 @@ function App() {
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
+          confirmTrashDelete: savedConfirmTrashDelete,
           reduceMotion: savedReduceMotion,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
@@ -1704,6 +1707,7 @@ function App() {
         if (savedBetaUpdates) setBetaUpdates(true);
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
+        if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
 
         const [savedEqEnabled, savedEqMode, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb, savedEqBassDb, savedEqTrebleDb, savedEqShowBarSimple, savedEqShowBarAdvanced] = await Promise.all([
@@ -2652,6 +2656,13 @@ function App() {
   function handleMinimizeToMiniPlayerChange(enabled: boolean) {
     setMinimizeToMiniPlayer(enabled);
     store.set("minimizeToMiniPlayer", enabled);
+  }
+
+  function handleConfirmTrashDeleteChange(enabled: boolean) {
+    setConfirmTrashDelete(enabled);
+    store.set("confirmTrashDelete", enabled).catch((e) => {
+      console.error("Failed to persist confirmTrashDelete:", e);
+    });
   }
 
   function handleReduceMotionChange(enabled: boolean) {
@@ -3788,6 +3799,8 @@ function App() {
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
+              confirmTrashDelete={confirmTrashDelete}
+              onConfirmTrashDeleteChange={handleConfirmTrashDeleteChange}
               reduceMotion={reduceMotion}
               onReduceMotionChange={handleReduceMotionChange}
               uiZoom={zoom.uiZoom}
@@ -4162,6 +4175,7 @@ function App() {
           trackCount={contextMenuActions.deleteConfirm.trackIds.length}
           trashLabel={trashLabel}
           network={contextMenuActions.deleteConfirm.network}
+          onSuppressConfirm={() => handleConfirmTrashDeleteChange(false)}
           onCancel={() => contextMenuActions.setDeleteConfirm(null)}
           onConfirm={contextMenuActions.handleDeleteConfirm}
         />

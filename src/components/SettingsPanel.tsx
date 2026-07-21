@@ -8,6 +8,7 @@ import type { PluginState } from "../types/plugin";
 import type { EngineComponentStatus } from "../playback/nativeEngine";
 import type { InstallProgress } from "../hooks/useDependencies";
 import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
+import { trashLabel } from "../utils";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { store } from "../store";
@@ -1122,6 +1123,8 @@ interface SettingsPanelProps {
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
+  confirmTrashDelete: boolean;
+  onConfirmTrashDeleteChange: (enabled: boolean) => void;
   reduceMotion: boolean;
   onReduceMotionChange: (enabled: boolean) => void;
   uiZoom: number;
@@ -1213,6 +1216,8 @@ export function SettingsPanel({
   onTrackVideoHistoryChange,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
+  confirmTrashDelete,
+  onConfirmTrashDeleteChange,
   reduceMotion,
   onReduceMotionChange,
   uiZoom,
@@ -1585,6 +1590,19 @@ export function SettingsPanel({
                         <span className="settings-description">Minimise animations across the app — disables the mini-player text scroll, list reordering, and transitions. Also honoured automatically when your OS "reduce motion" setting is on.</span>
                       </div>
                       <ToggleSwitch checked={reduceMotion} onChange={onReduceMotionChange} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">Library</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Confirm before moving tracks to {trashLabel}</span>
+                        <span className="settings-description">Show a confirmation dialog before deleting tracks. Files on network shares (which can't be recovered) always confirm.</span>
+                      </div>
+                      <ToggleSwitch checked={confirmTrashDelete} onChange={onConfirmTrashDeleteChange} />
                     </div>
                   </div>
                 </div>

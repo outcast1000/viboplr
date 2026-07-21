@@ -5,6 +5,7 @@
 // The remaining leaves (DownloadAgain, PluginLoading, DeepLinkInstall) have shapes
 // the shared shells don't cover (3 actions / spinner / small-variant + custom body)
 // and stay bespoke.
+import { useState } from "react";
 import { ConfirmModal } from "../ConfirmModal";
 import { AlertModal } from "../AlertModal";
 
@@ -14,12 +15,24 @@ interface DeleteTracksModalProps {
   trashLabel: string;
   /** True when any selected track is on a network share (no Recycle Bin → permanent). */
   network?: boolean;
+  /**
+   * Called when the user ticks "Don't ask again" and confirms. Turns off the
+   * trash-delete confirmation for future deletes. Omitted → no checkbox. Never
+   * offered for permanent (network) deletes — those must always confirm.
+   */
+  onSuppressConfirm?: () => void;
   onCancel: () => void;
   onConfirm: () => void;
 }
 
-export function DeleteTracksModal({ title, trackCount, trashLabel, network, onCancel, onConfirm }: DeleteTracksModalProps) {
+export function DeleteTracksModal({ title, trackCount, trashLabel, network, onSuppressConfirm, onCancel, onConfirm }: DeleteTracksModalProps) {
   const plural = trackCount > 1;
+  const [dontAsk, setDontAsk] = useState(false);
+  const showDontAsk = !network && !!onSuppressConfirm;
+  const handleConfirm = () => {
+    if (dontAsk) onSuppressConfirm?.();
+    onConfirm();
+  };
   return (
     <ConfirmModal
       title={network ? `Permanently delete ${title}?` : `Move ${title} to ${trashLabel}?`}
@@ -33,8 +46,15 @@ export function DeleteTracksModal({ title, trackCount, trashLabel, network, onCa
       autoFocusConfirm
       confirmLabel={network ? "Delete permanently" : `Move to ${trashLabel}`}
       onCancel={onCancel}
-      onConfirm={onConfirm}
-    />
+      onConfirm={handleConfirm}
+    >
+      {showDontAsk && (
+        <label className="delete-confirm-dontask">
+          <input type="checkbox" checked={dontAsk} onChange={e => setDontAsk(e.target.checked)} />
+          <span>Don't ask again (change in Settings → General)</span>
+        </label>
+      )}
+    </ConfirmModal>
   );
 }
 

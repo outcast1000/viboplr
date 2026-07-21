@@ -43,6 +43,7 @@ const STORE_DEFAULTS = {
   tagLikedFirst: false,
   mediaTypeFilter: "all",
   trackLikedFirst: false,
+  confirmTrashDelete: true,
   trackVideoHistory: true,
   videoLayout: { dockSide: "bottom", fitMode: "contain", sizes: { top: 300, bottom: 300, left: 400, right: 400 }, isCollapsed: false },
   sidebarCollapsed: true,

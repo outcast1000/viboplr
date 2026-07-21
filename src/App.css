@@ -1052,6 +1052,22 @@
   margin: 0 0 16px;
 }
 
+.delete-confirm-dontask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.delete-confirm-dontask input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .delete-failure-list {
   list-style: none;
   padding: 0;

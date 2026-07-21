@@ -10,6 +10,8 @@ interface Props {
   destructive?: boolean;
   /** Focus the confirm button on mount (matches the old per-modal autoFocus). */
   autoFocusConfirm?: boolean;
+  /** Optional extra content rendered between the message and the action buttons. */
+  children?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -22,7 +24,7 @@ interface Props {
  */
 export function ConfirmModal({
   title, message, messageClassName, confirmLabel = "Confirm", cancelLabel = "Cancel",
-  destructive = false, autoFocusConfirm = false, onConfirm, onCancel,
+  destructive = false, autoFocusConfirm = false, children, onConfirm, onCancel,
 }: Props) {
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -37,6 +39,7 @@ export function ConfirmModal({
       <div className="ds-modal" onClick={e => e.stopPropagation()}>
         <h2 className="ds-modal-title">{title}</h2>
         <p className={messageClassName}>{message}</p>
+        {children}
         <div className="ds-modal-actions">
           <button className="ds-btn ds-btn--ghost" onClick={onCancel}>
             {cancelLabel}

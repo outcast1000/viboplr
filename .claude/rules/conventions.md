@@ -8,8 +8,9 @@ Each entry documents the gold standard implementation for a repeated user action
 
 ### Delete Tracks
 
-- **Canonical:** `useContextMenuActions.ts` -> `handleDeleteRequest()` / `handleDeleteConfirm()`
-- **Flow:** Show confirmation modal with track title/count -> `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> remove matching queue entries by path -> stop playback if deleted track is playing -> `addLog()` with result -> show error modal if partial/total failure
+- **Canonical:** `useContextMenuActions.ts` -> `handleDeleteRequest()` (builds the delete request + gates confirmation) / `handleDeleteConfirm()` (modal accept) / `performDelete(trackIds, title)` (shared deletion — both paths call this).
+- **Flow:** `handleDeleteRequest` resolves the `{ trackIds, title, network }` request, then either shows the confirmation modal or, when confirmation is off, calls `performDelete` directly -> `performDelete` runs `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> remove matching queue entries by path -> stop playback if deleted track is playing -> show error modal if partial/total failure. There is **no** `addLog`/success toast — the track vanishing from the list is the feedback; failures surface via the error modal.
+- **Confirmation opt-out:** the `confirmTrashDelete` store key (default `true`, Settings → General; also flippable via the modal's "Don't ask again" checkbox) gates the modal for **safe (reversible) trash deletes only**. Permanent deletes — network-share files with no Recycle Bin (`request.network`) — **always** confirm regardless, and never offer the "Don't ask again" checkbox. New delete entry points must reuse this gate, not reimplement it.
 - **Availability:** Local tracks only (`file://` scheme). Uses `isLocalTrack()` helper from `queueEntry.ts`. Single-track checks `target.isLocal` on the context menu target. Multi-track filters with `isLocalTrack(t)`.
 
 ### Find in YouTube
