@@ -128,6 +128,7 @@ ${f.items.map((item) => `            <div class="feature-list-item">${item}</div
         <a href="index.html" class="nav-link">Home</a>
         <a href="plugins.html" class="nav-link">Plugins</a>
         <a href="skins.html" class="nav-link">Skins</a>
+        <a href="servers.html" class="nav-link">Servers</a>
         <a href="download.html" class="nav-cta">Get Viboplr</a>
       </div>
       <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">

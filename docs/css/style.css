@@ -1985,3 +1985,52 @@ ol.docs-list {
 .copy-cmd button.copied {
   background: var(--gradient-accent);
 }
+
+/* Server directory (servers.html) — reuses the gallery-* card classes; these
+   are the only server-specific additions. */
+.server-warn {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-start;
+  max-width: var(--container-max);
+  margin: 0 auto;
+  padding: var(--space-md);
+  border: 1px solid rgba(161, 98, 7, 0.35);
+  background: rgba(161, 98, 7, 0.08);
+  border-radius: var(--radius-lg);
+}
+
+.server-warn svg {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  color: #d19a1e;
+  margin-top: 2px;
+}
+
+.server-warn p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.server-warn strong {
+  color: var(--color-text);
+}
+
+.server-empty {
+  grid-column: 1 / -1;
+  padding: var(--space-xl) var(--space-md);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.server-empty p {
+  margin: 0 0 0.5rem;
+}
+
+.server-empty a {
+  color: var(--color-accent-end);
+  font-weight: 600;
+}

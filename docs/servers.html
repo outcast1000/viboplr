@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Skins — Viboplr</title>
-  <meta name="description" content="Browse skins for Viboplr — Nord, Dracula, Catppuccin, Gruvbox, and more. Theme the whole app from inside it.">
-  <link rel="canonical" href="https://viboplr.com/skins.html">
+  <title>Servers — Viboplr</title>
+  <meta name="description" content="Browse a community directory of shared Subsonic / Navidrome servers and add any of them to Viboplr in one click.">
+  <link rel="canonical" href="https://viboplr.com/servers.html">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://viboplr.com/skins.html">
-  <meta property="og:title" content="Skins — Viboplr">
-  <meta property="og:description" content="Browse skins for Viboplr — Nord, Dracula, Catppuccin, Gruvbox, and more.">
+  <meta property="og:url" content="https://viboplr.com/servers.html">
+  <meta property="og:title" content="Servers — Viboplr">
+  <meta property="og:description" content="Browse a community directory of shared Subsonic / Navidrome servers and add any of them to Viboplr in one click.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Skins — Viboplr">
-  <meta name="twitter:description" content="Browse skins for Viboplr — Nord, Dracula, Catppuccin, Gruvbox, and more.">
+  <meta name="twitter:title" content="Servers — Viboplr">
+  <meta name="twitter:description" content="Browse a community directory of shared Subsonic / Navidrome servers.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,8 +35,8 @@
       <div class="nav-links" id="navLinks">
         <a href="index.html" class="nav-link">Home</a>
         <a href="plugins.html" class="nav-link">Plugins</a>
-        <a href="skins.html" class="nav-link active">Skins</a>
-        <a href="servers.html" class="nav-link">Servers</a>
+        <a href="skins.html" class="nav-link">Skins</a>
+        <a href="servers.html" class="nav-link active">Servers</a>
         <a href="support.html" class="nav-link nav-link--sponsor">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
           Support
@@ -54,63 +54,73 @@
   <!-- Hero -->
   <section class="download-hero">
     <div class="container">
-      <h1 class="animate-in"><span class="gradient-text">Skins</span></h1>
-      <p class="animate-in animate-delay-1">Theme the entire app — backgrounds, accents, the works. Install any skin from inside Viboplr — <strong>Extensions → Skins</strong>.</p>
+      <h1 class="animate-in"><span class="gradient-text">Server directory</span></h1>
+      <p class="animate-in animate-delay-1">A community list of publicly-shared <strong>Subsonic</strong> and <strong>Navidrome</strong> servers. Found one you like? <strong>Add to Viboplr</strong> opens the app with the connection pre-filled — no typing.</p>
     </div>
   </section>
 
-  <!-- Gallery -->
+  <!-- Public-credentials disclaimer -->
+  <section class="section" style="padding-bottom:0;">
+    <div class="container">
+      <div class="server-warn" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <p><strong>These are servers people chose to share publicly.</strong> Listings carry shared logins in plain text, pre-filled into the app when you add one. Treat them as public — never list a private server, and don't reuse a password you use elsewhere.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Directory -->
   <section class="section">
     <div class="container">
       <div class="gallery-toolbar">
-        <input type="search" id="gallerySearch" class="gallery-search" placeholder="Search skins…" aria-label="Search skins">
-        <span class="gallery-count" id="galleryCount"></span>
+        <input type="search" id="serverSearch" class="gallery-search" placeholder="Search servers…" aria-label="Search servers">
+        <span class="gallery-count" id="serverCount"></span>
       </div>
-      <div class="gallery-status" id="galleryStatus"></div>
-      <div class="gallery-grid" id="galleryGrid"></div>
+      <div class="gallery-status" id="serverStatus"></div>
+      <div class="gallery-grid" id="serverGrid"></div>
     </div>
   </section>
 
-  <!-- How submission works -->
+  <!-- Share your server -->
   <section class="section section-alt">
     <div class="container">
       <div class="gallery-steps reveal">
-        <h2>How to add a skin</h2>
-        <p class="gallery-steps-intro">No pull request, no JSON editing — a bot validates the colors and opens it for review.</p>
+        <h2>Share your server</h2>
+        <p class="gallery-steps-intro">Run a Subsonic or Navidrome server you're happy to open up? List it in a minute — the directory lives at <a href="https://servers.viboplr.com" target="_blank" rel="noopener">servers.viboplr.com</a>.</p>
         <div class="gallery-steps-grid">
           <div class="gallery-step">
             <span class="gallery-step-num">1</span>
-            <h3>Export your theme</h3>
-            <p>In the app, open <strong>Extensions → Skins → ＋ New skin</strong>, tweak the colors in your editor, then hit <strong>Submit to gallery</strong> — or hand-write a JSON with all 19 color keys.</p>
+            <h3>Sign in</h3>
+            <p>Log in with GitHub or Google — no password to create. You manage only the listings you add.</p>
           </div>
           <div class="gallery-step">
             <span class="gallery-step-num">2</span>
-            <h3>Paste the JSON</h3>
-            <p>Open the submission form and paste the skin JSON (or link to a raw <code>.json</code> URL). Name, author, and type come from it.</p>
+            <h3>Add your server</h3>
+            <p>Give it a name, the server URL, a short description, tags, and the <strong>shared</strong> login you're comfortable making public.</p>
           </div>
           <div class="gallery-step">
             <span class="gallery-step-num">3</span>
-            <h3>A bot validates &amp; opens a PR</h3>
-            <p>It checks all 19 colors and your <code>customCSS</code>, then opens a PR that adds your skin file. A maintainer merges it to publish.</p>
+            <h3>It shows up here</h3>
+            <p>Your listing appears in the directory with a one-click <strong>Add to Viboplr</strong> button for everyone.</p>
           </div>
         </div>
-        <p class="gallery-steps-note">Full details in the <a href="https://github.com/outcast1000/viboplr-skins#submitting-a-skin" target="_blank" rel="noopener">submission guide</a>.</p>
+        <p class="gallery-steps-note">You can edit or remove your listings anytime from your <a href="https://servers.viboplr.com/dashboard" target="_blank" rel="noopener">dashboard</a>.</p>
       </div>
     </div>
   </section>
 
   <!-- Submit CTA -->
-  <section class="section section-alt">
+  <section class="section">
     <div class="container">
       <div class="auto-update reveal">
         <div class="auto-update-badge">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          <span>Made a skin?</span>
+          <span>Hosting a server?</span>
         </div>
-        <p>Create a skin in the app (Extensions → Skins → ＋ New skin), then submit it with a single form. A bot validates the colors and opens it for review.</p>
+        <p>List it in the community directory so other Viboplr users can find and add it in one click.</p>
         <div class="hero-buttons" style="margin-top: 1.5rem;">
-          <a href="https://github.com/outcast1000/viboplr-skins/issues/new?template=submit-skin.yml" class="btn btn-primary" target="_blank" rel="noopener">Submit a skin</a>
-          <a href="https://github.com/outcast1000/viboplr-skins" class="btn btn-outline" target="_blank" rel="noopener">Gallery repo</a>
+          <a href="https://servers.viboplr.com/login" class="btn btn-primary" target="_blank" rel="noopener">List your server</a>
+          <a href="https://servers.viboplr.com" class="btn btn-outline" target="_blank" rel="noopener">Open the directory</a>
         </div>
       </div>
     </div>
@@ -130,9 +140,8 @@
     </div>
   </footer>
 
-  <script>window.VBPL_GALLERY = "skins";</script>
   <script src="js/main.js"></script>
-  <script src="js/gallery.js"></script>
+  <script src="js/servers.js"></script>
   <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>
