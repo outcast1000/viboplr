@@ -132,6 +132,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          # Baked into the binary at compile time via option_env! (see
+          # src-tauri/src/telemetry.rs). Requires the APTABASE_APP_KEY repo secret;
+          # without it CI builds bake no key and telemetry is a silent no-op.
+          APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
         with:
           tagName: ${{ needs.ci-and-release.outputs.tag }}
           releaseName: 'Viboplr ${{ needs.ci-and-release.outputs.tag }}'

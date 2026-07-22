@@ -45,16 +45,22 @@ Never sent: track/artist/album titles, file paths, library contents, anything id
 
 ## Wire the key into app builds
 
-The app reads the key at **compile time** from `APTABASE_APP_KEY` (see
-`src-tauri/src/telemetry.rs`). With no key baked in, telemetry is a complete
-no-op — so nothing reports until you do this:
+The app reads the key at **compile time** from the `APTABASE_APP_KEY` env var
+(`option_env!` in `src-tauri/src/telemetry.rs`). With no key baked in, telemetry
+is a complete no-op. Same convention as the Last.fm keys, because
+`src-tauri/.cargo/config.toml` is **gitignored** (local-only, never in CI):
 
-```bash
-APTABASE_APP_KEY=A-SH-1234567890 npm run tauri build
-```
+- **CI releases (GitHub Actions):** `release.yml`'s build job passes
+  `APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}`. Add the repo secret once —
+  **Settings → Secrets and variables → Actions → `APTABASE_APP_KEY` =
+  `A-SH-0676964387`** — then cut a new tagged release. Without the secret, CI
+  bakes no key and telemetry stays a silent no-op (this is the usual "it worked
+  in dev but not in the release" cause).
+- **Local builds:** add it to `src-tauri/.cargo/config.toml` under `[env]`
+  (alongside the Last.fm keys), or set the env var for the build:
+  `APTABASE_APP_KEY=A-SH-0676964387 npm run tauri build`.
 
-For releases, add `APTABASE_APP_KEY` as a CI secret and export it in the build
-job's env. The host in `telemetry.rs` (`APTABASE_HOST`) defaults to
+The host in `telemetry.rs` (`APTABASE_HOST`) defaults to
 `https://analytics.viboplr.com`; change it there if you move the instance.
 
 ## Maintenance
