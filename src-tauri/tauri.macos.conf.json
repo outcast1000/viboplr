@@ -1,18 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Viboplr Full",
   "bundle": {
     "macOS": {
       "frameworks": [
         "vendor/libmpv/macos-aarch64/lib/libmpv.2.dylib",
         "vendor/libmpv/macos-aarch64/lib/libluajit-5.1.2.dylib"
-      ]
-    }
-  },
-  "plugins": {
-    "updater": {
-      "endpoints": [
-        "https://github.com/outcast1000/viboplr/releases/latest/download/latest-mpv.json"
       ]
     }
   }

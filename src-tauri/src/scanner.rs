@@ -11,8 +11,20 @@ use walkdir::WalkDir;
 
 use crate::db::Database;
 
+// Decoded by the bundled libmpv/ffmpeg. lofty reads tags for most; formats it
+// can't (dsf/dff/tta/mka/caf) fall back to filename parsing in `read_tags`, the
+// same graceful path video files use — so listing them never breaks scanning.
 const AUDIO_EXTENSIONS: &[&str] = &[
+    // Common
     "mp3", "flac", "aac", "m4a", "wav", "opus", "alac", "wma",
+    // Ogg family
+    "ogg", "oga", "spx",
+    // AIFF family
+    "aiff", "aif", "aifc",
+    // Lossless
+    "ape", "wv", "tta", "dsf", "dff",
+    // Other containers
+    "mpc", "mka", "caf",
 ];
 
 pub const VIDEO_EXTENSIONS: &[&str] = &[
@@ -549,7 +561,10 @@ mod tests {
 
     #[test]
     fn test_is_media_file_audio() {
-        for ext in &["mp3", "flac", "aac", "m4a", "wav", "opus", "alac", "wma"] {
+        for ext in &[
+            "mp3", "flac", "aac", "m4a", "wav", "opus", "alac", "wma", "ogg", "oga", "spx", "aiff",
+            "aif", "aifc", "ape", "wv", "tta", "dsf", "dff", "mpc", "mka", "caf",
+        ] {
             let path = PathBuf::from(format!("song.{}", ext));
             assert!(is_media_file(&path), "expected {} to be media", ext);
         }

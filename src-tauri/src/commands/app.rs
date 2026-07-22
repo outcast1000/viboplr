@@ -3,16 +3,12 @@ use super::*;
 
 // --- Profile commands ---
 
-/// Build flavor for anonymous telemetry: "full" (the mpv-engine build) vs
-/// "lean". Compile-time constant, no side effects — deliberately NOT part of
-/// `engine_capabilities` (which loads libmpv on first probe).
+/// Build flavor for anonymous telemetry. There is now a single build that
+/// bundles the native engine (libmpv), so this is a constant "full". Kept as a
+/// command for telemetry continuity (dashboards still key on full/lean).
 #[tauri::command]
 pub fn app_build_flavor() -> &'static str {
-    if cfg!(feature = "mpv-engine") {
-        "full"
-    } else {
-        "lean"
-    }
+    "full"
 }
 
 #[tauri::command]

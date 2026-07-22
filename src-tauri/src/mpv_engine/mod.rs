@@ -1428,7 +1428,7 @@ mod tests {
     }
 
     /// Network-dependent — run explicitly:
-    /// `cargo test --features mpv-engine test_https_file -- --ignored --nocapture`
+    /// `cargo test test_https_file -- --ignored --nocapture`
     /// Proves mpv's https/TLS stack works by playing a remote file to EOF.
     #[test]
     #[ignore]
@@ -1457,7 +1457,7 @@ mod tests {
     }
 
     /// Network-dependent — run explicitly:
-    /// `cargo test --features mpv-engine test_live_radio -- --ignored --nocapture`
+    /// `cargo test test_live_radio -- --ignored --nocapture`
     /// Plays a public Icecast stream and asserts ICY titles + live audio info.
     #[test]
     #[ignore]

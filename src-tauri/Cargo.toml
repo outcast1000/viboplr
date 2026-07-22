@@ -77,13 +77,10 @@ lto = true
 codegen-units = 1
 strip = true
 
-[features]
-# The engine is compiled into every build now; libmpv is loaded at runtime
-# (bundled / downloaded component / vendored / system — see
-# src/mpv_engine/ffi.rs), so this feature gates NO engine code. It still
-# marks the "Viboplr Full" build flavor: commands/updates.rs reads it to pick
-# the build's updater channel (latest-mpv.json vs latest.json). Engine tests
-# need artifacts regardless of the feature: run `node scripts/fetch-libmpv.mjs`
+# No build features. There is a single build flavor: the native engine is
+# compiled into every build and libmpv ships bundled (see the per-platform
+# tauri.{macos,windows}.conf.json overlays); it is also resolvable at runtime
+# from the downloaded component / vendored / system copy (src/mpv_engine/ffi.rs).
+# Engine tests need the vendored artifacts: run `node scripts/fetch-libmpv.mjs`
 # first or they self-skip.
-mpv-engine = []
 

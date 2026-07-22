@@ -22,14 +22,10 @@ use tauri_plugin_updater::UpdaterExt;
 
 const REPO: &str = "outcast1000/viboplr";
 
-/// Which updater manifest this build consumes — the full (mpv) build lives on
-/// its own channel pair so variants never cross-update.
+/// Which updater manifest this build consumes. There is a single build flavor
+/// now (the native engine is bundled), so every build is on the one channel.
 fn manifest_asset_name() -> &'static str {
-    if cfg!(feature = "mpv-engine") {
-        "latest-mpv.json"
-    } else {
-        "latest.json"
-    }
+    "latest.json"
 }
 
 #[derive(Debug, Deserialize)]

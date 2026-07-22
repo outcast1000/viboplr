@@ -86,7 +86,7 @@
           <li>On macOS, also renders video natively (beta).</li>
           <li>Unlocks <a href="#exclusive-audio">exclusive audio access</a> for bit-perfect output.</li>
         </ul>
-        <p>The <strong>mpv engine component</strong> is the one-time download that contains libmpv. The "Viboplr Full" build ships with it bundled; the standard build downloads it on demand from Settings &rarr; Playback and you can remove it there at any time. If the engine can't play a particular track, Viboplr automatically falls back to the browser engine for that track.</p>
+        <p>The <strong>mpv engine</strong> is built on libmpv, which now ships bundled with Viboplr &mdash; no separate download, and it works offline out of the box. (On the rare setup where the bundled library can't load, Settings &rarr; Playback offers a one-time component download as a fallback.) If the engine can't play a particular track, Viboplr automatically falls back to the browser engine for that track.</p>
         <div class="docs-note">
           Switching engines stops the current playback — playback resumes on the new engine with the next track you play.
         </div>

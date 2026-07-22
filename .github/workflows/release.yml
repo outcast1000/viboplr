@@ -96,9 +96,10 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
-      # Single "lean" build per platform. The native engine is compiled into
-      # every build and loads libmpv at runtime (downloadable engine
-      # component); there is no separate bundled "Full" flavor to produce.
+      # Single build per platform. The native engine is compiled into every
+      # build and libmpv is bundled from the vendored artifact (fetched below);
+      # the per-platform tauri.{macos,windows}.conf.json overlays are auto-merged
+      # by the Tauri CLI. There is no separate "Full"/lean flavor.
       matrix:
         include:
           - platform: macos-latest
@@ -123,6 +124,13 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm install
+
+      # Bundle libmpv: fetch the pinned, SHA-256-verified vendored artifact for
+      # this runner's platform into src-tauri/vendor/libmpv/<platform>/. The
+      # tauri.{macos,windows}.conf.json overlays (auto-merged by the CLI) point
+      # bundle.macOS.frameworks / bundle.resources at these files.
+      - name: Vendor libmpv
+        run: node scripts/fetch-libmpv.mjs
 
       - uses: tauri-apps/tauri-action@v0
         env:

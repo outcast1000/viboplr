@@ -195,7 +195,10 @@ function App() {
   // actually on screen) so a fresh start also stays opaque until mpv is
   // painting, not just until the settle timer elapses. See `.mpv-video-ready`.
   const [videoReady, setVideoReady] = useState(false);
-  const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("browser");
+  // mpv is the primary engine — default to native, gated by `mpvCapable` below
+  // (falls back to the browser engine when libmpv can't be loaded, and per-track
+  // on any engine-error). An explicit user choice is restored on startup.
+  const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("native");
   const [audioExclusive, setAudioExclusive] = useState(false);
   // Update channel: default stable-only; beta is an explicit opt-in.
   const [betaUpdates, setBetaUpdates] = useState(false);
@@ -1707,7 +1710,11 @@ function App() {
           if (savedMuted) notify("Audio is muted from your last session");
         }
         if (cf !== undefined && cf !== null) setCrossfadeSecs(cf);
-        if (savedPlaybackEngine === "native") setPlaybackEngine("native");
+        // Native is the default (store seeds "native"); honor an explicit
+        // choice in either direction so a user who picked Browser stays there.
+        if (savedPlaybackEngine === "native" || savedPlaybackEngine === "browser") {
+          setPlaybackEngine(savedPlaybackEngine);
+        }
         if (savedAudioExclusive) {
           setAudioExclusive(true);
           // Cached engine-side until the engine exists; no-op on lean builds.

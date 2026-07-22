@@ -7,10 +7,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm install                          # Install frontend dependencies
 npm run tauri dev                    # Dev mode (Vite + Tauri)
-npm run tauri build                  # Production build
+npm run tauri build                  # Production build (run fetch-libmpv first — the build bundles libmpv)
 cd src-tauri && cargo check          # Rust compilation check
-cd src-tauri && cargo check --release # Release build check (verifies cfg gating)
-node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv (dev/tests load it at runtime; engine tests self-skip without it)
+cd src-tauri && cargo check --release # Release build check
+node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv — REQUIRED before `tauri build` (bundled); dev/tests load it at runtime; engine tests self-skip without it
 cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
 node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
 npx tsc --noEmit                     # TypeScript type-check
