@@ -1732,16 +1732,28 @@ function App() {
           // never blocks startup. All props anonymous + low-cardinality (bucketed
           // library size, small counts, build flavor, release channel).
           void (async () => {
-            const [trackCount, cols, buildFlavor, enabledPlugins, installReported] = await Promise.all([
+            // `probeEngineCapabilities()` is cached (the mount-time probe above
+            // shares this promise), so this resolves the same result without a
+            // second `engine_capabilities` round-trip.
+            const [trackCount, cols, buildFlavor, enabledPlugins, installReported, caps] = await Promise.all([
               invoke<number>("get_track_count").catch(() => null),
               invoke<Collection[]>("get_collections").catch(() => null),
               invoke<string>("app_build_flavor").catch(() => null),
               store.get<string[]>("enabledPlugins").catch(() => null),
               store.get<boolean>("telemetryInstallReported").catch(() => null),
+              probeEngineCapabilities(),
             ]);
+            // Effective audio engine: the user's choice (default native) gated by
+            // whether libmpv actually loaded on this machine. Build flavor is a
+            // constant "full" now, so real mpv adoption is measured here instead.
+            const engineChoice = savedPlaybackEngine === "browser" ? "browser" : "native";
+            const effectiveEngine = caps.mpv && engineChoice === "native" ? "native" : "browser";
             trackTelemetry("app_started", {
               channel: savedBetaUpdates ? "beta" : "stable",
               ...(buildFlavor ? { build: buildFlavor } : {}),
+              engine: effectiveEngine,
+              mpv_capable: caps.mpv ? "yes" : "no",
+              mpv_video: caps.video ? "yes" : "no",
               ...(trackCount != null ? { tracks_bucket: bucketCount(trackCount) } : {}),
               ...(cols ? { collections: cols.length } : {}),
               ...(enabledPlugins ? { plugins_enabled: enabledPlugins.length } : {}),

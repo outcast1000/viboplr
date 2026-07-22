@@ -1417,7 +1417,7 @@ export function SettingsPanel({
                             onChange={e => onPlaybackEngineChange(e.target.value as "browser" | "native")}
                           >
                             <option value="browser">Browser</option>
-                            <option value="native">mpv (beta)</option>
+                            <option value="native">mpv</option>
                           </select>
                         ) : (
                           <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
