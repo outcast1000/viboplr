@@ -258,6 +258,21 @@ function updateDownloadUrls(html) {
   console.log("✓ docs/download.html");
 }
 
+// Update the per-platform install pages. Their buttons link here (not to the
+// asset), but each carries a static fallback URL — in the manual-download link
+// AND the JS FALLBACK_URL literal — that must track the release. The auto-
+// download JS prefers the freshest asset from the GitHub API and only uses the
+// fallback when the API is unavailable, so keeping it current still matters.
+for (const page of ["install-mac.html", "install-windows.html"]) {
+  const p = resolve(docsDir, page);
+  if (!existsSync(p)) continue;
+  let html = readFileSync(p, "utf8");
+  html = updateVersionBadge(html);
+  html = updateDownloadUrls(html);
+  writeFileSync(p, html);
+  console.log(`✓ docs/${page}`);
+}
+
 // Update history.html version badge (if present)
 {
   const p = resolve(docsDir, "history.html");

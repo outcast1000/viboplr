@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Install on Windows — Viboplr</title>
+  <meta name="description" content="Your Viboplr download for Windows starts automatically. Follow these steps to get past the SmartScreen warning — Viboplr isn't code-signed, so Windows asks once.">
+  <link rel="canonical" href="https://viboplr.com/install-windows.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://viboplr.com/install-windows.html">
+  <meta property="og:title" content="Install on Windows — Viboplr">
+  <meta property="og:description" content="Your Viboplr download for Windows starts automatically. Follow these steps to get past the SmartScreen warning.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Install on Windows — Viboplr">
+  <meta name="twitter:description" content="Your Viboplr download for Windows starts automatically. Follow these steps to get past the SmartScreen warning.">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
+          <path d="M138.24 138.24 L256 281.6 L373.76 138.24" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M138.24 235.52 L256 378.88 L373.76 235.52" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
+        </svg>
+        iboPLR
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="plugins.html" class="nav-link">Plugins</a>
+        <a href="skins.html" class="nav-link">Skins</a>
+        <a href="help.html" class="nav-link">Help</a>
+        <a href="support.html" class="nav-link nav-link--sponsor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          Support
+        </a>
+        <a href="download.html" class="nav-cta">Get Viboplr</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Download Hero -->
+  <section class="download-hero">
+    <div class="container">
+      <h1 class="animate-in">Installing on <span class="gradient-text">Windows</span></h1>
+      <p class="animate-in animate-delay-1">Your download is starting now. <span id="version-badge">v0.9.167</span></p>
+
+      <div class="install-download animate-in animate-delay-2">
+        <div class="install-spinner" aria-hidden="true"></div>
+        <div class="install-download__status" id="dl-status">Starting your download…</div>
+        <div class="install-download__file" id="dl-file">Viboplr for Windows (64-bit)</div>
+        <p class="install-download__manual">
+          Didn't start? <a id="dl-link" href="https://github.com/outcast1000/viboplr/releases/download/v0.9.167/Viboplr_0.9.167_x64-setup.exe">Download it manually</a>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install steps -->
+  <section class="section">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Run the installer</h2>
+        <p class="docs-lead">Viboplr is open-source and free, so the installer isn't code-signed with a paid certificate. Windows SmartScreen shows a blue warning the first time you run it — here's how to continue safely. You only do this <strong>once</strong>; updates after that install quietly.</p>
+
+        <ol class="install-steps">
+          <li class="install-step">
+            <h3>Open the installer</h3>
+            <p>Double-click the downloaded <code>Viboplr_…_x64-setup.exe</code> (usually in your <strong>Downloads</strong> folder). If your browser flags it, choose <strong>Keep</strong> to allow the download to finish.</p>
+          </li>
+          <li class="install-step">
+            <h3>Get past "Windows protected your PC"</h3>
+            <p>A blue SmartScreen dialog may appear because the publisher is unrecognized. Click the small <strong>More info</strong> link, then click the <strong>Run anyway</strong> button that appears.</p>
+          </li>
+          <li class="install-step">
+            <h3>Finish the setup</h3>
+            <p>Follow the installer prompts. When it's done, launch <strong>Viboplr</strong> from the Start menu. That's it.</p>
+          </li>
+          <li class="install-step">
+            <h3>If Microsoft Defender quarantines it</h3>
+            <p>Unsigned installers occasionally trigger a false positive. If Viboplr is blocked or removed, open <strong>Windows Security&nbsp;&rarr;&nbsp;Virus&nbsp;&amp;&nbsp;threat&nbsp;protection&nbsp;&rarr;&nbsp;Protection&nbsp;history</strong>, find the Viboplr item, and choose <strong>Allow</strong> / <strong>Restore</strong>. Then run the installer again.</p>
+          </li>
+        </ol>
+
+        <div class="docs-note">
+          <strong>Why the warning?</strong> Code-signing certificates that satisfy SmartScreen cost money and reputation time. Viboplr skips them to stay free — the app is fully open-source (<a href="https://github.com/outcast1000/viboplr" target="_blank" rel="noopener">read the code on GitHub</a>) and downloads only from GitHub Releases. Once installed, Viboplr updates itself quietly in the background with no repeat of these steps.
+        </div>
+
+        <p style="margin-top: var(--space-md);">On the wrong page? <a href="install-mac.html">Get the macOS version</a> or <a href="download.html">see all downloads</a>.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- System Requirements -->
+  <section class="section section-alt">
+    <div class="container">
+      <div class="requirements reveal">
+        <h2>System Requirements</h2>
+        <table class="req-table">
+          <tr>
+            <td>Windows</td>
+            <td>10 or later (64-bit)</td>
+          </tr>
+          <tr>
+            <td>Disk Space</td>
+            <td>&lt; 15 MB</td>
+          </tr>
+          <tr>
+            <td>Memory</td>
+            <td>&lt; 50 MB idle</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="support.html" class="footer-link">Support</a>
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <span class="footer-link">Built with Tauri + React</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Auto-download: prefer the freshest asset from the GitHub Releases API,
+       fall back to the static (bump.mjs-maintained) URL if the API is
+       unavailable or rate-limited. GitHub serves release assets as
+       attachments, so pointing a hidden iframe at the URL downloads the file
+       without ever navigating this page away — even if the URL happens to
+       return HTML (a proxy/error page), it loads harmlessly in the iframe. -->
+  <script>
+    (function () {
+      var ASSET_RE = /x64-setup\.exe$/i;
+      var FALLBACK_URL = "https://github.com/outcast1000/viboplr/releases/download/v0.9.167/Viboplr_0.9.167_x64-setup.exe";
+      var statusEl = document.getElementById("dl-status");
+      var linkEl = document.getElementById("dl-link");
+      var fileEl = document.getElementById("dl-file");
+      var started = false;
+
+      function trigger(url, name) {
+        if (linkEl) linkEl.href = url;
+        if (fileEl && name) fileEl.textContent = name;
+        if (started) return;
+        started = true;
+        var iframe = document.createElement("iframe");
+        iframe.style.display = "none";
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        if (statusEl) statusEl.textContent = "Your download should be starting…";
+      }
+
+      function fallback() { trigger(FALLBACK_URL, FALLBACK_URL.split("/").pop()); }
+
+      fetch("https://api.github.com/repos/outcast1000/viboplr/releases/latest")
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error("HTTP " + r.status)); })
+        .then(function (rel) {
+          var asset = (rel.assets || []).filter(function (a) { return ASSET_RE.test(a.name); })[0];
+          if (!asset) return fallback();
+          trigger(asset.browser_download_url, asset.name);
+        })
+        .catch(function (e) { console.warn("Release lookup failed, using fallback:", e); fallback(); });
+
+      // Safety net: if the API is slow, start the fallback download anyway.
+      setTimeout(function () { if (!started) fallback(); }, 2500);
+    })();
+  </script>
+
+  <script src="js/main.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>

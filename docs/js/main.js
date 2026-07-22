@@ -35,6 +35,23 @@
     });
   });
 
+  // Copy-to-clipboard buttons (used by the install pages' command boxes)
+  document.querySelectorAll('.copy-cmd button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var code = btn.parentElement.querySelector('code');
+      if (!code || !navigator.clipboard) return;
+      navigator.clipboard.writeText(code.textContent || '').then(function () {
+        var prev = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function () {
+          btn.textContent = prev;
+          btn.classList.remove('copied');
+        }, 1600);
+      }).catch(function (e) { console.warn('Copy failed:', e); });
+    });
+  });
+
   // Scroll-triggered reveal animations
   var reveals = document.querySelectorAll('.reveal');
 
