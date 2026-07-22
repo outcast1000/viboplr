@@ -1853,6 +1853,8 @@ export function usePlugins(
       if (!loaded) return;
       const handler = loaded.contextMenuHandlers.get(actionId);
       if (handler) {
+        // Anonymous: which plugin action was invoked (ids only, no target data).
+        trackTelemetry("plugin_action", { plugin_id: pluginId, action_id: actionId });
         try {
           handler(target);
         } catch (e) {

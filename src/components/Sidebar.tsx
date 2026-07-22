@@ -2,6 +2,7 @@ import { useRef, useEffect, type ReactNode } from "react";
 import type { View } from "../types";
 import type { PluginSidebarItem, PluginBadge } from "../types/plugin";
 import { SpinningDisc } from "./SpinningDisc";
+import { track as trackTelemetry } from "../telemetry";
 import { FilmStrip } from "./FilmStrip";
 import "./Sidebar.css";
 
@@ -116,6 +117,13 @@ export function Sidebar({
     { key: "playlists", label: "Playlists", icon: icons.playlists, active: noDetail && view === "playlists", onClick: onShowPlaylists, hint: "Playlists" },
   ];
 
+  // Left-pane navigation clicks (anonymous — view key only, e.g. home/search/
+  // history/plugin:<id>/settings). Sidebar clicks only, not keyboard shortcuts.
+  const navClick = (viewKey: string, fn?: () => void) => {
+    trackTelemetry("nav_click", { view: viewKey });
+    fn?.();
+  };
+
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
       <nav className="nav" ref={navRef}>
@@ -124,7 +132,7 @@ export function Sidebar({
           <button
             key={item.key}
             className={`nav-btn ${item.active ? "active" : ""}`}
-            onClick={item.onClick}
+            onClick={() => navClick(item.key, item.onClick)}
             title={item.hint}
           >
             <span className="nav-btn-label">{item.icon} {!collapsed && item.label}</span>
@@ -139,7 +147,7 @@ export function Sidebar({
                 <button
                   key={viewKey}
                   className={`nav-btn ${noDetail && view === viewKey ? "active" : ""}`}
-                  onClick={() => onPluginView?.(item.pluginId, item.id)}
+                  onClick={() => navClick("plugin:" + item.pluginId, () => onPluginView?.(item.pluginId, item.id))}
                   title={item.label}
                 >
                   <span className="nav-btn-label">
@@ -168,17 +176,17 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "collections" ? " active" : ""}`} onClick={onShowCollections} title={collapsed ? "Collections" : undefined}>
+        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "collections" ? " active" : ""}`} onClick={() => navClick("collections", onShowCollections)} title={collapsed ? "Collections" : undefined}>
           <span className="nav-btn-label">{icons.collections} {!collapsed && "Collections"}</span>
         </button>
-        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "extensions" ? " active" : ""}`} onClick={() => onShowExtensions?.()} title={collapsed ? "Extensions" : undefined}>
+        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "extensions" ? " active" : ""}`} onClick={() => navClick("extensions", () => onShowExtensions?.())} title={collapsed ? "Extensions" : undefined}>
           <span className="nav-btn-label">
             <svg {...iconProps}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17h7M17.5 14v7"/></svg>
             {!collapsed && "Extensions"}
           </span>
           {!!extensionUpdateCount && extensionUpdateCount > 0 && <span className="ext-nav-badge">{extensionUpdateCount}</span>}
         </button>
-        <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={onShowSettings} title={collapsed ? "Settings" : undefined}>
+        <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={() => navClick("settings", onShowSettings)} title={collapsed ? "Settings" : undefined}>
           <span className="nav-btn-label">{icons.settings} {!collapsed && "Settings"}</span>
           {updateAvailable && <span className="update-badge" />}
         </button>

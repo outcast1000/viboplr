@@ -1,4 +1,5 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { track as trackTelemetry } from "../telemetry";
 import { open } from "@tauri-apps/plugin-dialog";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
@@ -118,6 +119,7 @@ export function MixtapePreviewModal({
         setImporting(true);
         setProgress(null);
 
+        trackTelemetry("playlist_loaded", { format: "mixtape", mode });
         await invoke("import_mixtape", {
           path: mixtapePath,
           mode,

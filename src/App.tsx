@@ -1614,6 +1614,7 @@ function App() {
   // Listen for mixtape file opened events (from file association / CLI) — play immediately
   useEffect(() => {
     const stopMixtapeOpen = subscribe<string>("mixtape-file-opened", (event) => {
+      trackTelemetry("playlist_loaded", { format: "mixtape" });
       invoke("import_mixtape", { path: event.payload, mode: "just_play", destDir: null })
         .catch(err => console.error("Failed to play mixtape:", err));
     });
@@ -1646,6 +1647,7 @@ function App() {
         const paths: string[] = event.payload.paths;
         const mixtapePath = paths.find(p => p.endsWith(".mixtape"));
         if (mixtapePath) {
+          trackTelemetry("playlist_loaded", { format: "mixtape" });
           invoke("import_mixtape", { path: mixtapePath, mode: "just_play", destDir: null })
             .catch(err => console.error("Failed to play mixtape:", err));
         }

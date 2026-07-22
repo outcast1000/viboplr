@@ -6,6 +6,7 @@ import type { QueueTrack, PlaylistLoadResult, PlaylistEntry, QueueMode } from ".
 import { trackToQueueEntry, queueEntryToQueueTrack, nextExternalKey } from "../queueEntry";
 import { diffThumbs, flushMainPlaylist, type ThumbInfo } from "../mainPlaylist";
 import { stripImageVersion } from "../utils/resolveImageUrl";
+import { track as trackTelemetry } from "../telemetry";
 import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
 
 export interface PlaylistContext {
@@ -182,6 +183,10 @@ export function useQueue(
   }, [queueIndex]);
 
   function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) {
+    // Anonymous: an intentional play + its origin (album/artist/tag/radio/
+    // playlist/plugin/…), distinct from track_played which fires per track start.
+    // context.source is the logical origin surface; "none" = a bare single play.
+    trackTelemetry("play", { source: context?.source ?? "none", count: tracks.length });
     // Dedupe keys *within* the incoming batch so two copies of the same library
     // track don't collide as React keys (e.g. a playlist that contains a track
     // twice, or a plugin that re-emits the same item). Without this, React's
@@ -510,6 +515,7 @@ export function useQueue(
     if (!filePath) return;
     const entries = queueRef.current.map(t => trackToQueueEntry(t));
     await invoke("save_playlist_entries", { path: filePath, entries });
+    trackTelemetry("playlist_saved", { format: "m3u" });
     const name = filePath.split(/[/\\]/).pop()?.replace(/\.m3u8?$/i, "") ?? "Playlist";
     setPlaylistContext(prev => prev ? { ...prev, name } : { name });
   }
@@ -525,6 +531,7 @@ export function useQueue(
       return;
     }
     const result = await invoke<PlaylistLoadResult>("load_playlist", { path: filePath });
+    trackTelemetry("playlist_loaded", { format: filePath.endsWith(".m3u8") ? "m3u8" : "m3u" });
     if (result.entries.length > 0) {
       const tracks = result.entries.map((e: PlaylistEntry) =>
         queueEntryToQueueTrack({

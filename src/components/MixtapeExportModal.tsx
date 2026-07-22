@@ -1,4 +1,5 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { track as trackTelemetry } from "../telemetry";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
@@ -223,6 +224,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
           },
         });
       }
+      trackTelemetry("playlist_saved", { format: "mixtape", mode: exportMode });
     } catch (err) {
       setError(`Export failed: ${err}`);
       setExporting(false);

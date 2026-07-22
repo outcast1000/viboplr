@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, Album, Artist, Tag, QueueTrack } from "../types";
 import type { PlaylistContext } from "./useQueue";
 import { trackToQueueTrack } from "../queueEntry";
+import { track as trackTelemetry } from "../telemetry";
 
 interface PlayActionsArgs {
   playTracks: (tracks: QueueTrack[], index: number, context?: PlaylistContext | null) => void;
@@ -185,6 +186,9 @@ export function usePlayActions({
         notify(`Couldn't start radio — "${seed.title}" isn't in your library.`);
         return;
       }
+      // Anonymous: a station was started. Radio is always track-seeded here
+      // (build_radio_for_track), so there's no meaningful seed_kind to send.
+      trackTelemetry("radio_started");
       // Resolve a cover for the queue banner. Callers may pass one (e.g. the
       // queue track's image_url, or a Home station's resolved cover); when they
       // don't (library track context menu), derive it from the seed track's
