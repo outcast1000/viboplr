@@ -1,6 +1,6 @@
 [package]
 name = "viboplr"
-version = "0.9.168"
+version = "0.9.169"
 description = "Viboplr — lightweight audio player"
 authors = ["outcast1000"]
 edition = "2021"
