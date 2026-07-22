@@ -45,6 +45,8 @@ mod plugin_files;
 pub use plugin_files::*;
 mod plugins;
 pub use plugins::*;
+mod publish;
+pub use publish::*;
 mod skins_cmd;
 pub use skins_cmd::*;
 mod transcode;
@@ -104,6 +106,9 @@ pub struct AppState {
     pub download_resolve_registry: Arc<DownloadResolveRegistry>,
     pub direct_download_cancel: Arc<AtomicBool>,
     pub mixtape_cancel: Arc<AtomicBool>,
+    /// Cancel flag for an in-flight publish-to-server batch (reset to false at
+    /// the start of each `publish_to_server`; set by `cancel_publish_to_server`).
+    pub publish_cancel: Arc<AtomicBool>,
     pub resyncing_collections: Arc<Mutex<HashSet<i64>>>,
     pub cursor_tracker_active: Arc<AtomicBool>,
     pub transcode_port: u16,
@@ -1078,38 +1083,46 @@ pub struct TranscodeInfo {
 
 
 
+/// Shared test factory for a fully-formed `AppState` over an in-memory DB.
+/// Module-level (not inside `mod tests`) so command submodules' test modules
+/// (e.g. `collections::tests`) can reuse it via `use super::*`.
+#[cfg(test)]
+pub(crate) fn test_app_state() -> AppState {
+    let db = Database::new_in_memory().expect("Failed to create test DB");
+    AppState {
+        db: Arc::new(db),
+        app_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
+        profile_name: "default".to_string(),
+        download_queue: Arc::new(DownloadQueue {
+            queue: Mutex::new(Vec::new()),
+            condvar: Condvar::new(),
+        }),
+        track_download_manager: Arc::new(DownloadManager::new()),
+        native_plugins_dir: None,
+        image_resolve_registry: Arc::new(ImageResolveRegistry {
+            pending: Mutex::new(std::collections::HashMap::new()),
+        }),
+        download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
+        direct_download_cancel: Arc::new(AtomicBool::new(false)),
+        mixtape_cancel: Arc::new(AtomicBool::new(false)),
+        publish_cancel: Arc::new(AtomicBool::new(false)),
+        resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
+        cursor_tracker_active: Arc::new(AtomicBool::new(false)),
+        transcode_port: 0,
+        transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        dep_cache: Arc::new(crate::dependencies::DepCache::new()),
+        p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
+        pending_app_update: tokio::sync::Mutex::new(None),
+        mpv_engine: Default::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Database;
 
     fn test_state() -> AppState {
-        let db = Database::new_in_memory().expect("Failed to create test DB");
-        AppState {
-            db: Arc::new(db),
-            app_dir: std::path::PathBuf::from("/tmp/viboplr-test"),
-            profile_name: "default".to_string(),
-            download_queue: Arc::new(DownloadQueue {
-                queue: Mutex::new(Vec::new()),
-                condvar: Condvar::new(),
-            }),
-            track_download_manager: Arc::new(DownloadManager::new()),
-            native_plugins_dir: None,
-            image_resolve_registry: Arc::new(ImageResolveRegistry {
-                pending: Mutex::new(std::collections::HashMap::new()),
-            }),
-            download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
-            direct_download_cancel: Arc::new(AtomicBool::new(false)),
-            mixtape_cancel: Arc::new(AtomicBool::new(false)),
-            resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
-            cursor_tracker_active: Arc::new(AtomicBool::new(false)),
-            transcode_port: 0,
-            transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-            dep_cache: Arc::new(crate::dependencies::DepCache::new()),
-            p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
-            pending_app_update: tokio::sync::Mutex::new(None),
-            mpv_engine: Default::default(),
-        }
+        test_app_state()
     }
 
     /// Helper: get or create a test collection

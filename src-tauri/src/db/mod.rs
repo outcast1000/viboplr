@@ -190,6 +190,7 @@ pub mod likes;
 mod playlists;
 mod plugin_storage;
 mod providers;
+pub mod publish_servers;
 mod search;
 mod tags;
 mod tracks;
@@ -504,6 +505,19 @@ impl Database {
                 PRIMARY KEY (plugin_id, task_id)
             );
 
+            -- Bandstatic publish targets (publish-to-server) — see db/publish_servers.rs.
+            -- PAT stored plaintext, matching the collections-credentials precedent;
+            -- acceptable because the token is upload-scoped only (cannot delete
+            -- content or touch the account).
+            CREATE TABLE IF NOT EXISTS publish_servers (
+                id          INTEGER PRIMARY KEY,
+                name        TEXT NOT NULL,
+                url         TEXT NOT NULL,
+                token       TEXT NOT NULL,
+                artist_slug TEXT NOT NULL DEFAULT '',
+                created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+            );
+
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
@@ -651,6 +665,29 @@ impl Database {
             conn.execute("ALTER TABLE tracks ADD COLUMN extra_tags TEXT", [])?;
         }
 
+        // 7. Publish servers (Bandstatic push targets) — see db/publish_servers.rs.
+        //    Fresh DBs get the table via init_tables; pre-feature DBs get it here.
+        //    Detected by schema presence (CREATE TABLE IF NOT EXISTS is self-gating),
+        //    NOT a `db_version < N` gate — pre-squash DBs carry inflated versions
+        //    that a numeric gate would skip (see the note at the top of this fn).
+        //    PAT stored plaintext, matching the collections-credentials precedent;
+        //    acceptable because the token is upload-scoped only (cannot delete
+        //    content or touch the account).
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS publish_servers (
+                    id          INTEGER PRIMARY KEY,
+                    name        TEXT NOT NULL,
+                    url         TEXT NOT NULL,
+                    token       TEXT NOT NULL,
+                    artist_slug TEXT NOT NULL DEFAULT '',
+                    created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                )",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 }
@@ -719,6 +756,28 @@ mod tests {
         assert!(pls.iter().any(|p| p.system_kind.as_deref() == Some("disliked")));
         // The pre-existing library like must have been backfilled.
         assert_eq!(db.get_entity_like_state("artist", "artist:bjork").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_existing_db_gains_publish_servers_table() {
+        // Simulate a pre-feature DB on disk (no publish_servers table), then open
+        // it via Database::new. Existing installs must come out with the table so
+        // publish-server CRUD works without a fresh profile.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("viboplr.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE db_version (version INTEGER NOT NULL);
+                 INSERT INTO db_version (rowid, version) VALUES (1, 1);",
+            ).unwrap();
+        }
+        let db = Database::new(dir.path()).expect("pre-feature DB should open");
+        let id = db
+            .add_publish_server("S", "https://h.example.com", "bst_t", "slug")
+            .expect("publish_servers table must exist after upgrade");
+        assert_eq!(db.list_publish_servers().unwrap().len(), 1);
+        db.remove_publish_server(id).unwrap();
     }
 
     #[test]

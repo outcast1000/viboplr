@@ -19,6 +19,7 @@ mod sync;
 mod manifest_sync;
 mod bundle_ref;
 mod music_publish;
+mod publish_server;
 mod tag_writer;
 mod mixtape;
 mod main_playlist;
@@ -62,6 +63,11 @@ macro_rules! invoke_handler {
             commands::find_track_in_collection,
             commands::resync_collection,
             commands::export_music_source,
+            commands::add_publish_server,
+            commands::list_publish_servers,
+            commands::remove_publish_server,
+            commands::publish_to_server,
+            commands::cancel_publish_to_server,
             commands::get_artists,
             commands::get_artist_by_id,
             commands::get_albums,
@@ -1338,6 +1344,7 @@ pub fn run() {
                     download_resolve_registry: dl_resolve_registry_for_state,
                     direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    publish_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     resyncing_collections: Arc::clone(&resyncing_collections),
                     cursor_tracker_active: Arc::clone(&cursor_tracker_active),
                     transcode_port,

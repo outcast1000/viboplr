@@ -254,6 +254,48 @@ mod tests {
         assert_eq!(m.tracks[0].track_number, Some(1));
     }
 
+    /// Cross-repo contract pin (consumer side): a manifest exactly as
+    /// Bandstatic emits it must deserialize through Manifest/ManifestTrack
+    /// with every field intact — including optional absences. If this test
+    /// breaks, a Bandstatic-side field rename/retype would break every
+    /// subscriber at their next daily poll.
+    #[test]
+    fn test_bandstatic_manifest_fixture_parses() {
+        let fixture = r#"{"name":"Maria Callas","artist":"Maria Callas","tracks":[{"title":"First Song","url":"https://music.example.com/maria-callas/tracks/first-song.flac","artist":"Maria Callas","album":"Debut","duration_secs":215.3,"track_number":1,"year":2026,"format":"flac"},{"title":"Loose Single","url":"https://music.example.com/maria-callas/tracks/loose-single.mp3","artist":"Maria Callas","format":"mp3"}]}"#;
+        let m: Manifest = serde_json::from_str(fixture).unwrap();
+
+        assert_eq!(m.name.as_deref(), Some("Maria Callas"));
+        assert_eq!(m.artist.as_deref(), Some("Maria Callas"));
+        assert_eq!(m.image, None);
+        assert_eq!(m.tracks.len(), 2);
+
+        // Full-metadata track: every emitted field lands on the right member.
+        let t0 = &m.tracks[0];
+        assert_eq!(t0.title, "First Song");
+        assert_eq!(t0.url, "https://music.example.com/maria-callas/tracks/first-song.flac");
+        assert_eq!(t0.artist.as_deref(), Some("Maria Callas"));
+        assert_eq!(t0.album.as_deref(), Some("Debut"));
+        assert_eq!(t0.duration_secs, Some(215.3));
+        assert_eq!(t0.track_number, Some(1));
+        assert_eq!(t0.year, Some(2026));
+        assert_eq!(t0.format.as_deref(), Some("flac"));
+        assert_eq!(t0.tags, None);
+        assert_eq!(t0.cover, None);
+
+        // Sparse track: optional absences deserialize as None, not errors.
+        let t1 = &m.tracks[1];
+        assert_eq!(t1.title, "Loose Single");
+        assert_eq!(t1.url, "https://music.example.com/maria-callas/tracks/loose-single.mp3");
+        assert_eq!(t1.artist.as_deref(), Some("Maria Callas"));
+        assert_eq!(t1.album, None);
+        assert_eq!(t1.duration_secs, None);
+        assert_eq!(t1.track_number, None);
+        assert_eq!(t1.year, None);
+        assert_eq!(t1.format.as_deref(), Some("mp3"));
+        assert_eq!(t1.tags, None);
+        assert_eq!(t1.cover, None);
+    }
+
     #[test]
     fn test_manifest_name_sets_collection_name() {
         let db = test_db();

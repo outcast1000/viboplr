@@ -355,21 +355,18 @@ pub fn subsonic_test_connection(
     Ok("Connected successfully".to_string())
 }
 
-// --- Publish a music source (export bundle) ---
+// --- Publish a music source (export bundle / publish to server) ---
 
-/// Generate a self-contained, hostable music-source bundle (index.html +
-/// manifest.json + tracks/) from a whole local collection or an explicit set of
-/// track ids. Only local files can be bundled; remote/missing tracks are skipped
-/// and reported in the result.
-#[tauri::command]
-pub fn export_music_source(
-    state: State<'_, AppState>,
-    dest_dir: String,
-    name: String,
-    base_url: String,
+/// Resolve a publish selection — a whole collection (`collection_id`) or an
+/// explicit set of track ids — to local-file `PublishTrack`s plus the titles
+/// of skipped remote/missing tracks. Shared by the static exporter
+/// (`export_music_source`) and the publish-to-server path (`publish_to_server`)
+/// so there is exactly one resolution behavior.
+pub(crate) fn resolve_publish_tracks(
+    state: &AppState,
     track_ids: Option<Vec<i64>>,
     collection_id: Option<i64>,
-) -> Result<crate::music_publish::ExportResult, String> {
+) -> Result<(Vec<crate::music_publish::PublishTrack>, Vec<String>), String> {
     use crate::music_publish::PublishTrack;
 
     let tracks: Vec<Track> = if let Some(cid) = collection_id {
@@ -413,7 +410,126 @@ pub fn export_music_source(
         return Err("None of the selected tracks are local files that can be published".to_string());
     }
 
+    Ok((publish_tracks, remote_skipped))
+}
+
+/// Generate a self-contained, hostable music-source bundle (index.html +
+/// manifest.json + tracks/) from a whole local collection or an explicit set of
+/// track ids. Only local files can be bundled; remote/missing tracks are skipped
+/// and reported in the result.
+#[tauri::command]
+pub fn export_music_source(
+    state: State<'_, AppState>,
+    dest_dir: String,
+    name: String,
+    base_url: String,
+    track_ids: Option<Vec<i64>>,
+    collection_id: Option<i64>,
+) -> Result<crate::music_publish::ExportResult, String> {
+    let (publish_tracks, remote_skipped) = resolve_publish_tracks(&state, track_ids, collection_id)?;
+
     let mut result = crate::music_publish::export_music_source(&dest_dir, &name, &base_url, &publish_tracks)?;
     result.skipped.extend(remote_skipped);
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression pin for the extraction of `resolve_publish_tracks` out of
+    /// `export_music_source`: for a seeded DB with one local and one remote
+    /// track, the helper must return exactly what the old inline logic did —
+    /// the local track fully resolved (path, metadata, tags) and the remote
+    /// track's title in `skipped`.
+    #[test]
+    fn test_resolve_publish_tracks_matches_old_inline_logic() {
+        let state = test_app_state();
+
+        // Local collection + track (with a tag).
+        let local_cid = state
+            .db
+            .add_collection("local", "Local", Some("/music"), None, None, None, None, None)
+            .unwrap()
+            .id;
+        let artist_id = state.db.get_or_create_artist("Bloc Party").unwrap();
+        let album_id = state.db.get_or_create_album("Silent Alarm", Some(artist_id), Some(2005)).unwrap();
+        let local_id = state
+            .db
+            .upsert_track(
+                "bloc-party/positive-tension.m4a", "Positive Tension", Some(artist_id), Some(album_id),
+                Some(2), Some(235.9), Some("m4a"), Some(9_000_000), None, Some(local_cid), None,
+            )
+            .unwrap();
+        let tag_id = state.db.get_or_create_tag("rock").unwrap();
+        state.db.add_track_tag(local_id, tag_id).unwrap();
+
+        // Remote (subsonic) collection + track — must land in `skipped`.
+        let remote_cid = state
+            .db
+            .add_collection("subsonic", "Server", None, Some("https://music.example.com"), Some("u"), None, None, None)
+            .unwrap()
+            .id;
+        let remote_id = state
+            .db
+            .upsert_track(
+                "remote-id-1", "Remote Song", Some(artist_id), None,
+                None, Some(200.0), Some("flac"), None, None, Some(remote_cid), None,
+            )
+            .unwrap();
+
+        let (publish_tracks, skipped) =
+            resolve_publish_tracks(&state, Some(vec![local_id, remote_id]), None).unwrap();
+
+        // Exactly the old inline output: one resolved local PublishTrack…
+        assert_eq!(publish_tracks.len(), 1);
+        let pt = &publish_tracks[0];
+        assert_eq!(pt.title, "Positive Tension");
+        assert_eq!(pt.artist.as_deref(), Some("Bloc Party"));
+        assert_eq!(pt.album.as_deref(), Some("Silent Alarm"));
+        assert_eq!(pt.duration_secs, Some(235.9));
+        assert_eq!(pt.track_number, Some(2));
+        assert_eq!(pt.format.as_deref(), Some("m4a"));
+        assert_eq!(pt.src_path, "/music/bloc-party/positive-tension.m4a");
+        assert_eq!(pt.tags, vec!["rock".to_string()]);
+
+        // …and the remote track skipped by title.
+        assert_eq!(skipped, vec!["Remote Song".to_string()]);
+
+        // The collection_id path resolves the same local track.
+        let (by_collection, by_collection_skipped) =
+            resolve_publish_tracks(&state, None, Some(local_cid)).unwrap();
+        assert_eq!(by_collection.len(), 1);
+        assert_eq!(by_collection[0].src_path, pt.src_path);
+        assert!(by_collection_skipped.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_publish_tracks_error_cases() {
+        let state = test_app_state();
+
+        // Neither selector given.
+        assert!(resolve_publish_tracks(&state, None, None)
+            .unwrap_err()
+            .contains("No tracks specified"));
+
+        // Selector given but nothing resolves.
+        assert!(resolve_publish_tracks(&state, Some(vec![99999]), None)
+            .unwrap_err()
+            .contains("No tracks to publish"));
+
+        // Only remote tracks -> nothing publishable.
+        let remote_cid = state
+            .db
+            .add_collection("subsonic", "Server", None, Some("https://music.example.com"), Some("u"), None, None, None)
+            .unwrap()
+            .id;
+        let remote_id = state
+            .db
+            .upsert_track("rid-1", "Remote Only", None, None, None, None, None, None, None, Some(remote_cid), None)
+            .unwrap();
+        assert!(resolve_publish_tracks(&state, Some(vec![remote_id]), None)
+            .unwrap_err()
+            .contains("local files"));
+    }
 }

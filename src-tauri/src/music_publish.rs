@@ -17,6 +17,7 @@ use std::path::Path;
 use serde::Serialize;
 
 /// One track to publish, already resolved to a local file + metadata.
+#[derive(Debug)]
 pub struct PublishTrack {
     pub title: String,
     pub artist: Option<String>,
@@ -63,8 +64,9 @@ fn slugify(s: &str) -> String {
     }
 }
 
-/// Percent-encode for a URL value (used to embed the manifest URL in the deep link).
-fn percent_encode(s: &str) -> String {
+/// Percent-encode for a URL value (used to embed the manifest URL in the deep
+/// link, here and in the publish-to-server command).
+pub(crate) fn percent_encode(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
         match b {
