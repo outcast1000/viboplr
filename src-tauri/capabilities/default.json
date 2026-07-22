@@ -38,6 +38,7 @@
     "deep-link:default",
     "global-shortcut:default",
     "global-shortcut:allow-register",
-    "global-shortcut:allow-unregister-all"
+    "global-shortcut:allow-unregister-all",
+    "aptabase:allow-track-event"
   ]
 }

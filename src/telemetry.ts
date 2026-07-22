@@ -28,13 +28,22 @@ export function setTelemetryEnabled(value: boolean): void {
   enabled = value;
 }
 
+let warnedOnce = false;
+
 export function track(event: string, props?: TelemetryProps): void {
   if (!enabled) return;
   // Fire-and-forget: telemetry failures — opt-out mid-flight, no APTABASE_APP_KEY
-  // baked in (command unregistered → invoke rejects), offline, or the
+  // baked in (command unregistered), a missing capability grant, offline, or the
   // self-hosted instance being down — must never surface to the user or break a
-  // flow, so the rejection is intentionally swallowed.
-  invoke("plugin:aptabase|track_event", { name: event, props: props ?? null }).catch(() => {});
+  // flow. But log the FIRST failure once (never per-event): a fully silent catch
+  // here previously masked a denied `aptabase:allow-track-event` capability for
+  // a long time.
+  invoke("plugin:aptabase|track_event", { name: event, props: props ?? null }).catch((e) => {
+    if (!warnedOnce) {
+      warnedOnce = true;
+      console.error("Telemetry send failed (further errors suppressed):", e);
+    }
+  });
 }
 
 /**
