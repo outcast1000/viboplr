@@ -7,15 +7,18 @@ import type { Track } from "../../types";
 import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../../types/plugin";
 import { formatDuration, formatFileSize } from "../../utils";
 import type { AppStore } from "../../store";
-import { IconPlay, IconFolder } from "../Icons";
+import { IconPlay, IconFolder, IconDownload } from "../Icons";
 import type { DownloadTrack, UpgradePreviewInfo, DownloadResult, ExistingAction, ResolveState, BatchDownloadTrackState, BatchConflict, ConflictCheck } from "./types";
 import { PATH_PATTERNS, previewPattern, buildDestPath } from "./pathUtils";
+import { ProviderChip } from "./ProviderChip";
+import { QualitySelect } from "./QualitySelect";
+import { DestField } from "./DestField";
 
 type BatchStep = "configure" | "resolve" | "review" | "downloading" | "done";
 
 export function MultiTrackDownload({
   tracks,
-  providerId: _providerId,
+  providerId,
   providerName,
   confirmed,
   qualityOptions,
@@ -505,12 +508,20 @@ export function MultiTrackDownload({
   const sampleTitle = tracks[0]?.title ?? "Track Name";
   const ext = quality === "flac" ? "flac" : "m4a";
   const preview = previewPattern(pathPattern, sampleArtist, sampleAlbum, sampleTitle, ext);
+  const totalDur = tracks.reduce((s, t) => s + (t.durationSecs ?? 0), 0);
+  const headTitle =
+    step === "review" ? `Review ${tracks.length} tracks`
+    : step === "resolve" ? "Matching tracks"
+    : step === "downloading" ? "Downloading tracks"
+    : step === "done" ? "Download complete"
+    : `Download ${tracks.length} tracks`;
 
   return (
     <>
-      <h2 className="ds-modal-title">
-        Download {tracks.length} tracks from {providerName}
-      </h2>
+      <div className="dl-head">
+        <h2>{headTitle}</h2>
+        <ProviderChip name={providerName} providerId={providerId} />
+      </div>
 
       {tracks.length === 0 && (
         <div className="dl-error">No tracks to download</div>
@@ -521,63 +532,52 @@ export function MultiTrackDownload({
         <>
           <div className="dl-config-row">
             <label>Quality</label>
-            {qualities.length === 1 ? (
-              <span>{qualities[0].label}</span>
-            ) : (
-              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
-                {qualities.map(q => (
-                  <option key={q.value} value={q.value}>{q.label}</option>
-                ))}
-              </select>
-            )}
+            <QualitySelect qualities={qualities} value={quality} onChange={setQuality} />
           </div>
 
           <div className="dl-config-row">
             <label>Save to</label>
-            <select
-              value={destType === "collection" ? String(destCollectionId ?? "") : "__browse__"}
-              onChange={(e) => {
-                if (e.target.value === "__browse__") {
-                  handleBrowseFolder();
-                } else {
-                  setDestType("collection");
-                  setDestCollectionId(parseInt(e.target.value, 10));
-                  setDestPath(null);
-                }
-              }}
-            >
-              {collections.map(c => (
-                <option key={c.id} value={String(c.id)}>{c.name} {"—"} {c.path}</option>
-              ))}
-              <option value="__browse__">Browse to folder...</option>
-            </select>
+            <DestField
+              collections={collections}
+              destType={destType}
+              destCollectionId={destCollectionId}
+              destPath={destPath}
+              onPickCollection={(id) => { setDestType("collection"); setDestCollectionId(id); setDestPath(null); }}
+              onBrowse={handleBrowseFolder}
+            />
           </div>
 
-          {destType === "path" && destPath && (
-            <div className="dl-config-row">
-              <label />
-              <span className="dl-dest-display">{destPath}</span>
-            </div>
-          )}
-
           <div className="dl-config-row">
-            <label>File layout</label>
+            <label>Layout</label>
             <select value={pathPattern} onChange={(e) => setPathPattern(e.target.value)}>
               {PATH_PATTERNS.map(p => (
                 <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </select>
           </div>
+          <div className="dl-path-preview">{preview}</div>
 
-          <div className="dl-config-row">
-            <label />
-            <span className="dl-dest-display" style={{ opacity: 0.7 }}>{preview}</span>
+          <div className="dl-list-header">{tracks.length} tracks{totalDur ? ` · ${formatDuration(totalDur)}` : ""}</div>
+          <div className="dl-batch-list">
+            {tracks.map((t, i) => (
+              <div key={i} className="dl-batch-row">
+                <div className="dl-batch-info">
+                  <div className="dl-batch-title">{t.title}</div>
+                  {(t.artistName || t.durationSecs) && (
+                    <div className="dl-batch-match">
+                      {[t.artistName, t.durationSecs ? formatDuration(t.durationSecs) : null].filter(Boolean).join(" · ")}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="dl-actions">
             <button onClick={onClose}>Cancel</button>
             <button className="dl-btn-primary" onClick={handleStart}>
-              Start Download
+              <IconDownload size={15} />
+              Download {tracks.length} tracks
             </button>
           </div>
         </>
@@ -737,6 +737,7 @@ export function MultiTrackDownload({
               <button onClick={onClose}>Cancel</button>
               <button className="dl-btn-primary" onClick={() => setStep("downloading")}
                 disabled={downloadableCount === 0}>
+                <IconDownload size={15} />
                 Download {downloadableCount} track{downloadableCount !== 1 ? "s" : ""}
               </button>
             </div>

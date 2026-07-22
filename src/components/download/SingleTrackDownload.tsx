@@ -6,12 +6,16 @@ import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOpt
 import { formatDuration, formatFileSize } from "../../utils";
 import type { AppStore } from "../../store";
 import type { DownloadTrack, UpgradePreviewInfo, ConflictCheck, DownloadResult } from "./types";
+import { ProviderChip } from "./ProviderChip";
+import { QualitySelect } from "./QualitySelect";
+import { DestField } from "./DestField";
+import { IconDownload } from "../Icons";
 
 type SingleStep = "search" | "configure" | "conflict" | "downloading" | "result";
 
 export function SingleTrackDownload({
   track,
-  providerId: _providerId,
+  providerId,
   providerName,
   resolveByUri,
   qualityOptions,
@@ -443,10 +447,15 @@ export function SingleTrackDownload({
 
   return (
     <>
-      <h2 className="ds-modal-title">{isUpgrade && !showDestPicker ? `Upgrade via ${providerName}` : `Download from ${providerName}`}</h2>
-      <p className="dl-track">
-        {track.title}{track.artistName ? ` — ${track.artistName}` : ""}
-      </p>
+      <div className="dl-head">
+        <h2>{isUpgrade && !showDestPicker ? "Upgrade track" : "Download track"}</h2>
+        <ProviderChip name={providerName} providerId={providerId} />
+      </div>
+      {step !== "configure" && (
+        <p className="dl-track">
+          {track.title}{track.artistName ? ` — ${track.artistName}` : ""}
+        </p>
+      )}
 
       {error && <div className="dl-error">{error}</div>}
 
@@ -508,8 +517,10 @@ export function SingleTrackDownload({
       {step === "configure" && selectedMatch && (
         <>
           <div className="dl-selected">
-            {selectedMatch.coverUrl && (
+            {selectedMatch.coverUrl ? (
               <img src={selectedMatch.coverUrl} alt="" />
+            ) : (
+              <div className="dl-selected-ph" />
             )}
             <div className="dl-selected-info">
               <span className="dl-result-title">{selectedMatch.title}</span>
@@ -521,15 +532,7 @@ export function SingleTrackDownload({
 
           <div className="dl-config-row">
             <label>Quality</label>
-            {qualities.length === 1 ? (
-              <span>{qualities[0].label}</span>
-            ) : (
-              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
-                {qualities.map(q => (
-                  <option key={q.value} value={q.value}>{q.label}</option>
-                ))}
-              </select>
-            )}
+            <QualitySelect qualities={qualities} value={quality} onChange={setQuality} />
           </div>
 
           {isUpgrade && !showDestPicker && (
@@ -541,30 +544,14 @@ export function SingleTrackDownload({
           {showDestPicker && (
             <div className="dl-config-row">
               <label>Save to</label>
-              <select
-                value={destType === "collection" ? String(destCollectionId ?? "") : "__browse__"}
-                onChange={(e) => {
-                  if (e.target.value === "__browse__") {
-                    handleBrowseFolder();
-                  } else {
-                    setDestType("collection");
-                    setDestCollectionId(parseInt(e.target.value, 10));
-                    setDestPath(null);
-                  }
-                }}
-              >
-                {collections.map(c => (
-                  <option key={c.id} value={String(c.id)}>{c.name} {"—"} {c.path}</option>
-                ))}
-                <option value="__browse__">Browse to folder...</option>
-              </select>
-            </div>
-          )}
-
-          {destType === "path" && destPath && showDestPicker && (
-            <div className="dl-config-row">
-              <label />
-              <span className="dl-dest-display">{destPath}</span>
+              <DestField
+                collections={collections}
+                destType={destType}
+                destCollectionId={destCollectionId}
+                destPath={destPath}
+                onPickCollection={(id) => { setDestType("collection"); setDestCollectionId(id); setDestPath(null); }}
+                onBrowse={handleBrowseFolder}
+              />
             </div>
           )}
 
@@ -577,6 +564,7 @@ export function SingleTrackDownload({
               {directUri ? "Cancel" : "Back"}
             </button>
             <button className="dl-btn-primary" onClick={handleStartDownload} disabled={resolving}>
+              {!resolving && <IconDownload size={15} />}
               {resolving ? "Resolving..." : "Download"}
             </button>
           </div>

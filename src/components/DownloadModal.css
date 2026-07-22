@@ -3,6 +3,8 @@
   max-height: 80vh;
   display: flex;
   flex-direction: column;
+  /* Never let a long collection path / file name push a horizontal scrollbar. */
+  overflow-x: hidden;
 }
 
 .dl-track {
@@ -144,18 +146,25 @@
 .dl-selected {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
+  gap: 14px;
+  padding: 12px 14px;
   background: var(--bg-primary);
-  border-radius: 8px;
-  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-card);
+  margin-bottom: 18px;
 }
 
-.dl-selected img {
-  width: 48px;
-  height: 48px;
-  border-radius: 4px;
+.dl-selected img,
+.dl-selected-ph {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
   object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dl-selected-ph {
+  background: var(--bg-surface);
 }
 
 .dl-selected-info {
@@ -186,17 +195,23 @@
   font-size: var(--fs-sm);
   color: var(--text-secondary);
   min-width: 80px;
+  flex-shrink: 0;
 }
 
-.dl-config-row select,
-.dl-config-row .dl-dest-display {
+.dl-config-row select {
   flex: 1;
+  /* min-width:0 lets the control shrink below its widest <option>; without it a
+     long collection path forces the select wider than the modal (horizontal scroll). */
+  min-width: 0;
   padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: var(--fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dl-save-elsewhere {
@@ -332,17 +347,22 @@
 }
 
 .dl-actions button {
-  padding: 6px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border-radius: var(--ds-radius);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: var(--fs-sm);
+  font-family: inherit;
 }
 
 .dl-actions button:hover {
   background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .dl-btn-primary {
@@ -426,21 +446,26 @@
 /* -- Batch download track list -- */
 
 .dl-batch-list {
-  max-height: 350px;
+  max-height: 300px;
   overflow-y: auto;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-card);
 }
 
 .dl-batch-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   font-size: var(--fs-sm);
 }
 
-.dl-batch-row:last-child {
+/* Drop the trailing separator whether rows are direct children (configure /
+   downloading / done) or wrapped one-per-track (review's inline-search hosts). */
+.dl-batch-list > .dl-batch-row:last-child,
+.dl-batch-list > *:last-child .dl-batch-row:last-child {
   border-bottom: none;
 }
 
@@ -534,4 +559,159 @@
   text-align: center;
   padding: 16px;
   font-size: var(--fs-sm);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Polished rows — shared building blocks (ProviderChip / QualitySelect /
+   DestField) used by both the single- and multi-track download windows.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Full-bleed header: title on the left, provider chip on the right. The
+   negative margins cancel the .ds-modal padding so the divider runs edge to
+   edge; content below keeps the normal modal padding. */
+.dl-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -24px -24px 18px;
+  padding: 15px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dl-head h2 {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dl-prov {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  padding: 4px 11px;
+  border-radius: var(--ds-radius-pill);
+}
+
+.dl-prov svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+/* Brand mark for the YouTube provider (a logo color, not skin chrome). */
+.dl-prov--yt svg {
+  color: #ff0033;
+}
+
+/* Segmented pill control (quality / format). */
+.dl-seg {
+  display: inline-flex;
+  max-width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  padding: 3px;
+  gap: 3px;
+}
+
+.dl-seg button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  padding: 5px 13px;
+  border-radius: calc(var(--ds-radius) - 2px);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.dl-seg button.on {
+  background: var(--accent);
+  color: var(--accent-text, #fff);
+  font-weight: 600;
+}
+
+.dl-seg button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dl-qual-single {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+
+/* Inline destination field: folder glyph · current dest · "Change". */
+.dl-dest-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  padding: 8px 11px;
+}
+
+.dl-dest-field > svg {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.dl-dest-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-dest-change {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  padding: 0;
+}
+
+.dl-dest-change:hover {
+  text-decoration: underline;
+}
+
+/* Faint destination-path preview under the Layout row (multi-track). Aligns
+   under the control column (80px label + 12px gap). */
+.dl-path-preview {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin: -6px 0 16px 92px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Section label above the queued-track list (e.g. "12 tracks · 48 min"). */
+.dl-list-header {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: 4px 0 8px;
 }
