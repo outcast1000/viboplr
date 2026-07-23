@@ -2046,6 +2046,32 @@ mod tests {
     }
 
     #[test]
+    fn test_update_playlist_track_metadata() {
+        let db = test_db();
+        let playlist_id = db.save_playlist("Test Playlist", None, None, None, None).unwrap();
+        db.save_playlist_tracks(playlist_id, &[
+            ("Artist - Song (Official Video) [HD]", None, None, Some(200.0), Some("ytdlp://abc"), None),
+        ]).unwrap();
+        let track_id = db.get_playlist_tracks(playlist_id).unwrap()[0].id;
+
+        db.update_playlist_track_metadata(track_id, "Song", Some("Artist"), Some("Album")).unwrap();
+
+        let t = &db.get_playlist_tracks(playlist_id).unwrap()[0];
+        assert_eq!(t.title, "Song");
+        assert_eq!(t.artist_name.as_deref(), Some("Artist"));
+        assert_eq!(t.album_name.as_deref(), Some("Album"));
+        // Other columns are untouched.
+        assert_eq!(t.source.as_deref(), Some("ytdlp://abc"));
+        assert_eq!(t.duration_secs, Some(200.0));
+
+        // Clearing artist/album (None) persists as NULL.
+        db.update_playlist_track_metadata(track_id, "Song", None, None).unwrap();
+        let t = &db.get_playlist_tracks(playlist_id).unwrap()[0];
+        assert_eq!(t.artist_name, None);
+        assert_eq!(t.album_name, None);
+    }
+
+    #[test]
     fn test_entity_likes_table_exists() {
         let db = test_db();
         let conn = db.conn.lock().unwrap();

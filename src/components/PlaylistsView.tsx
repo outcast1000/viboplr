@@ -4,6 +4,7 @@ import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { formatDuration } from "../utils";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
+import { EditTrackMetadataModal, type TrackMetadataEdit } from "./EditTrackMetadataModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import type { PlaylistContext } from "../hooks/useQueue";
 import type { QueueTrack } from "../types";
@@ -136,6 +137,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
+  const [editTrack, setEditTrack] = useState<PlaylistTrack | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [refreshingAuto, setRefreshingAuto] = useState(false);
   // Detail-view multi-select (by playlist-track id) + drag-to-queue handshake.
@@ -294,6 +296,29 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     if (action === "like") onToggleLike?.(qt);
     else onToggleDislike?.(qt);
   }, [onToggleLike, onToggleDislike]);
+
+  // Override a playlist entry's display metadata (title/artist/album). Persists
+  // to the playlist_tracks row only — never rewrites the underlying source or
+  // library files. Optimistic UI, reverts from DB on failure.
+  const handleEditTrackSave = useCallback(async (fields: TrackMetadataEdit) => {
+    if (!editTrack) return;
+    const target = editTrack;
+    setEditTrack(null);
+    const artist_name = fields.artist || null;
+    const album_name = fields.album || null;
+    setTracks(prev => prev.map(x => (x.id === target.id ? { ...x, title: fields.title, artist_name, album_name } : x)));
+    try {
+      await invoke("update_playlist_track_metadata", {
+        trackId: target.id,
+        title: fields.title,
+        artistName: artist_name,
+        albumName: album_name,
+      });
+    } catch (e) {
+      console.error("Failed to update playlist track metadata:", e);
+      setTracks(await loadPlaylistTracks(target.playlist_id));
+    }
+  }, [editTrack, loadPlaylistTracks]);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteConfirm) return;
@@ -622,6 +647,12 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                   { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
                   { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
                 ];
+                // Edit info — only on regular (user) playlists; auto/system
+                // playlist rows are regenerated, so an override wouldn't stick.
+                if (selectedPlaylist && !selectedPlaylist.system_kind) {
+                  specs.push({ kind: "separator" });
+                  specs.push({ kind: "item", text: "Edit info…", action: () => setEditTrack(t) });
+                }
                 if (isLocalPath(t.source)) {
                   specs.push({ kind: "separator" });
                   specs.push({ kind: "item", text: "Open Containing Folder", action: async () => {
@@ -653,6 +684,15 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         </div>
         {folderErrorModal}
         {deleteModal}
+        {editTrack && (
+          <EditTrackMetadataModal
+            defaultTitle={editTrack.title}
+            defaultArtist={editTrack.artist_name ?? ""}
+            defaultAlbum={editTrack.album_name ?? ""}
+            onSave={handleEditTrackSave}
+            onClose={() => setEditTrack(null)}
+          />
+        )}
       </div>
     );
   }

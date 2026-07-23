@@ -154,6 +154,7 @@ macro_rules! invoke_handler {
             commands::delete_playlist_record,
             commands::export_playlist_m3u,
             commands::update_playlist_image,
+            commands::update_playlist_track_metadata,
             commands::paste_clipboard_to_playlist_images,
             commands::copy_to_playlist_images,
             commands::download_url_to_playlist_images,

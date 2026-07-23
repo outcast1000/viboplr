@@ -103,6 +103,7 @@ import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { PlaylistsView } from "./components/PlaylistsView";
 import { SavePlaylistModal } from "./components/SavePlaylistModal";
+import { EditTrackMetadataModal } from "./components/EditTrackMetadataModal";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import {
@@ -155,6 +156,7 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
+  const [editQueueTrack, setEditQueueTrack] = useState<{ index: number; title: string; artist: string; album: string } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
@@ -1047,6 +1049,7 @@ function App() {
   const showNativeMenuRef = useRef<((state: import("./types/contextMenu").ContextMenuState) => void) | null>(null);
   const handleExportAsMixtapeRef = useRef<((trackIds: number[], defaultTitle?: string) => void) | null>(null);
   const openPublishMusicSourceRef = useRef<((trackIds: number[]) => void) | null>(null);
+  const openEditTrackInfoRef = useRef<((queueIndex: number) => void) | null>(null);
   // Assigned after handleNext/refs are defined; the wrapper below keeps the deps
   // object stable while reaching the live implementation.
   const currentTrackDeletedRef = useRef<(indices: number[]) => void>(() => {});
@@ -1165,14 +1168,14 @@ function App() {
       plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache,
       albumImageCache, tagImageCache, beginRetrieveImage,
       setSearchInitialQuery, setSearchQueryKey,
-      setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef,
+      setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef,
     });
     if (!specs) {
       contextMenuActions.setContextMenu(null);
       return;
     }
     showNativeMenu(cm.x, cm.y, specs);
-  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef]);
+  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
@@ -3017,6 +3020,26 @@ function App() {
     setShowSavePlaylistModal(true);
   }
 
+  function handleEditQueueTrackSave(fields: { title: string; artist: string; album: string }) {
+    const target = editQueueTrack;
+    if (!target) return;
+    const patch = {
+      title: fields.title,
+      artist_name: fields.artist || null,
+      album_title: fields.album || null,
+    };
+    // Match the entry by key before mutating so we can tell if it's the one
+    // playing — the queue array is the source of truth for the index.
+    const editedKey = queueHook.queue[target.index]?.key;
+    queueHook.updateTrackMetadata(target.index, patch);
+    // When the edited entry is the current track, patch currentTrack too so the
+    // now-playing bar and lyrics (keyed by title/artist) refresh right away.
+    if (editedKey && playback.currentTrack?.key === editedKey) {
+      playback.setCurrentTrack(prev => (prev ? { ...prev, ...patch } : prev));
+    }
+    setEditQueueTrack(null);
+  }
+
   async function handlePublishQueue() {
     const localTracks = queueHook.queue.filter(isLocalTrack);
     if (localTracks.length === 0) {
@@ -3190,6 +3213,11 @@ function App() {
   handleToggleLikeRef.current = likeActions.handleToggleLike;
   handleExportAsMixtapeRef.current = handleExportAsMixtape;
   openPublishMusicSourceRef.current = (ids) => setPublishTarget({ trackIds: ids, trackCount: ids.length });
+  openEditTrackInfoRef.current = (index) => {
+    const t = queueHook.queue[index];
+    if (!t) return;
+    setEditQueueTrack({ index, title: t.title, artist: t.artist_name ?? "", album: t.album_title ?? "" });
+  };
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
     highlightedListIndex } = library;
@@ -4446,6 +4474,16 @@ function App() {
           defaultImage={stripImageVersion(queueHook.playlistContext?.imagePath ?? null)}
           onSave={handleSavePlaylistConfirm}
           onClose={() => setShowSavePlaylistModal(false)}
+        />
+      )}
+
+      {editQueueTrack && (
+        <EditTrackMetadataModal
+          defaultTitle={editQueueTrack.title}
+          defaultArtist={editQueueTrack.artist}
+          defaultAlbum={editQueueTrack.album}
+          onSave={handleEditQueueTrackSave}
+          onClose={() => setEditQueueTrack(null)}
         />
       )}
 

@@ -112,6 +112,7 @@ Every mutation that changes the queue array must also recalculate `queueIndex` s
 | **Move to bottom** (`moveToBottom`) | Mirror of move-to-top. Current track in set: `remainingLength + posInSorted`. Not in set: decrements by count of moved items before it. |
 | **Insert at position** (`insertAtPosition`) | If `position <= index`: index shifts by `insertedCount`. Otherwise: no change. |
 | **Play next in queue** (`playNextInQueue`) | Inserts at `index + 1`. Index does not change (inserted item is after current). |
+| **Update track metadata** (`updateTrackMetadata`) | Overrides one entry's title/artist/album in place. Index unchanged (the entry stays put). Not an array-shape change, so no recalc — but it IS a queue mutation, so the debounced `main_playlist` write persists it. See conventions.md "Edit Track Info". |
 | **Clear** (`clearQueue`) | Index resets to -1. Playlist context cleared. Also invokes `main_playlist_clear` on backend. |
 
 **Selection behavior:** `selectedIndices` in QueuePanel is cleared on every queue state change (the `useEffect` on `[queue]`). This prevents stale index references after mutations.

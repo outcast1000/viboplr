@@ -87,6 +87,14 @@ Each entry documents the gold standard implementation for a repeated user action
 - **Move to Top/Bottom:** Calls `queue.moveToTop(indices)` / `queue.moveToBottom(indices)` — reorders without changing what's playing
 - **Rule:** All mutations must preserve `queueIndex` integrity per the index recalculation rules in `queue.md`
 
+### Edit Track Info (metadata override)
+
+- **Canonical component:** `EditTrackMetadataModal.tsx` — the shared title/artist/album editor. Every "fix a track's display metadata" surface must reuse it, not reimplement the fields.
+- **Purpose:** fix messy names (e.g. yt-dlp titles like `Artist - Song (Official Video)`) so the entry reads well **and** metadata-keyed lookups (lyrics, similar, community tags — all keyed by `track:{artist}:{title}`) resolve. That's why artist/album are editable, not just title.
+- **Scope (hard rule):** it is a **per-entry metadata override only**. It never rewrites library rows, the `entity_likes` store, or audio-file tags — permanent library edits stay on the Edit Properties / `bulk_update_tracks` path (see "Tag Operations" / `BulkEditModal`).
+- **Queue surface:** `contextMenu/buildContextMenuSpecs.tsx` (single queue item → "Edit info…") opens the modal via `openEditTrackInfoRef`; `App.tsx` `handleEditQueueTrackSave` calls `queueHook.updateTrackMetadata(index, …)` and, when the edited entry is the one playing (key match), also patches `playback.currentTrack` so the now-playing bar + lyrics refresh. Persistence rides the existing debounced `main_playlist` write — **no** extra backend call.
+- **Playlist surface:** `PlaylistsView.tsx` (regular playlists only — auto/system rows are regenerated) → `invoke("update_playlist_track_metadata", { trackId, title, artistName, albumName })` (optimistic UI, reverts from DB on failure). This is the **only** path that persists a playlist-entry metadata edit.
+
 ### Home Shelves (built-in or plugin)
 
 - **Canonical:** `useHome.ts` -> `buildBuiltInResolvers()` and the merged plugin shelves; rendered by `HomeShelf.tsx`

@@ -39,6 +39,7 @@ export interface ContextMenuDeps {
   trashLabel: string;
   handleExportAsMixtapeRef: React.MutableRefObject<((trackIds: number[], defaultTitle?: string) => void) | null>;
   openPublishMusicSourceRef: React.MutableRefObject<((trackIds: number[]) => void) | null>;
+  openEditTrackInfoRef: React.MutableRefObject<((queueIndex: number) => void) | null>;
 }
 
 /** Build the native context-menu specs for a target. Returns null if empty. */
@@ -119,6 +120,13 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
           }
         };
         specs.push({ kind: "item", text: "Details", action: locateTrack });
+
+        // Edit info — fix messy metadata (e.g. yt-dlp titles) on this entry so it
+        // reads well and metadata-keyed lookups (lyrics, similar) resolve. Queue
+        // entry only; never rewrites library rows or file tags.
+        if (d.openEditTrackInfoRef.current) {
+          specs.push({ kind: "item", text: "Edit info…", action: () => d.openEditTrackInfoRef.current?.(target.indices[0]) });
+        }
 
         // Find in YouTube — works by metadata, any track type
         specs.push({ kind: "item", text: "Find in YouTube", action: () => {

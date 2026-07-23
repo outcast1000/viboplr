@@ -220,4 +220,21 @@ impl Database {
         )?;
         Ok(())
     }
+
+    /// Override a playlist entry's display metadata (title/artist/album). Only
+    /// the playlist row is touched — the underlying library/source is untouched.
+    pub fn update_playlist_track_metadata(
+        &self,
+        track_id: i64,
+        title: &str,
+        artist_name: Option<&str>,
+        album_name: Option<&str>,
+    ) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlist_tracks SET title = ?1, artist_name = ?2, album_name = ?3 WHERE id = ?4",
+            params![title, artist_name, album_name, track_id],
+        )?;
+        Ok(())
+    }
 }

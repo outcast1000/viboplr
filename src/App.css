@@ -965,6 +965,12 @@
   margin-bottom: 4px;
 }
 
+.edit-track-note {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin: -4px 0 12px;
+}
+
 .queue-duplicate-banner {
   display: flex;
   flex-direction: column;

@@ -258,6 +258,15 @@ export function useQueue(
     handlePlay(q[prev]);
   }
 
+  // Override the display metadata of a single queue entry (title/artist/album).
+  // Queue-only: the debounced main_playlist write persists it across restarts,
+  // but it never touches library rows or file tags. Does not change queueIndex
+  // (the entry stays in place); currentTrack propagation is the caller's job
+  // (App.tsx patches currentTrack when the edited entry is the one playing).
+  function updateTrackMetadata(index: number, fields: { title: string; artist_name: string | null; album_title: string | null }) {
+    setQueue(prev => prev.map((t, i) => i === index ? { ...t, ...fields } : t));
+  }
+
   function removeFromQueue(index: number) {
     setQueue(prev => {
       const next = [...prev];
@@ -559,7 +568,7 @@ export function useQueue(
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, removeAndAdvance, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
+    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,

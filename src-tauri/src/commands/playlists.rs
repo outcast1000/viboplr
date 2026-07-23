@@ -244,6 +244,19 @@ pub fn update_playlist_image(
 }
 
 #[tauri::command]
+pub fn update_playlist_track_metadata(
+    state: State<'_, AppState>,
+    track_id: i64,
+    title: String,
+    artist_name: Option<String>,
+    album_name: Option<String>,
+) -> Result<(), String> {
+    state.db
+        .update_playlist_track_metadata(track_id, &title, artist_name.as_deref(), album_name.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn paste_clipboard_to_playlist_images(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
