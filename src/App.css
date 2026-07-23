@@ -1235,49 +1235,6 @@
   line-height: 1.4;
 }
 
-.save-playlist-edit-info {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-
-.save-playlist-desc-input {
-  resize: vertical;
-  min-height: 48px;
-  font-size: var(--fs-xs);
-  line-height: 1.4;
-}
-
-.save-playlist-meta-section {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.save-playlist-meta-section > label {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-}
-
-.save-playlist-meta-row {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-
-.save-playlist-meta-key {
-  flex: 0 0 100px;
-  font-size: var(--fs-xs) !important;
-}
-
-.save-playlist-meta-val {
-  flex: 1;
-  font-size: var(--fs-xs) !important;
-}
-
 .track-list-sentinel { padding: 8px 0; text-align: center; min-height: 20px; }
 .track-list-loading { color: var(--text-secondary); font-size: var(--fs-sm); padding: 8px 0; }
 

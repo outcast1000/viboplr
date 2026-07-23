@@ -221,7 +221,7 @@ The visual and interaction layer.
 - Right-click on multi-selection (if clicked index is in selection): fires `onContextMenu` with sorted selection indices
 - Right-click on non-selected item while multi-selection exists: replaces selection with clicked item
 
-**Header actions:** Load playlist, Save dropdown (Save as Playlist / Export as M3U / Export as Mixtape), Edit playlist, Clear playlist.
+**Header actions:** Load playlist, Save dropdown (Save as Playlist / Export as M3U / Export as Mixtape), Share queue, Clear playlist.
 
 **Auto-scroll:** When `queueIndex` changes, the current track scrolls into view (`scrollIntoView({ block: "nearest", behavior: "smooth" })`). Also fires when panel un-collapses.
 

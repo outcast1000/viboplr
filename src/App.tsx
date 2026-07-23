@@ -157,7 +157,6 @@ function App() {
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
-  const [editPlaylistMode, setEditPlaylistMode] = useState(false);
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
   const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
@@ -3015,12 +3014,6 @@ function App() {
 
   function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
-    setEditPlaylistMode(false);
-    setShowSavePlaylistModal(true);
-  }
-
-  function handleEditPlaylist() {
-    setEditPlaylistMode(true);
     setShowSavePlaylistModal(true);
   }
 
@@ -3110,17 +3103,8 @@ function App() {
     setMixtapeExportDefaultType(ctxSource === "album" ? "album" : ctxSource === "artist" ? "best_of_artist" : "custom");
   }
 
-  async function handleSavePlaylistConfirm(name: string, imagePath: string | null, info?: import("./components/SavePlaylistModal").PlaylistEditInfo | null) {
+  async function handleSavePlaylistConfirm(name: string, imagePath: string | null) {
     setShowSavePlaylistModal(false);
-    if (editPlaylistMode) {
-      queueHook.setPlaylistContext(prev => ({
-        ...prev,
-        name,
-        imagePath: imagePath ?? prev?.imagePath ?? null,
-        ...(info ? { source: info.source, description: info.description, metadata: info.metadata } : {}),
-      }));
-      return;
-    }
     const tracks = queueHook.queue.map((t) => ({
       title: t.title,
       artist_name: t.artist_name ?? null,
@@ -4119,7 +4103,6 @@ function App() {
           onSaveAsM3U={queueHook.savePlaylist}
           onSaveToPlaylists={handleSaveAsPlaylist}
           onExportAsMixtape={handleQueueExportAsMixtape}
-          onEditPlaylist={handleEditPlaylist}
           onLoadPlaylist={() => queueHook.loadPlaylist(setMixtapePreviewPath)}
           onPublishQueue={handlePublishQueue}
           onContextMenu={(e, indices) => {
@@ -4453,18 +4436,14 @@ function App() {
 
       {showSavePlaylistModal && (
         <SavePlaylistModal
-          defaultName={editPlaylistMode
-            ? (queueHook.playlistContext?.name ?? "")
-            : (() => {
-              const date = new Date();
-              const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-              return queueHook.playlistContext?.name
-                ? `${queueHook.playlistContext.name} ${dateStr}`
-                : `Queue ${dateStr}`;
-            })()}
+          defaultName={(() => {
+            const date = new Date();
+            const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+            return queueHook.playlistContext?.name
+              ? `${queueHook.playlistContext.name} ${dateStr}`
+              : `Queue ${dateStr}`;
+          })()}
           defaultImage={stripImageVersion(queueHook.playlistContext?.imagePath ?? null)}
-          title={editPlaylistMode ? "Edit Playlist" : "Save Playlist"}
-          info={editPlaylistMode ? { source: queueHook.playlistContext?.source, description: queueHook.playlistContext?.description, metadata: queueHook.playlistContext?.metadata } : null}
           onSave={handleSavePlaylistConfirm}
           onClose={() => setShowSavePlaylistModal(false)}
         />
