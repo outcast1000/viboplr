@@ -334,6 +334,9 @@ pub fn command_with_path(program: &str) -> std::process::Command {
         .unwrap_or_else(|| program.into());
     let mut cmd = std::process::Command::new(resolved);
     cmd.env("PATH", augmented_path());
+    // Force Python UTF-8 Mode (see note below).
+    cmd.env("PYTHONUTF8", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -342,12 +345,22 @@ pub fn command_with_path(program: &str) -> std::process::Command {
     cmd
 }
 
+// UTF-8 note (env vars above): yt-dlp is a Python program; when its stdout is a
+// pipe, CPython encodes text with the locale's preferred encoding — on Windows
+// that's the ANSI code page (e.g. cp1253 on Greek Windows), not UTF-8 — so
+// non-ASCII titles/metadata/paths come back as mojibake once the Rust side does
+// `from_utf8_lossy`. `PYTHONUTF8=1` forces UTF-8 for stdio and the filesystem
+// encoding regardless of locale; `PYTHONIOENCODING` pins stdio explicitly. Both
+// are no-ops on already-UTF-8 platforms and are ignored by non-Python programs
+// (ffmpeg).
 pub fn tokio_command_with_path(program: &str) -> tokio::process::Command {
     let resolved = managed_binary_path(program)
         .map(|p| p.into_os_string())
         .unwrap_or_else(|| program.into());
     let mut cmd = tokio::process::Command::new(resolved);
     cmd.env("PATH", augmented_path());
+    cmd.env("PYTHONUTF8", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -1301,5 +1314,30 @@ mod tests {
         // MANAGED_BIN_DIR may be set by another test via set_managed_bin_dir,
         // but a binary named like this will never exist in it.
         assert!(managed_binary_path("definitely-not-a-real-binary-xyz").is_none());
+    }
+
+    // Regression guard: spawn helpers must force Python UTF-8 Mode so yt-dlp's
+    // piped stdout is UTF-8 on Windows (else Greek/other non-ASCII titles come
+    // back as mojibake). See the UTF-8 note on `command_with_path`.
+    fn env_value<'a>(cmd: &'a std::process::Command, key: &str) -> Option<&'a str> {
+        cmd.get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new(key))
+            .and_then(|(_, v)| v)
+            .and_then(|v| v.to_str())
+    }
+
+    #[test]
+    fn test_command_with_path_forces_utf8_io() {
+        let cmd = command_with_path("yt-dlp");
+        assert_eq!(env_value(&cmd, "PYTHONUTF8"), Some("1"));
+        assert_eq!(env_value(&cmd, "PYTHONIOENCODING"), Some("utf-8"));
+    }
+
+    #[test]
+    fn test_tokio_command_with_path_forces_utf8_io() {
+        let cmd = tokio_command_with_path("yt-dlp");
+        let std_cmd = cmd.as_std();
+        assert_eq!(env_value(std_cmd, "PYTHONUTF8"), Some("1"));
+        assert_eq!(env_value(std_cmd, "PYTHONIOENCODING"), Some("utf-8"));
     }
 }
