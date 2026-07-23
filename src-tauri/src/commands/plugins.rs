@@ -406,6 +406,29 @@ pub fn fetch_plugin_gallery() -> Result<String, String> {
     crate::skins::fetch_url("https://raw.githubusercontent.com/outcast1000/viboplr-plugins/main/index.json")
 }
 
+/// Sentinel error returned when the user cancels an in-flight install. The
+/// frontend matches this exact string to close its progress dialog silently
+/// instead of surfacing it as a failure.
+pub const INSTALL_CANCELLED: &str = "__install_cancelled__";
+
+#[derive(serde::Serialize, Clone)]
+struct PluginInstallProgress<'a> {
+    plugin_id: &'a str,
+    /// "resolving" | "downloading" | "installing"
+    phase: &'a str,
+    downloaded: u64,
+    total: Option<u64>,
+}
+
+/// Remove `plugin_id` from the cancel set, returning whether it was present
+/// (i.e. a cancel had been requested). Poisoned-lock-safe.
+fn take_install_cancel(set: &Mutex<HashSet<String>>, plugin_id: &str) -> bool {
+    match set.lock() {
+        Ok(mut s) => s.remove(plugin_id),
+        Err(_) => false,
+    }
+}
+
 #[tauri::command]
 pub fn install_gallery_plugin_by_update_url(
     state: State<'_, AppState>,
@@ -413,18 +436,76 @@ pub fn install_gallery_plugin_by_update_url(
     plugin_id: String,
     update_url: String,
 ) -> Result<(), String> {
+    use std::io::Read;
+
+    // Fresh install — drop any stale cancel request left over for this id.
+    take_install_cancel(&state.plugin_install_cancel, &plugin_id);
+
+    let emit_phase = |phase: &str, downloaded: u64, total: Option<u64>| {
+        let _ = app.emit(
+            "plugin-install-progress",
+            PluginInstallProgress { plugin_id: &plugin_id, phase, downloaded, total },
+        );
+    };
+
     // Resolve the plugin's own-repo updateUrl to a zip URL (enforces minAppVersion).
+    emit_phase("resolving", 0, None);
     let app_version = app.package_info().version.to_string();
     let zip_url = crate::update_checker::resolve_install_zip_url(&update_url, &app_version)?;
-    // Download + install via the same path the auto-updater uses.
-    let resp = reqwest::blocking::get(&zip_url).map_err(|e| format!("Download failed: {}", e))?;
+
+    if take_install_cancel(&state.plugin_install_cancel, &plugin_id) {
+        return Err(INSTALL_CANCELLED.to_string());
+    }
+
+    // Stream the zip so the dialog can report real download progress (mirrors the
+    // engine-component installer). Same download+install path the auto-updater uses.
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("Viboplr")
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let mut resp = client
+        .get(&zip_url)
+        .send()
+        .map_err(|e| format!("Download failed: {}", e))?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
-    let bytes = resp.bytes().map_err(|e| format!("Read error: {}", e))?;
+    let total = resp.content_length();
+    emit_phase("downloading", 0, total);
+
+    let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
+    let mut buf = [0u8; 64 * 1024];
+    let mut downloaded: u64 = 0;
+    loop {
+        // Cooperative cancel — only meaningful during the download (extraction
+        // that follows is the point of no return; the UI hides Cancel by then).
+        if take_install_cancel(&state.plugin_install_cancel, &plugin_id) {
+            return Err(INSTALL_CANCELLED.to_string());
+        }
+        let n = resp.read(&mut buf).map_err(|e| format!("Read error: {}", e))?;
+        if n == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buf[..n]);
+        downloaded += n as u64;
+        emit_phase("downloading", downloaded, total);
+    }
+
+    emit_phase("installing", downloaded, total);
     crate::plugins::install_plugin_from_zip(&state.app_dir, &plugin_id, &bytes)?;
     let _ = app.emit("extension-update-installed", &plugin_id);
     Ok(())
+}
+
+/// Request cancellation of an in-flight `install_gallery_plugin_by_update_url`.
+/// Cooperative: the running install checks this between download chunks and
+/// bails with `INSTALL_CANCELLED`. A no-op if that install already finished.
+#[tauri::command]
+pub fn cancel_plugin_install(state: State<'_, AppState>, plugin_id: String) {
+    if let Ok(mut set) = state.plugin_install_cancel.lock() {
+        set.insert(plugin_id);
+    }
 }
 
 #[tauri::command]

@@ -7,7 +7,10 @@ import type {
 } from "../types/plugin";
 import type { GallerySkinEntry } from "../types/skin";
 import { PluginViewRenderer } from "./PluginViewRenderer";
+import { PluginInstallModal, type InstallFlowState } from "./PluginInstallModal";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
+import { subscribe } from "../utils/tauriEvents";
 import { LINKS } from "../constants/links";
 import { summarizeContributes, describeContributes, skinMockColors } from "../utils/extensionSummary";
 import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
@@ -654,8 +657,10 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlValue, setUrlValue] = useState("");
   const [urlInstalling, setUrlInstalling] = useState(false);
-  // After a successful gallery install (plugins land disabled), prompt to enable.
-  const [enablePrompt, setEnablePrompt] = useState<{ id: string; name: string } | null>(null);
+  // Live install progress dialog for gallery plugin installs. Opens on Install,
+  // walks the backend phases via `plugin-install-progress`, and folds the
+  // enable-now choice in as its final step (was a separate post-install modal).
+  const [installFlow, setInstallFlow] = useState<InstallFlowState | null>(null);
   // Confirmation before uninstalling a plugin (from a card or the detail pane).
   const [uninstallPrompt, setUninstallPrompt] = useState<{ id: string; name: string } | null>(null);
   // Full-page plugin detail navigation (replaces the card grid; back returns).
@@ -791,14 +796,66 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     </button>
   );
 
+  // Backend sentinel for a user-cancelled install — close the dialog silently
+  // rather than surfacing it as a failure. Mirrors plugins.rs `INSTALL_CANCELLED`.
+  const INSTALL_CANCELLED = "__install_cancelled__";
+
+  // Drive the dialog's phase/byte counts from backend progress events. Correlated
+  // by plugin id, and never moves off a terminal (done/error) state.
+  useEffect(() => {
+    return subscribe<{ plugin_id: string; phase: string; downloaded: number; total: number | null }>(
+      "plugin-install-progress",
+      (e) => {
+        const p = e.payload;
+        setInstallFlow((prev) => {
+          if (!prev || prev.id !== p.plugin_id) return prev;
+          if (prev.phase === "done" || prev.phase === "error") return prev;
+          if (p.phase !== "resolving" && p.phase !== "downloading" && p.phase !== "installing") return prev;
+          return { ...prev, phase: p.phase, downloaded: p.downloaded, total: p.total };
+        });
+      },
+    );
+  }, []);
+
   const handleInstall = async (ext: ExtensionItem) => {
     const entry =
       ext.kind === "plugin"
         ? galleryPlugins.find((p) => p.id === ext.id)
         : gallerySkins.find((s) => s.id === ext.id);
     if (!entry) return;
+
+    // Skins install-and-apply quickly and have their own inline card spinner —
+    // the staged dialog is a plugin-install affordance only.
+    if (ext.kind !== "plugin") {
+      await onInstallFromGallery(entry);
+      return;
+    }
+
+    setInstallFlow({ id: ext.id, name: ext.name, phase: "resolving", downloaded: 0, total: null });
     const res = await onInstallFromGallery(entry);
-    if (res.ok && res.kind === "plugin") setEnablePrompt({ id: ext.id, name: ext.name });
+    setInstallFlow((prev) => {
+      if (!prev || prev.id !== ext.id) return prev;
+      if (res.ok) return { ...prev, phase: "done", needsEnable: true };
+      if (res.error === INSTALL_CANCELLED) return null; // cancelled → close silently
+      return { ...prev, phase: "error", error: res.error };
+    });
+  };
+
+  const cancelInstall = (flow: InstallFlowState) => {
+    if (flow.phase !== "resolving" && flow.phase !== "downloading") return;
+    setInstallFlow({ ...flow, cancelling: true });
+    invoke("cancel_plugin_install", { pluginId: flow.id }).catch(console.error);
+  };
+
+  const enableInstalled = (flow: InstallFlowState) => {
+    setInstallFlow(null);
+    onToggleEnabled(flow.id, "plugin");
+  };
+
+  const retryInstall = (flow: InstallFlowState) => {
+    const ext = allExtensions.find((e) => e.id === flow.id && e.kind === "plugin");
+    setInstallFlow(null);
+    if (ext) handleInstall(ext);
   };
 
   const submitUrl = () => {
@@ -1045,25 +1102,14 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       )}
 
-      {enablePrompt && (
-        <div className="ds-modal-overlay">
-          <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-            <h2 className="ds-modal-title">{enablePrompt.name} installed</h2>
-            <p className="delete-confirm-warning">
-              {enablePrompt.name} was installed but is disabled. Enable it now?
-            </p>
-            <div className="ds-modal-actions">
-              <button className="ds-btn ds-btn--ghost" onClick={() => setEnablePrompt(null)}>Not now</button>
-              <button
-                className="ds-btn ds-btn--primary"
-                autoFocus
-                onClick={() => { const id = enablePrompt.id; setEnablePrompt(null); onToggleEnabled(id, "plugin"); }}
-              >
-                Enable
-              </button>
-            </div>
-          </div>
-        </div>
+      {installFlow && (
+        <PluginInstallModal
+          flow={installFlow}
+          onCancel={() => cancelInstall(installFlow)}
+          onEnable={() => enableInstalled(installFlow)}
+          onClose={() => setInstallFlow(null)}
+          onRetry={() => retryInstall(installFlow)}
+        />
       )}
 
       {uninstallPrompt && (

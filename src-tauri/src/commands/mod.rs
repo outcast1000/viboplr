@@ -109,6 +109,10 @@ pub struct AppState {
     /// Cancel flag for an in-flight publish-to-server batch (reset to false at
     /// the start of each `publish_to_server`; set by `cancel_publish_to_server`).
     pub publish_cancel: Arc<AtomicBool>,
+    /// Plugin ids whose in-flight gallery install the user asked to cancel.
+    /// `install_gallery_plugin_by_update_url` clears its own id at the start and
+    /// checks this set during the download loop; `cancel_plugin_install` inserts.
+    pub plugin_install_cancel: Arc<Mutex<HashSet<String>>>,
     pub resyncing_collections: Arc<Mutex<HashSet<i64>>>,
     pub cursor_tracker_active: Arc<AtomicBool>,
     pub transcode_port: u16,
@@ -1106,6 +1110,7 @@ pub(crate) fn test_app_state() -> AppState {
         direct_download_cancel: Arc::new(AtomicBool::new(false)),
         mixtape_cancel: Arc::new(AtomicBool::new(false)),
         publish_cancel: Arc::new(AtomicBool::new(false)),
+        plugin_install_cancel: Arc::new(Mutex::new(HashSet::new())),
         resyncing_collections: Arc::new(Mutex::new(HashSet::new())),
         cursor_tracker_active: Arc::new(AtomicBool::new(false)),
         transcode_port: 0,

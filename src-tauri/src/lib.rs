@@ -257,6 +257,7 @@ macro_rules! invoke_handler {
             commands::plugin_files_move,
             commands::fetch_plugin_gallery,
             commands::install_gallery_plugin_by_update_url,
+            commands::cancel_plugin_install,
             commands::delete_user_plugin,
             commands::open_profile_folder,
             commands::open_logs_folder,
@@ -1346,6 +1347,9 @@ pub fn run() {
                     direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     publish_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    plugin_install_cancel: Arc::new(std::sync::Mutex::new(
+                        std::collections::HashSet::new(),
+                    )),
                     resyncing_collections: Arc::clone(&resyncing_collections),
                     cursor_tracker_active: Arc::clone(&cursor_tracker_active),
                     transcode_port,
