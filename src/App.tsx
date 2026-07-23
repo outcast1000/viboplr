@@ -381,16 +381,60 @@ function App() {
       image_url: info.image_url ?? undefined,
     };
   }, []);
+  // Plugin/external tracks enter the queue with liked hardcoded 0 (they carry no
+  // DB row). Reconcile the just-added ones against the durable, metadata-keyed
+  // entity_likes store so a song liked in a previous session shows its heart on
+  // enqueue — the reconcile triggers (startup restore / currentTrack identity /
+  // entity-likes-changed) never fire for a plain mid-session add. Applies only
+  // likes/dislikes (never clears), so it can't race-revert an optimistic like on
+  // a pre-existing same-song copy. Patches by metadata via functional setQueue,
+  // so it's correct regardless of the fresh keys useQueue assigns on insert.
+  const reconcileAddedLikeStates = useCallback(async (added: QueueTrack[]) => {
+    const idOf = (title: string | null, artist: string | null) =>
+      `${(title ?? "").toLowerCase()}:${(artist ?? "").toLowerCase()}`;
+    const seen = new Set<string>();
+    const items: { title: string; artistName: string | null }[] = [];
+    for (const t of added) {
+      const id = idOf(t.title, t.artist_name ?? null);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      items.push({ title: t.title, artistName: t.artist_name ?? null });
+    }
+    if (items.length === 0) return;
+    try {
+      const states = await invoke<number[]>("get_track_like_states", { tracks: items });
+      const liked = new Map<string, number>();
+      items.forEach((it, i) => { const v = states[i] ?? 0; if (v !== 0) liked.set(idOf(it.title, it.artistName), v); });
+      if (liked.size === 0) return;
+      const apply = (t: QueueTrack): QueueTrack => {
+        const v = liked.get(idOf(t.title, t.artist_name ?? null));
+        return v != null && v !== t.liked ? { ...t, liked: v } : t;
+      };
+      queueHook.setQueue(prev => {
+        let changed = false;
+        const next = prev.map(t => { const n = apply(t); if (n !== t) changed = true; return n; });
+        return changed ? next : prev;
+      });
+      playback.setCurrentTrack(prev => (prev ? apply(prev) : prev));
+    } catch (e) {
+      console.error("Failed to reconcile like state for added tracks:", e);
+    }
+  }, [queueHook, playback]);
+
   const pluginPlaybackCallbacks = useMemo(() => ({
     playTrack: (track: PluginTrack) => {
-      queueHook.playTracks([pluginTrackToQueueTrack(track)], 0);
+      const converted = [pluginTrackToQueueTrack(track)];
+      queueHook.playTracks(converted, 0);
+      reconcileAddedLikeStates(converted);
     },
     playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => {
       const displayName = context?.playlistName || context?.name || "";
       const cleanName = context?.name || context?.playlistName || "";
       const meta = { ...(context?.metadata ?? {}) };
       if (cleanName && cleanName !== displayName) meta.playlistName = cleanName;
-      queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, imagePath: context.coverUrl ?? null } : undefined);
+      const converted = tracks.map(pluginTrackToQueueTrack);
+      queueHook.playTracks(converted, startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, imagePath: context.coverUrl ?? null } : undefined);
+      reconcileAddedLikeStates(converted);
     },
     insertTrack: (track: PluginTrack, position: number) => {
       const converted = [pluginTrackToQueueTrack(track)];
@@ -399,6 +443,7 @@ function App() {
       } else {
         queueHook.insertAtPosition(converted, position);
       }
+      reconcileAddedLikeStates(converted);
     },
     insertTracks: (tracks: PluginTrack[], position: number) => {
       const converted = tracks.map(pluginTrackToQueueTrack);
@@ -407,8 +452,9 @@ function App() {
       } else {
         queueHook.insertAtPosition(converted, position);
       }
+      reconcileAddedLikeStates(converted);
     },
-  }), [queueHook, pluginTrackToQueueTrack]);
+  }), [queueHook, pluginTrackToQueueTrack, reconcileAddedLikeStates]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   // Defer plugin loading until the cold-start critical path has settled
   // (window shown + state restored). `!appRestoring` flips true at that point;
