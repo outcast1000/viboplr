@@ -472,6 +472,13 @@ function App() {
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
   const dependencies = useDependencies(plugins.pluginStates);
 
+  // Set of currently loaded & active plugin ids — passed to Home so it keeps the
+  // cached shelves of a plugin that registers them late (see useHome prune).
+  const activePluginIds = useMemo(
+    () => new Set(plugins.pluginStates.filter((p) => p.status === "active").map((p) => p.id)),
+    [plugins.pluginStates],
+  );
+
   // Dynamic, cycling Now Playing info section (mini player + main bar).
   const { availableItems: nowPlayingInfoAvailable, resolvedItems: nowPlayingInfoResolved } = useNowPlayingInfo({
     currentTrack: playback.currentTrack,
@@ -3679,6 +3686,7 @@ function App() {
             isVisible={view === "home"}
             pluginShelves={plugins.homeShelves}
             pluginsLoaded={plugins.pluginsLoaded}
+            activePluginIds={activePluginIds}
             invokePluginShelf={plugins.invokeHomeShelf}
             restoredRef={restoredRef}
             libraryRevision={libraryRevision}

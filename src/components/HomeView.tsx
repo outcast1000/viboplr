@@ -29,6 +29,9 @@ export interface HomeViewProps {
   }>;
   invokePluginShelf: (pluginId: string, shelfId: string, limit: number) => Promise<HomeShelfResult>;
   pluginsLoaded: boolean;
+  // Ids of currently loaded & active plugins — lets useHome keep the cached
+  // shelves of a plugin that registers them late (rather than pruning them).
+  activePluginIds: Set<string>;
   restoredRef: React.RefObject<boolean>;
   // Bumped by the host when a collection resync changes the library, so Home
   // re-fetches its content shelves (see useHome).
@@ -89,6 +92,7 @@ export function HomeView(props: HomeViewProps) {
     pluginShelves: props.pluginShelves,
     invokePluginShelf: props.invokePluginShelf,
     pluginsLoaded: props.pluginsLoaded,
+    activePluginIds: props.activePluginIds,
     visibility,
     shelfOrder,
     restoredRef: props.restoredRef,

@@ -3,6 +3,7 @@ import {
   resolveShelves,
   findUnattemptedShelfKeys,
   findUnattemptedBuiltInKeys,
+  findMissingRenderedShelfKeys,
   resolveSessionCover,
   RADIO_SHELF_ID,
   type ShelfResolver,
@@ -93,6 +94,40 @@ describe("findUnattemptedBuiltInKeys", () => {
     const attempted = new Set<string>();
     const visibility = { [RADIO_SHELF_ID]: true };
     expect(findUnattemptedBuiltInKeys(visibility, attempted)).not.toContain(RADIO_SHELF_ID);
+  });
+});
+
+describe("findMissingRenderedShelfKeys", () => {
+  const shelves = [
+    { pluginId: "spotify", shelfId: "discover" },
+    { pluginId: "tidal", shelfId: "mixes" },
+  ];
+
+  it("flags a registered, visible plugin shelf that isn't currently rendered", () => {
+    // spotify:discover is on screen; tidal:mixes registered but was pruned/dropped.
+    const rendered = new Set(["spotify:discover", "builtin:recently-played"]);
+    expect(findMissingRenderedShelfKeys(shelves, {}, rendered)).toEqual(["tidal:mixes"]);
+  });
+
+  it("returns empty when every visible plugin shelf is rendered", () => {
+    const rendered = new Set(["spotify:discover", "tidal:mixes"]);
+    expect(findMissingRenderedShelfKeys(shelves, {}, rendered)).toEqual([]);
+  });
+
+  it("ignores shelves the user has hidden", () => {
+    const rendered = new Set(["spotify:discover"]);
+    const visibility = { "tidal:mixes": false };
+    expect(findMissingRenderedShelfKeys(shelves, visibility, rendered)).toEqual([]);
+  });
+
+  it("recovers a corrupted snapshot: attempted-but-not-rendered still counts as missing", () => {
+    // The old prune could persist a shelf key in attemptedKeys while dropping the
+    // shelf itself. findUnattemptedShelfKeys would say "nothing new" (both attempted),
+    // but findMissingRenderedShelfKeys catches the one that isn't on screen.
+    const attempted = new Set(["spotify:discover", "tidal:mixes"]);
+    expect(findUnattemptedShelfKeys(shelves, {}, attempted)).toEqual([]);
+    const rendered = new Set(["spotify:discover"]); // tidal dropped from display
+    expect(findMissingRenderedShelfKeys(shelves, {}, rendered)).toEqual(["tidal:mixes"]);
   });
 });
 

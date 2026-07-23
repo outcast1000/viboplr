@@ -253,6 +253,22 @@ export function findUnattemptedBuiltInKeys(
     .filter((id) => id !== RADIO_SHELF_ID && isShelfVisible(id, visibility) && !attempted.has(id));
 }
 
+// Visible plugin shelves that are registered but NOT currently rendered. Unlike
+// findUnattemptedShelfKeys (which trusts the persisted attemptedKeys bookkeeping),
+// this keys off what's actually on screen — so a shelf that was pruned, or one
+// left in a corrupted snapshot (attemptedKeys lists it while `shelves` dropped
+// it), is detected and re-fetched. `renderedIds` is the id set of the current
+// resolved shelves.
+export function findMissingRenderedShelfKeys(
+  pluginShelves: Array<{ pluginId: string; shelfId: string }>,
+  visibility: Record<string, boolean>,
+  renderedIds: Set<string>,
+): string[] {
+  return pluginShelves
+    .map((p) => shelfKey(p.pluginId, p.shelfId))
+    .filter((id) => isShelfVisible(id, visibility) && !renderedIds.has(id));
+}
+
 export interface ResolvedShelf {
   id: string;
   pluginId?: string;
@@ -339,6 +355,14 @@ export interface UseHomeOptions {
     limit: number,
   ) => Promise<HomeShelfResult>;
   pluginsLoaded: boolean;
+  // Ids of plugins that are currently loaded & active (status === "active").
+  // Used by the prune effect to tell an *uninstalled/disabled* plugin (drop its
+  // hydrated shelves) from one that is still loaded but hasn't finished its
+  // runtime `registerShelf` calls yet (keep them — see the prune effect). Without
+  // this distinction a plugin that registers shelves late (e.g. Spotify, which
+  // reads its section list from storage after activate() returns) would have its
+  // cached shelves pruned the instant `pluginsLoaded` flips, then never re-added.
+  activePluginIds: Set<string>;
   visibility: Record<string, boolean>;
   // User-defined order of the built-in shelves (ids). Plugin shelves always
   // follow the built-ins regardless. Defaults to DEFAULT_SHELF_ORDER.
@@ -356,7 +380,12 @@ export function shelfKey(pluginId: string | undefined, shelfId: string): string 
 }
 
 export function useHome(opts: UseHomeOptions) {
-  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, visibility, shelfOrder, restoredRef, libraryRevision } = opts;
+  const { isVisible, pluginShelves, invokePluginShelf, pluginsLoaded, activePluginIds, visibility, shelfOrder, restoredRef, libraryRevision } = opts;
+
+  // Read the latest active-plugin set inside effects without adding it to their
+  // dependency arrays (the Set identity changes each render).
+  const activePluginIdsRef = useRef<Set<string>>(activePluginIds);
+  activePluginIdsRef.current = activePluginIds;
 
   const [radioStations, setRadioStations] = useState<RadioStation[]>([]);
   const [shelves, setShelves] = useState<ResolvedShelf[]>([]);
@@ -952,18 +981,24 @@ export function useHome(opts: UseHomeOptions) {
   }, []);
 
   // Prune hydrated shelves whose plugin is no longer loaded (e.g. the plugin was
-  // uninstalled/removed since the snapshot was saved). Built-in shelves (no
+  // uninstalled/disabled since the snapshot was saved). Built-in shelves (no
   // pluginId) are never pruned. Gated on pluginsLoaded so we don't drop valid
   // plugin shelves during the async load window — an empty pluginShelves there
   // means "not loaded yet", not "gone". This complements the 24h refresh gate:
   // without it, a removed plugin's shelves would linger from cache until refresh.
+  //
+  // Keyed on the PLUGIN being active, NOT on the specific shelf id being present
+  // in `pluginShelves`: a loaded plugin can register its shelves late (Spotify
+  // reads its section list from storage after activate() returns), so a shelf id
+  // absent right when `pluginsLoaded` flips is "not registered yet", not "gone".
+  // Dropping it here would strand the cached shelf (the refresh gate keys off the
+  // persisted attemptedKeys and won't re-fetch it). A shelf whose plugin stays
+  // active but which was genuinely unregistered self-heals on the next refresh's
+  // final pass (only resolvers that ran OK survive).
   useEffect(() => {
     if (!pluginsLoaded) return;
-    const liveShelfIds = new Set(
-      pluginShelves.map((p) => shelfKey(p.pluginId, p.shelfId)),
-    );
     setShelves((prev) => {
-      const next = prev.filter((s) => !s.pluginId || liveShelfIds.has(s.id));
+      const next = prev.filter((s) => !s.pluginId || activePluginIdsRef.current.has(s.pluginId));
       if (next.length === prev.length) return prev;
       // Re-persist the pruned snapshot (keeping the existing savedAt so the 24h
       // refresh schedule is unaffected) so a removed plugin's shelves don't
@@ -1001,7 +1036,14 @@ export function useHome(opts: UseHomeOptions) {
     const hasNewShelves =
       findUnattemptedShelfKeys(pluginShelves, visibility, attemptedKeysRef.current).length > 0 ||
       findUnattemptedBuiltInKeys(visibility, attemptedKeysRef.current).length > 0;
-    if (savedAtRef.current === 0 || age >= STALE_MS || hasNewShelves) refresh();
+    // A registered, visible plugin shelf that isn't currently on screen needs a
+    // fetch even if attemptedKeys says we've "seen" it — e.g. a shelf that was
+    // pruned (or a snapshot left corrupted by the old prune, which persisted the
+    // key in attemptedKeys while dropping the shelf) then re-registered by a
+    // late-loading plugin. Rendered `shelves` is the ground truth for "have it".
+    const renderedIds = new Set(shelvesRef.current.map((s) => s.id));
+    const missingRendered = findMissingRenderedShelfKeys(pluginShelves, visibility, renderedIds).length > 0;
+    if (savedAtRef.current === 0 || age >= STALE_MS || hasNewShelves || missingRendered) refresh();
   }, [isVisible, refresh, restoredRef, hydrated, pluginsLoaded, pluginShelves, visibility]);
 
   // Re-run the refresh after a collection resync changes the library (host bumps
