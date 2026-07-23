@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, type EffectiveSource } from "../queueEntry";
+import { isVideoTrack } from "../utils";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
 
@@ -138,7 +139,11 @@ export function useStreamResolution({
             artistName: track.artist_name ?? null,
             albumName: stripRemasterSuffix(track.album_title),
           });
-          if (localMatch && localMatch.path?.startsWith("file://")) {
+          // Don't substitute a local copy across the audio/video boundary: a
+          // "Watch" of a web video must stream the video, not the local audio
+          // track that merely shares its title/artist (and vice-versa). Only
+          // reuse a local copy when its media kind matches what was requested.
+          if (localMatch && localMatch.path?.startsWith("file://") && isVideoTrack(track) === isVideoTrack(localMatch)) {
             const localPath = localMatch.path.substring(7);
             chain.push({
               name: "Library",
