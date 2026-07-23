@@ -5,6 +5,9 @@ import type { QueueTrack } from "../types";
 import { getInitials } from "../utils";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { nextQueueTrack, glowColorValue } from "../utils/videoOverlay";
+import { currentSyncedLineIndex, type LrcLine } from "../utils/lyrics";
+import { usePlaybackPosition } from "../playback/positionStore";
+import { store } from "../store";
 import "./VideoAmbientOverlay.css";
 
 const IDLE_TIMEOUT = 3000;
@@ -19,6 +22,10 @@ interface VideoAmbientOverlayProps {
   onPlayQueueIndex?: (index: number) => void;
   /** Toggle the shared <video> in/out of fullscreen. */
   onToggleFullscreen?: () => void;
+  /** Parsed synced LRC for the current video, or null when unavailable / not a
+   *  good enough duration match. When present, a subtitle-style current-line
+   *  overlay is offered (user-toggleable, persisted). */
+  syncedLyricLines?: LrcLine[] | null;
 }
 
 export function VideoAmbientOverlay({
@@ -30,6 +37,7 @@ export function VideoAmbientOverlay({
   getArtistImage,
   onPlayQueueIndex,
   onToggleFullscreen,
+  syncedLyricLines,
 }: VideoAmbientOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number>(0);
@@ -37,6 +45,23 @@ export function VideoAmbientOverlay({
   const [glow, setGlow] = useState<RGB | null>(null);
   // Bump on track change to re-trigger the intro slide-in animation.
   const [introKey, setIntroKey] = useState(0);
+
+  // Subtitle-style lyrics-over-video toggle (persisted, default on). Self-
+  // contained here: App decides *whether lyrics are available* (and passes them
+  // in); this button decides whether to *show* them.
+  const [lyricsOn, setLyricsOn] = useState(true);
+  useEffect(() => {
+    store.get<boolean>("videoLyricsOverlay").then((v) => {
+      if (v === false) setLyricsOn(false);
+    }).catch(console.error);
+  }, []);
+  const toggleLyrics = useCallback(() => {
+    setLyricsOn((on) => {
+      const next = !on;
+      store.set("videoLyricsOverlay", next).catch(console.error);
+      return next;
+    });
+  }, []);
 
   // Mirror document fullscreen state so the FS button shows enter/exit correctly.
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -137,6 +162,24 @@ export function VideoAmbientOverlay({
     >
       <div className="video-ambient-glow" />
 
+      {syncedLyricLines && (
+        <button
+          className={`video-ambient-lyrics-toggle video-ambient-fade${lyricsOn ? "" : " is-off"}`}
+          onClick={toggleLyrics}
+          title={lyricsOn ? "Hide lyrics" : "Show lyrics"}
+          aria-label={lyricsOn ? "Hide lyrics" : "Show lyrics"}
+          aria-pressed={lyricsOn}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M7 14.5a2 2 0 0 1 0-4" />
+            <path d="M15 14.5a3 3 0 0 1 0-4" />
+          </svg>
+        </button>
+      )}
+
+      {syncedLyricLines && lyricsOn && <VideoLyrics lines={syncedLyricLines} />}
+
       {onToggleFullscreen && (
         <button
           className="video-ambient-fs video-ambient-fade"
@@ -201,6 +244,28 @@ export function VideoAmbientOverlay({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Subtitle-style current synced line (+ the upcoming line, dimmer) over the
+ *  video. Subscribes to the ~4 Hz position tick at this leaf so only this line
+ *  re-renders. Shows nothing during the intro / instrumental gaps (no active
+ *  line), matching the mini-player's synced-lyrics behavior. */
+function VideoLyrics({ lines }: { lines: LrcLine[] }) {
+  const position = usePlaybackPosition();
+  const idx = currentSyncedLineIndex(lines, position);
+  const current = idx >= 0 ? lines[idx].text.trim() : "";
+  if (!current) return null; // before the first line, or a blank gap line
+  let next = "";
+  for (let i = idx + 1; i < lines.length; i++) {
+    const t = lines[i].text.trim();
+    if (t) { next = t; break; }
+  }
+  return (
+    <div className="video-ambient-lyrics">
+      <div className="video-ambient-lyric-current">{current}</div>
+      {next && <div className="video-ambient-lyric-next">{next}</div>}
     </div>
   );
 }

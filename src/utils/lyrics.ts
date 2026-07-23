@@ -45,6 +45,22 @@ export function activeSyncedLine(lines: LrcLine[], position: number): string | n
   return text ? text : null;
 }
 
+/** Coarse sanity check that a synced LRC belongs to a track of roughly this
+ *  media length — used to gate lyrics-over-video. Rejects only when the lyrics
+ *  run well PAST the media (a short clip/preview, or the wrong/shorter video);
+ *  a long instrumental/extended video is fine (the lyrics simply end early).
+ *  Unknown duration → allow. Does NOT detect an intro offset (video timelines
+ *  can differ from the audio release) — that's a manual-offset concern. */
+export function syncedLyricsFitMedia(
+  lines: LrcLine[],
+  mediaDurationSecs: number | null | undefined,
+  toleranceSecs = 10,
+): boolean {
+  if (!mediaDurationSecs || mediaDurationSecs <= 0) return true;
+  if (!lines.length) return false;
+  return lines[lines.length - 1].time <= mediaDurationSecs + toleranceSecs;
+}
+
 /** Non-empty, trimmed lines of plain (unsynced) lyrics text. */
 export function plainLines(text: string): string[] {
   return text.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);

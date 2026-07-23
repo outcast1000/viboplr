@@ -3,6 +3,7 @@ import {
   parseLrc,
   currentSyncedLineIndex,
   activeSyncedLine,
+  syncedLyricsFitMedia,
   plainLines,
   pickLineByRatio,
   hashStringToRatio,
@@ -94,5 +95,35 @@ describe("hashStringToRatio", () => {
   });
   it("varies between different inputs", () => {
     expect(hashStringToRatio("song-a:100")).not.toBe(hashStringToRatio("song-b:250"));
+  });
+});
+
+describe("syncedLyricsFitMedia", () => {
+  const lines = parseLrc(LRC); // last line at 10s
+
+  it("accepts lyrics that fit within the media length (+ tolerance)", () => {
+    expect(syncedLyricsFitMedia(lines, 12)).toBe(true);   // ends 10s, media 12s
+    expect(syncedLyricsFitMedia(lines, 10)).toBe(true);   // exactly
+    expect(syncedLyricsFitMedia(lines, 5)).toBe(true);    // within default 10s tolerance
+  });
+
+  it("accepts a much longer (extended/instrumental) video", () => {
+    expect(syncedLyricsFitMedia(lines, 600)).toBe(true);
+  });
+
+  it("rejects lyrics that run well past the media (wrong/short clip)", () => {
+    expect(syncedLyricsFitMedia(lines, 3, 2)).toBe(false); // 10s lyrics, 3s media, tight tolerance
+    const longLrc = parseLrc("[03:20.00]end"); // last line at 200s
+    expect(syncedLyricsFitMedia(longLrc, 30)).toBe(false); // full-song lyrics over a 30s preview
+  });
+
+  it("allows when the media duration is unknown", () => {
+    expect(syncedLyricsFitMedia(lines, null)).toBe(true);
+    expect(syncedLyricsFitMedia(lines, 0)).toBe(true);
+    expect(syncedLyricsFitMedia(lines, undefined)).toBe(true);
+  });
+
+  it("rejects empty lyrics against a known duration", () => {
+    expect(syncedLyricsFitMedia([], 180)).toBe(false);
   });
 });

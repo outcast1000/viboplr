@@ -12,6 +12,7 @@ import "./App.css";
 
 import type { Track, QueueTrack, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
+import { parseLrc, syncedLyricsFitMedia } from "./utils/lyrics";
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
@@ -2940,6 +2941,18 @@ function App() {
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
   });
+  // Synced lyrics for the theater video overlay: only when the current track is
+  // video, synced lyrics exist, and they roughly fit the media length (coarse
+  // guard against a wrong/short video). The overlay has its own show/hide toggle.
+  const videoSyncedLyricLines = useMemo(() => {
+    const t = playback.currentTrack;
+    if (!t || !isVideoTrack(t)) return null;
+    if (nowPlayingLyrics.status !== "loaded" || nowPlayingLyrics.data?.kind !== "synced" || !nowPlayingLyrics.data.text) {
+      return null;
+    }
+    const lines = parseLrc(nowPlayingLyrics.data.text);
+    return syncedLyricsFitMedia(lines, t.duration_secs) ? lines : null;
+  }, [playback.currentTrack, nowPlayingLyrics]);
   const detailViewState: DetailViewState = useMemo(() => ({
     currentTrack: playback.currentTrack,
     playing: playback.playing,
@@ -4067,6 +4080,7 @@ function App() {
               getArtistImage={artistImageCache.getImage}
               onPlayQueueIndex={(index) => { queueHook.setQueueIndex(index); playback.handlePlay(queueHook.queue[index]); }}
               onToggleFullscreen={playback.toggleFullscreen}
+              syncedLyricLines={videoSyncedLyricLines}
             />
           )}
         </div>
