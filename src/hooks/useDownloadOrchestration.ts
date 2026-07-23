@@ -5,9 +5,9 @@ import type { Track, QueueTrack } from "../types";
 import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
 import type { ContextMenuState } from "../types/contextMenu";
-import { parseLibraryId } from "../queueEntry";
+import { parseLibraryId, classifyEffectiveSource } from "../queueEntry";
 import { withResolverLog } from "../utils/resolverLog";
-import type { DownloadPlan } from "../utils/downloadPlan";
+import { decideDownload, type DownloadPlan } from "../utils/downloadPlan";
 import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "./usePlugins";
 
 export interface DownloadModalState {
@@ -72,7 +72,7 @@ export async function resolveTrackDownload(
 interface UseDownloadOrchestrationDeps {
   plugins: Pick<
     ReturnType<typeof usePlugins>,
-    "pluginStates" | "invokeDownloadResolveByUri" | "invokeDownloadResolveByMetadata" | "hasInteractiveDownload"
+    "pluginStates" | "invokeDownloadResolveByUri" | "invokeDownloadResolveByMetadata" | "hasInteractiveDownload" | "streamUriResolverOwner"
   >;
   /** The active context-menu target — drives `handleDownloadFromProvider`. */
   contextMenu: ContextMenuState | null;
@@ -305,6 +305,77 @@ export function useDownloadOrchestration({
     }
   }, [contextMenu, downloadProviderEntries, libraryTracks, queue]);
 
+  // --- Unified per-track download (context menu ⟷ now-playing) --------------
+  // The now-playing button and the context-menu "Download…" both resolve which
+  // downloader owns a track from its *source* via `decideDownload` (the single,
+  // unit-tested matrix): subsonic:// → built-in Subsonic ("Source original"),
+  // a plugin scheme → that plugin, local/direct-url/metadata-only → none. This
+  // keeps every entry point opening the same modal with the same provider.
+
+  /** Normalize a single-track context target to the fields the plan + modal need. */
+  const contextTrack = useCallback(
+    (target: ContextMenuState["target"]):
+      | { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; path: string | null; trackId: number | null }
+      | null => {
+      if (target.kind === "track" && target.trackId != null) {
+        const t = libraryTracks.find((tr) => tr.id === target.trackId);
+        if (!t) return null;
+        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: t.id ?? null };
+      }
+      if (target.kind === "queue-multi" && target.indices.length === 1) {
+        const t = queue[target.indices[0]];
+        if (!t) return null;
+        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: parseLibraryId(t.key) };
+      }
+      return null;
+    },
+    [libraryTracks, queue],
+  );
+
+  const nativePlanForTrack = useCallback(
+    (t: { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; path: string | null }): DownloadPlan | null => {
+      const source = t.path ? classifyEffectiveSource(t.path, plugins.streamUriResolverOwner) : null;
+      return decideDownload(source, t, downloadProvidersRef.current);
+    },
+    [plugins.streamUriResolverOwner],
+  );
+
+  /** Which native provider (if any) owns this single-track target's source. Drives
+   *  whether the context menu shows the primary "Download…" item. */
+  const resolveNativeDownload = useCallback(
+    (target: ContextMenuState["target"]): { providerId: string; providerName: string } | null => {
+      const t = contextTrack(target);
+      if (!t) return null;
+      const plan = nativePlanForTrack(t);
+      return plan ? { providerId: plan.providerId, providerName: plan.providerName } : null;
+    },
+    [contextTrack, nativePlanForTrack],
+  );
+
+  /** Open the download modal for a single-track target using its native provider. */
+  const openNativeDownload = useCallback(
+    (target: ContextMenuState["target"]) => {
+      const t = contextTrack(target);
+      if (!t) return;
+      const plan = nativePlanForTrack(t);
+      if (!plan) return;
+      setDownloadModal({
+        tracks: [{
+          title: t.title,
+          artistName: t.artist_name,
+          albumTitle: t.album_title,
+          uri: plan.uri ?? t.path ?? null,
+          durationSecs: t.duration_secs,
+          trackId: t.trackId,
+        }],
+        providerId: plan.providerId,
+        providerName: plan.providerName,
+        resolveByUri: plan.resolveByUri,
+      });
+    },
+    [contextTrack, nativePlanForTrack],
+  );
+
   // Download the currently-playing track. The decision of *which* downloader (and
   // whether the button is even shown) is made by `decideDownload` from the winning
   // playback source's `EffectiveSource`; the caller passes the resulting plan here.
@@ -332,5 +403,7 @@ export function useDownloadOrchestration({
     downloadProviderEntries,
     handleDownloadFromProvider,
     openDownloadForCurrentTrack,
+    resolveNativeDownload,
+    openNativeDownload,
   };
 }

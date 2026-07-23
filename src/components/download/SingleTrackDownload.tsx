@@ -10,6 +10,8 @@ import { ProviderChip } from "./ProviderChip";
 import { QualitySelect } from "./QualitySelect";
 import { DestField } from "./DestField";
 import { IconDownload } from "../Icons";
+import { TrackArtFallback } from "../TrackArtFallback";
+import { resolveImageUrl, resolveImageSrc } from "../../utils/resolveImageUrl";
 
 type SingleStep = "search" | "configure" | "conflict" | "downloading" | "result";
 
@@ -88,8 +90,13 @@ export function SingleTrackDownload({
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Determine if this is an upgrade flow
-  const isUpgrade = track.trackId != null;
+  // Determine if this is an upgrade flow. Replacing a track's file in place only
+  // makes sense for a LOCAL library track (there's a real file on disk to compare
+  // against and overwrite). A remote source — Subsonic (`subsonic://`) or a plugin
+  // scheme — has no local file: `download_preview` errors ("Track has no local
+  // file path"), so those are always a fresh download to a chosen destination.
+  const trackIsLocal = !!track.uri && track.uri.startsWith("file://");
+  const isUpgrade = track.trackId != null && trackIsLocal;
   const [showDestPicker, setShowDestPicker] = useState(!isUpgrade);
   const [destType, setDestType] = useState<"collection" | "path">("collection");
   const [destCollectionId, setDestCollectionId] = useState<number | null>(() => {
@@ -109,6 +116,12 @@ export function SingleTrackDownload({
   const [resolvedArtist, setResolvedArtist] = useState<string | null>(null);
   const [resolvedAlbum, setResolvedAlbum] = useState<string | null>(null);
   const [resolvedTrackNumber, setResolvedTrackNumber] = useState<number | null>(null);
+
+  // Album/artist art resolved by metadata to fill the configure-step art slot
+  // when the provider supplied no cover (e.g. direct-URI streaming downloads) —
+  // otherwise the slot would be an empty box. Cache-only read; disc-glyph
+  // placeholder when nothing is cached.
+  const [metaCoverUrl, setMetaCoverUrl] = useState<string | null>(null);
 
   // Download state
   const [resolving, setResolving] = useState(false);
@@ -433,6 +446,33 @@ export function SingleTrackDownload({
     setStep("search");
   }
 
+  // Fill the configure-step art slot from cached entity art when the provider
+  // gave no cover. Cache-only reads via get_entity_image (album → artist),
+  // mirroring the queue's name-based chain; failure/empty leaves the disc glyph.
+  useEffect(() => {
+    if (step !== "configure") { return; }
+    if (selectedMatch?.coverUrl || resolvedCoverUrl) { setMetaCoverUrl(null); return; }
+    const album = getEffectiveAlbum();
+    const artist = getEffectiveArtist();
+    if (!artist) { setMetaCoverUrl(null); return; }
+    let canceled = false;
+    (async () => {
+      try {
+        let path: string | null = null;
+        if (album) {
+          path = await invoke<string | null>("get_entity_image", { kind: "album", name: album, artistName: artist });
+        }
+        if (!path) {
+          path = await invoke<string | null>("get_entity_image", { kind: "artist", name: artist, artistName: null });
+        }
+        if (!canceled) setMetaCoverUrl(resolveImageSrc(path));
+      } catch (e) {
+        console.error("Failed to resolve download cover art:", e);
+      }
+    })();
+    return () => { canceled = true; };
+  }, [step, selectedMatch, resolvedCoverUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Listen to progress events
   useEffect(() => {
     if (step !== "downloading") return;
@@ -484,9 +524,11 @@ export function SingleTrackDownload({
                   {hasArt && (
                     <div className="dl-result-art">
                       {t.coverUrl ? (
-                        <img src={t.coverUrl} alt="" />
+                        <img src={resolveImageUrl(t.coverUrl) ?? undefined} alt="" />
                       ) : (
-                        <div className="dl-art-placeholder" />
+                        <div className="dl-art-placeholder">
+                          <TrackArtFallback track={{ format: null, path: null }} size={18} />
+                        </div>
                       )}
                     </div>
                   )}
@@ -517,11 +559,16 @@ export function SingleTrackDownload({
       {step === "configure" && selectedMatch && (
         <>
           <div className="dl-selected">
-            {selectedMatch.coverUrl ? (
-              <img src={selectedMatch.coverUrl} alt="" />
-            ) : (
-              <div className="dl-selected-ph" />
-            )}
+            {(() => {
+              const cover = resolveImageUrl(selectedMatch.coverUrl ?? undefined) ?? metaCoverUrl ?? undefined;
+              return cover ? (
+                <img src={cover} alt="" />
+              ) : (
+                <div className="dl-selected-ph">
+                  <TrackArtFallback track={{ format: null, path: track.uri ?? null }} size={24} />
+                </div>
+              );
+            })()}
             <div className="dl-selected-info">
               <span className="dl-result-title">{selectedMatch.title}</span>
               <span className="dl-result-meta">

@@ -47,10 +47,14 @@ Each entry documents the gold standard implementation for a repeated user action
 
 ### Download Track
 
-- **Canonical:** `useDownloadActions.ts` -> `handleDownloadTrack()` / `handleDownloadMulti()` (composed + re-exported by `useContextMenuActions`, so callers still reach them via `contextMenuActions.*`); the unified `DownloadModal` flow is wired in `App.tsx`
-- **Flow:** Resolve download URL via provider chain (`resolveTrackDownload`) -> `invoke("enqueue_download", ...)` -> progress via `download-progress` events -> success via `download-complete` -> error via `download-error` -> `addLog()` on both outcomes
-- **Payload:** both paths build the `enqueue_download` payload via the single `buildDownloadRequest()` helper in `useDownloadActions.ts` — do not hand-inline the field list. Single-track first checks for an existing local copy via `invoke("find_track_by_metadata", ...)` (never JS-side string compare) and raises the re-download confirm only for a *local* match.
-- **Multi-track:** `useDownloadActions.ts` -> `handleDownloadMulti()` loops tracks with `isBatchLast` flag on the final item
+- **Provider decision (single source of truth):** `decideDownload(effectiveSource, track, providers)` in `utils/downloadPlan.ts` maps a track's *source* to its downloader — `subsonic://` → the built-in Subsonic provider ("Source original"), a plugin scheme → that plugin (by URI, or by metadata for a stream-resolver win), `local`/`direct-url`/metadata-only → none. Every single-track entry point runs through this so they all open the **same modal** with the same provider. Do not re-derive provider selection anywhere else.
+- **Single-track (canonical) → `DownloadModal`:**
+  - **Now-playing bar button:** `useDownloadOrchestration.ts` -> `openDownloadForCurrentTrack(track, plan)` where `plan = decideDownload(resolvedSource.effectiveSource, …)`. The button is hidden when the plan is `null`.
+  - **Context menu:** `resolveNativeDownload(target)` gates the primary **"Download…"** item -> `openNativeDownload(target)` (same `decideDownload` path). Other plugin providers appear as **"Download from {X}…"** alternatives via `handleDownloadFromProvider`.
+  - The Download menu is shown for any non-local track when a native provider exists (incl. built-in Subsonic) **or** a plugin provider exists — it is **not** gated on a download *plugin* being installed.
+- **Upgrade vs fresh:** in-place upgrade (`download_preview` -> compare -> `confirm_track_upgrade`) applies **only to LOCAL library tracks** — `SingleTrackDownload` gates `isUpgrade` on a `file://` uri, because `download_preview` needs a real file on disk. Remote sources (Subsonic / plugin schemes) are always a **fresh download** to a chosen destination; the modal's `check_dest_conflict` handles file-exists.
+- **Multi-track / album → background queue:** `useDownloadActions.ts` -> `handleDownloadMulti()` loops tracks (`buildDownloadRequest()` per track, `isBatchLast` on the last) -> `invoke("enqueue_download", …)` -> resolved by the `download-resolve-request` bridge walking `resolveTrackDownload` -> progress `download-progress` / success `download-complete` / error `download-error`. Batch does **not** use the modal (`MultiTrackDownload` has no per-track by-URI resolver, so Subsonic batch can't run through it). `handleDownloadFromProvider` opens the multi-track modal only for interactive *plugin* providers.
+- **Payload:** build the `enqueue_download` payload via the single `buildDownloadRequest()` helper in `useDownloadActions.ts` — do not hand-inline the field list.
 
 ### Tag Operations
 

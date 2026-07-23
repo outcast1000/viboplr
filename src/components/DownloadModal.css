@@ -112,6 +112,19 @@
   object-fit: cover;
 }
 
+/* Search-result art fallback (no provider cover): centered disc/film glyph
+   instead of an empty box, matching the queue's TrackArtFallback vocabulary. */
+.dl-art-placeholder {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
 .dl-result-info {
   flex: 1;
   min-width: 0;
@@ -165,6 +178,10 @@
 
 .dl-selected-ph {
   background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
 }
 
 .dl-selected-info {
@@ -610,9 +627,13 @@
   color: #ff0033;
 }
 
-/* Segmented pill control (quality / format). */
+/* Segmented pill control (quality / format). Wraps to a second line and can
+   shrink (min-width:0) so wide/long option labels never overflow the fixed
+   modal width and get clipped by its overflow-x guard. */
 .dl-seg {
   display: inline-flex;
+  flex-wrap: wrap;
+  min-width: 0;
   max-width: 100%;
   background: var(--bg-primary);
   border: 1px solid var(--border);

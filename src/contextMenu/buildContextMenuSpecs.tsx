@@ -22,6 +22,12 @@ export interface ContextMenuDeps {
   downloadProviderEntries: { id: string; name: string; interactive: boolean }[];
   plugins: ReturnType<typeof usePlugins>;
   handleDownloadFromProvider: (providerId: string, interactive: boolean) => void;
+  /** The native downloader (if any) for a single-track target's own source
+   *  (subsonic:// → built-in Subsonic, plugin scheme → that plugin). Null when
+   *  nothing owns the source (local / direct-url / metadata-only). */
+  resolveNativeDownload: (target: ContextMenuTarget) => { providerId: string; providerName: string } | null;
+  /** Open the download modal for a single-track target using its native provider. */
+  openNativeDownload: (target: ContextMenuTarget) => void;
   artistImageCache: ReturnType<typeof useImageCache>;
   albumImageCache: ReturnType<typeof useImageCache>;
   tagImageCache: ReturnType<typeof useImageCache>;
@@ -153,21 +159,36 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         }
       }
 
-      // Download — non-local tracks only
-      if (d.downloadProviderEntries.length > 0) {
+      // Download — non-local tracks only. A single track opens the same modal the
+      // now-playing button uses (its native provider, incl. built-in Subsonic
+      // "Source original"); a multi-selection uses the background batch queue (the
+      // modal has no per-track by-URI resolver, so Subsonic batch can't run through
+      // it). Plugin providers are offered as alternatives on top. Ungated so a
+      // Subsonic track is downloadable even when no download plugin is installed.
+      {
         const downloadable = selectedTracks.filter(t => !isLocalTrack(t));
         if (downloadable.length > 0) {
+          const singleNative = downloadable.length === 1 ? d.resolveNativeDownload(target) : null;
           const dlItems: MenuItemSpec[] = [];
-          dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
-            if (downloadable.length === 1) d.contextMenuActions.handleDownloadTrack(downloadable[0]);
-            else d.contextMenuActions.handleDownloadMulti(downloadable);
-          }});
-          d.downloadProviderEntries.forEach(entry => {
-            dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
-          });
-          specs.push({ kind: "separator" });
-          const dlLabel = downloadable.length === 1 ? "Download" : `Download ${downloadable.length} tracks`;
-          specs.push({ kind: "submenu", text: dlLabel, items: dlItems });
+          if (singleNative) {
+            dlItems.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
+          } else if (downloadable.length > 1) {
+            dlItems.push({ kind: "item", text: "Download (auto)", action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
+          }
+          d.downloadProviderEntries
+            .filter(entry => entry.id !== singleNative?.providerId)
+            .forEach(entry => {
+              dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "…" : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
+            });
+          if (dlItems.length > 0) {
+            specs.push({ kind: "separator" });
+            if (dlItems.length === 1 && singleNative) {
+              specs.push(dlItems[0]);
+            } else {
+              const dlLabel = downloadable.length === 1 ? "Download" : `Download ${downloadable.length} tracks`;
+              specs.push({ kind: "submenu", text: dlLabel, items: dlItems });
+            }
+          }
         }
       }
 
@@ -254,39 +275,50 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
           }
         }
       }
-      if (target.kind === "track" && !target.isLocal && d.downloadProviderEntries.length > 0) {
-        const dlItems: MenuItemSpec[] = [];
-        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
-          if (target.trackId) {
-            const track = d.library.tracks.find(tr => tr.id === target.trackId);
-            if (track) d.contextMenuActions.handleDownloadTrack(track);
+      if (target.kind === "track" && !target.isLocal) {
+        // Single track: primary "Download…" opens the modal with the track's own
+        // native provider (Subsonic → "Source original", plugin → that plugin),
+        // exactly like the now-playing button. Ungated so Subsonic is downloadable
+        // with no plugins installed. Other plugin providers are alternatives.
+        const native = d.resolveNativeDownload(target);
+        const alts = d.downloadProviderEntries.filter(entry => entry.id !== native?.providerId);
+        if (native || alts.length > 0) {
+          const dlItems: MenuItemSpec[] = [];
+          if (native) {
+            dlItems.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
           }
-        }});
-        d.downloadProviderEntries.forEach(entry => {
-          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
-        });
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "submenu", text: "Download", items: dlItems });
+          alts.forEach(entry => {
+            dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "…" : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
+          });
+          specs.push({ kind: "separator" });
+          if (dlItems.length === 1 && native) {
+            specs.push(dlItems[0]);
+          } else {
+            specs.push({ kind: "submenu", text: "Download", items: dlItems });
+          }
+        }
       }
-      if (target.kind === "album" && target.albumId && d.downloadProviderEntries.length > 0) {
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "item", text: "Download Album", action: () => {
-          const albumTracks = d.library.tracks.filter(tr => tr.album_id === target.albumId);
-          if (albumTracks.length) d.contextMenuActions.handleDownloadMulti(albumTracks);
-        }});
+      if (target.kind === "album" && target.albumId) {
+        // Only offer for albums that actually have remote tracks to fetch; the
+        // background batch queue handles the resolve (incl. Subsonic).
+        const remote = d.library.tracks.filter(tr => tr.album_id === target.albumId && !isLocalTrack(tr));
+        if (remote.length > 0) {
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "item", text: "Download Album", action: () => d.contextMenuActions.handleDownloadMulti(remote) });
+        }
       }
-      if (isMulti && d.downloadProviderEntries.length > 0) {
-        const dlItems: MenuItemSpec[] = [];
-        dlItems.push({ kind: "item", text: "Download (auto)", action: () => {
-          const idSet = new Set(target.trackIds);
-          const selected = d.library.tracks.filter(tr => tr.id != null && idSet.has(tr.id));
-          d.contextMenuActions.handleDownloadMulti(selected);
-        }});
-        d.downloadProviderEntries.forEach(entry => {
-          dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "..." : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
-        });
-        specs.push({ kind: "separator" });
-        specs.push({ kind: "submenu", text: `Download ${target.trackIds.length} tracks`, items: dlItems });
+      if (isMulti) {
+        const idSet = new Set(target.trackIds);
+        const downloadable = d.library.tracks.filter(tr => tr.id != null && idSet.has(tr.id) && !isLocalTrack(tr));
+        if (downloadable.length > 0) {
+          const dlItems: MenuItemSpec[] = [];
+          dlItems.push({ kind: "item", text: "Download (auto)", action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
+          d.downloadProviderEntries.forEach(entry => {
+            dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "…" : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
+          });
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "submenu", text: `Download ${downloadable.length} tracks`, items: dlItems });
+        }
       }
       const targetKind = target.kind as string;
       const matching = d.plugins.menuItems.filter(item => item.targets.includes(targetKind as "track" | "album" | "artist" | "multi-track"));

@@ -1120,6 +1120,8 @@ function App() {
     downloadProviderEntries,
     handleDownloadFromProvider,
     openDownloadForCurrentTrack,
+    resolveNativeDownload,
+    openNativeDownload,
   } = useDownloadOrchestration({
     plugins,
     contextMenu: contextMenuActions.contextMenu,
@@ -1160,7 +1162,7 @@ function App() {
     contextMenuActions.setContextMenu(cm);
     const specs = buildContextMenuSpecs(cm.target, {
       contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries,
-      plugins, handleDownloadFromProvider, artistImageCache,
+      plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache,
       albumImageCache, tagImageCache, beginRetrieveImage,
       setSearchInitialQuery, setSearchQueryKey,
       setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef,
@@ -1170,7 +1172,7 @@ function App() {
       return;
     }
     showNativeMenu(cm.x, cm.y, specs);
-  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef]);
+  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef]);
   showNativeMenuRef.current = buildAndShowNativeMenu;
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
