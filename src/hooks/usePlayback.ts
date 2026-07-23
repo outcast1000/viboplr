@@ -287,6 +287,12 @@ export function usePlayback(
   const isPreloadingRef = useRef(false);
   const prefetchRequestedRef = useRef(false);
   const preloadPromiseRef = useRef<{ key: string; promise: Promise<ResolvedTrackSource> } | null>(null);
+  // Tier-1 video preload: the next VIDEO track can't share the audio preload
+  // elements or a crossfade (single video surface), but we can still pre-resolve
+  // its stream URL ahead of time so the transition doesn't wait on a slow
+  // resolver (e.g. yt-dlp). Cached by key here; consumed once by handlePlay.
+  const videoPreresolvedRef = useRef<{ key: string; resolved: ResolvedTrackSource } | null>(null);
+  const videoPreresolvingRef = useRef(false);
 
   // Crossfade state
   const isCrossfadingRef = useRef(false);
@@ -819,6 +825,7 @@ export function usePlayback(
     preloadReadyRef.current = false;
     isPreloadingRef.current = false;
     preloadPromiseRef.current = null;
+    videoPreresolvedRef.current = null;
     if (nativePreloadedRef.current) {
       nativePreloadedRef.current = null;
       nativeEngine.clearPreload().catch(console.error);
@@ -832,11 +839,39 @@ export function usePlayback(
     }
   }
 
+  // Tier-1 video preload: pre-resolve the next VIDEO's stream URL during the
+  // current track (the slow part for e.g. yt-dlp) and cache it by key. We
+  // deliberately do NOT prime a media element or arm gapless/crossfade for video
+  // (single video surface) — handlePlay consults this cache. Shared by the
+  // browser and native preload paths; self-guarded so the machine may call it
+  // every tick harmlessly.
+  async function preresolveVideoNext(nextTrack: QueueTrack) {
+    if (videoPreresolvingRef.current) return;
+    if (videoPreresolvedRef.current?.key === nextTrack.key) return; // already prepared
+    videoPreresolvingRef.current = true;
+    logPlayback(`Preload: pre-resolving video "${nextTrack.artist_name ?? "?"} — ${nextTrack.title}"`);
+    try {
+      const resolved = await resolveTrackSrcRef.current(nextTrack);
+      // Only cache a usable src for a track that's still the pending next one.
+      // (resolveTrackSrc returns an empty-src sentinel if its generation bumped.)
+      if (resolved?.src && peekNextRef.current()?.key === nextTrack.key) {
+        videoPreresolvedRef.current = { key: nextTrack.key, resolved };
+        logPlayback(`Preload: video ready "${nextTrack.title}"`);
+      }
+    } catch (e) {
+      console.error("Video pre-resolve error:", e);
+    } finally {
+      videoPreresolvingRef.current = false;
+    }
+  }
+
   async function preloadNext(nextTrack: QueueTrack) {
     if (isPreloadingRef.current) return;
     if (isVideoTrack(nextTrack)) {
+      // No audio-element preload / crossfade for video, but still pre-resolve.
       preloadedTrackRef.current = null;
       preloadReadyRef.current = false;
+      preresolveVideoNext(nextTrack);
       return;
     }
 
@@ -910,7 +945,13 @@ export function usePlayback(
 
   async function nativePreloadNext(next: QueueTrack) {
     if (nativePreloadingRef.current) return;
-    if (isVideoTrack(next) || nativeBlockedKeysRef.current.has(next.key)) return;
+    if (isVideoTrack(next)) {
+      // The standby deck has no video surface, so no native gapless/crossfade for
+      // video — but still pre-resolve the URL so the transition doesn't wait.
+      preresolveVideoNext(next);
+      return;
+    }
+    if (nativeBlockedKeysRef.current.has(next.key)) return;
     nativePreloadingRef.current = true;
     logPlayback(`Native preload: resolving "${next.artist_name ?? "?"} — ${next.title}"`);
     try {
@@ -1306,16 +1347,24 @@ export function usePlayback(
     const inflight = preloadPromiseRef.current;
     const reusePreload = inflight !== null && inflight.key === track.key;
     const resolvePromise = reusePreload ? inflight.promise : null;
+    // Tier-1: reuse a pre-resolved VIDEO source prepared during the previous
+    // track (captured before invalidatePreload clears it). Single-use.
+    const preVideo = videoPreresolvedRef.current;
+    const reuseVideoResolved =
+      !resolvePromise && preVideo && preVideo.key === track.key ? preVideo.resolved : null;
     invalidatePreload();
     setPlaybackError(null);
     setLoadingTrack(track);
 
     try {
       // First resolution: reuse the in-flight preload promise for this track if we
-      // have one, else resolve fresh.
+      // have one, else a pre-resolved video source, else resolve fresh.
       let resolved = resolvePromise
         ? await resolvePromise
-        : await resolveTrackSrcRef.current(track);
+        : reuseVideoResolved
+          ? reuseVideoResolved
+          : await resolveTrackSrcRef.current(track);
+      if (reuseVideoResolved) logPlayback(`Play: used pre-resolved video "${track.title}"`);
       // resolveTrackSrc returns an empty-src sentinel whenever ITS resolve
       // generation was bumped mid-flight — by a newer play, but ALSO by a
       // concurrent preload/prefetch or by awaiting an already-superseded reused
