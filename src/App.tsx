@@ -3923,9 +3923,26 @@ function App() {
               onClick={videoLayout.toggleCollapse}
               title={videoLayout.isCollapsed ? "Expand video" : "Collapse video"}
             >
-              {videoLayout.isCollapsed
-                ? (videoLayout.dockSide === "bottom" ? "\u25BC" : videoLayout.dockSide === "top" ? "\u25B2" : videoLayout.dockSide === "left" ? "\u25C0" : "\u25B6")
-                : (videoLayout.dockSide === "bottom" ? "\u25B2" : videoLayout.dockSide === "top" ? "\u25BC" : videoLayout.dockSide === "left" ? "\u25B6" : "\u25C0")}
+              {/* Double chevron points the way the video moves on click: expanded \u2192 toward the
+                  dock edge (collapse away), collapsed \u2192 toward the content (expand back in). The
+                  base glyph points down (0\u00B0); rotate per dock side, +180\u00B0 when collapsed \u2014 so a
+                  single SVG serves both the horizontal (top/bottom) and vertical (left/right) bars. */}
+              <svg
+                className="splitter-collapse-chevron"
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                fill="none"
+                style={{ transform: `rotate(${{ bottom: 0, top: 180, left: 90, right: -90 }[videoLayout.dockSide] + (videoLayout.isCollapsed ? 180 : 0)}deg)` }}
+              >
+                <path
+                  d="M3.5 8.5L8 12L12.5 8.5M3.5 4L8 7.5L12.5 4"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </button>
           </div>
         )}

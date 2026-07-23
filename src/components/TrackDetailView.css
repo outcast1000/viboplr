@@ -382,6 +382,11 @@
   background: var(--bg-secondary);
   cursor: row-resize;
   position: relative;
+  /* Sit above the adjacent .video-container (also position:relative, later in
+     DOM, overflow:hidden) so the collapse button — taller than this 6px bar —
+     isn't clipped/covered by the video pane where it overflows. Stays well
+     below native-fullscreen (999). */
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -405,18 +410,32 @@
 
 .splitter-collapse-btn {
   position: absolute;
-  right: 8px;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  /* Above the splitter bar + grip within the splitter's stacking context. */
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
+  border-radius: 6px;
   color: var(--text-tertiary);
   cursor: pointer;
-  font-size: var(--fs-2xs);
-  padding: 0 4px;
-  line-height: 6px;
+  padding: 5px 6px;
+  transition: color 0.15s, background 0.15s;
 }
 
 .splitter-collapse-btn:hover {
   color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Base glyph points down; the inline rotate() (per dock side + collapsed) is animated here. */
+.splitter-collapse-chevron {
+  display: block;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .video-splitter.vertical {
@@ -436,10 +455,10 @@
 
 .video-splitter.vertical .splitter-collapse-btn {
   right: auto;
-  bottom: 8px;
+  left: 50%;
+  bottom: 6px;
   top: auto;
-  writing-mode: vertical-lr;
-  line-height: 6px;
+  transform: translateX(-50%);
 }
 
 /* Track detail view — scrolls as a whole page, matching artist/album detail. */
