@@ -97,6 +97,7 @@ interface QueueRowProps {
   onRowInfoEnter: (e: React.MouseEvent<HTMLDivElement>, track: QueueTrack) => void;
   onRowInfoLeave: () => void;
   onPlay: (track: QueueTrack, index: number) => void;
+  onTogglePlayPause: () => void;
   onStartRadio: (track: QueueTrack) => void;
   onLocateTrack: (track: QueueTrack) => void;
   onToggleLike: (track: QueueTrack) => void;
@@ -111,7 +112,7 @@ const QueueRow = memo(function QueueRow({
   localThumb, resolving, resolveFailure, showRadio, showLocate, showLikes, showDislike,
   getTrackImage, observeVisible,
   onRowMouseDown, onRowClick, onRowContextMenu, onRowInfoEnter, onRowInfoLeave,
-  onPlay, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike,
+  onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike,
 }: QueueRowProps) {
   const rowRef = useRef<HTMLDivElement>(null);
   // Entity-image lookups invoke the backend (and can trigger a provider fetch)
@@ -197,7 +198,20 @@ const QueueRow = memo(function QueueRow({
         </div>
       </div>
       <div className="row-hover-actions">
-        {!isCurrent && (
+        {isCurrent ? (
+          <button
+            className="row-hover-action row-hover-action--play"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onTogglePlayPause(); }}
+            title={isPlaying ? "Pause" : "Play"}
+          >
+            {isPlaying ? (
+              <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+            )}
+          </button>
+        ) : (
           <button
             className="row-hover-action row-hover-action--play"
             onMouseDown={(e) => e.stopPropagation()}
@@ -242,6 +256,7 @@ interface QueuePanelProps {
   onSkipDuplicates: () => void;
   onCancelEnqueue: () => void;
   onPlay: (track: QueueTrack, index: number) => void;
+  onTogglePlayPause: () => void;
   onRemove: (index: number) => void;
   onLocateTrack?: (track: QueueTrack) => void;
   onStartRadio?: (track: QueueTrack) => void;
@@ -297,7 +312,7 @@ function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onPublishQueue, onContextMenu, onToggleLike, onToggleDislike,
+  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onEditPlaylist, onLoadPlaylist, onPublishQueue, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures,
@@ -458,10 +473,11 @@ export function QueuePanel({
   // Latest props/state for the stable row handlers below (queue.md "Ref-Based
   // State Access") — the handlers keep one identity across renders so the
   // memoized rows don't re-render whenever the panel does.
-  const latestRef = useRef({ selectedIndices, onPlay, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu });
-  latestRef.current = { selectedIndices, onPlay, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu };
+  const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu });
+  latestRef.current = { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu };
 
   const rowPlay = useCallback((t: QueueTrack, i: number) => latestRef.current.onPlay(t, i), []);
+  const rowTogglePlayPause = useCallback(() => latestRef.current.onTogglePlayPause(), []);
   const rowStartRadio = useCallback((t: QueueTrack) => latestRef.current.onStartRadio?.(t), []);
   const rowLocateTrack = useCallback((t: QueueTrack) => latestRef.current.onLocateTrack?.(t), []);
   const rowToggleLike = useCallback((t: QueueTrack) => latestRef.current.onToggleLike?.(t), []);
@@ -788,6 +804,7 @@ export function QueuePanel({
             onRowInfoEnter={handleRowInfoEnter}
             onRowInfoLeave={handleRowInfoLeave}
             onPlay={rowPlay}
+            onTogglePlayPause={rowTogglePlayPause}
             onStartRadio={rowStartRadio}
             onLocateTrack={rowLocateTrack}
             onToggleLike={rowToggleLike}

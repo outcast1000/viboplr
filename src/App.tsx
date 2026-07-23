@@ -4094,6 +4094,7 @@ function App() {
           }}
           onCancelEnqueue={() => contextMenuActions.setPendingEnqueue(null)}
           onPlay={(track, index) => { queueHook.setQueueIndex(index); playback.handlePlay(track); }}
+          onTogglePlayPause={playback.handlePause}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
             library.handleTrackClick(track.key);
