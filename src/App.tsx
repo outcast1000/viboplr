@@ -227,6 +227,13 @@ function App() {
   const pendingMpvRetryRef = useRef<QueueTrack | null>(null);
   const trackVideoHistoryRef = useRef(true);
   const [trackVideoHistory, setTrackVideoHistory] = useState(true);
+  // "Prefer video" is an advisory hint passed to every stream resolver in normal
+  // order: a resolver that understands it (e.g. yt-dlp) returns a video stream
+  // and flags the result `video`, which the host then routes to the theater;
+  // resolvers that ignore it (Library, Subsonic, …) play whatever they normally
+  // would. Read via a ref inside the resolver wrapper so it stays fresh.
+  const preferVideoRef = useRef(false);
+  const [preferVideoResolution, setPreferVideoResolution] = useState(false);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
   // Default ON — stale yt-dlp breaks against YouTube and the failure looks
   // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
@@ -244,6 +251,7 @@ function App() {
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
+  preferVideoRef.current = preferVideoResolution;
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null) => Promise<string>>(
     async () => { throw new Error("Stream URI resolver not ready"); }
@@ -725,7 +733,7 @@ function App() {
             name: sr.name,
             source: ps.id,
             resolve: (title, artistName, albumName, durationSecs) =>
-              plugins.invokeStreamResolve(ps.id, sr.id, title, artistName, albumName, durationSecs),
+              plugins.invokeStreamResolve(ps.id, sr.id, title, artistName, albumName, durationSecs, preferVideoRef.current),
           });
         }
       }
@@ -1739,7 +1747,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, preferVideoResolution: savedPreferVideoResolution, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -1817,6 +1825,7 @@ function App() {
           })();
         }
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
+        if (savedPreferVideoResolution !== undefined && savedPreferVideoResolution !== null) setPreferVideoResolution(savedPreferVideoResolution);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
@@ -2771,6 +2780,13 @@ function App() {
     setTrackVideoHistory(enabled);
     store.set("trackVideoHistory", enabled).catch((e) => {
       console.error("Failed to persist trackVideoHistory:", e);
+    });
+  }
+
+  function handlePreferVideoResolutionChange(enabled: boolean) {
+    setPreferVideoResolution(enabled);
+    store.set("preferVideoResolution", enabled).catch((e) => {
+      console.error("Failed to persist preferVideoResolution:", e);
     });
   }
 
@@ -3942,6 +3958,8 @@ function App() {
               onRgPreventClipChange={playback.setRgPreventClip}
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
+              preferVideoResolution={preferVideoResolution}
+              onPreferVideoResolutionChange={handlePreferVideoResolutionChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
               confirmTrashDelete={confirmTrashDelete}
@@ -4179,6 +4197,8 @@ function App() {
           onExportAsMixtape={handleQueueExportAsMixtape}
           onLoadPlaylist={() => queueHook.loadPlaylist(setMixtapePreviewPath)}
           onPublishQueue={handlePublishQueue}
+          preferVideoResolution={preferVideoResolution}
+          onPreferVideoResolutionChange={handlePreferVideoResolutionChange}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];

@@ -23,6 +23,12 @@ export const UNREACHABLE_PLAYBACK_ERROR =
 export const FILE_NOT_FOUND_PLAYBACK_ERROR =
   "File not found — it may have been moved or deleted";
 export const VIDEO_CODEC_PLAYBACK_ERROR = "Video codec not supported";
+// A reachable REMOTE source that still failed as a format/codec error: the
+// built-in player can't decode this stream (e.g. VP9/Opus from the web), but the
+// mpv engine usually can. Worded for a stream (not a local file) — and kept in
+// FORMAT_PLAYBACK_ERRORS below so the "use mpv" offer still appears.
+export const REMOTE_FORMAT_PLAYBACK_ERROR =
+  "This stream can’t be played by the built-in player";
 
 export function mediaErrorMessage(code: number): string {
   return MEDIA_ERROR_MESSAGES[code] || `Playback error (code ${code})`;
@@ -38,6 +44,7 @@ const FORMAT_PLAYBACK_ERRORS = new Set<string>([
   MEDIA_ERROR_MESSAGES[3],
   MEDIA_ERROR_MESSAGES[4],
   VIDEO_CODEC_PLAYBACK_ERROR,
+  REMOTE_FORMAT_PLAYBACK_ERROR,
 ]);
 
 export function isFormatPlaybackError(error: string | null | undefined): boolean {
@@ -53,8 +60,14 @@ export function describePlaybackFailure(
   isRemote: boolean,
   network: NetworkStatus,
 ): string {
-  if (!isRemote || network === "ok") return base;
-  return network === "offline" ? OFFLINE_PLAYBACK_ERROR : UNREACHABLE_PLAYBACK_ERROR;
+  if (!isRemote) return base;
+  if (network === "offline") return OFFLINE_PLAYBACK_ERROR;
+  if (network === "unreachable") return UNREACHABLE_PLAYBACK_ERROR;
+  // Reachable, but a format/codec failure on a remote stream: name it as a
+  // stream the built-in player can't play (the mpv engine can). Non-format
+  // failures keep the browser's own diagnosis.
+  if (isFormatPlaybackError(base)) return REMOTE_FORMAT_PLAYBACK_ERROR;
+  return base;
 }
 
 // Local-track counterpart of describePlaybackFailure: `base` is kept while the

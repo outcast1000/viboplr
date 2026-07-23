@@ -473,7 +473,17 @@ export interface PluginPlaybackAPI {
   onTrackLiked(handler: (track: QueueTrack, liked: boolean) => void): () => void;
   onStreamResolve(
     providerId: string,
-    handler: (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string } | null>,
+    handler: (
+      title: string,
+      artistName: string | null,
+      albumName: string | null,
+      durationSecs: number | null,
+      /** Advisory hints from the host. `preferVideo`: the user asked to watch
+       *  video when possible — a resolver that can should return a video stream
+       *  and set `video: true` on its result (the host then plays it in the
+       *  theater). Ignore it to keep returning audio. Optional for back-compat. */
+      opts?: { preferVideo?: boolean },
+    ) => Promise<{ url: string; label: string; video?: boolean } | null>,
   ): () => void;
   onResolveStreamByUri(
     scheme: string,

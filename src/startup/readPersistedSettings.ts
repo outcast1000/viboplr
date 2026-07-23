@@ -18,6 +18,7 @@ export interface PersistedSettings {
   betaUpdates: boolean | undefined;
   telemetryEnabled: boolean | undefined;
   trackVideoHistory: boolean | undefined;
+  preferVideoResolution: boolean | undefined;
   miniMode: boolean | undefined;
   fullWindowWidth: number | null | undefined;
   fullWindowHeight: number | null | undefined;
@@ -71,6 +72,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     betaUpdates: read<boolean>("betaUpdates"),
     telemetryEnabled: read<boolean>("telemetryEnabled"),
     trackVideoHistory: read<boolean>("trackVideoHistory"),
+    preferVideoResolution: read<boolean>("preferVideoResolution"),
     miniMode: read<boolean>("miniMode"),
     fullWindowWidth: read<number | null>("fullWindowWidth"),
     fullWindowHeight: read<number | null>("fullWindowHeight"),

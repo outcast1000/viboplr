@@ -1398,7 +1398,7 @@ export function usePlayback(
       // surfaces it instead of leaving playback paused with a stale now-playing bar.
       if (decision === "fail") {
         diagnosePlayOutcome("fail", track, generation, reusePreload, !!resolved.src);
-        throw new Error(`No playback source resolved for: ${track.title}`);
+        throw new Error("Couldn't find a playable source for this track");
       }
       // Resolution may have discovered the real local file for a path-less /
       // remote track (e.g. a Home track-row that only carried title+artist).

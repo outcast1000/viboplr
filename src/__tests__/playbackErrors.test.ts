@@ -6,6 +6,8 @@ import {
   OFFLINE_PLAYBACK_ERROR,
   UNREACHABLE_PLAYBACK_ERROR,
   FILE_NOT_FOUND_PLAYBACK_ERROR,
+  REMOTE_FORMAT_PLAYBACK_ERROR,
+  isFormatPlaybackError,
 } from "../playback/playbackErrors";
 
 describe("mediaErrorMessage", () => {
@@ -30,8 +32,16 @@ describe("describePlaybackFailure", () => {
     expect(describePlaybackFailure(base, false, "ok")).toBe(base);
   });
 
-  it("keeps the base message for remote tracks when the network is fine", () => {
-    expect(describePlaybackFailure(base, true, "ok")).toBe(base);
+  it("reworks a reachable remote FORMAT error into a stream-specific message (still a format error → mpv offer)", () => {
+    const msg = describePlaybackFailure(base, true, "ok");
+    expect(msg).toBe(REMOTE_FORMAT_PLAYBACK_ERROR);
+    expect(isFormatPlaybackError(msg)).toBe(true);
+  });
+
+  it("keeps a NON-format base for reachable remote tracks (e.g. a resolution failure)", () => {
+    const notFound = "Couldn't find a playable source for this track";
+    expect(describePlaybackFailure(notFound, true, "ok")).toBe(notFound);
+    expect(isFormatPlaybackError(notFound)).toBe(false);
   });
 
   it("reports offline instead of 'not supported' for remote tracks with no connection", () => {

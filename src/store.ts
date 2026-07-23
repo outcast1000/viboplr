@@ -46,6 +46,7 @@ const STORE_DEFAULTS = {
   confirmTrashDelete: true,
   trackVideoHistory: true,
   videoLyricsOverlay: true,
+  preferVideoResolution: false,
   videoLayout: { dockSide: "bottom", fitMode: "contain", sizes: { top: 300, bottom: 300, left: 400, right: 400 }, isCollapsed: false },
   sidebarCollapsed: true,
   queueCollapsed: true,

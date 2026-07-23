@@ -134,7 +134,7 @@ interface LoadedPlugin {
   interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
-  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null) => Promise<{ url: string; label: string; sourceUrl?: string } | null>>;
+  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean }) => Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null>>;
   streamUriResolvers: Map<string, (id: string, quality?: string | null) => Promise<string | null>>;
   schedulerHandlers: Map<string, () => void>;
 }
@@ -2087,7 +2087,8 @@ export function usePlugins(
       artistName: string | null,
       albumName: string | null,
       durationSecs: number | null,
-    ): Promise<{ url: string; label: string; sourceUrl?: string } | null> => {
+      preferVideo = false,
+    ): Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null> => {
       const provider = `${pluginId}:${providerId}`;
       const input = { title, artistName, albumName, durationSecs };
       const loaded = loadedPluginsRef.current.get(pluginId);
@@ -2100,7 +2101,7 @@ export function usePlugins(
       }
       try {
         return await withResolverLog({ kind: "stream", provider, input },
-          () => handler(title, artistName, albumName, durationSecs));
+          () => handler(title, artistName, albumName, durationSecs, { preferVideo }));
       } catch {
         return null;
       }

@@ -249,7 +249,7 @@ return { activate: activate, deactivate: deactivate };</pre>
                 <tr><td>playTracks(tracks, startIndex?, context?)</td><td>Play a list; <code>context</code> (<code>{ name, coverUrl?, source? }</code>) gives the queue its banner.</td></tr>
                 <tr><td>insertTrack(track, position) / insertTracks(tracks, position)</td><td>Insert into the current queue (<code>-1</code> = end).</td></tr>
                 <tr><td>onTrackStarted / onTrackScrobbled / onTrackLiked(handler)</td><td>Playback events; the scrobble threshold is 50% or 4 minutes.</td></tr>
-                <tr><td>onStreamResolve(providerId, handler)</td><td>Register a stream fallback: <code>(title, artist, album, duration) &rarr; { url, label } | null</code>.</td></tr>
+                <tr><td>onStreamResolve(providerId, handler)</td><td>Register a stream fallback: <code>(title, artist, album, duration, opts?) &rarr; { url, label, video? } | null</code>. <code>opts.preferVideo</code> is an advisory hint (the user enabled &ldquo;Prefer video&rdquo;): return a video stream and set <code>video: true</code> to have the host play it in the theater, or ignore it to keep returning audio. The hint never overrides source priority.</td></tr>
                 <tr><td>onResolveStreamByUri(scheme, handler)</td><td>Resolve a custom URL scheme (e.g. <code>myservice://id</code>) to a playable URL.</td></tr>
               </tbody>
             </table>

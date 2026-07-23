@@ -234,6 +234,11 @@ export function useStreamResolution({
             ]);
             if (!result) throw new Error("No result");
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
+            // A resolver that honored the "prefer video" hint flags its result
+            // as video; reclassify the track (format → mp4) so it routes to the
+            // theater. Resolvers that ignore the hint omit the flag → plays as
+            // whatever it normally would (audio), no theater.
+            if (result.video) entry.patch = { ...entry.patch, format: "mp4" };
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
             return resolveUrlDetailed(result.url);
           },
@@ -242,7 +247,7 @@ export function useStreamResolution({
       }
 
       if (chain.length === 0) {
-        throw new Error(`No playback source for: ${track.title}`);
+        throw new Error("Couldn't find a playable source for this track");
       }
 
       let lastError: string | null = null;
@@ -281,7 +286,7 @@ export function useStreamResolution({
       // explaining what happened even after playback moves to another track.
       setResolveFailures(prev => ({ ...prev, [track.key]: lastError ?? "no source found" }));
       trackTelemetry("stream_resolve_failed", { source: sourceClass(track.path) });
-      throw new Error(`No playback source found for: ${track.title}`);
+      throw new Error("Couldn't find a playable source for this track");
     };
   }, [resolveTrackSrcRef, transcodeSessionRef, resolveStreamByUriRef, streamResolversRef]);
 

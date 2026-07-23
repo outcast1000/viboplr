@@ -1123,6 +1123,8 @@ interface SettingsPanelProps {
   onRgPreventClipChange: (enabled: boolean) => void;
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
+  preferVideoResolution: boolean;
+  onPreferVideoResolutionChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
   confirmTrashDelete: boolean;
@@ -1218,6 +1220,8 @@ export function SettingsPanel({
   onRgPreventClipChange,
   trackVideoHistory,
   onTrackVideoHistoryChange,
+  preferVideoResolution,
+  onPreferVideoResolutionChange,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
   confirmTrashDelete,
@@ -1514,6 +1518,13 @@ export function SettingsPanel({
                         />
                         <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
                       </div>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Prefer video</span>
+                        <span className="settings-description">For tracks with no source of their own (e.g. from a plugin like Spotify), play the music video in the theater when a resolver can provide one — otherwise audio, as normal. A hint only; it never overrides your source priority.</span>
+                      </div>
+                      <ToggleSwitch checked={preferVideoResolution} onChange={onPreferVideoResolutionChange} />
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">

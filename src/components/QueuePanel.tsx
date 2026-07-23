@@ -267,6 +267,10 @@ interface QueuePanelProps {
   onExportAsMixtape: () => void;
   onLoadPlaylist: () => void;
   onPublishQueue: () => void;
+  /** "Prefer video" mode — mirrors the Settings → Playback toggle (same state);
+   *  surfaced here as a queue-level control. */
+  preferVideoResolution: boolean;
+  onPreferVideoResolutionChange: (enabled: boolean) => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
   onToggleLike?: (track: QueueTrack) => void;
   onToggleDislike?: (track: QueueTrack) => void;
@@ -311,7 +315,7 @@ function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, onContextMenu, onToggleLike, onToggleDislike,
+  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures,
@@ -702,6 +706,13 @@ export function QueuePanel({
       <div className="queue-header">
         <span className="queue-title">Playlist</span>
         <div className="queue-header-actions">
+          <button
+            className={`g-btn g-btn-sm${preferVideoResolution ? " active" : ""}`}
+            onClick={() => onPreferVideoResolutionChange(!preferVideoResolution)}
+            title={preferVideoResolution ? "Prefer video: on — play music videos when a resolver can" : "Prefer video: off"}
+            aria-pressed={preferVideoResolution}
+            dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="16" height="14" rx="2"/><path d="m22 8-4 4 4 4V8z"/></svg>' }}
+          />
           <button className="g-btn g-btn-sm" onClick={onLoadPlaylist} title="Load playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' }} />
           <div className="queue-save-wrapper">
             <button className="g-btn g-btn-sm queue-save-btn" onClick={openSaveMenu} title="Save playlist">
