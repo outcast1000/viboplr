@@ -42,7 +42,7 @@ interface CentralSearchDropdownProps {
 }
 
 // Track art mirrors the queue's chain (queue.md "Image Resolution"): album image
-// → artist image → the shared audio/video placeholder (SpinningDisc / FilmStrip).
+// → artist image → the shared audio/video placeholder (SpinningDisc / FilmReel).
 // Album and artist rows reuse the library's AlbumCardArt / ArtistCardArt so their
 // miss-state placeholders (title letter / artist initials) match everywhere.
 function TrackImage({ track, getAlbumImage, getArtistImage }: {

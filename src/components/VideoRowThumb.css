@@ -36,8 +36,13 @@
   100% { background-position: -200% 0; }
 }
 
-.video-row-thumb-icon {
+/* Placeholder reel shown before frames resolve. The descendant selector keeps it
+   more specific than FilmReel's own `.film-reel` color rule so the muted surface
+   color wins; % sizing overrides FilmReel's px width/height so it scales with the
+   thumb (row thumb vs. card art). */
+.video-row-thumb .video-row-thumb-icon {
   width: 40%;
   height: 40%;
+  color: var(--text-secondary);
   opacity: 0.5;
 }

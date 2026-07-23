@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useVideoFrameQueue, useVideoFrameEntry } from "../hooks/useVideoFrameQueueContext";
 import { HOVER_FRAME_INTERVAL_MS } from "../videoFrameQueue";
+import { FilmReel } from "./FilmReel";
 import "./VideoRowThumb.css";
 
 interface Props {
@@ -76,11 +77,7 @@ export function VideoRowThumb({ trackId, alt, className }: Props) {
     >
       {currentFrame && <img className="video-row-thumb-img" src={currentFrame} alt={alt} draggable={false} />}
       {showShimmer && <div className="video-row-thumb-shimmer" />}
-      {showIcon && (
-        <svg className="video-row-thumb-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-          <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z" />
-        </svg>
-      )}
+      {showIcon && <FilmReel className="video-row-thumb-icon" />}
     </div>
   );
 }
