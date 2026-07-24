@@ -4,8 +4,10 @@ import type { Track, QueueTrack } from "../types";
 import { isLocalTrack } from "../queueEntry";
 
 /** Build the `enqueue_download` IPC payload from a queue track. Single source so
- * the single-track and multi-track download paths can't drift. */
-function buildDownloadRequest(track: QueueTrack, isBatchLast: boolean) {
+ * the single-track and multi-track download paths can't drift. `provider`
+ * targets a specific download provider ("Download from {X}…"); null walks the
+ * whole chain. */
+function buildDownloadRequest(track: QueueTrack, isBatchLast: boolean, provider?: string | null) {
   return {
     title: track.title,
     artistName: track.artist_name,
@@ -17,6 +19,7 @@ function buildDownloadRequest(track: QueueTrack, isBatchLast: boolean) {
     format: null,
     pathPattern: null,
     isBatchLast,
+    provider: provider ?? null,
   };
 }
 
@@ -27,17 +30,17 @@ function buildDownloadRequest(track: QueueTrack, isBatchLast: boolean) {
  * confirm modal before re-downloading.
  */
 export function useDownloadActions() {
-  const [downloadConfirm, setDownloadConfirm] = useState<{ track: QueueTrack; localTitle: string; localTrackId: number } | null>(null);
+  const [downloadConfirm, setDownloadConfirm] = useState<{ track: QueueTrack; localTitle: string; localTrackId: number; provider?: string | null } | null>(null);
 
-  const enqueueDownload = useCallback(async (track: QueueTrack) => {
+  const enqueueDownload = useCallback(async (track: QueueTrack, provider?: string | null) => {
     try {
-      await invoke("enqueue_download", buildDownloadRequest(track, false));
+      await invoke("enqueue_download", buildDownloadRequest(track, false, provider));
     } catch (e) {
       console.error("Failed to enqueue download:", e);
     }
   }, []);
 
-  const handleDownloadTrack = useCallback(async (track: QueueTrack) => {
+  const handleDownloadTrack = useCallback(async (track: QueueTrack, provider?: string | null) => {
     // Resolve an existing local copy through the backend (diacritic-aware SQL
     // match) per conventions.md "Track Matching by Metadata" — never JS-side
     // string comparison. Only a *local* match should trigger the re-download
@@ -49,20 +52,20 @@ export function useDownloadActions() {
         albumName: track.album_title,
       });
       if (localCopy && localCopy.id != null && isLocalTrack(localCopy)) {
-        setDownloadConfirm({ track, localTitle: localCopy.title, localTrackId: localCopy.id });
+        setDownloadConfirm({ track, localTitle: localCopy.title, localTrackId: localCopy.id, provider: provider ?? null });
         return;
       }
     } catch (e) {
       console.error("Failed to check for existing local copy:", e);
     }
-    enqueueDownload(track);
+    enqueueDownload(track, provider);
   }, [enqueueDownload]);
 
   const handleDownloadConfirm = useCallback(() => {
     if (!downloadConfirm) return;
-    const { track } = downloadConfirm;
+    const { track, provider } = downloadConfirm;
     setDownloadConfirm(null);
-    enqueueDownload(track);
+    enqueueDownload(track, provider);
   }, [downloadConfirm, enqueueDownload]);
 
   const handleDownloadConfirmDismiss = useCallback(() => {

@@ -1200,6 +1200,7 @@ function App() {
     contextMenu: contextMenuActions.contextMenu,
     libraryTracks: library.tracks,
     queue: queueHook.queue,
+    downloadTrackWithConfirm: contextMenuActions.handleDownloadTrack,
   });
 
   // The single decision for the now-playing download button: whether it shows

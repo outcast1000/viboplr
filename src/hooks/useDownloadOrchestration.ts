@@ -5,7 +5,7 @@ import type { Track, QueueTrack } from "../types";
 import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
 import type { ContextMenuState } from "../types/contextMenu";
-import { parseLibraryId, classifyEffectiveSource } from "../queueEntry";
+import { parseLibraryId, classifyEffectiveSource, trackToQueueTrack } from "../queueEntry";
 import { isVideoTrack } from "../utils";
 import { withResolverLog } from "../utils/resolverLog";
 import { decideDownload, type DownloadPlan } from "../utils/downloadPlan";
@@ -82,6 +82,9 @@ interface UseDownloadOrchestrationDeps {
   contextMenu: ContextMenuState | null;
   libraryTracks: Track[];
   queue: QueueTrack[];
+  /** Single-track background enqueue gated by the shared "already downloaded"
+   * confirm modal (useDownloadActions.handleDownloadTrack). */
+  downloadTrackWithConfirm: (track: QueueTrack, provider?: string | null) => void;
 }
 
 /**
@@ -96,6 +99,7 @@ export function useDownloadOrchestration({
   contextMenu,
   libraryTracks,
   queue,
+  downloadTrackWithConfirm,
 }: UseDownloadOrchestrationDeps) {
   const [downloadModal, setDownloadModal] = useState<DownloadModalState | null>(null);
   const [providerPriorities, setProviderPriorities] = useState<Map<string, number>>(new Map());
@@ -280,6 +284,7 @@ export function useDownloadOrchestration({
     let title = "";
     let artistName: string | null = null;
     let sourceIsVideo: boolean | undefined;
+    let sourceQueueTrack: QueueTrack | null = null;
 
     if (target.kind === "track") {
       trackId = target.trackId ?? null;
@@ -292,6 +297,7 @@ export function useDownloadOrchestration({
         title = queueTrack.title;
         artistName = queueTrack.artist_name ?? null;
         sourceIsVideo = isVideoTrack(queueTrack);
+        sourceQueueTrack = queueTrack;
       }
     } else {
       return;
@@ -313,22 +319,17 @@ export function useDownloadOrchestration({
         providerName: downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId,
       });
     } else {
-      // Non-interactive: silent enqueue (no modal)
+      // Non-interactive: single background enqueue (no modal), gated by the
+      // shared "already downloaded" confirm and built through the canonical
+      // buildDownloadRequest payload helper.
       const track = trackId != null ? libraryTracks.find(t => t.id === trackId) : null;
-      invoke("enqueue_download", {
-        title: track?.title ?? title,
-        artistName: track?.artist_name ?? artistName,
-        albumTitle: track?.album_title ?? null,
-        uri: track?.path ?? null,
-        durationSecs: track?.duration_secs ?? null,
-        destCollectionId: null,
-        format: null,
-        provider: providerId,
-      }).catch((e: unknown) => {
-        console.error("Failed to enqueue download:", e);
-      });
+      const queueTrack: QueueTrack = sourceQueueTrack
+        ?? (track
+          ? trackToQueueTrack(track)
+          : { key: "", path: null, title, artist_name: artistName, album_title: null, duration_secs: null, format: null, liked: 0 });
+      downloadTrackWithConfirm(queueTrack, providerId);
     }
-  }, [contextMenu, downloadProviderEntries, libraryTracks, queue]);
+  }, [contextMenu, downloadProviderEntries, libraryTracks, queue, downloadTrackWithConfirm]);
 
   // --- Unified per-track download (context menu ⟷ now-playing) --------------
   // The now-playing button and the context-menu "Download…" both resolve which
