@@ -8,6 +8,7 @@
 // is rendered as a SIBLING of `.entity-list-content`, matching the parent
 // hover-reveal selector.
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { VideoRowThumb } from "./VideoRowThumb";
 import { RowHoverActions, type RowHoverActionsProps } from "./RowHoverActions";
 
@@ -15,7 +16,7 @@ import { RowHoverActions, type RowHoverActionsProps } from "./RowHoverActions";
 // owns only the markup branch, never the image-cache lookups.
 export type TrackRowThumb =
   | { kind: "video"; trackId: number; alt: string }   // local video → VideoRowThumb
-  | { kind: "image"; url: string; alt?: string }        // pre-resolved album/artist/image_url
+  | { kind: "image"; url: string; alt?: string; fallback?: TrackRowThumb }  // pre-resolved album/artist/image_url; swaps to `fallback` (default: disc) if the src fails to load
   | { kind: "initials"; text: string }                  // first-letter placeholder (plugin rows)
   | { kind: "blank" }                                    // empty themed box (e.g. history artist with no image)
   | { kind: "disc" };                                    // default disc SVG fallback
@@ -56,7 +57,7 @@ function Thumb({ thumb, className }: { thumb: TrackRowThumb; className: string }
     return <VideoRowThumb trackId={thumb.trackId} alt={thumb.alt} className={className} />;
   }
   if (thumb.kind === "image") {
-    return <div className={className}><img src={thumb.url} alt={thumb.alt ?? ""} /></div>;
+    return <ImageThumb url={thumb.url} alt={thumb.alt} className={className} fallback={thumb.fallback ?? { kind: "disc" }} />;
   }
   if (thumb.kind === "initials") {
     return <div className={className}>{thumb.text}</div>;
@@ -70,6 +71,22 @@ function Thumb({ thumb, className }: { thumb: TrackRowThumb; className: string }
         <circle cx="12" cy="12" r="10" />
         <circle cx="12" cy="12" r="3" />
       </svg>
+    </div>
+  );
+}
+
+// A remote/plugin thumbnail URL can 404 or fail to decode (e.g. yt-dlp guesses a
+// per-video YouTube thumb for a non-YouTube link). When it does, swap in the
+// caller's `fallback` (default: the disc placeholder) instead of leaving the
+// browser's broken-image glyph. Resets on a url change so a fresh, possibly
+// good, image always gets a clean attempt.
+function ImageThumb({ url, alt, className, fallback }: { url: string; alt?: string; className: string; fallback: TrackRowThumb }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+  if (failed) return <Thumb thumb={fallback} className={className} />;
+  return (
+    <div className={className}>
+      <img src={url} alt={alt ?? ""} onError={() => setFailed(true)} />
     </div>
   );
 }
