@@ -1157,6 +1157,8 @@ interface SettingsPanelProps {
   onDebugLoggingChange: (enabled: boolean) => void;
   debugMode: boolean;
   onDebugModeChange: (enabled: boolean) => void;
+  /** Opens the hidden Song Quiz game (supporter easter egg). */
+  onOpenQuiz: () => void;
   devPluginPath: string | null;
   onDevPluginPathChange: (path: string | null) => void;
   onReloadPlugins: () => void;
@@ -1254,6 +1256,7 @@ export function SettingsPanel({
   onDebugLoggingChange,
   debugMode,
   onDebugModeChange,
+  onOpenQuiz,
   devPluginPath,
   onDevPluginPathChange,
   onReloadPlugins,
@@ -1794,6 +1797,18 @@ export function SettingsPanel({
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Startup Timings</div>
                 <TimingTable title="Backend" entries={backendTimings} />
                 <TimingTable title="Frontend" entries={frontendTimings} />
+                {/* Supporter easter egg — the quiz has no sidebar entry; besides
+                    the donors' viboplr://quiz link, this row is the only way in. */}
+                <div className="settings-group-title" style={{ marginTop: 20 }}>Extras</div>
+                <div className="settings-card">
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Song Quiz</span>
+                      <span className="settings-description">A hidden beat-the-clock game: name songs from short snippets of your own library</span>
+                    </div>
+                    <button className="ds-btn ds-btn--secondary" onClick={onOpenQuiz}>Open</button>
+                  </div>
+                </div>
               </div>
             )}
 

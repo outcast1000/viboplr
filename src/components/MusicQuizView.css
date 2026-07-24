@@ -1,0 +1,496 @@
+/* Song Quiz — arcade beat-the-clock game view with a Millionaire-style board.
+   All colors come from skin tokens (accent = the show's blue glow, warning =
+   gold, success/error = reveal states) so every skin keeps the look. */
+
+.music-quiz {
+  display: flex;
+  height: 100%;
+  padding: 20px 24px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 30%, rgba(var(--accent-rgb), 0.14), transparent 70%),
+    var(--bg-primary);
+  overflow: hidden;
+}
+
+.quiz-stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  position: relative;
+}
+
+/* ---------- HUD: mode + score + clock ---------- */
+
+.quiz-hud {
+  width: min(860px, 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quiz-hud-left,
+.quiz-hud-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.quiz-mode-chip {
+  border: 1px solid var(--accent);
+  border-radius: var(--ds-radius-pill);
+  padding: 2px 12px;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.quiz-hud-stat {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.quiz-hud-stat strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.quiz-clock {
+  position: relative;
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.quiz-clock.low {
+  color: var(--error);
+  animation: quiz-clock-pulse 1s ease-in-out infinite;
+}
+
+@keyframes quiz-clock-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* Floating +Ns / −Ns badge next to the clock on reveal/skip */
+.quiz-time-delta {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  white-space: nowrap;
+  animation: quiz-delta-float 1.6s ease-out forwards;
+}
+.quiz-time-delta.gain { color: var(--success); }
+.quiz-time-delta.loss { color: var(--error); }
+
+@keyframes quiz-delta-float {
+  0% { opacity: 0; transform: translateY(6px); }
+  15% { opacity: 1; transform: translateY(0); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-16px); }
+}
+
+/* ---------- Millionaire lozenge (pointed hexagon with border) ---------- */
+
+.quiz-lozenge {
+  --loz-border: var(--accent);
+  --loz-bg: linear-gradient(to bottom,
+    rgba(var(--accent-rgb), 0.28),
+    rgba(var(--bg-primary-rgb), 0.92) 55%,
+    rgba(var(--accent-rgb), 0.18));
+  position: relative;
+  clip-path: polygon(26px 0, calc(100% - 26px) 0, 100% 50%, calc(100% - 26px) 100%, 26px 100%, 0 50%);
+  background: var(--loz-border);
+  padding: 2px;
+  color: var(--text-primary);
+}
+
+.quiz-lozenge-inner {
+  clip-path: polygon(25px 0, calc(100% - 25px) 0, 100% 50%, calc(100% - 25px) 100%, 25px 100%, 0 50%);
+  background: var(--loz-bg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 36px;
+  min-height: 26px;
+}
+
+/* The horizontal "wire" running behind each lozenge row, edge to edge */
+.quiz-wire-row {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.quiz-wire-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: rgba(var(--accent-rgb), 0.55);
+  transform: translateY(-1px);
+}
+.quiz-wire-row > * {
+  position: relative;
+}
+
+/* ---------- Question + answers ---------- */
+
+.quiz-question-lozenge {
+  /* Narrower than the row so the wire peeks out at both ends */
+  width: min(680px, calc(100% - 120px));
+  text-align: center;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.quiz-question-lozenge .quiz-lozenge-inner {
+  justify-content: center;
+  padding: 16px 40px;
+}
+
+.quiz-answers {
+  display: grid;
+  /* minmax(0, …) so a long title can't inflate the column past the grid —
+     without it the cell tracks the text's min-content width and the buttons
+     grow off-screen instead of ellipsizing. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 20px;
+  width: min(860px, 100%);
+}
+
+.quiz-answer {
+  border: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Narrower than the grid cell so the wire peeks out at both ends;
+     min-width: 0 lets the flex row actually shrink it so the text ellipsizes. */
+  width: calc(100% - 48px);
+  min-width: 0;
+  transition: transform 0.12s var(--ease-out-quart, ease-out);
+}
+.quiz-answer:disabled {
+  cursor: default;
+}
+.quiz-answer:not(:disabled):hover {
+  transform: scale(1.02);
+}
+.quiz-answer:not(:disabled):hover .quiz-lozenge-inner {
+  background: linear-gradient(to bottom,
+    rgba(var(--accent-rgb), 0.5),
+    rgba(var(--bg-primary-rgb), 0.85) 55%,
+    rgba(var(--accent-rgb), 0.35));
+}
+
+.quiz-answer-letter {
+  color: var(--warning);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.quiz-answer-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+.quiz-answer-artist {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+}
+
+/* Answer states */
+.quiz-answer.selected {
+  background: var(--warning);
+  animation: quiz-lock-pulse 0.9s ease-in-out infinite;
+}
+.quiz-answer.selected .quiz-lozenge-inner {
+  background: var(--warning);
+  color: var(--bg-primary);
+}
+.quiz-answer.selected .quiz-answer-letter,
+.quiz-answer.selected .quiz-answer-artist {
+  color: var(--bg-primary);
+}
+
+.quiz-answer.correct {
+  background: var(--success);
+}
+.quiz-answer.correct .quiz-lozenge-inner {
+  background: var(--success);
+  color: var(--bg-primary);
+  animation: quiz-correct-flash 0.5s ease-in-out 3;
+}
+.quiz-answer.correct .quiz-answer-letter,
+.quiz-answer.correct .quiz-answer-artist {
+  color: var(--bg-primary);
+}
+
+.quiz-answer.wrong {
+  background: var(--error);
+}
+.quiz-answer.wrong .quiz-lozenge-inner {
+  background: var(--error);
+  color: var(--bg-primary);
+}
+.quiz-answer.wrong .quiz-answer-letter,
+.quiz-answer.wrong .quiz-answer-artist {
+  color: var(--bg-primary);
+}
+
+.quiz-answer.eliminated {
+  opacity: 0.25;
+  pointer-events: none;
+}
+.quiz-answer.eliminated .quiz-answer-text {
+  visibility: hidden;
+}
+
+@keyframes quiz-lock-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.35); }
+}
+@keyframes quiz-correct-flash {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.5); }
+}
+
+/* ---------- Snippet player ---------- */
+
+.quiz-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.quiz-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 56px;
+}
+.quiz-eq span {
+  width: 8px;
+  border-radius: 3px;
+  background: var(--accent);
+  height: 18%;
+  opacity: 0.85;
+}
+.quiz-eq.playing span {
+  animation: quiz-eq-bounce 0.9s ease-in-out infinite;
+}
+.quiz-eq span:nth-child(2) { animation-delay: 0.12s; }
+.quiz-eq span:nth-child(3) { animation-delay: 0.28s; }
+.quiz-eq span:nth-child(4) { animation-delay: 0.05s; }
+.quiz-eq span:nth-child(5) { animation-delay: 0.2s; }
+.quiz-eq span:nth-child(6) { animation-delay: 0.33s; }
+.quiz-eq span:nth-child(7) { animation-delay: 0.16s; }
+
+@keyframes quiz-eq-bounce {
+  0%, 100% { height: 18%; }
+  50% { height: 95%; }
+}
+
+.quiz-snippet-progress {
+  width: 220px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(var(--accent-rgb), 0.2);
+  overflow: hidden;
+}
+.quiz-snippet-progress > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+.quiz-player-caption {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  min-height: 1.2em;
+}
+
+/* ---------- Lifelines ---------- */
+
+.quiz-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quiz-lifeline {
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text-primary);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.quiz-lifeline--wide {
+  border-radius: 26px;
+  width: auto;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+.quiz-lifeline:not(:disabled):hover {
+  background: rgba(var(--accent-rgb), 0.35);
+}
+.quiz-lifeline:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* A spent lifeline (vs. one merely disabled during lock-in/reveal) */
+.quiz-lifeline.spent {
+  opacity: 0.25;
+  text-decoration: line-through;
+}
+
+/* ---------- Start / game-over screens ---------- */
+
+.quiz-splash {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+  animation: fade-in 0.3s ease-out;
+  max-width: 720px;
+}
+
+.quiz-logo {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(var(--accent-rgb), 0.55), rgba(var(--bg-primary-rgb), 0.9) 75%);
+  border: 3px solid var(--warning);
+  box-shadow: 0 0 40px rgba(var(--accent-rgb), 0.45);
+  color: var(--warning);
+}
+
+.quiz-splash h1 {
+  font-size: var(--fs-2xl);
+  margin: 0;
+  letter-spacing: 0.04em;
+}
+
+.quiz-splash p {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Mode picker cards */
+.quiz-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  width: 100%;
+}
+
+.quiz-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 12px;
+  border: 2px solid rgba(var(--accent-rgb), 0.5);
+  border-radius: var(--ds-radius-card);
+  background: linear-gradient(to bottom,
+    rgba(var(--accent-rgb), 0.16),
+    rgba(var(--bg-primary-rgb), 0.9));
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-out-quart, ease-out), border-color 0.15s;
+}
+.quiz-mode-card:not(:disabled):hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+}
+.quiz-mode-card:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.quiz-mode-name {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.quiz-mode-stat {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.quiz-mode-best {
+  margin-top: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Game-over score */
+.quiz-result-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 56px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+.quiz-result-score-label {
+  font-size: var(--fs-sm);
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.quiz-new-best {
+  color: var(--warning);
+  font-weight: 700;
+  font-size: var(--fs-lg);
+}
+
+.quiz-result-answer {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+.quiz-result-answer strong {
+  color: var(--text-primary);
+}
+
+.quiz-over-actions {
+  display: flex;
+  gap: 12px;
+}

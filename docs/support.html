@@ -168,6 +168,24 @@
           Ko-fi
         </a>
       </div>
+
+      <!-- Supporter gift: hidden until a donate button is clicked, or when the
+           page is opened with ?thanks — point post-donation redirects / thank-you
+           messages (Ko-fi, GitHub Sponsors) at support.html?thanks. A static site
+           can't verify payment, so clicking through is the signal we have. -->
+      <div class="supporter-gift" id="supporterGift" hidden>
+        <div class="supporter-gift-inner">
+          <span class="supporter-gift-icon" aria-hidden="true">🎁</span>
+          <div>
+            <strong>A little thank-you, just for supporters.</strong>
+            <p>
+              Viboplr hides a game inside: a beat-the-clock quiz that plays a few seconds of a
+              random track from <em>your</em> library and dares you to name it.
+              With Viboplr running, <a href="viboplr://quiz">unwrap the Song Quiz &rarr;</a>
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -186,6 +204,30 @@
   </footer>
 
   <script src="js/main.js"></script>
+  <script>
+    // Reveal the supporter gift after a donate link is clicked (remembered in
+    // localStorage so it stays visible on return visits), or immediately when
+    // the page is opened with ?thanks (post-donation redirect target).
+    (function () {
+      var KEY = 'viboplr-supporter';
+      var gift = document.getElementById('supporterGift');
+      if (!gift) return;
+      function reveal() { gift.hidden = false; }
+      var thanked = false;
+      try { thanked = localStorage.getItem(KEY) === '1'; } catch (e) { /* storage blocked */ }
+      if (thanked || new URLSearchParams(location.search).has('thanks')) {
+        try { localStorage.setItem(KEY, '1'); } catch (e) { /* storage blocked */ }
+        reveal();
+      }
+      document.querySelectorAll('a[href*="github.com/sponsors"], a[href*="ko-fi.com"]').forEach(function (a) {
+        a.addEventListener('click', function () {
+          try { localStorage.setItem(KEY, '1'); } catch (e) { /* storage blocked */ }
+          // Small delay so the gift appears as they come back to the tab.
+          setTimeout(reveal, 1500);
+        });
+      });
+    })();
+  </script>
   <!-- Cloudflare Web Analytics -->
   <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
 </body>

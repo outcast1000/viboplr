@@ -2034,3 +2034,52 @@ ol.docs-list {
   color: var(--color-accent-end);
   font-weight: 600;
 }
+
+/* ── Supporter gift (support.html) ─────────────────────────────
+   Hidden thank-you card revealed after a donate button is clicked
+   (or with ?thanks in the URL). Links into the app via viboplr://quiz. */
+.supporter-gift {
+  max-width: 620px;
+  margin: var(--space-lg) auto 0;
+  text-align: left;
+  border: 1px solid rgba(233, 30, 138, 0.35);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  background: linear-gradient(135deg, rgba(255, 107, 107, 0.07), rgba(233, 30, 138, 0.07));
+  animation: gift-pop 0.6s ease-out;
+}
+
+.supporter-gift[hidden] {
+  display: none;
+}
+
+.supporter-gift-inner {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: flex-start;
+}
+
+.supporter-gift-icon {
+  font-size: 1.8rem;
+  line-height: 1.2;
+}
+
+.supporter-gift strong {
+  color: var(--color-text);
+}
+
+.supporter-gift p {
+  margin: 0.35rem 0 0;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+.supporter-gift a {
+  color: var(--color-accent-end);
+  font-weight: 600;
+}
+
+@keyframes gift-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}

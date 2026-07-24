@@ -66,6 +66,7 @@ const STORE_DEFAULTS = {
   onboardingComplete: false,
   uiZoom: 1,
   miniZoom: 1,
+  quizBestScores: {},
 };
 
 export interface AppStore {

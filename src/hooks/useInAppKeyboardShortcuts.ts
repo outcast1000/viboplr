@@ -88,19 +88,23 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
 
       // Non-modifier shortcuts (only when not typing in an input)
       if (!e.ctrlKey && !e.metaKey && !e.altKey && !isInput) {
+        // The Song Quiz plays its own snippet audio — Space/seek would resume
+        // the main track underneath it, so transport keys are inert there
+        // (volume arrows stay live; the quiz mirrors the main volume).
+        const transportInert = library.view === "quiz";
         switch (e.key) {
           case " ":
             e.preventDefault();
-            d.handlePause();
+            if (!transportInert) d.handlePause();
             return;
           case "ArrowLeft": {
             e.preventDefault();
-            playback.seekBy(-15);
+            if (!transportInert) playback.seekBy(-15);
             return;
           }
           case "ArrowRight": {
             e.preventDefault();
-            playback.seekBy(15);
+            if (!transportInert) playback.seekBy(15);
             return;
           }
           case "ArrowUp":

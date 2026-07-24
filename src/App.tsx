@@ -135,6 +135,7 @@ import type { ExportTrack } from "./components/MixtapeExportModal";
 import { SearchView } from "./components/SearchView";
 import { HomeView } from "./components/HomeView";
 import { NowPlayingView } from "./components/NowPlayingView";
+import { MusicQuizView } from "./components/MusicQuizView";
 import { useLyrics } from "./hooks/useLyrics";
 import type { ResolvedShelf } from "./hooks/useHome";
 import { LATEST_PLAY_SHELF_ID } from "./hooks/useHome";
@@ -1625,6 +1626,18 @@ function App() {
     return () => document.removeEventListener("contextmenu", handler);
   }, []);
 
+  // Opens the hidden Song Quiz (supporter easter egg) — reached only via the
+  // viboplr://quiz deep link or Settings > Debug, never from the sidebar.
+  // Ref-held so the deep-link effect below never sees a stale closure.
+  const openQuizRef = useRef(() => {});
+  openQuizRef.current = () => {
+    library.setView("quiz");
+    library.setSelectedArtist(null);
+    library.setSelectedAlbum(null);
+    library.setSelectedTag(null);
+    library.setSelectedTrack(null);
+  };
+
   // Listen for deep link events
   useEffect(() => {
     const handled = new Set<string>();
@@ -1675,6 +1688,13 @@ function App() {
             break;
           }
           // Non-subsonic kinds fall through to plugin-registered collection handlers
+        }
+        // Supporter easter egg: the hidden Song Quiz game. There is no sidebar
+        // entry — this link is the "present" shared with donors on the
+        // website's support page (plus a row at the end of Settings > Debug).
+        if (raw === "viboplr://quiz" || raw.startsWith("viboplr://quiz?") || raw.startsWith("viboplr://quiz/")) {
+          openQuizRef.current();
+          break;
         }
         // Forward other viboplr:// deep links to plugins
         if (raw.startsWith("viboplr://")) {
@@ -3805,6 +3825,15 @@ function App() {
             />
           )}
 
+          {/* Song Quiz view — mounted only while visible so its snippet audio
+              stops the moment the user navigates away */}
+          {view === "quiz" && (
+            <MusicQuizView
+              onPauseMainPlayback={() => { if (playback.playing) playback.handlePause(); }}
+              volume={playback.volume}
+            />
+          )}
+
           {/* Collections view */}
           {view === "collections" && (
             <CollectionsView
@@ -3995,7 +4024,11 @@ function App() {
               onRunSetupWizard={() => setShowOnboarding(true)}
               backendTimings={backendTimings}
               frontendTimings={getTimingEntries()}
-              onFetchBackendTimings={() => invoke<TimingEntry[]>("get_startup_timings").then(setBackendTimings)}
+              onFetchBackendTimings={() =>
+                invoke<TimingEntry[]>("get_startup_timings")
+                  .then((entries) => setBackendTimings(entries ?? []))
+                  .catch((e) => console.error("Failed to fetch startup timings:", e))
+              }
               pluginStates={plugins.pluginStates}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
@@ -4006,6 +4039,7 @@ function App() {
               devPluginPath={devPluginPath}
               onDevPluginPathChange={handleDevPluginPathChange}
               onReloadPlugins={plugins.reloadAllPlugins}
+              onOpenQuiz={() => openQuizRef.current()}
               onSwitchProfile={(name) => profileSwitch.switchToProfile(name)}
               onNotify={notify}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
