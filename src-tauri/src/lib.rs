@@ -893,6 +893,11 @@ pub fn run() {
             let dl_resolve_registry = Arc::new(DownloadResolveRegistry::new());
             let dl_resolve_registry_for_state = dl_resolve_registry.clone();
             timer.time("spawn_download_worker", || { std::thread::spawn(move || {
+                // Tracks whether any track in the current batch downloaded successfully,
+                // so the post-batch bookkeeping below still runs when the *final* track of
+                // a batch fails — while a wholly-failed batch (incl. a lone failed single
+                // download, which defaults is_batch_last=true) skips the needless rebuild.
+                let mut batch_had_success = false;
                 loop {
                     let request = dl_worker_manager.wait_for_next();
                     let track_title = request.title.clone();
@@ -923,9 +928,11 @@ pub fn run() {
                         "format": request.format.to_string(),
                     }));
 
-                    // Wait for the frontend to resolve the stream URL (30s timeout)
+                    // Wait for the frontend to resolve the stream URL (30s timeout).
+                    // On failure we record the error but leave `resolved` None and fall
+                    // through, so the loop still reaches the post-batch bookkeeping below.
                     let resolved = match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-                        Ok(Some(response)) => response,
+                        Ok(Some(response)) => Some(response),
                         Ok(None) => {
                             // Frontend responded with None (provider could not resolve)
                             log::error!("Download resolve failed for {}: provider returned no URL", track_title);
@@ -944,7 +951,7 @@ pub fn run() {
                                 "trackTitle": track_title,
                                 "error": "No download provider could resolve this track",
                             }));
-                            continue;
+                            None
                         }
                         Err(_) => {
                             // Timeout or channel closed
@@ -965,76 +972,87 @@ pub fn run() {
                                 "trackTitle": track_title,
                                 "error": "Download resolve timed out",
                             }));
-                            continue;
+                            None
                         }
                     };
 
-                    // Update status to "downloading"
-                    let downloading_status = crate::downloader::DownloadStatus {
-                        id: request.id,
-                        track_title: track_title.clone(),
-                        artist_name: artist_name.clone(),
-                        status: "downloading".to_string(),
-                        progress_pct: 0,
-                        error: None,
-                    };
-                    dl_worker_manager.set_active(Some(downloading_status.clone()));
-                    let _ = dl_app_handle.emit("download-progress", &downloading_status);
+                    if let Some(resolved) = resolved {
+                        // Update status to "downloading"
+                        let downloading_status = crate::downloader::DownloadStatus {
+                            id: request.id,
+                            track_title: track_title.clone(),
+                            artist_name: artist_name.clone(),
+                            status: "downloading".to_string(),
+                            progress_pct: 0,
+                            error: None,
+                        };
+                        dl_worker_manager.set_active(Some(downloading_status.clone()));
+                        let _ = dl_app_handle.emit("download-progress", &downloading_status);
 
-                    match crate::downloader::process_download(&request, &resolved, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
-                        Ok(dest_path) => {
-                            let complete = crate::downloader::DownloadStatus {
-                                id: request.id,
-                                track_title: track_title.clone(),
-                                artist_name: artist_name.clone(),
-                                status: "complete".to_string(),
-                                progress_pct: 100,
-                                error: None,
-                            };
-                            dl_worker_manager.set_active(None);
-                            dl_worker_manager.push_completed(complete.clone());
-                            let _ = dl_app_handle.emit("download-complete", serde_json::json!({
-                                "id": request.id,
-                                "trackTitle": track_title,
-                                "destPath": dest_path.to_string_lossy(),
-                            }));
+                        match crate::downloader::process_download(&request, &resolved, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
+                            Ok(dest_path) => {
+                                batch_had_success = true;
+                                let complete = crate::downloader::DownloadStatus {
+                                    id: request.id,
+                                    track_title: track_title.clone(),
+                                    artist_name: artist_name.clone(),
+                                    status: "complete".to_string(),
+                                    progress_pct: 100,
+                                    error: None,
+                                };
+                                dl_worker_manager.set_active(None);
+                                dl_worker_manager.push_completed(complete.clone());
+                                let _ = dl_app_handle.emit("download-complete", serde_json::json!({
+                                    "id": request.id,
+                                    "trackTitle": track_title,
+                                    "destPath": dest_path.to_string_lossy(),
+                                }));
 
-                            // Emit scan-complete so frontend refreshes library
-                            let _ = dl_app_handle.emit("scan-complete", serde_json::json!({
-                                "folder": request.dest_collection_path,
-                            }));
-
-                            // Only rebuild FTS and recompute counts for the last track in a batch
-                            if request.is_batch_last {
-                                if let Err(e) = dl_worker_db.rebuild_fts() {
-                                    log::error!("Failed to rebuild FTS after batch download: {}", e);
-                                }
-                                if let Err(e) = dl_worker_db.recompute_counts() {
-                                    log::error!("Failed to recompute counts after batch download: {}", e);
-                                }
-                                if let Err(e) = dl_worker_db.reconcile_track_likes_from_entity_likes() {
-                                    log::error!("Failed to reconcile track likes after batch download: {}", e);
-                                }
+                                // Emit scan-complete so frontend refreshes library
+                                let _ = dl_app_handle.emit("scan-complete", serde_json::json!({
+                                    "folder": request.dest_collection_path,
+                                }));
+                            }
+                            Err(e) => {
+                                log::error!("Download failed for {}: {}", track_title, e);
+                                let error_status = crate::downloader::DownloadStatus {
+                                    id: request.id,
+                                    track_title: track_title.clone(),
+                                    artist_name: artist_name.clone(),
+                                    status: "error".to_string(),
+                                    progress_pct: 0,
+                                    error: Some(e.clone()),
+                                };
+                                dl_worker_manager.set_active(None);
+                                dl_worker_manager.push_completed(error_status);
+                                let _ = dl_app_handle.emit("download-error", serde_json::json!({
+                                    "id": request.id,
+                                    "trackTitle": track_title,
+                                    "error": e,
+                                }));
                             }
                         }
-                        Err(e) => {
-                            log::error!("Download failed for {}: {}", track_title, e);
-                            let error_status = crate::downloader::DownloadStatus {
-                                id: request.id,
-                                track_title: track_title.clone(),
-                                artist_name: artist_name.clone(),
-                                status: "error".to_string(),
-                                progress_pct: 0,
-                                error: Some(e.clone()),
-                            };
-                            dl_worker_manager.set_active(None);
-                            dl_worker_manager.push_completed(error_status);
-                            let _ = dl_app_handle.emit("download-error", serde_json::json!({
-                                "id": request.id,
-                                "trackTitle": track_title,
-                                "error": e,
-                            }));
+                    }
+
+                    // Post-batch bookkeeping: rebuild FTS / recompute counts / reconcile
+                    // track likes once per batch, on the last request — regardless of
+                    // whether that final track succeeded — as long as at least one track
+                    // in the batch actually downloaded. This ensures earlier successes in
+                    // the batch get indexed even when the last track fails to resolve or
+                    // download, while a wholly-failed batch skips the needless rebuild.
+                    if request.is_batch_last {
+                        if batch_had_success {
+                            if let Err(e) = dl_worker_db.rebuild_fts() {
+                                log::error!("Failed to rebuild FTS after batch download: {}", e);
+                            }
+                            if let Err(e) = dl_worker_db.recompute_counts() {
+                                log::error!("Failed to recompute counts after batch download: {}", e);
+                            }
+                            if let Err(e) = dl_worker_db.reconcile_track_likes_from_entity_likes() {
+                                log::error!("Failed to reconcile track likes after batch download: {}", e);
+                            }
                         }
+                        batch_had_success = false;
                     }
                 }
             }); });
