@@ -294,10 +294,13 @@ const SEARCH_RESULTS = {
 
 window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
   if (cmd.startsWith('plugin:')) {
+    // Persisted settings the screenshots expect (collapsed chrome). The app
+    // restores via ONE `entries()` round-trip (readPersistedSettings), so the
+    // same values must be served from both `get` and `entries`.
+    const storeValues = { sidebarCollapsed: true, queueCollapsed: true, view: 'search' };
     if (cmd === 'plugin:store|get') {
       const key = args && args.key;
-      if (key === 'sidebarCollapsed' || key === 'queueCollapsed') return [true, true];
-      if (key === 'view') return ['search', true];
+      if (key && key in storeValues) return [storeValues[key], true];
       return [null, false];
     }
     if (cmd === 'plugin:store|get_store') return 1;
@@ -305,11 +308,11 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     if (cmd === 'plugin:store|load') return null;
     if (cmd === 'plugin:store|save') return null;
     if (cmd === 'plugin:store|clear') return null;
-    if (cmd === 'plugin:store|keys') return [];
-    if (cmd === 'plugin:store|values') return [];
-    if (cmd === 'plugin:store|entries') return [];
-    if (cmd === 'plugin:store|length') return 0;
-    if (cmd === 'plugin:store|has') return false;
+    if (cmd === 'plugin:store|keys') return Object.keys(storeValues);
+    if (cmd === 'plugin:store|values') return Object.values(storeValues);
+    if (cmd === 'plugin:store|entries') return Object.entries(storeValues);
+    if (cmd === 'plugin:store|length') return Object.keys(storeValues).length;
+    if (cmd === 'plugin:store|has') return !!(args && args.key in storeValues);
     if (cmd === 'plugin:event|listen') {
       if (!eventListeners.has(args.event)) eventListeners.set(args.event, []);
       eventListeners.get(args.event).push(args.handler);

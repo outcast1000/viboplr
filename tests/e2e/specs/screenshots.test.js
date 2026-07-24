@@ -163,7 +163,10 @@ test.describe('Screenshots', () => {
     await page.screenshot({ path: path.join(outDir, 'mini-player.png'), type: 'png' });
   });
 
-  test('07 - keyboard', async ({ page }) => {
+  // Skipped: the CaptionBar "?" keyboard-shortcuts overlay was removed from
+  // the app, so this screenshot can no longer be produced. Re-enable (or
+  // retarget) if a shortcuts surface returns.
+  test.skip('07 - keyboard', async ({ page }) => {
     await setup(page);
     // Click the "?" button in the CaptionBar to open keyboard shortcuts overlay
     const helpBtn = page.locator('button[title="Keyboard shortcuts"]');

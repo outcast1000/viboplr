@@ -13,7 +13,9 @@ window.__TAURI_INTERNALS__.metadata = {
 
 // Mock convertFileSrc — return a tiny silent WAV data URI so the browser
 // can actually load/play it (asset:// URLs don't work outside Tauri).
-const SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+// 0.25s of actual 8-bit silence — a zero-sample WAV makes the media element
+// fire 'error', which cascades into app-side retry/fallback paths mid-test.
+const SILENT_WAV = 'data:audio/wav;base64,UklGRvQHAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YdAHAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
 window.__TAURI_INTERNALS__.convertFileSrc = function (_filePath, _protocol) {
   return SILENT_WAV;
 };
@@ -77,26 +79,29 @@ const TEST_COLLECTIONS = [
 window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
   // Plugin commands (store, shortcuts, etc.) — return safe defaults
   if (cmd.startsWith('plugin:')) {
-    // plugin:store — LazyStore / Store operations
+    // plugin:store — LazyStore / Store operations. The app restores persisted
+    // settings in ONE `entries()` round-trip (startup/readPersistedSettings.ts),
+    // so the same values must be served from both `get` and `entries` — an
+    // entries() that returns [] silently drops every seeded/default setting.
     if (cmd === 'plugin:store|get_store') return 1;
+    const storeDefaults = { queueCollapsed: false, sidebarCollapsed: false, view: 'search' };
+    // Tests may seed persisted values via window.__E2E_STORE_SEED__ (opt-in).
+    const storeSeed = (typeof window !== 'undefined' && window.__E2E_STORE_SEED__) || {};
+    const storeValues = { ...storeDefaults, ...storeSeed };
     if (cmd === 'plugin:store|get') {
-      const storeDefaults = { queueCollapsed: false, sidebarCollapsed: false, view: 'search' };
-      // Tests may seed persisted values via window.__E2E_STORE_SEED__ (opt-in).
-      const seed = (typeof window !== 'undefined' && window.__E2E_STORE_SEED__) || {};
       const key = args && args.key;
-      if (key && key in seed) return [seed[key], true];
-      if (key && key in storeDefaults) return [storeDefaults[key], true];
+      if (key && key in storeValues) return [storeValues[key], true];
       return [null, false];
     }
     if (cmd === 'plugin:store|set') return null;
     if (cmd === 'plugin:store|load') return 1;
     if (cmd === 'plugin:store|save') return null;
     if (cmd === 'plugin:store|clear') return null;
-    if (cmd === 'plugin:store|keys') return [];
-    if (cmd === 'plugin:store|values') return [];
-    if (cmd === 'plugin:store|entries') return [];
-    if (cmd === 'plugin:store|length') return 0;
-    if (cmd === 'plugin:store|has') return false;
+    if (cmd === 'plugin:store|keys') return Object.keys(storeValues);
+    if (cmd === 'plugin:store|values') return Object.values(storeValues);
+    if (cmd === 'plugin:store|entries') return Object.entries(storeValues);
+    if (cmd === 'plugin:store|length') return Object.keys(storeValues).length;
+    if (cmd === 'plugin:store|has') return !!(args && args.key in storeValues);
     if (cmd === 'plugin:store|delete') return false;
 
     // plugin:event — event system
@@ -143,6 +148,11 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return [{ name: 'default', isCurrent: true }];
     case 'get_pending_profile_switch':
       return null;
+    // Settings > Debug reads these; null answers crash TimingTable / path rows.
+    case 'get_app_paths':
+      return ['/mock/profile', '/mock/logs'];
+    case 'get_startup_timings':
+      return [];
     case 'get_artists':
       return TEST_ARTISTS;
     case 'get_albums':
