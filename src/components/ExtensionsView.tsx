@@ -834,6 +834,11 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
 
     setInstallFlow({ id: ext.id, name: ext.name, phase: "resolving", downloaded: 0, total: null });
     const res = await onInstallFromGallery(entry);
+    // The modal shows friendly copy for the transient-network cases; keep the raw
+    // string in the log stream so support/debugging still has the exact error.
+    if (!res.ok && res.error && res.error !== INSTALL_CANCELLED) {
+      console.error(`Failed to install plugin ${ext.id}:`, res.error);
+    }
     setInstallFlow((prev) => {
       if (!prev || prev.id !== ext.id) return prev;
       if (res.ok) return { ...prev, phase: "done", needsEnable: true };

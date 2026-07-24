@@ -40,6 +40,38 @@ const PHASE_LABEL: Record<Exclude<InstallPhase, "done" | "error">, string> = {
   installing: "Installing…",
 };
 
+/**
+ * Map a raw backend install error to friendly, actionable copy. The gallery
+ * install fetches the plugin's `update.json` and zip straight from GitHub
+ * (`plugins.rs` / `update_checker.rs`), and those hops surface plain strings:
+ *   "HTTP 5xx"                              — GitHub gateway/upstream blip (504 is the common one)
+ *   "HTTP error: …" / "Download failed: …"  — request never got a response (timeout / connection)
+ *   "Read error: …"                         — the stream dropped mid-download
+ * All of these are transient and clear on a retry, so they get reassuring copy
+ * that points at "Try again". Specific, actionable errors (version requirement,
+ * missing updateUrl, parse failures) pass through unchanged so their detail
+ * isn't lost; an absent error falls back to a generic line.
+ */
+export function friendlyInstallError(raw?: string): string {
+  if (!raw) return "Something went wrong. Please try again.";
+  // GitHub gateway/upstream error (500/502/503/504) — almost always transient.
+  if (/\bHTTP 5\d\d\b/.test(raw)) {
+    return "GitHub is temporarily unavailable — this usually clears in a moment. Try again.";
+  }
+  // Request timed out (a server 504 is caught above; this is the client side).
+  if (/timed?\s?out/i.test(raw)) {
+    return "The request to GitHub timed out — check your connection and try again.";
+  }
+  // No response received, or the stream dropped part-way through the download.
+  if (
+    /^(?:HTTP error|Download failed|Read error):/i.test(raw) ||
+    /connection|network|dns|failed to (?:connect|lookup)|tcp connect/i.test(raw)
+  ) {
+    return "Couldn't reach GitHub — check your internet connection and try again.";
+  }
+  return raw;
+}
+
 function CheckIcon() {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -134,8 +166,8 @@ export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry 
               <span className="plugin-install-badge plugin-install-badge--err"><ErrorIcon /></span>
               Couldn't install {flow.name}
             </h2>
-            <p className="delete-confirm-warning">
-              {flow.error || "Something went wrong. Please try again."}
+            <p className="delete-confirm-warning" title={flow.error || undefined}>
+              {friendlyInstallError(flow.error)}
             </p>
             <div className="ds-modal-actions">
               <button className="ds-btn ds-btn--ghost" onClick={onClose}>Close</button>
