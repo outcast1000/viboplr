@@ -577,6 +577,10 @@ function App() {
   // Playback source-resolution engine. The refs it drives are created above (so
   // usePlayback can consume them); this wires the resolver chain + transcode
   // lifecycle and exposes the render-facing resolution state.
+  // Toasts — created before stream resolution and the updater so their
+  // failure/fallback paths can surface feedback.
+  const { toasts, notify, dismiss: dismissToast } = useToasts();
+
   const { resolvingStatus, resolveFailures, resolvedSource } = useStreamResolution({
     resolveTrackSrcRef,
     transcodeSessionRef,
@@ -588,6 +592,7 @@ function App() {
     useNativeVideoRef,
     queue: queueHook.queue,
     currentTrack: playback.currentTrack,
+    notify,
   });
 
   // Native (mpv) video session: punch the CSS hole (see App.css
@@ -912,9 +917,6 @@ function App() {
   const [searchDeletedBatch, setSearchDeletedBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
-
-  // Toasts — created before the updater so its failure paths can surface feedback.
-  const { toasts, notify, dismiss: dismissToast } = useToasts();
 
   // Updater
   const updater = useAppUpdater(betaUpdates ? "beta" : "stable", playback.handleStop, notify);

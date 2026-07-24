@@ -2121,12 +2121,12 @@ export function usePlugins(
       if (!handler) {
         return withResolverLog({ kind: "download:uri", provider, input }, async () => { throw new Error("no resolveByUri handler registered"); }).catch(() => null);
       }
-      try {
-        return await withResolverLog({ kind: "download:uri", provider, input },
-          () => handler(uri, format));
-      } catch {
-        return null;
-      }
+      // Errors propagate: a provider that THROWS is reporting a user-facing
+      // reason ("YouTube bot check", "region-locked", …) — the download modal
+      // shows it, and the background chain catches per-provider and moves on.
+      // Returning null still means "cannot serve this URI, try the next".
+      return await withResolverLog({ kind: "download:uri", provider, input },
+        () => handler(uri, format));
     },
     [],
   );

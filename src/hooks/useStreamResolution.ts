@@ -71,6 +71,8 @@ interface UseStreamResolutionDeps {
   queue: QueueTrack[];
   /** Currently-playing track — drives transcode-session teardown. */
   currentTrack: QueueTrack | null;
+  /** Transient toast — surfaces silent fallbacks (video → library audio copy). */
+  notify: (message: string) => void;
 }
 
 /**
@@ -93,6 +95,7 @@ export function useStreamResolution({
   useNativeVideoRef,
   queue,
   currentTrack,
+  notify,
 }: UseStreamResolutionDeps) {
   const [resolvingStatus, setResolvingStatus] = useState<{ key: string; error: string | null; trying: string | null } | null>(null);
   // Persistent per-track resolve failures, keyed by QueueTrack.key. Survives track
@@ -153,7 +156,7 @@ export function useStreamResolution({
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; native?: boolean; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
+      interface ResolverEntry { name: string; id: string | null; native?: boolean; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; fellBackToAudio?: boolean; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote OR path-less tracks
@@ -275,6 +278,7 @@ export function useStreamResolution({
               // window lingers showing black / the previous frame. `format` is
               // authoritative in isVideoTrack, so a real audio format flips it.
               entry.patch = { ...entry.patch, format: result.format || "m4a" };
+              entry.fellBackToAudio = true;
             }
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
             return resolveUrlDetailed(result.url);
@@ -306,6 +310,11 @@ export function useStreamResolution({
             return next;
           });
           setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id, effectiveSource: entry.effectiveSource ?? { kind: "direct-url", uri: src } });
+          if (entry.fellBackToAudio) {
+            // The user asked for VIDEO and silently got audio — say why, or
+            // "all my videos play as audio" reads as a bug instead of a fallback.
+            notify(`Video source unavailable — playing the audio copy from ${entry.name}.`);
+          }
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
           }

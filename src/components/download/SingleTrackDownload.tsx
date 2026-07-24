@@ -258,7 +258,9 @@ export function SingleTrackDownload({
       }
     } catch (e) {
       setResolving(false);
-      setError(`Failed to resolve stream: ${String(e)}`);
+      // Providers throw user-facing reasons (e.g. "YouTube rejected the
+      // request with a sign-in / bot check") — show the message, not "Error:".
+      setError(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
       setStep("configure");
       return;
     }
