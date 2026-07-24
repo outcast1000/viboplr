@@ -103,7 +103,7 @@ import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { PlaylistsView } from "./components/PlaylistsView";
 import { SavePlaylistModal } from "./components/SavePlaylistModal";
-import { EditTrackMetadataModal } from "./components/EditTrackMetadataModal";
+import { EditTrackMetadataModal, buildTrackInfoEntries, type TrackInfoEntry } from "./components/EditTrackMetadataModal";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import {
@@ -157,7 +157,7 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
-  const [editQueueTrack, setEditQueueTrack] = useState<{ index: number; title: string; artist: string; album: string } | null>(null);
+  const [editQueueTrack, setEditQueueTrack] = useState<{ index: number; title: string; artist: string; album: string; info: TrackInfoEntry[] } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
@@ -3317,7 +3317,22 @@ function App() {
   openEditTrackInfoRef.current = (index) => {
     const t = queueHook.queue[index];
     if (!t) return;
-    setEditQueueTrack({ index, title: t.title, artist: t.artist_name ?? "", album: t.album_title ?? "" });
+    setEditQueueTrack({
+      index,
+      title: t.title,
+      artist: t.artist_name ?? "",
+      album: t.album_title ?? "",
+      // Snapshot the read-only facts at open time — everything on the
+      // QueueTrack except its internal key.
+      info: buildTrackInfoEntries({
+        position: index + 1,
+        durationSecs: t.duration_secs,
+        format: t.format,
+        source: t.path,
+        imageUrl: t.image_url,
+        liked: t.liked,
+      }),
+    });
   };
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
@@ -4597,6 +4612,7 @@ function App() {
           defaultTitle={editQueueTrack.title}
           defaultArtist={editQueueTrack.artist}
           defaultAlbum={editQueueTrack.album}
+          info={editQueueTrack.info}
           onSave={handleEditQueueTrackSave}
           onClose={() => setEditQueueTrack(null)}
         />

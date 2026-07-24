@@ -4,7 +4,7 @@ import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { formatDuration } from "../utils";
 import { save } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
-import { EditTrackMetadataModal, type TrackMetadataEdit } from "./EditTrackMetadataModal";
+import { EditTrackMetadataModal, buildTrackInfoEntries, type TrackMetadataEdit } from "./EditTrackMetadataModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import type { PlaylistContext } from "../hooks/useQueue";
 import type { QueueTrack } from "../types";
@@ -689,6 +689,13 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
             defaultTitle={editTrack.title}
             defaultArtist={editTrack.artist_name ?? ""}
             defaultAlbum={editTrack.album_name ?? ""}
+            info={buildTrackInfoEntries({
+              position: editTrack.position + 1,
+              durationSecs: editTrack.duration_secs,
+              source: editTrack.source,
+              imageUrl: editTrack.image_path,
+              liked: editTrack.liked,
+            })}
             onSave={handleEditTrackSave}
             onClose={() => setEditTrack(null)}
           />
