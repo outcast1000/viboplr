@@ -331,14 +331,13 @@ impl Database {
 
     /// Sync the download_providers table from plugin manifests.
     /// Takes vec of (plugin_id, provider_id, name, priority).
-    /// Deactivates all rows, upserts current providers (preserving user-customized priorities),
-    /// reactivates current providers, then deletes orphaned rows.
+    /// Upserts current providers (preserving user-customized priorities AND the
+    /// user's enable toggle), then deletes orphaned rows.
     pub fn sync_download_providers(&self, providers: &[(String, String, String, i64)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("BEGIN")?;
-        // Deactivate all
-        conn.execute("UPDATE download_providers SET active = 0", [])?;
-        // Insert new providers (OR IGNORE preserves existing rows with user-customized priorities)
+        // Insert new providers (OR IGNORE preserves existing rows with
+        // user-customized priorities and enable state; new rows default active=1)
         {
             let mut insert_stmt = conn.prepare(
                 "INSERT OR IGNORE INTO download_providers (plugin_id, provider_id, name, priority) VALUES (?1, ?2, ?3, ?4)"
@@ -347,10 +346,12 @@ impl Database {
                 insert_stmt.execute(rusqlite::params![p.0, p.1, p.2, p.3])?;
             }
         }
-        // Update name for existing rows (in case the plugin renamed the provider)
+        // Update name for existing rows (in case the plugin renamed the provider).
+        // Never touch `active` here: that column is the user's Settings toggle,
+        // and force-reactivating on every launch made the toggle cosmetic.
         {
             let mut update_stmt = conn.prepare(
-                "UPDATE download_providers SET name = ?1, active = 1 WHERE plugin_id = ?2 AND provider_id = ?3"
+                "UPDATE download_providers SET name = ?1 WHERE plugin_id = ?2 AND provider_id = ?3"
             )?;
             for p in providers {
                 update_stmt.execute(rusqlite::params![p.2, p.0, p.1])?;

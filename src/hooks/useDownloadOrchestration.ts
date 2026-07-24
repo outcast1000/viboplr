@@ -96,9 +96,10 @@ export function useDownloadOrchestration({
 }: UseDownloadOrchestrationDeps) {
   const [downloadModal, setDownloadModal] = useState<DownloadModalState | null>(null);
   const [providerPriorities, setProviderPriorities] = useState<Map<string, number>>(new Map());
+  const [disabledProviders, setDisabledProviders] = useState<Set<string>>(new Set());
 
-  // Build ordered download provider list from active plugins
-  const downloadProviders = useMemo(() => {
+  // Build the raw download provider list from active plugins (registration order)
+  const allDownloadProviders = useMemo(() => {
     const providers: DownloadProvider[] = [];
 
     // Built-in subsonic provider
@@ -147,6 +148,18 @@ export function useDownloadOrchestration({
     return providers;
   }, [plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata]);
 
+  // The user-facing provider list: the Settings > Providers enable toggle and
+  // priority order apply to actual resolution (the resolve bridge, decideDownload,
+  // the menus), not just display. Built-in Subsonic is always enabled and first.
+  // Until the DB config loads, everything counts as enabled in registration order.
+  const downloadProviders = useMemo(() => {
+    const rank = (p: DownloadProvider) =>
+      p.source === "__builtin" ? -1 : providerPriorities.get(p.id) ?? Number.MAX_SAFE_INTEGER;
+    return allDownloadProviders
+      .filter(p => p.source === "__builtin" || !disabledProviders.has(p.id))
+      .sort((a, b) => rank(a) - rank(b));
+  }, [allDownloadProviders, disabledProviders, providerPriorities]);
+
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
   downloadProvidersRef.current = downloadProviders;
 
@@ -172,16 +185,20 @@ export function useDownloadOrchestration({
     });
   }, []);
 
-  const refreshProviderPriorities = useCallback(async () => {
+  const refreshProviderConfig = useCallback(async () => {
     try {
-      const rows = await invoke<[string, string, string, number][]>("get_active_download_providers");
+      const rows = await invoke<[string, string, string, number, boolean][]>("get_download_providers");
       const map = new Map<string, number>();
-      for (const [pluginId, providerId, , priority] of rows) {
-        map.set(`${pluginId}:${providerId}`, priority);
+      const off = new Set<string>();
+      for (const [pluginId, providerId, , priority, active] of rows) {
+        const key = `${pluginId}:${providerId}`;
+        map.set(key, priority);
+        if (!active) off.add(key);
       }
       setProviderPriorities(map);
+      setDisabledProviders(off);
     } catch (e) {
-      console.error("Failed to load download provider priorities:", e);
+      console.error("Failed to load download provider config:", e);
     }
   }, []);
 
@@ -216,12 +233,12 @@ export function useDownloadOrchestration({
     }
     if (providerData.length > 0) {
       invoke("sync_download_providers", { providers: providerData })
-        .then(() => refreshProviderPriorities())
+        .then(() => refreshProviderConfig())
         .catch(console.error);
     } else {
-      refreshProviderPriorities();
+      refreshProviderConfig();
     }
-  }, [plugins.pluginStates, refreshProviderPriorities]);
+  }, [plugins.pluginStates, refreshProviderConfig]);
 
   const handleDownloadFromProvider = useCallback((providerId: string, interactive: boolean) => {
     if (!contextMenu) return;
@@ -408,6 +425,7 @@ export function useDownloadOrchestration({
     setDownloadModal,
     downloadProviders,
     downloadProviderEntries,
+    refreshDownloadProviderConfig: refreshProviderConfig,
     handleDownloadFromProvider,
     openDownloadForCurrentTrack,
     resolveNativeDownload,

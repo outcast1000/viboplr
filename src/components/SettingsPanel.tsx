@@ -193,9 +193,11 @@ function parseProviderConfig(
 function ProviderPrioritySection({
   pluginStates,
   onStreamResolverOrderChanged,
+  onDownloadProvidersChanged,
 }: {
   pluginStates?: PluginState[];
   onStreamResolverOrderChanged?: () => void;
+  onDownloadProvidersChanged?: () => void;
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
@@ -301,6 +303,7 @@ function ProviderPrioritySection({
         });
       }
       await fetchConfig();
+      if (row.kind === "download") onDownloadProvidersChanged?.();
     } catch (e) {
       console.error("Failed to toggle active:", e);
     }
@@ -347,6 +350,7 @@ function ProviderPrioritySection({
     try {
       await Promise.all(updates);
       await fetchConfig();
+      if (row.kind === "download") onDownloadProvidersChanged?.();
     } catch (e) {
       console.error("Failed to update priorities:", e);
     }
@@ -497,6 +501,7 @@ function ProviderPrioritySection({
         });
       }
       await fetchConfig();
+      if (downloadDefaults.length > 0) onDownloadProvidersChanged?.();
     } catch (e) {
       console.error("Failed to reset priorities:", e);
     }
@@ -1160,6 +1165,8 @@ interface SettingsPanelProps {
   onNotify: (message: string) => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
+  // Download provider toggle/reorder — re-syncs the live resolve chain
+  onDownloadProvidersChanged?: () => void;
   dependencies?: {
     deps: Array<{
       name: string;
@@ -1253,6 +1260,7 @@ export function SettingsPanel({
   onSwitchProfile,
   onNotify,
   onStreamResolverOrderChanged,
+  onDownloadProvidersChanged,
   dependencies,
   autoUpdateManagedDeps,
   onAutoUpdateManagedDepsChange,
@@ -1665,7 +1673,7 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "providers" && (
-                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
+                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} onDownloadProvidersChanged={onDownloadProvidersChanged} />
             )}
 
             {settingsTab === "debug" && (

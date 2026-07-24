@@ -1190,6 +1190,7 @@ function App() {
     setDownloadModal,
     downloadProviders,
     downloadProviderEntries,
+    refreshDownloadProviderConfig,
     handleDownloadFromProvider,
     openDownloadForCurrentTrack,
     resolveNativeDownload,
@@ -4007,6 +4008,7 @@ function App() {
               onSwitchProfile={(name) => profileSwitch.switchToProfile(name)}
               onNotify={notify}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
+              onDownloadProvidersChanged={refreshDownloadProviderConfig}
               dependencies={dependencies}
               autoUpdateManagedDeps={autoUpdateManagedDeps}
               onAutoUpdateManagedDepsChange={handleAutoUpdateManagedDepsChange}

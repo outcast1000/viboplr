@@ -2404,6 +2404,32 @@ fn test_download_providers_crud() {
 }
 
 #[test]
+fn test_sync_download_providers_preserves_user_toggle() {
+    let db = test_db();
+    let manifest = vec![
+        ("ytdlp".to_string(), "ytdlp-download".to_string(), "yt-dlp".to_string(), 100),
+    ];
+    db.sync_download_providers(&manifest).unwrap();
+
+    // User disables the provider, then the app relaunches (re-sync).
+    db.update_download_provider_active("ytdlp", "ytdlp-download", false).unwrap();
+    db.sync_download_providers(&manifest).unwrap();
+
+    let providers = db.get_download_providers().unwrap();
+    assert_eq!(providers.len(), 1);
+    assert_eq!(providers[0].4, false, "re-sync must not reset the user's enable toggle");
+
+    // A renamed provider still gets its display name refreshed without touching active.
+    let renamed = vec![
+        ("ytdlp".to_string(), "ytdlp-download".to_string(), "yt-dlp (video)".to_string(), 100),
+    ];
+    db.sync_download_providers(&renamed).unwrap();
+    let providers = db.get_download_providers().unwrap();
+    assert_eq!(providers[0].2, "yt-dlp (video)");
+    assert_eq!(providers[0].4, false);
+}
+
+#[test]
 fn test_find_track_in_collection() {
     let db = test_db();
     let col = db.add_collection("local", "Test", Some("/tmp/test"), None, None, None, None, None).unwrap();
