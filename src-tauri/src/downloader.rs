@@ -89,6 +89,53 @@ pub fn sniff_audio_extension(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
+/// Fallback extension for a requested format value when neither the resolver
+/// nor the downloaded bytes pin one: host-known formats map to their container
+/// ("original" keeps its legacy "flac" naming), while provider-specific quality
+/// values (e.g. "video", "opus" from a plugin's `onGetQualities`) get a neutral
+/// "bin" that the scanner will never mistake for media.
+pub fn format_fallback_extension(format: &str) -> &'static str {
+    DownloadFormat::from_str(format)
+        .map(|f| f.extension())
+        .unwrap_or("bin")
+}
+
+/// Decide the saved file's extension for a completed download.
+///
+/// Priority: a concrete resolver-provided `ext` → the container pinned by a
+/// host-known format (flac/aac/mp3, unless the resolver asked to sniff via
+/// `"auto"`) → sniffing the downloaded bytes ("original" and provider-specific
+/// quality values don't pin a container up front) → `format_fallback_extension`.
+///
+/// The resolver ext is normalized and restricted to plain alphanumeric so a
+/// buggy or malicious resolver can't smuggle path components into the filename.
+pub fn resolve_download_extension(format: &str, resolver_ext: Option<&str>, head: &[u8]) -> String {
+    let explicit = resolver_ext
+        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|e| !e.is_empty() && e != "auto" && e.chars().all(|c| c.is_ascii_alphanumeric()));
+    if let Some(e) = explicit {
+        return e;
+    }
+
+    let pinned = match format {
+        "flac" => Some("flac"),
+        "aac" => Some("m4a"),
+        "mp3" => Some("mp3"),
+        // "original" and provider-specific values: container unknown up front.
+        _ => None,
+    };
+    let wants_sniff = resolver_ext.map(str::trim) == Some("auto");
+    if !wants_sniff {
+        if let Some(p) = pinned {
+            return p.to_string();
+        }
+    }
+
+    sniff_audio_extension(head)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format_fallback_extension(format).to_string())
+}
+
 impl std::fmt::Display for DownloadFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -107,7 +154,11 @@ pub struct DownloadRequest {
     pub album_title: Option<String>,
     pub dest_collection_id: i64,
     pub dest_collection_path: String,
-    pub format: DownloadFormat,
+    /// Raw requested format/quality value. The host interprets
+    /// "flac"/"original"/"aac"/"mp3"; any other value is a provider-specific
+    /// quality (e.g. "video") passed to the resolving provider verbatim — the
+    /// saved extension then comes from the resolver's `ext` or byte-sniffing.
+    pub format: String,
     pub path_pattern: Option<String>,
     /// If true, this is the last track in a batch (album download). FTS rebuild happens after this one.
     pub is_batch_last: bool,
@@ -461,16 +512,6 @@ pub fn process_download(
     let genre = metadata.and_then(|m| m.genre.as_deref());
     let cover_url = metadata.and_then(|m| m.cover_url.as_deref());
 
-    // Whether the resolver wants us to sniff the real extension from the bytes
-    // (original file of unknown container). An explicit extension is used as-is;
-    // otherwise we fall back to the requested format's default.
-    let sniff_ext = resolved.ext.as_deref() == Some("auto");
-    let explicit_ext = resolved
-        .ext
-        .as_deref()
-        .filter(|e| !e.is_empty() && *e != "auto")
-        .map(|e| e.to_string());
-
     // Download to a neutral temp file first. The final extension may depend on
     // the downloaded bytes (sniff case), so the destination path is built after
     // the download completes.
@@ -500,24 +541,16 @@ pub fn process_download(
         }),
     )?;
 
-    // Resolve the final extension: explicit from resolver -> sniffed from bytes
-    // (when requested) -> requested format default.
-    let sniffed = if sniff_ext {
-        let mut head = [0u8; 16];
-        std::fs::File::open(&temp_path)
-            .and_then(|mut f| {
-                use std::io::Read;
-                let n = f.read(&mut head)?;
-                Ok(n)
-            })
-            .ok()
-            .and_then(|n| sniff_audio_extension(&head[..n]))
-    } else {
-        None
-    };
-    let ext: String = explicit_ext
-        .or_else(|| sniffed.map(|s| s.to_string()))
-        .unwrap_or_else(|| request.format.extension().to_string());
+    // Resolve the final extension: explicit from resolver -> pinned by a
+    // host-known format -> sniffed from bytes -> format fallback.
+    let mut head = [0u8; 16];
+    let head_len = std::fs::File::open(&temp_path)
+        .and_then(|mut f| {
+            use std::io::Read;
+            f.read(&mut head)
+        })
+        .unwrap_or(0);
+    let ext = resolve_download_extension(&request.format, resolved.ext.as_deref(), &head[..head_len]);
 
     // Build destination path now that the extension is known.
     let dest_path = build_dest_path(
@@ -559,7 +592,6 @@ pub fn process_download(
         year,
         genre,
         cover_url,
-        &request.format,
     ) {
         log::warn!("Failed to write tags for {}: {}", title, e);
         // Continue even if tagging fails — the file is still valid
@@ -613,7 +645,7 @@ fn process_webm_download(
             if let Some(parent) = dest_path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if let Err(e) = write_tags(&m4a_temp, title, artist, album, track_number, year, genre, None, &DownloadFormat::Aac) {
+            if let Err(e) = write_tags(&m4a_temp, title, artist, album, track_number, year, genre, None) {
                 log::warn!("Failed to write tags for converted {}: {}", title, e);
             }
             std::fs::rename(&m4a_temp, &dest_path).map_err(|e| {
@@ -680,7 +712,6 @@ pub fn write_tags(
     year: Option<i32>,
     genre: Option<&str>,
     cover_url: Option<&str>,
-    _format: &DownloadFormat,
 ) -> Result<(), String> {
     use lofty::config::WriteOptions;
     use lofty::picture::{MimeType, Picture, PictureType};
@@ -768,7 +799,7 @@ mod tests {
             album_title: Some("Test Album".to_string()),
             dest_collection_id: 1,
             dest_collection_path: "/music".to_string(),
-            format: DownloadFormat::Flac,
+            format: "flac".to_string(),
             is_batch_last: false,
             path_pattern: None,
             uri: Some("tidal://123".to_string()),
@@ -965,6 +996,62 @@ mod tests {
     fn test_sniff_unknown_returns_none() {
         assert_eq!(sniff_audio_extension(b"\x00\x01\x02\x03"), None);
         assert_eq!(sniff_audio_extension(b""), None);
+    }
+
+    // --- resolve_download_extension / format_fallback_extension tests ---
+
+    #[test]
+    fn test_format_fallback_extension() {
+        assert_eq!(format_fallback_extension("flac"), "flac");
+        assert_eq!(format_fallback_extension("original"), "flac");
+        assert_eq!(format_fallback_extension("aac"), "m4a");
+        assert_eq!(format_fallback_extension("mp3"), "mp3");
+        // Provider-specific quality values get a neutral non-media extension.
+        assert_eq!(format_fallback_extension("video"), "bin");
+        assert_eq!(format_fallback_extension("opus"), "bin");
+        assert_eq!(format_fallback_extension(""), "bin");
+    }
+
+    #[test]
+    fn test_resolve_ext_explicit_wins() {
+        assert_eq!(resolve_download_extension("flac", Some("mp4"), b"fLaC"), "mp4");
+        assert_eq!(resolve_download_extension("video", Some("webm"), b""), "webm");
+    }
+
+    #[test]
+    fn test_resolve_ext_normalizes_explicit() {
+        assert_eq!(resolve_download_extension("video", Some(" .MP4 "), b""), "mp4");
+    }
+
+    #[test]
+    fn test_resolve_ext_rejects_unsafe_explicit() {
+        // Path components in a resolver ext must never reach the filename.
+        assert_eq!(resolve_download_extension("video", Some("../evil"), b"fLaC"), "flac");
+        assert_eq!(resolve_download_extension("video", Some("a/b"), b"\x00\x01"), "bin");
+    }
+
+    #[test]
+    fn test_resolve_ext_pinned_formats_skip_sniff() {
+        // fLaC bytes must not override a host-known format the server produced.
+        assert_eq!(resolve_download_extension("aac", None, b"fLaC"), "m4a");
+        assert_eq!(resolve_download_extension("mp3", None, b"fLaC"), "mp3");
+        assert_eq!(resolve_download_extension("flac", None, b"\x00\x01"), "flac");
+    }
+
+    #[test]
+    fn test_resolve_ext_auto_sniffs_with_format_fallback() {
+        assert_eq!(resolve_download_extension("flac", Some("auto"), b"ID3\x04rest"), "mp3");
+        assert_eq!(resolve_download_extension("flac", Some("auto"), b"\x00\x01\x02\x03"), "flac");
+    }
+
+    #[test]
+    fn test_resolve_ext_unknown_format_sniffs() {
+        // Provider-specific qualities don't pin a container: sniff, else neutral.
+        assert_eq!(resolve_download_extension("video", None, b"fLaC"), "flac");
+        assert_eq!(resolve_download_extension("video", None, b"\x00\x01\x02\x03"), "bin");
+        // "original" is container-indefinite too — sniff, legacy flac fallback.
+        assert_eq!(resolve_download_extension("original", None, b"OggSrest"), "ogg");
+        assert_eq!(resolve_download_extension("original", None, b"\x00\x01\x02\x03"), "flac");
     }
 
     // --- build_dest_path tests ---

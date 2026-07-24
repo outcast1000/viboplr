@@ -259,7 +259,7 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 - `onFetch(entity, handler)` — entity is `"artist"` or `"album"`. Handler receives `(name, artistName?)` and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`.
 
 ### api.downloads
-- `enqueue(request)` — queue a download through the unified downloader. `request: { title, artistName?, albumTitle?, uri?, durationSecs?, destCollectionId?, destCollectionPath?, format?, provider? }`. Returns the download ID.
+- `enqueue(request)` — queue a download through the unified downloader. `request: { title, artistName?, albumTitle?, uri?, durationSecs?, destCollectionId?, destCollectionPath?, format?, provider? }`. Returns the download ID. `format` is the raw quality value: the host interprets `flac`/`original`/`aac`/`mp3` and passes any other (provider-specific) value — e.g. a `"video"` option from `onGetQualities` — to the resolving provider verbatim; omitted means `"original"`. For non-host-known formats the saved extension comes from the resolver's `ext` or byte-sniffing.
 - `onResolveByUri(providerId, handler)` — handler receives `(uri, format)` and returns a `DownloadResolveResult | null`
 - `onResolveByMetadata(providerId, handler)` — handler receives `(title, artistName, albumName, durationSecs, format)`
 - `onInteractiveSearch(providerId, handler)` — handler receives `(query, limit)` and returns `InteractiveSearchResult[]` for the `DownloadModal` manual-search flow

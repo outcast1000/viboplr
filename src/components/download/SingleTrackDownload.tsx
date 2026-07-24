@@ -250,6 +250,11 @@ export function SingleTrackDownload({
     const effectiveArtist = resolvedArtist || selectedMatch.artistName || null;
     const effectiveAlbum = resolvedAlbum || selectedMatch.albumTitle || null;
     const effectiveTrackNumber = resolvedTrackNumber ?? selectedMatch.trackNumber ?? null;
+    // A concrete resolver-provided extension overrides the format default so the
+    // saved file matches the real container (e.g. a Subsonic original, or the
+    // provider's video container). "auto" means the backend will sniff it, so we
+    // don't force a name here.
+    const concreteExt = effectiveExt && effectiveExt !== "auto" ? effectiveExt : null;
 
     setResolvedStreamUrl(streamUrl);
 
@@ -262,6 +267,7 @@ export function SingleTrackDownload({
           trackId: track.trackId,
           streamUrl,
           format: quality,
+          ext: concreteExt,
           title: effectiveTitle,
           artistName: effectiveArtist,
           albumTitle: effectiveAlbum,
@@ -285,10 +291,6 @@ export function SingleTrackDownload({
       return;
     }
 
-    // A concrete resolver-provided extension overrides the format default so the
-    // saved file matches the real container (e.g. a Subsonic original). "auto"
-    // means the backend will sniff it, so we don't force a name here.
-    const concreteExt = effectiveExt && effectiveExt !== "auto" ? effectiveExt : null;
     try {
       const check = await invoke<ConflictCheck>("check_dest_conflict", {
         artistName: effectiveArtist ?? "Unknown",

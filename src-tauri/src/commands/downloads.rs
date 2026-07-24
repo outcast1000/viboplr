@@ -34,10 +34,13 @@ pub fn enqueue_download(
 ) -> Result<u64, String> {
     let (dest_cid, dest_path) = resolve_dest_collection(&state, dest_collection_id, dest_collection_path)?;
 
+    // The format is a raw quality value. The host interprets flac/original/aac/mp3;
+    // anything else is a provider-specific quality (e.g. "video" from a plugin's
+    // onGetQualities) that must reach the resolving provider verbatim — never
+    // coerce it. Omitted means source quality.
     let fmt = format
-        .as_deref()
-        .map(|s| DownloadFormat::from_str(s).unwrap_or(DownloadFormat::Flac))
-        .unwrap_or(DownloadFormat::Flac);
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "original".to_string());
 
     let id = state.track_download_manager.next_id();
     let request = crate::downloader::DownloadRequest {
@@ -190,15 +193,16 @@ pub async fn check_dest_conflict(
     format: String,
     ext: Option<String>,
 ) -> Result<ConflictCheck, String> {
-    let fmt = DownloadFormat::from_str(&format)?;
     // A resolver-provided extension (e.g. a Subsonic original file's true suffix)
     // overrides the format default so the conflict check and resulting filename
-    // match what will actually be saved.
+    // match what will actually be saved. Provider-specific quality values
+    // ("video", "opus", …) don't pin a container, so without a concrete resolver
+    // ext they fall back to a neutral placeholder rather than failing.
     let ext = ext
         .as_deref()
         .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
         .filter(|e| !e.is_empty() && e != "auto")
-        .unwrap_or_else(|| fmt.extension().to_string());
+        .unwrap_or_else(|| crate::downloader::format_fallback_extension(&format).to_string());
     let filename = crate::downloader::download_filename(&artist_name, &track_title, &ext);
     let dest_path = std::path::Path::new(&dest_dir).join(&filename);
     let dest_str = dest_path.to_string_lossy().to_string();
@@ -275,7 +279,11 @@ pub async fn download_to_path(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<DownloadPathResult, String> {
-    let fmt = DownloadFormat::from_str(&format)?;
+    // Provider-specific quality values ("video", "opus", …) are valid here: the
+    // resolver already produced the stream URL for them, and the destination
+    // path carries the real extension. The format only supplies a last-resort
+    // extension fallback.
+    let fallback_ext = crate::downloader::format_fallback_extension(&format);
     let dest = std::path::PathBuf::from(&dest_path);
 
     // Pre-check: if not overwriting and file exists, error
@@ -297,7 +305,7 @@ pub async fn download_to_path(
         }
 
         // Download to temp file first
-        let ext = final_dest.extension().and_then(|e| e.to_str()).unwrap_or(fmt.extension());
+        let ext = final_dest.extension().and_then(|e| e.to_str()).unwrap_or(fallback_ext);
         let temp_path = final_dest.with_extension(format!("viboplr-dl.{}", ext));
 
         crate::downloader::download_file(
@@ -321,7 +329,6 @@ pub async fn download_to_path(
                 None, // year
                 None, // genre
                 cover_url.as_deref(),
-                &fmt,
             );
         }
 
@@ -339,7 +346,7 @@ pub async fn download_to_path(
 
         let actual_format = final_dest.extension()
             .and_then(|e| e.to_str())
-            .unwrap_or(fmt.extension())
+            .unwrap_or(fallback_ext)
             .to_uppercase();
 
         Ok(DownloadPathResult {
@@ -388,18 +395,25 @@ pub async fn download_preview(
     track_id: i64,
     stream_url: String,
     format: String,
+    ext: Option<String>,
     title: Option<String>,
     artist_name: Option<String>,
     album_title: Option<String>,
     track_number: Option<u32>,
     cover_url: Option<String>,
 ) -> Result<UpgradePreviewInfo, String> {
-    let fmt = DownloadFormat::from_str(&format)?;
     let db = state.db.clone();
     let track = db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
 
     tauri::async_runtime::spawn_blocking(move || -> Result<UpgradePreviewInfo, String> {
-        let actual_ext = fmt.extension();
+        // The resolver's concrete extension names the real container (needed for
+        // provider-specific qualities like "video"); host-known formats fall back
+        // to their own container, everything else to a neutral placeholder.
+        let actual_ext = ext
+            .as_deref()
+            .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
+            .filter(|e| !e.is_empty() && e != "auto")
+            .unwrap_or_else(|| crate::downloader::format_fallback_extension(&format).to_string());
 
         // Build temp path next to original file
         let bare = track.filesystem_path()
@@ -438,7 +452,6 @@ pub async fn download_preview(
                 None, // year
                 None, // genre
                 cover_url.as_deref(),
-                &fmt,
             ) {
                 log::warn!("Failed to write tags to upgrade preview: {}", e);
             }

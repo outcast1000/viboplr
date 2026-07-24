@@ -345,6 +345,7 @@ export function MultiTrackDownload({
                 trackId: t.libraryTrackId,
                 streamUrl,
                 format: quality,
+                ext: resolved.ext && resolved.ext !== "auto" ? resolved.ext : null,
                 title,
                 artistName,
                 albumTitle,
