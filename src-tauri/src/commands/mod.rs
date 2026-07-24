@@ -928,7 +928,9 @@ fn resolve_and_download_track(
         "format": format,
     }));
 
-    match rx.recv_timeout(std::time::Duration::from_secs(60)) {
+    // Same budget as the download worker: resolvers may download the whole file
+    // before answering (yt-dlp), and the frontend allows 60s per provider.
+    match rx.recv_timeout(std::time::Duration::from_secs(300)) {
         Ok(Some(response)) => {
             log::info!("[mixtape-export] resolve #{}: got URL {} ({})",
                 resolve_id, &response.url[..response.url.len().min(80)],

@@ -400,7 +400,7 @@ Download providers implement URL resolution for the unified `DownloadModal`.
 - **By metadata:** a plugin accepts arbitrary `(title, artistName, albumName, durationSecs, format)` via `onResolveByMetadata`. Used for automatic fallbacks (e.g., YouTube search-and-download).
 - **Interactive:** a plugin contributes `onInteractiveSearch` + `onInteractiveResolve`, surfaced as manual search inside `DownloadModal` with per-track picking.
 
-Providers are prioritized by internal hardcoded defaults (in `usePlugins.ts`); unknown plugins are added last. The built-in Subsonic provider handles `subsonic://` URIs natively.
+Providers are prioritized by internal hardcoded defaults (in `usePlugins.ts`); unknown plugins are added last. The user's Settings > Providers configuration applies to actual resolution, not just display: a disabled provider is skipped by the auto-resolve chain, `decideDownload`, and the context menus, and the chain walks providers in the user's priority order (the enable toggle survives restarts — `sync_download_providers` never resets it). Each resolver call is bounded to **60 seconds** (same budget as stream resolvers — download resolvers like yt-dlp may fetch the whole file before answering); the backend waits up to 300s for the whole chain. The built-in Subsonic provider handles `subsonic://` URIs natively and is always enabled and first.
 
 ## Home Shelves
 

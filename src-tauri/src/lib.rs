@@ -928,10 +928,14 @@ pub fn run() {
                         "format": request.format.to_string(),
                     }));
 
-                    // Wait for the frontend to resolve the stream URL (30s timeout).
+                    // Wait for the frontend to resolve the stream URL. Download
+                    // resolvers may fetch the whole file before answering (yt-dlp),
+                    // and the frontend walks the chain at 60s per provider — this
+                    // cap only guards against a dead/reloaded webview never
+                    // responding, so it must comfortably exceed the chain budget.
                     // On failure we record the error but leave `resolved` None and fall
                     // through, so the loop still reaches the post-batch bookkeeping below.
-                    let resolved = match rx.recv_timeout(std::time::Duration::from_secs(30)) {
+                    let resolved = match rx.recv_timeout(std::time::Duration::from_secs(300)) {
                         Ok(Some(response)) => Some(response),
                         Ok(None) => {
                             // Frontend responded with None (provider could not resolve)

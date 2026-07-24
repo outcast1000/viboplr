@@ -20,7 +20,10 @@ export interface DownloadModalState {
 }
 
 /** Walk the plugin download-provider chain (by-uri first, then by-metadata) and
- * return the first successful resolution. Each provider call is bounded to 10s.
+ * return the first successful resolution. Each provider call is bounded to 60s —
+ * the same budget stream resolvers get, because download resolvers may fetch the
+ * whole file before answering (yt-dlp). The backend's resolve wait (300s) must
+ * stay comfortably above this chain budget.
  * Exported for unit testing of the provider-id matching. */
 export async function resolveTrackDownload(
   providers: DownloadProvider[],
@@ -46,7 +49,7 @@ export async function resolveTrackDownload(
       try {
         const result = await Promise.race([
           p.resolveByUri(uri, format),
-          new Promise<null>((r) => setTimeout(() => r(null), 10000)),
+          new Promise<null>((r) => setTimeout(() => r(null), 60000)),
         ]);
         if (result) return result;
       } catch {
