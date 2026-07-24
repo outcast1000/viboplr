@@ -3605,7 +3605,6 @@ function App() {
                     queueHook.playTracks([track], 0);
                   }
                 }}
-                onWatchOnYoutube={track.id != null ? () => contextMenuActions.watchOnYoutube(track.title, track.artist_name, track.duration_secs) : undefined}
                 onStartRadio={() => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
                 onToggleLike={() => likeActions.handleToggleLike(track)}
                 onToggleDislike={() => likeActions.handleToggleDislike(track)}
@@ -3651,7 +3650,6 @@ function App() {
                 isCurrentTrack={false}
                 onPlay={() => queueHook.playTracks([syntheticTrack], 0)}
                 onPlayAt={() => {}}
-                onWatchOnYoutube={syntheticTrack.artist_name ? () => contextMenuActions.watchOnYoutube(syntheticTrack.title, syntheticTrack.artist_name, syntheticTrack.duration_secs) : undefined}
                 onStartRadio={syntheticTrack.artist_name ? () => contextMenuActions.startRadio({ title: syntheticTrack.title, artistName: syntheticTrack.artist_name, coverPath: albumImg ?? artistImg ?? null }) : undefined}
                 onToggleLike={() => {}}
                 onToggleDislike={() => {}}
@@ -4461,10 +4459,6 @@ function App() {
           trackTitle={playback.failedTrack?.title ?? null}
           onDismiss={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); }}
           onSkip={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); handleNext(); }}
-          onSearchYoutube={playback.failedTrack ? () => {
-            const ft = playback.failedTrack!;
-            contextMenuActions.watchOnYoutube(ft.title, ft.artist_name ?? null, ft.duration_secs ?? null);
-          } : undefined}
           mpvSuggestion={
             isFormatPlaybackError(playback.playbackError)
               && !(mpvCapable && playbackEngine === "native")

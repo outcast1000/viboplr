@@ -13,14 +13,13 @@ interface Props {
   trackTitle: string | null;
   onDismiss: () => void;
   onSkip: () => void;
-  onSearchYoutube?: () => void;
   /** When set, offer the native mpv engine as a fix for this format error. */
   mpvSuggestion?: MpvSuggestion | null;
 }
 
 const AUTO_SKIP_SECS = 15;
 
-export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip, onSearchYoutube, mpvSuggestion }: Props) {
+export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip, mpvSuggestion }: Props) {
   const [remaining, setRemaining] = useState(AUTO_SKIP_SECS);
 
   // Hold the auto-skip while the engine is downloading — skipping mid-install
@@ -72,11 +71,6 @@ export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSki
           </p>
         )}
         <div className="ds-modal-actions">
-          {onSearchYoutube && (
-            <button className="ds-btn ds-btn--ghost" onClick={onSearchYoutube}>
-              Search on YouTube
-            </button>
-          )}
           <button className="ds-btn ds-btn--ghost" onClick={onDismiss}>
             Dismiss
           </button>

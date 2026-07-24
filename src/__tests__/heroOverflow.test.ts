@@ -43,11 +43,11 @@ describe("buildHeroOverflowItems", () => {
     ]);
   });
 
-  it("renders only Find in YouTube for the YouTube section (track)", () => {
+  it("renders track-only actions (radio) after a divider for a track", () => {
     const items = buildHeroOverflowItems({
       entityKind: "track",
       imageActions: { onRefresh: noop },
-      youtube: { onFind: noop },
+      radio: { onStart: noop },
       pluginItems: [],
     });
 
@@ -55,11 +55,9 @@ describe("buildHeroOverflowItems", () => {
     expect(labels).toEqual([
       "Retrieve image",
       "---",
-      "Find in YouTube",
+      "Start radio",
     ]);
-    expect(labels).not.toContain("Set YouTube URL");
-    expect(labels).not.toContain("Edit YouTube URL");
-    expect(labels).not.toContain("Remove YouTube URL");
+    expect(labels).not.toContain("Find in YouTube");
   });
 
   it("invokes the action onClick when activated", () => {
@@ -86,7 +84,7 @@ describe("buildHeroOverflowItems", () => {
     const noImageOnly = buildHeroOverflowItems({
       entityKind: "track",
       imageActions: {},
-      youtube: { onFind: noop },
+      radio: { onStart: noop },
       pluginItems: [],
     });
     expect(noImageOnly.some(i => i.kind === "divider")).toBe(false);

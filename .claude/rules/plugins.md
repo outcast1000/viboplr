@@ -352,8 +352,7 @@ Renderers emit actions via `onAction(actionId, payload)`. Built-in actions handl
 |---|---|---|
 | `save-lyrics` | `{text, kind}` | Upserts lyrics to cache |
 | `play-track` | `{id}` | Plays library track by ID |
-| `play-or-youtube` | `{name, artist?}` | Tries library, falls back to YouTube |
-| `youtube-search` | `{name, artist?}` | Opens YouTube search |
+| `play-or-youtube` | `{name, artist?}` | Plays a metadata-only external track — resolved on play through the stream-resolver chain (e.g. the yt-dlp plugin), so a library copy or any resolver can satisfy it |
 
 ## Image Provider Chain (Rust-JS Bridge)
 

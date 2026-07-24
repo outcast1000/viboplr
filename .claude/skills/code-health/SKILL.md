@@ -19,7 +19,7 @@ This skill complements (does not replace) `css-review` (skin compliance) and `ar
 
 Before scanning, build a model of the project's canonical patterns. **Do not skip this** — findings without grounding in these files are noise.
 
-1. **`.claude/rules/conventions.md`** — canonical actions (Delete Tracks, Find in YouTube, Like/Unlike, Play/Enqueue, etc.) and behavioral rules (error logging, user feedback, skin compatibility, plugin-first)
+1. **`.claude/rules/conventions.md`** — canonical actions (Delete Tracks, Like/Unlike, Play/Enqueue, etc.) and behavioral rules (error logging, user feedback, skin compatibility, plugin-first)
 2. **`.claude/rules/frontend.md`** — hook responsibilities, state persistence, keyboard shortcuts
 3. **`.claude/rules/backend.md`** — file responsibilities, DB patterns, background task patterns
 4. **`.claude/rules/plugins.md`** — plugin API surface, information types
@@ -38,7 +38,7 @@ For each canonical action in `conventions.md`, find callers that reimplement the
 
 **How to detect:**
 - **Delete Tracks:** Grep for `invoke("delete_tracks"` outside `useContextMenuActions.ts`. Flag each.
-- **Find in YouTube:** Grep for `invoke("search_youtube"` or direct `youtube.com/results` URL construction outside `useContextMenuActions.ts`. Verify callers go through `watchOnYoutube`.
+- **YouTube playback (plugin-owned):** There is no core YouTube search action anymore — the yt-dlp plugin owns it (its "Watch YouTube video" context-menu item). Flag any reintroduction of a core helper: `invoke("search_youtube"` (command removed), a `watchOnYoutube` helper, or direct `youtube.com/results` URL construction in `src/`.
 - **Like/Unlike:** Grep for `invoke("toggle_liked"` outside `useLikeActions.ts`. Flag each.
 - **Play / Enqueue / Play Next:** Grep for direct queue mutation (`setQueue(`, `queue.push`) outside `useQueue.ts` and `usePlayback.ts`. Flag surfaces that bypass `playTracks` / `enqueueTracks` / `playNextInQueue`.
 - **Show in Folder:** Grep for `invoke("show_in_folder"` outside `useContextMenuActions.ts`.

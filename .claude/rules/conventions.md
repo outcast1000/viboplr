@@ -13,12 +13,10 @@ Each entry documents the gold standard implementation for a repeated user action
 - **Confirmation opt-out:** the `confirmTrashDelete` store key (default `true`, Settings → General; also flippable via the modal's "Don't ask again" checkbox) gates the modal for **safe (reversible) trash deletes only**. Permanent deletes — network-share files with no Recycle Bin (`request.network`) — **always** confirm regardless, and never offer the "Don't ask again" checkbox. New delete entry points must reuse this gate, not reimplement it.
 - **Availability:** Local tracks only (`file://` scheme). Uses `isLocalTrack()` helper from `queueEntry.ts`. Single-track checks `target.isLocal` on the context menu target. Multi-track filters with `isLocalTrack(t)`.
 
-### Find in YouTube
+### YouTube playback (plugin-owned)
 
-- **Canonical:** `useContextMenuActions.ts` -> `watchOnYoutube(title, artistName, durationSecs?)`
-- **Flow:** `invoke("search_youtube", { title, artistName, durationSecs })` -> on success, open the resolved video URL -> on failure, `console.error` and fall back to opening the manual YouTube search-results URL.
-- **Rule:** All entry points must call `watchOnYoutube` -- do not reimplement the search/open logic. There is **no** per-track YouTube URL storage (no `youtube_url` column/command, no "save this link" modal): every invocation searches fresh.
-- **Label:** Always "Find in YouTube" (not "Watch on YouTube").
+- There is **no** core "Find in YouTube" action and **no** `search_youtube` backend command — both were removed. Searching/playing a track on YouTube is owned entirely by the **yt-dlp plugin** (`outcast1000/viboplr-ytdlp`), which contributes a **"Watch YouTube video"** context-menu item on the universal `track` target: it searches YouTube by the track's title + artist and plays the top hit as a video in the theater (not the system browser).
+- Do **not** reintroduce a core YouTube search/open helper. New YouTube-related behavior belongs in the plugin (per the plugin-first rule). There is still no per-track YouTube URL storage (no `youtube_url` column/command).
 
 ### Like/Unlike Track
 

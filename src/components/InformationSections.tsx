@@ -9,7 +9,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildEntityKey } from "../types/informationTypes";
 import type { QueueTrack } from "../types";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
-import { watchOnYoutube } from "../utils/youtube";
 import "./InformationSections.css";
 
 export interface CustomTab {
@@ -168,11 +167,6 @@ export function InformationSections({
       const artist = resolveArtist(p.artist);
       const ext: QueueTrack = buildExternalQueueTrack(p.name, artist);
       onAction(actionId === "enqueue-track" ? "enqueue-track" : "play-track", ext);
-      return;
-    }
-    if (actionId === "youtube-search") {
-      const p = payload as { name: string; artist?: string } | undefined;
-      if (p) watchOnYoutube(p.name, resolveArtist(p.artist) ?? null);
       return;
     }
     if (onAction) onAction(actionId, payload);

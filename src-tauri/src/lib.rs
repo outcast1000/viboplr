@@ -163,7 +163,6 @@ macro_rules! invoke_handler {
             commands::record_frontend_startup_timings,
             commands::test_collection_connection,
             commands::subsonic_test_connection,
-            commands::search_youtube,
             commands::check_dependencies,
             commands::dependency_install,
             commands::dependency_uninstall_managed,

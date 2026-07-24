@@ -72,7 +72,6 @@ interface TrackDetailViewProps {
   onPlay: () => void;
   onPlayAt: (secs: number) => void;
   onShowInFolder: () => void;
-  onWatchOnYoutube?: () => void;
   onStartRadio?: () => void;
   onToggleLike: () => void;
   onToggleDislike: () => void;
@@ -99,7 +98,7 @@ function prettifyTagKey(key: string): string {
 export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
   isCurrentTrack,
-  onPlay, onPlayAt, onShowInFolder, onWatchOnYoutube, onStartRadio,
+  onPlay, onPlayAt, onShowInFolder, onStartRadio,
   onToggleLike, onToggleDislike,
 }: TrackDetailViewProps) {
   const actions = useDetailActions();
@@ -268,7 +267,6 @@ export function TrackDetailView({
       onSearchImage: handleSearchImageGoogle,
     } : {},
     radio: onStartRadio ? { onStart: onStartRadio } : undefined,
-    youtube: { onFind: () => onWatchOnYoutube?.() },
     pluginItems: actions.buildPluginOverflowItems({
       kind: "track",
       trackId: track.id ?? undefined,

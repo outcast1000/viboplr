@@ -306,12 +306,12 @@ See "Entity System > Context Menu Consistency" for how context menus work across
 
 | Target | Base Actions |
 |--------|-------------|
-| **track** | Play, Enqueue, Play Next, Show in Folder, Find in YouTube, Delete, Bulk Edit, Export as Tape, search providers |
+| **track** | Play, Enqueue, Play Next, Show in Folder, Delete, Bulk Edit, Export as Tape, search providers |
 | **album** | Play All, Enqueue All, Refresh Image |
 | **artist** | Play All, Enqueue All, Refresh Image |
 | **multi-track** | Play, Enqueue, Delete, Bulk Edit |
 | **playlist** | Play All, Enqueue All, Delete |
-| **queue items** | Remove, Keep Only, Move to Top/Bottom; single item also: Details, Edit info…, Find in YouTube, Start radio |
+| **queue items** | Remove, Keep Only, Move to Top/Bottom; single item also: Details, Edit info…, Start radio |
 | **video** | Dock position (top/bottom/left/right) |
 
 Plugin-registered actions appear on all applicable targets automatically. Search providers are user-configurable (built-in and custom).

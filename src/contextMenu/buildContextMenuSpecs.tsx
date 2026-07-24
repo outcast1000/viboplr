@@ -64,7 +64,6 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         if (t.isLocal) {
           specs.push({ kind: "item", text: "Open Containing Folder", action: d.contextMenuActions.handleShowInFolder });
         }
-        specs.push({ kind: "item", text: "Find in YouTube", action: () => d.contextMenuActions.watchOnYoutube(t.title, t.artistName, t.durationSecs) });
         specs.push({ kind: "item", text: "Start radio from this track", action: () => d.contextMenuActions.startRadio({ title: t.title, artistName: t.artistName, coverPath: null }) });
         const libId = parseLibraryId(t.key);
         if (libId != null) {
@@ -127,14 +126,6 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         if (d.openEditTrackInfoRef.current) {
           specs.push({ kind: "item", text: "Edit info…", action: () => d.openEditTrackInfoRef.current?.(target.indices[0]) });
         }
-
-        // Find in YouTube — works by metadata, any track type
-        specs.push({ kind: "item", text: "Find in YouTube", action: () => {
-          const track = d.queueHook.queue[target.indices[0]];
-          if (track) {
-            d.contextMenuActions.watchOnYoutube(track.title, track.artist_name, track.duration_secs ?? null);
-          }
-        }});
 
         // Start radio from this track (single track only)
         specs.push({ kind: "item", text: "Start radio from this track", action: () => {
@@ -254,9 +245,6 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       }
       if (target.kind === "track" && target.isLocal) {
         specs.push({ kind: "item", text: "Open Containing Folder", action: d.contextMenuActions.handleShowInFolder });
-      }
-      if (target.kind === "track" && target.trackId && d.contextMenuActions.handleWatchOnYoutube) {
-        specs.push({ kind: "item", text: "Find in YouTube", action: d.contextMenuActions.handleWatchOnYoutube });
       }
       if (target.kind === "track" && target.title) {
         specs.push({ kind: "item", text: "Start radio from this track", action: () => {

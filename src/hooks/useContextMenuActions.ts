@@ -1,7 +1,6 @@
 import { useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, QueueTrack } from "../types";
-import { watchOnYoutube } from "../utils/youtube";
 import { parseLibraryId, isLocalTrack, isNetworkSharePath } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
@@ -443,14 +442,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  async function handleWatchOnYoutube() {
-    const cm = contextMenuRef.current;
-    if (!cm || cm.target.kind !== "track" || cm.target.trackId == null) return;
-    const { trackId, title, artistName } = cm.target;
-    const track = library.tracks.find(t => t.id === trackId);
-    await watchOnYoutube(title, artistName, track?.duration_secs ?? null);
-  }
-
   function handleInfoTrackContextMenu(e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null }) {
     showMenu({ x: e.clientX, y: e.clientY, target: {
       kind: "track", trackId: info.trackId, isLocal: false, title: info.title, artistName: info.artistName,
@@ -497,8 +488,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleBulkEdit,
     handleDeleteRequest,
     handleDeleteConfirm,
-    watchOnYoutube,
-    handleWatchOnYoutube,
     handleQueueRemove,
     handleQueueKeepOnly,
     handleQueueMoveToTop,
