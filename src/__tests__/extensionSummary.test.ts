@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  summarizeContributes,
   describeContributes,
   skinMockColors,
   mixHex,
@@ -16,26 +15,26 @@ const info = (id: string, name = "X") => ({
   ttl: 0,
 });
 
-describe("summarizeContributes", () => {
+describe("describeContributes", () => {
   it("returns [] for undefined", () => {
-    expect(summarizeContributes(undefined)).toEqual([]);
+    expect(describeContributes(undefined)).toEqual([]);
   });
 
   it("maps well-known information type ids to tidy labels", () => {
     const c: PluginManifestContributes = {
       informationTypes: [info("artist_bio"), info("lyrics_lrclib"), info("similar_tracks")],
     };
-    const caps = summarizeContributes(c);
-    expect(caps).toContain("Bio");
-    expect(caps).toContain("Lyrics");
-    expect(caps).toContain("Similar");
+    const labels = describeContributes(c).map((x) => x.label);
+    expect(labels).toContain("Bio");
+    expect(labels).toContain("Lyrics");
+    expect(labels).toContain("Similar");
   });
 
   it("falls back to the declared name for unknown info types", () => {
     const c: PluginManifestContributes = {
       informationTypes: [info("weird_thing", "Cosmic Vibes")],
     };
-    expect(summarizeContributes(c)).toEqual(["Cosmic Vibes"]);
+    expect(describeContributes(c).map((x) => x.label)).toEqual(["Cosmic Vibes"]);
   });
 
   it("surfaces stream/download/image capabilities first and de-dupes", () => {
@@ -44,8 +43,7 @@ describe("summarizeContributes", () => {
       downloadProviders: [{ id: "yt-dl", name: "YouTube" }],
       imageProviders: [{ entity: "artist" }, { entity: "album" }],
     };
-    const caps = summarizeContributes(c);
-    expect(caps).toEqual(["Streaming", "Download", "Images"]);
+    expect(describeContributes(c).map((x) => x.label)).toEqual(["Streaming", "Download", "Images"]);
   });
 
   it("includes Sidebar view, Menu actions and Settings", () => {
@@ -54,16 +52,10 @@ describe("summarizeContributes", () => {
       contextMenuItems: [{ id: "a", label: "Do", targets: ["track"] }],
       settingsPanel: { id: "s", label: "S", order: 1 },
     };
-    const caps = summarizeContributes(c);
-    expect(caps).toContain("Sidebar view");
-    expect(caps).toContain("Menu actions");
-    expect(caps).toContain("Settings");
-  });
-});
-
-describe("describeContributes", () => {
-  it("returns [] for undefined", () => {
-    expect(describeContributes(undefined)).toEqual([]);
+    const labels = describeContributes(c).map((x) => x.label);
+    expect(labels).toContain("Sidebar view");
+    expect(labels).toContain("Menu actions");
+    expect(labels).toContain("Settings");
   });
 
   it("pairs each capability label with a non-empty description", () => {
@@ -89,16 +81,6 @@ describe("describeContributes", () => {
     expect(describeContributes(c)).toEqual([
       { label: "Cosmic Vibes", description: "Renders cosmic vibes" },
     ]);
-  });
-
-  it("is label-consistent with summarizeContributes", () => {
-    const c: PluginManifestContributes = {
-      streamResolvers: [{ id: "yt", name: "YouTube" }],
-      downloadProviders: [{ id: "yt-dl", name: "YouTube" }],
-      contextMenuItems: [{ id: "a", label: "Do", targets: ["track"] }],
-      settingsPanel: { id: "s", label: "S", order: 1 },
-    };
-    expect(describeContributes(c).map((x) => x.label)).toEqual(summarizeContributes(c));
   });
 });
 

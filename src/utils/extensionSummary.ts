@@ -13,21 +13,10 @@ export interface CapabilityInfo {
 }
 
 /**
- * Condense a plugin's `contributes` into short, human-readable capability
- * labels (e.g. "Lyrics", "Streaming", "Images") for the card chips. Order is
- * stable and de-duplicated. This is the label-only projection of
- * `describeContributes`, so chips and detail descriptions never drift apart.
- */
-export function summarizeContributes(
-  contributes: PluginManifestContributes | undefined,
-): string[] {
-  return describeContributes(contributes).map((c) => c.label);
-}
-
-/**
- * Like `summarizeContributes`, but each capability also carries a short
- * description of what it does — used by the detail "Capabilities" section so
- * users can understand a plugin's contributions before installing/enabling it.
+ * Condense a plugin's `contributes` into short, human-readable capabilities
+ * (e.g. "Lyrics", "Streaming", "Images"), each paired with a description of
+ * what it does — used by the detail "Capabilities" section so users can
+ * understand a plugin's contributions before installing/enabling it.
  * Order is stable and de-duplicated by label.
  */
 export function describeContributes(

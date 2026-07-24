@@ -89,7 +89,6 @@
   overflow: hidden;
   min-height: 2.8em;
 }
-.ext-pcard-chips { margin-top: 10px; }
 .ext-pcard-actions {
   display: flex;
   align-items: center;
@@ -150,7 +149,6 @@
   white-space: nowrap;
   min-width: 0;
 }
-.ext-prow-chips { flex-shrink: 0; flex-wrap: nowrap; }
 .ext-prow-actions { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
 /* Secondary actions stay quiet until the row is hovered or keyboard-focused, so
    the resting list reads clean. They keep their layout box (opacity, not display)
@@ -159,10 +157,6 @@
 .ext-prow:hover .ext-prow-quiet,
 .ext-prow:focus-within .ext-prow-quiet { opacity: 1; }
 .ext-prow--skeleton { pointer-events: none; }
-/* Drop the capability chips when the row gets tight so the actions never wrap. */
-@media (max-width: 900px) {
-  .ext-prow-chips { display: none; }
-}
 
 /* Full-page plugin detail (replaces the grid; back returns) */
 .ext-detail-full {
@@ -188,8 +182,7 @@
 }
 .ext-back:hover { background: var(--bg-hover); color: var(--text-primary); }
 
-/* Capability chips (cards + detail) */
-.ext-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+/* Capability chips (detail "Capabilities" section) */
 .ext-chip {
   font-size: var(--fs-2xs);
   font-weight: 600;

@@ -12,7 +12,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../utils/tauriEvents";
 import { LINKS } from "../constants/links";
-import { summarizeContributes, describeContributes, skinMockColors } from "../utils/extensionSummary";
+import { describeContributes, skinMockColors } from "../utils/extensionSummary";
 import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
 import "./ExtensionsView.css";
 
@@ -164,7 +164,6 @@ function PluginCard({
   // the "Updates available" section; `onUninstall` on every installed card.
   onUpdate?: () => void; onUninstall?: () => void;
 }) {
-  const caps = useMemo(() => summarizeContributes(ext.contributes), [ext.contributes]);
   const installed = ext.status !== "not_installed";
   const isOn = ext.status === "active";
   const hasConfig = ext.status === "active" && !!ext.contributes?.settingsPanel?.id;
@@ -202,15 +201,6 @@ function PluginCard({
       </div>
 
       <div className="ext-pcard-desc">{ext.description}</div>
-
-      {caps.length > 0 && (
-        <div className="ext-chips ext-pcard-chips">
-          {caps.slice(0, 4).map((c) => (
-            <span key={c} className="ext-chip ext-chip--cap">{c}</span>
-          ))}
-          {caps.length > 4 && <span className="ext-chip">+{caps.length - 4}</span>}
-        </div>
-      )}
 
       <div className="ext-pcard-actions">
         {installed ? (
@@ -272,7 +262,6 @@ function PluginRow({
   onToggleEnabled: () => void; onInstall: () => void;
   onUpdate?: () => void; onUninstall?: () => void;
 }) {
-  const caps = useMemo(() => summarizeContributes(ext.contributes), [ext.contributes]);
   const installed = ext.status !== "not_installed";
   const isOn = ext.status === "active";
   const hasConfig = ext.status === "active" && !!ext.contributes?.settingsPanel?.id;
@@ -297,15 +286,6 @@ function PluginRow({
           {ext.description && <span className="ext-prow-desc">{ext.description}</span>}
         </div>
       </div>
-
-      {caps.length > 0 && (
-        <div className="ext-chips ext-prow-chips">
-          {caps.slice(0, 3).map((c) => (
-            <span key={c} className="ext-chip ext-chip--cap">{c}</span>
-          ))}
-          {caps.length > 3 && <span className="ext-chip">+{caps.length - 3}</span>}
-        </div>
-      )}
 
       <div className="ext-prow-actions">
         {installed ? (
