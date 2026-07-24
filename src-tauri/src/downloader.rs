@@ -192,9 +192,14 @@ pub struct DownloadMetadata {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub album: Option<String>,
+    /// Plugins send the documented camelCase shape (`trackNumber`/`coverUrl`,
+    /// see `DownloadResolveResult` in src/types/plugin.ts) — accept both so the
+    /// queue path doesn't silently drop them.
+    #[serde(alias = "trackNumber")]
     pub track_number: Option<u32>,
     pub year: Option<u32>,
     pub genre: Option<String>,
+    #[serde(alias = "coverUrl")]
     pub cover_url: Option<String>,
 }
 
@@ -1321,6 +1326,27 @@ mod tests {
 
         registry.cancel(42);
         assert!(registry.pending.lock().unwrap().is_empty());
+    }
+
+    // --- DownloadResolveResponse deserialization tests ---
+
+    #[test]
+    fn test_resolve_response_accepts_camel_case_metadata() {
+        // The documented plugin shape (DownloadResolveResult in plugin.ts).
+        let json = r#"{"url":"https://x/y.mp3","metadata":{"title":"T","artist":"A","album":"B","trackNumber":7,"coverUrl":"https://img"},"ext":"mp3"}"#;
+        let resp: DownloadResolveResponse = serde_json::from_str(json).unwrap();
+        let m = resp.metadata.unwrap();
+        assert_eq!(m.track_number, Some(7));
+        assert_eq!(m.cover_url.as_deref(), Some("https://img"));
+    }
+
+    #[test]
+    fn test_resolve_response_accepts_snake_case_metadata() {
+        let json = r#"{"url":"https://x/y.mp3","metadata":{"track_number":3,"cover_url":"https://img2"}}"#;
+        let resp: DownloadResolveResponse = serde_json::from_str(json).unwrap();
+        let m = resp.metadata.unwrap();
+        assert_eq!(m.track_number, Some(3));
+        assert_eq!(m.cover_url.as_deref(), Some("https://img2"));
     }
 
     // --- replace_file_safely tests ---

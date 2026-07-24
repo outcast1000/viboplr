@@ -122,6 +122,16 @@ export function SingleTrackDownload({
   const [resolvedArtist, setResolvedArtist] = useState<string | null>(null);
   const [resolvedAlbum, setResolvedAlbum] = useState<string | null>(null);
   const [resolvedTrackNumber, setResolvedTrackNumber] = useState<number | null>(null);
+  // Synchronously-readable twin of the resolved* state above — handleDownload
+  // resolves and then keeps working in the same tick, where the just-set state
+  // is not yet visible.
+  const resolvedMetaRef = useRef<{
+    title: string;
+    artist: string | null;
+    album: string | null;
+    trackNumber: number | null;
+    coverUrl: string | null;
+  } | null>(null);
 
   // Album/artist art resolved by metadata to fill the configure-step art slot
   // when the provider supplied no cover (e.g. direct-URI streaming downloads) —
@@ -181,28 +191,43 @@ export function SingleTrackDownload({
 
   function handleSelectMatch(match: InteractiveSearchResult) {
     setSelectedMatch(match);
+    // A new match invalidates any metadata resolved for the previous one.
+    clearResolvedMeta();
     setStep("configure");
     setError(null);
   }
 
+  function clearResolvedMeta() {
+    resolvedMetaRef.current = null;
+    setResolvedCoverUrl(null);
+    setResolvedTitle(null);
+    setResolvedArtist(null);
+    setResolvedAlbum(null);
+    setResolvedTrackNumber(null);
+  }
+
+  // The ref is the synchronous source of truth (set in the same tick the
+  // resolver answers); the resolved* state mirrors it for render-driven
+  // consumers. Reading only the state here dropped the provider's metadata
+  // corrections for everything that runs in the tick that resolved them.
   function getEffectiveTitle(): string {
-    return resolvedTitle || selectedMatch?.title || track.title;
+    return resolvedMetaRef.current?.title || resolvedTitle || selectedMatch?.title || track.title;
   }
 
   function getEffectiveArtist(): string | null {
-    return resolvedArtist || selectedMatch?.artistName || track.artistName || null;
+    return resolvedMetaRef.current?.artist || resolvedArtist || selectedMatch?.artistName || track.artistName || null;
   }
 
   function getEffectiveAlbum(): string | null {
-    return resolvedAlbum || selectedMatch?.albumTitle || null;
+    return resolvedMetaRef.current?.album || resolvedAlbum || selectedMatch?.albumTitle || null;
   }
 
   function getEffectiveTrackNumber(): number | null {
-    return resolvedTrackNumber ?? selectedMatch?.trackNumber ?? null;
+    return resolvedMetaRef.current?.trackNumber ?? resolvedTrackNumber ?? selectedMatch?.trackNumber ?? null;
   }
 
   function getEffectiveCoverUrl(): string | null {
-    return resolvedCoverUrl || selectedMatch?.coverUrl || null;
+    return resolvedMetaRef.current?.coverUrl || resolvedCoverUrl || selectedMatch?.coverUrl || null;
   }
 
   async function handleStartDownload() {
@@ -213,6 +238,7 @@ export function SingleTrackDownload({
     // Resolve stream URL and metadata from the provider
     let streamUrl: string;
     let effectiveExt: string | null = null;
+    let meta: DownloadResolveResult["metadata"] | undefined;
     try {
       if (directUri && resolveByUri && track.uri) {
         const resolved = await resolveByUri(track.uri, quality);
@@ -223,20 +249,12 @@ export function SingleTrackDownload({
         }
         streamUrl = resolved.url;
         effectiveExt = resolved.ext ?? null;
-        setResolvedCoverUrl(resolved.metadata?.coverUrl || null);
-        setResolvedTitle(resolved.metadata?.title || selectedMatch.title);
-        setResolvedArtist(resolved.metadata?.artist || selectedMatch.artistName || null);
-        setResolvedAlbum(resolved.metadata?.album || selectedMatch.albumTitle || null);
-        setResolvedTrackNumber(resolved.metadata?.trackNumber ?? null);
+        meta = resolved.metadata ?? undefined;
       } else {
         const resolved = await onResolveRef.current(selectedMatch.id, quality);
         streamUrl = resolved.url;
         effectiveExt = resolved.ext ?? null;
-        setResolvedCoverUrl(resolved.metadata?.coverUrl || selectedMatch.coverUrl || null);
-        setResolvedTitle(resolved.metadata?.title || selectedMatch.title);
-        setResolvedArtist(resolved.metadata?.artist || selectedMatch.artistName || null);
-        setResolvedAlbum(resolved.metadata?.album || selectedMatch.albumTitle || null);
-        setResolvedTrackNumber(resolved.metadata?.trackNumber ?? selectedMatch.trackNumber ?? null);
+        meta = resolved.metadata ?? undefined;
       }
     } catch (e) {
       setResolving(false);
@@ -245,11 +263,29 @@ export function SingleTrackDownload({
       return;
     }
 
-    const effectiveCoverUrl = resolvedCoverUrl || selectedMatch.coverUrl || null;
-    const effectiveTitle = resolvedTitle || selectedMatch.title;
-    const effectiveArtist = resolvedArtist || selectedMatch.artistName || null;
-    const effectiveAlbum = resolvedAlbum || selectedMatch.albumTitle || null;
-    const effectiveTrackNumber = resolvedTrackNumber ?? selectedMatch.trackNumber ?? null;
+    // Effective metadata: the resolver's corrections override the selected
+    // match. Computed from the response itself and stored in the ref — the
+    // conflict check and download below run in this same tick, where reading
+    // the just-set resolved* state would still see the old values.
+    const effective = {
+      title: meta?.title || selectedMatch.title,
+      artist: meta?.artist || selectedMatch.artistName || null,
+      album: meta?.album || selectedMatch.albumTitle || null,
+      trackNumber: meta?.trackNumber ?? selectedMatch.trackNumber ?? null,
+      coverUrl: meta?.coverUrl || selectedMatch.coverUrl || null,
+    };
+    resolvedMetaRef.current = effective;
+    setResolvedCoverUrl(effective.coverUrl);
+    setResolvedTitle(effective.title);
+    setResolvedArtist(effective.artist);
+    setResolvedAlbum(effective.album);
+    setResolvedTrackNumber(effective.trackNumber);
+
+    const effectiveCoverUrl = effective.coverUrl;
+    const effectiveTitle = effective.title;
+    const effectiveArtist = effective.artist;
+    const effectiveAlbum = effective.album;
+    const effectiveTrackNumber = effective.trackNumber;
     // A concrete resolver-provided extension overrides the format default so the
     // saved file matches the real container (e.g. a Subsonic original, or the
     // provider's video container). "auto" means the backend will sniff it, so we
@@ -446,11 +482,7 @@ export function SingleTrackDownload({
     }
     setSelectedMatch(null);
     setResolvedStreamUrl(null);
-    setResolvedCoverUrl(null);
-    setResolvedTitle(null);
-    setResolvedArtist(null);
-    setResolvedAlbum(null);
-    setResolvedTrackNumber(null);
+    clearResolvedMeta();
     setStep("search");
   }
 
