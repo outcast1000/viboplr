@@ -911,8 +911,11 @@ function App() {
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
 
+  // Toasts — created before the updater so its failure paths can surface feedback.
+  const { toasts, notify, dismiss: dismissToast } = useToasts();
+
   // Updater
-  const updater = useAppUpdater(betaUpdates ? "beta" : "stable", playback.handleStop);
+  const updater = useAppUpdater(betaUpdates ? "beta" : "stable", playback.handleStop, notify);
 
   // Skins
   const skins = useSkins();
@@ -940,8 +943,6 @@ function App() {
     onFetchSkinGallery: skins.fetchGallery,
     onReloadAllPlugins: plugins.reloadAllPlugins,
   });
-
-  const { toasts, notify, dismiss: dismissToast } = useToasts();
 
   // Stable wrapper so switchToProfile's identity doesn't churn per render.
   const saveStoreNow = useCallback(() => store.save(), []);

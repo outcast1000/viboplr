@@ -19,6 +19,12 @@ interface AppUpdateMeta {
   body: string | null;
 }
 
+/** Backend errors come back as strings (Rust `Result<_, String>`); keep them short for a toast. */
+function errText(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  return msg.length > 200 ? `${msg.slice(0, 200)}…` : msg;
+}
+
 /**
  * App self-update state. The check/install flow runs in Rust
  * (`app_update_check` / `app_update_install`) so the update channel can pick
@@ -27,7 +33,11 @@ interface AppUpdateMeta {
  * discovers the newest release *including* prereleases via the GitHub API —
  * and naturally moves back to stable when a newer stable ships.
  */
-export function useAppUpdater(channel: UpdateChannel, onBeforeInstall?: () => void) {
+export function useAppUpdater(
+  channel: UpdateChannel,
+  onBeforeInstall?: () => void,
+  notify?: (message: string) => void,
+) {
   const [appVersion, setAppVersion] = useState("");
   const [updateState, setUpdateState] = useState<UpdateState>({
     available: null,
@@ -82,14 +92,16 @@ export function useAppUpdater(channel: UpdateChannel, onBeforeInstall?: () => vo
         setTimeout(() => setUpdateState(s => ({ ...s, upToDate: false })), 5000);
       }
     } catch (e) {
+      // A failed check must NOT read as "Up to date" — surface the real reason.
       console.error("Update check failed:", e);
-      setUpdateState(s => ({ ...s, checking: false, upToDate: true }));
-      setTimeout(() => setUpdateState(s => ({ ...s, upToDate: false })), 5000);
+      setUpdateState(s => ({ ...s, checking: false, upToDate: false }));
+      notify?.(`Couldn't check for updates — ${errText(e)}`);
     }
   }
 
   async function handleInstallUpdate() {
     if (!updateState.available) return;
+    const version = updateState.available.version;
     setUpdateState(s => ({ ...s, downloading: true, progress: null }));
     const stopProgress = subscribe<{ downloaded: number; total: number | null }>(
       "app-update-progress",
@@ -108,6 +120,7 @@ export function useAppUpdater(channel: UpdateChannel, onBeforeInstall?: () => vo
     } catch (e) {
       setUpdateState(s => ({ ...s, downloading: false, progress: null }));
       console.error("Failed to install update:", e);
+      notify?.(`Update to v${version} failed — ${errText(e)}. Try again, or download it from viboplr.com.`);
     } finally {
       stopProgress();
     }
