@@ -12,6 +12,7 @@ import {
   type CurveHandle,
 } from "../utils/eqCurve";
 import { GAIN_MIN, GAIN_MAX, type EqMode } from "../eqPresets";
+import "./Eq.css";
 
 const STEP = 0.5;
 const COARSE = 2; // Shift+arrow / PageUp-Down step (dB)

@@ -14,6 +14,7 @@ import { subscribe } from "../utils/tauriEvents";
 import { LINKS } from "../constants/links";
 import { summarizeContributes, describeContributes, skinMockColors } from "../utils/extensionSummary";
 import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
+import "./ExtensionsView.css";
 
 type ExtTab = "skins" | "plugins";
 // Plugins tab layout: the default compact one-per-row list, or the card grid.

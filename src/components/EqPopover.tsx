@@ -8,6 +8,7 @@ import {
 } from "../eqPresets";
 import { EqCurve } from "./EqCurve";
 import { formatDb } from "../utils/eqCurve";
+import "./Eq.css";
 
 interface Props {
   enabled: boolean;

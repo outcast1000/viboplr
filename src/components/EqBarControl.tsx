@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { EqCurve } from "./EqCurve";
 import { formatDb } from "../utils/eqCurve";
 import { GAIN_MIN, GAIN_MAX, type EqMode } from "../eqPresets";
+import "./Eq.css";
 
 // Inline EQ control that lives in the now-playing bar's audio pill. A single
 // fixed-size slot whose contents depend on the EQ mode — so switching modes

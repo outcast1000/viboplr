@@ -171,3 +171,19 @@
   background: var(--text-tertiary);
 }
 
+/* Extensions update badge on the Extensions nav item (moved from App.css). */
+.ext-nav-badge {
+  margin-left: auto;
+  padding: 0 4px;
+  min-width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-radius: 7px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}

@@ -24,6 +24,7 @@ import {
   nextStepId,
   prevStepId,
 } from "./onboardingSteps";
+import "./OnboardingWizard.css";
 
 interface ScanActivity {
   collectionId: number;

@@ -5,6 +5,7 @@ import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
 import { formatDuration, formatFileSize } from "../utils";
 import { MIXTAPE_FORMAT_LADDER, MIXTAPE_FORMAT_DEFAULT } from "../utils/mixtapeFormatLadder";
+import "./Mixtape.css";
 
 export interface ExportTrack {
   id?: number;

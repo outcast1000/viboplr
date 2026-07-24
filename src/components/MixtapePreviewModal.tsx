@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { MixtapePreview, MixtapeImportProgress, Track } from "../types";
 import { formatDuration, formatFileSize } from "../utils";
 import playlistDefault from "../assets/playlist-default.png";
+import "./Mixtape.css";
 
 interface MixtapePreviewModalProps {
   mixtapePath: string;

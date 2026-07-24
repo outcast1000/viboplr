@@ -1,0 +1,507 @@
+/* Equalizer (popover + response curve + inline bar control)
+   Extracted from App.css. Consumed by: EqPopover.tsx, EqCurve.tsx, EqBarControl.tsx. */
+
+.eq-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 600px;
+  max-width: calc(100vw - 24px);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-modal, 10px);
+  padding: 16px 18px 16px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Consolidated header: title · mode seg · spacer · enable · close */
+.eq-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eq-popover-title {
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.eq-header-spacer {
+  flex: 1;
+}
+
+.eq-popover-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: none;
+  border-radius: var(--ds-radius, 6px);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.eq-popover-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* Enable on/off pill toggle */
+.eq-enable-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  user-select: none;
+}
+
+.eq-enable-track {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  transition: background 0.18s;
+  flex-shrink: 0;
+}
+
+.eq-enable-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s;
+}
+
+.eq-enable-toggle.on .eq-enable-track {
+  background: var(--accent);
+}
+
+.eq-enable-toggle.on .eq-enable-thumb {
+  transform: translateX(16px);
+}
+
+.eq-enable-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+.eq-enable-label {
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.eq-enable-toggle.on .eq-enable-label {
+  color: var(--text-primary);
+}
+
+.eq-icon-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius, 6px);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.eq-icon-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.eq-curve-wrap {
+  background: var(--bg-tertiary);
+  border-radius: var(--ds-radius, 6px);
+  padding: 10px 10px 8px;
+  border: 1px solid var(--border);
+}
+
+/* ── Shared response-curve component (EqCurve.tsx) ── */
+.eq-curve-host {
+  position: relative;
+}
+
+.eq-curve-svg {
+  display: block;
+}
+
+.eq-curve-grid {
+  stroke: rgba(var(--overlay-base), 0.10);
+  stroke-width: 1;
+}
+
+.eq-curve-grid--zero {
+  stroke: rgba(var(--overlay-base), 0.22);
+}
+
+.eq-curve-axis {
+  fill: var(--text-tertiary);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.eq-curve-area {
+  fill: var(--accent);
+  fill-opacity: 0.20;
+}
+
+.eq-curve-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(var(--accent-rgb), 0.5));
+}
+
+.eq-curve-host--disabled .eq-curve-area { fill-opacity: 0.08; }
+.eq-curve-host--disabled .eq-curve-line {
+  stroke: var(--text-tertiary);
+  filter: none;
+}
+
+/* Draggable handles — HTML divs over the SVG so they stay round + hit-test in real px */
+.eq-curve-handle {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 2px solid var(--accent);
+  transform: translate(-50%, -50%);
+  cursor: ns-resize;
+  box-shadow: 0 0 6px rgba(var(--accent-rgb), 0.5);
+  transition: transform 0.06s;
+  touch-action: none;
+  z-index: 3;
+}
+
+.eq-curve-handle--band {
+  width: 13px;
+  height: 13px;
+}
+
+.eq-curve-handle:hover,
+.eq-curve-handle.dragging {
+  transform: translate(-50%, -50%) scale(1.18);
+}
+
+.eq-curve-handle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.45), 0 0 6px rgba(var(--accent-rgb), 0.5);
+  transform: translate(-50%, -50%) scale(1.18);
+}
+
+.eq-curve-host--disabled .eq-curve-handle {
+  border-color: var(--text-tertiary);
+  box-shadow: none;
+}
+
+/* Per-handle value tag — always shown for shelf handles, hover/focus only for bands */
+.eq-curve-handle-tag {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.eq-curve-handle--band .eq-curve-handle-tag {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.eq-curve-handle--band:hover .eq-curve-handle-tag,
+.eq-curve-handle--band:focus-visible .eq-curve-handle-tag,
+.eq-curve-handle--band.dragging .eq-curve-handle-tag {
+  opacity: 1;
+}
+
+.eq-curve-handle-glyph {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+.eq-curve-handle-freq {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Simple-mode readouts under the curve */
+.eq-simple-readouts {
+  display: flex;
+  justify-content: center;
+  gap: 48px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.eq-simple-readouts b {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Presets (chips) + reset/save controls row */
+.eq-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.eq-presets {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.eq-preset-chip {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.eq-preset-chip:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.eq-preset-chip.active {
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: rgba(var(--accent-rgb), 0.4);
+  color: var(--accent);
+}
+
+.eq-pregain-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--border);
+}
+
+.eq-pregain-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.eq-pregain-slider {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.eq-pregain-readout {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 56px;
+  text-align: right;
+}
+
+.eq-barvis-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--border);
+}
+
+.eq-barvis-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.now-playing-eq-btn.active {
+  color: var(--accent);
+}
+
+/* Simple/Advanced mode segmented toggle in the EQ popover titlebar */
+.eq-mode-seg {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius, 6px);
+  padding: 2px;
+  gap: 2px;
+}
+
+.eq-mode-seg-btn {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--ds-radius, 6px) - 2px);
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.eq-mode-seg-btn:hover {
+  color: var(--text-primary);
+}
+
+.eq-mode-seg-btn.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+}
+
+/* ── Inline bar EQ control (EqBarControl.tsx) — fixed slot in the audio pill ── */
+.eqbar-slot {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.eqbar-slot--off {
+  opacity: 0.55;
+}
+
+.eqbar-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.eqbar-row {
+  display: flex;
+  align-items: center;
+}
+
+.eqbar-letter {
+  font-size: var(--fs-2xs);
+  font-weight: 800;
+  color: var(--text-secondary);
+  width: 12px;
+  margin-right: 7px;
+  text-align: right;
+}
+
+.eqbar-slider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 66px;
+  height: 12px;
+  cursor: ew-resize;
+  outline: none;
+}
+
+.eqbar-slider:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent);
+  border-radius: 3px;
+}
+
+.eqbar-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4.5px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(var(--overlay-base), 0.14);
+}
+
+.eqbar-zero {
+  position: absolute;
+  left: 50%;
+  top: 2.5px;
+  width: 1px;
+  height: 7px;
+  background: rgba(var(--overlay-base), 0.32);
+}
+
+.eqbar-fill {
+  position: absolute;
+  top: 4.5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.eqbar-thumb {
+  position: absolute;
+  top: 0.5px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  box-shadow: 0 0 5px rgba(var(--accent-rgb), 0.4);
+  transform: translateX(-50%);
+}
+
+.eqbar-slot--off .eqbar-fill { background: var(--text-tertiary); }
+.eqbar-slot--off .eqbar-thumb { background: var(--text-tertiary); box-shadow: none; }
+
+.eqbar-val {
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  width: 26px;
+  margin-left: 7px;
+  text-align: right;
+}
+
+.eqbar-val--zero {
+  color: var(--text-tertiary);
+}
