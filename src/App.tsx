@@ -157,6 +157,7 @@ function App() {
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
+  const [savePlaylistDefaultCover, setSavePlaylistDefaultCover] = useState<string | null>(null);
   const [editQueueTrack, setEditQueueTrack] = useState<{ index: number; title: string; artist: string; album: string; info: TrackInfoEntry[] } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
@@ -3116,8 +3117,13 @@ function App() {
     }
   };
 
-  function handleSaveAsPlaylist() {
+  async function handleSaveAsPlaylist() {
     if (queueHook.queue.length === 0) return;
+    // Default the cover to the playlist-context image; when the queue has none
+    // (e.g. a hand-built queue), fall back to the first track's image so the
+    // saved playlist isn't cover-less — same rule as the mixtape share.
+    const contextCover = stripImageVersion(queueHook.playlistContext?.imagePath ?? null);
+    setSavePlaylistDefaultCover(contextCover ?? (await resolveFirstAlbumCover(queueHook.queue)));
     setShowSavePlaylistModal(true);
   }
 
@@ -3172,11 +3178,16 @@ function App() {
     setPublishTarget({ trackIds: ids, trackCount: ids.length, defaultName: queueHook.playlistContext?.name || "" });
   }
 
-  // Resolve a default mixtape cover from the queue when no playlist context
-  // supplies one: the first track's album image, then artist image, then any
-  // explicit per-track image_url. Mirrors the queue thumbnail chain
-  // (album -> artist), all name-based via the entity-image cache.
-  async function resolveFirstAlbumCover(tracks: QueueTrack[]): Promise<string | null> {
+  // Resolve a default cover from a track list when no playlist context / saved
+  // image supplies one (mixtape share, Save as Playlist): the first track's
+  // album image, then artist image, then any explicit per-track image_url.
+  // Mirrors the queue thumbnail chain (album -> artist), all name-based via the
+  // entity-image cache. Always returns a local filesystem path (or null) — the
+  // mixtape and playlist backends read the cover from disk, so a remote
+  // image_url is downloaded into playlist_images first.
+  async function resolveFirstAlbumCover(
+    tracks: Array<{ album_title?: string | null; artist_name?: string | null; image_url?: string | null }>,
+  ): Promise<string | null> {
     const first = tracks.find(t => t.album_title || t.artist_name || t.image_url);
     if (!first) return null;
     try {
@@ -3197,9 +3208,20 @@ function App() {
         if (artistImg) return artistImg;
       }
     } catch (err) {
-      console.error("Failed to resolve default mixtape cover:", err);
+      console.error("Failed to resolve default cover:", err);
     }
-    return stripImageVersion(first.image_url ?? null);
+    const raw = stripImageVersion(first.image_url ?? null);
+    if (!raw || raw.startsWith("data:")) return null;
+    const local = raw.startsWith("file://") ? raw.substring(7) : raw;
+    if (local.startsWith("http://") || local.startsWith("https://")) {
+      try {
+        return await invoke<string>("download_url_to_playlist_images", { url: local });
+      } catch (err) {
+        console.error("Failed to download first-track cover:", err);
+        return null;
+      }
+    }
+    return local;
   }
 
   async function handleQueueExportAsMixtape() {
@@ -3239,17 +3261,18 @@ function App() {
     }));
     const ctx = queueHook.playlistContext;
     try {
-      const playlistId = await invoke<number>("save_playlist_record", {
+      // The backend copies imageUrl into playlist_images/{id}.jpg. Never store
+      // the raw path via update_playlist_image here — the default cover can
+      // point at the shared entity-image cache, and delete_playlist_record
+      // deletes the file at image_path.
+      await invoke<number>("save_playlist_record", {
         name,
         source: ctx?.source ?? null,
-        imageUrl: null,
+        imageUrl: imagePath,
         description: ctx?.description ?? null,
         metadata: ctx?.metadata ? JSON.stringify(ctx.metadata) : null,
         tracks,
       });
-      if (imagePath) {
-        await invoke("update_playlist_image", { playlistId, imagePath });
-      }
     } catch (err) {
       console.error("Failed to save playlist:", err);
     }
@@ -3277,7 +3300,9 @@ function App() {
         }
       }
       setMixtapeExportDefaultTitle(defaultTitle || "");
-      setMixtapeExportDefaultCover(null);
+      // Library exports carry no explicit cover — default to the first
+      // track's image so the mixtape isn't cover-less.
+      setMixtapeExportDefaultCover(await resolveFirstAlbumCover(tracks));
       setMixtapeExportDefaultMetadata(null);
       setMixtapeExportDefaultType(inferredType || "custom");
     } catch (e) {
@@ -3285,11 +3310,19 @@ function App() {
     }
   }, [library.selectedAlbum, library.selectedArtist]);
 
-  const handleExportAsMixtapeDirect = useCallback((tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => {
+  const handleExportAsMixtapeDirect = useCallback(async (tracks: ExportTrack[], defaultTitle?: string, coverPath?: string | null, metadata?: Record<string, string> | null) => {
     if (tracks.length === 0) return;
     setMixtapeExportTracks(tracks);
     setMixtapeExportDefaultTitle(defaultTitle || "");
-    setMixtapeExportDefaultCover(coverPath ?? null);
+    // No cover from the caller (e.g. sharing a saved playlist that has no
+    // image) — fall back to the first track's image, like the queue share.
+    setMixtapeExportDefaultCover(
+      coverPath ?? (await resolveFirstAlbumCover(tracks.map(t => ({
+        album_title: t.albumTitle ?? null,
+        artist_name: t.artistName ?? null,
+        image_url: t.imageUrl ?? null,
+      })))),
+    );
     setMixtapeExportDefaultMetadata(metadata ?? null);
     setMixtapeExportDefaultType("custom");
   }, []);
@@ -4601,7 +4634,7 @@ function App() {
               ? `${queueHook.playlistContext.name} ${dateStr}`
               : `Queue ${dateStr}`;
           })()}
-          defaultImage={stripImageVersion(queueHook.playlistContext?.imagePath ?? null)}
+          defaultImage={savePlaylistDefaultCover}
           onSave={handleSavePlaylistConfirm}
           onClose={() => setShowSavePlaylistModal(false)}
         />
