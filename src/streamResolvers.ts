@@ -14,7 +14,7 @@ export interface StreamResolver {
     artistName: string | null,
     albumName: string | null,
     durationSecs: number | null,
-  ) => Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null>;
+  ) => Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean; format?: string | null } | null>;
 }
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -30,7 +30,7 @@ export async function resolveStreamChain(
   albumName: string | null,
   durationSecs: number | null = null,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null> {
+): Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean; format?: string | null } | null> {
   for (const resolver of resolvers) {
     try {
       const result = await Promise.race([

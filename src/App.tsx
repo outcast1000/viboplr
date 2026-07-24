@@ -724,7 +724,14 @@ function App() {
           });
           if (!track || !track.path) return null;
           const filePath = track.path.startsWith("file://") ? track.path.substring(7) : track.path;
-          return { url: track.path, label: "Library", sourceUrl: filePath };
+          // Report the matched copy's media kind so the resolver layer can
+          // reclassify the played track: a VIDEO track that falls back to a
+          // library AUDIO copy (e.g. a VPN-blocked YouTube video → its local /
+          // Subsonic audio version) must then play as audio. Otherwise the
+          // native engine renders video:true over an audio stream and the video
+          // window lingers showing black / the previous frame. (See the
+          // reclassify branch in useStreamResolution.)
+          return { url: track.path, label: "Library", sourceUrl: filePath, video: isVideoTrack(track), format: track.format };
         },
       };
 

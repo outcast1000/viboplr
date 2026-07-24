@@ -238,7 +238,18 @@ export function useStreamResolution({
             // as video; reclassify the track (format → mp4) so it routes to the
             // theater. Resolvers that ignore the hint omit the flag → plays as
             // whatever it normally would (audio), no theater.
-            if (result.video) entry.patch = { ...entry.patch, format: "mp4" };
+            if (result.video) {
+              entry.patch = { ...entry.patch, format: "mp4" };
+            } else if (result.video === false && isVideoTrack(track)) {
+              // The exact video source was unavailable and this resolver fell
+              // back to a NON-video copy (e.g. the library's audio version of a
+              // VPN-blocked YouTube video). Reclassify the played track to audio
+              // so it plays without the native video layer — otherwise the mpv
+              // engine renders video:true over an audio stream and the video
+              // window lingers showing black / the previous frame. `format` is
+              // authoritative in isVideoTrack, so a real audio format flips it.
+              entry.patch = { ...entry.patch, format: result.format || "m4a" };
+            }
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
             return resolveUrlDetailed(result.url);
           },
