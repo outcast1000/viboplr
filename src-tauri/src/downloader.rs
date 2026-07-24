@@ -419,9 +419,10 @@ pub fn download_file(
         return Ok(());
     }
 
+    // TLS verification stays ON — the Subsonic client and every other host
+    // fetch verify certificates; downloads must not be the one weak spot.
     let http_client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
-        .danger_accept_invalid_certs(true)
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
 
@@ -485,6 +486,43 @@ pub fn download_file(
 }
 
 /// Run a single download: download from resolved URL -> tag -> index in library.
+/// Move `src` into place at `dest` without a data-loss window: any existing
+/// file at `dest` is set aside (never deleted) until the rename has succeeded,
+/// and restored if it fails. The set-aside copy carries a non-media suffix so a
+/// concurrent scan can't ingest it.
+pub fn replace_file_safely(src: &Path, dest: &Path) -> Result<(), String> {
+    let displaced: Option<PathBuf> = if dest.exists() {
+        let mut name = dest.file_name().map(|f| f.to_os_string()).unwrap_or_default();
+        name.push(".viboplr-replaced");
+        let bak = dest.with_file_name(name);
+        if bak.exists() {
+            let _ = std::fs::remove_file(&bak);
+        }
+        std::fs::rename(dest, &bak)
+            .map_err(|e| format!("Failed to set aside existing file: {}", e))?;
+        Some(bak)
+    } else {
+        None
+    };
+
+    match std::fs::rename(src, dest) {
+        Ok(()) => {
+            if let Some(bak) = displaced {
+                if let Err(e) = std::fs::remove_file(&bak) {
+                    log::warn!("Failed to remove replaced copy {}: {}", bak.display(), e);
+                }
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if let Some(bak) = displaced {
+                let _ = std::fs::rename(&bak, dest);
+            }
+            Err(format!("Failed to move file into place: {}", e))
+        }
+    }
+}
+
 pub fn process_download(
     request: &DownloadRequest,
     resolved: &DownloadResolveResponse,
@@ -1283,6 +1321,52 @@ mod tests {
 
         registry.cancel(42);
         assert!(registry.pending.lock().unwrap().is_empty());
+    }
+
+    // --- replace_file_safely tests ---
+
+    #[test]
+    fn test_replace_file_safely_no_existing_dest() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("new.mp3");
+        std::fs::write(&src, b"new bytes").unwrap();
+        let dest = dir.path().join("song.mp3");
+
+        replace_file_safely(&src, &dest).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "new bytes");
+        assert!(!src.exists());
+    }
+
+    #[test]
+    fn test_replace_file_safely_replaces_existing_dest() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("new.mp3");
+        std::fs::write(&src, b"new bytes").unwrap();
+        let dest = dir.path().join("song.mp3");
+        std::fs::write(&dest, b"old bytes").unwrap();
+
+        replace_file_safely(&src, &dest).unwrap();
+
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "new bytes");
+        assert!(!src.exists());
+        // The displaced copy is cleaned up after a successful swap.
+        assert!(!dir.path().join("song.mp3.viboplr-replaced").exists());
+    }
+
+    #[test]
+    fn test_replace_file_safely_restores_dest_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("missing.mp3"); // never created -> rename fails
+        let dest = dir.path().join("song.mp3");
+        std::fs::write(&dest, b"old bytes").unwrap();
+
+        let result = replace_file_safely(&src, &dest);
+
+        assert!(result.is_err());
+        // The existing file must survive a failed replacement, under its own name.
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "old bytes");
+        assert!(!dir.path().join("song.mp3.viboplr-replaced").exists());
     }
 
     // --- download_file tests ---

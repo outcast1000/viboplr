@@ -332,13 +332,15 @@ pub async fn download_to_path(
             );
         }
 
-        // Move temp to final destination
-        if overwrite && final_dest.exists() {
-            std::fs::remove_file(&final_dest)
-                .map_err(|e| format!("Failed to remove existing file: {}", e))?;
+        // Move temp to final destination. Overwrites go through the safe-replace
+        // dance so the existing file is never deleted before the replacement is
+        // in place; otherwise a plain rename (existence was pre-checked above).
+        if overwrite {
+            crate::downloader::replace_file_safely(&temp_path, &final_dest)?;
+        } else {
+            std::fs::rename(&temp_path, &final_dest)
+                .map_err(|e| format!("Failed to move downloaded file: {}", e))?;
         }
-        std::fs::rename(&temp_path, &final_dest)
-            .map_err(|e| format!("Failed to move downloaded file: {}", e))?;
 
         let file_size = std::fs::metadata(&final_dest)
             .map(|m| m.len())
@@ -492,26 +494,36 @@ pub async fn confirm_track_upgrade(
             return Err("Preview file not found".to_string());
         }
 
-        // Delete old file
-        if old_path.exists() {
-            std::fs::remove_file(old_path)
-                .map_err(|e| format!("Failed to delete old file: {}", e))?;
-        }
-
-        // Rename: remove ".upgrade" from filename
+        // Final name: strip the trailing ".upgrade" marker that download_preview
+        // appended to the stem (suffix-anchored, so a stem that itself contains
+        // ".upgrade." is untouched).
         let parent = new_file.parent().ok_or("No parent directory")?;
-        let filename = new_file.file_name().and_then(|f| f.to_str()).ok_or("Invalid filename")?;
-        let final_filename = filename.replace(".upgrade.", ".");
+        let ext = new_file.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let stem = new_file.file_stem().and_then(|s| s.to_str()).unwrap_or("track");
+        let stem = stem.strip_suffix(".upgrade").unwrap_or(stem);
+        let final_filename = if ext.is_empty() {
+            stem.to_string()
+        } else {
+            format!("{}.{}", stem, ext)
+        };
         let final_path = parent.join(&final_filename);
 
-        // If final path already exists (same extension as old), remove it
-        if final_path.exists() && final_path != new_file {
-            std::fs::remove_file(&final_path)
-                .map_err(|e| format!("Failed to remove existing file at target: {}", e))?;
+        // Move the replacement into place BEFORE touching the old file, so a
+        // failed rename can never leave the user with neither copy. When the
+        // upgrade keeps the extension, `final_path` IS the old file — the safe
+        // replace sets it aside until the rename has succeeded.
+        if final_path != new_file {
+            crate::downloader::replace_file_safely(new_file, &final_path)?;
         }
 
-        std::fs::rename(new_file, &final_path)
-            .map_err(|e| format!("Failed to rename file: {}", e))?;
+        // When the extension changed, the original is a separate leftover file;
+        // remove it now that the replacement is in place. Failure here is not
+        // data loss (both copies exist), so log and continue.
+        if old_path.exists() && old_path != final_path {
+            if let Err(e) = std::fs::remove_file(old_path) {
+                log::warn!("Failed to remove old file after upgrade {}: {}", old_path.display(), e);
+            }
+        }
 
         // Remove old track from DB (drops its FTS row too) and re-scan the new file
         let old_artist_id = track.artist_id;
@@ -570,7 +582,7 @@ pub async fn save_track_as_copy(
         // Rename: {stem}.upgrade.{ext} -> {stem} (upgraded).{ext}
         let parent = new_file.parent().ok_or("No parent directory")?;
         let filename = new_file.file_name().and_then(|f| f.to_str()).ok_or("Invalid filename")?;
-        let final_filename = if let Some(pos) = filename.find(".upgrade.") {
+        let final_filename = if let Some(pos) = filename.rfind(".upgrade.") {
             let stem = &filename[..pos];
             let ext = &filename[pos + ".upgrade.".len()..];
             format!("{} (upgraded).{}", stem, ext)
