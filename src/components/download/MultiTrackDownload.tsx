@@ -104,6 +104,19 @@ export function MultiTrackDownload({
     existingFormat: string | null;
     existingSize: number | null;
   } | null>(null);
+  // Cancel during the download loop: the loop awaits inline prompt promises
+  // (library match / conflict / upgrade), so a bare onClose would strand it
+  // forever — resolve any pending prompt as "skip" so the loop can observe
+  // cancelledRef and run its cleanup, and abort the in-flight backend transfer.
+  function cancelDownloads() {
+    cancelledRef.current = true;
+    libraryResolveRef.current?.("skip");
+    conflictResolveRef.current?.("skip");
+    upgradeResolveRef.current?.("skip");
+    invoke("cancel_direct_download").catch(console.error);
+    onClose();
+  }
+
   const libraryResolveRef = useRef<((decision: "download" | "skip") => void) | null>(null);
   const [upgradeComparison, setUpgradeComparison] = useState<{
     trackIndex: number;
@@ -616,7 +629,7 @@ export function MultiTrackDownload({
             ))}
           </div>
           <div className="dl-actions">
-            <button onClick={() => { cancelledRef.current = true; onClose(); }}>Cancel</button>
+            <button onClick={cancelDownloads}>Cancel</button>
           </div>
         </>
       )}
@@ -876,7 +889,7 @@ export function MultiTrackDownload({
           </div>
 
           <div className="dl-actions">
-            <button onClick={() => { cancelledRef.current = true; onClose(); }}>Cancel</button>
+            <button onClick={cancelDownloads}>Cancel</button>
           </div>
         </>
       )}

@@ -407,6 +407,12 @@ pub async fn download_preview(
     let db = state.db.clone();
     let track = db.get_track_by_id(track_id).map_err(|e| e.to_string())?;
 
+    // Honor the shared direct-download cancel flag (the modal's Cancel button
+    // flips it) — otherwise closing the modal mid-preview left the backend
+    // downloading and orphaned a .upgrade.* file inside the music folder.
+    state.direct_download_cancel.store(false, Ordering::SeqCst);
+    let cancel_flag = state.direct_download_cancel.clone();
+
     tauri::async_runtime::spawn_blocking(move || -> Result<UpgradePreviewInfo, String> {
         // The resolver's concrete extension names the real container (needed for
         // provider-specific qualities like "video"); host-known formats fall back
@@ -437,7 +443,7 @@ pub async fn download_preview(
             &stream_url,
             None,
             &new_path,
-            None,
+            Some(&cancel_flag),
             Some(&|pct| {
                 let _ = app.emit("upgrade-download-progress", pct);
             }),
