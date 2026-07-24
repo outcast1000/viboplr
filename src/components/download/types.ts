@@ -9,6 +9,10 @@ export interface DownloadTrack {
   uri?: string | null;
   durationSecs?: number | null;
   trackId?: number | null;
+  /** True when this is a video track (set by the caller from the track's
+   *  authoritative format). Makes the modal default to a provider `video`
+   *  quality option so downloading a video you're watching yields the video. */
+  isVideo?: boolean;
 }
 
 export interface UpgradePreviewInfo {

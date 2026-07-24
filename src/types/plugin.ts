@@ -821,6 +821,11 @@ export type InteractiveResolveHandler = (
 export interface DownloadQualityOption {
   value: string;
   label: string;
+  /** Marks this option as producing a video file. The download modal defaults to
+   *  the first `video: true` option when the track being downloaded is itself a
+   *  video (e.g. downloading a video you're watching), instead of the first
+   *  option. The user can still pick any other option. */
+  video?: boolean;
 }
 
 export type GetQualitiesHandler = () => DownloadQualityOption[];

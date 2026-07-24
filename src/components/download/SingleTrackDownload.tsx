@@ -3,7 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../../utils/tauriEvents";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../../types/plugin";
-import { formatDuration, formatFileSize } from "../../utils";
+import { formatDuration, formatFileSize, isVideoTrack } from "../../utils";
+import { defaultQualityValue } from "../../utils/downloadQuality";
 import type { AppStore } from "../../store";
 import type { DownloadTrack, UpgradePreviewInfo, ConflictCheck, DownloadResult } from "./types";
 import { ProviderChip } from "./ProviderChip";
@@ -74,8 +75,13 @@ export function SingleTrackDownload({
   const qualities = qualityOptions && qualityOptions.length > 0 ? qualityOptions : defaultQualities;
   const hasProviderQualities = !!(qualityOptions && qualityOptions.length > 0);
 
+  // A video track defaults to the provider's video quality option (downloading a
+  // video you're watching should yield the video, not its audio). The user can
+  // still pick any other option; falls back to the first option when the track
+  // isn't video or the provider offers no video option.
+  const trackIsVideo = track.isVideo ?? isVideoTrack({ format: null, path: track.uri ?? null });
   const [quality, setQualityState] = useState<string>(() => {
-    if (hasProviderQualities) return qualities[0].value;
+    if (hasProviderQualities) return defaultQualityValue(qualities, trackIsVideo) ?? "flac";
     return "flac";
   });
   const setQuality = (q: string) => {

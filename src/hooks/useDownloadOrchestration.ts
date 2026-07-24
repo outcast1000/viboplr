@@ -6,6 +6,7 @@ import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
 import type { ContextMenuState } from "../types/contextMenu";
 import { parseLibraryId, classifyEffectiveSource } from "../queueEntry";
+import { isVideoTrack } from "../utils";
 import { withResolverLog } from "../utils/resolverLog";
 import { decideDownload, type DownloadPlan } from "../utils/downloadPlan";
 import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "./usePlugins";
@@ -315,17 +316,17 @@ export function useDownloadOrchestration({
   /** Normalize a single-track context target to the fields the plan + modal need. */
   const contextTrack = useCallback(
     (target: ContextMenuState["target"]):
-      | { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; path: string | null; trackId: number | null }
+      | { title: string; artist_name: string | null; album_title: string | null; duration_secs: number | null; path: string | null; trackId: number | null; format: string | null }
       | null => {
       if (target.kind === "track" && target.trackId != null) {
         const t = libraryTracks.find((tr) => tr.id === target.trackId);
         if (!t) return null;
-        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: t.id ?? null };
+        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: t.id ?? null, format: t.format ?? null };
       }
       if (target.kind === "queue-multi" && target.indices.length === 1) {
         const t = queue[target.indices[0]];
         if (!t) return null;
-        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: parseLibraryId(t.key) };
+        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: parseLibraryId(t.key), format: t.format ?? null };
       }
       return null;
     },
@@ -367,6 +368,7 @@ export function useDownloadOrchestration({
           uri: plan.uri ?? t.path ?? null,
           durationSecs: t.duration_secs,
           trackId: t.trackId,
+          isVideo: isVideoTrack({ format: t.format, path: t.path }),
         }],
         providerId: plan.providerId,
         providerName: plan.providerName,
@@ -389,6 +391,7 @@ export function useDownloadOrchestration({
         uri: plan.uri ?? track.path ?? null,
         durationSecs: track.duration_secs ?? null,
         trackId: parseLibraryId(track.key),
+        isVideo: isVideoTrack(track),
       }],
       providerId: plan.providerId,
       providerName: plan.providerName,

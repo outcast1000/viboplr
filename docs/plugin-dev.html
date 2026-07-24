@@ -408,7 +408,7 @@ return { activate: activate, deactivate: deactivate };</pre>
                 <tr><td>onResolveByMetadata(providerId, handler)</td><td>Resolve by <code>(title, artist, album, duration, format)</code> — automatic fallback downloads.</td></tr>
                 <tr><td>onInteractiveSearch(providerId, handler)</td><td>Power the manual search inside the download modal.</td></tr>
                 <tr><td>onInteractiveResolve(providerId, handler)</td><td>Resolve the search result the user picked.</td></tr>
-                <tr><td>onGetQualities(providerId, handler)</td><td>Supply the quality / format options the modal offers for your provider.</td></tr>
+                <tr><td>onGetQualities(providerId, handler)</td><td>Supply the quality / format options (<code>{ value, label, video? }[]</code>) the modal offers for your provider. Mark a video option with <code>video: true</code> and the modal defaults to it when the track being downloaded is a video.</td></tr>
               </tbody>
             </table>
           </div>

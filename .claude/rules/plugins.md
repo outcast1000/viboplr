@@ -264,7 +264,7 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 - `onResolveByMetadata(providerId, handler)` — handler receives `(title, artistName, albumName, durationSecs, format)`
 - `onInteractiveSearch(providerId, handler)` — handler receives `(query, limit)` and returns `InteractiveSearchResult[]` for the `DownloadModal` manual-search flow
 - `onInteractiveResolve(providerId, handler)` — handler receives `(matchId, format)` and returns a `DownloadResolveResult`
-- `onGetQualities(providerId, handler)` — synchronous `() => DownloadQualityOption[]` (`{ value, label }[]`); supplies the quality/format choices the `DownloadModal` offers for this provider.
+- `onGetQualities(providerId, handler)` — synchronous `() => DownloadQualityOption[]` (`{ value, label, video? }[]`); supplies the quality/format choices the `DownloadModal` offers for this provider. Mark a video-producing option with `video: true` — the modal defaults to the first such option when the track being downloaded is itself a video (e.g. downloading the video you're watching), instead of the first option; the user can still pick any other.
 
 `DownloadResolveResult`: `{ url, headers?, metadata?: { title, artist, album, trackNumber, year, genre, coverUrl }, ext? }`. `ext` overrides the saved file extension for the requested format; `ext: "auto"` tells the backend to sniff the container from the downloaded bytes (for originals of unknown format).
 
