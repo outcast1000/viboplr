@@ -435,7 +435,7 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 | `select` | Dropdown with options |
 | `layout` | Vertical / horizontal container with children |
 | `spacer` | Layout spacer |
-| `search-input` / `text-input` | Text entry that fires an action on change |
+| `search-input` / `text-input` | Text entry that fires an action on change. `search-input` extras: `buttonLabel` (submit-only + labeled button), `pasteButton` (a "Paste" button that fills the input from the clipboard and submits — backed by the host `read_clipboard_text` command), `stateKey` (per-key text memory, so one node multiplexed across tabs keeps each tab's typed text) |
 | `tabs` | Tab bar with `activeTab` |
 | `loading` | Loading spinner with optional message |
 | `progress-bar` | `{value, max, label?}` |

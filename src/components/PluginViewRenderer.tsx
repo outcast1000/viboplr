@@ -250,6 +250,8 @@ function PluginViewNode({
           value={node.value}
           submitOnly={node.submitOnly}
           buttonLabel={node.buttonLabel}
+          pasteButton={node.pasteButton}
+          stateKey={node.stateKey}
           onAction={onAction}
         />
       );

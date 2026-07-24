@@ -264,6 +264,15 @@ export type PluginViewData =
       value?: string;
       submitOnly?: boolean;
       buttonLabel?: string;
+      // Renders a "Paste" button next to the submit button: clicking it fills
+      // the input with the clipboard text and submits it as the action's query.
+      pasteButton?: boolean;
+      // Session text memory. One live input often serves several logical search
+      // boxes multiplexed through the same node position (e.g. per-source
+      // tabs); the input keeps one text per stateKey, stashing the outgoing
+      // key's text on a key change and restoring the incoming key's (falling
+      // back to `value`). Omit for a single-box view.
+      stateKey?: string;
     }
   | {
       type: "text-input";

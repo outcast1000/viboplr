@@ -11,6 +11,16 @@ pub fn app_build_flavor() -> &'static str {
     "full"
 }
 
+/// Read the current clipboard text ("" when the clipboard holds no text).
+/// Backs the plugin `search-input` paste button — the read goes through
+/// arboard (like the image-paste path) because the webview's
+/// `navigator.clipboard.readText()` is permission-gated in some webviews.
+#[tauri::command]
+pub fn read_clipboard_text() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    Ok(clipboard.get_text().unwrap_or_default())
+}
+
 #[tauri::command]
 pub fn get_profile_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({

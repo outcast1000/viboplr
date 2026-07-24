@@ -2,6 +2,7 @@
 // The recursive dispatcher PluginViewNode lives in PluginViewRenderer.tsx and
 // imports these; none of these renderers recurse back into the dispatcher.
 import { useState, useCallback, useEffect, useRef, useId } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../../types";
 import type { CardGridItem, StatItem, TrackRowItem, BarChartDatum, LineSeries, PluginMenuItem, PluginContextMenuTarget } from "../../types/plugin";
 import { showNativeMenu, type MenuItemSpec } from "../../nativeMenu";
@@ -229,6 +230,8 @@ export function PluginSearchInput({
   value,
   submitOnly,
   buttonLabel,
+  pasteButton,
+  stateKey,
   onAction,
 }: {
   placeholder?: string;
@@ -236,9 +239,24 @@ export function PluginSearchInput({
   value?: string;
   submitOnly?: boolean;
   buttonLabel?: string;
+  pasteButton?: boolean;
+  stateKey?: string;
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [query, setQuery] = useState(value ?? "");
+  // Per-stateKey text memory: the same live instance serves every tab of a
+  // plugin view (the node keeps its element position across re-renders), so
+  // without this the text typed on one tab bleeds into the next. On a key
+  // change, stash the outgoing key's text and restore the incoming key's,
+  // falling back to the plugin-provided `value` (render-phase derived-state
+  // adjustment; the ref writes are idempotent under a double render).
+  const stashRef = useRef<Map<string, string>>(new Map());
+  const [prevKey, setPrevKey] = useState(stateKey);
+  if (prevKey !== stateKey) {
+    if (prevKey !== undefined) stashRef.current.set(prevKey, query);
+    setPrevKey(stateKey);
+    setQuery((stateKey !== undefined ? stashRef.current.get(stateKey) : undefined) ?? value ?? "");
+  }
   // A search button makes the input submit-only: changes never fire the action,
   // only Enter or an explicit button click do.
   const submitOnlyEffective = submitOnly || !!buttonLabel;
@@ -251,6 +269,19 @@ export function PluginSearchInput({
   const handleSubmit = useCallback(() => {
     onAction?.(action, { query });
   }, [action, query, onAction]);
+  // Paste-and-submit: fill the input from the clipboard and fire the action in
+  // one click. The read goes through the backend (arboard) — see
+  // read_clipboard_text. Empty/whitespace clipboard is a no-op.
+  const handlePaste = useCallback(() => {
+    invoke<string>("read_clipboard_text")
+      .then((text) => {
+        const pasted = (text ?? "").trim();
+        if (!pasted) return;
+        setQuery(pasted);
+        onAction?.(action, { query: pasted });
+      })
+      .catch((e) => console.error("Failed to read clipboard text:", e));
+  }, [action, onAction]);
   return (
     <ViewSearchBar
       query={query}
@@ -258,6 +289,15 @@ export function PluginSearchInput({
       onEnter={handleSubmit}
       placeholder={placeholder ?? "Search..."}
     >
+      {pasteButton && (
+        <button
+          className="ds-btn ds-btn--secondary view-search-submit-btn"
+          onClick={handlePaste}
+          title="Paste from clipboard"
+        >
+          Paste
+        </button>
+      )}
       {buttonLabel && (
         <button
           className="ds-btn ds-btn--primary view-search-submit-btn"

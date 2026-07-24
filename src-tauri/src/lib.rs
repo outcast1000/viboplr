@@ -118,6 +118,7 @@ macro_rules! invoke_handler {
             commands::set_entity_image,
             commands::paste_entity_image,
             commands::paste_entity_image_from_clipboard,
+            commands::read_clipboard_text,
             commands::remove_entity_image,
             commands::fetch_artist_image,
             commands::fetch_album_image,
