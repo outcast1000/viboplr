@@ -21,6 +21,31 @@ interface TranscodeSession {
   seekOffset: number;
 }
 
+/** User-facing label for one failed resolver-chain entry. */
+export function entryFailureLabel(name: string): string {
+  return name === "Library" ? "Not in library" : `${name} failed`;
+}
+
+export interface ChainFailure {
+  name: string;
+  /** True for the entry that plays the track's own URL (its native source). */
+  native?: boolean;
+}
+
+/**
+ * Pick the user-facing blame once the whole resolver chain has failed. Blame
+ * the track's own source (the native entry): the fallback resolvers that also
+ * failed are incidental, and naming the last one pinned the failure on
+ * whichever resolver happened to sit at the end of the user's order — e.g. a
+ * dead local file or an unavailable YouTube video read "Subsonic Servers
+ * failed". Tracks with no native source (path-less external rows) get a
+ * neutral label instead of an arbitrary resolver name.
+ */
+export function describeChainFailure(failures: ChainFailure[]): string {
+  const native = failures.find((f) => f.native);
+  return native ? entryFailureLabel(native.name) : "No playable source found";
+}
+
 interface UseStreamResolutionDeps {
   /** Created in App (must precede `usePlayback`, which consumes it). This hook
    * assigns its `.current` to the real resolver once plugins are available. */
@@ -128,7 +153,7 @@ export function useStreamResolution({
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
+      interface ResolverEntry { name: string; id: string | null; native?: boolean; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote OR path-less tracks
@@ -165,11 +190,12 @@ export function useStreamResolution({
       // Native resolver first (if track has a known URL)
       if (url) {
         if (url.startsWith("http://") || url.startsWith("https://")) {
-          chain.push({ name: "Direct URL", id: null, sourceUrl: url, effectiveSource: classifyEffectiveSource(url, ownerRef.current), resolve: () => Promise.resolve({ src: url, engineSource: { kind: "http" as const, url } }) });
+          chain.push({ name: "Direct URL", id: null, native: true, sourceUrl: url, effectiveSource: classifyEffectiveSource(url, ownerRef.current), resolve: () => Promise.resolve({ src: url, engineSource: { kind: "http" as const, url } }) });
         } else {
           chain.push({
             name: nativeResolverName(url),
             id: null,
+            native: true,
             sourceUrl: url,
             effectiveSource: classifyEffectiveSource(url, ownerRef.current),
             resolve: async () => {
@@ -262,6 +288,7 @@ export function useStreamResolution({
       }
 
       let lastError: string | null = null;
+      const failures: ChainFailure[] = [];
       for (const entry of chain) {
         if (resolveGenerationRef.current !== generation) return { src: "" };
         if (lastError || chain.length > 1) {
@@ -285,7 +312,8 @@ export function useStreamResolution({
           return { src, patch: entry.patch, engineSource };
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
-          lastError = entry.name === "Library" ? "Not in library" : `${entry.name} failed`;
+          lastError = entryFailureLabel(entry.name);
+          failures.push({ name: entry.name, native: entry.native });
           continue;
         }
       }
@@ -295,7 +323,8 @@ export function useStreamResolution({
       }
       // Record a persistent failure for this track so the queue row keeps
       // explaining what happened even after playback moves to another track.
-      setResolveFailures(prev => ({ ...prev, [track.key]: lastError ?? "no source found" }));
+      // Blamed on the track's own source, not the last fallback resolver tried.
+      setResolveFailures(prev => ({ ...prev, [track.key]: describeChainFailure(failures) }));
       trackTelemetry("stream_resolve_failed", { source: sourceClass(track.path) });
       throw new Error("Couldn't find a playable source for this track");
     };
