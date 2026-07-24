@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { Track } from "../../types";
 import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../../types/plugin";
 import { formatDuration, formatFileSize } from "../../utils";
+import { defaultQualityValue } from "../../utils/downloadQuality";
 import type { AppStore } from "../../store";
 import { IconPlay, IconFolder, IconDownload } from "../Icons";
 import type { DownloadTrack, UpgradePreviewInfo, DownloadResult, ExistingAction, ResolveState, BatchDownloadTrackState, BatchConflict, ConflictCheck } from "./types";
@@ -53,8 +54,11 @@ export function MultiTrackDownload({
   const hasProviderQualities = !!(qualityOptions && qualityOptions.length > 0);
 
   const [step, setStep] = useState<BatchStep>("configure");
+  // An all-video selection defaults to the provider's video option — same rule
+  // as the single-track flow; mixed or audio selections default to the first.
+  const allVideo = tracks.length > 0 && tracks.every(t => t.isVideo);
   const [quality, setQualityState] = useState<string>(
-    hasProviderQualities ? qualities[0].value : "flac"
+    hasProviderQualities ? (defaultQualityValue(qualities, allVideo) ?? qualities[0].value) : "flac"
   );
   const setQuality = (q: string) => {
     setQualityState(q);

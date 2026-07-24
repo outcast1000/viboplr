@@ -246,6 +246,7 @@ export function useDownloadOrchestration({
           uri: t.path ?? null,
           durationSecs: t.duration_secs ?? null,
           trackId: parseLibraryId(t.key),
+          isVideo: isVideoTrack(t),
         })),
         providerId,
         providerName: providerEntry?.name ?? providerId,
@@ -258,6 +259,7 @@ export function useDownloadOrchestration({
     let trackId: number | null = null;
     let title = "";
     let artistName: string | null = null;
+    let sourceIsVideo: boolean | undefined;
 
     if (target.kind === "track") {
       trackId = target.trackId ?? null;
@@ -269,6 +271,7 @@ export function useDownloadOrchestration({
         trackId = parseLibraryId(queueTrack.key);
         title = queueTrack.title;
         artistName = queueTrack.artist_name ?? null;
+        sourceIsVideo = isVideoTrack(queueTrack);
       }
     } else {
       return;
@@ -284,6 +287,7 @@ export function useDownloadOrchestration({
           uri: track?.path ?? null,
           durationSecs: track?.duration_secs ?? null,
           trackId,
+          isVideo: track ? isVideoTrack(track) : sourceIsVideo,
         }],
         providerId,
         providerName: downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId,
