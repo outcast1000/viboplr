@@ -835,6 +835,10 @@ export interface DownloadQualityOption {
    *  video (e.g. downloading a video you're watching), instead of the first
    *  option. The user can still pick any other option. */
   video?: boolean;
+  /** Longer note shown under the quality picker for the SELECTED option (e.g.
+   *  what the format really is, re-encode caveats). Keep `label` short; put the
+   *  explanation here. Older hosts ignore it. */
+  description?: string;
 }
 
 export type GetQualitiesHandler = () => DownloadQualityOption[];

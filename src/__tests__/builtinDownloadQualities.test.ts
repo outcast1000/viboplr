@@ -4,7 +4,10 @@ import { builtinQualityOptions } from "../utils/builtinDownloadQualities";
 describe("builtinQualityOptions", () => {
   it("offers Subsonic a single 'Source original' option", () => {
     const opts = builtinQualityOptions("__builtin:subsonic");
-    expect(opts).toEqual([{ value: "original", label: "Source original" }]);
+    expect(opts).toHaveLength(1);
+    expect(opts![0].value).toBe("original");
+    expect(opts![0].label).toMatch(/^Audio · /);
+    expect(opts![0].description).toBeTruthy();
   });
 
   it("returns null for non-builtin providers (plugins supply their own)", () => {

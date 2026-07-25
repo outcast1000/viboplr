@@ -12,7 +12,11 @@ export function builtinQualityOptions(providerId: string): DownloadQualityOption
     case "__builtin:subsonic":
       // Subsonic downloads the original file untouched; the saved extension is
       // the source's real suffix (resolved server-side).
-      return [{ value: "original", label: "Source original" }];
+      return [{
+        value: "original",
+        label: "Audio · Source original",
+        description: "Downloads the file exactly as stored on the server — same format, same quality, no re-encode.",
+      }];
     default:
       return null;
   }

@@ -673,6 +673,20 @@
   color: var(--text-primary);
 }
 
+/* Control + the selected option's provider-supplied description underneath. */
+.dl-qual-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dl-qual-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  line-height: 1.35;
+}
+
 /* Inline destination field: folder glyph · current dest · "Change". */
 .dl-dest-field {
   flex: 1;
