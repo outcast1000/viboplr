@@ -29,6 +29,7 @@ These plugins are **not bundled** in `src-tauri/plugins/`. Their canonical sourc
 | `tidal-browse` | `outcast1000/viboplr-tidal` | Self-contained (HTTP via `api.network.fetch`); same release flow. |
 | `p2p-sharing` | `outcast1000/viboplr-p2p` | **JS UI shell only.** The P2P engine lives in this host's Rust (`src-tauri/src/p2p/`, the `api.p2p.*` bridge) and is version-coupled to `outcast1000/viboplr-relay`. Releases in that repo change only the UI; protocol/networking changes are host+relay changes here. The plugin's `minAppVersion` gates its install/auto-update — bump it when you change `api.p2p.*` so older apps don't pull an incompatible shell. |
 | `youtube` | `outcast1000/viboplr-youtube` | Self-contained; contributes the `youtube-fallback` stream resolver + `youtube-download` download provider. Shells out to `yt-dlp`/`ffmpeg` via `api.system.exec`. Same release flow (`scripts/bump.sh` + CI) as the others. **Not** in the gallery as a loose copy — un-bundling means fresh installs have no YouTube playback/download until it's installed from the gallery. |
+| `ffmpeg-tools` | `outcast1000/viboplr-ffmpeg-tools` | Self-contained; bulk-convert (`api.contextMenu.registerItem` "Convert to…" submenu) + a Media Info tab (`ffmpeg-probe` information type: container/stream/tag probe + loudness). Shells out to `ffmpeg` only — there's no `ffprobe` in the allow-list, so probe/loudness data is parsed from plain ffmpeg's stderr banner. Same release flow (`scripts/bump.sh` + CI) as the others. |
 
 ### Registering a plugin in the gallery
 
