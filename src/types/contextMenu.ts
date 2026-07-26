@@ -43,7 +43,14 @@ export function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarg
     case "artist": return { kind: "artist", artistId: target.artistId, artistName: target.name };
     case "multi-track": return { kind: "multi-track", trackIds: target.trackIds };
     case "queue-multi":
-      if (target.trackIds.length === 1) {
+      // Single-vs-multi keys off `indices` (one selected queue row), NOT
+      // `trackIds` — the latter is filtered to library ids and is empty for
+      // ID-less queue tracks (external/YouTube/restored ext:N), which would
+      // otherwise fall through to a metadata-less multi-track target and make a
+      // metadata-only plugin action (e.g. "Watch YouTube video") a no-op. This
+      // mirrors buildContextMenuSpecs' `count === 1` menu-item filter and the
+      // download path's `contextTrack`.
+      if (target.indices.length === 1) {
         return { kind: "track", trackId: target.trackIds[0], title: target.firstTrack.title, artistName: target.firstTrack.artistName ?? undefined, isLocal: target.firstTrack.isLocal };
       }
       return { kind: "multi-track", trackIds: target.trackIds };
