@@ -68,12 +68,24 @@ export function SingleTrackDownload({
     }
     return null;
   });
+  // No provider declared quality options — offer the source as-is rather than a
+  // re-encode this (direct) path can't actually perform. The saved extension is
+  // the resolver's own `ext`; when it reports none we can't know the container
+  // (this path never sniffs the bytes), so `nativeFallback` names it `.bin`.
   const defaultQualities: DownloadQualityOption[] = [
-    { value: "flac", label: "FLAC (Lossless)" },
-    { value: "aac", label: "AAC (320kbps)" },
+    {
+      value: "original",
+      label: "Original (source format)",
+      description: "Downloads the file exactly as the provider serves it — no re-encode.",
+    },
   ];
   const qualities = qualityOptions && qualityOptions.length > 0 ? qualityOptions : defaultQualities;
   const hasProviderQualities = !!(qualityOptions && qualityOptions.length > 0);
+  // Last-resort extension when the resolver reports none. Provider-quality
+  // downloads let the backend derive it from the format (null → its own
+  // fallback); the "original" native fallback has no known container, so it
+  // saves a neutral, scanner-ignored `.bin` rather than mislabelling the file.
+  const nativeFallback: string | null = hasProviderQualities ? null : "bin";
 
   // A video track defaults to the provider's video quality option (downloading a
   // video you're watching should yield the video, not its audio). The user can
@@ -82,7 +94,7 @@ export function SingleTrackDownload({
   const trackIsVideo = track.isVideo ?? isVideoTrack({ format: null, path: track.uri ?? null });
   const [quality, setQualityState] = useState<string>(() => {
     if (hasProviderQualities) return defaultQualityValue(qualities, trackIsVideo) ?? "flac";
-    return "flac";
+    return "original";
   });
   const setQuality = (q: string) => {
     setQualityState(q);
@@ -305,7 +317,7 @@ export function SingleTrackDownload({
           trackId: track.trackId,
           streamUrl,
           format: quality,
-          ext: concreteExt,
+          ext: concreteExt ?? nativeFallback,
           title: effectiveTitle,
           artistName: effectiveArtist,
           albumTitle: effectiveAlbum,
@@ -335,7 +347,7 @@ export function SingleTrackDownload({
         trackTitle: effectiveTitle,
         destDir,
         format: quality,
-        ext: concreteExt,
+        ext: concreteExt ?? nativeFallback,
       });
 
       if (check.has_conflict) {
@@ -347,7 +359,7 @@ export function SingleTrackDownload({
       }
     } catch {
       // Treat conflict check errors as no conflict
-      const ext = concreteExt ?? (quality === "flac" ? "flac" : "m4a");
+      const ext = concreteExt ?? nativeFallback ?? (quality === "flac" ? "flac" : "m4a");
       const fallbackPath = `${destDir}/${effectiveArtist ?? "Unknown"} - ${effectiveTitle}.${ext}`;
       await doFreshDownload(fallbackPath, false, streamUrl, effectiveCoverUrl ?? undefined);
     }

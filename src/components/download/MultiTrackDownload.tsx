@@ -46,19 +46,28 @@ export function MultiTrackDownload({
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
 }) {
+  // No provider declared quality options — offer the source as-is rather than a
+  // re-encode this (direct) path can't actually perform. The saved extension is
+  // the resolver's own `ext`; when it reports none we can't know the container
+  // (this path never sniffs the bytes), so `nativeFallback` names it `.bin`.
   const defaultQualities: DownloadQualityOption[] = [
-    { value: "flac", label: "FLAC (Lossless)" },
-    { value: "aac", label: "AAC (320kbps)" },
+    {
+      value: "original",
+      label: "Original (source format)",
+      description: "Downloads the file exactly as the provider serves it — no re-encode.",
+    },
   ];
   const qualities = qualityOptions && qualityOptions.length > 0 ? qualityOptions : defaultQualities;
   const hasProviderQualities = !!(qualityOptions && qualityOptions.length > 0);
+  // Last-resort extension when the resolver reports none — see SingleTrackDownload.
+  const nativeFallback: string | null = hasProviderQualities ? null : "bin";
 
   const [step, setStep] = useState<BatchStep>("configure");
   // An all-video selection defaults to the provider's video option — same rule
   // as the single-track flow; mixed or audio selections default to the first.
   const allVideo = tracks.length > 0 && tracks.every(t => t.isVideo);
   const [quality, setQualityState] = useState<string>(
-    hasProviderQualities ? (defaultQualityValue(qualities, allVideo) ?? qualities[0].value) : "flac"
+    hasProviderQualities ? (defaultQualityValue(qualities, allVideo) ?? qualities[0].value) : "original"
   );
   const setQuality = (q: string) => {
     setQualityState(q);
@@ -271,7 +280,7 @@ export function MultiTrackDownload({
         progress: 0,
       })));
 
-      const ext = quality === "flac" ? "flac" : "m4a";
+      const ext = nativeFallback ?? (quality === "flac" ? "flac" : "m4a");
 
       // Set up progress listener
       const unlisten = await listen<number>("direct-download-progress", (event) => {
@@ -362,7 +371,7 @@ export function MultiTrackDownload({
                 trackId: t.libraryTrackId,
                 streamUrl,
                 format: quality,
-                ext: resolved.ext && resolved.ext !== "auto" ? resolved.ext : null,
+                ext: resolved.ext && resolved.ext !== "auto" ? resolved.ext : nativeFallback,
                 title,
                 artistName,
                 albumTitle,
@@ -524,7 +533,7 @@ export function MultiTrackDownload({
   const sampleArtist = tracks[0]?.artistName ?? "Artist";
   const sampleAlbum = tracks[0]?.albumTitle ?? "Album";
   const sampleTitle = tracks[0]?.title ?? "Track Name";
-  const ext = quality === "flac" ? "flac" : "m4a";
+  const ext = nativeFallback ?? (quality === "flac" ? "flac" : "m4a");
   const preview = previewPattern(pathPattern, sampleArtist, sampleAlbum, sampleTitle, ext);
   const totalDur = tracks.reduce((s, t) => s + (t.durationSecs ?? 0), 0);
   const headTitle =

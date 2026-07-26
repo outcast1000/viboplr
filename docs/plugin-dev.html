@@ -412,6 +412,7 @@ return { activate: activate, deactivate: deactivate };</pre>
               </tbody>
             </table>
           </div>
+          <p class="api-group-desc">Your resolve handlers return <code>{ url, headers?, metadata?, ext? }</code>. <strong>Always return a concrete <code>ext</code> when you know the container</strong> (<code>"mp3"</code>, <code>"flac"</code>, <code>"m4a"</code>, …) — naming the file is the provider's job. <code>ext: "auto"</code> asks the host to detect the format from the downloaded bytes, but that only happens on the background queue (batch) path; the single-track download window resolves the extension before the bytes arrive and never sniffs, so there <code>"auto"</code> falls back to a default (and to a neutral <code>.bin</code> if you also declared no <code>onGetQualities</code>). Don't rely on <code>"auto"</code> for single-track downloads.</p>
         </div>
 
         <div class="api-group reveal" id="api-scheduler">
