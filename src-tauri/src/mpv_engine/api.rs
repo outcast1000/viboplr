@@ -545,6 +545,14 @@ pub mod render {
             ];
             mpv_err(unsafe { (self.lib.render_context_render)(self.ctx, raw_params.as_mut_ptr()) })
         }
+
+        /// Tell mpv the buffer swap (present) just completed. Call right after
+        /// the actual swap (`flushBuffer`): under the default `video-sync=audio`
+        /// (audio is the master clock) mpv needs the display-latency / vsync
+        /// timing this reports to schedule frames, or video lags audio.
+        pub fn report_swap(&self) {
+            unsafe { (self.lib.render_context_report_swap)(self.ctx) };
+        }
     }
 
     impl Drop for RenderContext<'_> {

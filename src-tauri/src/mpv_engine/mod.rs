@@ -489,9 +489,13 @@ impl Engine {
                     video_layer::VideoLayer::signal_frame(&signal_state);
                 });
                 let _ = ready_tx.send(Ok(()));
-                video_layer::run_render_loop(render_state, glctx, cgl, |width, height| {
-                    rctx.render(0, width, height, true).map_err(|e| e.to_string())
-                });
+                video_layer::run_render_loop(
+                    render_state,
+                    glctx,
+                    cgl,
+                    |width, height| rctx.render(0, width, height, true).map_err(|e| e.to_string()),
+                    || rctx.report_swap(),
+                );
             })
             .map_err(|e| format!("failed to spawn video render thread: {e}"))?;
         ready_rx

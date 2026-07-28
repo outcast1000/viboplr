@@ -287,6 +287,7 @@ pub fn run_render_loop(
     glctx: usize,
     cgl: usize,
     mut render: impl FnMut(i32, i32) -> Result<(), String>,
+    report_swap: impl Fn(),
 ) {
     unsafe {
         CGLSetCurrentContext(cgl as *mut c_void);
@@ -320,6 +321,10 @@ pub fn run_render_loop(
             let _: () = msg_send![ctx, flushBuffer];
             CGLUnlockContext(cgl as *mut c_void);
         }
+        // The swap (flushBuffer, vsync'd) is done — tell mpv when it landed so
+        // its audio-mastered A/V sync accounts for the display-pipeline latency
+        // (otherwise video trails audio). Touches no GL, so it's outside the lock.
+        report_swap();
 
         // Ack the resize serial we just presented so a `set_bounds` caller
         // blocked in the resize handshake can return now that the surface

@@ -151,6 +151,9 @@ pub struct LibMpv {
     ),
     pub render_context_render:
         unsafe extern "C" fn(*mut mpv_render_context, *mut mpv_render_param) -> c_int,
+    /// Report that the buffer swap (present) happened, so mpv can measure
+    /// display latency / vsync timing and keep audio and video in sync.
+    pub render_context_report_swap: unsafe extern "C" fn(*mut mpv_render_context),
     pub render_context_free: unsafe extern "C" fn(*mut mpv_render_context),
 }
 
@@ -374,6 +377,7 @@ fn load_from(path: PathBuf, origin: &'static str) -> Result<LibMpv, String> {
         render_context_create: "mpv_render_context_create",
         render_context_set_update_callback: "mpv_render_context_set_update_callback",
         render_context_render: "mpv_render_context_render",
+        render_context_report_swap: "mpv_render_context_report_swap",
         render_context_free: "mpv_render_context_free",
     });
     let api = unsafe { (lib.client_api_version)() };
