@@ -36,6 +36,12 @@ export function useWaveform(
 
     if (!trackPath || !trackName) return;
     if (isVideo) return;
+    // Remote streams (subsonic / plugin schemes / direct http) are cross-origin
+    // to the webview, so the Web-Audio `fetch` below is CORS-blocked and can
+    // never produce peaks — they use the segmented seek bar by design. Only
+    // local files (file:// → the fetchable asset protocol) are analyzable, so
+    // skip the doomed fetch (and its console error) for everything else.
+    if (!trackPath.startsWith("file://")) return;
     if (fileSize && fileSize > MAX_FILE_SIZE) return;
 
     const cacheKey = waveformKey(trackArtist, trackName, trackDuration);
