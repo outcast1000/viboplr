@@ -65,7 +65,11 @@ export interface QueueTrack {
 // transcode-server stream) and must play through the browser engine.
 export type EngineSource =
   | { kind: "file"; path: string }
-  | { kind: "http"; url: string };
+  // `audioUrl` (http video only): a separate audio stream the native mpv engine
+  // attaches to the video via `audio-file`, so hi-res sources that split
+  // video-only + audio-only (e.g. YouTube ≥720p) play merged. Absent for
+  // self-contained streams.
+  | { kind: "http"; url: string; audioUrl?: string };
 
 // Result of resolving a track to a playable source. `patch` carries metadata
 // discovered during resolution (e.g. the real file path + format of a local

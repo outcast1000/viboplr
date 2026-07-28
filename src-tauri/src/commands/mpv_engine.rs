@@ -13,15 +13,31 @@ use tauri::Emitter;
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum EngineSource {
-    File { path: String },
-    Http { url: String },
+    File {
+        path: String,
+    },
+    Http {
+        url: String,
+        /// A separate audio stream (hi-res sources that split video-only +
+        /// audio-only, e.g. YouTube ≥720p). The engine attaches it to the video
+        /// via mpv's `audio-file`. `None` for self-contained streams.
+        #[serde(default, rename = "audioUrl")]
+        audio_url: Option<String>,
+    },
 }
 
 impl EngineSource {
     fn as_mpv_target(&self) -> &str {
         match self {
             EngineSource::File { path } => path,
-            EngineSource::Http { url } => url,
+            EngineSource::Http { url, .. } => url,
+        }
+    }
+
+    fn audio_url(&self) -> Option<&str> {
+        match self {
+            EngineSource::Http { audio_url, .. } => audio_url.as_deref(),
+            EngineSource::File { .. } => None,
         }
     }
 }
@@ -84,7 +100,7 @@ pub fn engine_play(
     video: bool,
 ) -> Result<(), String> {
     let engine = state.mpv_engine.ensure(&app)?;
-    engine.play(source.as_mpv_target(), &track_key, seek_secs, volume, muted, video)
+    engine.play(source.as_mpv_target(), source.audio_url(), &track_key, seek_secs, volume, muted, video)
 }
 
 #[tauri::command]

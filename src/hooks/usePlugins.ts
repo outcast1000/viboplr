@@ -38,6 +38,7 @@ import type {
   HomeShelfResult,
   NowPlayingInfoResult,
   InfoValueMatch,
+  StreamCandidate,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
@@ -135,7 +136,7 @@ interface LoadedPlugin {
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean }) => Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null>>;
-  streamUriResolvers: Map<string, (id: string, quality?: string | null) => Promise<string | null>>;
+  streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>>;
   schedulerHandlers: Map<string, () => void>;
 }
 
@@ -561,7 +562,7 @@ export function usePlugins(
           },
           onResolveStreamByUri(
             scheme: string,
-            handler: (id: string, quality?: string | null) => Promise<string | null>,
+            handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>,
           ): () => void {
             loaded.streamUriResolvers.set(scheme, handler);
             const unsub = () => {
@@ -2211,13 +2212,33 @@ export function usePlugins(
     [],
   );
 
+  // Resolves a plugin URL scheme to a playable stream. A resolver may return a
+  // bare URL (a single self-contained stream) or a candidate list (a source with
+  // split video/audio streams the host picks among per its active engine — see
+  // selectStream). Normalized here to `{ url, candidates? }`: `url` is always a
+  // usable self-contained URL for URL-only consumers (source classification /
+  // download detail); `candidates`, when present, carries the full menu for the
+  // play path's selector. `opts.externalAudio` tells the resolver the host can
+  // merge a separate audio track, so it should offer the split candidates.
   const resolveStreamByUri = useCallback(
-    async (scheme: string, id: string, quality?: string | null): Promise<string> => {
+    async (
+      scheme: string,
+      id: string,
+      quality?: string | null,
+      opts?: { externalAudio?: boolean },
+    ): Promise<{ url: string; candidates?: StreamCandidate[] }> => {
       for (const [, lp] of loadedPluginsRef.current) {
         const handler = lp.streamUriResolvers.get(scheme);
         if (handler) {
-          const url = await handler(id, quality);
-          if (url) return url;
+          const result = await handler(id, quality, opts);
+          if (!result) continue;
+          if (typeof result === "string") return { url: result };
+          const candidates = result.candidates ?? [];
+          if (candidates.length === 0) continue;
+          // A self-contained URL for URL-only consumers: prefer a muxed stream,
+          // else any candidate (the play path uses `candidates` directly).
+          const selfContained = candidates.find((c) => c.kind === "muxed") ?? candidates[0];
+          return { url: selfContained.url, candidates };
         }
       }
       throw new Error(`No stream URI resolver for scheme: ${scheme}`);

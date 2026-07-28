@@ -255,16 +255,19 @@ function App() {
   trackVideoHistoryRef.current = trackVideoHistory;
   preferVideoRef.current = preferVideoResolution;
   const advanceIndexRef = useRef<() => void>(() => {});
-  const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null) => Promise<string>>(
+  const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: import("./types/plugin").StreamCandidate[] }>>(
     async () => { throw new Error("Stream URI resolver not ready"); }
   );
+  // Placeholder resolver: replaced by useStreamResolution's chain (which runs the
+  // candidate selector) once plugins load. This bare form is only the pre-mount
+  // fallback, so it uses the normalized self-contained URL, not the candidate menu.
   const resolveTrackSrcRef = useRef<(track: QueueTrack) => Promise<ResolvedTrackSource>>(async (track) => {
     const url = track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
     if (parsed.scheme === "file") return { src: convertFileSrc(parsed.path), engineSource: { kind: "file", path: parsed.path } };
     if (parsed.scheme === "plugin") {
-      const resolved = await resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
+      const { url: resolved } = await resolveStreamByUriRef.current(parsed.protocol, parsed.id, null);
       if (resolved.startsWith("file://")) return { src: convertFileSrc(resolved.substring(7)), engineSource: { kind: "file", path: resolved.substring(7) } };
       return { src: resolved, engineSource: resolved.startsWith("http") ? { kind: "http", url: resolved } : null };
     }

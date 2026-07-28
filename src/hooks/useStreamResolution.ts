@@ -3,6 +3,8 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, type EffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
+import { selectStream } from "../playback/selectStream";
+import type { StreamCandidate } from "../types/plugin";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
 
@@ -53,11 +55,11 @@ interface UseStreamResolutionDeps {
   /** Created in App and shared with `usePlayback` for seek/offset math + cleanup. */
   transcodeSessionRef: React.MutableRefObject<TranscodeSession | null>;
   /** Created in App; kept fresh here from `resolveStreamByUri`. */
-  resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null) => Promise<string>>;
+  resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[] }>>;
   /** Ordered, user-configured plugin stream resolvers (populated elsewhere in App). */
   streamResolversRef: React.MutableRefObject<StreamResolver[]>;
   /** Latest plugin stream-URI resolver (`plugins.resolveStreamByUri`). */
-  resolveStreamByUri: (scheme: string, id: string, quality?: string | null) => Promise<string>;
+  resolveStreamByUri: (scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[] }>;
   /** Maps a custom URL scheme to its owning plugin id (`plugins.streamUriResolverOwner`).
    *  Lets a native plugin scheme (e.g. `tidal://`) classify to `{ kind: "plugin", pluginId }`. */
   streamUriResolverOwner: (scheme: string) => string | null;
@@ -126,7 +128,7 @@ export function useStreamResolution({
     // here, at the branch points, because the final `src` alone can't be
     // classified — convertFileSrc yields `https://asset.localhost/…` on
     // Windows, which would look like a remote URL.
-    const resolveUrlDetailed = (url: string): Promise<{ src: string; engineSource: EngineSource | null }> => {
+    const resolveUrlDetailed = (url: string, videoTrack = false): Promise<{ src: string; engineSource: EngineSource | null }> => {
       if (url.startsWith("http://") || url.startsWith("https://")) {
         return Promise.resolve({ src: url, engineSource: { kind: "http", url } });
       }
@@ -134,7 +136,24 @@ export function useStreamResolution({
       if (parsed.scheme === "file") {
         return Promise.resolve({ src: convertFileSrc(parsed.path), engineSource: { kind: "file", path: parsed.path } });
       }
-      if (parsed.scheme === "plugin") return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null).then(r => resolveUrlDetailed(r));
+      if (parsed.scheme === "plugin") {
+        // When the native mpv engine will render this as video it can attach a
+        // separate audio stream, so hint the resolver to offer split candidates
+        // and let selectStream pick a hi-res video-only + audio-only pair. The
+        // browser element can't merge, so it keeps getting a muxed stream — and
+        // selectStream's `browserUrl` (always self-contained) is used as the
+        // element src, which is also the safe fallback if the native play errors.
+        const externalAudio = videoTrack && useNativeVideoRef.current;
+        return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null, externalAudio ? { externalAudio: true } : undefined).then(r => {
+          if (r.candidates && r.candidates.length) {
+            const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack });
+            if (sel) {
+              return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl } };
+            }
+          }
+          return resolveUrlDetailed(r.url, videoTrack);
+        });
+      }
       if (parsed.scheme === "subsonic") {
         return invoke<string>("resolve_subsonic_location", { location: url })
           .then(streamUrl => ({ src: streamUrl, engineSource: { kind: "http" as const, url: streamUrl } }));
@@ -226,7 +245,7 @@ export function useStreamResolution({
                   throw e;
                 }
               }
-              return resolveUrlDetailed(url);
+              return resolveUrlDetailed(url, isVideoTrack(track));
             },
           });
         }
@@ -281,7 +300,7 @@ export function useStreamResolution({
               entry.fellBackToAudio = true;
             }
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
-            return resolveUrlDetailed(result.url);
+            return resolveUrlDetailed(result.url, isVideoTrack(track));
           },
         };
         chain.push(entry);

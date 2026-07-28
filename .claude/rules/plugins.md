@@ -174,7 +174,9 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 - `insertTrack(track, position)` / `insertTracks(tracks, position)` — insert into the current queue
 - `onTrackStarted(handler)` / `onTrackScrobbled(handler)` / `onTrackLiked(handler)` — playback events. Each handler receives the currently-playing track, which is a metadata-only **`QueueTrack`** (no DB ids — `id`/`album_id`/`artist_id` are absent), **not** a library `Track`. Act on metadata (`title` / `artist_name` / `album_title` / `duration_secs`) and resolve a library row on demand via `find_track_by_metadata` if you need an id. `onTrackLiked` also gets a second `liked: boolean` argument; only **like** dispatches it (dislike never does).
 - `onStreamResolve(providerId, handler)` — handler gets `(title, artistName, albumName, durationSecs, opts?)` and returns `{ url, label, video? } | null`. `opts.preferVideo` is an advisory hint (the user turned on Settings → Playback → "Prefer video"): a resolver that can should return a video stream and set `video: true`, and the host reclassifies the track to video and plays it in the theater; ignore the hint to keep returning audio. The hint never reorders the chain or overrides source priority — first non-null result still wins.
-- `onResolveStreamByUri(scheme, handler)` — handler gets `(id, quality?)` and returns a URL; used for custom URL schemes (e.g., `custom://`)
+- `onResolveStreamByUri(scheme, handler)` — handler gets `(id, quality?, opts?)` and returns **either** a bare URL string (one self-contained stream) **or** a candidate list `{ candidates: StreamCandidate[] }`; used for custom URL schemes (e.g., `custom://`). `opts.externalAudio` (advisory) tells the resolver the host can attach a separate audio stream — true only when the **native mpv engine** will render this as **video**. A source whose hi-res streams are split (video-only + audio-only, e.g. YouTube ≥720p) should return the candidate list when the hint is set, and a self-contained (muxed) URL otherwise. The host's selector (`selectStream`) picks per its active engine: the native engine pairs a hi-res video-only stream with a separate audio-only stream (mpv merges them via `audio-file`); the browser engine takes a muxed stream (it can't merge), which is also the instant fallback if a native play errors. Older hosts don't send `externalAudio` and treat a candidate list's best muxed stream as the URL, so returning a bare muxed URL stays fully back-compatible.
+
+`StreamCandidate`: `{ url, kind: "muxed" | "video" | "audio", height?, container?, vcodec?, acodec?, tbr? }`. `kind` is `muxed` (video+audio in one stream, browser-safe), `video` (video-only), or `audio` (audio-only). `height` (px), `container` (`"mp4"`/`"webm"`/`"m4a"`…), `vcodec`/`acodec`, and `tbr` (kbps) refine the host's pick — it prefers browser-safe mp4/avc + m4a/aac for the muxed/fallback stream and highest resolution for the native video stream.
 
 `PluginTrack`: `{ path?, title, artist_name?, album_title?, duration_secs?, track_number?, image_url? }`. `image_url` is shown in the now playing bar and queue when no library image exists.
 
@@ -387,7 +389,7 @@ For each track to play:
 
 ### Custom URL Schemes
 
-`api.playback.onResolveStreamByUri(scheme, handler)` registers a resolver for a custom URL scheme (e.g., `custom://`). The handler returns a playable URL for a given `(id, quality?)`.
+`api.playback.onResolveStreamByUri(scheme, handler)` registers a resolver for a custom URL scheme (e.g., `custom://`). The handler returns a playable URL — or a `{ candidates: StreamCandidate[] }` menu for split-stream sources — for a given `(id, quality?, opts?)`. See the `api.playback` reference above for the candidate contract and the `opts.externalAudio` hint (hi-res video: the native mpv engine merges a video-only + audio-only pair).
 
 ### Configuration
 

@@ -496,8 +496,42 @@ export interface PluginPlaybackAPI {
   ): () => void;
   onResolveStreamByUri(
     scheme: string,
-    handler: (id: string, quality?: string | null) => Promise<string | null>,
+    /** Return a bare URL for a single self-contained stream, or a candidate
+     *  list when the source offers multiple streams (e.g. YouTube's split
+     *  video-only + audio-only formats) and the host should pick per its active
+     *  engine — see `StreamCandidate` / `opts.externalAudio`. `null` = no match. */
+    handler: (
+      id: string,
+      quality?: string | null,
+      /** `externalAudio`: the host can merge a separate audio track (native mpv
+       *  engine + video). When set, a resolver with split streams should return
+       *  a candidate list so the host can pick a hi-res video-only stream plus a
+       *  companion audio stream; otherwise return a self-contained (muxed) URL.
+       *  Optional for back-compat — older hosts don't send it. */
+      opts?: { externalAudio?: boolean },
+    ) => Promise<string | { candidates: StreamCandidate[] } | null>,
   ): () => void;
+}
+
+/** One playable stream a resolver offers for a source. The host picks among
+ *  candidates per its active playback engine: the native mpv engine can merge a
+ *  `video`-only stream with a separate `audio`-only stream (hi-res); the browser
+ *  engine needs a self-contained `muxed` stream. Only the fields the host
+ *  selects on are required — richer metadata (codecs/tbr) just refines the pick. */
+export interface StreamCandidate {
+  url: string;
+  /** `muxed` = video+audio in one stream (browser-safe); `video`/`audio` = a
+   *  single track that must be paired (mpv attaches the audio to the video). */
+  kind: "muxed" | "video" | "audio";
+  /** Pixel height for `video`/`muxed` streams (drives the resolution pick). */
+  height?: number;
+  /** Container, e.g. "mp4" | "webm" | "m4a" — the browser prefers mp4/m4a. */
+  container?: string;
+  vcodec?: string;
+  acodec?: string;
+  /** Total bitrate (kbps); tiebreaks equal-resolution/quality candidates. */
+  tbr?: number;
+  label?: string;
 }
 
 export interface PluginTrack {

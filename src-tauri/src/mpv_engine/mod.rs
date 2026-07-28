@@ -564,13 +564,14 @@ impl Engine {
     pub fn play(
         self: &Arc<Self>,
         url: &str,
+        audio_url: Option<&str>,
         track_key: &str,
         seek_secs: Option<f64>,
         volume: f64,
         muted: bool,
         video: bool,
     ) -> Result<(), String> {
-        log::info!("mpv-engine: play key={track_key} video={video} url_scheme={}", url.split(':').next().unwrap_or("(path)"));
+        log::info!("mpv-engine: play key={track_key} video={video} audio_track={} url_scheme={}", audio_url.is_some(), url.split(':').next().unwrap_or("(path)"));
         if video {
             #[cfg(any(target_os = "macos", windows))]
             self.ensure_video_layer()?;
@@ -614,8 +615,21 @@ impl Engine {
             .map_err(|e| format!("mpv volume failed: {e}"))?;
         deck.set_property("pause", false)
             .map_err(|e| format!("mpv unpause failed: {e}"))?;
-        deck.command("loadfile", &[url, "replace"])
-            .map_err(|e| format!("mpv loadfile failed: {e}"))?;
+        // Hi-res sources (e.g. YouTube ≥720p) only offer split video-only +
+        // audio-only streams; attach the audio via mpv's per-file `audio-file`
+        // option so mpv muxes them at playback. loadfile's options field is the
+        // 4th positional arg (mpv ≥ 0.38 — present in the pinned build); the
+        // index arg ("0") is ignored for the "replace" action. The URL is
+        // length-escaped (`%<bytes>%<value>`) so commas / query chars in it
+        // aren't misparsed as option separators.
+        let load = match audio_url {
+            Some(audio) => {
+                let opt = format!("audio-file=%{}%{}", audio.len(), audio);
+                deck.command("loadfile", &[url, "replace", "0", &opt])
+            }
+            None => deck.command("loadfile", &[url, "replace"]),
+        };
+        load.map_err(|e| format!("mpv loadfile failed: {e}"))?;
         log::info!("mpv-engine: loadfile accepted on deck {active}");
         Ok(())
     }
@@ -1262,7 +1276,7 @@ mod tests {
         let Some(engine) = try_test_engine(sink) else { return };
 
         engine
-            .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
+            .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
             .expect("play");
         engine
             .preload(wav_b.to_str().unwrap(), "trk:b", false)
@@ -1290,7 +1304,7 @@ mod tests {
         let Some(engine) = try_test_engine(sink) else { return };
 
         engine
-            .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
+            .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
             .expect("play");
         engine
             .preload(wav_b.to_str().unwrap(), "trk:b", true)
@@ -1321,7 +1335,7 @@ mod tests {
         let Some(engine) = try_test_engine(sink) else { return };
 
         engine
-            .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
+            .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
             .expect("play");
         engine
             .preload(wav_b.to_str().unwrap(), "trk:b", true)
@@ -1360,7 +1374,7 @@ mod tests {
             .apply_replaygain(&ReplayGainParams { mode: "track".into(), preamp_db: 3.0, prevent_clip: true })
             .expect("replaygain options");
         engine
-            .play(wav.to_str().unwrap(), "trk:eq", None, 0.8, false, false)
+            .play(wav.to_str().unwrap(), None, "trk:eq", None, 0.8, false, false)
             .expect("play with EQ");
         let ended = wait_for(&rx, "engine-ended", Duration::from_secs(10));
         assert_eq!(ended["trackKey"], "trk:eq");
@@ -1391,7 +1405,7 @@ mod tests {
         engine.apply_audio_exclusive(true).expect("exclusive");
 
         engine
-            .play(wav_a.to_str().unwrap(), "trk:a", None, 1.0, false, false)
+            .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
             .expect("play");
         // Crossfade requested, but exclusive mode must arm same-deck gapless
         // (the standby deck can't open an exclusively-held device).
@@ -1440,6 +1454,7 @@ mod tests {
         engine
             .play(
                 "https://github.com/anars/blank-audio/raw/master/2-seconds-of-silence.mp3",
+                None,
                 "trk:https",
                 None,
                 0.5,
@@ -1467,7 +1482,7 @@ mod tests {
         let Some(engine) = try_test_engine(sink) else { return };
         engine.set_tls_ca_file(&test_ca_bundle(dir.path())).expect("tls ca");
         engine
-            .play("https://ice1.somafm.com/groovesalad-128-mp3", "trk:radio", None, 0.5, false, false)
+            .play("https://ice1.somafm.com/groovesalad-128-mp3", None, "trk:radio", None, 0.5, false, false)
             .expect("play stream");
 
         // Position events prove the stream is decoding.
@@ -1499,7 +1514,7 @@ mod tests {
         let (sink, rx) = collect_events();
         let Some(engine) = try_test_engine(sink) else { return };
         engine
-            .play(bogus.to_str().unwrap(), "trk:bad", None, 1.0, false, false)
+            .play(bogus.to_str().unwrap(), None, "trk:bad", None, 1.0, false, false)
             .expect("play command itself should be accepted");
 
         let err = wait_for(&rx, "engine-error", Duration::from_secs(10));
