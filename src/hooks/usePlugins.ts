@@ -1517,22 +1517,10 @@ export function usePlugins(
       // builtin's code without a second IPC round-trip.
       const storedEnabled =
         (await store.get<string[]>("enabledPlugins")) ?? null;
-      // One-time: enable the built-in search-providers plugin for existing users
-      // (web search moved out of core into this plugin). First-launch users get
-      // it via the auto-enable path below. Guarded by a flag so a later opt-out
-      // is respected. Must run BEFORE plugin_list_installed so the plugin's
-      // source is slurped (enabledIds) and it activates in this pass.
-      let enabled = storedEnabled;
-      if (storedEnabled !== null) {
-        const seeded = await store.get<boolean>("searchProvidersPluginSeeded");
-        if (!seeded) {
-          if (!storedEnabled.includes("search-providers")) {
-            enabled = storedEnabled.concat(["search-providers"]);
-            await store.set("enabledPlugins", enabled);
-          }
-          await store.set("searchProvidersPluginSeeded", true);
-        }
-      }
+      // search-providers is now an external gallery plugin (no longer bundled),
+      // so there's no built-in copy to auto-enable here — users install it from
+      // the gallery like any other plugin.
+      const enabled = storedEnabled;
       const enabledSet =
         enabled !== null
           ? new Set(enabled)
@@ -1561,9 +1549,6 @@ export function usePlugins(
           }
         }
         await store.set("enabledPlugins", Array.from(enabledSet));
-        // First launch already enables search-providers above; mark it seeded so
-        // the upgrade force-enable never re-adds it after a later user opt-out.
-        await store.set("searchProvidersPluginSeeded", true);
       }
 
       enabledPluginsRef.current = enabledSet;
