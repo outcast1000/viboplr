@@ -123,14 +123,15 @@ pub fn engine_set_video_background(
     state.mpv_engine.set_video_background(color)
 }
 
-/// Live codec/samplerate/format/bitrate of whatever the engine is decoding,
-/// or null when no native session is playing.
+/// Live media facts of whatever the engine is decoding (audio codec / sample
+/// rate / format / bitrate, plus video codec / resolution / bitrate / fps for
+/// video), or null when no native session is playing.
 #[tauri::command]
 pub fn engine_get_audio_info(
     state: tauri::State<'_, super::AppState>,
 ) -> Result<serde_json::Value, String> {
-    let info = state.mpv_engine.get().and_then(|engine| engine.audio_info());
-    serde_json::to_value(info).map_err(|e| format!("serialize audio info: {e}"))
+    let info = state.mpv_engine.get().and_then(|engine| engine.media_info());
+    serde_json::to_value(info).map_err(|e| format!("serialize media info: {e}"))
 }
 
 /// Position the native video surface. Coordinates are top-left-origin points

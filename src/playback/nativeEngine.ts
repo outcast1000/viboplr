@@ -58,14 +58,25 @@ export interface EngineIcyTitleEvent {
   title: string;
 }
 
-/** Live facts about what the engine is decoding (works for remote streams). */
-export interface EngineAudioInfo {
+/** Live facts about what the engine is decoding (works for remote streams and
+ * video). The video fields are null for audio-only playback. */
+export interface EngineMediaInfo {
+  // Audio.
   codec: string | null;
   sampleRate: number | null;
   /** mpv sample format string (e.g. "s16", "s32", "floatp"). */
   format: string | null;
-  /** Instantaneous bitrate in bits/s. */
+  /** Instantaneous audio bitrate in bits/s. */
   bitrate: number | null;
+  // Video (null for audio-only playback).
+  /** Short video codec name (e.g. "h264", "vp9", "av1"). */
+  videoCodec: string | null;
+  width: number | null;
+  height: number | null;
+  /** Instantaneous video bitrate in bits/s. */
+  videoBitrate: number | null;
+  /** Nominal container frame rate. */
+  fps: number | null;
 }
 
 /** Install state of the downloadable libmpv component (Rust `ComponentStatus`). */
@@ -190,11 +201,11 @@ export const nativeEngine = {
   setVideoBackground(color: string): Promise<void> {
     return whenCapable(() => invoke("engine_set_video_background", { color }));
   },
-  /** What the engine is decoding right now, or null (no native session /
-   * incapable build). */
-  getAudioInfo(): Promise<EngineAudioInfo | null> {
+  /** What the engine is decoding right now (audio + video facts), or null (no
+   * native session / incapable build). */
+  getMediaInfo(): Promise<EngineMediaInfo | null> {
     return probeEngineCapabilities().then((caps) =>
-      caps.mpv ? invoke<EngineAudioInfo | null>("engine_get_audio_info") : null,
+      caps.mpv ? invoke<EngineMediaInfo | null>("engine_get_audio_info") : null,
     );
   },
 };

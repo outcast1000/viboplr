@@ -5,6 +5,8 @@ import {
   formatSource,
   formatQuality,
   formatEngineQuality,
+  formatEngineVideoQuality,
+  resolutionShorthand,
   formatTags,
   nextCycleIndex,
   nowPlayingItemTop,
@@ -116,6 +118,55 @@ describe("formatEngineQuality", () => {
   it("returns null for no info / empty info", () => {
     expect(formatEngineQuality(null)).toBeNull();
     expect(formatEngineQuality({ codec: null, sampleRate: null, format: null, bitrate: null })).toBeNull();
+  });
+});
+
+describe("resolutionShorthand", () => {
+  it("maps standard heights to tier labels", () => {
+    expect(resolutionShorthand(3840, 2160)).toBe("4K");
+    expect(resolutionShorthand(2560, 1440)).toBe("1440p");
+    expect(resolutionShorthand(1920, 1080)).toBe("1080p");
+    expect(resolutionShorthand(1280, 720)).toBe("720p");
+    expect(resolutionShorthand(854, 480)).toBe("480p");
+    expect(resolutionShorthand(7680, 4320)).toBe("8K");
+  });
+
+  it("snaps slightly-cropped heights to the nearest tier", () => {
+    expect(resolutionShorthand(1920, 1072)).toBe("1080p");
+    expect(resolutionShorthand(3840, 2140)).toBe("4K");
+  });
+
+  it("uses width as a fallback tier signal and falls back to `${h}p`", () => {
+    expect(resolutionShorthand(3840, 0)).toBe("4K");
+    expect(resolutionShorthand(0, 300)).toBe("300p");
+  });
+
+  it("returns null when nothing is known", () => {
+    expect(resolutionShorthand(null, null)).toBeNull();
+    expect(resolutionShorthand(0, 0)).toBeNull();
+  });
+});
+
+describe("formatEngineVideoQuality", () => {
+  it("shows codec + resolution shorthand + fps", () => {
+    expect(formatEngineVideoQuality({ videoCodec: "h264", width: 1920, height: 1080, fps: 30 }))
+      .toBe("H264 · 1080p · 30fps");
+    expect(formatEngineVideoQuality({ videoCodec: "vp9", width: 3840, height: 2160, fps: 59.94 }))
+      .toBe("VP9 · 4K · 60fps");
+  });
+
+  it("omits missing parts", () => {
+    expect(formatEngineVideoQuality({ videoCodec: "av1", width: null, height: null, fps: null }))
+      .toBe("AV1");
+    expect(formatEngineVideoQuality({ videoCodec: null, width: 1280, height: 720, fps: null }))
+      .toBe("720p");
+  });
+
+  it("returns null for audio-only / no info", () => {
+    expect(formatEngineVideoQuality(null)).toBeNull();
+    expect(formatEngineVideoQuality({ videoCodec: null, width: null, height: null, fps: null })).toBeNull();
+    // Audio-only engine info (no video fields) → null.
+    expect(formatEngineVideoQuality({ videoCodec: null, width: 0, height: 0, fps: 0 })).toBeNull();
   });
 });
 

@@ -23,6 +23,8 @@ import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
 import { NowPlayingInfoCycler, MarqueeText, initialCycleState } from "./NowPlayingInfoCycler";
 import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
+import { resolutionShorthand } from "../hooks/useNowPlayingInfo";
+import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
 
@@ -218,6 +220,10 @@ export function NowPlayingBar({
   const [sourceTooltipOpen, setSourceTooltipOpen] = useState(false);
   const [sourceAnchor, setSourceAnchor] = useState<{ x: number; y: number } | null>(null);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
+  // Live decode facts from the native mpv engine — the only source of quality
+  // info for remote/streamed audio and video (audioProps above is lofty, local
+  // files only). Null when the browser engine is active or nothing is playing.
+  const [mediaInfo, setMediaInfo] = useState<EngineMediaInfo | null>(null);
   const sourceHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sourceTooltipRef = useRef<HTMLDivElement | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
@@ -251,6 +257,7 @@ export function NowPlayingBar({
   // Fetch audio properties for the current track (local files only). Reset on track change.
   useEffect(() => {
     setAudioProps(null);
+    setMediaInfo(null); // engine facts are (re)fetched when the tooltip opens
     if (!currentTrack?.path) return;
     if (!isLocalTrack(currentTrack)) return;
     let cancelled = false;
@@ -621,6 +628,12 @@ export function NowPlayingBar({
                           if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
                           setSourceAnchor({ x: rect.left, y: rect.top - 8 });
                           setSourceTooltipOpen(true);
+                          // Fetch the engine's live decode facts on hover — by now
+                          // decode has settled (resolution/bitrate are ready). Null
+                          // on the browser engine, which leaves the lofty fallback.
+                          nativeEngine.getMediaInfo()
+                            .then(setMediaInfo)
+                            .catch((e) => console.error("Failed to load engine media info:", e));
                         };
                         const scheduleClose = () => {
                           if (sourceHoverTimerRef.current) clearTimeout(sourceHoverTimerRef.current);
@@ -888,17 +901,48 @@ export function NowPlayingBar({
           } catch { /* ignore */ }
         }
 
-        // Rows
+        // Rows. Quality has two sources: lofty (audioProps, local files only,
+        // richest — bit depth + channels) and the mpv engine's live decode
+        // facts (mediaInfo — the ONLY source for remote/streamed audio + all
+        // video). Video rows come only from the engine; audio rows prefer the
+        // richer lofty props and fall back to the engine.
         const rows: Array<[string, React.ReactNode]> = [];
-        if (currentTrack.format) rows.push(["format", currentTrack.format.toUpperCase()]);
-        if (audioProps?.bitrate) rows.push(["bitrate", `${audioProps.bitrate} kbps`]);
-        if (audioProps?.sample_rate) {
-          const depth = audioProps.bit_depth ? ` · ${audioProps.bit_depth}-bit` : "";
-          rows.push(["quality", `${(audioProps.sample_rate / 1000).toFixed(1)} kHz${depth}`]);
+        const mi = mediaInfo;
+        const hasVideo = !!mi && (!!mi.videoCodec || (!!mi.width && !!mi.height));
+        if (hasVideo && mi) {
+          const vparts: string[] = [];
+          if (mi.videoCodec) vparts.push(mi.videoCodec.toUpperCase());
+          if (mi.width && mi.height) {
+            const sh = resolutionShorthand(mi.width, mi.height);
+            vparts.push(sh ? `${mi.width}×${mi.height} (${sh})` : `${mi.width}×${mi.height}`);
+          }
+          if (mi.fps) vparts.push(`${Math.round(mi.fps)} fps`);
+          if (vparts.length) rows.push(["video", vparts.join(" · ")]);
+          if (mi.videoBitrate) rows.push(["video rate", `${Math.round(mi.videoBitrate / 1000)} kbps`]);
         }
-        if (audioProps?.channels) {
-          const label = audioProps.channels === 1 ? "Mono" : audioProps.channels === 2 ? "Stereo" : `${audioProps.channels} ch`;
-          rows.push(["channels", label]);
+        const hasLoftyAudio = !!(audioProps?.bitrate || audioProps?.sample_rate || audioProps?.channels);
+        if (hasLoftyAudio) {
+          // Local file: the full lofty picture (label "audio" when video shares the tooltip).
+          if (currentTrack.format) rows.push([hasVideo ? "audio" : "format", currentTrack.format.toUpperCase()]);
+          if (audioProps?.bitrate) rows.push([hasVideo ? "audio rate" : "bitrate", `${audioProps.bitrate} kbps`]);
+          if (audioProps?.sample_rate) {
+            const depth = audioProps.bit_depth ? ` · ${audioProps.bit_depth}-bit` : "";
+            rows.push(["quality", `${(audioProps.sample_rate / 1000).toFixed(1)} kHz${depth}`]);
+          }
+          if (audioProps?.channels) {
+            const label = audioProps.channels === 1 ? "Mono" : audioProps.channels === 2 ? "Stereo" : `${audioProps.channels} ch`;
+            rows.push(["channels", label]);
+          }
+        } else if (mi && (mi.codec || mi.sampleRate || mi.bitrate)) {
+          // Remote/streamed audio: the engine's live facts.
+          const aparts: string[] = [];
+          if (mi.codec) aparts.push(mi.codec.toUpperCase());
+          if (mi.sampleRate) aparts.push(`${(mi.sampleRate / 1000).toFixed(1)} kHz`);
+          if (aparts.length) rows.push([hasVideo ? "audio" : "format", aparts.join(" · ")]);
+          if (mi.bitrate) rows.push([hasVideo ? "audio rate" : "bitrate", `${Math.round(mi.bitrate / 1000)} kbps`]);
+        } else if (currentTrack.format) {
+          // No decode facts yet — at least name the container format.
+          rows.push(["format", currentTrack.format.toUpperCase()]);
         }
         if (displayPath) rows.push(["path", <span className="now-source-path" title={displayPath}>{displayPath}</span>]);
         if (sourceUrl && !displayPath && !sourceUrl.startsWith("file://")) {

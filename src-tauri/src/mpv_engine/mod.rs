@@ -70,17 +70,29 @@ struct DspSettings {
     video_bg: Option<String>,
 }
 
-/// Live audio-stream facts read off the active deck — what's actually being
-/// decoded, which works for remote streams where tag-based readers can't.
+/// Live media-stream facts read off the active deck — what's actually being
+/// decoded, which works for remote streams (and video) where tag-based readers
+/// can't. The video fields are `None` for audio-only playback.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EngineAudioInfo {
+pub struct EngineMediaInfo {
+    // Audio.
     pub codec: Option<String>,
     pub sample_rate: Option<i64>,
     /// mpv sample format string (e.g. "s16", "s32", "floatp").
     pub format: Option<String>,
-    /// Instantaneous bitrate in bits/s (VBR streams fluctuate).
+    /// Instantaneous audio bitrate in bits/s (VBR streams fluctuate).
     pub bitrate: Option<f64>,
+    // Video (None for audio-only playback).
+    /// Short video codec name (mpv `video-format`, e.g. "h264", "vp9", "av1").
+    pub video_codec: Option<String>,
+    /// Decoded frame width / height in pixels.
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    /// Instantaneous video bitrate in bits/s.
+    pub video_bitrate: Option<f64>,
+    /// Nominal container frame rate.
+    pub fps: Option<f64>,
 }
 
 #[derive(Default)]
@@ -981,19 +993,27 @@ impl Engine {
     }
 
     /// What the active deck is actually decoding, or None when the engine
-    /// isn't playing. Works for remote streams that tag readers can't inspect.
-    pub fn audio_info(&self) -> Option<EngineAudioInfo> {
+    /// isn't playing. Works for remote streams (and video) that tag readers
+    /// can't inspect. Zero/empty values are normalized to `None` so the
+    /// frontend can treat "known" as "present".
+    pub fn media_info(&self) -> Option<EngineMediaInfo> {
         let active = {
             let st = self.state.lock().unwrap();
             st.current_key.as_ref()?;
             st.active
         };
         let mpv = &self.decks[active].mpv;
-        Some(EngineAudioInfo {
-            codec: mpv.get_property::<String>("audio-codec-name").ok(),
-            sample_rate: mpv.get_property::<i64>("audio-params/samplerate").ok(),
-            format: mpv.get_property::<String>("audio-params/format").ok(),
-            bitrate: mpv.get_property::<f64>("audio-bitrate").ok(),
+        let non_empty = |s: String| (!s.is_empty()).then_some(s);
+        Some(EngineMediaInfo {
+            codec: mpv.get_property::<String>("audio-codec-name").ok().and_then(non_empty),
+            sample_rate: mpv.get_property::<i64>("audio-params/samplerate").ok().filter(|&v| v > 0),
+            format: mpv.get_property::<String>("audio-params/format").ok().and_then(non_empty),
+            bitrate: mpv.get_property::<f64>("audio-bitrate").ok().filter(|&v| v > 0.0),
+            video_codec: mpv.get_property::<String>("video-format").ok().and_then(non_empty),
+            width: mpv.get_property::<i64>("width").ok().filter(|&v| v > 0),
+            height: mpv.get_property::<i64>("height").ok().filter(|&v| v > 0),
+            video_bitrate: mpv.get_property::<f64>("video-bitrate").ok().filter(|&v| v > 0.0),
+            fps: mpv.get_property::<f64>("container-fps").ok().filter(|&v| v > 0.0),
         })
     }
 }
@@ -1468,7 +1488,7 @@ mod tests {
             .expect("play https file");
         let pos = wait_for(&rx, "engine-position", Duration::from_secs(30));
         assert_eq!(pos["trackKey"], "trk:https");
-        let info = engine.audio_info().expect("audio info");
+        let info = engine.media_info().expect("media info");
         eprintln!("[https-test] info: {info:?}");
         assert!(info.codec.is_some());
         let ended = wait_for(&rx, "engine-ended", Duration::from_secs(30));
@@ -1501,7 +1521,7 @@ mod tests {
         assert!(!title.is_empty());
 
         // Live decode facts for a stream no tag reader could inspect.
-        let info = engine.audio_info().expect("audio info");
+        let info = engine.media_info().expect("media info");
         eprintln!("[radio-test] info: {info:?}");
         assert_eq!(info.codec.as_deref(), Some("mp3"));
         assert!(info.sample_rate.unwrap_or(0) > 0);

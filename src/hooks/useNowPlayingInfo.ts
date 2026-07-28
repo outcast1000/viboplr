@@ -246,6 +246,48 @@ export function formatEngineQuality(info: {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/** Human resolution label from pixel dimensions ("1080p", "4K", "1440p", …),
+ *  or null. Keyed off height, with thresholds a touch below each standard tier
+ *  so slightly-cropped frames (e.g. 1072, 2140) still read as their tier.
+ *  Pure + exported for tests. */
+export function resolutionShorthand(
+  width: number | null | undefined,
+  height: number | null | undefined,
+): string | null {
+  const h = height ?? 0;
+  const w = width ?? 0;
+  if (h <= 0 && w <= 0) return null;
+  if (h >= 4300 || w >= 7600) return "8K";
+  if (h >= 2100 || w >= 3800) return "4K";
+  if (h >= 1400) return "1440p";
+  if (h >= 1060) return "1080p";
+  if (h >= 700) return "720p";
+  if (h >= 460) return "480p";
+  if (h >= 340) return "360p";
+  if (h > 0) return `${h}p`;
+  return null;
+}
+
+/** Compact video-quality string from the engine's live decode facts
+ *  (e.g. "H264 · 1080p · 30fps"), or null when no video is playing.
+ *  Pure + exported for tests. */
+export function formatEngineVideoQuality(info: {
+  videoCodec?: string | null;
+  width?: number | null;
+  height?: number | null;
+  fps?: number | null;
+} | null): string | null {
+  if (!info) return null;
+  const hasVideo = (info.width ?? 0) > 0 || (info.height ?? 0) > 0 || !!info.videoCodec;
+  if (!hasVideo) return null;
+  const parts: string[] = [];
+  if (info.videoCodec) parts.push(info.videoCodec.toUpperCase());
+  const res = resolutionShorthand(info.width, info.height);
+  if (res) parts.push(res);
+  if (info.fps && info.fps > 0) parts.push(`${Math.round(info.fps)}fps`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 /** Compact tag line (e.g. "#rock · #jazz"), or null when there are no tags.
  *  Pure + exported for tests. */
 export function formatTags(names: string[] | null | undefined): string | null {
@@ -449,13 +491,14 @@ export function useNowPlayingInfo({
       }
       if (id === "builtin:quality") {
         // Prefer the mpv engine's live decode facts — the only source that
-        // works for remote/streamed audio. Null when no native session plays.
+        // works for remote/streamed media. For video show its resolution line;
+        // else the audio line. Null when no native session plays.
         try {
-          const engineInfo = await withTimeout(nativeEngine.getAudioInfo(), null);
-          const engineText = formatEngineQuality(engineInfo);
+          const engineInfo = await withTimeout(nativeEngine.getMediaInfo(), null);
+          const engineText = formatEngineVideoQuality(engineInfo) ?? formatEngineQuality(engineInfo);
           if (engineText) return { id, segments: [{ text: engineText }] };
         } catch (e) {
-          console.error("Failed to resolve engine audio quality:", e);
+          console.error("Failed to resolve engine media quality:", e);
         }
         let props: AudioProps | null = null;
         if (track.path && isLocalTrack(track)) {
