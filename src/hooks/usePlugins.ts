@@ -73,7 +73,7 @@ export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
 };
 
 export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> = {
-  lyrics: { lrclib: 100, genius: 200, "lyrics-ovh": 300, "google-lyrics": 400 },
+  lyrics: { lrclib: 100, genius: 200, "lyrics-ovh": 300, google: 400 },
   artist_bio: { lastfm: 100, genius: 200 },
   album_wiki: { lastfm: 100, genius: 200 },
 };
@@ -87,13 +87,13 @@ export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
   "audiodb:artist": 200,
   "deezer:artist": 300,
   "musicbrainz:artist": 500,
-  "google-image-search:artist": 900,
+  "google:artist": 900,
   "tidal-browse:album": 100,
   "itunes:album": 200,
   "deezer:album": 300,
   "musicbrainz:album": 500,
-  "google-image-search:album": 900,
-  "google-image-search:tag": 900,
+  "google:album": 900,
+  "google:tag": 900,
 };
 
 // Internal priority for download providers (keyed by "pluginId:providerId")

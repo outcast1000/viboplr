@@ -108,7 +108,7 @@ fn test_image_providers_check_constraint_dropped() {
                 active      INTEGER NOT NULL DEFAULT 1,
                 UNIQUE (plugin_id, entity)
              );
-             INSERT INTO image_providers (plugin_id, entity, priority) VALUES ('google-image-search', 'artist', 600);
+             INSERT INTO image_providers (plugin_id, entity, priority) VALUES ('google', 'artist', 600);
              CREATE TABLE db_version (version INTEGER NOT NULL);
              INSERT INTO db_version (rowid, version) VALUES (1, 1);",
         ).unwrap();
@@ -116,12 +116,12 @@ fn test_image_providers_check_constraint_dropped() {
     let db = Database::new(dir.path()).expect("DB with stale CHECK should open");
     // The CHECK must be gone: a tag provider now inserts successfully.
     db.sync_image_providers(&[
-        ("google-image-search".to_string(), "artist".to_string(), 600),
-        ("google-image-search".to_string(), "tag".to_string(), 900),
+        ("google".to_string(), "artist".to_string(), 600),
+        ("google".to_string(), "tag".to_string(), 900),
     ]).expect("syncing a tag image provider must succeed after migration");
     let tag_providers = db.get_image_providers("tag").unwrap();
     assert!(
-        tag_providers.iter().any(|(plugin_id, _, _)| plugin_id == "google-image-search"),
+        tag_providers.iter().any(|(plugin_id, _, _)| plugin_id == "google"),
         "tag image provider should be registered after the CHECK is dropped",
     );
 }
