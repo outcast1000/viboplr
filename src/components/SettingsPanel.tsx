@@ -576,7 +576,7 @@ function ProviderPrioritySection({
     <>
       {infoEntries.length > 0 && (
         <div className="settings-group">
-          <div className="settings-group-title">Images &amp; Information</div>
+          <div className="settings-group-title">Images &amp; Information<HelpLink anchor="providers" topic="provider priority" /></div>
           <div className="provider-priority-container">
             {infoEntries.map(([entity, rows]) => (
               <div key={entity} className="provider-entity-group">
@@ -601,7 +601,7 @@ function ProviderPrioritySection({
       )}
       {streamResolvers.length > 0 && (
         <div className="settings-group">
-          <div className="settings-group-title">Streaming</div>
+          <div className="settings-group-title">Streaming<HelpLink anchor="providers" topic="provider priority" /></div>
           <div className="provider-priority-container">
             <div className="provider-entity-group">
               <div className="provider-entity-rows">
@@ -647,7 +647,7 @@ function ProviderPrioritySection({
 
       {downloadRow && (
         <div className="settings-group">
-          <div className="settings-group-title">Downloads</div>
+          <div className="settings-group-title">Downloads<HelpLink anchor="providers" topic="provider priority" /></div>
           <div className="provider-priority-container">
             <div className="provider-entity-group">
               <div className="provider-entity-rows">

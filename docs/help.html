@@ -227,6 +227,61 @@
     </div>
   </section>
 
+  <!-- Providers & priority -->
+  <section class="section" id="providers">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Providers &amp; priority</h2>
+        <p class="docs-lead">Choose which sources Viboplr uses for artwork, metadata, streaming, and downloads &mdash; and the order it tries them in.</p>
+        <p>Viboplr is an orchestrator: most artwork, extra metadata, streaming, and downloading are done by plugins, and more than one plugin can often do the same job. This screen decides who goes first. Every list works the same way &mdash; <strong>drag a row by its handle to reorder it</strong> (higher = tried first), and use the switch to turn a provider on or off. When Viboplr needs something, it walks the list top-to-bottom and the <strong>first provider that succeeds wins</strong>; disabled providers are skipped entirely.</p>
+        <ul class="docs-list">
+          <li><strong>Images &amp; Information</strong> &mdash; where cover art and artist images come from, and which plugin fills each information tab (bios, lyrics, similar artists, and so on) when several offer the same one.</li>
+          <li><strong>Streaming</strong> &mdash; the fallback order used when a track's own source can't be played directly (for example a library file that's gone missing, or an external track with no direct URL). The first resolver that returns a playable stream wins.</li>
+          <li><strong>Downloads</strong> &mdash; which provider resolves a download when you save a track.</li>
+        </ul>
+        <p>Your order and on/off choices are remembered across restarts. <strong>Reset to Defaults</strong> restores the built-in ordering at any time.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Auto Continue -->
+  <section class="section section-alt" id="auto-continue">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Auto Continue</h2>
+        <p class="docs-lead">Never hit silence &mdash; when your queue runs out, Viboplr picks something else from your library and keeps playing.</p>
+        <p>With Auto Continue on, reaching the end of the queue doesn't stop the music: Viboplr chooses another track from your library and plays on. The sliders are <em>weights</em> that bias how it chooses &mdash; they're relative, so what matters is how large each one is compared to the others. A strategy at zero never fires.</p>
+        <ul class="docs-list">
+          <li><strong>Random</strong> &mdash; anything from your library.</li>
+          <li><strong>Same Artist</strong> &mdash; more from the artist you're currently hearing.</li>
+          <li><strong>Same Tag</strong> &mdash; tracks that share a tag (genre or mood) with the current one.</li>
+          <li><strong>Most Played</strong> &mdash; your heavy rotation, by play count.</li>
+          <li><strong>Liked</strong> &mdash; tracks you've hearted.</li>
+        </ul>
+        <p><strong>Same format</strong> restricts the picks to the current track's file format &mdash; handy if you're keeping a listening session all-FLAC. The reset button returns every weight to its default mix. Auto Continue only runs during normal playback; it's off in <em>Repeat All</em> and <em>Repeat One</em>, where the queue already loops.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Equalizer -->
+  <section class="section" id="equalizer">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Equalizer</h2>
+        <p class="docs-lead">Shape the sound &mdash; boost the bass, tame harsh highs, or dial in a preset.</p>
+        <p>The equalizer has two modes, switched at the top of the panel:</p>
+        <ul class="docs-list">
+          <li><strong>Simple</strong> &mdash; two shelves, <em>Bass</em> and <em>Treble</em>, plus a row of one-tap presets. Drag the curve or pick a preset; it's the quick way to warm things up or brighten them.</li>
+          <li><strong>Advanced</strong> &mdash; a full graphic equalizer with a handle per frequency band. Drag any band to taste, start from a built-in preset, or <em>Save as</em> your own. A <strong>Pre-gain</strong> slider sets a master offset for the whole curve &mdash; pull it down a little if boosting bands makes playback distort.</li>
+        </ul>
+        <p>Use the On/Off switch to toggle the whole thing, and "Show controls in player bar" to keep a compact version within reach next to the volume. Each mode remembers its own settings.</p>
+        <div class="docs-note">
+          The equalizer reshapes the audio signal by design, so turn it <strong>Off</strong> when you want <a href="#exclusive-audio">bit-perfect output</a>.
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- Bottom CTA -->
   <section class="bottom-cta">
     <div class="container reveal">

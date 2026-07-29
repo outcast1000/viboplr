@@ -7,6 +7,7 @@ import {
   type EqPreset,
 } from "../eqPresets";
 import { EqCurve } from "./EqCurve";
+import { HelpLink } from "./HelpLink";
 import { formatDb } from "../utils/eqCurve";
 import "./Eq.css";
 
@@ -82,7 +83,7 @@ export function EqPopover({
     <div className="eq-popover" ref={popoverRef} role="dialog" aria-label="Equalizer">
       {/* Consolidated header: title · mode · spacer · enable · close */}
       <div className="eq-popover-header">
-        <span className="eq-popover-title">Equalizer</span>
+        <span className="eq-popover-title">Equalizer<HelpLink anchor="equalizer" topic="the equalizer" /></span>
         <div className="eq-mode-seg" role="tablist" aria-label="Equalizer mode">
           <button
             className={`eq-mode-seg-btn ${simple ? "active" : ""}`}

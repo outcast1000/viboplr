@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
+import { HelpLink } from "./HelpLink";
 import "./AutoContinuePopover.css";
 
 const SLIDERS: { key: keyof AutoContinueWeights; label: string }[] = [
@@ -54,7 +55,7 @@ export function AutoContinuePopover({
   return (
     <div className="auto-continue-popover" ref={popoverRef} role="dialog" aria-label="Auto Continue">
       <div className="ac-titlebar">
-        <span className="ac-title">Auto Continue</span>
+        <span className="ac-title">Auto Continue<HelpLink anchor="auto-continue" topic="Auto Continue" /></span>
         <button className="ac-close" onClick={onClose} aria-label="Close" title="Close">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
