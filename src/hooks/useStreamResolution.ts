@@ -69,6 +69,11 @@ interface UseStreamResolutionDeps {
    * engine selected) — mkv/avi/wmv then skip the ffmpeg transcode server and
    * resolve to a raw file `engineSource` instead. */
   useNativeVideoRef: React.MutableRefObject<boolean>;
+  /** True when the user's "Prefer video" toggle is on. When set, every track
+   * that isn't already a video is run through the plugin stream resolvers for a
+   * video stream BEFORE its own (audio) source — a video result plays in the
+   * theater, otherwise it falls through to normal audio playback. */
+  preferVideoRef: React.MutableRefObject<boolean>;
   /** Current queue — drives pruning of stale per-track resolve failures. */
   queue: QueueTrack[];
   /** Currently-playing track — drives transcode-session teardown. */
@@ -95,6 +100,7 @@ export function useStreamResolution({
   streamUriResolverOwner,
   requireDep,
   useNativeVideoRef,
+  preferVideoRef,
   queue,
   currentTrack,
   notify,
@@ -175,7 +181,7 @@ export function useStreamResolution({
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; native?: boolean; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; fellBackToAudio?: boolean; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
+      interface ResolverEntry { name: string; id: string | null; native?: boolean; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; fellBackToAudio?: boolean; videoFirst?: boolean; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
       const chain: ResolverEntry[] = [];
 
       // Pre-resolution: check if a local copy exists for remote OR path-less tracks
@@ -263,9 +269,11 @@ export function useStreamResolution({
         if (parsedScheme.scheme === "plugin") nativeSchemeOwner = ownerRef.current(parsedScheme.protocol);
       }
 
-      // Append user-configured stream resolvers
-      for (const sr of streamResolversRef.current) {
-        if (nativeSchemeOwner && sr.source === nativeSchemeOwner) continue;
+      // Build one resolver-chain entry for a user-configured stream resolver.
+      // `videoOnly` marks the "prefer video" pass (below): that entry then
+      // accepts ONLY an actual video stream and otherwise misses, so the chain
+      // keeps falling through to the track's own source.
+      const buildResolverEntry = (sr: StreamResolver, videoOnly: boolean): ResolverEntry => {
         // A plugin resolver streams from its own plugin; the built-in Library
         // resolver streams from whatever the matched row points at (file/subsonic/
         // plugin), so it's classified from the resolved URL inside resolve().
@@ -275,12 +283,18 @@ export function useStreamResolution({
           id: sr.id,
           sourceUrl: null,
           effectiveSource: isBuiltinLibrary ? null : { kind: "plugin", pluginId: sr.source },
+          videoFirst: videoOnly,
           resolve: async () => {
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
             ]);
             if (!result) throw new Error("No result");
+            // Prefer-video pass: only an actual video stream counts. A resolver
+            // that ignored the hint (returned audio, or found nothing playable
+            // as video) is a miss here, so the track keeps falling through to
+            // its own source and plays as audio.
+            if (videoOnly && !result.video) throw new Error("No video stream");
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
             // A resolver that honored the "prefer video" hint flags its result
             // as video; reclassify the track (format → mp4) so it routes to the
@@ -300,10 +314,38 @@ export function useStreamResolution({
               entry.fellBackToAudio = true;
             }
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
-            return resolveUrlDetailed(result.url, isVideoTrack(track));
+            // In the prefer-video pass we've confirmed a video result, so resolve
+            // the URL as video (drives split-stream selection for the native engine).
+            return resolveUrlDetailed(result.url, videoOnly ? true : isVideoTrack(track));
           },
         };
-        chain.push(entry);
+        return entry;
+      };
+
+      // Append user-configured stream resolvers as fallbacks.
+      for (const sr of streamResolversRef.current) {
+        if (nativeSchemeOwner && sr.source === nativeSchemeOwner) continue;
+        chain.push(buildResolverEntry(sr, false));
+      }
+
+      // "Prefer video": with the toggle on, try the plugin stream resolvers for
+      // an actual video stream BEFORE the track's own (audio) source — for every
+      // track that isn't already a video (queued audio tracks + auto-continue
+      // picks). Only a video result wins; if none is found the chain falls
+      // through to the normal source and the track plays as audio, unchanged.
+      // The built-in Library resolver is skipped (it's a local-copy source, not
+      // a video source), and a plugin that owns the track's own scheme is
+      // skipped (its by-id entry already ran / would just re-search).
+      let triedVideoFirst = false;
+      if (preferVideoRef.current && !isVideoTrack(track)) {
+        const videoFirst: ResolverEntry[] = [];
+        for (const sr of streamResolversRef.current) {
+          if (sr.source === "built-in") continue;
+          if (nativeSchemeOwner && sr.source === nativeSchemeOwner) continue;
+          videoFirst.push(buildResolverEntry(sr, true));
+        }
+        chain.unshift(...videoFirst);
+        triedVideoFirst = videoFirst.length > 0;
       }
 
       if (chain.length === 0) {
@@ -333,6 +375,11 @@ export function useStreamResolution({
             // The user asked for VIDEO and silently got audio — say why, or
             // "all my videos play as audio" reads as a bug instead of a fallback.
             notify(`Video source unavailable — playing the audio copy from ${entry.name}.`);
+          } else if (triedVideoFirst && !entry.videoFirst) {
+            // "Prefer video" was on but no resolver had a video for this track,
+            // so the chain fell through to its own audio source. Say so, or the
+            // silent audio playback reads as "prefer video did nothing".
+            notify("No video found — playing audio.");
           }
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
@@ -356,7 +403,7 @@ export function useStreamResolution({
       trackTelemetry("stream_resolve_failed", { source: sourceClass(track.path) });
       throw new Error("Couldn't find a playable source for this track");
     };
-  }, [resolveTrackSrcRef, transcodeSessionRef, resolveStreamByUriRef, streamResolversRef]);
+  }, [resolveTrackSrcRef, transcodeSessionRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef]);
 
   // Tear down the transcode session when playback leaves a track that needed it.
   useEffect(() => {

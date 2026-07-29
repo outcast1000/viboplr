@@ -593,6 +593,7 @@ function App() {
     streamUriResolverOwner: plugins.streamUriResolverOwner,
     requireDep: dependencies.requireDep,
     useNativeVideoRef,
+    preferVideoRef,
     queue: queueHook.queue,
     currentTrack: playback.currentTrack,
     notify,

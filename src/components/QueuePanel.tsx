@@ -12,6 +12,7 @@ import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames
 import { SpinningDisc } from "./SpinningDisc";
 import { TrackArtFallback } from "./TrackArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { HelpLink } from "./HelpLink";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./QueuePanel.css";
 
@@ -713,6 +714,7 @@ export function QueuePanel({
             aria-pressed={preferVideoResolution}
             dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="16" height="14" rx="2"/><path d="m22 8-4 4 4 4V8z"/></svg>' }}
           />
+          <HelpLink anchor="prefer-video" topic="Prefer video" />
           <button className="g-btn g-btn-sm" onClick={onLoadPlaylist} title="Load playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' }} />
           <div className="queue-save-wrapper">
             <button className="g-btn g-btn-sm queue-save-btn" onClick={openSaveMenu} title="Save playlist">

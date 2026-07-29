@@ -1532,8 +1532,8 @@ export function SettingsPanel({
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">Prefer video</span>
-                        <span className="settings-description">For tracks with no source of their own (e.g. from a plugin like Spotify), play the music video in the theater when a resolver can provide one — otherwise audio, as normal. A hint only; it never overrides your source priority.</span>
+                        <span className="settings-label">Prefer video<HelpLink anchor="prefer-video" topic="Prefer video" /></span>
+                        <span className="settings-description">For any track that isn't already a video — queued songs and auto-continue picks alike — try the stream resolvers (e.g. YouTube) for a music video and play it in the theater before falling back to the track's own audio source. Plays normal audio when no video is found.</span>
                       </div>
                       <ToggleSwitch checked={preferVideoResolution} onChange={onPreferVideoResolutionChange} />
                     </div>
