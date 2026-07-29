@@ -6,9 +6,11 @@
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  /* 34px seek strip (the mirrored waveform needs the extra height) + 72px main row */
-  height: 106px;
-  min-height: 106px;
+  /* 34px seek strip (the mirrored waveform needs the extra height) + 72px main row.
+     Height is mirrored to --now-playing-h (App.css) so the queue-placed video
+     can pin directly above the bar. */
+  height: var(--now-playing-h, 106px);
+  min-height: var(--now-playing-h, 106px);
 }
 
 /* Positioning context for the floating scrub-time bubble — the bar itself

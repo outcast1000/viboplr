@@ -5,6 +5,15 @@
   height: 100vh;
   user-select: none;
   background: var(--bg-primary);
+  /* Now-playing bar height — shared with .now-playing so the queue-placed
+     video can pin exactly above it (see .video-container--in-queue). */
+  --now-playing-h: 106px;
+}
+
+/* The video pinned to the bottom of the queue column reserves matching space
+   so the queue list ends above it (mirrors how a docked video shrinks .content). */
+.app.video-in-queue .queue-panel {
+  padding-bottom: var(--video-queue-size, 260px);
 }
 
 .app > audio {

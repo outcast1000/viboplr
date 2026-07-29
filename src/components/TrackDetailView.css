@@ -152,6 +152,55 @@
   width: auto !important;
 }
 
+/* "Queue" placement: the same <video> element is pinned to the bottom of the
+   queue panel (column 3), above the now-playing bar. Like theater/fullscreen it
+   stays a child of .main in the DOM and is only repositioned via CSS (no remount,
+   so the native mpv session and playback survive). Width tracks the resizable
+   queue column (--queue-width); height is the user-set --video-queue-size. The
+   queue panel reserves matching padding-bottom (.app.video-in-queue .queue-panel)
+   so its list ends exactly at the video's top edge. */
+.video-container--in-queue {
+  position: fixed;
+  right: 0;
+  bottom: var(--now-playing-h, 106px);
+  width: var(--queue-width, 300px);
+  height: var(--video-queue-size, 260px) !important;
+  z-index: 6;
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+}
+
+/* Native (mpv) video in the queue placement: the video-container hole overlays
+   the queue panel's reserved bottom region, but the panel self-paints an opaque
+   bg (--bg-secondary) that would block the native layer below the webview. So
+   make the panel transparent and let its structural children paint their own bg
+   instead — the reserved region (padding, no child) then becomes a real hole,
+   exactly like .content in the docked/theater cases above. */
+.app.mpv-video-hole.video-in-queue .queue-panel {
+  background: transparent;
+}
+.app.mpv-video-hole.video-in-queue .queue-header,
+.app.mpv-video-hole.video-in-queue .queue-list,
+.app.mpv-video-hole.video-in-queue .queue-info-bar {
+  background: var(--bg-secondary);
+}
+
+/* Resize grip along the top edge of the queue-placed video. */
+.video-queue-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 7;
+  transition: background 0.15s;
+}
+.video-queue-resize:hover {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
 .fs-controls.fs-visible {
   opacity: 1;
   pointer-events: auto;

@@ -3388,6 +3388,13 @@ function App() {
   const detailPageOpen = library.selectedTrack !== null || !!library.fallbackTrackName;
   const videoTheater = view === "nowplaying" && !detailPageOpen;
 
+  // The "queue" placement pins the shared video to the bottom of the queue
+  // panel (column 3). It stays a child of .main in the DOM (repositioned via
+  // CSS, like theater/fullscreen — no remount); theater and native fullscreen
+  // still win, and a collapsed queue has no room so the video hides with it.
+  const videoPlaying = !!(playback.currentTrack && isVideoTrack(playback.currentTrack));
+  const videoInQueue = videoPlaying && videoLayout.dockSide === "queue" && !videoTheater && !playback.nativeFullscreen && !queueCollapsed;
+
   // Arrow key navigation helpers for search bars
   function scrollHighlightedIntoView(selector: string) {
     requestAnimationFrame(() => {
@@ -3405,7 +3412,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`} style={{ "--queue-width": `${queueWidth}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -3656,9 +3663,9 @@ function App() {
       />
 
       {/* Main content */}
-      <main className="main" data-dock={playback.currentTrack && isVideoTrack(playback.currentTrack) ? videoLayout.dockSide : undefined}>
+      <main className="main" data-dock={videoPlaying && videoLayout.dockSide !== "queue" ? videoLayout.dockSide : undefined}>
         {/* Content area */}
-        <div className="content" ref={contentRef} style={playback.currentTrack && isVideoTrack(playback.currentTrack) ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
+        <div className="content" ref={contentRef} style={videoPlaying && videoLayout.dockSide !== "queue" ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
           <DetailViewProvider actions={detailViewActions} state={detailViewState}>
           {/* Track detail view */}
           {library.selectedTrack !== null && (() => {
@@ -4107,8 +4114,10 @@ function App() {
           </DetailViewProvider>
         </div>
 
-        {/* Video splitter + player area (below content, above now-playing) */}
-        {playback.currentTrack && isVideoTrack(playback.currentTrack) && view !== "nowplaying" && (
+        {/* Video splitter + player area (below content, above now-playing).
+            The queue placement pins the video to the queue column instead, so
+            the in-main splitter is suppressed there (it has its own handle). */}
+        {videoPlaying && view !== "nowplaying" && videoLayout.dockSide !== "queue" && (
           <div
             className={`video-splitter${videoLayout.isHorizontal ? "" : " vertical"}`}
             onMouseDown={videoLayout.onSplitterMouseDown}
@@ -4129,7 +4138,7 @@ function App() {
                 height="14"
                 viewBox="0 0 16 16"
                 fill="none"
-                style={{ transform: `rotate(${{ bottom: 0, top: 180, left: 90, right: -90 }[videoLayout.dockSide] + (videoLayout.isCollapsed ? 180 : 0)}deg)` }}
+                style={{ transform: `rotate(${{ bottom: 0, top: 180, left: 90, right: -90, queue: 0 }[videoLayout.dockSide] + (videoLayout.isCollapsed ? 180 : 0)}deg)` }}
               >
                 <path
                   d="M3.5 8.5L8 12L12.5 8.5M3.5 4L8 7.5L12.5 4"
@@ -4143,7 +4152,7 @@ function App() {
           </div>
         )}
         <div
-          className={`video-container${videoLayout.isCollapsed ? " collapsed" : ""}${videoTheater ? " video-container--theater" : ""}${playback.nativeFullscreen ? " video-container--native-fs" : ""}`}
+          className={`video-container${videoLayout.isCollapsed && !videoInQueue ? " collapsed" : ""}${videoTheater ? " video-container--theater" : ""}${playback.nativeFullscreen ? " video-container--native-fs" : ""}${videoInQueue ? " video-container--in-queue" : ""}`}
           data-fit={videoLayout.fitMode}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -4163,14 +4172,28 @@ function App() {
             } });
           }}
           style={{
-            display: playback.currentTrack && isVideoTrack(playback.currentTrack) ? undefined : 'none',
-            ...(videoTheater
+            // Hide entirely when the "queue" placement is chosen but the queue
+            // is collapsed (no room) — falling back into the main flow would be
+            // confusing. The queue overlay itself is CSS-driven (--in-queue).
+            display: !videoPlaying
+              ? 'none'
+              : (videoLayout.dockSide === "queue" && !videoInQueue && !videoTheater && !playback.nativeFullscreen)
+              ? 'none'
+              : undefined,
+            ...(videoTheater || videoInQueue
               ? {}
               : videoLayout.isHorizontal
               ? { height: videoLayout.isCollapsed ? 0 : videoLayout.videoSize }
               : { width: videoLayout.isCollapsed ? 0 : videoLayout.videoSize }),
           }}
         >
+          {videoInQueue && (
+            <div
+              className="video-queue-resize"
+              onMouseDown={videoLayout.onQueueResizeMouseDown}
+              title="Drag to resize"
+            />
+          )}
           <video
             ref={playback.videoRef}
             tabIndex={-1}

@@ -51,8 +51,9 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         specs.push({ kind: "check", text: mode === "contain" ? "Contain" : mode === "fit-width" ? "Fit Width" : mode === "fit-height" ? "Fit Height" : "Fill", checked: target.fitMode === mode, action: () => d.videoLayout.setFitMode(mode) });
       });
       specs.push({ kind: "separator" });
-      (["top", "bottom", "left", "right"] as const).forEach(side => {
-        specs.push({ kind: "check", text: side[0].toUpperCase() + side.slice(1), checked: target.dockSide === side, action: () => d.videoLayout.setDockSide(side) });
+      (["top", "bottom", "left", "right", "queue"] as const).forEach(side => {
+        const text = side === "queue" ? "Bottom of Queue" : side[0].toUpperCase() + side.slice(1);
+        specs.push({ kind: "check", text, checked: target.dockSide === side, action: () => d.videoLayout.setDockSide(side) });
       });
 
       // Track actions for the playing video — same set the queue context menu
