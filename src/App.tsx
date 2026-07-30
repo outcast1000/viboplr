@@ -2437,7 +2437,11 @@ function App() {
       if (img) stamp(img);
     };
     (async () => {
-      if (isVideoTrack(track) && track.path) {
+      // Frame extraction needs a local file — the backend rejects remote tracks
+      // (subsonic, and prefer-video streams reclassified to video), so only try
+      // it for file:// video and otherwise fall back to entity art. Mirrors the
+      // isLocalTrack gate in useVideoFrames / useQueueVideoFrames.
+      if (isVideoTrack(track) && isLocalTrack(track)) {
         const trackId = await invoke<number | null>("find_track_id_by_path", { path: track.path });
         if (cancelled) return;
         const fq = videoFrameQueueRef.current;

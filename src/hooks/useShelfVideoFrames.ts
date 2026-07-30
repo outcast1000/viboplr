@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "./useHome";
 import type { QueueTrack } from "../types";
 import { isVideoTrack } from "../utils";
+import { isLocalTrack } from "../queueEntry";
 import { useVideoFrameQueue } from "./useVideoFrameQueueContext";
 import type { VideoFrameQueue } from "../videoFrameQueue";
 
@@ -92,14 +93,15 @@ export function useShelfVideoFrames(shelf: ResolvedShelf): Record<string, string
       const track = (item as {
         track: { title: string; artist_name?: string; album_title?: string; format?: string | null; path?: string | null; image_url?: string };
       }).track;
-      // A frame is only shown when the row ITSELF is a video (by its own
+      // A frame is only shown when the row ITSELF is a LOCAL video (by its own
       // path/format), resolved by exact path — never inferred from a fuzzy
       // metadata match. History-backed shelves (Recently played / Most played)
       // carry no path or format, so they no longer borrow a same-titled video's
-      // frame for an audio play; they fall back to album/artist art. Mirrors
+      // frame for an audio play; they fall back to album/artist art. Remote
+      // videos are skipped — the backend can't extract frames from them. Mirrors
       // useQueueVideoFrames.
       const path = track.path;
-      if (track.image_url || !path || !isVideoTrack({ format: track.format ?? null, path })) continue;
+      if (track.image_url || !path || !isVideoTrack({ format: track.format ?? null, path }) || !isLocalTrack({ path })) continue;
       out.push({
         key: shelfVideoKey(path),
         resolveId: () => invoke<number | null>("find_track_id_by_path", { path }),
@@ -116,7 +118,9 @@ export function useQueueVideoFrames(queue: QueueTrack[]): Record<string, string>
   const candidates = useMemo<VideoFrameCandidate[]>(() => {
     const out: VideoFrameCandidate[] = [];
     for (const t of queue) {
-      if (t.image_url || !isVideoTrack(t) || !t.path) continue;
+      // Local video only — the backend rejects frame extraction for remote
+      // tracks (subsonic, prefer-video streams), so those fall back to entity art.
+      if (t.image_url || !isVideoTrack(t) || !t.path || !isLocalTrack(t)) continue;
       const path = t.path;
       out.push({
         key: shelfVideoKey(path),

@@ -293,6 +293,14 @@ export function usePlayback(
   // resolver (e.g. yt-dlp). Cached by key here; consumed once by handlePlay.
   const videoPreresolvedRef = useRef<{ key: string; resolved: ResolvedTrackSource } | null>(null);
   const videoPreresolvingRef = useRef(false);
+  // Key we've already attempted to pre-resolve for the current preload window.
+  // A video next-track never sets preloadedKey/isPreloading (no gapless deck to
+  // arm), so driveProgressMachine re-issues its preloadTrack on every ~4 Hz
+  // tick; without this the resolve is re-run whenever the success cache above
+  // isn't set (e.g. the shared resolve generation was bumped mid-flight, so the
+  // resolve returned the empty-src sentinel), firing yt-dlp again and again.
+  // Reset per track change in invalidatePreload() so a new next-track re-tries.
+  const videoPreresolveAttemptedKeyRef = useRef<string | null>(null);
 
   // Crossfade state
   const isCrossfadingRef = useRef(false);
@@ -826,6 +834,7 @@ export function usePlayback(
     isPreloadingRef.current = false;
     preloadPromiseRef.current = null;
     videoPreresolvedRef.current = null;
+    videoPreresolveAttemptedKeyRef.current = null;
     if (nativePreloadedRef.current) {
       nativePreloadedRef.current = null;
       nativeEngine.clearPreload().catch(console.error);
@@ -848,6 +857,10 @@ export function usePlayback(
   async function preresolveVideoNext(nextTrack: QueueTrack) {
     if (videoPreresolvingRef.current) return;
     if (videoPreresolvedRef.current?.key === nextTrack.key) return; // already prepared
+    // Already attempted this key in the current preload window — don't re-run a
+    // slow resolver every tick just because the success cache above wasn't set.
+    if (videoPreresolveAttemptedKeyRef.current === nextTrack.key) return;
+    videoPreresolveAttemptedKeyRef.current = nextTrack.key;
     videoPreresolvingRef.current = true;
     logPlayback(`Preload: pre-resolving video "${nextTrack.artist_name ?? "?"} — ${nextTrack.title}"`);
     try {
