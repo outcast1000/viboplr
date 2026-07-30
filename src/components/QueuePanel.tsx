@@ -407,25 +407,6 @@ export function QueuePanel({
   // Clear selection when queue changes (add/remove/reorder)
   useEffect(() => { setSelectedIndices(new Set()); }, [queue]);
 
-  // Extract dominant color from cover image
-  useEffect(() => {
-    const imagePath = playlistContext?.imagePath;
-    if (!imagePath) {
-      setCoverColor(null);
-      return;
-    }
-    const src = resolveImageUrl(imagePath);
-    if (!src) {
-      setCoverColor(null);
-      return;
-    }
-    let canceled = false;
-    extractDominantColor(src).then(result => {
-      if (!canceled) setCoverColor(result);
-    });
-    return () => { canceled = true; };
-  }, [playlistContext?.imagePath]);
-
   // Image resolution for queue items missing an explicit image_url, priority
   // video frame -> album -> artist. Album/artist go through useImageCache, which
   // fetches on a cache miss AND refreshes this view when the backend emits
@@ -445,6 +426,34 @@ export function QueuePanel({
       videoFrame: videoFrames[shelfVideoKey(t.path)] ?? null,
     }),
   [videoFrames, albumImages, artistImages]);
+
+  // Resolved cover for the context banner. Prefer the explicit context image
+  // (album/artist/tag/playlist play, or a plugin coverUrl); when the context
+  // carries none — e.g. a Spotify radio, whose plugin passes only name+source —
+  // fall back to the first queued track's art via the same chain the rows use
+  // (track image_url -> video frame -> album -> artist). For radio queue[0] IS
+  // the seed, so the banner shows the track that started the station; and since
+  // it goes through the track's own image_url (external art) and the fetching
+  // entity caches, it fills in reactively instead of staying a blank
+  // (see-through on macOS) placeholder.
+  const bannerCover: string | null = !playlistContext
+    ? null
+    : playlistContext.imagePath
+      ? (resolveImageUrl(playlistContext.imagePath) ?? null)
+      : (queue.length > 0 ? getTrackImage(queue[0]) : null);
+
+  // Extract dominant color from the resolved banner cover for the gradient.
+  useEffect(() => {
+    if (!bannerCover) {
+      setCoverColor(null);
+      return;
+    }
+    let canceled = false;
+    extractDominantColor(bannerCover).then(result => {
+      if (!canceled) setCoverColor(result);
+    });
+    return () => { canceled = true; };
+  }, [bannerCover]);
 
   // One IntersectionObserver for the whole list (not one per row). Rows
   // register via observeVisible and get a single became-visible callback,
@@ -747,9 +756,9 @@ export function QueuePanel({
       {playlistContext && queue.length > 0 && (
         <div className="queue-context-banner" style={bannerStyle}>
           <div className="queue-context-cover">
-            {playlistContext.imagePath ? (
+            {bannerCover ? (
               <img
-                src={resolveImageUrl(playlistContext.imagePath)}
+                src={bannerCover}
                 alt=""
                 onError={e => { e.currentTarget.style.display = "none"; }}
               />
