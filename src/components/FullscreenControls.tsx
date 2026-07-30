@@ -43,6 +43,10 @@ interface FullscreenControlsProps {
   onToggleFullscreen: () => void;
   showQueue: boolean;
   onToggleQueue: () => void;
+  /** Whether synced lyrics exist for the current video (gates the subtitle toggle). */
+  hasSubtitles: boolean;
+  subtitlesOn: boolean;
+  onToggleSubtitles: () => void;
   onNavigateToArtistByName: (name: string) => void;
   onNavigateToAlbumByName: (name: string, artistName?: string | null) => void;
 }
@@ -59,7 +63,7 @@ export function FullscreenControls({
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
-  onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, onNavigateToArtistByName, onNavigateToAlbumByName,
+  onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
 }: FullscreenControlsProps) {
   // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
   // only this overlay.
@@ -284,6 +288,21 @@ export function FullscreenControls({
           </div>
           </div>
           <div className="fs-group">
+          {hasSubtitles && (
+            <button
+              className={`g-btn g-btn-sm${subtitlesOn ? " active" : ""}`}
+              onClick={onToggleSubtitles}
+              title={subtitlesOn ? "Hide subtitles" : "Show subtitles"}
+              aria-label={subtitlesOn ? "Hide subtitles" : "Show subtitles"}
+              aria-pressed={subtitlesOn}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M7 14.5a2 2 0 0 1 0-4" />
+                <path d="M15 14.5a3 3 0 0 1 0-4" />
+              </svg>
+            </button>
+          )}
           <button
             className={`g-btn g-btn-sm${showQueue ? " active" : ""}`}
             onClick={onToggleQueue}

@@ -91,6 +91,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import ExtensionsView, { type PluginViewMode } from "./components/ExtensionsView";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { VideoAmbientOverlay } from "./components/VideoAmbientOverlay";
+import { VideoSubtitles } from "./components/VideoSubtitles";
 import { AddServerModal } from "./components/AddServerModal";
 import { showNativeMenu, type MenuItemSpec } from "./nativeMenu";
 import { buildPluginMenuSpecs } from "./contextMenu/pluginMenuGroups";
@@ -236,6 +237,18 @@ function App() {
   // would. Read via a ref inside the resolver wrapper so it stays fresh.
   const preferVideoRef = useRef(false);
   const [preferVideoResolution, setPreferVideoResolution] = useState(false);
+  // Show synced lyrics as subtitles over video (persisted; default on). One
+  // shared toggle drives all three video surfaces — the docked preview, the Now
+  // Playing theater, and fullscreen. The store key stays the legacy
+  // `videoLyricsOverlay` so existing saved preferences carry over.
+  const [videoSubtitlesOn, setVideoSubtitlesOn] = useState(true);
+  const handleToggleSubtitles = useCallback(() => {
+    setVideoSubtitlesOn((on) => {
+      const next = !on;
+      store.set("videoLyricsOverlay", next).catch((e) => console.error("Failed to persist videoLyricsOverlay:", e));
+      return next;
+    });
+  }, []);
   const [loggingEnabled, setLoggingEnabled] = useState(false);
   // Default ON — stale yt-dlp breaks against YouTube and the failure looks
   // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
@@ -1793,7 +1806,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, preferVideoResolution: savedPreferVideoResolution, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, preferVideoResolution: savedPreferVideoResolution, videoSubtitles: savedVideoSubtitles, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -1872,6 +1885,7 @@ function App() {
         }
         if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
         if (savedPreferVideoResolution !== undefined && savedPreferVideoResolution !== null) setPreferVideoResolution(savedPreferVideoResolution);
+        if (savedVideoSubtitles === false) setVideoSubtitlesOn(false);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
@@ -3047,13 +3061,22 @@ function App() {
   // Now Playing view: lyrics via the shared info-type chain, and resolved art.
   const nowPlayingLyrics = useLyrics({
     track: playback.currentTrack,
-    enabled: library.view === "nowplaying",
+    // Fetch for the Now Playing view (centered lyrics) and for any playing video
+    // (subtitle overlay). Fetching for video regardless of `videoSubtitlesOn` is
+    // deliberate: the subtitle toggle is gated on lyrics *existing*, so if we
+    // only fetched while subtitles were on, turning them off would hide the
+    // toggle and make the choice irreversible. Lyrics are cached, so this is one
+    // background fetch per video.
+    enabled:
+      library.view === "nowplaying" ||
+      (!!playback.currentTrack && isVideoTrack(playback.currentTrack)),
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
   });
-  // Synced lyrics for the theater video overlay: only when the current track is
+  // Synced lyrics for the video subtitle overlay: only when the current track is
   // video, synced lyrics exist, and they roughly fit the media length (coarse
-  // guard against a wrong/short video). The overlay has its own show/hide toggle.
+  // guard against a wrong/short video). Rendered as subtitles across the docked
+  // preview, theater, and fullscreen; visibility is the shared `videoSubtitlesOn`.
   const videoSyncedLyricLines = useMemo(() => {
     const t = playback.currentTrack;
     if (!t || !isVideoTrack(t)) return null;
@@ -4205,8 +4228,29 @@ function App() {
             onClick={playback.handlePause}
             onDoubleClick={playback.toggleFullscreen}
           />
+          {/* One subtitle layer for every video mode — the container is only
+              repositioned (never remounted), so this serves the docked preview,
+              the theater, and fullscreen alike. */}
+          {videoSubtitlesOn && videoSyncedLyricLines && (
+            <VideoSubtitles lines={videoSyncedLyricLines} />
+          )}
           {!videoTheater && (
             <div className="video-dock-actions">
+              {videoSyncedLyricLines && (
+                <button
+                  className={`video-dock-btn${videoSubtitlesOn ? "" : " is-off"}`}
+                  onClick={handleToggleSubtitles}
+                  title={videoSubtitlesOn ? "Hide subtitles" : "Show subtitles"}
+                  aria-label={videoSubtitlesOn ? "Hide subtitles" : "Show subtitles"}
+                  aria-pressed={videoSubtitlesOn}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                    <path d="M7 14.5a2 2 0 0 1 0-4" />
+                    <path d="M15 14.5a3 3 0 0 1 0-4" />
+                  </svg>
+                </button>
+              )}
               <button
                 className="video-dock-btn"
                 onClick={() => {
@@ -4273,6 +4317,9 @@ function App() {
             onToggleFullscreen={playback.toggleFullscreen}
             showQueue={!queueCollapsed}
             onToggleQueue={handleToggleQueueCollapsed}
+            hasSubtitles={!!videoSyncedLyricLines}
+            subtitlesOn={videoSubtitlesOn}
+            onToggleSubtitles={handleToggleSubtitles}
             onNavigateToArtistByName={library.navigateToArtistByName}
             onNavigateToAlbumByName={(name, artistName) => library.navigateToAlbumByName(name, artistName ?? undefined)}
           />
@@ -4287,6 +4334,8 @@ function App() {
               onPlayQueueIndex={(index) => { queueHook.setQueueIndex(index); playback.handlePlay(queueHook.queue[index]); }}
               onToggleFullscreen={playback.toggleFullscreen}
               syncedLyricLines={videoSyncedLyricLines}
+              subtitlesOn={videoSubtitlesOn}
+              onToggleSubtitles={handleToggleSubtitles}
             />
           )}
         </div>

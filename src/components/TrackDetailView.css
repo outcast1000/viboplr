@@ -243,6 +243,10 @@
 .video-dock-btn:hover {
   background: rgba(var(--overlay-inverse), 0.72);
 }
+/* Subtitle toggle when off: dim the icon (matches .video-ambient-lyrics-toggle). */
+.video-dock-btn.is-off {
+  color: var(--text-tertiary);
+}
 /* In real fullscreen the .fs-controls overlay owns the controls. */
 .video-container:fullscreen .video-dock-actions {
   display: none;

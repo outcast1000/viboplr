@@ -19,6 +19,7 @@ export interface PersistedSettings {
   telemetryEnabled: boolean | undefined;
   trackVideoHistory: boolean | undefined;
   preferVideoResolution: boolean | undefined;
+  videoSubtitles: boolean | undefined;
   miniMode: boolean | undefined;
   fullWindowWidth: number | null | undefined;
   fullWindowHeight: number | null | undefined;
@@ -73,6 +74,9 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     telemetryEnabled: read<boolean>("telemetryEnabled"),
     trackVideoHistory: read<boolean>("trackVideoHistory"),
     preferVideoResolution: read<boolean>("preferVideoResolution"),
+    // Kept under the legacy `videoLyricsOverlay` key for back-compat with saved
+    // prefs (the overlay was formerly a theater-only "lyrics" toggle).
+    videoSubtitles: read<boolean>("videoLyricsOverlay"),
     miniMode: read<boolean>("miniMode"),
     fullWindowWidth: read<number | null>("fullWindowWidth"),
     fullWindowHeight: read<number | null>("fullWindowHeight"),
