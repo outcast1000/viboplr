@@ -39,6 +39,20 @@
   background: transparent;
 }
 
+/* On wide windows `.content` is capped (`.main:not([data-dock]) > .content`
+   max-width + margin-inline: auto), leaving transparent left/right gutters in
+   `.main`. During a video hole `.app`/body go see-through; on Windows there's
+   no full-window native layer behind the webview (only the child HWND at the
+   video rect — unlike the macOS GL view), so those gutters revealed the
+   desktop. Back them with the app bg. Safe because in this layout the video
+   hole is never in `.main` (column 2): it's either theater — excluded here,
+   its container fills the whole main — or the "queue" placement, whose hole
+   lives in the queue panel (column 3). Docked layouts carry `data-dock` and
+   have no gutter, so they're excluded too. */
+.app.mpv-video-hole:not(.mpv-hole-theater) .main:not([data-dock]) {
+  background: var(--bg-primary);
+}
+
 /* The hole is see-through only once the native video is READY (positioned +
    first frame up) — `.mpv-video-ready`. Until then (establishing, entering
    now-playing, or resizing) it stays opaque with the video-letterbox fill, so
