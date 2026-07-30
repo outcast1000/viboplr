@@ -32,6 +32,18 @@
   gap: 4px;
 }
 
+/* Opt-in two-column split (plugins set className: "plugin-layout-columns" on a
+   horizontal layout). Unlike a plain control row, columns are top-aligned and
+   share the width evenly, wrapping to stacked when the view gets narrow. */
+.plugin-layout-columns {
+  align-items: stretch;
+  gap: 20px;
+}
+.plugin-layout-columns > * {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
 .plugin-layout-horizontal > .plugin-settings-row {
   padding: 0;
   gap: 6px;
