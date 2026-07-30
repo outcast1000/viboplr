@@ -125,7 +125,7 @@ export function usePlayback(
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
   trackVideoHistoryRef: React.RefObject<boolean>,
-  resolveTrackSrcRef: React.RefObject<(track: QueueTrack) => Promise<ResolvedTrackSource>>,
+  resolveTrackSrcRef: React.RefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>,
   prefetchNextRef: React.RefObject<() => void>,
   transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>,
   // True when the mpv engine is compiled in AND the user selected it in
@@ -864,7 +864,7 @@ export function usePlayback(
     videoPreresolvingRef.current = true;
     logPlayback(`Preload: pre-resolving video "${nextTrack.artist_name ?? "?"} — ${nextTrack.title}"`);
     try {
-      const resolved = await resolveTrackSrcRef.current(nextTrack);
+      const resolved = await resolveTrackSrcRef.current(nextTrack, { preload: true });
       // Only cache a usable src for a track that's still the pending next one.
       // (resolveTrackSrc returns an empty-src sentinel if its generation bumped.)
       if (resolved?.src && peekNextRef.current()?.key === nextTrack.key) {
@@ -890,7 +890,7 @@ export function usePlayback(
 
     isPreloadingRef.current = true;
     logPlayback(`Preload: resolving "${nextTrack.artist_name ?? "?"} — ${nextTrack.title}"`);
-    const resolvePromise = resolveTrackSrcRef.current(nextTrack);
+    const resolvePromise = resolveTrackSrcRef.current(nextTrack, { preload: true });
     preloadPromiseRef.current = { key: nextTrack.key, promise: resolvePromise };
     try {
       const resolved = await resolvePromise;
@@ -968,7 +968,7 @@ export function usePlayback(
     nativePreloadingRef.current = true;
     logPlayback(`Native preload: resolving "${next.artist_name ?? "?"} — ${next.title}"`);
     try {
-      const resolved = await resolveTrackSrcRef.current(next);
+      const resolved = await resolveTrackSrcRef.current(next, { preload: true });
       if (!resolved.src) return;
       const enriched = resolved.patch ? { ...next, ...resolved.patch } : next;
       // Not natively playable (video / webview-only source): stay unarmed —

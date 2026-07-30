@@ -10,6 +10,14 @@ import { track as trackTelemetry, sourceClass } from "../telemetry";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 
+/** Reuse a just-resolved src for the SAME track within this window instead of
+ *  hitting the resolver again. Short, because remote stream URLs (e.g.
+ *  googlevideo) are short-lived — long enough to absorb the play + preload +
+ *  fallback burst for one track, not so long that a genuinely new play reuses a
+ *  dead URL. */
+const RESOLVE_CACHE_TTL_MS = 12000;
+const RESOLVE_CACHE_MAX = 64;
+
 /** Formats that the local `<video>` element can't play natively and that must be
  * routed through the on-the-fly transcode server. */
 export function needsTranscode(track: { format: string | null }): boolean {
@@ -51,7 +59,7 @@ export function describeChainFailure(failures: ChainFailure[]): string {
 interface UseStreamResolutionDeps {
   /** Created in App (must precede `usePlayback`, which consumes it). This hook
    * assigns its `.current` to the real resolver once plugins are available. */
-  resolveTrackSrcRef: React.MutableRefObject<(track: QueueTrack) => Promise<ResolvedTrackSource>>;
+  resolveTrackSrcRef: React.MutableRefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>;
   /** Created in App and shared with `usePlayback` for seek/offset math + cleanup. */
   transcodeSessionRef: React.MutableRefObject<TranscodeSession | null>;
   /** Created in App; kept fresh here from `resolveStreamByUri`. */
@@ -111,6 +119,14 @@ export function useStreamResolution({
   const [resolveFailures, setResolveFailures] = useState<Record<string, string>>({});
   const [resolvedSource, setResolvedSource] = useState<ResolvedSource | null>(null);
   const resolveGenerationRef = useRef(0);
+
+  // Single-flight + short-TTL success cache for track resolution, both keyed by
+  // QueueTrack.key. Collapses the redundant slow-resolver (yt-dlp) calls that
+  // otherwise fire for the SAME track when several paths resolve it at once or
+  // in quick succession (a play, the per-tick video pre-resolve, and the
+  // engine-error → handlePlay fallback replay).
+  const inFlightResolvesRef = useRef<Map<string, Promise<ResolvedTrackSource>>>(new Map());
+  const resolveCacheRef = useRef<Map<string, { at: number; resolved: ResolvedTrackSource; meta: ResolvedSource | null }>>(new Map());
 
   // `requireDep` is read inside the build-once resolver below; keep it in a ref so
   // the resolver always calls the latest one without re-building the chain.
@@ -176,8 +192,16 @@ export function useStreamResolution({
       return "Unknown";
     };
 
-    resolveTrackSrcRef.current = async (track: QueueTrack) => {
-      const generation = ++resolveGenerationRef.current;
+    // Core resolution. `preload` runs it OFF the shared play-resolution
+    // generation lane: pre-resolving the next track must not bump the counter,
+    // or the currently-playing track's in-flight resolve returns the empty-src
+    // sentinel and handlePlay "retries" it — firing yt-dlp again. Preload
+    // results are still deduped/cached by the public wrapper below.
+    const doResolve = async (
+      track: QueueTrack,
+      preload: boolean,
+    ): Promise<ResolvedTrackSource & { meta?: ResolvedSource | null }> => {
+      const generation = preload ? -1 : ++resolveGenerationRef.current;
       setResolvedSource(null);
       const url = track.path;
 
@@ -355,13 +379,13 @@ export function useStreamResolution({
       let lastError: string | null = null;
       const failures: ChainFailure[] = [];
       for (const entry of chain) {
-        if (resolveGenerationRef.current !== generation) return { src: "" };
+        if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
         if (lastError || chain.length > 1) {
           setResolvingStatus({ key: track.key, error: lastError, trying: entry.name });
         }
         try {
           const { src, engineSource } = await entry.resolve();
-          if (resolveGenerationRef.current !== generation) return { src: "" };
+          if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
           setResolvingStatus(null);
           // Resolved successfully — clear any prior persistent failure for this track.
           setResolveFailures(prev => {
@@ -370,7 +394,8 @@ export function useStreamResolution({
             delete next[track.key];
             return next;
           });
-          setResolvedSource({ name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id, effectiveSource: entry.effectiveSource ?? { kind: "direct-url", uri: src } });
+          const meta: ResolvedSource = { name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id, effectiveSource: entry.effectiveSource ?? { kind: "direct-url", uri: src } };
+          setResolvedSource(meta);
           if (entry.fellBackToAudio) {
             // The user asked for VIDEO and silently got audio — say why, or
             // "all my videos play as audio" reads as a bug instead of a fallback.
@@ -384,7 +409,7 @@ export function useStreamResolution({
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);
           }
-          return { src, patch: entry.patch, engineSource };
+          return { src, patch: entry.patch, engineSource, meta };
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
           lastError = entryFailureLabel(entry.name);
@@ -393,7 +418,7 @@ export function useStreamResolution({
         }
       }
 
-      if (resolveGenerationRef.current === generation) {
+      if (preload || resolveGenerationRef.current === generation) {
         setResolvingStatus(null);
       }
       // Record a persistent failure for this track so the queue row keeps
@@ -402,6 +427,59 @@ export function useStreamResolution({
       setResolveFailures(prev => ({ ...prev, [track.key]: describeChainFailure(failures) }));
       trackTelemetry("stream_resolve_failed", { source: sourceClass(track.path) });
       throw new Error("Couldn't find a playable source for this track");
+    };
+
+    // Public resolver: single-flight in-flight dedup + short-TTL success cache,
+    // both keyed by QueueTrack.key. Concurrent callers (a play + the per-tick
+    // video pre-resolve) share one promise; rapid sequential re-entries (the
+    // engine-error → handlePlay fallback, the preload guard resetting on every
+    // handlePlay) reuse the just-resolved src instead of shelling out to yt-dlp
+    // again for the same track.
+    resolveTrackSrcRef.current = async (track, opts) => {
+      const preload = !!opts?.preload;
+      const key = track.key;
+
+      const cached = resolveCacheRef.current.get(key);
+      if (cached) {
+        if (Date.now() - cached.at < RESOLVE_CACHE_TTL_MS && cached.resolved.src) {
+          // A cache hit skips doResolve, which is what normally writes the
+          // now-playing source UI — replay those side effects for a real play so
+          // the source/quality label still updates. Preload must not touch the
+          // playing track's UI.
+          if (!preload) {
+            setResolvingStatus(null);
+            setResolvedSource(cached.meta);
+            setResolveFailures(prev => {
+              if (!(key in prev)) return prev;
+              const next = { ...prev };
+              delete next[key];
+              return next;
+            });
+          }
+          return cached.resolved;
+        }
+        resolveCacheRef.current.delete(key);
+      }
+
+      const existing = inFlightResolvesRef.current.get(key);
+      if (existing) return existing;
+
+      const promise = (async () => {
+        const out = await doResolve(track, preload);
+        if (out.src) {
+          if (resolveCacheRef.current.size >= RESOLVE_CACHE_MAX) resolveCacheRef.current.clear();
+          resolveCacheRef.current.set(key, {
+            at: Date.now(),
+            resolved: { src: out.src, patch: out.patch, engineSource: out.engineSource },
+            meta: out.meta ?? null,
+          });
+        }
+        return { src: out.src, patch: out.patch, engineSource: out.engineSource };
+      })().finally(() => {
+        inFlightResolvesRef.current.delete(key);
+      });
+      inFlightResolvesRef.current.set(key, promise);
+      return promise;
     };
   }, [resolveTrackSrcRef, transcodeSessionRef, resolveStreamByUriRef, streamResolversRef, preferVideoRef]);
 

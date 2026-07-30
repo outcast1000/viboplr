@@ -274,7 +274,7 @@ function App() {
   // Placeholder resolver: replaced by useStreamResolution's chain (which runs the
   // candidate selector) once plugins load. This bare form is only the pre-mount
   // fallback, so it uses the normalized self-contained URL, not the candidate menu.
-  const resolveTrackSrcRef = useRef<(track: QueueTrack) => Promise<ResolvedTrackSource>>(async (track) => {
+  const resolveTrackSrcRef = useRef<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>(async (track) => {
     const url = track.path;
     if (!url) throw new Error("Track has no URL");
     const parsed = parseUrlScheme(url);
