@@ -477,3 +477,13 @@ pub fn get_audio_properties_by_path(
         bitrate: props.overall_bitrate(),
     })
 }
+
+/// Byte size of a local file. A plain `stat` — much cheaper than
+/// `get_audio_properties_by_path`, which reads tags. `None` when the path isn't
+/// a local file or can't be stat'd, so callers can treat "unknown" as distinct
+/// from zero rather than inferring a size.
+#[tauri::command]
+pub fn get_file_size(path: String) -> Option<u64> {
+    let bare_path = path.strip_prefix("file://").unwrap_or(&path);
+    std::fs::metadata(bare_path).ok().map(|m| m.len())
+}

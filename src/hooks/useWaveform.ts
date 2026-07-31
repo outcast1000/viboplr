@@ -4,7 +4,10 @@ import { invoke } from "@tauri-apps/api/core";
 // Peaks are stored at a fixed one-bucket-per-second source resolution (width-
 // independent), and WaveformSeekBar downsamples them to fit its render width —
 // so one cached array serves both the now-playing bar and the fullscreen bar.
-const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+
+// Analysis reads the whole file into an ArrayBuffer and then decodes it to PCM,
+// so peak memory is a large multiple of this — keep the ceiling conservative.
+export const WAVEFORM_MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
 
 interface WaveformCache {
   name: string;
@@ -19,12 +22,46 @@ function waveformKey(artistName: string | null, title: string, durationSecs: num
   return `v3::${artist}::${t}::${d}`;
 }
 
+export interface WaveformCandidate {
+  path: string | null;
+  title: string | null;
+  isVideo: boolean;
+}
+
+/**
+ * Whether a track is a candidate for waveform analysis at all, judged from
+ * metadata alone (no I/O). Video is excluded because decoding a whole container
+ * to PCM costs orders of magnitude more than an audio file for the same
+ * duration. Remote streams (subsonic / plugin schemes / direct http) are
+ * cross-origin to the webview, so the Web-Audio `fetch` is CORS-blocked and can
+ * never produce peaks — they use the segmented seek bar by design. Only local
+ * files (file:// → the fetchable asset protocol) are analyzable, so skip the
+ * doomed fetch (and its console error) for everything else.
+ */
+export function isWaveformAnalyzable(
+  candidate: WaveformCandidate,
+): candidate is WaveformCandidate & { path: string; title: string } {
+  if (!candidate.path || !candidate.title) return false;
+  if (candidate.isVideo) return false;
+  return candidate.path.startsWith("file://");
+}
+
+/**
+ * Whether a file is small enough to decode in the webview. `null` means the
+ * size couldn't be determined (file missing, or a path we can't stat) — treated
+ * as too large, because the decode below reads the whole file into memory and
+ * an unknown size is exactly the case we can't afford to guess wrong on.
+ */
+export function isWaveformSizeAllowed(fileSize: number | null): boolean {
+  if (fileSize === null) return false;
+  return fileSize <= WAVEFORM_MAX_FILE_SIZE;
+}
+
 export function useWaveform(
   trackPath: string | null,
   trackName: string | null,
   trackArtist: string | null,
   trackDuration: number | null,
-  fileSize: number | null,
   isVideo: boolean,
   assetUrl: string | null,
 ): number[] | null {
@@ -34,17 +71,11 @@ export function useWaveform(
   useEffect(() => {
     setPeaks(null);
 
-    if (!trackPath || !trackName) return;
-    if (isVideo) return;
-    // Remote streams (subsonic / plugin schemes / direct http) are cross-origin
-    // to the webview, so the Web-Audio `fetch` below is CORS-blocked and can
-    // never produce peaks — they use the segmented seek bar by design. Only
-    // local files (file:// → the fetchable asset protocol) are analyzable, so
-    // skip the doomed fetch (and its console error) for everything else.
-    if (!trackPath.startsWith("file://")) return;
-    if (fileSize && fileSize > MAX_FILE_SIZE) return;
+    const candidate = { path: trackPath, title: trackName, isVideo };
+    if (!isWaveformAnalyzable(candidate)) return;
+    const { path, title } = candidate;
 
-    const cacheKey = waveformKey(trackArtist, trackName, trackDuration);
+    const cacheKey = waveformKey(trackArtist, title, trackDuration);
     let cancelled = false;
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -64,6 +95,22 @@ export function useWaveform(
       }
 
       if (!assetUrl) return;
+
+      // Size gate applies to analysis only, not display: an already-cached
+      // waveform above the limit is free to render, so this sits after the cache
+      // read. `path` is file:// here (isWaveformAnalyzable), so the stat resolves
+      // to a real size unless the file has gone missing.
+      let fileSize: number | null = null;
+      try {
+        fileSize = await invoke<number | null>("get_file_size", { path });
+      } catch (e) {
+        console.error("Failed to stat track for waveform size gate:", e);
+      }
+      if (cancelled) return;
+      if (!isWaveformSizeAllowed(fileSize)) {
+        console.log(`[waveform] skipped "${title}": size ${fileSize ?? "unknown"} not under the ${WAVEFORM_MAX_FILE_SIZE}-byte limit`);
+        return;
+      }
 
       try {
         const response = await fetch(assetUrl, { signal: controller.signal });
@@ -116,7 +163,7 @@ export function useWaveform(
 
         if (cancelled) return;
 
-        const name = trackName;
+        const name = title;
         const duration = trackDuration || Math.round(audioBuffer.duration);
         console.log(`[waveform] created new: "${name}" (${duration}s, ${result.length} buckets)`);
         setPeaks(result);
@@ -134,7 +181,7 @@ export function useWaveform(
       cancelled = true;
       controller.abort();
     };
-  }, [trackPath, trackName, trackArtist, trackDuration, fileSize, isVideo, assetUrl]);
+  }, [trackPath, trackName, trackArtist, trackDuration, isVideo, assetUrl]);
 
   return peaks;
 }

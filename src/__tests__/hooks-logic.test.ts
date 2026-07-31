@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { isPositionOnScreen, clampToNearestMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
 import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement, canDriveTransitionMachine, crossfadeGainPair } from "../hooks/usePlayback";
+import { isWaveformAnalyzable, isWaveformSizeAllowed, WAVEFORM_MAX_FILE_SIZE } from "../hooks/useWaveform";
 
 // --- Extracted pure functions from hooks ---
 
@@ -290,5 +291,49 @@ describe("crossfadeGainPair (captured-once fade target)", () => {
     // A later flip to "A" must not change what was captured for this fade.
     expect(captured.incoming).toBe(b);
     expect(captured.outgoing).toBe(a);
+  });
+});
+
+describe("isWaveformAnalyzable (waveform eligibility gate)", () => {
+  it("accepts a local audio file", () => {
+    expect(isWaveformAnalyzable({ path: "file:///music/song.flac", title: "Song", isVideo: false })).toBe(true);
+  });
+
+  it("rejects video regardless of scheme", () => {
+    // Decoding a whole container to PCM costs orders of magnitude more than an
+    // audio file of the same duration.
+    expect(isWaveformAnalyzable({ path: "file:///music/clip.mp4", title: "Clip", isVideo: true })).toBe(false);
+  });
+
+  it("rejects remote schemes that the webview fetch can never read", () => {
+    expect(isWaveformAnalyzable({ path: "subsonic://col-1/42", title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformAnalyzable({ path: "https://example.com/song.mp3", title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformAnalyzable({ path: "ytdlp://abc123", title: "Song", isVideo: false })).toBe(false);
+  });
+
+  it("rejects tracks missing a path or title", () => {
+    expect(isWaveformAnalyzable({ path: null, title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformAnalyzable({ path: "file:///music/song.flac", title: null, isVideo: false })).toBe(false);
+  });
+});
+
+describe("isWaveformSizeAllowed (size gate)", () => {
+  it("allows files at or under the limit", () => {
+    expect(isWaveformSizeAllowed(1024)).toBe(true);
+    expect(isWaveformSizeAllowed(WAVEFORM_MAX_FILE_SIZE)).toBe(true);
+  });
+
+  it("rejects files over the limit", () => {
+    expect(isWaveformSizeAllowed(WAVEFORM_MAX_FILE_SIZE + 1)).toBe(false);
+    expect(isWaveformSizeAllowed(700 * 1024 * 1024)).toBe(false);
+  });
+
+  it("rejects an unknown size rather than assuming it is small", () => {
+    // A failed stat must not open the door to decoding an arbitrarily large file.
+    expect(isWaveformSizeAllowed(null)).toBe(false);
+  });
+
+  it("allows a zero-byte file (the decode will fail harmlessly, not OOM)", () => {
+    expect(isWaveformSizeAllowed(0)).toBe(true);
   });
 });

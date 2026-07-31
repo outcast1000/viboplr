@@ -297,7 +297,6 @@ function App() {
     playback.currentTrack?.title ?? null,
     playback.currentTrack?.artist_name ?? null,
     playback.currentTrack?.duration_secs ?? null,
-    null,
     playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
     playback.currentAssetUrl,
   );
