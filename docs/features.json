@@ -18,11 +18,11 @@
     "group": "Playback",
     "label": "Now Playing",
     "heading": "Lean back and watch the words",
-    "description": "A full-screen now-playing view with synced, karaoke-style lyrics that highlight line by line. Playing a video? It expands into a theater mode with an ambient glow sampled from the artwork.",
+    "description": "A full-screen now-playing view with synced, karaoke-style lyrics that highlight line by line. Playing a video? It expands into a distraction-free theater mode &mdash; just the picture, with the controls fading out of the way.",
     "items": [
       "Synced (LRC) karaoke lyrics with tap-to-seek",
       "Plain-lyrics fallback with auto-scroll",
-      "Video theater mode with ambient glow",
+      "Video theater mode with auto-hiding overlays",
       "Lyrics from multiple providers<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "now-playing.webp",

@@ -251,12 +251,12 @@ interface PlaylistContext {
 
 **Audio tracks:** blurred album-art backdrop + foreground album art + centered lyrics. Image resolution uses the album→artist `useImageCache` chain (same as queue/bar).
 
-**Video tracks:** the shared `<video>` element is repositioned to fill the column (theater mode via `.video-container--theater` — no remount, mirrors fullscreen). A `VideoAmbientOverlay` paints three auto-managed layers over the full-bleed video without adding playback controls:
-- An always-on color glow sampled from the resolved image (`extractDominantColor`, neutral accent fallback)
-- An auto-hiding "up next" chip (bottom-right, click to jump)
-- An auto-hiding title/artist intro (bottom-left, re-triggers on track change)
+**Video tracks:** the shared `<video>` element is repositioned to fill the column (theater mode via `.video-container--theater` — no remount, mirrors fullscreen). The surround is the skin's `--video-bg` letterbox fill (black by default); nothing tints the picture — there is deliberately **no** ambient glow/vignette layer (it was removed: an `inset: 0` overlay lands on the video's own edges, not just the letterbox, and its color came from static artwork rather than live frames). A `VideoAmbientOverlay` paints auto-hiding layers over the full-bleed video without adding transport controls:
+- An "up next" chip (bottom-right, click to jump)
+- A title/artist intro (bottom-left, re-triggers on track change)
+- A subtitle toggle (top-right, only when synced lyrics matched the video) + a fullscreen button (top-right)
 
-Overlay visibility uses a self-contained idle timer mirroring `FullscreenControls`; the glow stays painted while the chip and intro fade together. Pure helpers `nextQueueTrack` / `glowColorValue` live in `src/utils/videoOverlay.ts` (unit-tested).
+Overlay visibility uses a self-contained idle timer mirroring `FullscreenControls` — every layer shares the same fade. Pure helper `nextQueueTrack` lives in `src/utils/videoOverlay.ts` (unit-tested).
 
 **Lyrics** run through the existing plugin info-type provider chain (LRCLIB → …) via the `useLyrics` hook (`useInformationTypes` gained an `include` filter to scope the fetch to lyrics only):
 - **Synced (LRC):** centered karaoke highlighting — active line bright/bigger/bolder — with smooth auto-scroll, spring line animation, and tap-a-line-to-seek. Auto-scroll stops on unsynced lyrics.

@@ -3,8 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import type { QueueTrack } from "../types";
 import { getInitials } from "../utils";
-import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
-import { nextQueueTrack, glowColorValue } from "../utils/videoOverlay";
+import { nextQueueTrack } from "../utils/videoOverlay";
 import type { LrcLine } from "../utils/lyrics";
 import "./VideoAmbientOverlay.css";
 
@@ -47,7 +46,6 @@ export function VideoAmbientOverlay({
   const rootRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number>(0);
   const [visible, setVisible] = useState(true);
-  const [glow, setGlow] = useState<RGB | null>(null);
   // Bump on track change to re-trigger the intro slide-in animation.
   const [introKey, setIntroKey] = useState(0);
 
@@ -59,17 +57,6 @@ export function VideoAmbientOverlay({
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
-
-  // Sample the glow color from the (already-resolved) current track image.
-  useEffect(() => {
-    let cancelled = false;
-    const src = resolveImageSrc(currentTrack?.image_url ?? null);
-    if (!src) { setGlow(null); return; }
-    extractDominantColor(src).then((rgb) => {
-      if (!cancelled) setGlow(rgb);
-    });
-    return () => { cancelled = true; };
-  }, [currentTrack?.image_url]);
 
   // Read-only tags for the intro label. The overlay only has a QueueTrack (no DB
   // id), so resolve to a library row by metadata first; tags show only for
@@ -143,13 +130,7 @@ export function VideoAmbientOverlay({
     : null;
 
   return (
-    <div
-      ref={rootRef}
-      className={`video-ambient${visible ? " is-visible" : ""}`}
-      style={{ ["--glow-color" as string]: glowColorValue(glow) }}
-    >
-      <div className="video-ambient-glow" />
-
+    <div ref={rootRef} className={`video-ambient${visible ? " is-visible" : ""}`}>
       {syncedLyricLines && (
         <button
           className={`video-ambient-lyrics-toggle video-ambient-fade${subtitlesOn ? "" : " is-off"}`}

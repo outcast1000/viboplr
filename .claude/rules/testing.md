@@ -54,7 +54,7 @@ mod tests {
 - `queueNav.test.ts` — per-mode next/prev index helpers (normal/repeat-all/repeat-one)
 - `trackKey.test.ts` — `sameSong()` identity / key matching
 - `likeKeys.test.ts` — like entity-key building + tri-state transitions
-- `videoOverlay.test.ts` — `nextQueueTrack` / `glowColorValue` ambient-overlay helpers
+- `videoOverlay.test.ts` — `nextQueueTrack` ambient-overlay helper
 - `mainPlaylist.test.ts` — manifest/state serialization (incl. legacy mode normalization)
 - `informationTypes.test.ts` — cache decision logic
 - `queueEntry.test.ts` — queue/track URL handling and scheme parsing

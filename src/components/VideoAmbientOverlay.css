@@ -9,22 +9,7 @@
   pointer-events: none;
 }
 
-/* 1. Glow: always-on soft color vignette framing the video edges.
-   Color comes from the --glow-color custom property set inline. */
-.video-ambient-glow {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(
-      120% 120% at 50% 50%,
-      transparent 55%,
-      color-mix(in srgb, var(--glow-color) 45%, transparent) 100%
-    );
-  box-shadow: inset 0 0 180px 40px color-mix(in srgb, var(--glow-color) 35%, transparent);
-  transition: background 0.6s ease, box-shadow 0.6s ease;
-}
-
-/* 2 + 3. Auto-hiding layer (chip + intro share this fade). */
+/* Auto-hiding layer (chip + intro share this fade). */
 .video-ambient-fade {
   opacity: 0;
   transition: opacity 0.4s ease;
@@ -33,7 +18,7 @@
   opacity: 1;
 }
 
-/* 3. Title/artist intro: bottom-left, slides in on track change. */
+/* Title/artist intro: bottom-left, slides in on track change. */
 .video-ambient-intro {
   position: absolute;
   left: 32px;
@@ -73,7 +58,7 @@
   text-shadow: none;
 }
 
-/* 2. Up-next chip: bottom-right, reuses the np-upnext visual language but as a
+/* Up-next chip: bottom-right, reuses the np-upnext visual language but as a
    single compact, clickable card. */
 .video-ambient-chip {
   position: absolute;

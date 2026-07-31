@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextQueueTrack, glowColorValue } from "../utils/videoOverlay";
+import { nextQueueTrack } from "../utils/videoOverlay";
 import type { QueueTrack } from "../types";
 
 function makeTrack(overrides: Partial<QueueTrack> = {}): QueueTrack {
@@ -35,15 +35,5 @@ describe("nextQueueTrack", () => {
   it("returns null when queueIndex is negative", () => {
     const a = makeTrack();
     expect(nextQueueTrack([a], -1)).toBeNull();
-  });
-});
-
-describe("glowColorValue", () => {
-  it("formats an RGB into an rgb() string", () => {
-    expect(glowColorValue({ r: 12, g: 34, b: 56 })).toBe("rgb(12, 34, 56)");
-  });
-
-  it("falls back to the accent-dim variable when null", () => {
-    expect(glowColorValue(null)).toBe("var(--accent-dim)");
   });
 });
