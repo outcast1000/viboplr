@@ -13,10 +13,12 @@ import {
   nowPlayingSteadyOrder,
   nowPlayingItemStyle,
   nowPlayingStyleClass,
+  nowPlayingOrderedItems,
   NOW_PLAYING_TOP_PRESETS,
   NOW_PLAYING_SCROBBLES_ID,
   type NowPlayingInfoDescriptor,
 } from "../hooks/useNowPlayingInfo";
+import { NOW_PLAYING_DWELL_OPTIONS, parseDwellValue } from "../components/NowPlayingInfoSettings";
 
 const ITEMS: NowPlayingInfoDescriptor[] = [
   { id: "builtin:artist-album", label: "Artist · Album", defaultEnabled: true },
@@ -270,13 +272,13 @@ describe("nowPlayingStyleClass", () => {
 });
 
 describe("nowPlayingSteadyOrder", () => {
-  it("sorts by ToP descending (largest first)", () => {
+  it("keeps the display (priority) order — ToP is dwell time, not rank", () => {
     const out = nowPlayingSteadyOrder([
       { id: "a", top: 1 },
       { id: "b", top: 10 },
       { id: "c", top: 2 },
     ]);
-    expect(out.map((i) => i.id)).toEqual(["b", "c", "a"]);
+    expect(out.map((i) => i.id)).toEqual(["a", "b", "c"]);
   });
 
   it("drops preview-only items (top === 0)", () => {
@@ -288,20 +290,60 @@ describe("nowPlayingSteadyOrder", () => {
     expect(out.map((i) => i.id)).toEqual(["b"]);
   });
 
-  it("is stable for equal ToP — keeps original display order", () => {
-    const out = nowPlayingSteadyOrder([
-      { id: "a", top: 2 },
-      { id: "b", top: 2 },
-      { id: "c", top: 2 },
-    ]);
-    expect(out.map((i) => i.id)).toEqual(["a", "b", "c"]);
-  });
-
   it("treats a missing top as 1 (kept, not dropped)", () => {
     const out = nowPlayingSteadyOrder([
       { id: "a" },
       { id: "b", top: 5 },
     ]);
-    expect(out.map((i) => i.id)).toEqual(["b", "a"]);
+    expect(out.map((i) => i.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("nowPlayingOrderedItems", () => {
+  const REG = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+
+  it("returns registration order when there is no saved order", () => {
+    expect(nowPlayingOrderedItems(REG, []).map((i) => i.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("applies the user's priority order", () => {
+    expect(nowPlayingOrderedItems(REG, ["c", "a", "d", "b"]).map((i) => i.id)).toEqual(["c", "a", "d", "b"]);
+  });
+
+  it("appends unlisted items (newly registered) after the ordered ones, in registration order", () => {
+    expect(nowPlayingOrderedItems(REG, ["d", "b"]).map((i) => i.id)).toEqual(["d", "b", "a", "c"]);
+  });
+
+  it("ignores ordered ids that are no longer registered (uninstalled plugin)", () => {
+    expect(nowPlayingOrderedItems(REG, ["gone:item", "c"]).map((i) => i.id)).toEqual(["c", "a", "b", "d"]);
+  });
+});
+
+
+describe("dwell select (Off folded into the presets)", () => {
+  it("offers Off first, then every ToP preset", () => {
+    expect(NOW_PLAYING_DWELL_OPTIONS.map((o) => o.value)).toEqual(["off", "0", "1", "2", "5", "10"]);
+    expect(NOW_PLAYING_DWELL_OPTIONS.map((o) => o.label)).toEqual([
+      "Off", "Preview only", "1×", "2×", "5×", "10×",
+    ]);
+  });
+
+  it("parses Off as null and presets as their multiplier", () => {
+    expect(parseDwellValue("off")).toBeNull();
+    expect(parseDwellValue("0")).toBe(0);
+    expect(parseDwellValue("1")).toBe(1);
+    expect(parseDwellValue("10")).toBe(10);
+  });
+
+  it("treats an unknown value as off rather than an invalid dwell", () => {
+    expect(parseDwellValue("3")).toBeNull();
+    expect(parseDwellValue("")).toBeNull();
+  });
+
+  it("round-trips every option through the parser", () => {
+    for (const o of NOW_PLAYING_DWELL_OPTIONS) {
+      const parsed = parseDwellValue(o.value);
+      expect(o.value === "off" ? parsed === null : String(parsed) === o.value).toBe(true);
+    }
   });
 });

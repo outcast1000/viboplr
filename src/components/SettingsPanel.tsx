@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -15,6 +15,8 @@ import { store } from "../store";
 import { PromptModal } from "./PromptModal";
 import { HelpLink } from "./HelpLink";
 import { getPlatform } from "./DependencyModal";
+import { NowPlayingInfoSettings, type NowPlayingInfoSettingsProps } from "./NowPlayingInfoSettings";
+import { startRowDrag } from "../utils/rowDrag";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
 
@@ -204,10 +206,6 @@ function ProviderPrioritySection({
   const [loading, setLoading] = useState(true);
   const [streamResolvers, setStreamResolvers] = useState<Array<{ id: string; name: string; source: string; enabled: boolean }>>([]);
 
-  // Manual mouse-event drag (HTML5 DnD is unreliable in WKWebView with user-select:none)
-  const didDragRef = useRef(false);
-  const ghostRef = useRef<HTMLDivElement | null>(null);
-
   const fetchConfig = useCallback(async () => {
     try {
       const [infoTypes, imageProviders, downloadProviders] = await invoke<[
@@ -354,84 +352,6 @@ function ProviderPrioritySection({
     } catch (e) {
       console.error("Failed to update priorities:", e);
     }
-  };
-
-  // Generic vertical drag-to-reorder. Grabbed by a row's handle; reorders within
-  // the row's own [data-vlist] container. `onReorder(from, to)` applies the move.
-  const startRowDrag = (
-    e: React.MouseEvent,
-    sourceIndex: number,
-    displayName: string,
-    onReorder: (from: number, to: number) => void,
-  ) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const handle = e.currentTarget as HTMLElement;
-    const sourceRow = handle.closest("[data-row-index]") as HTMLElement | null;
-    const list = handle.closest("[data-vlist]") as HTMLElement | null;
-    if (!sourceRow || !list) return;
-    let overIndex: number | null = null;
-    didDragRef.current = false;
-
-    function findRowIndex(el: Element | null): number | null {
-      while (el && el !== list) {
-        const idx = el.getAttribute("data-row-index");
-        if (idx !== null) return parseInt(idx, 10);
-        el = el.parentElement;
-      }
-      return null;
-    }
-
-    function clearDropIndicators() {
-      list!.querySelectorAll(".provider-vrow-drop-above, .provider-vrow-drop-below").forEach(el => {
-        el.classList.remove("provider-vrow-drop-above", "provider-vrow-drop-below");
-      });
-    }
-
-    function onMouseMove(ev: MouseEvent) {
-      if (!didDragRef.current) {
-        if (Math.abs(ev.clientX - startX) < 5 && Math.abs(ev.clientY - startY) < 5) return;
-        didDragRef.current = true;
-        sourceRow!.classList.add("provider-vrow-dragging");
-      }
-      if (!ghostRef.current) {
-        const ghost = document.createElement("div");
-        ghost.className = "provider-vrow-ghost";
-        ghost.textContent = displayName;
-        document.body.appendChild(ghost);
-        ghostRef.current = ghost;
-      }
-      ghostRef.current.style.left = `${ev.clientX + 12}px`;
-      ghostRef.current.style.top = `${ev.clientY - 10}px`;
-
-      clearDropIndicators();
-      const target = document.elementFromPoint(ev.clientX, ev.clientY);
-      const overIdx = list!.contains(target) ? findRowIndex(target) : null;
-      overIndex = overIdx;
-      if (overIdx !== null && overIdx !== sourceIndex) {
-        const targetRow = list!.querySelector(`[data-row-index="${overIdx}"]`);
-        if (targetRow) {
-          targetRow.classList.add(overIdx < sourceIndex ? "provider-vrow-drop-above" : "provider-vrow-drop-below");
-        }
-      }
-    }
-
-    function onMouseUp() {
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-      if (ghostRef.current) { ghostRef.current.remove(); ghostRef.current = null; }
-      clearDropIndicators();
-      sourceRow!.classList.remove("provider-vrow-dragging");
-      if (didDragRef.current && overIndex !== null && overIndex !== sourceIndex) {
-        onReorder(sourceIndex, overIndex);
-      }
-      setTimeout(() => { didDragRef.current = false; }, 0);
-    }
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
   };
 
   const saveStreamResolverOrder = async (providers: typeof streamResolvers) => {
@@ -669,6 +589,7 @@ const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", s
 
 const navIcons = {
   general: <svg {...iconProps}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/></svg>,
+  playback: <svg {...iconProps}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
   providers: <svg {...iconProps}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
   search: <svg {...iconProps}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   debug: <svg {...iconProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
@@ -1197,9 +1118,22 @@ interface SettingsPanelProps {
   };
   autoUpdateManagedDeps: boolean;
   onAutoUpdateManagedDepsChange: (enabled: boolean) => void;
+  /** Config for the cycling Now Playing info line (Playback group). */
+  nowPlayingInfo?: NowPlayingInfoSettingsProps;
+  /** One-shot deep link: element id of a settings section to reveal (e.g. from
+   *  the mini player's "Now playing info…" menu item). The panel selects the
+   *  owning tab itself — callers don't need to know the tab layout. */
+  scrollToId?: string | null;
+  onScrolledToId?: () => void;
 }
 
-type SettingsTab = "general" | "providers" | "debug";
+type SettingsTab = "general" | "playback" | "providers" | "debug";
+
+/** Which tab owns a deep-linkable section id. Sections not listed live in the
+ *  default (General) tab. Keep in step with the `id="…"` attributes below. */
+const SECTION_TABS: Record<string, SettingsTab> = {
+  "now-playing-info": "playback",
+};
 
 export function SettingsPanel({
   onSeedDatabase, onClearDatabase, clearing,
@@ -1267,8 +1201,26 @@ export function SettingsPanel({
   dependencies,
   autoUpdateManagedDeps,
   onAutoUpdateManagedDepsChange,
+  nowPlayingInfo,
+  scrollToId,
+  onScrolledToId,
 }: SettingsPanelProps) {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+
+  // Deep link from another surface: select the tab that owns the section, then
+  // (on the next run, once that tab has rendered) scroll it into view and clear
+  // the request so reopening Settings lands at the top as usual.
+  useEffect(() => {
+    if (!scrollToId) return;
+    const tab = SECTION_TABS[scrollToId] ?? "general";
+    if (settingsTab !== tab) {
+      setSettingsTab(tab);
+      return;
+    }
+    document.getElementById(scrollToId)?.scrollIntoView({ block: "center" });
+    onScrolledToId?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToId, settingsTab]);
 
   const [appPaths, setAppPaths] = useState<{ profile: string; logs: string } | null>(null);
   const [engineComponentError, setEngineComponentError] = useState<string | null>(null);
@@ -1338,6 +1290,7 @@ export function SettingsPanel({
 
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
+    { key: "playback", label: "Playback", icon: navIcons.playback },
     { key: "providers", label: "Providers", icon: navIcons.providers },
     { key: "debug", label: "Debug", icon: navIcons.debug },
   ];
@@ -1446,6 +1399,112 @@ export function SettingsPanel({
                   </div>
                 </div>
 
+                <div className="settings-group">
+                  <div className="settings-group-title">Window</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Interface size</span>
+                        <span className="settings-description">Scale the whole interface — text, spacing, and artwork. Also adjustable with {MOD_KEY_LABEL} + and {MOD_KEY_LABEL} −.</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={uiZoom}
+                        onChange={e => onUiZoomChange(parseFloat(e.target.value))}
+                      >
+                        {ZOOM_PRESET_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Mini player size</span>
+                        <span className="settings-description">Scale the mini player independently of the main window</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={miniZoom}
+                        onChange={e => onMiniZoomChange(parseFloat(e.target.value))}
+                      >
+                        {ZOOM_PRESET_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Minimize to mini player</span>
+                        <span className="settings-description">Switch to mini player when minimizing the window</span>
+                      </div>
+                      <ToggleSwitch checked={minimizeToMiniPlayer} onChange={onMinimizeToMiniPlayerChange} />
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Reduce motion</span>
+                        <span className="settings-description">Minimise animations across the app — disables the mini-player text scroll, list reordering, and transitions. Also honoured automatically when your OS "reduce motion" setting is on.</span>
+                      </div>
+                      <ToggleSwitch checked={reduceMotion} onChange={onReduceMotionChange} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">Library</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Confirm before moving tracks to {trashLabel}</span>
+                        <span className="settings-description">Show a confirmation dialog before deleting tracks. Files on network shares (which can't be recovered) always confirm.</span>
+                      </div>
+                      <ToggleSwitch checked={confirmTrashDelete} onChange={onConfirmTrashDeleteChange} />
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Likes &amp; dislikes</span>
+                        <span className="settings-description">Export your liked/disliked tracks, artists, albums and tags to a file, then import it on another PC or profile. Importing merges — a like is only overwritten by a newer one, and nothing is removed.</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="ds-btn ds-btn--secondary" onClick={handleExportLikes} disabled={likesBusy !== null}>
+                          {likesBusy === "export" ? "Exporting…" : "Export…"}
+                        </button>
+                        <button className="ds-btn ds-btn--secondary" onClick={handleImportLikes} disabled={likesBusy !== null}>
+                          {likesBusy === "import" ? "Importing…" : "Import…"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-group">
+                  <div className="settings-group-title">History</div>
+                  <div className="settings-card">
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Track video history<HelpLink anchor="video-history" topic="video history" /></span>
+                        <span className="settings-description">Record playback of video files</span>
+                      </div>
+                      <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} />
+                    </div>
+                  </div>
+                </div>
+
+                <ProfilesSection
+                  profilePath={appPaths?.profile ?? null}
+                  onSwitchProfile={onSwitchProfile}
+                  onNotify={onNotify}
+                />
+
+                <DependenciesSection
+                  dependencies={dependencies}
+                  autoUpdateManagedDeps={autoUpdateManagedDeps}
+                  onAutoUpdateManagedDepsChange={onAutoUpdateManagedDepsChange}
+                />
+
+              </>
+            )}
+
+            {settingsTab === "playback" && (
                 <div className="settings-group">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
@@ -1620,112 +1679,20 @@ export function SettingsPanel({
                         </div>
                       </>
                     )}
+                    {nowPlayingInfo && (
+                      <div className="settings-row settings-row--stacked" id="now-playing-info">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Now playing info<HelpLink anchor="now-playing-info" topic="the now playing info line" /></span>
+                          <span className="settings-description">
+                            The cycling line under the title in the mini player. Drag to set the order items appear in;
+                            each one can be off, shown once per track (preview only), or dwell 1–10× the ~5s base interval.
+                          </span>
+                        </div>
+                        <NowPlayingInfoSettings {...nowPlayingInfo} />
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                <div className="settings-group">
-                  <div className="settings-group-title">Window</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Interface size</span>
-                        <span className="settings-description">Scale the whole interface — text, spacing, and artwork. Also adjustable with {MOD_KEY_LABEL} + and {MOD_KEY_LABEL} −.</span>
-                      </div>
-                      <select
-                        className="ds-select"
-                        value={uiZoom}
-                        onChange={e => onUiZoomChange(parseFloat(e.target.value))}
-                      >
-                        {ZOOM_PRESET_OPTIONS.map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Mini player size</span>
-                        <span className="settings-description">Scale the mini player independently of the main window</span>
-                      </div>
-                      <select
-                        className="ds-select"
-                        value={miniZoom}
-                        onChange={e => onMiniZoomChange(parseFloat(e.target.value))}
-                      >
-                        {ZOOM_PRESET_OPTIONS.map(o => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Minimize to mini player</span>
-                        <span className="settings-description">Switch to mini player when minimizing the window</span>
-                      </div>
-                      <ToggleSwitch checked={minimizeToMiniPlayer} onChange={onMinimizeToMiniPlayerChange} />
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Reduce motion</span>
-                        <span className="settings-description">Minimise animations across the app — disables the mini-player text scroll, list reordering, and transitions. Also honoured automatically when your OS "reduce motion" setting is on.</span>
-                      </div>
-                      <ToggleSwitch checked={reduceMotion} onChange={onReduceMotionChange} />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="settings-group">
-                  <div className="settings-group-title">Library</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Confirm before moving tracks to {trashLabel}</span>
-                        <span className="settings-description">Show a confirmation dialog before deleting tracks. Files on network shares (which can't be recovered) always confirm.</span>
-                      </div>
-                      <ToggleSwitch checked={confirmTrashDelete} onChange={onConfirmTrashDeleteChange} />
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Likes &amp; dislikes</span>
-                        <span className="settings-description">Export your liked/disliked tracks, artists, albums and tags to a file, then import it on another PC or profile. Importing merges — a like is only overwritten by a newer one, and nothing is removed.</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button className="ds-btn ds-btn--secondary" onClick={handleExportLikes} disabled={likesBusy !== null}>
-                          {likesBusy === "export" ? "Exporting…" : "Export…"}
-                        </button>
-                        <button className="ds-btn ds-btn--secondary" onClick={handleImportLikes} disabled={likesBusy !== null}>
-                          {likesBusy === "import" ? "Importing…" : "Import…"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="settings-group">
-                  <div className="settings-group-title">History</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Track video history<HelpLink anchor="video-history" topic="video history" /></span>
-                        <span className="settings-description">Record playback of video files</span>
-                      </div>
-                      <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} />
-                    </div>
-                  </div>
-                </div>
-
-                <ProfilesSection
-                  profilePath={appPaths?.profile ?? null}
-                  onSwitchProfile={onSwitchProfile}
-                  onNotify={onNotify}
-                />
-
-                <DependenciesSection
-                  dependencies={dependencies}
-                  autoUpdateManagedDeps={autoUpdateManagedDeps}
-                  onAutoUpdateManagedDepsChange={onAutoUpdateManagedDepsChange}
-                />
-
-              </>
             )}
 
             {settingsTab === "providers" && (

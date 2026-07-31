@@ -228,9 +228,9 @@ interface NowPlayingInfoCyclerProps {
  * Two phases per track:
  *  1. Preview pass — every enabled item is shown once for the base interval (a
  *     quick overview), regardless of its time-of-persistence (`top`).
- *  2. Steady rotation — only items with `top > 0` remain in the loop, ordered
- *     by ToP descending (largest first), each dwelling for `intervalMs × top`.
- *     Items with `top === 0` ("preview only") are dropped after the preview pass.
+ *  2. Steady rotation — only items with `top > 0` remain in the loop, in the same
+ *     (user priority) order, each dwelling for `intervalMs × top`. Items with
+ *     `top === 0` ("preview only") are dropped after the preview pass.
  *
  * The phase lives in the parent (`cycleState`/`onCycleState`) and resets only
  * when `cycleResetKey` actually changes (i.e. a new track) — not when this
@@ -259,8 +259,8 @@ export function NowPlayingInfoCycler({
   // parent (see NowPlayingCycleState) so they survive this instance remounting.
   const { index, previewing } = cycleState;
 
-  // The steady-rotation list excludes "preview only" (top === 0) items and is
-  // ordered by ToP descending, so the longest-dwelling items lead the cycle.
+  // The steady-rotation list is the display order (the user's priority order)
+  // minus the "preview only" (top === 0) items.
   const steady = useMemo(() => nowPlayingSteadyOrder(items), [items]);
 
   // Read the latest lists inside the timer without resetting it — the `items`

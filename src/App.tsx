@@ -65,7 +65,7 @@ import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
 import { usePlugins, type PluginHostCallbacks } from "./hooks/usePlugins";
-import { useNowPlayingInfo, isNowPlayingItemSelected, nowPlayingItemTop, NOW_PLAYING_TOP_PRESETS } from "./hooks/useNowPlayingInfo";
+import { useNowPlayingInfo } from "./hooks/useNowPlayingInfo";
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useRetrieveModal } from "./hooks/useRetrieveModal";
 import { RetrieveModal } from "./components/RetrieveModal";
@@ -310,6 +310,12 @@ function App() {
   // Per-item time-of-persistence multipliers (id → 0/1/2/5/10). Missing = 1, so
   // an un-customized item dwells for the base interval, exactly as before.
   const [nowPlayingInfoPersistence, setNowPlayingInfoPersistence] = useState<Record<string, number>>({});
+  // User priority order (ordered item ids) for the same section. Empty default →
+  // registration order (built-ins as declared, then plugin items).
+  const [nowPlayingInfoOrder, setNowPlayingInfoOrder] = useState<string[]>([]);
+  // One-shot deep link into a Settings section (element id), consumed by
+  // SettingsPanel on mount and cleared once it has scrolled.
+  const [settingsScrollTarget, setSettingsScrollTarget] = useState<string | null>(null);
 
   useEffect(() => {
     setTrackRank(null);
@@ -355,6 +361,11 @@ function App() {
     if (!restoredRef.current) return;
     store.set("nowPlayingInfoPersistence", nowPlayingInfoPersistence);
   }, [nowPlayingInfoPersistence]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("nowPlayingInfoOrder", nowPlayingInfoOrder);
+  }, [nowPlayingInfoOrder]);
 
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
@@ -505,45 +516,37 @@ function App() {
     invokeNowPlayingInfo: plugins.invokeNowPlayingInfo,
     selection: nowPlayingInfoSelection,
     persistence: nowPlayingInfoPersistence,
+    order: nowPlayingInfoOrder,
     pluginsLoaded: plugins.pluginsLoaded,
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
   });
-  // Disable an item (hide it entirely). Enabling happens by picking a time, below.
-  const disableNowPlayingInfo = useCallback((id: string) => {
-    setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: false }));
-  }, []);
-  // Enable an item and set its time-of-persistence multiplier in one action.
-  const setNowPlayingInfoTop = useCallback((id: string, top: number) => {
+  // The single per-item control in Settings: a time-of-persistence multiplier
+  // (which also enables the item), or null to turn it off.
+  const setNowPlayingInfoDwell = useCallback((id: string, top: number | null) => {
+    if (top === null) {
+      setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: false }));
+      return;
+    }
     setNowPlayingInfoSelection((prev) => ({ ...prev, [id]: true }));
     setNowPlayingInfoPersistence((prev) => ({ ...prev, [id]: top }));
   }, []);
-  // Native submenu listing every registered info item (built-in + plugin). Each
-  // item opens a nested radio-style submenu: "Off" plus the time-of-persistence
-  // presets (Preview only / 1× / 2× / 5× / 10×). Shared by the mini-player menu
-  // and the main-bar info area.
-  const buildNowPlayingInfoSubmenu = useCallback((): MenuItemSpec => ({
-    kind: "submenu",
-    text: "Now playing info",
-    items: nowPlayingInfoAvailable.map((d): MenuItemSpec => {
-      const enabled = isNowPlayingItemSelected(d.id, nowPlayingInfoSelection, nowPlayingInfoAvailable);
-      const top = nowPlayingItemTop(d.id, nowPlayingInfoPersistence);
-      return {
-        kind: "submenu",
-        text: d.label,
-        items: [
-          { kind: "check" as const, text: "Off", checked: !enabled, action: () => disableNowPlayingInfo(d.id) },
-          { kind: "separator" as const },
-          ...NOW_PLAYING_TOP_PRESETS.map((p) => ({
-            kind: "check" as const,
-            text: p === 0 ? "Preview only" : `${p}×`,
-            checked: enabled && top === p,
-            action: () => setNowPlayingInfoTop(d.id, p),
-          })),
-        ],
-      };
-    }),
-  }), [nowPlayingInfoAvailable, nowPlayingInfoSelection, nowPlayingInfoPersistence, disableNowPlayingInfo, setNowPlayingInfoTop]);
+  // Reset every customization of the section back to the registered defaults.
+  const resetNowPlayingInfo = useCallback(() => {
+    setNowPlayingInfoSelection({});
+    setNowPlayingInfoPersistence({});
+    setNowPlayingInfoOrder([]);
+  }, []);
+  // Props bundle for the Settings > Playback control (drag to reorder + one
+  // dwell/off select per item) — the single place this section is configured.
+  const nowPlayingInfoSettings = useMemo(() => ({
+    items: nowPlayingInfoAvailable,
+    selection: nowPlayingInfoSelection,
+    persistence: nowPlayingInfoPersistence,
+    onSetDwell: setNowPlayingInfoDwell,
+    onReorder: setNowPlayingInfoOrder,
+    onReset: resetNowPlayingInfo,
+  }), [nowPlayingInfoAvailable, nowPlayingInfoSelection, nowPlayingInfoPersistence, setNowPlayingInfoDwell, resetNowPlayingInfo]);
   if (import.meta.env.DEV) (window as any).__dependencies = dependencies;
 
   // Host-owned "missing required dependency" indicator: cross-reference each
@@ -1934,6 +1937,11 @@ function App() {
 
         const savedNowPlayingInfoTop = await store.get<Record<string, number>>("nowPlayingInfoPersistence");
         if (savedNowPlayingInfoTop && typeof savedNowPlayingInfoTop === "object") setNowPlayingInfoPersistence(savedNowPlayingInfoTop);
+
+        const savedNowPlayingInfoOrder = await store.get<string[]>("nowPlayingInfoOrder");
+        if (Array.isArray(savedNowPlayingInfoOrder)) {
+          setNowPlayingInfoOrder(savedNowPlayingInfoOrder.filter((id): id is string => typeof id === "string"));
+        }
 
         if (tSortField && ["num", "title", "artist", "album", "duration", "path", "year", "quality", "size", "collection", "added", "modified", "random"].includes(tSortField)) library.setSortField(tSortField as SortField);
         if (tSortDir && ["asc", "desc"].includes(tSortDir)) library.setSortDir(tSortDir as SortDir);
@@ -4111,6 +4119,9 @@ function App() {
               onUiZoomChange={handleUiZoomChange}
               miniZoom={zoom.miniZoom}
               onMiniZoomChange={handleMiniZoomChange}
+              nowPlayingInfo={nowPlayingInfoSettings}
+              scrollToId={settingsScrollTarget}
+              onScrolledToId={() => setSettingsScrollTarget(null)}
               appVersion={updater.appVersion}
               updateState={updater.updateState}
               onCheckForUpdates={updater.handleCheckForUpdates}
@@ -4878,7 +4889,14 @@ function App() {
             { kind: "check", text: "Compact", checked: mini.miniRestingSize === "compact", action: () => mini.setMiniRestingSize("compact") },
           ];
           specs.push({ kind: "submenu", text: "Height", items: heightItems });
-          if (playback.currentTrack) specs.push(buildNowPlayingInfoSubmenu());
+          // The info line is configured in Settings > Playback (drag to reorder,
+          // dwell, on/off) — the menu just takes you there, leaving the main
+          // window open on that section.
+          specs.push({ kind: "item", text: "Now playing info…", action: () => {
+            setSettingsScrollTarget("now-playing-info");
+            library.setView("settings");
+            if (mini.miniMode) mini.toggleMiniMode();
+          } });
           specs.push({ kind: "separator" });
           specs.push({ kind: "item", text: "Show Main Window", action: mini.toggleMiniMode });
           specs.push({ kind: "item", text: "Exit App", action: () => exit(0) });

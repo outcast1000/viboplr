@@ -119,17 +119,26 @@ export function nowPlayingStyleClass(style: NowPlayingInfoStyle | undefined): st
   return cls.join(" ");
 }
 
-/** The steady-rotation order: items with a positive ToP (top > 0), sorted by ToP
- *  descending so the longest-dwelling items lead the cycle. "Preview only"
- *  (top === 0) items are dropped. Stable for equal ToP (keeps display order).
+/** The steady-rotation list: the display order with "preview only" (top === 0)
+ *  items dropped. Order is the user's priority order (see nowPlayingOrderedItems)
+ *  — ToP controls only how long an item dwells, never where it sits in the cycle.
  *  Pure + exported for tests. */
 export function nowPlayingSteadyOrder<T extends { top?: number }>(items: T[]): T[] {
+  return items.filter((it) => (it.top ?? 1) > 0);
+}
+
+/** Apply the user's priority order to a registered item list. Items named in
+ *  `order` come first in that order; anything unlisted (a newly registered
+ *  plugin item, or a built-in added by an app update) keeps its registration
+ *  order and lands after them. Pure + exported for tests. */
+export function nowPlayingOrderedItems<T extends { id: string }>(items: T[], order: string[]): T[] {
+  const rank = new Map(order.map((id, i) => [id, i]));
   return items
-    .map((it, i) => ({ it, i, top: it.top ?? 1 }))
-    .filter((e) => e.top > 0)
-    .sort((a, b) => b.top - a.top || a.i - b.i)
+    .map((it, i) => ({ it, i, rank: rank.get(it.id) ?? order.length + i }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
     .map((e) => e.it);
 }
+
 
 /** A registered item, shown as a checkbox in the context-menu checklist.
  *  `defaultEnabled` decides whether it's on before the user customizes. */
@@ -329,6 +338,9 @@ interface UseNowPlayingInfoArgs {
   selection: Record<string, boolean>;
   // Per-item time-of-persistence multipliers (id → 1/2/5/10). Missing = 1.
   persistence: Record<string, number>;
+  // User priority order (ordered item ids). Drives both the preview pass and the
+  // steady rotation; ids missing from it keep their registration order at the end.
+  order: string[];
   // Plugin info-type bridge — lyrics are fetched through the same cache/chain as
   // the track-detail Lyrics tab (via useLyrics), only when a lyrics item is on.
   invokeInfoFetch: (
@@ -354,6 +366,7 @@ export function useNowPlayingInfo({
   invokeNowPlayingInfo,
   selection,
   persistence,
+  order,
   invokeInfoFetch,
   pluginNames,
   pluginsLoaded,
@@ -361,13 +374,15 @@ export function useNowPlayingInfo({
   availableItems: NowPlayingInfoDescriptor[];
   resolvedItems: NowPlayingInfoResolved[];
 } {
-  // Built-ins first, then plugin items (plugin id = `${pluginId}:${itemId}`).
+  // Registration order — built-ins first, then plugin items (plugin id =
+  // `${pluginId}:${itemId}`) — then the user's priority order on top, which is
+  // the display order everywhere: the menu, the preview pass, the rotation.
   const availableItems = useMemo<NowPlayingInfoDescriptor[]>(
-    () => [
+    () => nowPlayingOrderedItems([
       ...BUILTIN_DESCRIPTORS,
       ...pluginItems.map((p) => ({ id: `${p.pluginId}:${p.itemId}`, label: p.label, defaultEnabled: p.defaultEnabled })),
-    ],
-    [pluginItems],
+    ], order),
+    [pluginItems, order],
   );
 
   // Async items (everything except lyrics) — resolved once per track/selection.

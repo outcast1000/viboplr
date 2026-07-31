@@ -282,6 +282,22 @@
     </div>
   </section>
 
+  <!-- Now playing info -->
+  <section class="section section-alt" id="now-playing-info">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Now Playing Info</h2>
+        <p class="docs-lead">The line under the title in the mini player &mdash; it cycles through whatever you want to know about the track.</p>
+        <p>Instead of one fixed subtitle, the mini player rotates through a list of <em>info items</em>: Artist &middot; Album, Quality, Duration, Source, Plays &middot; Rank, Tags, the lyric line currently being sung, and anything plugins add (Last.fm adds Scrobbles). Configure the list in <strong>Settings &rarr; Playback &rarr; Now playing info</strong>, or right-click the mini player and choose <em>Now playing info&hellip;</em> to jump straight there.</p>
+        <ul class="docs-list">
+          <li><strong>Order</strong> &mdash; drag the handle to set which item shows first, second, and so on. The cycle always follows this order.</li>
+          <li><strong>Dwell</strong> &mdash; the dropdown on the right does double duty. <em>Off</em> hides the item entirely; <em>Preview only</em> shows it once when the track starts and then drops it from the rotation (good for a quick stat you don't need on repeat); <em>1&times;</em> to <em>10&times;</em> set how long it stays on screen, as a multiple of the ~5 second base interval.</li>
+        </ul>
+        <p>Each track begins with a <em>preview pass</em> that shows every enabled item once, then settles into the rotation. Items that have nothing to say for the current track (no lyrics, no tags, no play count) simply sit out rather than showing a blank. <strong>Reset to defaults</strong> puts the whole list back the way it shipped.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- Bottom CTA -->
   <section class="bottom-cta">
     <div class="container reveal">

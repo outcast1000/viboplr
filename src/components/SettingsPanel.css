@@ -160,6 +160,13 @@
 .settings-row--nested {
   padding-left: 24px;
 }
+/* Row whose control is a full-width block (a list) rather than a right-aligned
+   widget: the label/description stack above it. */
+.settings-row--stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
 .settings-row-info {
   flex: 1;
   min-width: 0;
@@ -800,6 +807,31 @@
 @keyframes provider-ghost-in {
   from { opacity: 0; transform: scale(0.95); }
   to { opacity: 1; transform: scale(1); }
+}
+
+/* Now playing info list (Settings > Playback) — reuses the .provider-v* rows
+   above; only the extra dwell select and the footer are new. */
+.npi-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.npi-settings-dwell {
+  flex-shrink: 0;
+  width: 116px;
+  font-size: var(--fs-xs);
+  padding: 2px 6px;
+}
+.npi-settings-dwell:disabled {
+  opacity: 0.45;
+}
+
+.npi-settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .provider-vrow-locked {
