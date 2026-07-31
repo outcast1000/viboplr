@@ -15,6 +15,7 @@ import { EqBarControl } from "./EqBarControl";
 import type { EqMode } from "../eqPresets";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
+import { FilmstripSeekBar } from "./FilmstripSeekBar";
 import { StoryboardTile } from "./StoryboardTile";
 import { tileIndexAt, type Storyboard } from "../utils/storyboard";
 // Bubble thumbnail width. Sheet tiles are larger (up to 400px) to serve the hero
@@ -543,7 +544,16 @@ export function NowPlayingBar({
             }}
             onMouseLeave={() => setSeekHover(null)}
           >
-            {waveformPeaks ? (
+            {/* Video never has a waveform (useWaveform bails on it), so where a
+                storyboard exists the frames themselves are the seek surface. */}
+            {storyboard && durationSecs > 0 ? (
+              <FilmstripSeekBar
+                board={storyboard}
+                durationSecs={durationSecs}
+                progress={positionSecs / durationSecs}
+                hoverPct={seekHover?.pct ?? null}
+              />
+            ) : waveformPeaks ? (
               <WaveformSeekBar
                 peaks={waveformPeaks}
                 progress={durationSecs > 0 ? positionSecs / durationSecs : 0}

@@ -1,0 +1,95 @@
+/* Video seek bar: the storyboard laid out as a filmstrip. Fills the seek track the
+   waveform canvas would otherwise occupy, so the bar height is unchanged. */
+.filmstrip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* Video letterboxing reads as part of the frame, so gaps match the app's video
+     surround rather than the panel background — same call as .seek-preview-thumb. */
+  background: var(--video-bg, #000);
+}
+
+.filmstrip-cells {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.filmstrip-cell {
+  height: 100%;
+  flex: 0 0 auto;
+  background-repeat: no-repeat;
+  background-color: var(--video-bg, #000);
+  /* Hairline seam so the strip reads as discrete frames, not one smeared image. */
+  box-shadow: inset -1px 0 0 rgba(var(--overlay-inverse), 0.6);
+  transition: filter 0.16s ease;
+}
+
+/* Everything past the playhead is desaturated and knocked back, so progress reads as
+   a colour front sweeping the strip. The boundary lands on a frame edge, which suits
+   a filmstrip — the needle carries the exact position. */
+.filmstrip-cell--ahead {
+  filter: grayscale(0.8) brightness(0.5);
+}
+
+/* Perforation rails. They overlay the frames top and bottom, which is what buys the
+   playhead carets somewhere to live without eating into the picture. */
+.filmstrip-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background-color: rgba(var(--overlay-inverse), 0.45);
+  background-image: radial-gradient(
+    circle at 3px 50%,
+    rgba(var(--overlay-inverse), 0.88) 1.4px,
+    transparent 1.6px
+  );
+  background-size: 9px 100%;
+}
+.filmstrip-rail--top { top: 0; }
+.filmstrip-rail--bottom { bottom: 0; }
+
+/* Hover hairline — the scrub target, distinct from the playhead below. */
+.filmstrip-hover {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: rgba(var(--overlay-base), 0.75);
+}
+
+/* Playhead: a needle for exact position, plus carets biting in from the rails so it
+   stays findable against a bright frame. */
+.filmstrip-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(var(--overlay-base), 0.95);
+  box-shadow: 0 0 4px rgba(var(--overlay-inverse), 0.9);
+}
+
+.filmstrip-caret {
+  position: absolute;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+}
+.filmstrip-caret--top {
+  top: 0;
+  border-top: 6px solid var(--accent);
+}
+.filmstrip-caret--bottom {
+  bottom: 0;
+  border-bottom: 6px solid var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .filmstrip-cell { transition: none; }
+}

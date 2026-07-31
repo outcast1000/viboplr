@@ -6,6 +6,7 @@ import { formatDuration } from "../utils";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
+import { FilmstripSeekBar } from "./FilmstripSeekBar";
 import { StoryboardTile } from "./StoryboardTile";
 import { tileIndexAt, type Storyboard } from "../utils/storyboard";
 // Bubble thumbnail width. Sheet tiles are larger (up to 400px) to serve the hero
@@ -185,7 +186,16 @@ export function FullscreenControls({
         }}
         onMouseLeave={() => setSeekHover(null)}
       >
-        {waveformPeaks ? (
+        {/* Fullscreen is always video, so the storyboard branch is the usual one here
+            — the flat fill below only survives for boards that never resolved. */}
+        {storyboard && durationSecs > 0 ? (
+          <FilmstripSeekBar
+            board={storyboard}
+            durationSecs={durationSecs}
+            progress={positionSecs / durationSecs}
+            hoverPct={seekHover?.pct ?? null}
+          />
+        ) : waveformPeaks ? (
           <WaveformSeekBar
             peaks={waveformPeaks}
             progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
