@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { PluginState } from "../types/plugin";
@@ -1273,6 +1273,45 @@ export function SettingsPanel({
   const [appPaths, setAppPaths] = useState<{ profile: string; logs: string } | null>(null);
   const [engineComponentError, setEngineComponentError] = useState<string | null>(null);
 
+  // Export/Import likes — portable like/dislike transfer between machines/profiles.
+  // Self-contained: after an import the backend emits `entity-likes-changed
+  // { kind: "bulk" }`, which App.tsx uses to refresh the library lists.
+  const [likesBusy, setLikesBusy] = useState<null | "export" | "import">(null);
+  const handleExportLikes = useCallback(async () => {
+    try {
+      const path = await save({
+        filters: [{ name: "Viboplr likes", extensions: ["json"] }],
+        defaultPath: "viboplr-likes.json",
+      });
+      if (!path) return;
+      setLikesBusy("export");
+      const count = await invoke<number>("export_likes", { path });
+      onNotify(`Exported ${count} like${count === 1 ? "" : "s"} & dislikes.`);
+    } catch (e) {
+      console.error("Failed to export likes:", e);
+      onNotify(`Couldn't export likes: ${e}`);
+    } finally {
+      setLikesBusy(null);
+    }
+  }, [onNotify]);
+  const handleImportLikes = useCallback(async () => {
+    try {
+      const path = await open({
+        filters: [{ name: "Viboplr likes", extensions: ["json"] }],
+        multiple: false,
+      });
+      if (!path || typeof path !== "string") return;
+      setLikesBusy("import");
+      const applied = await invoke<number>("import_likes", { path });
+      onNotify(`Imported ${applied} like${applied === 1 ? "" : "s"} & dislikes.`);
+    } catch (e) {
+      console.error("Failed to import likes:", e);
+      onNotify(`Couldn't import likes: ${e}`);
+    } finally {
+      setLikesBusy(null);
+    }
+  }, [onNotify]);
+
   useEffect(() => {
     if ((settingsTab === "general" || settingsTab === "debug") && !appPaths) {
       invoke<[string, string]>("get_app_paths")
@@ -1643,6 +1682,20 @@ export function SettingsPanel({
                         <span className="settings-description">Show a confirmation dialog before deleting tracks. Files on network shares (which can't be recovered) always confirm.</span>
                       </div>
                       <ToggleSwitch checked={confirmTrashDelete} onChange={onConfirmTrashDeleteChange} />
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Likes &amp; dislikes</span>
+                        <span className="settings-description">Export your liked/disliked tracks, artists, albums and tags to a file, then import it on another PC or profile. Importing merges — a like is only overwritten by a newer one, and nothing is removed.</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="ds-btn ds-btn--secondary" onClick={handleExportLikes} disabled={likesBusy !== null}>
+                          {likesBusy === "export" ? "Exporting…" : "Export…"}
+                        </button>
+                        <button className="ds-btn ds-btn--secondary" onClick={handleImportLikes} disabled={likesBusy !== null}>
+                          {likesBusy === "import" ? "Importing…" : "Import…"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

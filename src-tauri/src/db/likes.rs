@@ -169,6 +169,88 @@ impl Database {
         Ok(())
     }
 
+    /// Dump every `entity_likes` row verbatim (kind, entity_key, liked, metadata,
+    /// updated_at) for the Export likes feature. Ordered for a stable file.
+    pub fn export_all_likes(&self) -> SqlResult<Vec<LikeExportRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT kind, entity_key, liked, metadata, updated_at FROM entity_likes \
+             ORDER BY kind, entity_key",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(LikeExportRow {
+                kind: r.get(0)?,
+                entity_key: r.get(1)?,
+                liked: r.get(2)?,
+                metadata: r.get(3)?,
+                updated_at: r.get(4)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Merge dumped like rows into `entity_likes` with **newer-wins** semantics
+    /// (a row is applied only when its `updated_at` is strictly newer than any
+    /// existing row for the same `(kind, entity_key)`), then reconcile the
+    /// library `.liked` mirrors. This is the shared merge behind both the
+    /// Import-likes file path and the Last.fm loved-tracks import — carrying the
+    /// same file both directions is safe because the merge only adds/updates and
+    /// never removes a like absent from the incoming set. Returns the number of
+    /// rows actually applied. `liked == 0` rows are skipped (the store never
+    /// holds neutral rows — a real export can't contain them).
+    pub fn import_likes_rows(&self, rows: &[LikeExportRow]) -> SqlResult<usize> {
+        let mut applied = 0usize;
+        {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "INSERT INTO entity_likes (kind, entity_key, liked, metadata, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(kind, entity_key) DO UPDATE SET
+                   liked = excluded.liked,
+                   metadata = excluded.metadata,
+                   updated_at = excluded.updated_at
+                 WHERE excluded.updated_at > entity_likes.updated_at",
+            )?;
+            for row in rows {
+                if row.liked == 0 {
+                    continue;
+                }
+                let changed = stmt.execute(params![
+                    row.kind, row.entity_key, row.liked, row.metadata, row.updated_at
+                ])?;
+                if changed > 0 {
+                    applied += 1;
+                }
+            }
+        }
+
+        // The durable store is now authoritative — repair the library mirrors.
+        // Tracks reconcile in bulk (also clears stale mirrors); artist/album/tag
+        // have no bulk reverse-reconcile, so mirror each imported row by name
+        // (best-effort — a like whose entity isn't in this library just stays in
+        // the durable store, exactly like a like set before a scan).
+        self.reconcile_track_likes_from_entity_likes()?;
+        for row in rows {
+            if row.liked == 0 || !matches!(row.kind.as_str(), "artist" | "album" | "tag") {
+                continue;
+            }
+            let Some(meta) = row.metadata.as_deref() else { continue };
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(meta) else { continue };
+            let str_field = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
+            let name = str_field("name").or_else(|| str_field("title")).unwrap_or_default();
+            if name.is_empty() {
+                continue;
+            }
+            let artist = str_field("artist_name");
+            if let Err(e) =
+                self.mirror_entity_like_to_library(&row.kind, &name, artist.as_deref(), None, row.liked)
+            {
+                log::warn!("Failed to mirror imported {} like into library: {}", row.kind, e);
+            }
+        }
+        Ok(applied)
+    }
+
     /// Create the two protected system playlists if missing, and keep their
     /// display names at the canonical value. Idempotent — runs every startup, so
     /// databases created before a rename (e.g. the legacy "Liked Songs" /
@@ -529,6 +611,68 @@ mod tests {
         db2.set_entity_like("track", &build_entity_key("track", "JOGA", Some("BJORK")), 1, None, 100).unwrap();
         db2.reconcile_track_likes_from_entity_likes().unwrap();
         assert_eq!(db2.get_track_by_id(t2).unwrap().liked, 1, "ASCII/upper durable key should match diacritic track via normalization");
+    }
+
+    #[test]
+    fn test_export_all_likes_roundtrips_rows() {
+        let db = test_db();
+        db.set_entity_like("track", "track:bjork:joga", 1, Some(r#"{"title":"Jóga"}"#), 100).unwrap();
+        db.set_entity_like("artist", "artist:bjork", -1, Some(r#"{"name":"Björk"}"#), 200).unwrap();
+
+        let rows = db.export_all_likes().unwrap();
+        assert_eq!(rows.len(), 2);
+        let joga = rows.iter().find(|r| r.entity_key == "track:bjork:joga").unwrap();
+        assert_eq!(joga.kind, "track");
+        assert_eq!(joga.liked, 1);
+        assert_eq!(joga.updated_at, 100);
+        assert!(joga.metadata.as_deref().unwrap().contains("Jóga"));
+    }
+
+    #[test]
+    fn test_import_likes_rows_newer_wins_merge() {
+        let db = test_db();
+        // Pre-existing local state: liked at ts=100.
+        db.set_entity_like("track", "track:a:one", 1, Some(r#"{"title":"One","artist_name":"A"}"#), 100).unwrap();
+        // Pre-existing local dislike at a NEWER ts=500 that an older incoming row must NOT clobber.
+        db.set_entity_like("track", "track:b:two", -1, Some(r#"{"title":"Two","artist_name":"B"}"#), 500).unwrap();
+
+        let incoming = vec![
+            // Newer than local (200 > 100): flips One to disliked.
+            LikeExportRow { kind: "track".into(), entity_key: "track:a:one".into(), liked: -1, metadata: Some(r#"{"title":"One","artist_name":"A"}"#.into()), updated_at: 200 },
+            // Older than local (300 < 500): must be ignored, Two stays disliked.
+            LikeExportRow { kind: "track".into(), entity_key: "track:b:two".into(), liked: 1, metadata: Some(r#"{"title":"Two","artist_name":"B"}"#.into()), updated_at: 300 },
+            // Brand-new entity: inserted.
+            LikeExportRow { kind: "track".into(), entity_key: "track:c:three".into(), liked: 1, metadata: Some(r#"{"title":"Three","artist_name":"C"}"#.into()), updated_at: 400 },
+            // Neutral rows are skipped entirely.
+            LikeExportRow { kind: "track".into(), entity_key: "track:d:four".into(), liked: 0, metadata: None, updated_at: 999 },
+        ];
+        let applied = db.import_likes_rows(&incoming).unwrap();
+        assert_eq!(applied, 2, "only the newer flip + the new insert apply");
+
+        assert_eq!(db.get_entity_like_state("track", "track:a:one").unwrap(), -1, "newer incoming wins");
+        assert_eq!(db.get_entity_like_state("track", "track:b:two").unwrap(), -1, "older incoming ignored");
+        assert_eq!(db.get_entity_like_state("track", "track:c:three").unwrap(), 1, "new entity inserted");
+        assert_eq!(db.get_entity_like_state("track", "track:d:four").unwrap(), 0, "neutral row skipped");
+    }
+
+    #[test]
+    fn test_import_likes_rows_mirrors_into_library() {
+        let db = test_db();
+        let artist = db.get_or_create_artist("Radiohead").unwrap();
+        let cid = db.add_collection("local", "L", Some("/m"), None, None, None, None, None).unwrap().id;
+        let tid = db.upsert_track("creep.mp3", "Creep", Some(artist), None, None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+        // find_artist_by_name (used by the mirror) requires track_count > 0, which
+        // real libraries always have post-scan; recompute so the test matches.
+        db.recompute_counts().unwrap();
+
+        let incoming = vec![
+            LikeExportRow { kind: "track".into(), entity_key: build_entity_key("track", "Creep", Some("Radiohead")), liked: 1, metadata: Some(r#"{"title":"Creep","artist_name":"Radiohead"}"#.into()), updated_at: 100 },
+            LikeExportRow { kind: "artist".into(), entity_key: build_entity_key("artist", "Radiohead", None), liked: 1, metadata: Some(r#"{"name":"Radiohead"}"#.into()), updated_at: 100 },
+        ];
+        db.import_likes_rows(&incoming).unwrap();
+
+        assert_eq!(db.get_track_by_id(tid).unwrap().liked, 1, "track mirror set via reconcile");
+        assert_eq!(db.get_artist_by_id(artist).unwrap().unwrap().liked, 1, "artist mirror set via per-row mirror");
     }
 
     #[test]

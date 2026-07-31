@@ -182,6 +182,65 @@ pub fn plugin_record_history_plays_batch(
     state.db.record_history_plays_batch(&plays).map_err(|e| e.to_string())
 }
 
+/// One track like a plugin wants to persist (used by the Last.fm loved-tracks
+/// import). `liked` defaults to 1 (a "love"); `updatedAt` is the Last.fm love
+/// time in unix seconds when known, so the newer-wins merge is time-correct.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginTrackLike {
+    pub title: String,
+    pub artist_name: Option<String>,
+    #[serde(default = "plugin_track_like_default")]
+    pub liked: i32,
+    pub updated_at: Option<i64>,
+}
+
+fn plugin_track_like_default() -> i32 {
+    1
+}
+
+/// Persist a batch of track likes/dislikes from a plugin, funnelled through the
+/// same newer-wins merge as the Import-likes file path. Backs
+/// `api.library.setTrackLikesBatch`. Emits `entity-likes-changed { kind: "bulk" }`.
+/// Returns the number of rows applied.
+#[tauri::command]
+pub fn plugin_set_track_likes_batch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tracks: Vec<PluginTrackLike>,
+) -> Result<usize, String> {
+    if tracks.is_empty() {
+        return Ok(0);
+    }
+    let now_ts: i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let rows: Vec<LikeExportRow> = tracks
+        .into_iter()
+        .map(|t| {
+            let entity_key =
+                crate::db::likes::build_entity_key("track", &t.title, t.artist_name.as_deref());
+            let metadata = serde_json::json!({
+                "title": t.title,
+                "name": t.title,
+                "artist_name": t.artist_name,
+            })
+            .to_string();
+            LikeExportRow {
+                kind: "track".to_string(),
+                entity_key,
+                liked: t.liked,
+                metadata: Some(metadata),
+                updated_at: t.updated_at.unwrap_or(now_ts),
+            }
+        })
+        .collect();
+    let applied = state.db.import_likes_rows(&rows).map_err(|e| e.to_string())?;
+    let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": "bulk" }));
+    Ok(applied)
+}
+
 #[tauri::command]
 pub fn plugin_apply_tags(
     state: State<'_, AppState>,

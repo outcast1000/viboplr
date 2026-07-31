@@ -88,6 +88,20 @@
     "screenshotAlt": "Viboplr collections view with local and server sources"
   },
   {
+    "group": "Library &amp; Sources",
+    "label": "Likes",
+    "heading": "Your likes, on every device",
+    "description": "Like and dislike tracks, artists, albums and tags &mdash; then carry that taste to another PC or profile. Export it all to a file and import it anywhere; because likes are matched by name, they re-apply cleanly even to a differently-scanned library. The merge is safe to run both directions &mdash; it only ever overwrites an older like with a newer one, and never deletes. Signed in to Last.fm? Pull your loved tracks straight in &mdash; once, or automatically on a schedule.",
+    "items": [
+      "Like &amp; dislike tracks, artists, albums &amp; tags",
+      "Export &amp; import all likes as a portable file",
+      "Newer-wins merge &mdash; carry it both ways safely",
+      "Import &amp; auto-sync your Last.fm loved tracks<span class=\"feature-tag\">plugin</span>"
+    ],
+    "screenshot": "",
+    "screenshotAlt": "Exporting and importing likes in Viboplr settings"
+  },
+  {
     "group": "Discovery",
     "groupDescription": "Your own collection, resurfaced &mdash; stations, shelves, and endless queues.",
     "label": "Home",

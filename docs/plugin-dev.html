@@ -232,6 +232,8 @@ return { activate: activate, deactivate: deactivate };</pre>
                 <tr><td>applyTagsBulk(assignments)</td><td>Tag many tracks in one call: <code>Array&lt;[trackId, tagNames]&gt;</code>.</td></tr>
                 <tr><td>bulkUpdateTracks(trackIds, fields)</td><td>Bulk-edit artist / album / year / tags, written through to file metadata.</td></tr>
                 <tr><td>findDuplicates(opts?)</td><td>Duplicate track groups by normalized title + artist, keeper-first.</td></tr>
+                <tr><td>getTrackLikeStates(tracks)</td><td>Read persisted like states for <code>{ title, artistName? }[]</code>; parallel <code>number[]</code> (<code>1</code> liked, <code>-1</code> disliked, <code>0</code> neither).</td></tr>
+                <tr><td>setTrackLikesBatch(tracks)</td><td>Persist a batch of track likes/dislikes (e.g. imported loved tracks); newer-wins merge, idempotent. Returns rows applied.</td></tr>
                 <tr><td>onTrackAdded / onTrackRemoved / onScanComplete(handler)</td><td>Library events.</td></tr>
               </tbody>
             </table>

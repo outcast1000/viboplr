@@ -501,6 +501,21 @@ export function usePlugins(
               localOnly: opts?.localOnly ?? true,
             });
           },
+          async getTrackLikeStates(tracks) {
+            return invoke<number[]>("get_track_like_states", {
+              tracks: tracks.map(t => ({ title: t.title, artistName: t.artistName ?? null })),
+            });
+          },
+          async setTrackLikesBatch(tracks) {
+            return invoke<number>("plugin_set_track_likes_batch", {
+              tracks: tracks.map(t => ({
+                title: t.title,
+                artistName: t.artistName ?? null,
+                liked: t.liked ?? 1,
+                updatedAt: t.updatedAt ?? null,
+              })),
+            });
+          },
           onTrackAdded: (handler) =>
             subscribeEvent(
               "track:added",

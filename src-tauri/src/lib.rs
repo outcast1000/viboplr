@@ -98,6 +98,8 @@ macro_rules! invoke_handler {
             commands::pick_never_played_tracks,
             commands::pick_forgotten_favorites,
             commands::get_track_like_states,
+            commands::export_likes,
+            commands::import_likes,
             commands::rebuild_search_index,
             commands::show_in_folder,
             commands::show_in_folder_path,
@@ -225,6 +227,7 @@ macro_rules! invoke_handler {
 
             commands::plugin_getenv,
             commands::plugin_record_history_plays_batch,
+            commands::plugin_set_track_likes_batch,
             commands::plugin_apply_tags,
             commands::plugin_apply_tags_bulk,
             commands::info_sync_types,

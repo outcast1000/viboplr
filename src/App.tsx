@@ -2574,7 +2574,14 @@ function App() {
   useEffect(() => {
     const idOf = (title: string | null, artist: string | null) =>
       `${(title ?? "").toLowerCase()}:${(artist ?? "").toLowerCase()}`;
-    return subscribe("entity-likes-changed", async () => {
+    return subscribe<{ kind?: string }>("entity-likes-changed", async (event) => {
+      // A bulk change (Import likes file, or a plugin's loved-tracks import)
+      // can touch any number of library rows, so refresh the library lists too
+      // — the per-entity optimistic updates that cover single likes don't apply.
+      if (event.payload?.kind === "bulk") {
+        library.loadLibrary().catch(e => console.error("Failed to reload library after likes import:", e));
+        library.loadTracks().catch(e => console.error("Failed to reload tracks after likes import:", e));
+      }
       const items: { title: string; artistName: string | null }[] = [];
       const seen = new Set<string>();
       const push = (t: QueueTrack | null) => {
@@ -2610,7 +2617,7 @@ function App() {
         console.error("Failed to reconcile like states after change:", e);
       }
     });
-  }, [playback.setCurrentTrack, queueHook.setQueue]);
+  }, [playback.setCurrentTrack, queueHook.setQueue, library.loadLibrary, library.loadTracks]);
 
   prefetchNextRef.current = () => {
     const ac = autoContinueRef.current;

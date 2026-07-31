@@ -362,6 +362,21 @@ pub struct LikedEntityInfo {
     pub path: Option<String>,
 }
 
+/// One row of the durable `entity_likes` table, dumped verbatim for the
+/// Export/Import likes feature (portable like/dislike transfer between machines
+/// or profiles). Serialized as the file's `likes[]` entries. Because
+/// `entity_key` is metadata-normalized and kind-scoped, a dumped row re-applies
+/// cleanly to a differently-scanned library on import.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LikeExportRow {
+    pub kind: String,
+    pub entity_key: String,
+    pub liked: i32,
+    pub metadata: Option<String>,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryArtistStats {
     pub history_artist_id: i64,

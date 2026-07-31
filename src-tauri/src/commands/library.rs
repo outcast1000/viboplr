@@ -546,6 +546,71 @@ pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String
     state.db.get_liked_tracks().map_err(|e| e.to_string())
 }
 
+/// On-disk format for the Export/Import likes feature. `version` guards future
+/// format changes; `app`/`exported_at` are informational (written on export,
+/// ignored on import). `likes` are raw `entity_likes` rows.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)] // `app` / `exported_at` are round-tripped for humans, not read back.
+struct LikesFile {
+    version: u32,
+    app: String,
+    exported_at: i64,
+    likes: Vec<LikeExportRow>,
+}
+
+const LIKES_FILE_VERSION: u32 = 1;
+
+/// Export all like/dislike state to a JSON file at `path`, for transfer to
+/// another machine or profile. Covers tracks, artists, albums and tags (likes
+/// AND dislikes). Returns the number of rows written.
+#[tauri::command]
+pub fn export_likes(state: State<'_, AppState>, path: String) -> Result<usize, String> {
+    let likes = state.db.export_all_likes().map_err(|e| e.to_string())?;
+    let count = likes.len();
+    let exported_at: i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let file = LikesFile {
+        version: LIKES_FILE_VERSION,
+        app: "viboplr".to_string(),
+        exported_at,
+        likes,
+    };
+    let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())?;
+    Ok(count)
+}
+
+/// Import like/dislike state from a JSON file at `path` (produced by
+/// `export_likes`), merging with **newer-wins** semantics — existing likes are
+/// only overwritten by a strictly newer entry, and nothing is deleted. Emits
+/// `entity-likes-changed { kind: "bulk" }` so the frontend refreshes the queue
+/// and library lists. Returns the number of rows applied.
+#[tauri::command]
+pub fn import_likes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<usize, String> {
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let file: LikesFile = serde_json::from_str(&content)
+        .map_err(|_| "This file isn't a valid Viboplr likes export.".to_string())?;
+    if file.version > LIKES_FILE_VERSION {
+        return Err(format!(
+            "This likes file was made by a newer version of Viboplr (format v{}). Update Viboplr to import it.",
+            file.version
+        ));
+    }
+    let applied = state
+        .db
+        .import_likes_rows(&file.likes)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": "bulk" }));
+    Ok(applied)
+}
+
 /// Liked entities ("track" | "artist" | "album") from the durable entity_likes
 /// table for the Home liked shelves. `order` is "recent" (newest first) or "random".
 #[tauri::command]

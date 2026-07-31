@@ -460,6 +460,22 @@ export interface PluginLibraryAPI {
     sizeTolerancePct?: number;
     localOnly?: boolean;
   }): Promise<Track[][]>;
+  /**
+   * Read persisted track like states from the durable, ID-less `entity_likes`
+   * store (so it works for tracks not in the library too). The result is
+   * parallel to the input: `1` = liked, `-1` = disliked, `0` = neither. Use it
+   * to skip already-applied entries before {@link setTrackLikesBatch}.
+   */
+  getTrackLikeStates(tracks: { title: string; artistName?: string | null }[]): Promise<number[]>;
+  /**
+   * Persist a batch of track likes/dislikes (e.g. importing Last.fm loved
+   * tracks). Funnelled through the host's newer-wins merge with existing state,
+   * so re-running is safe. `liked` defaults to `1` (a like); `updatedAt` (unix
+   * seconds) sets the merge timestamp — pass the source's own "loved" time when
+   * you have it so it wins/loses correctly against local edits. Returns the
+   * number of rows actually applied.
+   */
+  setTrackLikesBatch(tracks: { title: string; artistName?: string | null; liked?: number; updatedAt?: number }[]): Promise<number>;
   onTrackAdded(handler: (track: { trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }) => void): () => void;
   onTrackRemoved(handler: (track: { trackId: number; path: string }) => void): () => void;
   onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;

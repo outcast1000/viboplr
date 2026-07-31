@@ -5,6 +5,7 @@ function activate(api) {
   var BASE_URL = "https://ws.audioscrobbler.com/2.0/";
   var CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours in ms
   var AUTO_IMPORT_TASK = "auto-import";
+  var AUTO_LOVED_TASK = "auto-import-loved";
 
   var state = {
     apiKey: null,
@@ -18,7 +19,24 @@ function activate(api) {
     lastImportAt: null,
     importProgress: null,
     importResult: null,
+    // Loved-tracks import (separate from scrobble-history import so their
+    // progress/result UIs never clobber each other).
+    lovedImporting: false,
+    lovedImportCancelled: false,
+    lovedImportProgress: null,
+    lovedImportResult: null,
+    // Loved-tracks auto-sync (scheduler-backed, like history auto-import).
+    // Defaults to daily — loved tracks change slowly, and the import is a
+    // newer-wins no-op for anything already applied.
+    autoLovedEnabled: false,
+    autoLovedIntervalMins: 1440,
+    lastLovedImportAt: null,
   };
+
+  // The host added api.library.setTrackLikesBatch in a later release; gate the
+  // loved-tracks import on it so an older host just hides the feature instead of
+  // erroring (this bundled plugin's other features still work everywhere).
+  var canImportLoved = !!(api.library && typeof api.library.setTrackLikesBatch === "function");
 
   // Deferred promise that resolves once the API key is loaded.
   // Info-type handlers wait on this so they never fire with a missing key.
@@ -785,6 +803,117 @@ function activate(api) {
     state.importCancelled = true;
   }
 
+  // ===== Loved Tracks Import =====
+  //
+  // Pulls the user's Last.fm loved tracks (user.getLovedTracks, paginated) and
+  // writes each as a Viboplr like via api.library.setTrackLikesBatch. The host
+  // merges newer-wins keyed by the Last.fm "loved" timestamp, so re-running is a
+  // no-op for anything already applied (idempotent). This is the inbound
+  // counterpart to the outbound track.love push in onTrackLiked below.
+
+  function importLovedTracks() {
+    if (!canImportLoved) return;
+    if (state.lovedImporting || !state.sessionKey || !state.username) return;
+    state.lovedImporting = true;
+    state.lovedImportCancelled = false;
+    state.lovedImportProgress = null;
+    state.lovedImportResult = null;
+    renderSettings();
+
+    var username = state.username;
+    var totalApplied = 0;
+    var totalSeen = 0;
+
+    function fetchPage(page, totalPages) {
+      if (state.lovedImportCancelled) {
+        finishLovedImport();
+        return;
+      }
+
+      var params = [
+        ["user", username],
+        ["page", String(page)],
+        ["limit", "200"],
+      ];
+
+      lastfmGet("user.getLovedTracks", params).then(function (data) {
+        var lt = data.lovedtracks;
+        if (!lt || !lt.track) {
+          finishLovedImport();
+          return;
+        }
+
+        var attr = lt["@attr"] || {};
+        var tp = parseInt(attr.totalPages || "1", 10);
+        if (totalPages === null) totalPages = tp;
+
+        var tracks = Array.isArray(lt.track) ? lt.track : [lt.track];
+        var likes = [];
+        for (var i = 0; i < tracks.length; i++) {
+          var t = tracks[i];
+          var artist = (t.artist && (t.artist.name || t.artist["#text"])) || "";
+          var name = t.name || "";
+          if (!artist || !name) continue;
+          // Use the Last.fm "loved" time as the merge timestamp when present so
+          // a recent local like/dislike still wins over an old love.
+          var lovedAt = (t.date && t.date.uts) ? parseInt(t.date.uts, 10) : null;
+          likes.push({ title: name, artistName: artist, liked: 1, updatedAt: lovedAt });
+        }
+        totalSeen += likes.length;
+
+        function next() {
+          if (page < totalPages) {
+            setTimeout(function () { fetchPage(page + 1, totalPages); }, 200);
+          } else {
+            finishLovedImport();
+          }
+        }
+
+        if (likes.length === 0) {
+          state.lovedImportProgress = { page: page, total_pages: totalPages, applied: totalApplied, seen: totalSeen };
+          renderSettings();
+          next();
+          return;
+        }
+
+        return api.library.setTrackLikesBatch(likes).then(function (applied) {
+          totalApplied += (applied || 0);
+          state.lovedImportProgress = {
+            page: page,
+            total_pages: totalPages,
+            applied: totalApplied,
+            seen: totalSeen,
+          };
+          renderSettings();
+          next();
+        });
+      }).catch(function (err) {
+        console.error("[lastfm] loved-tracks import error:", err);
+        state.lovedImporting = false;
+        state.lovedImportProgress = null;
+        renderSettings();
+      });
+    }
+
+    function finishLovedImport() {
+      state.lovedImporting = false;
+      state.lovedImportProgress = null;
+      state.lovedImportResult = { applied: totalApplied, seen: totalSeen };
+      state.lastLovedImportAt = Math.floor(Date.now() / 1000);
+      persistAutoLovedConfig();
+      // Advance the scheduler so the next auto-sync waits a full interval.
+      // Harmless no-op if the task isn't registered (a manual import).
+      api.scheduler.complete(AUTO_LOVED_TASK).catch(console.error);
+      renderSettings();
+    }
+
+    fetchPage(1, null);
+  }
+
+  function cancelLovedImport() {
+    state.lovedImportCancelled = true;
+  }
+
   // ===== Auto Import =====
   //
   // Auto-import is driven by the host scheduler (api.scheduler), NOT a raw
@@ -819,6 +948,35 @@ function activate(api) {
     state.autoImportEnabled = false;
     api.scheduler.unregister(AUTO_IMPORT_TASK).catch(console.error);
     persistAutoImportConfig();
+  }
+
+  // Loved-tracks auto-sync — same scheduler-backed model as history above, on a
+  // separate task so the two schedules are independent.
+  api.scheduler.onDue(AUTO_LOVED_TASK, function () {
+    if (!canImportLoved || !state.sessionKey || state.lovedImporting) return;
+    importLovedTracks(); // finishLovedImport() calls scheduler.complete()
+  });
+
+  function persistAutoLovedConfig() {
+    api.storage.set("lastfm_loved_auto", {
+      enabled: state.autoLovedEnabled,
+      intervalMins: state.autoLovedIntervalMins,
+      lastLovedImportAt: state.lastLovedImportAt,
+    });
+  }
+
+  function startAutoLoved() {
+    state.autoLovedEnabled = true;
+    api.scheduler
+      .register(AUTO_LOVED_TASK, state.autoLovedIntervalMins * 60 * 1000)
+      .catch(console.error);
+    persistAutoLovedConfig();
+  }
+
+  function stopAutoLoved() {
+    state.autoLovedEnabled = false;
+    api.scheduler.unregister(AUTO_LOVED_TASK).catch(console.error);
+    persistAutoLovedConfig();
   }
 
   // ===== Settings Panel =====
@@ -931,6 +1089,69 @@ function activate(api) {
     }
     children.push({ type: "section", title: "History", children: historyRows });
 
+    // Loved tracks section (only when the host supports writing likes).
+    if (canImportLoved) {
+      var lovedRows = [];
+      if (state.lovedImporting && state.lovedImportProgress) {
+        var lp = state.lovedImportProgress;
+        lovedRows.push({
+          type: "progress-bar",
+          value: lp.page,
+          max: lp.total_pages,
+          label: "Page " + lp.page + " / " + lp.total_pages + " — " + lp.applied + " added",
+        });
+        lovedRows.push({ type: "button", label: "Cancel", action: "lastfm-cancel-loved-import" });
+      } else if (state.lovedImportResult) {
+        var lr = state.lovedImportResult;
+        lovedRows.push({
+          type: "text",
+          content: "<p>Loved tracks imported: " + lr.applied + " new like" + (lr.applied === 1 ? "" : "s")
+            + " from " + lr.seen + " loved track" + (lr.seen === 1 ? "" : "s") + "</p>",
+        });
+        lovedRows.push({ type: "button", label: "Dismiss", action: "lastfm-dismiss-loved-result" });
+      } else {
+        lovedRows.push({
+          type: "settings-row",
+          label: "Import loved tracks",
+          description: "Add your Last.fm loved tracks as likes in Viboplr. Re-run any time — already-liked tracks are skipped.",
+          control: { type: "button", label: "Import", action: "lastfm-import-loved", disabled: !state.sessionKey },
+        });
+      }
+
+      lovedRows.push({
+        type: "toggle",
+        label: "Auto-sync",
+        description: "Periodically import your loved tracks in the background",
+        action: "lastfm-toggle-auto-loved",
+        checked: state.autoLovedEnabled,
+        disabled: !state.sessionKey,
+      });
+
+      if (state.autoLovedEnabled && state.sessionKey) {
+        lovedRows.push({
+          type: "select",
+          label: "Sync interval",
+          description: "How often to check for new loved tracks",
+          action: "lastfm-set-loved-interval",
+          value: String(state.autoLovedIntervalMins),
+          options: [
+            { value: "60", label: "1 hour" },
+            { value: "360", label: "6 hours" },
+            { value: "720", label: "12 hours" },
+            { value: "1440", label: "Daily" },
+            { value: "10080", label: "Weekly" },
+          ],
+        });
+        lovedRows.push({
+          type: "settings-row",
+          label: "Last synced",
+          description: formatTimeAgo(state.lastLovedImportAt),
+          control: { type: "text", content: "" },
+        });
+      }
+      children.push({ type: "section", title: "Loved tracks", children: lovedRows });
+    }
+
     api.ui.setViewData("lastfm-settings", {
       type: "layout",
       direction: "vertical",
@@ -970,6 +1191,42 @@ function activate(api) {
   api.ui.onAction("lastfm-dismiss-result", function () {
     state.importResult = null;
     renderSettings();
+  });
+
+  api.ui.onAction("lastfm-import-loved", function () {
+    importLovedTracks();
+  });
+
+  api.ui.onAction("lastfm-cancel-loved-import", function () {
+    cancelLovedImport();
+  });
+
+  api.ui.onAction("lastfm-dismiss-loved-result", function () {
+    state.lovedImportResult = null;
+    renderSettings();
+  });
+
+  api.ui.onAction("lastfm-toggle-auto-loved", function (data) {
+    if (data && data.value) {
+      startAutoLoved();
+    } else {
+      stopAutoLoved();
+    }
+    renderSettings();
+  });
+
+  api.ui.onAction("lastfm-set-loved-interval", function (data) {
+    if (data && data.value) {
+      state.autoLovedIntervalMins = parseInt(data.value, 10) || 1440;
+      if (state.autoLovedEnabled) {
+        // Re-register updates interval_ms in place (upsert) — no stop/start needed.
+        api.scheduler
+          .register(AUTO_LOVED_TASK, state.autoLovedIntervalMins * 60 * 1000)
+          .catch(console.error);
+      }
+      persistAutoLovedConfig();
+      renderSettings();
+    }
   });
 
   api.ui.onAction("lastfm-toggle-auto-import", function (data) {
@@ -1027,6 +1284,20 @@ function activate(api) {
       } else {
         // Clear any stale persisted schedule so a disabled toggle never fires.
         api.scheduler.unregister(AUTO_IMPORT_TASK).catch(console.error);
+      }
+    }
+
+    // Restore loved-tracks auto-sync settings
+    return api.storage.get("lastfm_loved_auto");
+  }).then(function (lovedConfig) {
+    if (lovedConfig) {
+      state.autoLovedIntervalMins = lovedConfig.intervalMins || 1440;
+      state.lastLovedImportAt = lovedConfig.lastLovedImportAt || null;
+      if (lovedConfig.enabled && state.sessionKey && canImportLoved) {
+        startAutoLoved();
+      } else {
+        // Clear any stale persisted schedule so a disabled toggle never fires.
+        api.scheduler.unregister(AUTO_LOVED_TASK).catch(console.error);
       }
     }
     renderSettings();
