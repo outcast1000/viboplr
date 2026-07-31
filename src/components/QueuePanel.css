@@ -535,18 +535,11 @@
 }
 
 
-.queue-save-wrapper {
-  position: relative;
-}
-
-.queue-save-btn {
+.queue-header-menu-btn {
   display: flex;
   align-items: center;
-  gap: 1px;
-}
-
-.queue-save-caret {
-  font-size: 8px;
-  opacity: 0.6;
-  margin-left: -2px;
+  justify-content: center;
+  min-width: 24px;
+  font-size: var(--fs-base);
+  line-height: 1;
 }

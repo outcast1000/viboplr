@@ -12,7 +12,6 @@ import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames
 import { SpinningDisc } from "./SpinningDisc";
 import { TrackArtFallback } from "./TrackArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
-import { HelpLink } from "./HelpLink";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import "./QueuePanel.css";
 
@@ -357,27 +356,43 @@ export function QueuePanel({
     setTooltipPos({ left, top });
   }, [tooltip]);
 
-  const openSaveMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+  const openHeaderMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const specs: MenuItemSpec[] = [
-      { kind: "item", text: "Save as Playlist", action: onSaveToPlaylists },
-      { kind: "item", text: "Export as M3U", action: onSaveAsM3U },
+      { kind: "item", text: "Load playlist…", action: onLoadPlaylist },
+      {
+        kind: "submenu",
+        text: "Save",
+        items: [
+          { kind: "item", text: "Save as Playlist", action: onSaveToPlaylists },
+          { kind: "item", text: "Export as M3U", action: onSaveAsM3U },
+        ],
+      },
+      {
+        kind: "submenu",
+        text: "Share",
+        items: [
+          { kind: "item", text: "Publish hosted source…", action: onPublishQueue },
+          { kind: "item", text: "Save as file (.mixtape)…", action: onExportAsMixtape },
+        ],
+      },
+      { kind: "separator" },
+      {
+        kind: "check",
+        text: "Prefer video",
+        checked: preferVideoResolution,
+        action: () => onPreferVideoResolutionChange(!preferVideoResolution),
+      },
+      { kind: "separator" },
+      { kind: "item", text: "Clear playlist", action: onClear },
     ];
     showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
-      console.error("Failed to show save playlist menu:", err)
+      console.error("Failed to show queue header menu:", err)
     );
-  }, [onSaveToPlaylists, onSaveAsM3U]);
-
-  const openShareMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const specs: MenuItemSpec[] = [
-      { kind: "item", text: "Publish hosted source…", action: onPublishQueue },
-      { kind: "item", text: "Save as file (.mixtape)…", action: onExportAsMixtape },
-    ];
-    showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
-      console.error("Failed to show share menu:", err)
-    );
-  }, [onPublishQueue, onExportAsMixtape]);
+  }, [
+    onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
+    preferVideoResolution, onPreferVideoResolutionChange, onClear,
+  ]);
 
   useEffect(() => {
     if (!contextInfoAnchor || !contextInfoRef.current) { setContextInfoPos(null); return; }
@@ -717,22 +732,13 @@ export function QueuePanel({
         <span className="queue-title">Playlist</span>
         <div className="queue-header-actions">
           <button
-            className={`g-btn g-btn-sm${preferVideoResolution ? " active" : ""}`}
-            onClick={() => onPreferVideoResolutionChange(!preferVideoResolution)}
-            title={preferVideoResolution ? "Prefer video: on — play music videos when a resolver can" : "Prefer video: off"}
-            aria-pressed={preferVideoResolution}
-            dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="16" height="14" rx="2"/><path d="m22 8-4 4 4 4V8z"/></svg>' }}
-          />
-          <HelpLink anchor="prefer-video" topic="Prefer video" />
-          <button className="g-btn g-btn-sm" onClick={onLoadPlaylist} title="Load playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' }} />
-          <div className="queue-save-wrapper">
-            <button className="g-btn g-btn-sm queue-save-btn" onClick={openSaveMenu} title="Save playlist">
-              <span dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>' }} />
-              <span className="queue-save-caret">&#9662;</span>
-            </button>
-          </div>
-          <button className="g-btn g-btn-sm" onClick={openShareMenu} title="Share queue" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>' }} />
-          <button className="g-btn g-btn-sm" onClick={onClear} title="Clear playlist" dangerouslySetInnerHTML={{ __html: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>' }} />
+            className="g-btn g-btn-sm queue-header-menu-btn"
+            onClick={openHeaderMenu}
+            title="Playlist options"
+            aria-label="Playlist options"
+          >
+            &#x22EF;
+          </button>
         </div>
       </div>
       {pendingEnqueue && (

@@ -222,7 +222,7 @@ The visual and interaction layer.
 - Right-click on multi-selection (if clicked index is in selection): fires `onContextMenu` with sorted selection indices
 - Right-click on non-selected item while multi-selection exists: replaces selection with clicked item
 
-**Header actions:** Load playlist, Save dropdown (Save as Playlist / Export as M3U / Export as Mixtape), Share queue, Clear playlist.
+**Header actions:** a single `⋯` overflow button (`openHeaderMenu`) opens one native menu holding every queue-level action — Load playlist…, Save ▸ (Save as Playlist / Export as M3U), Share ▸ (Publish hosted source… / Save as file (.mixtape)…), a **Prefer video** check item (mirrors Settings → Playback), and Clear playlist. New queue-level actions belong in this menu, not as new header buttons.
 
 **Auto-scroll:** When `queueIndex` changes, the current track scrolls into view (`scrollIntoView({ block: "nearest", behavior: "smooth" })`). Also fires when panel un-collapses.
 

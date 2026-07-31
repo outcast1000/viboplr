@@ -191,7 +191,7 @@ Track-row cards have an additional async image fallback: `track.image_url` → a
 **Component:** `QueuePanel.tsx` (column 3, all rows)
 
 Two states:
-- **Expanded:** Header (load/save/save-as/clear buttons) + scrollable queue list + info bar (count + duration)
+- **Expanded:** Header (title + a single `⋯` overflow native menu: load / save ▸ / share ▸ / prefer video / clear) + scrollable queue list + info bar (count + duration)
 - **Collapsed:** 40px strip showing count & duration, click to expand
 
 Queue items show: thumbnail, a like/dislike indicator before the title (driven by `QueueTrack.liked`, using `var(--error)` to match the other like buttons), title + duration, artist + album, and an inline play/locate icon. The hover-action tray's primary button is a **Play** button on non-current rows, but a **play/pause toggle** on the currently-playing row (wired to `onTogglePlayPause` → `playback.handlePause`), so the current track can be paused/resumed directly from the queue.
