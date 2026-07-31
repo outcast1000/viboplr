@@ -1259,8 +1259,29 @@ mod tests {
 
     /// None (test skipped) when no libmpv is resolvable — plain `cargo test`
     /// must stay green on machines without vendored/downloaded artifacts.
+    ///
+    /// A libmpv that IS present but fails to load is a hard failure, not a skip:
+    /// treating it as "not available" is how a whole suite of real-mpv tests went
+    /// quietly unrun (a stale `@rpath/libluajit` install name made every dlopen
+    /// fail, and each test just printed SKIPPED and passed).
     fn try_test_engine(sink: EventSink) -> Option<Arc<Engine>> {
-        if !api::libmpv_available() {
+        if let Err(e) = super::ffi::libmpv() {
+            let present: Vec<_> = super::ffi::candidate_paths()
+                .into_iter()
+                .filter(|(p, _)| p.exists())
+                .collect();
+            if !present.is_empty() {
+                let found = present
+                    .iter()
+                    .map(|(p, o)| format!("{} ({o})", p.display()))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                panic!(
+                    "libmpv exists but could not be loaded: {e}\n  \
+                     found: {found}\n  \
+                     try `node scripts/fetch-libmpv.mjs` — it repairs stale install names in place"
+                );
+            }
             eprintln!(
                 "[engine-test] SKIPPED — libmpv not available (run `node scripts/fetch-libmpv.mjs`)"
             );

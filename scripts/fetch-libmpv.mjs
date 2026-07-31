@@ -58,6 +58,35 @@ function extract(archive, destDir) {
   }
 }
 
+// Rewrite any absolute (CI-runner) or @rpath luajit reference to @loader_path —
+// the two dylibs always ship side by side, so @loader_path resolves wherever the
+// pair lands with no rpath from the loading executable. Idempotent: once the
+// reference is @loader_path the regex stops matching and this is a no-op.
+// Returns whether anything changed (callers must re-sign if so).
+function rewriteLuajitRef(platformDir) {
+  const mpvDylib = path.join(platformDir, "lib", "libmpv.2.dylib");
+  if (!fs.existsSync(mpvDylib)) return false;
+  const otool = execFileSync("otool", ["-L", mpvDylib], { encoding: "utf8" });
+  let changed = false;
+  for (const line of otool.split("\n")) {
+    const m = line.trim().match(/^((?:\/\S*|@rpath\/\S*)libluajit[^\s]*\.dylib)/);
+    if (m) {
+      const base = path.basename(m[1]);
+      console.log(`  rewriting ${m[1]} -> @loader_path/${base}`);
+      execFileSync("install_name_tool", ["-change", m[1], `@loader_path/${base}`, mpvDylib]);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// install_name_tool invalidates the signature, so every rewrite needs a re-sign.
+function signDylibs(libDir) {
+  for (const f of fs.readdirSync(libDir).filter((f) => f.endsWith(".dylib") && !fs.lstatSync(path.join(libDir, f)).isSymbolicLink())) {
+    execFileSync("codesign", ["-f", "-s", "-", path.join(libDir, f)]);
+  }
+}
+
 function postProcessMacos(platformDir) {
   const libDir = path.join(platformDir, "lib");
   const extracted = path.join(platformDir, "_extract", "libmpv");
@@ -70,21 +99,8 @@ function postProcessMacos(platformDir) {
       fs.cpSync(src, path.join(libDir, f));
     }
   }
-  const mpvDylib = path.join(libDir, "libmpv.2.dylib");
-  // Rewrite any absolute (CI-runner) or @rpath luajit reference to
-  // @loader_path — the two dylibs always ship side by side.
-  const otool = execFileSync("otool", ["-L", mpvDylib], { encoding: "utf8" });
-  for (const line of otool.split("\n")) {
-    const m = line.trim().match(/^((?:\/\S*|@rpath\/\S*)libluajit[^\s]*\.dylib)/);
-    if (m) {
-      const base = path.basename(m[1]);
-      console.log(`  rewriting ${m[1]} -> @loader_path/${base}`);
-      execFileSync("install_name_tool", ["-change", m[1], `@loader_path/${base}`, mpvDylib]);
-    }
-  }
-  for (const f of fs.readdirSync(libDir).filter((f) => f.endsWith(".dylib") && !fs.lstatSync(path.join(libDir, f)).isSymbolicLink())) {
-    execFileSync("codesign", ["-f", "-s", "-", path.join(libDir, f)]);
-  }
+  rewriteLuajitRef(platformDir);
+  signDylibs(libDir);
 }
 
 function postProcessWindows(platformDir) {
@@ -107,7 +123,18 @@ for (const platform of wanted) {
   const platformDir = path.join(vendorRoot, platform);
   const stamp = path.join(platformDir, ".stamp");
   if (!force && fs.existsSync(stamp) && fs.readFileSync(stamp, "utf8").trim() === entry.sha256) {
-    console.log(`${platform}: up to date (${entry.sha256.slice(0, 12)}…)`);
+    // The stamp records the ARCHIVE's identity, not the post-processing recipe.
+    // A vendor dir fetched before a post-processing fix would otherwise report
+    // "up to date" forever while holding a dylib that can't be dlopen'd (a stale
+    // @rpath/libluajit ref resolves only on the CI runner that built it, so every
+    // real-mpv test silently self-skips). Re-assert the rewrite in place — it
+    // needs no re-download, and is a no-op once correct.
+    if (platform.startsWith("macos") && rewriteLuajitRef(platformDir)) {
+      signDylibs(path.join(platformDir, "lib"));
+      console.log(`${platform}: repaired stale install names in place`);
+    } else {
+      console.log(`${platform}: up to date (${entry.sha256.slice(0, 12)}…)`);
+    }
     continue;
   }
   console.log(`${platform}: fetching libmpv (${entry.source})`);
