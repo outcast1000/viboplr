@@ -1187,14 +1187,14 @@ mod tests {
         // Artist liked — need recompute_counts for artist to show up (track_count > 0 filter)
         state.db.toggle_liked("artists", artist_id, 1).unwrap();
         state.db.recompute_counts().unwrap();
-        let artists = state.db.get_artists().unwrap();
+        let artists = state.db.get_artists_filtered(false).unwrap();
         assert!(!artists.is_empty());
         assert!(artists.iter().any(|a| a.id == artist_id && a.liked == 1));
 
         // Album liked
         state.db.toggle_liked("albums", album_id, 1).unwrap();
         state.db.recompute_counts().unwrap();
-        let albums = state.db.get_albums(None).unwrap();
+        let albums = state.db.get_albums_sorted(None, None, false).unwrap();
         assert!(albums.iter().any(|a| a.id == album_id && a.liked == 1));
     }
 

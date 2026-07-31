@@ -34,10 +34,6 @@ impl Database {
         ).optional()
     }
 
-    pub fn get_artists(&self) -> SqlResult<Vec<Artist>> {
-        self.get_artists_filtered(false)
-    }
-
     pub fn get_artists_filtered(&self, liked_only: bool) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
         let sql = if liked_only {

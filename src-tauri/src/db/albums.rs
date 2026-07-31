@@ -79,10 +79,6 @@ impl Database {
         ).optional()
     }
 
-    pub fn get_albums(&self, artist_id: Option<i64>) -> SqlResult<Vec<Album>> {
-        self.get_albums_sorted(artist_id, None, false)
-    }
-
     pub fn get_albums_sorted(
         &self,
         artist_id: Option<i64>,
