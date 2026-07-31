@@ -527,9 +527,16 @@ export function TrackList({
 
   const hasRowActions = !!onPlay || !!onEnqueue;
 
+  // Infinite scroll appends pages without bound, so a large library can
+  // accumulate thousands of rows. Above a threshold, opt each row into
+  // `content-visibility: auto` so the browser skips layout/paint for the
+  // off-screen ones — same approach as the plugin track-row list, and it keeps
+  // the single scroll container, the ARIA option indices, and the sentinel.
+  const useCv = tracks.length > 100;
+
   return (
     <div
-      className="track-list"
+      className={`track-list${useCv ? " track-list-cv" : ""}`}
       ref={trackListRef}
       role="listbox"
       aria-multiselectable="true"

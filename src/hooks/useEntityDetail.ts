@@ -157,7 +157,11 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
             }
             if (!cancelled) setTrackPopularity(popMap);
             return;
-          } catch { continue; }
+          } catch (e) {
+            // Fall through to the next provider, but don't hide why this one lost.
+            console.error(`Popularity provider "${pluginId}" failed for ${kind}:`, e);
+            continue;
+          }
         }
       } catch (e) {
         console.error(`Failed to fetch ${kind} track popularity:`, e);

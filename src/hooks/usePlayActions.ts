@@ -28,7 +28,10 @@ export function extractDescription(rows: InfoRow[], infoTypeId: string): string 
   try {
     const parsed = JSON.parse(valueJson);
     return parsed.summary || parsed.full || null;
-  } catch { return null; }
+  } catch (e) {
+    console.error(`Malformed cached "${infoTypeId}" value:`, e);
+    return null;
+  }
 }
 
 export function buildAlbumContext(
@@ -174,7 +177,6 @@ export function usePlayActions({
   // context. Tracks are mapped to QueueTracks (fresh keys, DB ids stripped).
   const startRadio = useCallback(async (seed: { title: string; artistName: string | null; coverPath: string | null }) => {
     if (!seed.title) return;
-    console.log(`Building radio from "${seed.title}"...`);
     try {
       const tracks = await invoke<Track[]>("build_radio_for_track", {
         seedTitle: seed.title,
@@ -209,11 +211,12 @@ export function usePlayActions({
         imagePath: coverPath,
         source: "radio",
       });
-      console.log(`Radio started · ${tracks.length} tracks`);
       // Play whatever we found (even just the seed), but let the user know when
       // the station is small rather than silently playing one or two tracks.
       if (tracks.length < 10) {
         notify(`Radio: only found ${tracks.length} ${tracks.length === 1 ? "track" : "tracks"} similar to "${seed.title}".`);
+      } else {
+        notify(`Radio started · ${tracks.length} tracks`);
       }
     } catch (e) {
       console.error("Failed to start radio:", e);

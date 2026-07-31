@@ -62,6 +62,23 @@
   border-radius: var(--ds-radius);
 }
 
+/* Long lists (see `useCv` in TrackList.tsx): let the browser skip layout/paint
+   for off-screen rows. `contain-intrinsic-size: auto <h>` reserves a row-height
+   placeholder so the scrollbar stays accurate before a row has ever rendered,
+   and `auto` makes the browser remember each row's real size once measured. */
+.track-list-cv > .track-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 34px;
+}
+
+/* `content-visibility` implies paint containment, which would clip the row
+   action buttons' hover scale + glow at the row's box (see the .row-lead-actions
+   note below). The hovered row is on-screen by definition, so dropping
+   containment for it costs nothing and keeps the glow intact. */
+.track-list-cv > .track-row:hover {
+  content-visibility: visible;
+}
+
 /* Keyboard cursor (the aria-activedescendant target). A ring, distinct from
    mouse selection's background tint, so the two reading models stay legible. */
 .track-row.active {

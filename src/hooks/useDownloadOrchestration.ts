@@ -52,7 +52,10 @@ export async function resolveTrackDownload(
           new Promise<null>((r) => setTimeout(() => r(null), 60000)),
         ]);
         if (result) return result;
-      } catch {
+      } catch (e) {
+        // A throwing provider falls through to the next in the chain, but the
+        // reason still has to surface — otherwise a broken provider is silent.
+        console.error(`Download provider "${p.id}" failed to resolve by URI:`, e);
         continue;
       }
     }
@@ -65,7 +68,8 @@ export async function resolveTrackDownload(
         new Promise<null>((r) => setTimeout(() => r(null), 10000)),
       ]);
       if (result) return result;
-    } catch {
+    } catch (e) {
+      console.error(`Download provider "${p.id}" failed to resolve by metadata:`, e);
       continue;
     }
   }

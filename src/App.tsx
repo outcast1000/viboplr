@@ -4512,8 +4512,10 @@ function App() {
             const uri = `file://${path}`;
             try {
               await library.loadTracks();
-              const tracks = await invoke<Track[]>("get_tracks", { opts: {} });
-              const match = tracks.find(t => t.path === uri);
+              // Look the row up by URI rather than scanning the whole library —
+              // get_tracks_by_paths matches on the same reconstructed path
+              // expression the DB uses everywhere else.
+              const [match] = await invoke<Track[]>("get_tracks_by_paths", { paths: [uri] });
               if (match) {
                 queueHook.playTracks([match], 0);
                 return;

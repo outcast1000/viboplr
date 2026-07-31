@@ -93,7 +93,8 @@ async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
         h: m.size.height / sf,
       };
     });
-  } catch {
+  } catch (e) {
+    console.error("Failed to read monitor geometry:", e);
     return [];
   }
 }

@@ -90,6 +90,8 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
     const path = tracks[0].path;
     if (!path) return null;
     const bare = path.startsWith("file://") ? path.slice("file://".length) : path;
+    // A stray `%` makes decodeURIComponent throw; the raw path is a fine label,
+    // and this is a cosmetic subtitle, so there's nothing to report.
     const decoded = (() => { try { return decodeURIComponent(bare); } catch { return bare; } })();
     const segments = decoded.split(/[/\\]/);
     return segments[segments.length - 1] || decoded;

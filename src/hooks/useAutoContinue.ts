@@ -89,7 +89,8 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
         });
       }
       return null;
-    } catch {
+    } catch (e) {
+      console.error("Auto-continue failed to pick a next track:", e);
       return null;
     }
   }
