@@ -11,7 +11,7 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 
 // Art is resolved by the caller into one of three shapes (mirrors TrackRowThumb).
 export type TrackCardArt =
-  | { kind: "video"; trackId: number; alt: string }
+  | { kind: "video"; trackId: number; trackPath?: string | null; alt: string }
   | { kind: "album"; album: Album; imagePath: string | null }
   | { kind: "letter"; text: string };
 
@@ -34,7 +34,7 @@ export interface TrackCardProps {
 
 function CardArt({ art }: { art: TrackCardArt }) {
   if (art.kind === "video") {
-    return <VideoRowThumb trackId={art.trackId} alt={art.alt} className="album-card-art" />;
+    return <VideoRowThumb trackId={art.trackId} trackPath={art.trackPath} alt={art.alt} className="album-card-art" />;
   }
   if (art.kind === "album") {
     return <AlbumCardArt album={art.album} imagePath={art.imagePath} />;

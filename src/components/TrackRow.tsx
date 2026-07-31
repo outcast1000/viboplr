@@ -15,7 +15,7 @@ import { RowHoverActions, type RowHoverActionsProps } from "./RowHoverActions";
 // The thumbnail is resolved by the CALLER into one of three shapes; TrackRow
 // owns only the markup branch, never the image-cache lookups.
 export type TrackRowThumb =
-  | { kind: "video"; trackId: number; alt: string }   // local video → VideoRowThumb
+  | { kind: "video"; trackId: number; trackPath?: string | null; alt: string }   // local video → VideoRowThumb
   | { kind: "image"; url: string; alt?: string; fallback?: TrackRowThumb }  // pre-resolved album/artist/image_url; swaps to `fallback` (default: disc) if the src fails to load
   | { kind: "initials"; text: string }                  // first-letter placeholder (plugin rows)
   | { kind: "blank" }                                    // empty themed box (e.g. history artist with no image)
@@ -54,7 +54,7 @@ export interface TrackRowProps {
 
 function Thumb({ thumb, className }: { thumb: TrackRowThumb; className: string }) {
   if (thumb.kind === "video") {
-    return <VideoRowThumb trackId={thumb.trackId} alt={thumb.alt} className={className} />;
+    return <VideoRowThumb trackId={thumb.trackId} trackPath={thumb.trackPath} alt={thumb.alt} className={className} />;
   }
   if (thumb.kind === "image") {
     return <ImageThumb url={thumb.url} alt={thumb.alt} className={className} fallback={thumb.fallback ?? { kind: "disc" }} />;

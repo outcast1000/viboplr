@@ -66,6 +66,27 @@
   margin-left: 5px;
 }
 
+/* With a video thumbnail the bubble becomes a column: tile on top, time below.
+   Only applied when a tile is actually rendered, so audio bubbles are unchanged. */
+.now-seek-bubble.has-thumb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+}
+
+/* The sheet is offset behind this box by background-position; never scale it, or
+   neighbouring tiles bleed in at the edges. Dimensions come from the descriptor. */
+.seek-preview-thumb {
+  background-repeat: no-repeat;
+  background-size: auto;
+  border-radius: 3px;
+  /* Video letterboxing reads as part of the frame, so match the app's video surround
+     rather than the panel background. */
+  background-color: var(--video-bg, #000);
+}
+
 /* The waveform's own track — flexes to fill the gap between the elapsed/total
    labels and carries the click-to-seek handler. The seek renderers are absolutely
    positioned canvases, so this needs position:relative to bound them. */

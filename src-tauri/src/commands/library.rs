@@ -731,6 +731,12 @@ pub fn delete_tracks(
         for &id in &deleted_ids {
             crate::video_frames::delete_cached_frames(&state.app_dir, id);
         }
+        // Storyboards are keyed by path, not id, so they need the track's path.
+        for track in &tracks {
+            if deleted_ids.contains(&track.id) {
+                crate::storyboard::delete_cached(&state.app_dir, &track.path);
+            }
+        }
         for track in &tracks {
             if deleted_ids.contains(&track.id) {
                 let _ = app.emit("track-removed", serde_json::json!({

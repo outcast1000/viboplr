@@ -15,6 +15,11 @@ import { EqBarControl } from "./EqBarControl";
 import type { EqMode } from "../eqPresets";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
+import { StoryboardTile } from "./StoryboardTile";
+import { tileIndexAt, type Storyboard } from "../utils/storyboard";
+// Bubble thumbnail width. Sheet tiles are larger (up to 400px) to serve the hero
+// art, so the bubble downscales — percentage-based positioning keeps it sharp.
+const SEEK_THUMB_WIDTH = 176;
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
@@ -88,6 +93,8 @@ function SlideText({ text, className }: { text: string; className?: string }) {
 
 interface NowPlayingBarProps {
   waveformPeaks: number[] | null;
+  /** Seek-preview tiles for the current video track; null for audio. */
+  storyboard: Storyboard | null;
   currentTrack: QueueTrack | null;
   /** Native mpv video session active — EQ works on video there (lavfi graph),
    * unlike the browser engine where the <video> isn't in the Web Audio graph. */
@@ -185,6 +192,7 @@ interface NowPlayingBarProps {
 
 export function NowPlayingBar({
   waveformPeaks,
+  storyboard,
   currentTrack, nativeVideoActive, playing,
   durationSecs, scrobbled,
   icyTitle,
@@ -553,15 +561,35 @@ export function NowPlayingBar({
             {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
           </span>
         </div>
-        {seekHover !== null && durationSecs > 0 && (
-          <div className="now-seek-bubble" style={{ left: seekHover.x }}>
-            {formatDuration(seekHover.pct * durationSecs)}
-            <span className="now-seek-bubble-delta">
-              {(seekHover.pct * durationSecs >= positionSecs ? "+" : "-") +
-                formatDuration(Math.abs(seekHover.pct * durationSecs - positionSecs))}
-            </span>
-          </div>
-        )}
+        {seekHover !== null && durationSecs > 0 && (() => {
+          const hoverSecs = seekHover.pct * durationSecs;
+          // Resolve the tile up front: the bubble only switches to the column layout
+          // when one actually exists, and a storyboard may not cover every moment.
+          const tile = storyboard ? tileIndexAt(storyboard, hoverSecs) : null;
+          return (
+            <div
+              className={`now-seek-bubble${tile !== null ? " has-thumb" : ""}`}
+              style={{ left: seekHover.x }}
+            >
+              {tile !== null && storyboard && (
+                <StoryboardTile
+                  board={storyboard}
+                  index={tile}
+                  className="seek-preview-thumb"
+                  width={SEEK_THUMB_WIDTH}
+                  height={Math.round(SEEK_THUMB_WIDTH * (storyboard.tileH / storyboard.tileW))}
+                />
+              )}
+              <span>
+                {formatDuration(hoverSecs)}
+                <span className="now-seek-bubble-delta">
+                  {(hoverSecs >= positionSecs ? "+" : "-") +
+                    formatDuration(Math.abs(hoverSecs - positionSecs))}
+                </span>
+              </span>
+            </div>
+          );
+        })()}
       </div>
       <div className="now-main">
         <div className="now-info">

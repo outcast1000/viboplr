@@ -5,6 +5,11 @@ import type {
   HistoryPlayLite,
   HistoryMostPlayed,
 } from "../types";
+// One definition, shared by the plugin API and the host's own renderer/cache — a
+// plugin-supplied storyboard and a locally generated one are the same shape.
+import type { Storyboard } from "../utils/storyboard";
+
+export type { Storyboard };
 
 // -- Manifest types --
 
@@ -526,6 +531,24 @@ export interface PluginPlaybackAPI {
        *  Optional for back-compat — older hosts don't send it. */
       opts?: { externalAudio?: boolean },
     ) => Promise<string | { candidates: StreamCandidate[] } | null>,
+  ): () => void;
+  /** Supply seek-preview thumbnails for a custom URL scheme. The host shows one
+   *  tile in the seek bar's hover bubble.
+   *
+   *  Return the source's OWN published storyboard where one exists rather than
+   *  extracting frames — YouTube, for instance, serves `sb0`-`sb3` sprite sheets
+   *  (~58 KB for 200 thumbnails) that cost nothing to decode and don't re-stream
+   *  the video. Cache the SHEET BYTES (e.g. via `api.storage.files.download`), not
+   *  the URLs: signed media URLs typically expire within hours while the images
+   *  themselves are permanent.
+   *
+   *  Called once per track, with a 10 s host-side timeout — discovery that needs a
+   *  subprocess should ride whatever call already resolves the stream rather than
+   *  spawning again. `null` = no storyboard (short clips often have none), which
+   *  simply leaves the bubble as plain text. */
+  onResolveStoryboard(
+    scheme: string,
+    handler: (id: string) => Promise<Storyboard | null>,
   ): () => void;
 }
 

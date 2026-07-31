@@ -188,4 +188,20 @@ describe("VideoFrameQueue", () => {
     await q.drain();
     expect(notify.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("resolves art from a single-frame result", async () => {
+    // video_frames.rs now extracts ONE frame; the queue's ready snapshot reads
+    // frames[0], so queue/shelf/card art is unaffected by that reduction.
+    invokeMock.mockImplementation(async (cmd) => {
+      if (cmd === "get_video_frames") return { status: "ok", paths: ["/only.jpg"], timestamps: [21.3] };
+      throw new Error("should not extract when cached");
+    });
+    const q = new VideoFrameQueue(invokeMock as unknown as InvokeFn, (p) => `asset://${p}`);
+    q.enqueue(7);
+    await q.drain();
+    const entry = q.getEntry(7);
+    if (entry.status !== "ready") throw new Error("expected ready");
+    expect(entry.frames).toEqual(["asset:///only.jpg"]);
+    expect(q.getReadyFrameSnapshot()[7]).toBe("asset:///only.jpg");
+  });
 });

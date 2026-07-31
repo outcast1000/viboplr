@@ -6,10 +6,17 @@ import { formatDuration } from "../utils";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { AutoContinuePopover } from "./AutoContinuePopover";
 import { WaveformSeekBar } from "./WaveformSeekBar";
+import { StoryboardTile } from "./StoryboardTile";
+import { tileIndexAt, type Storyboard } from "../utils/storyboard";
+// Bubble thumbnail width. Sheet tiles are larger (up to 400px) to serve the hero
+// art, so the bubble downscales — percentage-based positioning keeps it sharp.
+const SEEK_THUMB_WIDTH = 176;
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 
 interface FullscreenControlsProps {
   waveformPeaks: number[] | null;
+  /** Seek-preview tiles for the current video track; null for audio. */
+  storyboard: Storyboard | null;
   currentTrack: QueueTrack | null;
   playing: boolean;
   durationSecs: number;
@@ -55,6 +62,7 @@ const IDLE_TIMEOUT = 3000;
 
 export function FullscreenControls({
   waveformPeaks,
+  storyboard,
   currentTrack, playing,
   durationSecs, scrobbled,
   volume, muted, queueMode,
@@ -74,6 +82,10 @@ export function FullscreenControls({
   const draggingRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const fsAcAnchorRef = useRef<HTMLButtonElement>(null);
+  // Scrub preview: pct picks the storyboard tile, x positions the bubble
+  // (px within .fs-seek-wrap).
+  const [seekHover, setSeekHover] = useState<{ pct: number; x: number } | null>(null);
+  const seekWrapRef = useRef<HTMLDivElement>(null);
 
   // Track fullscreen state
   useEffect(() => {
@@ -150,6 +162,9 @@ export function FullscreenControls({
       onClick={handleOverlayClick}
       onDoubleClick={(e) => e.stopPropagation()}
     >
+      {/* The bubble has to live outside .fs-seek-bar, which clips (overflow: hidden).
+          Mirrors .now-seek-wrap in the now-playing bar. */}
+      <div className="fs-seek-wrap" ref={seekWrapRef}>
       <div
         className="fs-seek-bar"
         onClick={(e) => {
@@ -159,6 +174,16 @@ export function FullscreenControls({
           const pct = (e.clientX - rect.left) / rect.width;
           onSeek(pct * durationSecs);
         }}
+        onMouseMove={(e) => {
+          // Deliberately no stopPropagation: the overlay's idle timer watches
+          // mousemove, and swallowing it here would hide the controls mid-scrub.
+          if (!durationSecs) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+          const wrapLeft = seekWrapRef.current?.getBoundingClientRect().left ?? rect.left;
+          setSeekHover({ pct, x: e.clientX - wrapLeft });
+        }}
+        onMouseLeave={() => setSeekHover(null)}
       >
         {waveformPeaks ? (
           <WaveformSeekBar
@@ -173,6 +198,28 @@ export function FullscreenControls({
           {formatDuration(durationSecs)}
           {scrobbled && <span className="fs-scrobbled" title="Logged to play history">{"\u2713"}</span>}
         </span>
+      </div>
+      {seekHover !== null && durationSecs > 0 && (() => {
+        const hoverSecs = seekHover.pct * durationSecs;
+        const tile = storyboard ? tileIndexAt(storyboard, hoverSecs) : null;
+        return (
+          <div
+            className={`fs-seek-bubble${tile !== null ? " has-thumb" : ""}`}
+            style={{ left: seekHover.x }}
+          >
+            {tile !== null && storyboard && (
+              <StoryboardTile
+                board={storyboard}
+                index={tile}
+                className="seek-preview-thumb"
+                width={SEEK_THUMB_WIDTH}
+                height={Math.round(SEEK_THUMB_WIDTH * (storyboard.tileH / storyboard.tileW))}
+              />
+            )}
+            <span>{formatDuration(hoverSecs)}</span>
+          </div>
+        );
+      })()}
       </div>
       <div className="fs-main">
         <div className="fs-info">

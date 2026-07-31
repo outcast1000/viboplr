@@ -11,6 +11,7 @@ import { store } from "../store";
 
 import { InformationSections } from "./InformationSections";
 import { useVideoFrames } from "../hooks/useVideoFrames";
+import { useStoryboard } from "../hooks/useStoryboard";
 import { isVideoTrack } from "../utils";
 import { VideoFilmstrip } from "./VideoFilmstrip";
 import { VideoFrameCard } from "./VideoFrameCard";
@@ -112,6 +113,9 @@ export function TrackDetailView({
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
+  // Storyboard tiles back the filmstrip and the hero art's hover cycling; the single
+  // large frame from `videoFrames` still supplies each surface's sharp resting image.
+  const trackStoryboard = useStoryboard(isVideoTrack(track) ? track : null);
 
   const requestArtistImage = useCallback(
     (n: string) => actions.autoFetchImage("artist", n),
@@ -311,12 +315,12 @@ export function TrackDetailView({
         bgClassName="detail-hero-bg"
         onBack={actions.canGoBack ? actions.goBack : undefined}
         art={
-          videoFrames.frames ? (
+          (videoFrames.frames?.[0] || trackStoryboard.board) ? (
             <VideoFrameCard
-              frames={videoFrames.frames}
+              poster={videoFrames.frames?.[0] ?? null}
+              board={trackStoryboard.board}
               alt={track.title}
               className="track-detail-art-frames"
-              timestamps={videoFrames.timestamps}
               onFrameClick={onPlayAt}
             />
           ) : (albumImagePath || artistImagePath) ? (
@@ -344,7 +348,7 @@ export function TrackDetailView({
       />
       {isVideoTrack(track) && (
         <div className="section-wide">
-          <VideoFilmstrip framesState={videoFrames} onFrameClick={onPlayAt} />
+          <VideoFilmstrip storyboard={trackStoryboard} onFrameClick={onPlayAt} />
         </div>
       )}
       {isLibrary && <EntityTagPanel tracks={[{ ...track, id: trackId }]} />}

@@ -2,10 +2,17 @@ use std::path::{Path, PathBuf};
 
 use crate::dependencies;
 
-const FRAME_COUNT: usize = 4;
-// Positions are pulled slightly off the very head/tail so we dodge fade-in /
-// end-credit black frames; the thumbnail filter (below) does the fine selection.
-const FRAME_POSITIONS: [f64; 4] = [0.10, 0.35, 0.62, 0.85];
+// ONE frame: the video's thumbnail, used wherever a large sharp still is needed —
+// queue/shelf art, the detail-page hero art at rest, and hero background layers.
+// Multi-frame surfaces (the filmstrip, and hover cycling) read tiles from the
+// storyboard sprite instead, which is cheaper per moment and offers far more of them.
+// See docs/seek-preview-spec.md "Reducing FRAME_COUNT to 1".
+const FRAME_COUNT: usize = 1;
+// Pulled off the very head so we dodge fade-ins and title cards; the thumbnail filter
+// (below) does the fine selection within the window. Kept at 0.10 deliberately —
+// every already-cached frame_0 stays valid, and this module has no recipe versioning
+// that would invalidate them.
+const FRAME_POSITIONS: [f64; FRAME_COUNT] = [0.10];
 // Around each position we decode a short window and let ffmpeg's `thumbnail`
 // filter pick the most representative (non-black, non-blurry) frame in it.
 const WINDOW_SECS: f64 = 2.0;

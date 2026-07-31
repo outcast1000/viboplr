@@ -46,3 +46,10 @@
   color: var(--text-secondary);
   opacity: 0.5;
 }
+
+/* Sprite tiles during hover cycling. Cover-cropped in JS (CSS can't crop a sprite),
+   with the video surround behind in case a tile hasn't been measured yet. */
+.video-row-thumb-tile {
+  background-repeat: no-repeat;
+  background-color: var(--video-bg, #000);
+}

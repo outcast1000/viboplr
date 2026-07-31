@@ -29,6 +29,7 @@ mod telemetry;
 mod downloader;
 mod update_checker;
 mod video_frames;
+mod storyboard;
 mod transcode_server;
 mod p2p;
 #[cfg(target_os = "macos")]
@@ -177,6 +178,8 @@ macro_rules! invoke_handler {
             commands::ffmpeg_convert_audio,
             commands::get_video_frames,
             commands::extract_video_frames,
+            commands::get_storyboard,
+            commands::extract_storyboard,
             commands::get_track_audio_properties,
             commands::get_audio_properties_by_path,
             commands::get_file_size,
@@ -1344,6 +1347,30 @@ pub fn run() {
                 let tracker_handle = app.handle().clone();
                 std::thread::spawn(move || {
                     crate::cursor_tracker_win::run(tracker_flag, tracker_handle);
+                });
+            }
+
+            // Sweep the storyboard cache off the startup path: drop entries whose track
+            // is gone, then evict oldest-first if the rest still exceeds the cap. Sheets
+            // are ~200 KB each, so unlike the waveform cache this one has to be bounded.
+            {
+                let sb_dir = app_dir.clone();
+                let sb_db = db.clone();
+                std::thread::spawn(move || {
+                    match sb_db.get_all_track_paths() {
+                        Ok(live) => {
+                            if let Err(e) = crate::storyboard::gc(&sb_dir, &live) {
+                                log::warn!("Storyboard gc failed: {}", e);
+                            }
+                        }
+                        // Without a liveness set, skip the orphan sweep but still cap.
+                        Err(e) => log::warn!("Storyboard gc: could not read track paths: {}", e),
+                    }
+                    if let Err(e) =
+                        crate::storyboard::enforce_cap(&sb_dir, crate::storyboard::MAX_CACHE_BYTES)
+                    {
+                        log::warn!("Storyboard cap enforcement failed: {}", e);
+                    }
                 });
             }
 

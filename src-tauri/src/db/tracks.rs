@@ -613,6 +613,16 @@ impl Database {
         self.get_track_paths_for_collection(collection_id)
     }
 
+    /// Every track path in the library, regardless of collection or enabled state.
+    /// Used as the liveness set for cache sweeps (see `storyboard::gc`) — a disabled
+    /// collection's tracks are still live, so filtering here would delete their caches.
+    pub fn get_all_track_paths(&self) -> SqlResult<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT path FROM tracks")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect()
+    }
+
     pub fn remove_track_by_id(&self, track_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM tracks WHERE id = ?1", params![track_id])?;

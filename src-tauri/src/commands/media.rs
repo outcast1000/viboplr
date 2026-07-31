@@ -478,6 +478,47 @@ pub fn get_audio_properties_by_path(
     })
 }
 
+/// Cache-only storyboard lookup, keyed by the track's scheme-prefixed path. Never
+/// generates, so the seek bar can ask on every track change for free.
+#[tauri::command]
+pub fn get_storyboard(
+    state: State<'_, AppState>,
+    path: String,
+) -> Option<crate::storyboard::Storyboard> {
+    crate::storyboard::get_cached(&state.app_dir, &path)
+}
+
+/// Generate the storyboard for a local video if it isn't cached yet. One ffmpeg pass;
+/// see `storyboard.rs`. Returns a status rather than erroring for the two expected
+/// "can't do this" cases, so the frontend can stay quiet about them.
+#[tauri::command]
+pub async fn extract_storyboard(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<StoryboardResult, String> {
+    let app_dir = state.app_dir.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(cached) = crate::storyboard::get_cached(&app_dir, &path) {
+            return Ok(StoryboardResult { status: "ok".to_string(), storyboard: Some(cached) });
+        }
+        // Local files only: ffmpeg needs a real file, and re-streaming a remote source
+        // per video would cost bandwidth. Plugin sources supply their own storyboards.
+        let Some(bare) = path.strip_prefix("file://") else {
+            return Ok(StoryboardResult { status: "unsupported".to_string(), storyboard: None });
+        };
+        if !crate::video_frames::is_ffmpeg_available() {
+            return Ok(StoryboardResult { status: "unavailable".to_string(), storyboard: None });
+        }
+        let video_path = std::path::Path::new(bare);
+        let duration = crate::video_frames::get_video_duration(video_path)?;
+        let board = crate::storyboard::generate(&app_dir, &path, video_path, duration)?;
+        Ok(StoryboardResult { status: "ok".to_string(), storyboard: Some(board) })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 /// Byte size of a local file. A plain `stat` — much cheaper than
 /// `get_audio_properties_by_path`, which reads tags. `None` when the path isn't
 /// a local file or can't be stat'd, so callers can treat "unknown" as distinct

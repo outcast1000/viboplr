@@ -61,6 +61,7 @@ import { useUiZoom } from "./hooks/useUiZoom";
 import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
+import { useStoryboard } from "./hooks/useStoryboard";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
@@ -498,6 +499,12 @@ function App() {
   // single IPC channel. debugMode/devPluginPath are restored before this flips,
   // so the deferred first load already sees their final values.
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
+
+  // Seek-bar hover previews for video. Complements the waveform, which is audio-only:
+  // at most one of the two is non-null for a given track. Declared after `plugins`
+  // because plugin-scheme tracks resolve their storyboard through the owning plugin.
+  const storyboardState = useStoryboard(playback.currentTrack, plugins.resolveStoryboardByUri);
+  const storyboard = storyboardState.board;
   const dependencies = useDependencies(plugins.pluginStates);
 
   // Set of currently loaded & active plugin ids — passed to Home so it keeps the
@@ -4305,6 +4312,7 @@ function App() {
           )}
           <FullscreenControls
             waveformPeaks={waveformPeaks}
+            storyboard={storyboard}
             currentTrack={playback.currentTrack}
             playing={playback.playing}
             durationSecs={playback.durationSecs}
@@ -4752,6 +4760,7 @@ function App() {
 
       <NowPlayingBar
         waveformPeaks={waveformPeaks}
+        storyboard={storyboard}
         currentTrack={playback.currentTrack}
         nativeVideoActive={playback.nativeVideoActive}
         playing={playback.playing}

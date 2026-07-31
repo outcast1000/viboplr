@@ -22,9 +22,12 @@
   border-color: var(--accent);
 }
 
-.video-filmstrip-frame img {
+.video-filmstrip-tile {
   width: 100%;
-  display: block;
+  /* aspect-ratio comes from StoryboardTile (the tile's own ratio), so the strip
+     matches the source's shape rather than assuming 16:9. */
+  background-repeat: no-repeat;
+  background-color: var(--video-bg, #000);
 }
 
 .video-filmstrip-ts {

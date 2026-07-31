@@ -951,7 +951,7 @@ export function SearchView({
                 // image → default disc. No first-letter fallback (matches prior).
                 let thumb: TrackRowThumb;
                 if (isLocalVideo(t)) {
-                  thumb = { kind: "video", trackId: t.id!, alt: t.title };
+                  thumb = { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title };
                 } else {
                   const img = (t.album_title ? getAlbumImage(t.album_title, t.artist_name) : null)
                     ?? (t.artist_name ? getArtistImage(t.artist_name) : null);
@@ -1009,7 +1009,7 @@ export function SearchView({
               <div className="entity-grid">
                 {results.tracks.map((t, i) => {
                   const art: TrackCardArt = isLocalVideo(t)
-                    ? { kind: "video", trackId: t.id!, alt: t.title }
+                    ? { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title }
                     : t.album_title
                     ? { kind: "album", album: { id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album, imagePath: getAlbumImage(t.album_title, t.artist_name) }
                     : { kind: "letter", text: t.title[0]?.toUpperCase() ?? "?" };

@@ -41,6 +41,7 @@ import type {
   StreamCandidate,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import type { Storyboard } from "../utils/storyboard";
 import { buildEntityKey } from "../types/informationTypes";
 
 /** Parse a stored info value (JSON string) for plugin consumers; passes through
@@ -137,6 +138,7 @@ interface LoadedPlugin {
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean }) => Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null>>;
   streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>>;
+  storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
   schedulerHandlers: Map<string, () => void>;
 }
 
@@ -145,6 +147,10 @@ interface LoadedPlugin {
  *  just stops one slow/hung activate() (e.g. one that awaits network) from
  *  freezing startup and everything queued behind it. */
 const ACTIVATE_TIMEOUT_MS = 3000;
+/** Budget for a plugin's storyboard lookup. Generous because discovery can spawn a
+ *  subprocess (yt-dlp takes seconds to start), but bounded so a wedged resolver just
+ *  means "no thumbnail" instead of a seek bar that never previews. */
+const STORYBOARD_RESOLVE_TIMEOUT_MS = 10000;
 // Cache the gallery index so the Extensions panel paints installable plugins
 // instantly on open (stale-while-revalidate), instead of waiting on the network.
 const PLUGIN_GALLERY_CACHE_KEY = "galleryPluginsCache";
@@ -582,6 +588,17 @@ export function usePlugins(
             loaded.streamUriResolvers.set(scheme, handler);
             const unsub = () => {
               loaded.streamUriResolvers.delete(scheme);
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          onResolveStoryboard(
+            scheme: string,
+            handler: (id: string) => Promise<Storyboard | null>,
+          ): () => void {
+            loaded.storyboardResolvers.set(scheme, handler);
+            const unsub = () => {
+              loaded.storyboardResolvers.delete(scheme);
             };
             trackUnsubscribe(unsub);
             return unsub;
@@ -1296,6 +1313,7 @@ export function usePlugins(
     loaded.interactiveResolveHandlers.clear();
     loaded.streamResolveHandlers.clear();
     loaded.streamUriResolvers.clear();
+    loaded.storyboardResolvers.clear();
     loaded.schedulerHandlers.clear();
 
     // Clear view data for this plugin
@@ -1406,6 +1424,7 @@ export function usePlugins(
         getQualitiesHandlers: new Map(),
         streamResolveHandlers: new Map(),
         streamUriResolvers: new Map(),
+        storyboardResolvers: new Map(),
         schedulerHandlers: new Map(),
       };
 
@@ -2246,6 +2265,32 @@ export function usePlugins(
     [],
   );
 
+  // Seek-preview storyboard for a plugin-owned scheme. Bounded at 10s because
+  // discovery may shell out (yt-dlp is slow to start) and the seek bar must not be
+  // held hostage. Null when no plugin owns the scheme, the plugin has none for this
+  // id, it times out, or it throws — every case means "no preview", not an error.
+  const resolveStoryboardByUri = useCallback(
+    async (scheme: string, id: string): Promise<Storyboard | null> => {
+      for (const [, lp] of loadedPluginsRef.current) {
+        const handler = lp.storyboardResolvers.get(scheme);
+        if (!handler) continue;
+        try {
+          const result = await Promise.race([
+            handler(id),
+            new Promise<null>((resolve) =>
+              setTimeout(() => resolve(null), STORYBOARD_RESOLVE_TIMEOUT_MS),
+            ),
+          ]);
+          if (result) return result;
+        } catch (e) {
+          console.error(`Storyboard resolver failed for ${scheme}:`, e);
+        }
+      }
+      return null;
+    },
+    [],
+  );
+
   // Plugin id that owns a custom URL scheme (registered via onResolveStreamByUri).
   // Mirrors `resolveStreamByUri`'s lookup so a native `tidal://` track can map back
   // to the TIDAL plugin's download provider. Null when no plugin owns the scheme.
@@ -2385,6 +2430,7 @@ export function usePlugins(
     invokeGetQualities,
     resolveStreamByUri,
     streamUriResolverOwner,
+    resolveStoryboardByUri,
     invokeHomeShelf,
     nowPlayingInfoItems,
     invokeNowPlayingInfo,

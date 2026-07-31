@@ -577,6 +577,14 @@ pub struct VideoFrameResult {
     pub timestamps: Option<Vec<f64>>,
 }
 
+/// `status`: "ok" (storyboard present) | "unavailable" (no ffmpeg) |
+/// "unsupported" (not a local file — nothing to extract from).
+#[derive(serde::Serialize)]
+pub struct StoryboardResult {
+    pub status: String,
+    pub storyboard: Option<crate::storyboard::Storyboard>,
+}
+
 
 
 // --- Track audio properties command ---
