@@ -31,7 +31,6 @@ mod update_checker;
 mod video_frames;
 mod storyboard;
 mod transcode_server;
-mod p2p;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
 #[cfg(target_os = "windows")]
@@ -318,17 +317,6 @@ macro_rules! invoke_handler {
             commands::engine_get_audio_info,
             commands::app_update_check,
             commands::app_update_install,
-            commands::p2p_start,
-            commands::p2p_stop,
-            commands::p2p_get_status,
-            commands::p2p_get_multiaddrs,
-            commands::p2p_search_peer,
-            commands::p2p_stream_from_peer,
-            commands::p2p_download_from_peer,
-            commands::p2p_get_shared_collections,
-            commands::p2p_set_shared_collections,
-            commands::p2p_reserve_relay,
-            commands::p2p_get_diagnostics,
             $($extra,)*
         ]
     };
@@ -1408,7 +1396,6 @@ pub fn run() {
                     transcode_port,
                     transcode_sessions,
                     dep_cache,
-                    p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
                     pending_app_update: tokio::sync::Mutex::new(None),
                     mpv_engine: Default::default(),
                 });

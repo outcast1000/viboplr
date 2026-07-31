@@ -100,7 +100,6 @@ export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
 // Internal priority for download providers (keyed by "pluginId:providerId")
 export const DEFAULT_DOWNLOAD_PROVIDER_PRIORITY: Record<string, number> = {
   "tidal-browse:tidal-download": 100,
-  "p2p-sharing:p2p-download": 200,
   "youtube:youtube-download": 300,
   "mock-download:mock-dl": 900,
 };
@@ -1223,41 +1222,6 @@ export function usePlugins(
         env: {
           async get(key: string): Promise<string | null> {
             return invoke<string | null>("plugin_getenv", { key });
-          },
-        },
-        p2p: {
-          async start(relayMultiaddr?: string) {
-            return invoke("p2p_start", { relayMultiaddr: relayMultiaddr ?? null });
-          },
-          async stop() {
-            return invoke("p2p_stop", {});
-          },
-          async getStatus() {
-            return invoke("p2p_get_status", {});
-          },
-          async searchPeer(peerId: string, multiaddr: string, query: string, limit?: number) {
-            return invoke("p2p_search_peer", { peerId, multiaddr, query, limit: limit ?? 20 });
-          },
-          async streamFromPeer(peerId: string, multiaddr: string, trackId: string) {
-            return invoke<string>("p2p_stream_from_peer", { peerId, multiaddr, trackId });
-          },
-          async downloadFromPeer(peerId: string, multiaddr: string, trackId: string, destCollectionId: number) {
-            return invoke("p2p_download_from_peer", { peerId, multiaddr, trackId, destCollectionId });
-          },
-          async getSharedCollections() {
-            return invoke<number[]>("p2p_get_shared_collections", {});
-          },
-          async setSharedCollections(ids: number[]) {
-            return invoke("p2p_set_shared_collections", { collectionIds: ids });
-          },
-          async reserveRelay(multiaddr: string) {
-            return invoke("p2p_reserve_relay", { multiaddr });
-          },
-          async getMultiaddrs() {
-            return invoke<string[]>("p2p_get_multiaddrs", {});
-          },
-          async getDiagnostics() {
-            return invoke("p2p_get_diagnostics", {});
           },
         },
       };

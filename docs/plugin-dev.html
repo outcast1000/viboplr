@@ -198,7 +198,6 @@ return { activate: activate, deactivate: deactivate };</pre>
           <a href="#api-scheduler">scheduler</a>
           <a href="#api-system">system</a>
           <a href="#api-env">env</a>
-          <a href="#api-p2p">p2p</a>
         </div>
 
         <div class="api-group reveal" id="api-top">
@@ -451,23 +450,6 @@ return { activate: activate, deactivate: deactivate };</pre>
             <table class="api-table">
               <tbody>
                 <tr><td>get(key)</td><td>Read an allow-listed build-time environment variable (e.g. an API key baked into a build), or <code>null</code>.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="api-group reveal" id="api-p2p">
-          <h3><span class="api-ns">api.p2p</span></h3>
-          <p class="api-group-desc">Bridge to the host's built-in libp2p engine — peer discovery, library search, streaming, and transfers between Viboplr nodes.</p>
-          <div class="api-table-wrap">
-            <table class="api-table">
-              <tbody>
-                <tr><td>start(relayMultiaddr?) / stop()</td><td>Bring the node up or down.</td></tr>
-                <tr><td>getStatus() / getDiagnostics()</td><td>Node state, NAT status, peers, transfer counters.</td></tr>
-                <tr><td>getMultiaddrs() / reserveRelay(multiaddr)</td><td>This node's dialable addresses; reserve a relay slot for hole-punching.</td></tr>
-                <tr><td>searchPeer(peerId, multiaddr, query, limit?)</td><td>Query a peer's shared library.</td></tr>
-                <tr><td>streamFromPeer / downloadFromPeer(…)</td><td>Play a peer's track, or pull a copy into a local collection.</td></tr>
-                <tr><td>getSharedCollections() / setSharedCollections(ids)</td><td>Which local collections this node shares.</td></tr>
               </tbody>
             </table>
           </div>

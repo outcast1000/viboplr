@@ -23,11 +23,12 @@ User-installed plugins (in app data directory) override built-in plugins with th
 
 These plugins are **not bundled** in `src-tauri/plugins/`. Their canonical source is a separate repo, and they are installed from the plugin gallery (`outcast1000/viboplr-plugins`, index-only) which resolves each entry's `updateUrl` to that repo's GitHub release zip. Once installed they live in the user plugin dir and auto-update via the same `updateUrl`. To change one, edit + release in its repo; there is no bundled copy here to sync.
 
+`p2p-sharing` (`outcast1000/viboplr-p2p`) was **de-registered from the gallery** when the host's P2P engine was removed. The repo still exists but the plugin can't work — its `api.p2p` calls have no host bridge. Don't re-add it to `index.json`.
+
 | Plugin id | Canonical repo | Notes |
 |---|---|---|
 | `spotify-browse` | `outcast1000/viboplr-spotify` | Self-contained; release flow + `scripts/bump.sh` live in that repo. |
 | `tidal-browse` | `outcast1000/viboplr-tidal` | Self-contained (HTTP via `api.network.fetch`); same release flow. |
-| `p2p-sharing` | `outcast1000/viboplr-p2p` | **JS UI shell only.** The P2P engine lives in this host's Rust (`src-tauri/src/p2p/`, the `api.p2p.*` bridge) and is version-coupled to `outcast1000/viboplr-relay`. Releases in that repo change only the UI; protocol/networking changes are host+relay changes here. The plugin's `minAppVersion` gates its install/auto-update — bump it when you change `api.p2p.*` so older apps don't pull an incompatible shell. |
 | `youtube` | `outcast1000/viboplr-youtube` | Self-contained; contributes the `youtube-fallback` stream resolver + `youtube-download` download provider. Shells out to `yt-dlp`/`ffmpeg` via `api.system.exec`. Same release flow (`scripts/bump.sh` + CI) as the others. **Not** in the gallery as a loose copy — un-bundling means fresh installs have no YouTube playback/download until it's installed from the gallery. |
 | `ffmpeg-tools` | `outcast1000/viboplr-ffmpeg-tools` | Self-contained; bulk-convert (`api.contextMenu.registerItem` "Convert to…" submenu) + a Media Info tab (`ffmpeg-probe` information type: container/stream/tag probe + loudness). Shells out to `ffmpeg` only — there's no `ffprobe` in the allow-list, so probe/loudness data is parsed from plain ffmpeg's stderr banner. Same release flow (`scripts/bump.sh` + CI) as the others. |
 
@@ -287,16 +288,9 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 ### api.env
 - `get(key)` — read an environment variable
 
-### api.p2p
+### api.p2p — removed
 
-Bridge to the host's Rust libp2p engine (`src-tauri/src/p2p/`) — the host side of the `p2p-sharing` plugin. Version-coupled to `outcast1000/viboplr-relay`; bump the plugin's `minAppVersion` when this surface changes so older apps don't pull an incompatible UI shell.
-
-- `start(relayMultiaddr?)` / `stop()` — bring the node up/down.
-- `getStatus()` / `getDiagnostics()` — node state; `getDiagnostics()` returns `P2pDiagnostics` (peer id, listen addrs, NAT status, protocol versions, connected peers, transfer/byte counters, pending dial/search/transfer counts, shared collections, uptime).
-- `getMultiaddrs()` — this node's dialable addresses. `reserveRelay(multiaddr)` — reserve a relay slot for hole-punching.
-- `searchPeer(peerId, multiaddr, query, limit?)` — query a peer's shared library.
-- `streamFromPeer(peerId, multiaddr, trackId)` — resolve a playable URL for a peer's track. `downloadFromPeer(peerId, multiaddr, trackId, destCollectionId)` — pull a copy into a local collection.
-- `getSharedCollections()` / `setSharedCollections(ids)` — which local collections this node shares.
+There is **no** `api.p2p` namespace. The host's libp2p engine and its plugin bridge were removed along with the `p2p-sharing` gallery entry; see backend.md "Removed: P2P engine". Peer-transfer functionality would have to ship as a plugin using the generic surfaces (`api.network`, `api.downloads`, a stream resolver) — do not reintroduce a core P2P bridge.
 
 ## Information Sections
 

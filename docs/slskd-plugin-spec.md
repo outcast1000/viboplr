@@ -500,10 +500,13 @@ changed the design.
 
 ## Out of scope / rejected
 
-- **Native Rust Soulseek engine** in `src-tauri/src/` alongside `p2p/`. Full control
+- **Native Rust Soulseek engine** as a new `src-tauri/src/` module. Full control
   and could progressive-download into playback, but it means implementing the
   protocol, login, and share-serving, plus ongoing maintenance against a network
-  that changes without notice. Revisit only if slskd proves an unacceptable barrier.
+  that changes without notice. The host's own libp2p engine was removed for
+  exactly this maintenance reason (see backend.md "Removed: P2P engine"), so a
+  hand-rolled P2P stack in core is a hard sell. Revisit only if slskd proves an
+  unacceptable barrier.
 - **`sldl`/slsk-batchdl via `api.system.exec`.** Needs a REGISTRY entry (host
   release) and still cannot stream. No advantage over slskd.
 - **Adding slskd to `dependencies.rs`.** Blocked on packaging shape (zips, no

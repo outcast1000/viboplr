@@ -18,8 +18,8 @@ and **specs for every image/video** you'll need.
 ## 0. Cautions & framing to keep in mind
 
 - Lead with the **local-library + Subsonic/Navidrome** story and the **skins/UX**. The
-  **P2P sharing** and **YouTube download** features can trigger "piracy tool" reactions in
-  stricter communities — let those be *discovered* on the site, don't headline them.
+  **YouTube download** feature can trigger "piracy tool" reactions in
+  stricter communities — let it be *discovered* on the site, don't headline it.
   - **One deliberate exception:** the yt-dlp/ffmpeg communities (§2 below) are the *one* place
     where leading with the plugin capability is on-topic and welcome. Keep it **plugin-scoped**
     there ("Viboplr has an optional yt-dlp-powered plugin"), and be aware of the trade-off:

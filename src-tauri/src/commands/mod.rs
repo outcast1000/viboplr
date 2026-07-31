@@ -8,7 +8,6 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::db::Database;
 use crate::downloader::{DownloadFormat, DownloadManager, DownloadResolveRegistry};
 use crate::models::*;
-use crate::p2p::P2pNode;
 use crate::scanner;
 use crate::skins;
 use crate::subsonic::SubsonicClient;
@@ -37,8 +36,6 @@ mod mixtapes;
 pub use mixtapes::*;
 mod mpv_engine;
 pub use mpv_engine::*;
-mod p2p;
-pub use p2p::*;
 mod playlists;
 pub use playlists::*;
 mod plugin_files;
@@ -116,7 +113,6 @@ pub struct AppState {
     pub transcode_port: u16,
     pub transcode_sessions: transcode_server::Sessions,
     pub dep_cache: Arc<crate::dependencies::DepCache>,
-    pub p2p_node: Arc<tokio::sync::RwLock<Option<P2pNode>>>,
     /// Update found by the last `app_update_check`, consumed by install.
     pub pending_app_update: tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>,
     pub mpv_engine: Arc<crate::mpv_engine::EngineHandle>,
@@ -1056,7 +1052,6 @@ pub(crate) fn test_app_state() -> AppState {
         transcode_port: 0,
         transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         dep_cache: Arc::new(crate::dependencies::DepCache::new()),
-        p2p_node: Arc::new(tokio::sync::RwLock::new(None)),
         pending_app_update: tokio::sync::Mutex::new(None),
         mpv_engine: Default::default(),
     }

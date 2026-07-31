@@ -47,7 +47,7 @@ Viboplr plays audio and video from local folders and remote music services. It a
 ### Plugins
 - **Plugin System**: The primary extension mechanism — JavaScript plugins provide streaming, metadata, lyrics, image resolution, downloads, context menu items, sidebar views, event hooks, settings panels, and scheduler tasks
 - **Built-in Plugins**: Last.fm (scrobbling, history import, similar artists/tracks, bios, community tags), lyrics (LRCLIB, Lyrics.ovh, Google), and artwork (TheAudioDB, Deezer, iTunes, MusicBrainz, Google Images)
-- **Gallery Plugins**: Streaming and more, installed from the in-app gallery — Spotify, TIDAL (Hi-Fi), YouTube (play + download), Genius (song explanations), and P2P sharing
+- **Gallery Plugins**: Streaming and more, installed from the in-app gallery — Spotify, TIDAL (Hi-Fi), YouTube (play + download), and Genius (song explanations)
 - **Native & User Plugins**: Built-in plugins bundled with the app; user plugins in profile directory (user plugins override native)
 - **Structured Views**: Plugins render via data model (track lists, card grids, stats, text) — no raw HTML injection
 - **Plugin Management**: Enable/disable plugins, reorder providers, and configure settings via Settings tabs
