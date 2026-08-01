@@ -69,6 +69,36 @@ describe("resolveShelfPlayAction", () => {
     expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({ kind: "radio", seed, coverUrl: null });
   });
 
+  it("playlist marked partial → tracks flagged for backfill", () => {
+    const tracks = [{ title: "Seed" }];
+    const item = { id: "p1", name: "Mix", coverUrl: "http://x/c.jpg", tracks, partial: true } as unknown as HomeShelfItem;
+    expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({
+      kind: "tracks", tracks, partial: true,
+      context: { name: "Mix", imagePath: "http://x/c.jpg", source: "playlist" },
+    });
+  });
+
+  it("playlist marked partial with no tracks → plain lazy resolve (nothing to head-start)", () => {
+    const item = { id: "p1", name: "Mix", coverUrl: null, tracks: [], partial: true } as unknown as HomeShelfItem;
+    expect(resolveShelfPlayAction("playlist-cards", item)).toEqual({
+      kind: "tracks", tracks: [],
+      context: { name: "Mix", imagePath: null, source: "playlist" },
+    });
+  });
+
+  it("album marked partial → tracks flagged for backfill", () => {
+    const tracks = [{ title: "t1" }];
+    const item = { name: "Album", tracks, partial: true } as unknown as HomeShelfItem;
+    expect(resolveShelfPlayAction("album-cards", item)).toEqual({
+      kind: "tracks", tracks, partial: true, context: { name: "Album" },
+    });
+  });
+
+  it("partial is ignored when the album resolves to a library id", () => {
+    const item = { libraryId: 5, name: "Album", tracks: [{ title: "t1" }], partial: true } as unknown as HomeShelfItem;
+    expect(resolveShelfPlayAction("album-cards", item)).toEqual({ kind: "album-id", id: 5 });
+  });
+
   it("track-rows → tracks (single)", () => {
     const track = { title: "Song", artist_name: "A" };
     const item = { track } as HomeShelfItem;

@@ -486,14 +486,46 @@ export interface PluginLibraryAPI {
   onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;
 }
 
+/** A plugin-supplied play context — becomes the queue panel's banner. */
+export interface PluginPlayContext {
+  name?: string;
+  playlistName?: string;
+  coverUrl?: string | null;
+  source?: string | null;
+  description?: string | null;
+  metadata?: Record<string, string> | null;
+}
+
 export interface PluginPlaybackAPI {
   getCurrentTrack(): QueueTrack | null;
   isPlaying(): boolean;
   getPosition(): number;
   playTrack(track: PluginTrack): void;
-  playTracks(tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }): void;
+  playTracks(tracks: PluginTrack[], startIndex?: number, context?: PluginPlayContext): void;
   insertTrack(track: PluginTrack, position: number): void;
   insertTracks(tracks: PluginTrack[], position: number): void;
+  /** Start playing the track(s) you already know NOW, and hand the rest over
+   *  when your slow work finishes — instead of making the user wait for the
+   *  whole list. Use it when a play's opening track is known up front but the
+   *  remainder costs seconds to produce (a scrape, a paged catalog): e.g. a
+   *  "song radio" whose station always opens with the seed the user picked.
+   *
+   *  `head` plays immediately (a metadata-only track is fine — the host's
+   *  stream-resolver chain resolves it on play). `resolveTail` returns the full
+   *  list, head included or not; the host strips a leading run it has already
+   *  started. On failure or an empty result the head keeps playing and
+   *  `tailErrorMessage` is shown as a toast.
+   *
+   *  Prefer this over `playTracks` + `insertTracks`: the host discards the tail
+   *  if the user replaced or cleared the queue while you were resolving, which a
+   *  hand-rolled insert cannot detect. Guard with a `typeof` check — older hosts
+   *  don't have it. */
+  playWithBackfill(opts: {
+    head: PluginTrack[];
+    context?: PluginPlayContext;
+    resolveTail: () => Promise<PluginTrack[]> | PluginTrack[];
+    tailErrorMessage?: string;
+  }): void;
   // These receive the currently-playing track, which is a metadata-only
   // QueueTrack (no DB ids) — NOT a library Track. Plugins must act on metadata
   // (title/artist_name/album_title/duration_secs); id/album_id/artist_id are
@@ -747,6 +779,14 @@ export type HomeShelfItem =
       coverUrl?: string;
       subtitle?: string;
       tracks: PluginTrack[];
+      // `tracks` is only the known *start* of the list (e.g. a radio station's
+      // seed, or the one track still cached from a previous fetch) — the rest
+      // comes from this shelf's `onResolvePlay` handler. The host plays what's
+      // here immediately and appends the resolved remainder behind the music,
+      // instead of holding the user behind a loading modal for the whole
+      // fetch. Only set it when the shipped tracks really do open the list:
+      // the host trusts the order and appends after them.
+      partial?: boolean;
       sourcePluginId?: string;
     }
   | {
@@ -756,6 +796,8 @@ export type HomeShelfItem =
       artistName?: string;
       coverUrl?: string;
       tracks?: PluginTrack[];
+      /** See `partial` on playlist-cards. Ignored when `libraryId` is set. */
+      partial?: boolean;
       // Per-item override for mixed album/artist shelves (e.g. builtin:jump-back-in).
       // When "artist", `libraryId` is an artist id and the card renders, navigates,
       // and plays as an artist. Absent or "album" = album (default, back-compatible).
@@ -797,10 +839,12 @@ export interface PluginHomeAPI {
     shelfId: string,
     handler: (item: HomeShelfItem) => void | Promise<void>,
   ): () => void;
-  // Resolve the tracks to play for a card whose `tracks` arrived empty (lazy).
-  // The host awaits this (behind a loading modal) only when the card's play
-  // action is kind:"tracks" with an empty list. Return the tracks to play (or
-  // [] to play nothing).
+  // Resolve the tracks to play for a card that shipped without its full list.
+  // The host calls this when the card's play action is kind:"tracks" and either
+  // the list is empty (it awaits behind a loading modal) or the card is marked
+  // `partial` (it plays the shipped head first and appends the remainder — no
+  // modal, no waiting). Return the full list either way; the host de-dupes a
+  // head it has already started. Return [] to play nothing.
   onResolvePlay(
     shelfId: string,
     handler: (item: HomeShelfItem) => Promise<PluginTrack[]>,

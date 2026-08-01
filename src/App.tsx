@@ -43,7 +43,9 @@ import { useStreamResolution } from "./hooks/useStreamResolution";
 import { useDownloadOrchestration } from "./hooks/useDownloadOrchestration";
 import { decideDownload } from "./utils/downloadPlan";
 import { useQueue } from "./hooks/useQueue";
+import type { PlaylistContext } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
+import type { BackfillPlay } from "./hooks/usePlayActions";
 import { useToasts } from "./hooks/useToasts";
 import { useProfileSwitch } from "./hooks/useProfileSwitch";
 import ProfileSwitchOverlay from "./components/ProfileSwitchOverlay";
@@ -75,7 +77,7 @@ import { useExtensions } from "./hooks/useExtensions";
 import { useLikeActions } from "./hooks/useLikeActions";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { PluginTrack, PluginBadge } from "./types/plugin";
+import type { PluginTrack, PluginBadge, PluginPlayContext } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
 import { useMiniSearch } from "./hooks/useMiniSearch";
@@ -155,6 +157,9 @@ function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<V
 function App() {
   const restoredRef = useRef(false);
   const handleEnqueueRef = useRef<(tracks: Track[]) => void>(() => {});
+  // Late-bound so the plugin playback bridge (built above playActions) can reach
+  // the canonical backfill action. Resolves with the tracks actually appended.
+  const playWithBackfillRef = useRef<(opts: BackfillPlay) => Promise<QueueTrack[]>>(() => Promise.resolve([]));
   const videoFrameQueueRef = useRef<VideoFrameQueue | null>(null);
   const [appRestoring, setAppRestoring] = useState(true);
   const [navError, setNavError] = useState<string | null>(null);
@@ -458,20 +463,55 @@ function App() {
     }
   }, [queueHook, playback]);
 
+  // Map a plugin-supplied play context onto the queue's PlaylistContext. Shared
+  // by every plugin play entry point so the banner is identical whichever one a
+  // plugin uses.
+  const pluginPlaylistContext = useCallback((context?: PluginPlayContext): PlaylistContext | undefined => {
+    const displayName = context?.playlistName || context?.name || "";
+    if (!context || !displayName) return undefined;
+    const cleanName = context.name || context.playlistName || "";
+    const meta = { ...(context.metadata ?? {}) };
+    if (cleanName && cleanName !== displayName) meta.playlistName = cleanName;
+    return {
+      name: displayName,
+      source: context.source ?? null,
+      description: context.description ?? null,
+      metadata: Object.keys(meta).length > 0 ? meta : null,
+      remote: true,
+      imagePath: context.coverUrl ?? null,
+    };
+  }, []);
+
   const pluginPlaybackCallbacks = useMemo(() => ({
     playTrack: (track: PluginTrack) => {
       const converted = [pluginTrackToQueueTrack(track)];
       queueHook.playTracks(converted, 0);
       reconcileAddedLikeStates(converted);
     },
-    playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => {
-      const displayName = context?.playlistName || context?.name || "";
-      const cleanName = context?.name || context?.playlistName || "";
-      const meta = { ...(context?.metadata ?? {}) };
-      if (cleanName && cleanName !== displayName) meta.playlistName = cleanName;
+    playTracks: (tracks: PluginTrack[], startIndex?: number, context?: PluginPlayContext) => {
       const converted = tracks.map(pluginTrackToQueueTrack);
-      queueHook.playTracks(converted, startIndex ?? 0, context && displayName ? { name: displayName, source: context.source ?? null, description: context.description ?? null, metadata: Object.keys(meta).length > 0 ? meta : null, remote: true, imagePath: context.coverUrl ?? null } : undefined);
+      queueHook.playTracks(converted, startIndex ?? 0, pluginPlaylistContext(context));
       reconcileAddedLikeStates(converted);
+    },
+    // Play the plugin's known head now, append its resolved tail behind the
+    // music. The host owns the staleness guard + head de-dupe (see
+    // conventions.md "Play With Backfill"), so a plugin can't splice a late
+    // tail into a queue the user has since replaced. Routed through a ref
+    // because playActions is constructed further down.
+    playWithBackfill: (opts: { head: PluginTrack[]; context?: PluginPlayContext; resolveTail: () => Promise<PluginTrack[]> | PluginTrack[]; tailErrorMessage?: string }) => {
+      const head = opts.head.map(pluginTrackToQueueTrack);
+      if (head.length === 0) return;
+      const appended = playWithBackfillRef.current({
+        head,
+        context: pluginPlaylistContext(opts.context),
+        // Promise.resolve tolerates a plugin handing back a plain array.
+        resolveTail: () => Promise.resolve(opts.resolveTail()).then(ts => (ts ?? []).map(pluginTrackToQueueTrack)),
+        tailErrorMessage: opts.tailErrorMessage,
+      });
+      reconcileAddedLikeStates(head);
+      appended
+        .then(tracks => { if (tracks.length > 0) reconcileAddedLikeStates(tracks); })
+        .catch(e => console.error("Plugin backfill play failed:", e));
     },
     insertTrack: (track: PluginTrack, position: number) => {
       const converted = [pluginTrackToQueueTrack(track)];
@@ -491,7 +531,7 @@ function App() {
       }
       reconcileAddedLikeStates(converted);
     },
-  }), [queueHook, pluginTrackToQueueTrack, reconcileAddedLikeStates]);
+  }), [queueHook, pluginTrackToQueueTrack, reconcileAddedLikeStates, pluginPlaylistContext]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   // Defer plugin loading until the cold-start critical path has settled
   // (window shown + state restored). `!appRestoring` flips true at that point;
@@ -1086,6 +1126,9 @@ function App() {
   const playActions = usePlayActions({
     playTracks: queueHook.playTracks,
     enqueueTracks: (tracks: Track[]) => handleEnqueueRef.current(tracks),
+    // Raw guarded append (no duplicate banner) — a backfill continues a play
+    // the user already made. See useQueue.appendToPlaySession.
+    appendToPlaySession: queueHook.appendToPlaySession,
     setPlaylistContext: queueHook.setPlaylistContext,
     albums: library.albums,
     artists: library.artists,
@@ -1095,6 +1138,7 @@ function App() {
     getTagImage: tagImageCache.getImage,
     notify,
   });
+  playWithBackfillRef.current = playActions.playWithBackfill;
 
   // Mini search drives both useMiniMode's window resize (via onOpen/ClosePanel)
   // and the keyboard trigger's "already open?" guard (via miniSearch.isOpen).
@@ -1479,23 +1523,6 @@ function App() {
   const pushStateRef = useRef(pushAndScroll);
   pushStateRef.current = pushAndScroll;
 
-  // Helper for playing playlist items (with optional radio seed sentinel)
-  const playShelfPlaylistItem = useCallback((it: { name: string; coverUrl?: string | null; tracks: PluginTrack[] }) => {
-    const first = it.tracks[0] as unknown as { __radioSeed?: Track } | undefined;
-    if (first?.__radioSeed) {
-      const seed = first.__radioSeed;
-      contextMenuActions.startRadio({
-        title: seed.title,
-        artistName: seed.artist_name,
-        coverPath: seed.image_url ?? it.coverUrl ?? null,
-      });
-      return;
-    }
-    const queueTracks = it.tracks.map(pluginTrackToQueueTrack);
-    queueHook.playTracks(queueTracks, 0, { name: it.name, imagePath: it.coverUrl ?? null, source: "playlist" });
-  }, [contextMenuActions, pluginTrackToQueueTrack, queueHook]);
-
-  // Home shelf item click handler
   // Replay a "Latest play" tile. Re-resolves by source rather than replaying a
   // stored track list: library entities play fresh from the current library,
   // radio regenerates a new station, and a lone/unresolved track replays itself.
@@ -1529,6 +1556,75 @@ function App() {
       notify(`Couldn't replay “${session.name}”.`);
     }
   }, [playActions, queueHook, notify]);
+
+  const handleHomeShelfItemPlay = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
+    // "Latest play" tiles replay their session (the shipped `tracks` are empty).
+    if (shelf.id === LATEST_PLAY_SHELF_ID) {
+      const sess = (item as { __session?: RecentPlaySession }).__session;
+      if (sess) void handleReplayLatestPlay(sess);
+      return;
+    }
+    const action = resolveShelfPlayAction(shelf.displayKind, item);
+    switch (action.kind) {
+      case "album-id":
+        playActions.playAlbum(action.id);
+        return;
+      case "artist-id":
+        playActions.playArtist(action.id);
+        return;
+      case "radio":
+        contextMenuActions.startRadio({
+          title: action.seed.title,
+          artistName: action.seed.artist_name,
+          coverPath: action.seed.image_url ?? action.coverUrl ?? null,
+        });
+        return;
+      case "tracks": {
+        const ctx = action.context ? { name: action.context.name, imagePath: action.context.imagePath ?? null, source: action.context.source ?? null } : undefined;
+        const label = (item as { name?: string }).name ?? "tracks";
+        // A card that shipped without its full list (empty, or a `partial`
+        // head) resolves through the shelf's plugin handler. Kick that off
+        // first so the resolve overlaps the head's playback.
+        const shelfId = shelf.pluginId ? shelf.id.slice(shelf.pluginId.length + 1) : null;
+        const pending = shelf.pluginId && shelfId !== null && (action.partial || action.tracks.length === 0)
+          ? plugins.invokeHomeShelfResolvePlay(shelf.pluginId, shelfId, item)
+          : null;
+        if (action.tracks.length > 0) {
+          const head = action.tracks.map(pluginTrackToQueueTrack);
+          // Partial: start the known head now and append the rest behind the
+          // music — no modal, since audio covers the wait.
+          if (action.partial && pending) {
+            void playActions.playWithBackfill({
+              head,
+              context: ctx ?? null,
+              resolveTail: () => pending.then(ts => ts.map(pluginTrackToQueueTrack)),
+              tailErrorMessage: `Couldn't load the rest of “${label}”.`,
+            });
+            return;
+          }
+          queueHook.playTracks(head, 0, ctx);
+          return;
+        }
+        // Nothing playable shipped, so there's no audio to hide the wait
+        // behind — this is the one case that still blocks on a modal.
+        if (pending) {
+          setPluginLoadingMessage("Loading " + label + "…");
+          pending.then((tracks) => {
+            if (tracks && tracks.length > 0) {
+              queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), 0, ctx);
+            }
+          }).catch((e) => {
+            console.error("[home] resolve-play failed:", e);
+          }).finally(() => {
+            setPluginLoadingMessage(null);
+          });
+        }
+        return;
+      }
+      case "none":
+        return;
+    }
+  }, [playActions, contextMenuActions, pluginTrackToQueueTrack, queueHook, plugins, handleReplayLatestPlay]);
 
   const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
     // The "Latest play" shelf re-resolves each tile to a fresh play (see
@@ -1579,68 +1675,16 @@ function App() {
       return;
     }
     if (shelf.displayKind === "playlist-cards") {
-      // Plugin playlist shelves have no detail page — clicking plays them.
-      playShelfPlaylistItem(item as { name: string; coverUrl?: string; tracks: PluginTrack[] });
+      // Plugin playlist shelves have no detail page — clicking plays them, via
+      // the same path as the card's play button so radio seeds, lazy resolves
+      // and partial backfills all behave identically on body-click.
+      handleHomeShelfItemPlay(shelf, item);
       return;
     }
     // track-rows — open the track detail page (synthetic if not in library)
     const it = item as { track: PluginTrack };
     library.navigateToTrackByName(it.track.title, it.track.artist_name ?? undefined, it.track.album_title ?? undefined).catch(console.error);
-  }, [library, playShelfPlaylistItem, plugins, handleReplayLatestPlay]);
-
-  const handleHomeShelfItemPlay = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
-    // "Latest play" tiles replay their session (the shipped `tracks` are empty).
-    if (shelf.id === LATEST_PLAY_SHELF_ID) {
-      const sess = (item as { __session?: RecentPlaySession }).__session;
-      if (sess) void handleReplayLatestPlay(sess);
-      return;
-    }
-    const action = resolveShelfPlayAction(shelf.displayKind, item);
-    switch (action.kind) {
-      case "album-id":
-        playActions.playAlbum(action.id);
-        return;
-      case "artist-id":
-        playActions.playArtist(action.id);
-        return;
-      case "radio":
-        contextMenuActions.startRadio({
-          title: action.seed.title,
-          artistName: action.seed.artist_name,
-          coverPath: action.seed.image_url ?? action.coverUrl ?? null,
-        });
-        return;
-      case "tracks": {
-        const ctx = action.context ? { name: action.context.name, imagePath: action.context.imagePath ?? null, source: action.context.source ?? null } : undefined;
-        if (action.tracks.length > 0) {
-          queueHook.playTracks(action.tracks.map(pluginTrackToQueueTrack), 0, ctx);
-          return;
-        }
-        // Empty tracks: a lazy plugin card. If the plugin registered a resolver,
-        // await it (behind a loading modal) and play the result.
-        if (shelf.pluginId) {
-          const shelfId = shelf.id.slice(shelf.pluginId.length + 1);
-          const resolved = plugins.invokeHomeShelfResolvePlay(shelf.pluginId, shelfId, item);
-          if (resolved) {
-            const label = (item as { name?: string }).name ?? "tracks";
-            setPluginLoadingMessage("Loading " + label + "…");
-            resolved.then((tracks) => {
-              if (tracks && tracks.length > 0) {
-                queueHook.playTracks(tracks.map(pluginTrackToQueueTrack), 0, ctx);
-              }
-            }).catch((e) => {
-              console.error("[home] resolve-play failed:", e);
-            }).finally(() => {
-              setPluginLoadingMessage(null);
-            });
-          }
-        }
-        return;
-      }
-      case "none":
-        return;
-    }
-  }, [playActions, contextMenuActions, pluginTrackToQueueTrack, queueHook, handleReplayLatestPlay]);
+  }, [library, handleHomeShelfItemPlay, plugins, handleReplayLatestPlay]);
 
   const handleHomeShelfItemContextMenu = useCallback((_shelf: ResolvedShelf, _item: HomeShelfItem, e: React.MouseEvent) => {
     e.preventDefault();

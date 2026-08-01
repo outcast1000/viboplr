@@ -98,7 +98,7 @@
 - **useEntityDetail.ts** — Loads detail-page data (tracks/albums/sections) for a selected artist/album/tag.
 - **useDetailHeroImages.ts** — Resolves the multi-image background set for `DetailHero`.
 - **useArtistInfo.ts** — Artist metadata loading for the artist detail page.
-- **usePlayActions.ts** — Shared play/enqueue action helpers routed through the canonical queue actions.
+- **usePlayActions.ts** — Shared play/enqueue action helpers routed through the canonical queue actions. Also owns `playWithBackfill` (play a known head now, append the async remainder — generation-guarded via `useQueue.appendToPlaySession`, head de-duped by the exported pure `dropPlayedHead`) and `startRadio` (which enriches the banner cover after playback starts). See conventions.md "Play With Backfill".
 - **useCollectionActions.ts** — Collection CRUD/resync action handlers for `CollectionsView`.
 - **useExtensions.ts** — Extension/plugin install, enable/disable, update checking for `ExtensionsView`.
 - **useDependencies.ts** — External-binary dependency state (install/update/progress/check). See `backend.md` "External Binary Dependencies".

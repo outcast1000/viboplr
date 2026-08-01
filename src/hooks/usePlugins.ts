@@ -22,6 +22,7 @@ import type {
   ViboplrPluginAPI,
   PluginEventName,
   PluginTrack,
+  PluginPlayContext,
   GalleryPluginEntry,
   PluginGalleryIndex,
   ImageFetchResult,
@@ -188,9 +189,15 @@ type EventHandlers = {
 
 export interface PluginPlaybackCallbacks {
   playTrack: (track: PluginTrack) => void;
-  playTracks: (tracks: PluginTrack[], startIndex?: number, context?: { name?: string; playlistName?: string; coverUrl?: string | null; source?: string | null; description?: string | null; metadata?: Record<string, string> | null }) => void;
+  playTracks: (tracks: PluginTrack[], startIndex?: number, context?: PluginPlayContext) => void;
   insertTrack: (track: PluginTrack, position: number) => void;
   insertTracks: (tracks: PluginTrack[], position: number) => void;
+  playWithBackfill: (opts: {
+    head: PluginTrack[];
+    context?: PluginPlayContext;
+    resolveTail: () => Promise<PluginTrack[]> | PluginTrack[];
+    tailErrorMessage?: string;
+  }) => void;
 }
 
 export interface PluginHostCallbacks {
@@ -553,6 +560,9 @@ export function usePlugins(
           },
           insertTracks: (tracks, position) => {
             playbackCallbacksRef.current?.insertTracks(tracks, position);
+          },
+          playWithBackfill: (opts) => {
+            playbackCallbacksRef.current?.playWithBackfill(opts);
           },
           onTrackStarted: (handler) =>
             subscribeEvent(

@@ -13,7 +13,11 @@ export interface RadioSeed {
 export type ShelfPlayAction =
   | { kind: "album-id"; id: number }
   | { kind: "artist-id"; id: number }
-  | { kind: "tracks"; tracks: PluginTrack[]; context?: { name: string; imagePath?: string | null; source?: string } }
+  // `partial`: the shipped tracks are only the known start of the list (the
+  // card's cached first track), not the whole thing. The caller plays them
+  // immediately and backfills the rest from the shelf's resolve-play handler
+  // instead of blocking on it. Absent = the tracks ARE the whole list.
+  | { kind: "tracks"; tracks: PluginTrack[]; partial?: true; context?: { name: string; imagePath?: string | null; source?: string } }
   | { kind: "radio"; seed: RadioSeed; coverUrl?: string | null }
   | { kind: "none" };
 
@@ -22,14 +26,14 @@ export function resolveShelfPlayAction(
   item: HomeShelfItem,
 ): ShelfPlayAction {
   if (displayKind === "album-cards") {
-    const it = item as { libraryId?: number; name: string; tracks?: PluginTrack[]; entityKind?: "album" | "artist" };
+    const it = item as { libraryId?: number; name: string; tracks?: PluginTrack[]; partial?: boolean; entityKind?: "album" | "artist" };
     // Mixed shelves tag artist items so the play button plays the artist, not an
     // album row that happens to share the id.
     if (it.entityKind === "artist") {
       return it.libraryId ? { kind: "artist-id", id: it.libraryId } : { kind: "none" };
     }
     if (it.libraryId) return { kind: "album-id", id: it.libraryId };
-    if (it.tracks?.length) return { kind: "tracks", tracks: it.tracks, context: { name: it.name } };
+    if (it.tracks?.length) return { kind: "tracks", tracks: it.tracks, ...(it.partial ? { partial: true as const } : {}), context: { name: it.name } };
     return { kind: "none" };
   }
   if (displayKind === "artist-cards") {
@@ -38,12 +42,13 @@ export function resolveShelfPlayAction(
     return { kind: "none" };
   }
   if (displayKind === "playlist-cards") {
-    const it = item as { name: string; coverUrl?: string | null; tracks: PluginTrack[] };
+    const it = item as { name: string; coverUrl?: string | null; tracks: PluginTrack[]; partial?: boolean };
     const first = it.tracks?.[0] as unknown as { __radioSeed?: RadioSeed } | undefined;
     if (first?.__radioSeed) return { kind: "radio", seed: first.__radioSeed, coverUrl: it.coverUrl ?? null };
     return {
       kind: "tracks",
       tracks: it.tracks,
+      ...(it.partial && it.tracks?.length ? { partial: true as const } : {}),
       context: { name: it.name, imagePath: it.coverUrl ?? null, source: "playlist" },
     };
   }

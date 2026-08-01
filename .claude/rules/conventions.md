@@ -36,6 +36,20 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `useQueue.ts` -> `playTracks()` / `enqueueTracks()` / `playNextInQueue()`
 - Enqueue checks for duplicates via `findDuplicates()` with user confirmation modal
+- `playTracks()` returns the **play generation** of the session it started — the token `appendToPlaySession()` needs. Ignore it for ordinary plays.
+
+### Play With Backfill (optimistic head, async tail)
+
+- **Canonical:** `usePlayActions.ts` -> `playWithBackfill({ head, context, resolveTail, tailErrorMessage })`, on top of `useQueue.ts` -> `playTracks()` + `appendToPlaySession()`.
+- **Use it when** the first track(s) of a play are known up front but the remainder costs real time (a plugin scrape, a remote catalog). The user hears audio immediately instead of watching a loading modal. Callers: Home `partial` shelf cards (`App.tsx` `handleHomeShelfItemPlay`) and plugins via `api.playback.playWithBackfill` (bridged in `App.tsx` `pluginPlaybackCallbacks`, which also reconciles both head and tail against the durable like store).
+- **Plugins must use the bridge, not `playTracks` + `insertTracks`** — a hand-rolled insert has no staleness guard and would splice a late tail into whatever the user started meanwhile.
+- **Flow:** `playTracks(head, 0, context)` -> returns a play generation -> `await resolveTail()` -> `dropPlayedHead(head, tail)` -> `appendToPlaySession(gen, rest)`.
+- **Preconditions (hard rule):** only valid when the source *guarantees* the head opens the list (a radio seed, a card's cached first track). For a list whose order isn't known until it resolves, play it the ordinary way — starting early would misrepresent the source's order.
+- **Staleness:** `appendToPlaySession` compares the captured generation against the live one and appends nothing once the queue has been **replaced or cleared** (`playTracks` / `clearQueue` / `loadPlaylist` all bump it). Never hand-roll this guard at a call site.
+- **Head de-dupe:** `dropPlayedHead()` strips only a *leading* run matching the head (path first, then title+artist). A later repeat of the same song is left alone, and a tail that arrives in a different order is appended verbatim rather than silently reordered.
+- **Duplicate banner:** `appendToPlaySession` deliberately **bypasses** `findDuplicates()`. This is the one sanctioned exception to the "every enqueue entry point runs findDuplicates first" rule (see queue.md) — the tail continues a play the user already made, so a confirmation prompt over already-playing audio would be wrong.
+- **Failure:** the head keeps playing; a failed or empty tail surfaces `tailErrorMessage` via `notify()` and nothing else. Do not clear or rebuild the queue on tail failure.
+- **No modal.** Feedback is the music. A blocking modal is correct only when *nothing* is playing yet (a lazy card that shipped zero tracks) — that path stays as it was.
 
 ### Open Containing Folder
 

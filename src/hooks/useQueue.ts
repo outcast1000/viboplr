@@ -182,7 +182,16 @@ export function useQueue(
     }
   }, [queueIndex]);
 
-  function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) {
+  // Monotonic id of the live "play session", bumped every time the queue is
+  // *replaced* or cleared. An async backfill (usePlayActions.playWithBackfill)
+  // captures it when it starts the head and appends only while it is still
+  // current, so a slow resolve can never dump its tail into a queue the user
+  // has since replaced with something else.
+  const playGenRef = useRef(0);
+
+  // Returns the play generation of the session it just started, for callers
+  // that resolve the rest of the queue asynchronously (see appendToPlaySession).
+  function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null): number {
     // Anonymous: an intentional play + its origin (album/artist/tag/radio/
     // playlist/plugin/…), distinct from track_played which fires per track start.
     // context.source is the logical origin surface; "none" = a bare single play.
@@ -203,6 +212,22 @@ export function useQueue(
     handlePlay(dedupedTracks[startIndex]);
     setPlaylistContext(context ?? null);
     onPlay?.(dedupedTracks, startIndex, context ?? null);
+    playGenRef.current += 1;
+    return playGenRef.current;
+  }
+
+  // Append the tail of a play session started by `playTracks`. Returns false
+  // (and appends nothing) once the queue has been replaced or cleared — those
+  // tracks belong to a station the user has already moved on from.
+  //
+  // This deliberately bypasses the `findDuplicates` banner that normal enqueue
+  // entry points must run: the tail is the continuation of a play the user
+  // already made, so prompting over already-playing audio would be wrong. It is
+  // the one sanctioned exception (see conventions.md "Play With Backfill").
+  function appendToPlaySession(gen: number, tracks: QueueTrack[]): boolean {
+    if (gen !== playGenRef.current || tracks.length === 0) return false;
+    enqueueTracks(tracks);
+    return true;
   }
 
   function findDuplicates(newTracks: QueueTrack[]): { duplicates: QueueTrack[]; unique: QueueTrack[] } {
@@ -443,6 +468,8 @@ export function useQueue(
     setQueue([]);
     setQueueIndex(-1);
     setPlaylistContext(null);
+    // Ends the live play session: any in-flight backfill is now stale.
+    playGenRef.current += 1;
     invoke("main_playlist_clear").catch(console.error);
   }
 
@@ -558,6 +585,8 @@ export function useQueue(
       setQueueIndex(0);
       handlePlay(tracks[0]);
       setPlaylistContext({ name: result.playlist_name });
+      // Replaces the queue, so it starts a new play session (see playTracks).
+      playGenRef.current += 1;
     }
   }
 
@@ -566,7 +595,7 @@ export function useQueue(
     queueIndex, setQueueIndex,
     queueMode, setQueueMode,
     queuePanelRef, dragIndexRef,
-    playTracks, enqueueTracks, findDuplicates,
+    playTracks, enqueueTracks, findDuplicates, appendToPlaySession,
     playNext, playPrevious,
     removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,

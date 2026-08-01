@@ -69,6 +69,7 @@ Every way tracks enter the queue and what each must maintain.
 | **Insert at position** | `insertAtPosition(tracks, position)` | Inserts at arbitrary index. If `position <= queueIndex`, shifts index up by `tracks.length`. |
 | **Add single** | `addToQueue(track)` | Appends one track. No index change. |
 | **Add and play** | `addToQueueAndPlay(track, source?)` | Appends one track, sets `queueIndex` to new last position, calls `handlePlay`. |
+| **Append play-session tail** | `appendToPlaySession(gen, tracks)` | Appends the asynchronously-resolved remainder of a play started by `playTracks` (which returns `gen`). No-op once the queue has been replaced or cleared — the generation check makes a stale resolve harmless. Does NOT change `queueIndex`, does NOT touch `playlistContext`, and deliberately skips `findDuplicates`. Only reachable through `usePlayActions.playWithBackfill` — see conventions.md "Play With Backfill". |
 | **Load playlist** | `loadPlaylist()` | Replaces entire queue from `.m3u`/`.m3u8` file. Converts entries via `queueEntryToTrack`. Sets index to 0, plays first track, sets context to filename. `.mixtape` files delegate to `onOpenMixtape`. |
 
 **Image resolution rule:** There is no synchronous image stamping. Image resolution happens asynchronously in `QueuePanel.tsx` (for queue thumbnails) and in the `currentTrack` effect in `App.tsx` (for now-playing art). Both use the same priority chain defined in "Image Resolution (Queue/NowPlaying)" above.
@@ -177,6 +178,7 @@ How the app prevents accidental duplicate enqueues.
 
 **Invariants:**
 - `enqueueTracks()` itself has NO built-in dedup. Callers are responsible for running `findDuplicates()` and presenting the banner. If you add a new enqueue entry point, it must follow this pattern.
+- **One exception:** `appendToPlaySession()` (the backfill tail of a play already in progress) skips the banner by design — see conventions.md "Play With Backfill". It is the only sanctioned bypass; a new enqueue surface is not one.
 - The countdown resets to 10s whenever `pendingEnqueue` changes (new batch replaces previous).
 - Auto-approve fires via a `useEffect` watching `[countdown, pendingEnqueue]` — when `countdown === 0 && pendingEnqueue !== null`, calls `onAllowAll`.
 - Image resolution happens async after tracks are added to the queue, regardless of which duplicate resolution path the user picks.

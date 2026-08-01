@@ -6,8 +6,12 @@ import { trackToQueueTrack } from "../queueEntry";
 import { track as trackTelemetry } from "../telemetry";
 
 interface PlayActionsArgs {
-  playTracks: (tracks: QueueTrack[], index: number, context?: PlaylistContext | null) => void;
+  playTracks: (tracks: QueueTrack[], index: number, context?: PlaylistContext | null) => number;
   enqueueTracks: (tracks: Track[]) => void;
+  // Guarded append for the tail of a play session — no-ops once the queue has
+  // been replaced. Must be the raw queue append, NOT the duplicate-banner
+  // enqueue path (see useQueue.appendToPlaySession).
+  appendToPlaySession: (gen: number, tracks: QueueTrack[]) => boolean;
   setPlaylistContext: (fn: (prev: PlaylistContext | null) => PlaylistContext | null) => void;
   albums: Album[];
   artists: Artist[];
@@ -71,6 +75,28 @@ export function buildTagContext(
   };
 }
 
+// Two tracks are the same entry for backfill purposes. Paths are the queue's
+// own duplicate dimension, so they win when both sides have one; otherwise fall
+// back to song identity (title + artist), which is all a metadata-only
+// PluginTrack carries before its stream is resolved. Keys are ignored — the
+// resolved tail always arrives with fresh ones.
+function sameEntry(a: QueueTrack, b: QueueTrack): boolean {
+  if (a.path && b.path) return a.path === b.path;
+  return a.title === b.title && (a.artist_name ?? null) === (b.artist_name ?? null);
+}
+
+// Strip the already-playing head off a resolved tail so the seed doesn't play
+// twice. Only a *leading* run is dropped: "the resolved list starts with what
+// we already played" is the only case we can be sure about. A later repeat of
+// the same song is left alone (it's genuinely part of the source's order), and
+// a tail that arrives in a different order is appended verbatim rather than
+// silently reordered — the source's list is the truth once it lands.
+export function dropPlayedHead(head: QueueTrack[], tail: QueueTrack[]): QueueTrack[] {
+  let skip = 0;
+  while (skip < head.length && skip < tail.length && sameEntry(head[skip], tail[skip])) skip++;
+  return tail.slice(skip);
+}
+
 function tryEnrichFromCache(
   entityKey: string,
   infoTypeId: string,
@@ -100,9 +126,54 @@ function enrichDescription(
   });
 }
 
+/** A play whose first track(s) are known up front and whose remainder resolves
+ *  asynchronously. See `playWithBackfill`. */
+export interface BackfillPlay {
+  /** Plays immediately. Must be the true start of the list, in order. */
+  head: QueueTrack[];
+  context?: PlaylistContext | null;
+  /** The full list (head included or not — the head is de-duped either way). */
+  resolveTail: () => Promise<QueueTrack[]>;
+  /** Toast shown when the tail fails or comes back empty. */
+  tailErrorMessage?: string;
+}
+
+function entityImage(kind: "album" | "artist", name: string, artistName: string | null): Promise<string | null> {
+  return invoke<string | null>("get_entity_image", { kind, name, artistName }).catch(e => {
+    console.error(`Failed to resolve ${kind} image for radio cover:`, e);
+    return null;
+  });
+}
+
+// Resolve a radio station's banner cover after playback has started and patch
+// it into the live context (album image, then artist image). Guarded on the
+// context still being that station: if the user has since played something
+// else, a late-arriving cover must not repaint someone else's banner.
+async function enrichRadioCover(
+  seedTrack: Track | undefined,
+  contextName: string,
+  setPlaylistContext: PlayActionsArgs["setPlaylistContext"],
+) {
+  if (!seedTrack) return;
+  let cover: string | null = null;
+  if (seedTrack.album_title) {
+    cover = await entityImage("album", seedTrack.album_title, seedTrack.artist_name ?? null);
+  }
+  if (!cover && seedTrack.artist_name) {
+    cover = await entityImage("artist", seedTrack.artist_name, null);
+  }
+  if (!cover) return;
+  setPlaylistContext(prev =>
+    prev && prev.source === "radio" && prev.name === contextName && !prev.imagePath
+      ? { ...prev, imagePath: cover }
+      : prev,
+  );
+}
+
 export function usePlayActions({
   playTracks,
   enqueueTracks,
+  appendToPlaySession,
   setPlaylistContext,
   albums,
   artists,
@@ -172,6 +243,40 @@ export function usePlayActions({
     }
   }, [enqueueTracks]);
 
+  // Canonical "start playing now, fill the rest in behind the music" action.
+  // Use it whenever the first track(s) of a play are known up front but the
+  // rest costs real time to produce (a plugin scrape, a network catalog) — the
+  // user hears audio immediately instead of watching a modal.
+  //
+  // Only valid when the source *guarantees* the head is the start of the list
+  // (a radio station's seed, a card's cached first track). For a list whose
+  // order isn't known until it resolves, play it the ordinary way — starting
+  // early would misrepresent the source's order.
+  // Resolves with the tracks actually appended (empty when the tail failed, was
+  // redundant, or arrived too late), so callers that post-process new queue
+  // entries — e.g. reconciling plugin tracks against the durable like store —
+  // can act on exactly what landed.
+  const playWithBackfill = useCallback(async ({ head, context, resolveTail, tailErrorMessage }: BackfillPlay): Promise<QueueTrack[]> => {
+    if (head.length === 0) return [];
+    const gen = playTracks(head, 0, context ?? null);
+    let tail: QueueTrack[];
+    try {
+      tail = await resolveTail();
+    } catch (e) {
+      console.error("Failed to resolve the rest of the queue:", e);
+      // The head keeps playing — the user only needs to know the rest is missing.
+      if (tailErrorMessage) notify(tailErrorMessage);
+      return [];
+    }
+    if (tail.length === 0) {
+      if (tailErrorMessage) notify(tailErrorMessage);
+      return [];
+    }
+    const rest = dropPlayedHead(head, tail);
+    // Stale (the user replaced or cleared the queue while we resolved) → dropped.
+    return appendToPlaySession(gen, rest) ? rest : [];
+  }, [playTracks, appendToPlaySession, notify]);
+
   // Build a radio station from a seed track and play it. Play-only (no enqueue):
   // it replaces the queue with a freshly generated station under a "Radio: …"
   // context. Tracks are mapped to QueueTracks (fresh keys, DB ids stripped).
@@ -191,26 +296,22 @@ export function usePlayActions({
       // Anonymous: a station was started. Radio is always track-seeded here
       // (build_radio_for_track), so there's no meaningful seed_kind to send.
       trackTelemetry("radio_started");
-      // Resolve a cover for the queue banner. Callers may pass one (e.g. the
-      // queue track's image_url, or a Home station's resolved cover); when they
-      // don't (library track context menu), derive it from the seed track's
-      // album image, falling back to the artist image — same chain Home uses.
-      let coverPath = seed.coverPath ?? null;
-      if (!coverPath) {
-        const seedTrack = tracks[0];
-        if (seedTrack?.album_title) {
-          coverPath = await invoke<string | null>("get_entity_image", { kind: "album", name: seedTrack.album_title, artistName: seedTrack.artist_name ?? null }).catch(() => null);
-        }
-        if (!coverPath && seedTrack?.artist_name) {
-          coverPath = await invoke<string | null>("get_entity_image", { kind: "artist", name: seedTrack.artist_name, artistName: null }).catch(() => null);
-        }
-      }
       const queueTracks = tracks.map(trackToQueueTrack);
       playTracks(queueTracks, 0, {
         name: `Radio: ${seed.title}`,
-        imagePath: coverPath,
+        imagePath: seed.coverPath ?? null,
         source: "radio",
       });
+      // Resolve the queue banner's cover *after* playback starts and patch it
+      // in, the way enrichDescription does — it's decoration, and two
+      // get_entity_image round-trips ahead of the first note is latency the
+      // user hears. Callers may pass one (the queue track's image_url, a Home
+      // station's resolved cover); when they don't (library track context
+      // menu), derive it from the seed track's album image, falling back to the
+      // artist image — same chain Home uses.
+      if (!seed.coverPath) {
+        void enrichRadioCover(tracks[0], `Radio: ${seed.title}`, setPlaylistContext);
+      }
       // Play whatever we found (even just the seed), but let the user know when
       // the station is small rather than silently playing one or two tracks.
       if (tracks.length < 10) {
@@ -222,7 +323,7 @@ export function usePlayActions({
       console.error("Failed to start radio:", e);
       notify("Failed to start radio.");
     }
-  }, [playTracks, notify]);
+  }, [playTracks, setPlaylistContext, notify]);
 
-  return { playAlbum, playArtist, playTag, enqueueAlbum, enqueueArtist, enqueueTag, startRadio };
+  return { playAlbum, playArtist, playTag, enqueueAlbum, enqueueArtist, enqueueTag, startRadio, playWithBackfill };
 }
