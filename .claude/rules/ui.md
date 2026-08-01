@@ -188,7 +188,7 @@ Both the card body-click and its play button route through the one handler (`App
 
 **Lazy plugin cards:** a plugin card can arrive without its full track list (see `plugins.md` "Home Shelves"). Two shapes:
 - **Empty `tracks`** — the host awaits the shelf's `onResolvePlay` behind the blocking `PluginLoadingModal`, then plays. Nothing can start yet, so the modal is the honest UI.
-- **`partial: true` with a head** — the host plays the shipped head **immediately** and appends the resolved remainder behind the music (`playWithBackfill`, see conventions.md). No modal; a failed tail leaves the head playing plus a toast.
+- **`partial: true` with a head** — the host plays the shipped head **immediately** and appends the resolved remainder behind the music (`playWithBackfill`, see conventions.md). No modal; instead the queue panel renders a trailing **"Filling in the rest…"** row (the `backfillPending` flag off `useQueue`) for as long as the tail is outstanding, so a one-track queue never looks finished when it isn't. A failed tail leaves the head playing plus a toast.
 
 Radio stations play straight away too: `startRadio` resolves the banner cover *after* playback starts and patches it into `playlistContext` (guarded on the context still being that station), rather than holding the first note behind two `get_entity_image` round-trips.
 

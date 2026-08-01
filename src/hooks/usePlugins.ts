@@ -192,12 +192,13 @@ export interface PluginPlaybackCallbacks {
   playTracks: (tracks: PluginTrack[], startIndex?: number, context?: PluginPlayContext) => void;
   insertTrack: (track: PluginTrack, position: number) => void;
   insertTracks: (tracks: PluginTrack[], position: number) => void;
+  // Resolves with the number of tracks actually appended (0 = nothing landed).
   playWithBackfill: (opts: {
     head: PluginTrack[];
     context?: PluginPlayContext;
     resolveTail: () => Promise<PluginTrack[]> | PluginTrack[];
     tailErrorMessage?: string;
-  }) => void;
+  }) => Promise<number>;
 }
 
 export interface PluginHostCallbacks {
@@ -561,9 +562,8 @@ export function usePlugins(
           insertTracks: (tracks, position) => {
             playbackCallbacksRef.current?.insertTracks(tracks, position);
           },
-          playWithBackfill: (opts) => {
-            playbackCallbacksRef.current?.playWithBackfill(opts);
-          },
+          playWithBackfill: (opts) =>
+            playbackCallbacksRef.current?.playWithBackfill(opts) ?? Promise.resolve(0),
           onTrackStarted: (handler) =>
             subscribeEvent(
               "track:started",

@@ -519,13 +519,18 @@ export interface PluginPlaybackAPI {
    *  Prefer this over `playTracks` + `insertTracks`: the host discards the tail
    *  if the user replaced or cleared the queue while you were resolving, which a
    *  hand-rolled insert cannot detect. Guard with a `typeof` check — older hosts
-   *  don't have it. */
+   *  don't have it.
+   *
+   *  Resolves with **how many tracks were actually appended** — 0 when the tail
+   *  failed, came back empty, was entirely the head, or was discarded because
+   *  the user had moved on. Report success from this number rather than from
+   *  your own resolved list, or you'll announce a station that never landed. */
   playWithBackfill(opts: {
     head: PluginTrack[];
     context?: PluginPlayContext;
     resolveTail: () => Promise<PluginTrack[]> | PluginTrack[];
     tailErrorMessage?: string;
-  }): void;
+  }): Promise<number>;
   // These receive the currently-playing track, which is a metadata-only
   // QueueTrack (no DB ids) — NOT a library Track. Plugins must act on metadata
   // (title/artist_name/album_title/duration_secs); id/album_id/artist_id are

@@ -49,7 +49,9 @@ Each entry documents the gold standard implementation for a repeated user action
 - **Head de-dupe:** `dropPlayedHead()` strips only a *leading* run matching the head (path first, then title+artist). A later repeat of the same song is left alone, and a tail that arrives in a different order is appended verbatim rather than silently reordered.
 - **Duplicate banner:** `appendToPlaySession` deliberately **bypasses** `findDuplicates()`. This is the one sanctioned exception to the "every enqueue entry point runs findDuplicates first" rule (see queue.md) — the tail continues a play the user already made, so a confirmation prompt over already-playing audio would be wrong.
 - **Failure:** the head keeps playing; a failed or empty tail surfaces `tailErrorMessage` via `notify()` and nothing else. Do not clear or rebuild the queue on tail failure.
-- **No modal.** Feedback is the music. A blocking modal is correct only when *nothing* is playing yet (a lazy card that shipped zero tracks) — that path stays as it was.
+- **No modal.** Feedback is the music plus the queue panel's own indicator. A blocking modal is correct only when *nothing* is playing yet (a lazy card that shipped zero tracks) — that path stays as it was.
+- **Pending indicator:** `useQueue` holds `pendingBackfillGen` (`markBackfillPending` / `settleBackfill`, driven by `playWithBackfill`) and exposes `backfillPending`; `QueuePanel` renders a trailing "Filling in the rest…" row for it. Holding the *generation* is what makes it self-cancelling — every `playTracks` / `clearQueue` clears it, so it can only ever describe the live session. A toast is not a substitute: toasts auto-dismiss after 4.5s and a backfill can run far longer.
+- **Report what landed, not what resolved:** `playWithBackfill` resolves with the tracks actually appended (empty when the tail failed, was all head, or was dropped as stale). Success messaging must key off that — the plugin bridge returns the count for the same reason.
 
 ### Open Containing Folder
 

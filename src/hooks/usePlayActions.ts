@@ -12,6 +12,9 @@ interface PlayActionsArgs {
   // been replaced. Must be the raw queue append, NOT the duplicate-banner
   // enqueue path (see useQueue.appendToPlaySession).
   appendToPlaySession: (gen: number, tracks: QueueTrack[]) => boolean;
+  // Drives the queue panel's "filling in the rest…" indicator.
+  markBackfillPending: (gen: number) => void;
+  settleBackfill: (gen: number) => void;
   setPlaylistContext: (fn: (prev: PlaylistContext | null) => PlaylistContext | null) => void;
   albums: Album[];
   artists: Artist[];
@@ -174,6 +177,8 @@ export function usePlayActions({
   playTracks,
   enqueueTracks,
   appendToPlaySession,
+  markBackfillPending,
+  settleBackfill,
   setPlaylistContext,
   albums,
   artists,
@@ -259,23 +264,30 @@ export function usePlayActions({
   const playWithBackfill = useCallback(async ({ head, context, resolveTail, tailErrorMessage }: BackfillPlay): Promise<QueueTrack[]> => {
     if (head.length === 0) return [];
     const gen = playTracks(head, 0, context ?? null);
-    let tail: QueueTrack[];
+    // Tell the queue panel a tail is coming, so the wait is visible for its
+    // whole duration rather than only for as long as a toast lives.
+    markBackfillPending(gen);
     try {
-      tail = await resolveTail();
-    } catch (e) {
-      console.error("Failed to resolve the rest of the queue:", e);
-      // The head keeps playing — the user only needs to know the rest is missing.
-      if (tailErrorMessage) notify(tailErrorMessage);
-      return [];
+      let tail: QueueTrack[];
+      try {
+        tail = await resolveTail();
+      } catch (e) {
+        console.error("Failed to resolve the rest of the queue:", e);
+        // The head keeps playing — the user only needs to know the rest is missing.
+        if (tailErrorMessage) notify(tailErrorMessage);
+        return [];
+      }
+      if (tail.length === 0) {
+        if (tailErrorMessage) notify(tailErrorMessage);
+        return [];
+      }
+      const rest = dropPlayedHead(head, tail);
+      // Stale (the user replaced or cleared the queue while we resolved) → dropped.
+      return appendToPlaySession(gen, rest) ? rest : [];
+    } finally {
+      settleBackfill(gen);
     }
-    if (tail.length === 0) {
-      if (tailErrorMessage) notify(tailErrorMessage);
-      return [];
-    }
-    const rest = dropPlayedHead(head, tail);
-    // Stale (the user replaced or cleared the queue while we resolved) → dropped.
-    return appendToPlaySession(gen, rest) ? rest : [];
-  }, [playTracks, appendToPlaySession, notify]);
+  }, [playTracks, appendToPlaySession, markBackfillPending, settleBackfill, notify]);
 
   // Build a radio station from a seed track and play it. Play-only (no enqueue):
   // it replaces the queue with a freshly generated station under a "Radio: …"

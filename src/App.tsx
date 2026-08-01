@@ -500,7 +500,7 @@ function App() {
     // because playActions is constructed further down.
     playWithBackfill: (opts: { head: PluginTrack[]; context?: PluginPlayContext; resolveTail: () => Promise<PluginTrack[]> | PluginTrack[]; tailErrorMessage?: string }) => {
       const head = opts.head.map(pluginTrackToQueueTrack);
-      if (head.length === 0) return;
+      if (head.length === 0) return Promise.resolve(0);
       const appended = playWithBackfillRef.current({
         head,
         context: pluginPlaylistContext(opts.context),
@@ -509,9 +509,15 @@ function App() {
         tailErrorMessage: opts.tailErrorMessage,
       });
       reconcileAddedLikeStates(head);
-      appended
-        .then(tracks => { if (tracks.length > 0) reconcileAddedLikeStates(tracks); })
-        .catch(e => console.error("Plugin backfill play failed:", e));
+      // Hand back the appended count so the plugin reports what actually landed
+      // rather than what it resolved — a tail dropped as stale appended nothing.
+      return appended.then(tracks => {
+        if (tracks.length > 0) reconcileAddedLikeStates(tracks);
+        return tracks.length;
+      }).catch(e => {
+        console.error("Plugin backfill play failed:", e);
+        return 0;
+      });
     },
     insertTrack: (track: PluginTrack, position: number) => {
       const converted = [pluginTrackToQueueTrack(track)];
@@ -1129,6 +1135,8 @@ function App() {
     // Raw guarded append (no duplicate banner) — a backfill continues a play
     // the user already made. See useQueue.appendToPlaySession.
     appendToPlaySession: queueHook.appendToPlaySession,
+    markBackfillPending: queueHook.markBackfillPending,
+    settleBackfill: queueHook.settleBackfill,
     setPlaylistContext: queueHook.setPlaylistContext,
     albums: library.albums,
     artists: library.artists,
@@ -4471,6 +4479,7 @@ function App() {
           mainPlaylistDir={mainPlaylistDir}
           thumbInfo={queueHook.thumbInfo}
           resolvingStatus={resolvingStatus}
+          backfillPending={queueHook.backfillPending}
           resolveFailures={resolveFailures}
         />
       {!queueCollapsed && (

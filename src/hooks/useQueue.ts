@@ -189,6 +189,13 @@ export function useQueue(
   // has since replaced with something else.
   const playGenRef = useRef(0);
 
+  // Set while the live play session is still waiting on its async tail, so the
+  // queue panel can say so — without it, dropping the loading modal would leave
+  // a one-track queue with nothing explaining that more is coming. Holding the
+  // generation (not a bare boolean) is what makes it self-cancelling: every
+  // queue replacement clears it, so it can only ever describe the live session.
+  const [pendingBackfillGen, setPendingBackfillGen] = useState<number | null>(null);
+
   // Returns the play generation of the session it just started, for callers
   // that resolve the rest of the queue asynchronously (see appendToPlaySession).
   function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null): number {
@@ -213,7 +220,22 @@ export function useQueue(
     setPlaylistContext(context ?? null);
     onPlay?.(dedupedTracks, startIndex, context ?? null);
     playGenRef.current += 1;
+    // A fresh session owns no tail yet — and this is what retires the indicator
+    // when the user plays something else mid-resolve.
+    setPendingBackfillGen(null);
     return playGenRef.current;
+  }
+
+  // Declare that the session `gen` is waiting on an async tail. Paired with
+  // settleBackfill; both are driven by usePlayActions.playWithBackfill.
+  function markBackfillPending(gen: number) {
+    if (gen === playGenRef.current) setPendingBackfillGen(gen);
+  }
+
+  // The tail arrived, failed, or turned out to be stale. Only retires its own
+  // session's indicator, so a late tail can't clear a newer session's.
+  function settleBackfill(gen: number) {
+    setPendingBackfillGen(prev => (prev === gen ? null : prev));
   }
 
   // Append the tail of a play session started by `playTracks`. Returns false
@@ -470,6 +492,7 @@ export function useQueue(
     setPlaylistContext(null);
     // Ends the live play session: any in-flight backfill is now stale.
     playGenRef.current += 1;
+    setPendingBackfillGen(null);
     invoke("main_playlist_clear").catch(console.error);
   }
 
@@ -596,6 +619,7 @@ export function useQueue(
     queueMode, setQueueMode,
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates, appendToPlaySession,
+    backfillPending: pendingBackfillGen !== null, markBackfillPending, settleBackfill,
     playNext, playPrevious,
     removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,

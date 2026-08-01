@@ -359,6 +359,23 @@
   to { transform: rotate(360deg); }
 }
 
+/* Trailing row shown while a play's remaining tracks are still resolving.
+   Reuses the per-row resolving spinner so the two waits read as the same kind
+   of thing, and matches the row gutters so the list doesn't appear to shift. */
+.queue-backfill-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  animation: queue-item-in 220ms var(--ease-out-quart);
+}
+
+.queue-backfill-text {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  font-style: italic;
+}
+
 .queue-item-status {
   display: flex;
   align-items: center;

@@ -284,6 +284,9 @@ interface QueuePanelProps {
   thumbInfo: Record<string, ThumbInfo>;
   resolvingStatus?: { key: string; error: string | null; trying: string | null } | null;
   resolveFailures?: Record<string, string>;
+  /** The live play session is still resolving its remaining tracks (see
+   *  usePlayActions.playWithBackfill). Renders the trailing "filling in" row. */
+  backfillPending?: boolean;
 }
 
 const AUTO_APPROVE_SECS = 10;
@@ -318,7 +321,7 @@ export function QueuePanel({
   onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
-  mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures,
+  mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures, backfillPending,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [dropTarget, setDropTarget] = useState<number | null>(null);
@@ -840,6 +843,16 @@ export function QueuePanel({
         {queue.length === 0 && (
           <div className={`queue-empty${externalDropTarget !== null ? " drop-highlight" : ""}`}>
             {externalDropTarget !== null ? "Drop here to add" : "Playlist is empty"}
+          </div>
+        )}
+        {/* The play started from a known first track and its remainder is still
+            resolving (a plugin scrape, a remote catalog). This is what stands in
+            for the loading modal now that the music starts first — without it a
+            one-track queue looks finished rather than still filling. */}
+        {backfillPending && (
+          <div className="queue-backfill-row">
+            <span className="queue-item-resolving-icon" />
+            <span className="queue-backfill-text">Filling in the rest…</span>
           </div>
         )}
       </div>
