@@ -337,7 +337,7 @@ export function FullscreenControls({
               max="1"
               step="0.01"
               value={volume}
-              style={{ background: `linear-gradient(to right, ${muted ? "var(--text-tertiary)" : "var(--accent)"} ${volume * 100}%, rgba(255,255,255,0.12) ${volume * 100}%)` }}
+              style={{ background: `linear-gradient(to right, ${muted ? "var(--text-tertiary)" : "var(--accent)"} ${volume * 100}%, rgba(var(--overlay-base), 0.12) ${volume * 100}%)` }}
               onChange={(e) => onVolume(parseFloat(e.target.value))}
               onMouseDown={handleDragStart}
               onMouseUp={handleDragEnd}

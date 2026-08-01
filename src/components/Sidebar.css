@@ -119,17 +119,6 @@
   font-weight: 600;
 }
 
-.collection-action {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 0 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
-  font-size: var(--fs-base);
-}
-
 .plugin-badge-dot {
   width: 8px;
   height: 8px;

@@ -91,11 +91,6 @@
   gap: 2px;
 }
 
-.queue-header-actions .ctrl-btn {
-  font-size: var(--fs-base);
-  padding: 4px 6px;
-}
-
 .queue-list {
   flex: 1;
   overflow-y: auto;

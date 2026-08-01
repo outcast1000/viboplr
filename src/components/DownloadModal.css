@@ -397,69 +397,6 @@
   border-color: var(--border) !important;
 }
 
-/* Album download track list */
-.album-dl-track-list {
-  max-height: 260px;
-  overflow-y: auto;
-  margin: 8px 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.album-dl-track {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  font-size: var(--fs-sm);
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-}
-
-.album-dl-track:last-child {
-  border-bottom: none;
-}
-
-.album-dl-track-icon {
-  flex-shrink: 0;
-  width: 16px;
-  text-align: center;
-  color: var(--text-secondary);
-}
-
-.album-dl-track-done .album-dl-track-icon {
-  color: var(--success);
-}
-
-.album-dl-track-error .album-dl-track-icon {
-  color: var(--error);
-}
-
-.album-dl-track-downloading .album-dl-track-icon {
-  color: var(--accent);
-}
-
-.album-dl-track-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.album-dl-track-pct {
-  flex-shrink: 0;
-  font-size: var(--fs-xs);
-  color: var(--accent);
-  min-width: 32px;
-  text-align: right;
-}
-
-.album-dl-track-error {
-  flex-shrink: 0;
-  font-size: var(--fs-xs);
-  color: var(--error);
-}
-
 /* -- Batch download track list -- */
 
 .dl-batch-list {
@@ -570,12 +507,6 @@
 
 .dl-batch-overall {
   margin-bottom: 12px;
-}
-
-.dl-batch-summary {
-  text-align: center;
-  padding: 16px;
-  font-size: var(--fs-sm);
 }
 
 /* ══════════════════════════════════════════════════════════════════

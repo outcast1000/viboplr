@@ -71,10 +71,11 @@
   contain-intrinsic-size: auto 34px;
 }
 
-/* `content-visibility` implies paint containment, which would clip the row
-   action buttons' hover scale + glow at the row's box (see the .row-lead-actions
-   note below). The hovered row is on-screen by definition, so dropping
-   containment for it costs nothing and keeps the glow intact. */
+/* `content-visibility` implies paint containment, which clips at the row's box.
+   The hover tray (.row-hover-actions in App.css) is absolutely positioned with a
+   20px-blur drop shadow and a backdrop-filter, both of which need to escape that
+   box. The hovered row is on-screen by definition, so dropping containment for
+   it costs nothing and keeps the tray intact. */
 .track-list-cv > .track-row:hover {
   content-visibility: visible;
 }
@@ -115,13 +116,6 @@
   text-overflow: ellipsis;
 }
 
-/* The lead action cluster must not clip its buttons' hover scale/glow
-   (the blanket overflow:hidden above is for text-cell ellipsis only). */
-.track-row > .row-lead-actions,
-.track-header > .row-lead-actions-head {
-  overflow: visible;
-}
-
 .track-header > span {
   display: flex;
   align-items: center;
@@ -158,21 +152,6 @@
   width: 40px;
   flex-shrink: 0;
   color: var(--text-secondary);
-}
-
-.col-art {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--bg-surface);
-}
-
-.col-art img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .col-title {
@@ -382,17 +361,6 @@
 .playback-error-mpv-hint {
   font-size: var(--fs-sm);
   color: var(--text-secondary);
-}
-
-/* Per-row play/enqueue actions: a fixed leading cell, always visible, before all columns. */
-.row-lead-actions,
-.row-lead-actions-head {
-  width: 56px;
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding-right: 8px;
 }
 
 .track-row-action {

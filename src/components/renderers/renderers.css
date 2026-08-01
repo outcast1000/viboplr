@@ -1,14 +1,5 @@
 /* -- Shared renderer styles -- */
 
-.renderer-rich-text .text-toggle {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  padding: 4px 0;
-  font-size: var(--fs-xs);
-}
-
 .renderer-entity-list { display: flex; flex-direction: column; gap: 2px; }
 .entity-list-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .entity-list-item.clickable { cursor: pointer; }

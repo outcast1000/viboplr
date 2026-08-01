@@ -72,15 +72,6 @@
   white-space: nowrap;
 }
 
-/* Section label above the chips. */
-.tag-edit-modal-label {
-  font-size: var(--fs-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  margin-bottom: 8px;
-}
-
 /* Give the chip row room to breathe and wrap. */
 .tag-edit-modal .tag-editor-chips {
   gap: 8px;

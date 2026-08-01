@@ -46,11 +46,6 @@
   overflow: hidden;
   margin-bottom: 24px;
 }
-.home-hero--empty {
-  text-align: center;
-  color: var(--text-secondary);
-}
-
 /* Cross-fading background layers. Each track gets one layer; only the active
    one is opaque, so changes cross-fade. Mirrors DetailHeroBackground. */
 .home-hero-bg {
@@ -117,15 +112,6 @@
 }
 .home-hero-title { font-size: var(--fs-2xl); margin: 0 0 4px 0; font-weight: 700; }
 .home-hero-artist { font-size: var(--fs-md); margin-bottom: 12px; color: rgba(255,255,255,0.85); }
-.home-hero-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-.home-hero-chip {
-  background: rgba(var(--accent-rgb), 0.25);
-  color: var(--accent);
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-}
 .home-hero-actions { display: flex; gap: 12px; margin-bottom: 16px; }
 .home-hero-dots { display: flex; gap: 6px; }
 .home-hero-dot {
