@@ -20,6 +20,30 @@ struct BrowseWindowClosed {
     label: String,
 }
 
+/// Whether a browse window may navigate to `url`.
+///
+/// A browse window exists to load web pages and be scraped — it has no business
+/// handing a URL to another application. Allowing a navigation whose scheme
+/// WebKit can't load itself (`spotify:`, `itms:`, `zoommtg:`, …) does exactly
+/// that: WKWebView passes the unsupported-scheme URL to LaunchServices, which
+/// launches whatever app claims it. That's how a hidden Spotify scrape ended up
+/// opening the Spotify desktop app — the page's own "continue in the app" script
+/// navigated to a `spotify:` URI and we said yes.
+///
+/// So: web schemes only. `about:` / `blob:` / `data:` are in because they're how
+/// a page addresses its own frames and generated documents (this callback fires
+/// for subframe navigations too, not just the main frame) and none of them can
+/// reach another application. Everything else is denied — the page stays where
+/// it is and the scrape carries on, which is what a background window should do.
+fn is_navigable(url: &str) -> bool {
+    let trimmed = url.trim();
+    let scheme = match trimmed.find(':') {
+        Some(i) => trimmed[..i].to_ascii_lowercase(),
+        None => return false,
+    };
+    matches!(scheme.as_str(), "http" | "https" | "about" | "blob" | "data")
+}
+
 /// Open a secondary webview window that loads an external URL.
 /// An initialization script injects `window.__viboplr.send(type, data)` so
 /// injected scraping code can send results back to the main app via IPC.
@@ -173,14 +197,19 @@ pub async fn open_browse_window(
         // player iframes).
         .initialization_script_for_all_frames(autoplay_gate_script)
         .on_navigation(move |nav_url| {
+            let nav = nav_url.to_string();
+            if !is_navigable(&nav) {
+                log::warn!("browse window {label_for_nav}: blocked navigation to {nav}");
+                return false;
+            }
             let _ = app_for_nav.emit(
                 "browse-window-navigation",
                 BrowseWindowNavigation {
                     label: label_for_nav.clone(),
-                    url: nav_url.to_string(),
+                    url: nav,
                 },
             );
-            true // allow all navigation
+            true
         })
         .build()
         .map_err(|e| e.to_string())?;
@@ -261,4 +290,42 @@ pub async fn browse_window_send(
         },
     )
     .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_navigable_allows_web_pages() {
+        assert!(is_navigable("https://open.spotify.com/search/foo/tracks"));
+        assert!(is_navigable("http://localhost:8080/callback"));
+        assert!(is_navigable("HTTPS://Open.Spotify.com/track/abc"));
+    }
+
+    #[test]
+    fn test_is_navigable_allows_page_internal_documents() {
+        // This callback also fires for subframes, so a page addressing its own
+        // generated documents must not be broken. None of these reach an app.
+        assert!(is_navigable("about:blank"));
+        assert!(is_navigable("about:srcdoc"));
+        assert!(is_navigable("blob:https://open.spotify.com/9a7f-1234"));
+        assert!(is_navigable("data:text/html,<p>hi</p>"));
+    }
+
+    #[test]
+    fn test_is_navigable_blocks_app_handoff_schemes() {
+        // The real case: Spotify's page tries to continue in the desktop app.
+        assert!(!is_navigable("spotify:track:4uLU6hMCjMI75M1A2tKUQC"));
+        assert!(!is_navigable("spotify://track/4uLU6hMCjMI75M1A2tKUQC"));
+        assert!(!is_navigable("itms-apps://apps.apple.com/app/id324684580"));
+        assert!(!is_navigable("mailto:someone@example.com"));
+        assert!(!is_navigable("file:///etc/passwd"));
+        assert!(!is_navigable("javascript:alert(1)"));
+        // A scheme that merely *starts* like an allowed one is still not one.
+        assert!(!is_navigable("httpsx://open.spotify.com"));
+        assert!(!is_navigable("https-evil:whatever"));
+        assert!(!is_navigable("open.spotify.com"));
+        assert!(!is_navigable(""));
+    }
 }
