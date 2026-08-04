@@ -35,11 +35,20 @@ function record(entry: ResolverLogEntry): void {
   while (buffer.length > BUFFER_LIMIT) buffer.shift();
 }
 
+/** Snapshot of the retained attempts — feeds the diagnostic report. */
+export function resolverLogEntries(): ResolverLogEntry[] {
+  return buffer.slice();
+}
+
+export function clearResolverLog(): void {
+  buffer.length = 0;
+}
+
 // Expose the buffer + a clear() helper for live inspection in devtools.
 if (typeof window !== "undefined") {
   (window as unknown as { __resolverLog: unknown }).__resolverLog = {
-    entries: () => buffer.slice(),
-    clear: () => { buffer.length = 0; },
+    entries: resolverLogEntries,
+    clear: clearResolverLog,
   };
 }
 

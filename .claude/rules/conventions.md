@@ -109,6 +109,15 @@ Each entry documents the gold standard implementation for a repeated user action
 - **Queue surface:** `contextMenu/buildContextMenuSpecs.tsx` (single queue item → "Edit info…") opens the modal via `openEditTrackInfoRef`; `App.tsx` `handleEditQueueTrackSave` calls `queueHook.updateTrackMetadata(index, …)` and, when the edited entry is the one playing (key match), also patches `playback.currentTrack` so the now-playing bar + lyrics refresh. Persistence rides the existing debounced `main_playlist` write — **no** extra backend call.
 - **Playlist surface:** `PlaylistsView.tsx` (regular playlists only — auto/system rows are regenerated) → `invoke("update_playlist_track_metadata", { trackId, title, artistName, albumName })` (optimistic UI, reverts from DB on failure). This is the **only** path that persists a playlist-entry metadata edit.
 
+### Report a Problem (diagnostic bundle)
+
+- **Canonical:** `ReportProblemModal.tsx` on top of `utils/diagnosticReport.ts` (`collectDiagnosticReport` → `buildDiagnosticReport`). App.tsx owns the modal state (`reportProblem`) and builds the host-only facts via `buildDiagnosticSources(context)`.
+- **Flow:** entry point sets `{ title, context }` → modal calls `collectDiagnosticReport` (backend `collect_diagnostics` + track/collection counts + the `errorLog` / `resolverLog` ring buffers) → renders the full markdown report → user copies it, optionally opening a prefilled GitHub issue via `issueUrl(LINKS.issues, title)`.
+- **Entry points:** Settings → Debug → Problems (no context), and `PlaybackErrorModal`'s "Report a problem" button (context = error / source / format / engine, and it pauses that modal's auto-skip countdown so the dialog isn't yanked away mid-report). New entry points supply a `DiagnosticContext` and reuse this modal — do not assemble a bundle anywhere else.
+- **Nothing is auto-submitted (hard rule).** The report is shown in full and the user copies it. That review step is the consent model, which is why the bundle may include log lines, resolver activity, and library metadata that anonymous telemetry deliberately never sends. Do not add a "send automatically" path, and do not fold any of this into the `telemetryEnabled` toggle — it covers a different, anonymous-only contract.
+- **Scrubbing:** `scrubPaths()` replaces the home directory with `~` everywhere, always. Usernames leak into every path in a log tail and a user skimming a wall of text will never spot them.
+- **Telemetry counterpart:** every error event carries a bucketed `error_kind` from `classifyErrorKind()` — the closed enum is the *only* error detail that leaves the app unprompted. Raw messages and stacks never do.
+
 ### Home Shelves (built-in or plugin)
 
 - **Canonical:** `useHome.ts` -> `buildBuiltInResolvers()` and the merged plugin shelves; rendered by `HomeShelf.tsx`

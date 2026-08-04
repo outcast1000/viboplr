@@ -7,6 +7,7 @@ import { selectStream } from "../playback/selectStream";
 import type { StreamCandidate } from "../types/plugin";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
+import { classifyErrorKind } from "../utils/errorKind";
 
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 
@@ -377,6 +378,10 @@ export function useStreamResolution({
       }
 
       let lastError: string | null = null;
+      // The raw throw from the last resolver that failed. Kept only to bucket
+      // the failure for telemetry — `lastError` above is a display label, so
+      // by the time the chain is exhausted the actual cause is otherwise gone.
+      let lastThrown: unknown = null;
       const failures: ChainFailure[] = [];
       for (const entry of chain) {
         if (!preload && resolveGenerationRef.current !== generation) return { src: "" };
@@ -413,6 +418,7 @@ export function useStreamResolution({
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
           lastError = entryFailureLabel(entry.name);
+          lastThrown = e;
           failures.push({ name: entry.name, native: entry.native });
           continue;
         }
@@ -425,7 +431,13 @@ export function useStreamResolution({
       // explaining what happened even after playback moves to another track.
       // Blamed on the track's own source, not the last fallback resolver tried.
       setResolveFailures(prev => ({ ...prev, [track.key]: describeChainFailure(failures) }));
-      trackTelemetry("stream_resolve_failed", { source: sourceClass(track.path) });
+      // `providers_tried` separates "no resolver could play it" from "nothing
+      // even offered to try", which are different bugs with the same symptom.
+      trackTelemetry("stream_resolve_failed", {
+        source: sourceClass(track.path),
+        error_kind: classifyErrorKind(lastThrown),
+        providers_tried: chain.length,
+      });
       throw new Error("Couldn't find a playable source for this track");
     };
 

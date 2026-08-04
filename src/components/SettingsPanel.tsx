@@ -1078,6 +1078,8 @@ interface SettingsPanelProps {
   onDebugLoggingChange: (enabled: boolean) => void;
   debugMode: boolean;
   onDebugModeChange: (enabled: boolean) => void;
+  /** Opens the diagnostic report builder (Settings → Debug → Problems). */
+  onReportProblem: () => void;
   /** Opens the hidden Song Quiz game (supporter easter egg). */
   onOpenQuiz: () => void;
   devPluginPath: string | null;
@@ -1190,6 +1192,7 @@ export function SettingsPanel({
   onDebugLoggingChange,
   debugMode,
   onDebugModeChange,
+  onReportProblem,
   onOpenQuiz,
   devPluginPath,
   onDevPluginPathChange,
@@ -1726,6 +1729,16 @@ export function SettingsPanel({
                       <button className="ds-btn ds-btn--secondary" onClick={() => appPaths && navigator.clipboard.writeText(appPaths.logs).catch(console.error)} title="Copy path">Copy</button>
                       <button className="ds-btn ds-btn--secondary" onClick={() => invoke("open_logs_folder").catch(console.error)}>Open</button>
                     </div>
+                  </div>
+                </div>
+                <div className="settings-group-title" style={{ marginTop: 20 }}>Problems</div>
+                <div className="settings-card">
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-label">Report a problem</span>
+                      <span className="settings-description">Collect version, engine, plugin and log details into a report you can review and paste into a GitHub issue</span>
+                    </div>
+                    <button className="ds-btn ds-btn--secondary" onClick={onReportProblem}>Create report</button>
                   </div>
                 </div>
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Mode</div>

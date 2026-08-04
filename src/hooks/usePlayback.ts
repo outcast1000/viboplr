@@ -8,6 +8,7 @@ import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
 import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus, VIDEO_CODEC_PLAYBACK_ERROR, isFormatPlaybackError } from "../playback/playbackErrors";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
+import { classifyErrorKind } from "../utils/errorKind";
 import {
   nativeEngine,
   type EnginePositionEvent,
@@ -1119,7 +1120,7 @@ export function usePlayback(
         setNativeVideoActive(false);
         setIcyTitle(null);
         logPlayback(`Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine: ${payload.message}`);
-        trackTelemetry("engine_fallback", { code: payload.code });
+        trackTelemetry("engine_fallback", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
         const track = currentTrackRef.current;
         if (track && track.key === payload.trackKey) {
           // Replay the same track at the same position via the browser engine.
@@ -1731,10 +1732,13 @@ export function usePlayback(
     setPlaying(false);
     // Anonymous reliability signal: playback failed (after any native→browser
     // fallback). Coarse class only — never the error text, title, or path.
+    // `reason` is the original two-way split (dashboards key on it); the
+    // bucketed `error_kind` is the finer breakdown of the same failure.
     trackTelemetry("playback_error", {
       engine: nativeSessionRef.current ? "native" : "browser",
       source: sourceClass(track?.path ?? null),
       reason: isFormatPlaybackError(base) ? "format" : "other",
+      error_kind: classifyErrorKind(base),
     });
     if (!track) return;
     if (isLocalTrack(track)) {

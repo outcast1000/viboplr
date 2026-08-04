@@ -269,6 +269,7 @@ macro_rules! invoke_handler {
             commands::open_logs_folder,
             commands::get_app_paths,
             commands::write_frontend_log,
+            commands::collect_diagnostics,
             commands::preview_mixtape,
             commands::export_mixtape,
             commands::export_mixtape_playlist_only,

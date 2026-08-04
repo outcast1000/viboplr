@@ -1,0 +1,45 @@
+.report-problem-intro {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.report-problem-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 260px;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.report-problem-error {
+  min-height: 260px;
+  font-size: var(--fs-sm);
+  color: var(--error);
+}
+
+/* Read-only rather than disabled: the user must be able to scroll, select, and
+   edit out anything they'd rather not share before copying. */
+.report-problem-text {
+  width: 100%;
+  min-height: 260px;
+  max-height: 40vh;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  white-space: pre;
+  overflow: auto;
+}
+
+.report-problem-text:focus {
+  outline: none;
+  border-color: var(--accent);
+}

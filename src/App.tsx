@@ -146,6 +146,10 @@ import { LATEST_PLAY_SHELF_ID } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
 import { useDependencies } from "./hooks/useDependencies";
 import { DependencyModal } from "./components/DependencyModal";
+import ReportProblemModal from "./components/ReportProblemModal";
+import type { DiagnosticContext, DiagnosticSources } from "./utils/diagnosticReport";
+import { recordAppError } from "./utils/errorLog";
+import { classifyErrorKind, errorText } from "./utils/errorKind";
 
 
 function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
@@ -552,6 +556,36 @@ function App() {
   const storyboardState = useStoryboard(playback.currentTrack, plugins.resolveStoryboardByUri);
   const storyboard = storyboardState.board;
   const dependencies = useDependencies(plugins.pluginStates);
+
+  // "Report a problem" — null when closed. The entry point supplies the issue
+  // title plus an optional context block describing what the user was doing,
+  // so a report raised from a playback failure carries that failure with it.
+  const [reportProblem, setReportProblem] = useState<{ title: string; context: DiagnosticContext | null } | null>(null);
+
+  // Host-only facts for the diagnostic bundle — the things the report can't
+  // reach on its own (release channel, effective engine, plugin + dependency
+  // state). Called while the modal is open; the modal snapshots the result
+  // once on mount, so the report describes the moment the user asked.
+  const buildDiagnosticSources = useCallback((context: DiagnosticContext | null): DiagnosticSources => ({
+    channel: betaUpdates ? "beta" : "stable",
+    engine: mpvCapable && playbackEngine === "native" ? "native" : "browser",
+    mpvCapable,
+    mpvVideo: mpvVideoCapable,
+    plugins: plugins.pluginStates.map((p) => ({
+      id: p.id,
+      version: p.manifest?.version,
+      enabled: p.enabled,
+      status: p.status,
+      error: p.error,
+    })),
+    dependencies: dependencies.deps.map((d) => ({
+      name: d.name,
+      status: d.status,
+      version: d.version,
+      origin: d.origin,
+    })),
+    context,
+  }), [betaUpdates, mpvCapable, mpvVideoCapable, playbackEngine, plugins.pluginStates, dependencies.deps]);
 
   // Set of currently loaded & active plugin ids — passed to Home so it keeps the
   // cached shelves of a plugin that registers them late (see useHome prune).
@@ -2337,12 +2371,32 @@ function App() {
     store.set("recentlyVisitedEntities", next).catch((e) => console.error("Failed to persist recentlyVisitedEntities:", e));
   }, [library.selectedArtist]);
 
-  // Forward frontend errors to backend log file
+  // Forward frontend errors to the backend log file, the in-memory report
+  // buffer, and telemetry. Three destinations because each covers a different
+  // gap: the log file is the richest but is OFF by default, the ring buffer is
+  // always on but local-only (feeds "Report a problem"), and telemetry is the
+  // only one that reaches us unprompted — as a bucketed kind, never the text.
   useEffect(() => {
+    // A render loop that throws fires window.onerror hundreds of times a
+    // second. The local buffer self-bounds (ring), but telemetry would flood
+    // the backend and skew every error rate, so cap it per session — the 20th
+    // copy of a repeating error tells us nothing the 1st didn't.
+    let errorEventsSent = 0;
+    const APP_ERROR_EVENT_CAP = 20;
+    const reportError = (scope: string, cause: unknown) => {
+      if (errorEventsSent >= APP_ERROR_EVENT_CAP) return;
+      errorEventsSent++;
+      trackTelemetry("app_error", { scope, error_kind: classifyErrorKind(cause) });
+    };
     const onError = (e: ErrorEvent) => {
-      invoke("write_frontend_log", { level: "error", message: `${e.message} at ${e.filename}:${e.lineno}`, section: "fr-error" }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
+      const message = `${e.message} at ${e.filename}:${e.lineno}`;
+      recordAppError("window", message, e.error instanceof Error ? e.error.stack : undefined);
+      reportError("window", e.error ?? e.message);
+      invoke("write_frontend_log", { level: "error", message, section: "fr-error" }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     const onRejection = (e: PromiseRejectionEvent) => {
+      recordAppError("unhandledrejection", errorText(e.reason), e.reason instanceof Error ? e.reason.stack : undefined);
+      reportError("rejection", e.reason);
       invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}`, section: "fr-error" }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     window.addEventListener("error", onError);
@@ -4215,6 +4269,7 @@ function App() {
               onDebugLoggingChange={handleDebugLoggingChange}
               debugMode={debugMode}
               onDebugModeChange={handleDebugModeChange}
+              onReportProblem={() => setReportProblem({ title: "Bug report", context: null })}
               devPluginPath={devPluginPath}
               onDevPluginPathChange={handleDevPluginPathChange}
               onReloadPlugins={plugins.reloadAllPlugins}
@@ -4723,6 +4778,18 @@ function App() {
           trackTitle={playback.failedTrack?.title ?? null}
           onDismiss={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); }}
           onSkip={() => { pendingMpvRetryRef.current = null; playback.clearPlaybackError(); handleNext(); }}
+          onReportProblem={() => setReportProblem({
+            title: "Playback failed",
+            context: {
+              title: "Playback failure",
+              lines: [
+                `Error: ${playback.playbackError}`,
+                `Source: ${sourceClass(playback.failedTrack?.path ?? null)}`,
+                `Format: ${playback.failedTrack?.format ?? "unknown"}`,
+                `Engine: ${mpvCapable && playbackEngine === "native" ? "native" : "browser"}`,
+              ],
+            },
+          })}
           mpvSuggestion={
             isFormatPlaybackError(playback.playbackError)
               && !(mpvCapable && playbackEngine === "native")
@@ -4734,6 +4801,14 @@ function App() {
                 }
               : null
           }
+        />
+      )}
+
+      {reportProblem && (
+        <ReportProblemModal
+          sources={buildDiagnosticSources(reportProblem.context)}
+          issueTitle={reportProblem.title}
+          onClose={() => setReportProblem(null)}
         />
       )}
 

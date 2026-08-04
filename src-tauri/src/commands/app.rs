@@ -212,6 +212,138 @@ pub fn write_frontend_log(level: String, message: String, section: Option<String
     Ok(())
 }
 
+/// Backend half of the "Report a problem" diagnostic bundle: the facts the
+/// frontend cannot see (real OS/arch, profile, whether file logging is even on,
+/// and the tail of the log if it is). Everything here is assembled into a
+/// report the user reviews and submits themselves — nothing is sent from here.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticFacts {
+    pub os: String,
+    pub arch: String,
+    pub app_version: String,
+    pub profile: String,
+    pub logging_enabled: bool,
+    /// Home directory, so the frontend can scrub it out of paths before the
+    /// report is shown. Usernames are the one PII that reliably leaks into a
+    /// pasted log and the one a user will never spot in a wall of text.
+    pub home_dir: Option<String>,
+    pub log_tail: Vec<String>,
+}
+
+/// Cap the tail read so a long-running session's log can't balloon the report.
+const LOG_TAIL_BYTES: u64 = 256 * 1024;
+const LOG_TAIL_LINES: usize = 200;
+
+/// Last `LOG_TAIL_LINES` lines of the profile's log file, reading at most the
+/// final `LOG_TAIL_BYTES` so this stays cheap regardless of file size.
+fn read_log_tail(log_path: &std::path::Path) -> Vec<String> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(mut file) = std::fs::File::open(log_path) else {
+        return Vec::new();
+    };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(LOG_TAIL_BYTES);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+    let mut buf = Vec::new();
+    if file.read_to_end(&mut buf).is_err() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.lines().collect();
+    // A mid-line seek makes the first line a fragment — drop it.
+    if start > 0 && !lines.is_empty() {
+        lines.remove(0);
+    }
+    let skip = lines.len().saturating_sub(LOG_TAIL_LINES);
+    lines[skip..].iter().map(|s| s.to_string()).collect()
+}
+
+#[tauri::command]
+pub fn collect_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Result<DiagnosticFacts, String> {
+    let log_path = state.app_dir.join("logs").join("viboplr.log");
+    let logging_enabled = log_path.exists();
+    Ok(DiagnosticFacts {
+        os: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        app_version: app.package_info().version.to_string(),
+        profile: state.profile_name.clone(),
+        logging_enabled,
+        home_dir: std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .ok()
+            .filter(|s| !s.is_empty()),
+        log_tail: if logging_enabled {
+            read_log_tail(&log_path)
+        } else {
+            Vec::new()
+        },
+    })
+}
+
+#[cfg(test)]
+mod log_tail_tests {
+    use super::read_log_tail;
+    use std::io::Write;
+
+    fn write_log(lines: &[String]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("viboplr.log");
+        let mut file = std::fs::File::create(&path).unwrap();
+        for line in lines {
+            writeln!(file, "{}", line).unwrap();
+        }
+        (dir, path)
+    }
+
+    #[test]
+    fn test_read_log_tail_returns_all_lines_when_short() {
+        let lines: Vec<String> = (0..5).map(|i| format!("line {}", i)).collect();
+        let (_dir, path) = write_log(&lines);
+        assert_eq!(read_log_tail(&path), lines);
+    }
+
+    #[test]
+    fn test_read_log_tail_keeps_only_the_last_lines() {
+        let lines: Vec<String> = (0..500).map(|i| format!("line {}", i)).collect();
+        let (_dir, path) = write_log(&lines);
+        let tail = read_log_tail(&path);
+        assert_eq!(tail.len(), 200);
+        // The tail is what matters — a crash is at the END of the log.
+        assert_eq!(tail.last().unwrap(), "line 499");
+        assert_eq!(tail.first().unwrap(), "line 300");
+    }
+
+    #[test]
+    fn test_read_log_tail_drops_the_partial_line_after_a_mid_file_seek() {
+        // Each line is ~1KB, so 400 lines pushes well past the 256KB window and
+        // forces the seek to land mid-line.
+        let lines: Vec<String> = (0..400).map(|i| format!("{:04}{}", i, "x".repeat(1020))).collect();
+        let (_dir, path) = write_log(&lines);
+        let tail = read_log_tail(&path);
+        assert!(!tail.is_empty());
+        // Every retained line must be whole, not a fragment of a longer one.
+        for line in &tail {
+            assert_eq!(line.len(), 1024, "retained a truncated line: {}", &line[..20.min(line.len())]);
+        }
+    }
+
+    #[test]
+    fn test_read_log_tail_is_empty_for_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(read_log_tail(&dir.path().join("nope.log")).is_empty());
+    }
+
+    #[test]
+    fn test_read_log_tail_is_empty_for_an_empty_file() {
+        let (_dir, path) = write_log(&[]);
+        assert!(read_log_tail(&path).is_empty());
+    }
+}
+
 #[tauri::command]
 pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
     crate::timing::timer().get_entries()

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { track as trackTelemetry, bucketCount } from "../telemetry";
+import { classifyErrorKind } from "../utils/errorKind";
 
 interface ResyncProgress {
   collectionId: number;
@@ -210,7 +211,9 @@ export function useEventListeners(opts: EventListenerOptions) {
       const title = e.payload?.trackTitle ?? "track";
       const reason = e.payload?.error ? ` — ${e.payload.error}` : "";
       notify?.(`Download failed: “${title}”${reason}`);
-      trackTelemetry("download_failed");
+      // Was a bare count, which told us downloads broke but never why. The
+      // bucketed kind is the whole diagnosis without sending the message.
+      trackTelemetry("download_failed", { error_kind: classifyErrorKind(e.payload?.error) });
     });
 
     return combineUnlisten(stopComplete, stopError);

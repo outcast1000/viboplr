@@ -13,18 +13,23 @@ interface Props {
   trackTitle: string | null;
   onDismiss: () => void;
   onSkip: () => void;
+  /** Opens the diagnostic report, prefilled with this failure. */
+  onReportProblem: () => void;
   /** When set, offer the native mpv engine as a fix for this format error. */
   mpvSuggestion?: MpvSuggestion | null;
 }
 
 const AUTO_SKIP_SECS = 15;
 
-export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip, mpvSuggestion }: Props) {
+export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSkip, onReportProblem, mpvSuggestion }: Props) {
   const [remaining, setRemaining] = useState(AUTO_SKIP_SECS);
+  const [reported, setReported] = useState(false);
 
   // Hold the auto-skip while the engine is downloading — skipping mid-install
-  // would throw away the file the user just asked us to make playable.
-  const paused = !!mpvSuggestion?.installing;
+  // would throw away the file the user just asked us to make playable. Also
+  // hold it once the user opens a report: auto-skipping this dialog out from
+  // under them would take the failure details with it.
+  const paused = !!mpvSuggestion?.installing || reported;
 
   useEffect(() => {
     if (paused) return;
@@ -71,6 +76,12 @@ export default function PlaybackErrorModal({ error, trackTitle, onDismiss, onSki
           </p>
         )}
         <div className="ds-modal-actions">
+          <button
+            className="ds-btn ds-btn--ghost"
+            onClick={() => { setReported(true); onReportProblem(); }}
+          >
+            Report a problem
+          </button>
           <button className="ds-btn ds-btn--ghost" onClick={onDismiss}>
             Dismiss
           </button>
