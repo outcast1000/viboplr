@@ -12,7 +12,8 @@ import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames
 import { SpinningDisc } from "./SpinningDisc";
 import { TrackArtFallback } from "./TrackArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
-import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
+import { showNativeMenu } from "../nativeMenu";
+import { buildQueueHeaderMenuSpecs } from "../contextMenu/buildQueueHeaderMenuSpecs";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -361,34 +362,10 @@ export function QueuePanel({
 
   const openHeaderMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const specs: MenuItemSpec[] = [
-      { kind: "item", text: "Load playlist…", action: onLoadPlaylist },
-      {
-        kind: "submenu",
-        text: "Save",
-        items: [
-          { kind: "item", text: "Save as Playlist", action: onSaveToPlaylists },
-          { kind: "item", text: "Export as M3U", action: onSaveAsM3U },
-        ],
-      },
-      {
-        kind: "submenu",
-        text: "Share",
-        items: [
-          { kind: "item", text: "Publish hosted source…", action: onPublishQueue },
-          { kind: "item", text: "Save as file (.mixtape)…", action: onExportAsMixtape },
-        ],
-      },
-      { kind: "separator" },
-      {
-        kind: "check",
-        text: "Prefer video",
-        checked: preferVideoResolution,
-        action: () => onPreferVideoResolutionChange(!preferVideoResolution),
-      },
-      { kind: "separator" },
-      { kind: "item", text: "Clear playlist", action: onClear },
-    ];
+    const specs = buildQueueHeaderMenuSpecs({
+      onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
+      preferVideoResolution, onPreferVideoResolutionChange, onClear,
+    });
     showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
       console.error("Failed to show queue header menu:", err)
     );

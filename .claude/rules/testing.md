@@ -26,10 +26,13 @@ Commands live in `package.json` scripts (`test`, `test:rust`, `test:e2e`, `test:
 **Framework:** Vitest, configured in `vite.config.ts`. **Test location:** `src/__tests__/`.
 
 **Patterns:**
-- Test pure functions extracted from hooks — don't test React components directly
+- Prefer testing pure functions extracted from hooks. When a behaviour genuinely lives in hook state and can't be extracted without inventing an abstraction, mount it with `renderHook` from `@testing-library/react` and drive it inside `act()` — see `useQueueClear.test.tsx` (queue clearing) and `useDetailHeroImages.test.tsx`. Rendering a whole component is still the last resort.
+- Mock the Tauri seams at the module boundary: `vi.mock("@tauri-apps/api/core")` for `invoke`, plus `../utils/tauriEvents`, `@tauri-apps/plugin-dialog`, and `../telemetry` as needed.
 - Use `vi.fn()` for mocks
 - Factory helpers like `makeTrack()`, `makeProvider()` for test data
 - E2E specs are excluded from the vitest run via `exclude: ["tests/e2e/**"]` in the vitest config
+
+**Native menus:** every menu is a native OS menu with no DOM, so its items can't be clicked from any test layer. Build the specs in a pure `build*MenuSpecs()` function (`src/contextMenu/`) and assert *that* — item set, ordering, check state, and that each action fires the right callback. `buildContextMenuSpecs` and `buildQueueHeaderMenuSpecs` are the two examples; a new native menu should follow suit rather than shipping untestable.
 
 ## End-to-End (Playwright)
 

@@ -128,7 +128,7 @@ Every mutation that changes the queue array must also recalculate `queueIndex` s
 | **Insert at position** (`insertAtPosition`) | If `position <= index`: index shifts by `insertedCount`. Otherwise: no change. |
 | **Play next in queue** (`playNextInQueue`) | Inserts at `index + 1`. Index does not change (inserted item is after current). |
 | **Update track metadata** (`updateTrackMetadata`) | Overrides one entry's title/artist/album in place. Index unchanged (the entry stays put). Not an array-shape change, so no recalc — but it IS a queue mutation, so the debounced `main_playlist` write persists it. See conventions.md "Edit Track Info". |
-| **Clear** (`clearQueue`) | Index resets to -1. Playlist context cleared. Also invokes `main_playlist_clear` on backend. |
+| **Clear** (`clearQueue`) | Index resets to -1. Playlist context cleared. Bumps the play generation and drops `pendingBackfillGen`, so an in-flight backfill tail can't splice into the emptied queue. Also invokes `main_playlist_clear` on backend. Covered by `useQueueClear.test.tsx`. |
 
 **Selection behavior:** `selectedIndices` in QueuePanel is cleared on every queue state change (the `useEffect` on `[queue]`). This prevents stale index references after mutations.
 
@@ -238,7 +238,7 @@ The visual and interaction layer.
 - Right-click on multi-selection (if clicked index is in selection): fires `onContextMenu` with sorted selection indices
 - Right-click on non-selected item while multi-selection exists: replaces selection with clicked item
 
-**Header actions:** a single `⋯` overflow button (`openHeaderMenu`) opens one native menu holding every queue-level action — Load playlist…, Save ▸ (Save as Playlist / Export as M3U), Share ▸ (Publish hosted source… / Save as file (.mixtape)…), a **Prefer video** check item (mirrors Settings → Playback), and Clear playlist. New queue-level actions belong in this menu, not as new header buttons.
+**Header actions:** a single `⋯` overflow button (`openHeaderMenu`) opens one native menu holding every queue-level action — Load playlist…, Save ▸ (Save as Playlist / Export as M3U), Share ▸ (Publish hosted source… / Save as file (.mixtape)…), a **Prefer video** check item (mirrors Settings → Playback), and Clear playlist. New queue-level actions belong in this menu, not as new header buttons. The spec list is built by the pure `buildQueueHeaderMenuSpecs()` in `src/contextMenu/` — `QueuePanel` only supplies the anchor rect and calls `showNativeMenu`. Keep it that way: a native menu has no DOM, so the builder is the only place these items can be asserted (`queueHeaderMenu.test.ts`).
 
 **Auto-scroll:** When `queueIndex` changes, the current track scrolls into view (`scrollIntoView({ block: "nearest", behavior: "smooth" })`). Also fires when panel un-collapses.
 

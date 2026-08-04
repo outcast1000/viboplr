@@ -59,15 +59,43 @@ test('queue header exposes the playlist options menu', async ({ page }) => {
   await expect(page.locator('.queue-item')).toHaveCount(1);
 
   // "Clear playlist" used to be its own header button. Every queue-level action
-  // now lives in one native OS menu behind this ⋯ trigger (showNativeMenu), and
-  // native menus have no DOM — E2E drives the dev server, not a Tauri build, so
-  // the menu items themselves are out of reach here (see testing.md). Assert the
-  // trigger is present and that opening it doesn't throw; the clear behaviour
-  // itself is not covered at this layer.
+  // now lives in one native OS menu behind this ⋯ trigger, and native menus have
+  // no DOM — so this asserts the trigger is present and opens without throwing.
   const menuBtn = page.locator('.queue-header .queue-header-menu-btn');
   await expect(menuBtn).toBeVisible();
   await menuBtn.click();
   await expect(page.locator('.queue-item')).toHaveCount(1);
+});
+
+test('queue header menu offers Clear playlist', async ({ page }) => {
+  // The menu items are unreachable through the UI (native menu, no DOM), so
+  // exercise the pure builder behind it in the real bundle — same approach as
+  // refactor-context-menu.test.js. Item wiring and the behaviour of clearQueue
+  // itself are unit-tested (queueHeaderMenu / useQueueClear); this guards the
+  // one thing those can't see: that the shipped bundle still builds this menu.
+  const texts = await page.evaluate(async () => {
+    const mod = await import('/src/contextMenu/buildQueueHeaderMenuSpecs.ts');
+    const noop = () => {};
+    const specs = mod.buildQueueHeaderMenuSpecs({
+      onLoadPlaylist: noop, onSaveToPlaylists: noop, onSaveAsM3U: noop,
+      onPublishQueue: noop, onExportAsMixtape: noop,
+      preferVideoResolution: false, onPreferVideoResolutionChange: noop,
+      onClear: noop,
+    });
+    const out = [];
+    const walk = (arr) => arr.forEach((s) => {
+      if (s.kind === 'separator') return;
+      out.push(s.text);
+      if (s.kind === 'submenu') walk(s.items);
+    });
+    walk(specs);
+    return out;
+  });
+
+  expect(texts).toContain('Clear playlist');
+  expect(texts).toContain('Load playlist…');
+  expect(texts).toContain('Prefer video');
+  expect(texts).toContain('Save as Playlist');
 });
 
 test('now playing bar updates when a track plays', async ({ page }) => {
