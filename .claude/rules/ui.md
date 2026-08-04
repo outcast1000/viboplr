@@ -47,7 +47,7 @@ The app must detect what kind of entity it is rendering and show the appropriate
 3. `ContextMenu.tsx` renders base actions for the entity kind plus all `pluginMenuItems` registered via `contributes.contextMenuItems` in plugin manifests
 4. For entities without a library ID (e.g., external search results), the target still carries title/artist so plugins can act on metadata alone
 
-**Registering new actions:** Both internal features and plugins register context menu items via `contributes.contextMenuItems` in their manifest with `targets: ["track", "album", "artist", "multi-track", "playlist"]`. New actions automatically appear in all context menus for that entity type across every surface.
+**Registering new actions:** Both internal features and plugins register context menu items via `contributes.contextMenuItems` in their manifest with `targets: ["track", "album", "artist", "multi-track", "playlist"]`. New actions automatically appear in all context menus for that entity type across every surface — unless the user turned that individual item off in Extensions → plugin detail → Contributions, which `usePlugins` applies to `plugins.menuItems` before any surface sees it (see `plugins.md` "Per-Contribution Visibility").
 
 **When adding a new surface that shows entities:** Use the shared CSS classes, wire up context menus with `pluginMenuItems` and `onPluginAction`, and ensure all three view modes work. Do not create one-off styling — reuse the existing `.entity-table`, `.entity-list`, and `.entity-grid` patterns.
 
@@ -106,7 +106,7 @@ Dynamic states: `.sidebar-collapsed` (56px), `.queue-open` (adds col 3), `.queue
 Contents left-to-right:
 - Window controls (macOS left)
 - Brand logo ("iboPLR" with gradient)
-- `CentralSearchDropdown` (global search with results preview — library rows, then an on-demand "Search “x” on <plugin>" section per plugin catalog; see `plugins.md` "Global Search")
+- `CentralSearchDropdown` (global search with results preview — library rows, then an on-demand "Search “x” on <plugin>" section per plugin catalog the user hasn't hidden in Extensions → Contributions; see `plugins.md` "Global Search")
 - Spacer (draggable)
 - Help button (keyboard shortcuts)
 - Mini player button
@@ -342,7 +342,7 @@ See "Entity System > Context Menu Consistency" for how context menus work across
 | **queue items** | Remove, Keep Only, Move to Top/Bottom; single item also: Details, Edit info…, Start radio |
 | **video** | Dock position (top/bottom/left/right) |
 
-Plugin-registered actions appear on all applicable targets automatically. Search providers are user-configurable (built-in and custom).
+Plugin-registered actions appear on all applicable targets automatically, minus any the user turned off per-item in Extensions → Contributions. Search providers are user-configurable (built-in and custom).
 
 ## Skin System
 

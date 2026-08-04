@@ -476,6 +476,47 @@
   color: var(--text-secondary);
 }
 
+/* Contributions list (detail): per-item on/off for menu items + sidebar views */
+.ext-detail-section-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: -4px 0 12px;
+}
+.ext-contrib-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  overflow: hidden;
+}
+.ext-contrib-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+}
+.ext-contrib-row + .ext-contrib-row {
+  border-top: 1px solid var(--border);
+}
+.ext-contrib-text {
+  min-width: 0;
+}
+.ext-contrib-label {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ext-contrib-detail {
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
 /* Capabilities list (detail): chip label + what-it-does description */
 .ext-detail-caps-list {
   display: flex;

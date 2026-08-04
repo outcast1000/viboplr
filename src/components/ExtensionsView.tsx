@@ -13,6 +13,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../utils/tauriEvents";
 import { LINKS } from "../constants/links";
 import { describeContributes, skinMockColors } from "../utils/extensionSummary";
+import type {
+  ContributionVisibility,
+  PluginContribution,
+} from "../utils/pluginContributions";
 import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
 import "./ExtensionsView.css";
 
@@ -42,6 +46,12 @@ interface ExtensionsViewProps {
   gallerySkins: GallerySkinEntry[];
   getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
   onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
+  // Per-contribution on/off (context-menu items, sidebar views, search
+  // providers) for plugins the user wants to keep enabled but trim. Owned by
+  // usePlugins.
+  contributions?: PluginContribution[];
+  contributionVisibility?: ContributionVisibility;
+  onSetContributionEnabled?: (key: string, enabled: boolean) => void;
   // Gallery network state — drives skeletons + error/retry so the panel never
   // shows a silent gap while installable items load.
   pluginGalleryLoading?: boolean;
@@ -345,16 +355,27 @@ function PluginRowSkeleton() {
 function PluginDetail({
   ext, installing, onUpdate, onUninstall, onToggleEnabled, onInstall,
   getPluginViewData, onPluginAction, autoScrollToConfig,
+  contributions, contributionVisibility, onSetContributionEnabled,
 }: {
   ext: ExtensionItem; installing: boolean; onUpdate: () => void; onUninstall: () => void;
   onToggleEnabled: () => void; onInstall: () => void;
   getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
   onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
   autoScrollToConfig?: boolean;
+  contributions?: PluginContribution[];
+  contributionVisibility?: ContributionVisibility;
+  onSetContributionEnabled?: (key: string, enabled: boolean) => void;
 }) {
   const isInstalled = ext.status !== "not_installed";
   const settingsPanelId = ext.status === "active" && ext.contributes?.settingsPanel?.id;
   const caps = useMemo(() => describeContributes(ext.contributes), [ext.contributes]);
+  // Only this plugin's rows. The list is built from live registrations (static
+  // manifest contributions plus runtime ones), so it is empty until the plugin
+  // is active — a disabled plugin has nothing to trim yet.
+  const myContributions = useMemo(
+    () => (contributions ?? []).filter((c) => c.pluginId === ext.id),
+    [contributions, ext.id],
+  );
   const configRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (autoScrollToConfig && settingsPanelId) {
@@ -440,6 +461,39 @@ function PluginDetail({
               currentTrack={null}
               onAction={(actionId, actionData) => onPluginAction?.(ext.id, actionId, actionData)}
             />
+          </div>
+        </div>
+      )}
+
+      {myContributions.length > 0 && (
+        <div className="ext-detail-section">
+          <div className="ext-detail-section-title">Contributions</div>
+          <div className="ext-detail-section-hint">
+            Turn off anything you don't want this plugin to add. It stays enabled — its
+            other work (playback, downloads, information sections) is unaffected.
+          </div>
+          <div className="ext-contrib-list">
+            {myContributions.map((c) => {
+              const on = contributionVisibility?.[c.key] !== false;
+              return (
+                <div key={c.key} className="ext-contrib-row">
+                  <div className="ext-contrib-text">
+                    <div className="ext-contrib-label">{c.label}</div>
+                    <div className="ext-contrib-detail">{c.detail}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className={`ds-toggle${on ? " on" : ""}`}
+                    role="switch"
+                    aria-checked={on}
+                    aria-label={on ? `Hide ${c.label}` : `Show ${c.label}`}
+                    onClick={() => onSetContributionEnabled?.(c.key, !on)}
+                  >
+                    <span className="ds-toggle-thumb" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -628,6 +682,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onCheckForUpdates, onUpdateExtension, onUpdateAll, onInstallFromGallery,
     onUninstall, onToggleEnabled, onFetchPluginGallery, onFetchSkinGallery,
     onInstallFromUrl, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
+    contributions, contributionVisibility, onSetContributionEnabled,
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
     pluginViewMode = "list", onSetPluginViewMode,
@@ -968,6 +1023,9 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               onUninstall={() => setUninstallPrompt({ id: detailExt.id, name: detailExt.name })}
               onToggleEnabled={() => onToggleEnabled(detailExt.id, "plugin")}
               onInstall={() => handleInstall(detailExt)}
+              contributions={contributions}
+              contributionVisibility={contributionVisibility}
+              onSetContributionEnabled={onSetContributionEnabled}
               getPluginViewData={getPluginViewData}
               onPluginAction={onPluginAction}
             />

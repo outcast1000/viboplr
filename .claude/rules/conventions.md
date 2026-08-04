@@ -200,6 +200,7 @@ Cross-cutting rules that apply to all code everywhere.
 - The context menu system resolves the appropriate `PluginContextMenuTarget` from whatever track data is available (library ID, title, artist name)
 - For tracks without a library ID (e.g., external search results), the target still carries title/artist so plugins can act on metadata alone
 - **Implementation:** Use the shared `ContextMenu` component from `ContextMenu.tsx`. Pass `pluginMenuItems` and `onPluginAction` to every context menu instance. New track surfaces must wire up `onContextMenu` handlers.
+- **Always source the item list from `plugins.menuItems`.** It is already filtered by the user's per-item Contributions toggles (`usePlugins` → `utils/pluginContributions.ts`, see plugins.md). Never build a menu from the raw manifest/registration lists and never re-filter at the call site — a native menu has no DOM, so an item that leaks into a spec list cannot be removed later.
 
 ### Track Matching by Metadata
 

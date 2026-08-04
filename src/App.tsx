@@ -1615,16 +1615,23 @@ function App() {
     }
   }, [playActions, queueHook, notify]);
 
-  // Same list the sidebar renders, reshaped for the surfaces that offer plugin
-  // views as a way out of an empty library (Home's empty state, the caption-bar
-  // search's no-match state). Deliberately unfiltered: a utility plugin that
-  // happens to have a view (library stats, say) is listed alongside the real
-  // sources, because separating them would need a source/utility distinction the
-  // manifest doesn't carry — a browse-only plugin like Spotify contributes no
-  // stream resolver of its own, so capability can't stand in for intent.
+  // The sidebar's list reshaped for the surfaces that offer plugin views as a
+  // way out of an empty library (Home's empty state, the caption-bar search's
+  // no-match state). Deliberately unfiltered: a utility plugin that happens to
+  // have a view (library stats, say) is listed alongside the real sources,
+  // because separating them would need a source/utility distinction the manifest
+  // doesn't carry — a browse-only plugin like Spotify contributes no stream
+  // resolver of its own, so capability can't stand in for intent.
+  //
+  // Reads `sidebarItemsUnfiltered`, NOT `sidebarItems`, for the same reason: a
+  // user who hid a plugin's nav entry still has a plugins-only setup, and
+  // sourcing this from the filtered list would drop them into the "add a music
+  // folder" empty state that has nothing to offer them. Hiding a nav entry never
+  // disabled the view itself (`navigateToView` still reaches it), so these
+  // entry points stay valid.
   const pluginViewList = useMemo(
-    () => plugins.sidebarItems.map((i) => ({ pluginId: i.pluginId, viewId: i.id, label: i.label })),
-    [plugins.sidebarItems],
+    () => plugins.sidebarItemsUnfiltered.map((i) => ({ pluginId: i.pluginId, viewId: i.id, label: i.label })),
+    [plugins.sidebarItemsUnfiltered],
   );
 
   // Open a plugin's sidebar view. Shared by the sidebar itself and the empty
@@ -4218,6 +4225,9 @@ function App() {
               gallerySkins={skins.gallerySkins || []}
               getPluginViewData={plugins.getViewData}
               onPluginAction={plugins.dispatchUIAction}
+              contributions={plugins.contributions}
+              contributionVisibility={plugins.contributionVisibility}
+              onSetContributionEnabled={plugins.setContributionEnabled}
               pluginGalleryLoading={plugins.galleryLoading}
               pluginGalleryError={plugins.galleryError}
               skinGalleryLoading={skins.galleryLoading}

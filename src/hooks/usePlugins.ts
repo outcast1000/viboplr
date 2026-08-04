@@ -3,6 +3,11 @@ import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/cor
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
 import { isExperimental } from "../utils/pluginStability";
+import {
+  filterContributions,
+  listPluginContributions,
+  type ContributionVisibility,
+} from "../utils/pluginContributions";
 import { getVersion } from "@tauri-apps/api/app";
 import { track as trackTelemetry } from "../telemetry";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -322,6 +327,47 @@ export function usePlugins(
   }>());
   const nowPlayingInfoHandlersRef = useRef(new Map<string, (track: PluginTrack) => Promise<NowPlayingInfoResult>>());
   const [nowPlayingInfoVersion, setNowPlayingInfoVersion] = useState(0);
+
+  // Per-contribution on/off for context-menu items and sidebar views, keyed
+  // `${pluginId}:${kind}:${itemId}`. See utils/pluginContributions.ts — a
+  // missing key means visible, so a plugin update's new item is never hidden.
+  const [contributionVisibility, setContributionVisibility] =
+    useState<ContributionVisibility>({});
+  const contributionVisibilityRef = useRef<ContributionVisibility>({});
+
+  // Read the saved map on mount. Runs ahead of the plugin load (which waits on
+  // startupReady), so menus are filtered from the first right-click.
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await store.get<ContributionVisibility>(
+          "pluginContributionVisibility",
+        );
+        if (!saved) return;
+        contributionVisibilityRef.current = saved;
+        setContributionVisibility(saved);
+      } catch (e) {
+        console.error("Failed to read plugin contribution visibility:", e);
+      }
+    })();
+  }, []);
+
+  // Persist on the toggle itself rather than from an effect: an effect would
+  // need a "have we restored yet" guard to avoid writing `{}` over the saved
+  // map during startup, and there is nothing else that mutates this state.
+  const setContributionEnabled = useCallback(
+    async (key: string, enabled: boolean) => {
+      const next = { ...contributionVisibilityRef.current, [key]: enabled };
+      contributionVisibilityRef.current = next;
+      setContributionVisibility(next);
+      try {
+        await store.set("pluginContributionVisibility", next);
+      } catch (e) {
+        console.error("Failed to persist plugin contribution visibility:", e);
+      }
+    },
+    [],
+  );
 
   // Active IPC-timing bucket for the plugin currently inside its activate()
   // window (set only in debug mode). tapInvoke attributes each invoke()'s
@@ -2475,7 +2521,10 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [homeShelves, dynamicShelvesVersion]);
 
-  const allMenuItems = useMemo(() => {
+  // Static manifest items + runtime-registered ones, before the user's
+  // per-contribution filter. The config UI needs this unfiltered list so a
+  // turned-off item still has a row to turn back on.
+  const mergedMenuItems = useMemo(() => {
     const seen = new Set(menuItems.map((m) => `${m.pluginId}:${m.id}`));
     const merged = [...menuItems];
     for (const entry of dynamicMenuItemsRef.current.values()) {
@@ -2487,6 +2536,42 @@ export function usePlugins(
     return merged;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [menuItems, dynamicMenuItemsVersion]);
+
+  // One filter here covers every menu surface — library, queue, playlists,
+  // plugin views, Home — because they all consume `plugins.menuItems`.
+  const allMenuItems = useMemo(
+    () => filterContributions(mergedMenuItems, "menu", contributionVisibility),
+    [mergedMenuItems, contributionVisibility],
+  );
+
+  const visibleSidebarItems = useMemo(
+    () => filterContributions(sidebarItems, "sidebar", contributionVisibility),
+    [sidebarItems, contributionVisibility],
+  );
+
+  // A hidden provider loses its offer row, which is also what stops it being
+  // queried — the host only calls a search handler on activation, so there is
+  // no second path to gate.
+  const visibleSearchProviders = useMemo(
+    () =>
+      filterContributions(
+        allSearchProviders,
+        "search",
+        contributionVisibility,
+        (p) => p.providerId,
+      ),
+    [allSearchProviders, contributionVisibility],
+  );
+
+  const contributions = useMemo(
+    () =>
+      listPluginContributions({
+        menuItems: mergedMenuItems,
+        sidebarItems,
+        searchProviders: allSearchProviders,
+      }),
+    [mergedMenuItems, sidebarItems, allSearchProviders],
+  );
 
   // Runtime-registered Now Playing info items, sorted by priority then label.
   const nowPlayingInfoItems = useMemo(
@@ -2501,8 +2586,17 @@ export function usePlugins(
   return {
     pluginStates,
     pluginNames,
-    sidebarItems,
+    sidebarItems: visibleSidebarItems,
+    // Before the visibility filter. For consumers asking "does this user have
+    // plugin views at all?" rather than "what goes in the nav" — the empty-state
+    // branches must not flip because someone hid a nav entry. See App.tsx
+    // `pluginViewList`.
+    sidebarItemsUnfiltered: sidebarItems,
     menuItems: allMenuItems,
+    // Per-contribution on/off (Extensions → plugin detail → Contributions).
+    contributions,
+    contributionVisibility,
+    setContributionEnabled,
     settingsPanels,
     homeShelves: allHomeShelves,
     pluginsLoaded,
@@ -2515,7 +2609,7 @@ export function usePlugins(
     dispatchUIAction,
     invokeHomeShelfItemClick,
     invokeHomeShelfResolvePlay,
-    searchProviders: allSearchProviders,
+    searchProviders: visibleSearchProviders,
     invokePluginSearch,
     togglePlugin,
     reloadPlugin,

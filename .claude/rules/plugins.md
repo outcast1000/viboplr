@@ -161,6 +161,29 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
 
 When a plugin's version changes, all its cached information values are deleted, forcing re-fetch.
 
+## Per-Contribution Visibility
+
+A user can turn off **individual** contributions without disabling the whole plugin:
+
+| Contribution | Surface | Persisted as |
+|---|---|---|
+| Information types / image providers / stream resolvers / download providers | Settings → Providers (on/off + priority) | `*.active` / `*.priority` DB columns, plus `streamResolverOrder` |
+| Home shelves | Home → ⚙ Shelves (on/off + order) | `homeShelfVisibility` / `homeShelfOrder` |
+| Now Playing info items | Settings → Playback (on/off + dwell + order) | `nowPlayingInfoSelection` / `…Persistence` / `…Order` |
+| **Context menu items, sidebar views, search providers** | **Extensions → plugin detail → Contributions** | **`pluginContributionVisibility`** |
+
+The last row is `src/utils/pluginContributions.ts` (pure, unit-tested): one flat `Record<key, boolean>` keyed `` `${pluginId}:${kind}:${itemId}` `` where `kind` is `"menu"`, `"sidebar"`, or `"search"`. **A missing key means visible** — same default-on rule as `homeShelfVisibility`, so a plugin update that adds a menu item shows it instead of silently hiding it. The kind is in the key because ids collide across kinds (yt-dlp's search provider and its menu action can share a trailing id without one toggle hiding both).
+
+**The filter is applied once, in `usePlugins`** — `plugins.menuItems`, `plugins.sidebarItems` and `plugins.searchProviders` are already filtered when a consumer receives them, so every surface (library, queue, playlists, plugin views, Home, `buildContextMenuSpecs`, the Cmd+K dropdown) inherits it for free. Do not re-filter at a call site, and do not read the raw lists to build a menu: a native menu has no DOM, so a hidden item that leaked into a spec list could not be filtered out later. It covers static manifest contributions and their runtime counterparts (`api.contextMenu.registerItem`, `api.search.registerProvider`) uniformly, because the merge happens before the filter.
+
+`filterContributions` takes an optional id accessor for this reason: `PluginSearchProvider` names its id `providerId`, not `id`.
+
+**Hiding a search provider is enough to stop it running.** The host only queries a provider when the user activates its offer row (see "Global Search"), so removing the row removes the only trigger — there is no second path to gate.
+
+`usePlugins` also returns `contributions` (the **unfiltered** flat list, so a turned-off item still has a row to turn back on), `contributionVisibility`, and `setContributionEnabled(key, enabled)` — the last writes state and the store directly rather than via an effect, so there is no restore-guard to get wrong.
+
+**For plugin authors:** hiding a sidebar item does *not* disable the view — `api.ui.navigateToView` still reaches it. If your item set depends on the user's own preferences, prefer gating `api.contextMenu.registerItem` / `unregisterItem` from your own `settingsPanel`; the host toggle is the generic fallback that works without plugin cooperation.
+
 ## Plugin API
 
 Plugins receive an `api` object. The plugin exports `activate(api)` and optionally `deactivate()`. The canonical TypeScript definitions live in `src/types/plugin.ts` (`ViboplrPluginAPI`).
@@ -459,7 +482,7 @@ Plugins contribute searchable catalogs to the caption-bar search via `api.search
 - **Static (manifest):** `contributes.searchProviders[]` — `{ id, name, icon? }`. Each entry must still register a handler via `api.search.onQuery(providerId, handler)`.
 - **Runtime:** `api.search.registerProvider(descriptor)`. Use this when the capability is **conditional** — the yt-dlp plugin registers only once the host reports its binary installed, because a provider that can't answer must not be offered.
 
-The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSearch` consumes it.
+The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSearch` consumes it. That list is already filtered by the user's per-contribution toggles (see "Per-Contribution Visibility") — a provider the user hid never gets an offer row, and so is never queried.
 
 **The host never queries a provider while the user types.** This is the load-bearing rule of the whole surface, not a tuning choice: every real provider costs seconds (yt-dlp shells out to a binary; a scraper drives a hidden browser window), so a debounce would spawn a process or a window per keystroke. Instead the dropdown renders one offer row per provider ("Search “x” on yt-dlp") and calls the handler only when the user activates it. Handlers may therefore be slow — the backstop is `PLUGIN_SEARCH_TIMEOUT_MS` (60s), not the 5s home-shelf budget. **Do not add speculative prefetching on either side.**
 
