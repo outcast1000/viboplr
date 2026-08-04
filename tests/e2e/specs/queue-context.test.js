@@ -31,7 +31,7 @@ test('album play from search shows context banner with album name', async ({ pag
   // Hover to reveal play button, then click
   const firstCard = page.locator('.album-card').first();
   await firstCard.hover();
-  await firstCard.locator('.album-card-play-btn').click({ force: true });
+  await firstCard.locator('.ds-card-play').click({ force: true });
 
   await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('.queue-context-name')).toHaveText('Album X');
@@ -48,7 +48,7 @@ test('artist play from search shows context banner with artist name', async ({ p
 
   const firstCard = page.locator('.artist-card').first();
   await firstCard.hover();
-  await firstCard.locator('.album-card-play-btn').click({ force: true });
+  await firstCard.locator('.ds-card-play').click({ force: true });
 
   await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
   await expect(page.locator('.queue-context-name')).toHaveText('Artist A');
@@ -61,8 +61,9 @@ test('album detail Play All shows context banner', async ({ page }) => {
   await page.locator('button').filter({ hasText: /^Albums/ }).first().click();
   await page.waitForTimeout(500);
 
-  // Navigate to album detail
-  await page.locator('.album-card .album-card-body').first().click();
+  // Navigate to album detail. The card's art area is the navigation affordance;
+  // clicking the body multi-selects instead.
+  await page.locator('.album-card .album-card-art-wrapper').first().click();
   await page.waitForTimeout(1000);
 
   // Click Play in the shared DetailHero (the old .detail-art-play button is now
@@ -93,7 +94,7 @@ test.skip('clearing queue removes context banner', async ({ page }) => {
 
   const firstCard = page.locator('.album-card').first();
   await firstCard.hover();
-  await firstCard.locator('.album-card-play-btn').click({ force: true });
+  await firstCard.locator('.ds-card-play').click({ force: true });
 
   await expect(page.locator('.queue-context-banner')).toBeVisible({ timeout: 5000 });
 

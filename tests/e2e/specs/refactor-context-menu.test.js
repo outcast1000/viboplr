@@ -42,12 +42,21 @@ async function buildSpecTexts(page, target, dataOverrides = {}) {
       plugins: { menuItems: dataOverrides.menuItems ?? [], dispatchContextMenuAction: noop },
       searchProviders: dataOverrides.searchProviders ?? [],
       handleDownloadFromProvider: noop,
+      // Null = no provider owns this target's source, so the native "Download…"
+      // item is omitted. Override via dataOverrides to exercise the item.
+      resolveNativeDownload: () => dataOverrides.nativeDownload ?? null,
+      openNativeDownload: noop,
       artistImageCache: { requestFetch: noop },
       albumImageCache: { requestFetch: noop },
       tagImageCache: { requestFetch: noop },
+      beginRetrieveImage: noop,
       setSearchInitialQuery: noop, setSearchQueryKey: noop, setDeleteTagConfirm: noop,
       trashLabel: 'Trash',
+      // Ref-shaped deps: the builder reads `.current` to decide whether the
+      // owning modal exists, so these must be objects, not bare nulls.
       handleExportAsMixtapeRef: { current: null },
+      openPublishMusicSourceRef: { current: null },
+      openEditTrackInfoRef: { current: null },
     };
     const specs = mod.buildContextMenuSpecs(target, deps);
     if (!specs) return null;

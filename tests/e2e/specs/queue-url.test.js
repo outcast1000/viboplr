@@ -54,13 +54,20 @@ test('double-clicking another track replaces the queue', async ({ page }) => {
   await expect(page.locator('.queue-item-title').first()).toHaveText('Third Song');
 });
 
-test('clearing the queue empties it', async ({ page }) => {
+test('queue header exposes the playlist options menu', async ({ page }) => {
   await page.locator('.entity-list-item').first().dblclick();
   await expect(page.locator('.queue-item')).toHaveCount(1);
 
-  await page.locator('button[title="Clear playlist"]').click();
-
-  await expect(page.locator('.queue-empty')).toBeVisible();
+  // "Clear playlist" used to be its own header button. Every queue-level action
+  // now lives in one native OS menu behind this ⋯ trigger (showNativeMenu), and
+  // native menus have no DOM — E2E drives the dev server, not a Tauri build, so
+  // the menu items themselves are out of reach here (see testing.md). Assert the
+  // trigger is present and that opening it doesn't throw; the clear behaviour
+  // itself is not covered at this layer.
+  const menuBtn = page.locator('.queue-header .queue-header-menu-btn');
+  await expect(menuBtn).toBeVisible();
+  await menuBtn.click();
+  await expect(page.locator('.queue-item')).toHaveCount(1);
 });
 
 test('now playing bar updates when a track plays', async ({ page }) => {

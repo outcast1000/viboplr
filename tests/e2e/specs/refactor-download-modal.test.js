@@ -56,7 +56,10 @@ async function mountDownloadModal(page, tracks, extra = {}) {
     const modal = document.querySelector('[data-harness="download"] .dl-modal');
     return {
       mounted: !!modal,
-      title: modal?.querySelector('.ds-modal-title')?.textContent ?? null,
+      // The header is `.dl-head` (an h2 plus a separate ProviderChip); the
+      // provider name is no longer concatenated into the title string.
+      title: modal?.querySelector('.dl-head h2')?.textContent ?? null,
+      provider: modal?.querySelector('.dl-head .dl-prov')?.textContent ?? null,
       trackLine: modal?.querySelector('.dl-track')?.textContent ?? null,
       hasConfigRows: modal ? modal.querySelectorAll('.dl-config-row').length : 0,
       errors,
@@ -75,8 +78,9 @@ test('single-track DownloadModal renders via the slim wrapper', async ({ page })
     { title: 'Spike Song', artistName: 'Spike Artist', albumTitle: 'Spike Album', uri: null, durationSecs: 180, trackId: null },
   ]);
   expect(r.mounted).toBe(true);
-  // SingleTrackDownload header + track line.
-  expect(r.title).toContain('Download from TestProvider');
+  // SingleTrackDownload header + provider chip + track line.
+  expect(r.title).toContain('Download track');
+  expect(r.provider).toContain('TestProvider');
   expect(r.trackLine).toContain('Spike Song');
   expect(r.errors, `page errors: ${r.errors.join('; ')}`).toHaveLength(0);
 });
@@ -88,7 +92,8 @@ test('multi-track DownloadModal renders the batch variant', async ({ page }) => 
   ]);
   expect(r.mounted).toBe(true);
   // MultiTrackDownload header reports the count, and the configure step has rows.
-  expect(r.title).toContain('Download 2 tracks from TestProvider');
+  expect(r.title).toContain('Download 2 tracks');
+  expect(r.provider).toContain('TestProvider');
   expect(r.hasConfigRows).toBeGreaterThan(0);
   expect(r.errors, `page errors: ${r.errors.join('; ')}`).toHaveLength(0);
 });
