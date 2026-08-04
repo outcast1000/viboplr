@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HomeShelfItem, HomeShelfResult, HomeShelfDisplayKind } from "../types/plugin";
 import type { ResolvedShelf } from "../hooks/useHome";
 import {
@@ -39,6 +39,14 @@ export interface HomeViewProps {
   onShelfItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onShelfItemContextMenu: (shelf: ResolvedShelf, item: HomeShelfItem, e: React.MouseEvent) => void;
   onShelfItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
+  /** How many music sources exist — decides which empty state Home shows. */
+  collectionCount: number;
+  /** Live scan/sync of a collection, so a bare Home reads as "working", not "broken". */
+  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number } | null;
+  onAddFolder: () => void;
+  onConnectServer: () => void;
+  onBrowseExtensions: () => void;
+  onRunSetup: () => void;
 }
 
 export function HomeView(props: HomeViewProps) {
@@ -87,7 +95,7 @@ export function HomeView(props: HomeViewProps) {
     store.set("homeShelfOrder", shelfOrder);
   }, [shelfOrder, configHydrated]);
 
-  const { radioStations, shelves, refresh } = useHome({
+  const { radioStations, shelves, refresh, isLoading, hydrated } = useHome({
     isVisible: props.isVisible,
     pluginShelves: props.pluginShelves,
     invokePluginShelf: props.invokePluginShelf,
@@ -104,6 +112,24 @@ export function HomeView(props: HomeViewProps) {
     // works whether the shelf was on/off by default or by a prior explicit setting.
     setVisibility((prev) => ({ ...prev, [id]: !isShelfVisible(id, prev) }));
   }
+
+  // "Have we finished looking?" — the empty state must not flash in the gap
+  // between mount and the first fetch (shelves are empty and isLoading is still
+  // false in that window), but it must not wait forever either: a snapshot
+  // that's still fresh skips the refresh entirely, so a load may never start.
+  // Settle on a completed load, or on a short grace period after hydration with
+  // nothing loading.
+  const [settled, setSettled] = useState(false);
+  const wasLoading = useRef(false);
+  useEffect(() => {
+    if (wasLoading.current && !isLoading) setSettled(true);
+    wasLoading.current = isLoading;
+  }, [isLoading]);
+  useEffect(() => {
+    if (!hydrated || settled || isLoading) return;
+    const t = setTimeout(() => setSettled(true), 1500);
+    return () => clearTimeout(t);
+  }, [hydrated, settled, isLoading]);
 
   const radioVisible = isShelfVisible(RADIO_SHELF_ID, visibility);
 
@@ -148,6 +174,22 @@ export function HomeView(props: HomeViewProps) {
         />
       )}
 
+      {/* Gated on `settled` for every branch, including the no-sources one:
+          `collectionCount` is 0 until the collections fetch resolves, so an
+          ungated check would flash "Let's find your music" at every cold start
+          for users who do have music. */}
+      {ordered.length === 0 && settled && (
+        <HomeEmptyState
+          collectionCount={props.collectionCount}
+          indexing={props.indexing}
+          onAddFolder={props.onAddFolder}
+          onConnectServer={props.onConnectServer}
+          onBrowseExtensions={props.onBrowseExtensions}
+          onRunSetup={props.onRunSetup}
+          onCustomize={() => setCustomizeOpen(true)}
+        />
+      )}
+
       {heroShelf && (
         <HeroCarousel
           shelf={heroShelf}
@@ -169,6 +211,111 @@ export function HomeView(props: HomeViewProps) {
           onItemPlay={props.onShelfItemPlay}
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * What Home shows when it has nothing to show. Home is the startup view, so for
+ * a fresh install this is the app's actual first screen — without it the user
+ * lands on a blank page with two ghost buttons and no next step.
+ *
+ * Three distinct situations, in priority order:
+ *  1. A scan/sync is running — the shelves are empty only because the library
+ *     is still filling. Report progress rather than asking for music again.
+ *  2. No music sources at all — the real first-run. Offer the ways in.
+ *  3. Sources exist but every shelf came back empty — nothing is wrong; the
+ *     content shelves just need listening history, so say so.
+ */
+function HomeEmptyState({
+  collectionCount,
+  indexing,
+  onAddFolder,
+  onConnectServer,
+  onBrowseExtensions,
+  onRunSetup,
+  onCustomize,
+}: {
+  collectionCount: number;
+  indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number } | null;
+  onAddFolder: () => void;
+  onConnectServer: () => void;
+  onBrowseExtensions: () => void;
+  onRunSetup: () => void;
+  onCustomize: () => void;
+}) {
+  if (indexing) {
+    return (
+      <div className="home-empty">
+        <span className="ds-spinner ds-spinner--lg" />
+        <h2 className="home-empty-title">
+          {indexing.kind === "sync" ? "Syncing" : "Scanning"} “{indexing.collectionName}”…
+        </h2>
+        <p className="home-empty-desc">
+          {indexing.scanned > 0
+            ? `${indexing.scanned.toLocaleString()}${indexing.total > 0 ? ` of ${indexing.total.toLocaleString()}` : ""} tracks so far — Home fills in as they land.`
+            : "Home fills in as your tracks land. This runs in the background, so feel free to look around."}
+        </p>
+      </div>
+    );
+  }
+
+  if (collectionCount === 0) {
+    return (
+      <div className="home-empty">
+        <svg
+          className="home-empty-art"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+        <h2 className="home-empty-title">Let's find your music</h2>
+        <p className="home-empty-desc">
+          Home fills up with radio stations, recent plays and your albums once
+          Viboplr knows where your music lives. Point it at a folder, connect a
+          server, or add a streaming plugin.
+        </p>
+        <div className="home-empty-actions">
+          <button className="ds-btn ds-btn--primary" onClick={onAddFolder}>
+            Add a music folder
+          </button>
+          <button className="ds-btn ds-btn--secondary" onClick={onConnectServer}>
+            Connect a server
+          </button>
+          <button className="ds-btn ds-btn--ghost" onClick={onBrowseExtensions}>
+            Browse plugins
+          </button>
+        </div>
+        <button className="ds-btn ds-btn--ghost ds-btn--sm home-empty-link" onClick={onRunSetup}>
+          Or run the setup wizard again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="home-empty">
+      <h2 className="home-empty-title">Nothing to show here yet</h2>
+      <p className="home-empty-desc">
+        Your music is set up, but these shelves are built from what you play —
+        start a track and Home fills in. You can also pick which shelves appear.
+      </p>
+      <div className="home-empty-actions">
+        <button className="ds-btn ds-btn--secondary" onClick={onCustomize}>
+          Choose shelves
+        </button>
+        <button className="ds-btn ds-btn--ghost" onClick={onAddFolder}>
+          Add another folder
+        </button>
+      </div>
     </div>
   );
 }

@@ -184,6 +184,14 @@ Plugin-contributed shelves are merged in alongside the built-ins. See `plugins.m
 
 **Visibility popover:** `[⚙ Shelves]` opens a checklist of every registered shelf (built-in + plugin). Toggling persists to `homeShelfVisibility: Record<string, boolean>` in the app store. Default is "all visible" (missing keys count as visible).
 
+**Empty state (`HomeEmptyState` in `HomeView.tsx`):** because every shelf that resolves `empty` is filtered out, a Home with no content would otherwise render as a blank page with only the two header buttons — and since Home is the startup view, that blank page is the first screen of every fresh install. When `ordered.length === 0` Home renders one of three panels instead, in priority order:
+
+1. **Indexing** — a scan/sync is running (`resyncProgress`, passed down as `indexing`). Shows progress; the shelves are empty only because the library is still filling.
+2. **No music sources** (`collectionCount === 0`) — the true first-run. Offers *Add a music folder* / *Connect a server* / *Browse plugins*, plus re-running the setup wizard.
+3. **Configured but bare** — sources exist and every shelf came back empty. Explains that content shelves are built from listening history, and offers Customize.
+
+Gating: all three branches wait on a local `settled` flag (a completed `useHome` load, or a short grace period after `hydrated` with nothing loading). `hydrated` is exposed by `useHome` for exactly this. The wait matters in both directions — the panel must not flash before the first fetch, and it must not wait for a fetch that a still-fresh snapshot skips. Branch 2 is gated too: `collectionCount` is 0 until the collections fetch resolves, so an ungated check would flash "Let's find your music" at every cold start for users who do have music.
+
 **Card kinds:** four `displayKind` values, all rendered by `HomeShelf.tsx`. The renderer uses a single `resolveImagePath` helper that handles http/data URIs directly and runs local paths through `convertFileSrc` (preserving any `#v=...` cache-busting fragment so plugin-cached covers refresh when content changes):
 
 | displayKind | Click action |

@@ -3884,6 +3884,21 @@ function App() {
             onShelfItemClick={handleHomeShelfItemClick}
             onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}
+            collectionCount={library.collections.length}
+            indexing={
+              resyncProgress
+                ? {
+                    collectionName: resyncProgress.collectionName,
+                    kind: resyncProgress.kind,
+                    scanned: resyncProgress.scanned,
+                    total: resyncProgress.total,
+                  }
+                : null
+            }
+            onAddFolder={handleAddFolder}
+            onConnectServer={() => setShowAddServer(true)}
+            onBrowseExtensions={() => library.setView("extensions")}
+            onRunSetup={() => setShowOnboarding(true)}
           />
 
           {/* Search view — always mounted to preserve state and scroll position */}

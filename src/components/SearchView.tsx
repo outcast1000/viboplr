@@ -766,6 +766,14 @@ export function SearchView({
     { id: "tags", label: "Tags", count: counts.tags },
   ];
 
+  // With no query, this view IS the library — so an empty result means the
+  // library is empty, not that a search missed. Saying "No tracks found" there
+  // reads as a broken search to a first-time user who hasn't added music yet.
+  const libraryIsEmpty = query.trim() === "" && counts.tracks === 0;
+  const emptyTracksMessage = libraryIsEmpty
+    ? "No music yet — add a folder or server under Collections to fill your library."
+    : "No tracks found.";
+
   return (
     <div className="search-view" style={style}>
       <div className="search-view-input-wrapper">
@@ -936,7 +944,7 @@ export function SearchView({
             onToggleLike={handleTrackLike}
             onToggleDislike={handleTrackDislike}
             onTrackDragStart={onTrackDragStart}
-            emptyMessage="No tracks found."
+            emptyMessage={emptyTracksMessage}
             hasMore={hasMore.tracks}
             loadingMore={loadingMore.tracks}
             onLoadMore={handleLoadMore}
@@ -996,7 +1004,7 @@ export function SearchView({
                 );
               })}
               {results.tracks.length === 0 && (
-                <div className="empty">No tracks found.</div>
+                <div className="empty">{emptyTracksMessage}</div>
               )}
             </div>
             <LoadMoreSentinel hasMore={hasMore.tracks} loading={loadingMore.tracks} onLoadMore={handleLoadMore} />
@@ -1034,7 +1042,7 @@ export function SearchView({
                   );
                 })}
                 {results.tracks.length === 0 && (
-                  <div className="empty">No tracks found.</div>
+                  <div className="empty">{emptyTracksMessage}</div>
                 )}
               </div>
             </div>

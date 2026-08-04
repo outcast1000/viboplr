@@ -137,3 +137,49 @@
   display: flex; justify-content: flex-end; gap: 8px;
   margin-bottom: 16px;
 }
+
+/* ── Empty Home ──
+   Home is the startup view, so this is the first screen of a fresh install.
+   Centered in the column with generous breathing room; all colors come from
+   skin tokens so it holds up on light and dark skins alike. */
+.home-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 56px 20px 32px;
+}
+.home-empty-art {
+  width: 56px;
+  height: 56px;
+  color: var(--accent);
+  opacity: 0.85;
+  margin-bottom: 4px;
+}
+.home-empty-title {
+  font-size: var(--fs-xl);
+  overflow-wrap: anywhere;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+.home-empty-desc {
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.home-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.home-empty-link {
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}

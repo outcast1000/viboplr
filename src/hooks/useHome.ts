@@ -1065,5 +1065,8 @@ export function useHome(opts: UseHomeOptions) {
     return () => clearTimeout(t);
   }, [libraryRevision, isVisible, hydrated, pluginsLoaded, restoredRef, refresh]);
 
-  return { radioStations, shelves, refresh, isLoading };
+  // `hydrated` is exposed so Home can tell "no shelves because the snapshot
+  // hasn't been read yet" from "no shelves because there genuinely are none" —
+  // the latter is what its empty state renders.
+  return { radioStations, shelves, refresh, isLoading, hydrated };
 }
