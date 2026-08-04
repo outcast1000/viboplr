@@ -1,6 +1,7 @@
 import { WindowControls } from "./WindowControls";
 import { CentralSearchDropdown } from "./CentralSearchDropdown";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
+import type { PluginSearchSection } from "../utils/centralSearchPlugins";
 
 interface CaptionBarProps {
   centralSearch: {
@@ -13,6 +14,7 @@ interface CaptionBarProps {
     handleKeyDown: (e: React.KeyboardEvent) => void;
     handleResultClick: (item: any) => void;
     close: () => void;
+    pluginSections: PluginSearchSection[];
   };
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
@@ -71,6 +73,7 @@ export function CaptionBar({
           getArtistImage={getArtistImage}
           pluginViews={pluginViews}
           onOpenPluginView={onOpenPluginView}
+          pluginSections={centralSearch.pluginSections}
         />
         {(resyncProgress || resyncComplete) && (
           <button

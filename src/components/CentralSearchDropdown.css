@@ -226,6 +226,18 @@
   margin-top: 2px;
 }
 
+/* Display-only row inside a plugin section (searching / no results / failed).
+   Deliberately not a `.central-search-result`: it carries no itemIndex, so the
+   arrow keys skip it and it must not look selectable. */
+.central-search-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
 .central-search-footer {
   padding: 8px 12px;
   border-top: 1px solid var(--border);

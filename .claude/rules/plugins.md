@@ -135,6 +135,11 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
       "displayKind": "album-cards|artist-cards|playlist-cards|track-rows",
       "limit": 20,
       "icon": "icon-name"
+    }],
+    "searchProviders": [{
+      "id": "provider-id",
+      "name": "Provider Name",
+      "icon": "icon-name"
     }]
   }
 }
@@ -238,6 +243,16 @@ Contributes items to the cycling **Now Playing info** section (the line that sho
 - `onFetch(id, handler)` — `handler(track: PluginTrack) => Promise<NowPlayingInfoResult>` resolves the item's text for the current track. Has a 5-second host-side timeout; slow handlers count as `error` for that track. Returns an unsubscriber.
 
 `NowPlayingInfoResult`: `{ status: "ok", text } | { status: "empty" } | { status: "error", message? }`. `empty`/`error`/timeout simply hide the item for that track (no error indicator). Built-in items contributed by the core app are **Artist · Album**, **Artist**, **Album**, **Plays · Rank** (play count + chart rank from history, in one item), **Source** (Local / Subsonic / Web / scheme), **Quality** (for video: codec · resolution · fps via the mpv engine's live facts; for audio: format · sample rate · bit depth, or bitrate — via the engine's live facts for remote streams, else `get_audio_properties_by_path` for local files), **Duration**, **Tags** (`#`-prefixed track tags, resolved via `find_track_by_metadata` → `get_tags_for_track`), **Synced Lyrics** (the line *currently being sung* in quotes, tracking playback position), and **Plain Lyrics** (one line of unsynced lyrics in quotes, stable per track); the Last.fm plugin contributes **Scrobbles**. The two lyrics items reuse the cached lyrics info-type (via `useLyrics`) and only fetch when enabled; each appears only when that kind of lyrics exists for the track (synced vs. plain), otherwise it's hidden for that track. The Synced Lyrics item additionally drops out of the cycle during intros and instrumental gaps — when no line is actively being sung (before the first timestamp, or on a blank LRC gap line) it resolves to nothing rather than lingering on the last sung line (`activeSyncedLine` in `utils/lyrics.ts`). Each item declares its own `defaultEnabled`; **Artist · Album**, **Synced Lyrics**, and **Scrobbles** are on by default — everything else (including **Tags** and **Plain Lyrics**) is opt-in. Each item also has a built-in per-type style (skin-token-backed), a time-of-persistence multiplier, and a user-set priority (its position in the cycle) — the latter two set in Settings → Playback → "Now playing info" (persisted as `nowPlayingInfoPersistence` / `nowPlayingInfoOrder`); see `ui.md` "Now Playing Bar". A plugin item's `priority` therefore only decides where it *first* appears (after the built-ins, ordered among plugin items); the user can move it anywhere afterwards. When a plugin is deactivated/reloaded, `usePlugins` drops its items + handlers automatically.
+
+### api.search
+
+Contributes a searchable catalog to the global search (Cmd+K). Mirrors the `api.home` register/onQuery pattern. Full contract in "Global Search (Cmd+K)" below — read it before implementing, because the timing rule is unusual.
+
+- `registerProvider({ id, name, icon? })` — add a provider at runtime. Returns an unsubscriber. Prefer this over the manifest when the capability is conditional (a missing binary means the provider can't answer and must not be offered).
+- `unregisterProvider(providerId)` — drop it.
+- `onQuery(providerId, handler)` — `handler(query: string, limit: number) => Promise<PluginSearchResult>`. Returns an unsubscriber.
+
+`PluginSearchResult`: `{ status: "ok", tracks } | { status: "empty" } | { status: "error", message? }`. **The host never calls this while the user types** — it renders an offer row and queries only on activation — so a handler is allowed to take seconds (60s backstop). Return `PluginTrack`s carrying a resolvable `path`. Handlers and runtime providers are dropped automatically on deactivate/reload, so a plugin must re-register on activate (guard the whole namespace: `api.search` is absent on older hosts).
 
 ### api.ui
 - `setViewData(viewId, data, opts?)` — render plugin views (see `PluginViewData` types). `opts.scrollKey?: string` enables per-view scroll memory: the host saves/restores the view's scroll position keyed by `scrollKey`. Change it on navigation (new sub-view → opens at top; returning to a prior key → scroll restored); keep it stable across in-place updates so the view doesn't jump.
@@ -436,6 +451,29 @@ The merged manifest + runtime list is exposed by `usePlugins` as `homeShelves` a
 **Click semantics:** by default, for `playlist-cards`, `playTracks` is invoked with `{ name, coverUrl, source: "playlist" }` context, which gives the queue panel a banner — don't replicate that wiring inside the plugin, Home does it for you. To override the default (e.g. navigate into the plugin's own view instead of playing), register `api.home.onItemClick(shelfId, handler)`; when present it wins over the default body-click action. The play button on the card still plays regardless. Body-click and the play button run the **same** host path, so a lazy resolve / `partial` backfill behaves identically either way.
 
 **Live example:** `src-tauri/plugins/spotify-browse/index.js` — the `syncHomeShelves` function diffs desired vs. registered shelves on every `render()`, registering one playlist-card shelf per Spotify section and serving items from in-memory `state.playlists` / `state.playlistTracks`. It also registers `onItemClick` per shelf so clicking a card navigates into the Spotify view and opens that playlist's detail page.
+
+## Global Search (Cmd+K)
+
+Plugins contribute searchable catalogs to the caption-bar search via `api.search`. Same two paths as Home Shelves:
+
+- **Static (manifest):** `contributes.searchProviders[]` — `{ id, name, icon? }`. Each entry must still register a handler via `api.search.onQuery(providerId, handler)`.
+- **Runtime:** `api.search.registerProvider(descriptor)`. Use this when the capability is **conditional** — the yt-dlp plugin registers only once the host reports its binary installed, because a provider that can't answer must not be offered.
+
+The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSearch` consumes it.
+
+**The host never queries a provider while the user types.** This is the load-bearing rule of the whole surface, not a tuning choice: every real provider costs seconds (yt-dlp shells out to a binary; a scraper drives a hidden browser window), so a debounce would spawn a process or a window per keystroke. Instead the dropdown renders one offer row per provider ("Search “x” on yt-dlp") and calls the handler only when the user activates it. Handlers may therefore be slow — the backstop is `PLUGIN_SEARCH_TIMEOUT_MS` (60s), not the 5s home-shelf budget. **Do not add speculative prefetching on either side.**
+
+**Contract:** the handler returns `{ status: "ok", tracks }` / `{ status: "empty" }` / `{ status: "error", message? }`. `tracks` are `PluginTrack`s and should carry a resolvable `path` (e.g. `ytdlp://…`) — a metadata-only row forces the stream-resolver chain to search all over again at play time. `limit` is a hint; the host trims to `PLUGIN_RESULT_LIMIT`. A throw is caught and reported as `error`, so one broken provider can never break the search.
+
+**Results are tracks only.** Albums and artists are deliberately out of scope: the dropdown's album/artist rows navigate to a detail page by library id, which a plugin result has no way to supply.
+
+**Host-side layout:** `buildPluginSearchSections` (in `utils/centralSearchPlugins.ts`) produces the rendered rows *and* the keyboard-selectable item list in one walk, so the two can never disagree about an index. Every row carries its own `itemIndex` (null for display-only rows — spinner / no-results / error — which the arrow keys skip). Plugin sections always render after the library results. New row kinds go through that builder; do not compute indices in the component.
+
+**Interaction:** activating an offer row runs the provider and keeps the dropdown open (its results replace the row in place). Activating a result plays it — `Cmd/Ctrl+Enter` enqueues — through `pluginTrackToQueueTrack` + the canonical queue actions, then reconciles like state against the durable store, exactly like every other plugin-track entry point.
+
+**Not wired to the mini player.** `useMiniSearch` stays library-only: multi-second catalog searches with status rows don't fit a 40px bar.
+
+**Live example:** `registerGlobalSearch` in the yt-dlp plugin (`/Users/alex/Code/viboplr-ytdlp/index.js`) — runtime registration gated on `statusLoaded && ytDlpVersion`, re-run after the dependency status resolves, and reset in `deactivate` so a disable/enable cycle re-registers (the host drops the provider on unload).
 
 ## Plugin View Rendering
 

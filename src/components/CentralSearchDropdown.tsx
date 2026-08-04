@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
+import type { PluginSearchSection } from "../utils/centralSearchPlugins";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ArtistCardArt } from "./ArtistCardArt";
@@ -44,6 +45,9 @@ interface CentralSearchDropdownProps {
    *  reads as a broken search rather than "your music isn't indexed here". */
   pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
   onOpenPluginView: (pluginId: string, viewId: string) => void;
+  /** Plugin-catalog sections, laid out by `buildPluginSearchSections`. Each row
+   *  carries its own `itemIndex`, so this component never re-derives one. */
+  pluginSections: PluginSearchSection[];
 }
 
 // Track art mirrors the queue's chain (queue.md "Image Resolution"): album image
@@ -68,6 +72,109 @@ function TrackImage({ track, getAlbumImage, getArtistImage }: {
   );
 }
 
+/**
+ * One plugin catalog's rows. A provider starts as a single "Search … on X" offer
+ * because the host never queries plugin catalogs on its own (see
+ * `PluginSearchAPI`) — activating that row is what runs it, and the results
+ * replace it in place.
+ *
+ * `row.itemIndex` comes from the same walk that built the keyboard's item list,
+ * so highlight state is read, never computed here. Display-only rows carry null
+ * and are inert.
+ */
+function PluginSection({
+  section,
+  query,
+  highlightedIndex,
+  onActivate,
+}: {
+  section: PluginSearchSection;
+  query: string;
+  highlightedIndex: number;
+  onActivate: (row: PluginSearchSection["rows"][number]) => void;
+}) {
+  return (
+    <>
+      <div className="search-section-header">{section.name}</div>
+      {section.rows.map((row) => {
+        if (row.kind === "run") {
+          return (
+            <div
+              key={row.key}
+              className={`central-search-result ${row.itemIndex === highlightedIndex ? "highlighted" : ""}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onActivate(row);
+              }}
+            >
+              <div className="result-info">
+                <div className="result-title">
+                  Search “{query}” on {section.name}
+                </div>
+                <div className="result-subtitle">Not searched yet — this one costs a moment</div>
+              </div>
+              <span className="result-action">→</span>
+            </div>
+          );
+        }
+        if (row.kind === "loading") {
+          return (
+            <div key={row.key} className="central-search-status">
+              <span className="ds-spinner ds-spinner--sm" />
+              Searching {section.name}…
+            </div>
+          );
+        }
+        if (row.kind === "empty") {
+          return (
+            <div key={row.key} className="central-search-status">
+              No results on {section.name}.
+            </div>
+          );
+        }
+        if (row.kind === "error") {
+          return (
+            <div key={row.key} className="central-search-status">
+              {section.name} search failed{row.message ? `: ${row.message}` : "."}
+            </div>
+          );
+        }
+        const track = row.track!;
+        return (
+          <div
+            key={row.key}
+            className={`central-search-result ${row.itemIndex === highlightedIndex ? "highlighted" : ""}`}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onActivate(row);
+            }}
+          >
+            <div className="result-art">
+              {track.image_url ? (
+                <img className="result-img" src={track.image_url} alt="" />
+              ) : (
+                // First-letter placeholder, same fallback the library rows use
+                // when no artwork resolves. A plugin result has no library row
+                // to look an image up from, so there's no image chain to run.
+                <span className="result-img-fallback">{track.title.charAt(0).toUpperCase()}</span>
+              )}
+            </div>
+            <div className="result-info">
+              <div className="result-title">{track.title}</div>
+              <div className="result-subtitle">
+                {track.artist_name}
+                {track.artist_name && track.album_title && " · "}
+                {track.album_title}
+              </div>
+            </div>
+            <span className="result-play">▶</span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function CentralSearchDropdown({
   query,
   onQueryChange,
@@ -83,6 +190,7 @@ export function CentralSearchDropdown({
   getArtistImage,
   pluginViews,
   onOpenPluginView,
+  pluginSections,
 }: CentralSearchDropdownProps) {
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
@@ -90,13 +198,17 @@ export function CentralSearchDropdown({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [placeholder, setPlaceholder] = useState(randomPlaceholder);
   const [focused, setFocused] = useState(false);
-  const showDropdown = isOpen && items.length > 0;
+  // `items` now spans library rows AND plugin rows, so the library's own count
+  // has to come from `results` — an empty library with providers registered
+  // still has items (their offer rows).
+  const libraryCount = results.tracks.length + results.albums.length + results.artists.length;
+  // The library half of this search matched nothing. That used to render an
+  // empty box, which reads as "search is broken" — worst for a streaming-only
+  // setup, where the library can never match. Say so, then let the plugin
+  // sections below offer the catalogs that can.
+  const showNoMatches = isOpen && libraryCount === 0 && query.trim() !== "";
+  const showDropdown = isOpen && (items.length > 0 || showNoMatches);
   const showOverlay = focused || showDropdown;
-  // This search covers the library only. A query that matched nothing used to
-  // render an empty box, which reads as "search is broken" — worst for a
-  // streaming-only setup, where it can never match anything. Say where the
-  // music actually is instead.
-  const showNoMatches = isOpen && items.length === 0 && query.trim() !== "";
 
   useEffect(() => {
     const id = setInterval(() => setPlaceholder(randomPlaceholder()), 5 * 60 * 1000);
@@ -272,7 +384,13 @@ export function CentralSearchDropdown({
                 <div className="central-search-nomatch-text">
                   Nothing in your library matches “{query.trim()}”.
                 </div>
-                {pluginViews.length > 0 && (
+                {/* Only offer the plugin *views* when no plugin can be searched
+                    from here. A search provider is strictly better — its results
+                    land in this dropdown instead of sending the user off to
+                    retype the query somewhere else — so when one exists, the
+                    sections below are the answer and these buttons would be
+                    noise. */}
+                {pluginSections.length === 0 && pluginViews.length > 0 && (
                   <>
                     <div className="central-search-nomatch-hint">
                       This searches music on this machine — try one of your sources:
@@ -296,6 +414,21 @@ export function CentralSearchDropdown({
                 )}
               </div>
             )}
+            {pluginSections.map((section) => (
+              <PluginSection
+                key={section.providerKey}
+                section={section}
+                query={query.trim()}
+                highlightedIndex={highlightedIndex}
+                onActivate={(row) =>
+                  onResultClick(
+                    row.kind === "run"
+                      ? { kind: "plugin-run", providerKey: section.providerKey, name: section.name }
+                      : { kind: "plugin-track", providerKey: section.providerKey, track: row.track! },
+                  )
+                }
+              />
+            ))}
           </div>
           {items.length > 0 && (
             <div className="central-search-footer">

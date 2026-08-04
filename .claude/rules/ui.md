@@ -106,7 +106,7 @@ Dynamic states: `.sidebar-collapsed` (56px), `.queue-open` (adds col 3), `.queue
 Contents left-to-right:
 - Window controls (macOS left)
 - Brand logo ("iboPLR" with gradient)
-- `CentralSearchDropdown` (global search with results preview)
+- `CentralSearchDropdown` (global search with results preview — library rows, then an on-demand "Search “x” on <plugin>" section per plugin catalog; see `plugins.md` "Global Search")
 - Spacer (draggable)
 - Help button (keyboard shortcuts)
 - Mini player button

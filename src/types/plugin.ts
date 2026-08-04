@@ -79,6 +79,18 @@ export interface PluginManifestHomeShelf {
   icon?: string;
 }
 
+/**
+ * A catalog the global search (Cmd+K) can query on demand. The host never runs
+ * these while the user types — see `PluginSearchAPI` for why — so a provider is
+ * free to be slow.
+ */
+export interface PluginManifestSearchProvider {
+  id: string;
+  /** Shown in the dropdown, both on the offer row and as the results header. */
+  name: string;
+  icon?: string;
+}
+
 export interface PluginManifestContributes {
   sidebarItems?: PluginManifestSidebarItem[];
   contextMenuItems?: PluginManifestContextMenuItem[];
@@ -89,6 +101,7 @@ export interface PluginManifestContributes {
   downloadProviders?: PluginManifestDownloadProvider[];
   settingsPanel?: PluginManifestSettingsPanel;
   homeShelves?: PluginManifestHomeShelf[];
+  searchProviders?: PluginManifestSearchProvider[];
 }
 
 export interface PluginApiUsage {
@@ -856,6 +869,39 @@ export interface PluginHomeAPI {
   ): () => void;
 }
 
+/** Result of one global-search query against a plugin catalog. */
+export type PluginSearchResult =
+  | { status: "ok"; tracks: PluginTrack[] }
+  | { status: "empty" }
+  | { status: "error"; message?: string };
+
+/**
+ * Global search (Cmd+K) against a plugin's catalog.
+ *
+ * **The host never queries a provider while the user types.** Every known
+ * provider costs real time — yt-dlp shells out to a binary, a scraper drives a
+ * hidden browser window — so auto-firing on a debounce would spawn a process or
+ * a window per keystroke. Instead the dropdown offers a row ("Search “x” on
+ * yt-dlp") and only queries when the user picks it. Handlers may therefore take
+ * seconds; they get a generous host-side timeout, not a 5s budget like home
+ * shelves. Do not add speculative prefetching on the plugin side either.
+ *
+ * Providers are declared in `contributes.searchProviders` (known before
+ * activation) and/or registered at runtime. Register at runtime when the
+ * capability is conditional — yt-dlp can only search when its binary is
+ * actually installed, and a provider that can't work should not be offered.
+ */
+export interface PluginSearchAPI {
+  /** Handle a query for one provider. `limit` is a hint, not a contract — the
+   *  host trims. Returning `empty` is a normal miss, not a failure. */
+  onQuery(
+    providerId: string,
+    handler: (query: string, limit: number) => Promise<PluginSearchResult>,
+  ): () => void;
+  registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void;
+  unregisterProvider(providerId: string): void;
+}
+
 /** Result of resolving a Now Playing info item for the current track.
  *  `empty` hides the item for that track (no error indicator); `error` is
  *  logged and also hides it. See `useNowPlayingInfo`. */
@@ -1102,6 +1148,7 @@ export interface ViboplrPluginAPI {
   env: PluginEnvAPI;
   home: PluginHomeAPI;
   nowPlayingInfo: PluginNowPlayingInfoAPI;
+  search: PluginSearchAPI;
 }
 
 // -- Gallery types --
@@ -1162,6 +1209,14 @@ export interface PluginSettingsPanel {
   label: string;
   icon?: string;
   order: number;
+}
+
+/** A registered global-search provider (manifest or runtime), host-side view. */
+export interface PluginSearchProvider {
+  pluginId: string;
+  providerId: string;
+  name: string;
+  icon?: string;
 }
 
 // -- Extension types --

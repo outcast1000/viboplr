@@ -38,12 +38,20 @@ import type {
   HomeShelfItem,
   HomeShelfResult,
   NowPlayingInfoResult,
+  PluginSearchProvider,
+  PluginSearchResult,
   InfoValueMatch,
   StreamCandidate,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
 import { buildEntityKey } from "../types/informationTypes";
+
+/** Backstop for a global-search handler that never settles. Deliberately far
+ *  more generous than the 5s home-shelf budget: search runs only when the user
+ *  explicitly asks for it, and the real providers shell out to a binary or drive
+ *  a scrape window, which legitimately takes tens of seconds. */
+const PLUGIN_SEARCH_TIMEOUT_MS = 60000;
 
 /** Parse a stored info value (JSON string) for plugin consumers; passes through
  *  non-string / non-JSON values unchanged so callers never see a parse throw. */
@@ -238,6 +246,7 @@ export function usePlugins(
     limit: number;
     icon?: string;
   }>>([]);
+  const [searchProviders, setSearchProviders] = useState<PluginSearchProvider[]>([]);
   const [galleryPlugins, setGalleryPlugins] = useState<GalleryPluginEntry[]>(
     [],
   );
@@ -289,6 +298,15 @@ export function usePlugins(
     icon?: string;
   }>());
   const [dynamicShelvesVersion, setDynamicShelvesVersion] = useState(0);
+  // Global-search providers, keyed `${pluginId}:${providerId}` — handlers plus
+  // the runtime-registered descriptors (mirrors dynamicHomeShelvesRef). Runtime
+  // registration matters more here than for shelves: a provider whose backing
+  // tool is missing (yt-dlp with no binary) must not be offered at all.
+  const searchHandlersRef = useRef(
+    new Map<string, (query: string, limit: number) => Promise<PluginSearchResult>>(),
+  );
+  const dynamicSearchProvidersRef = useRef(new Map<string, PluginSearchProvider>());
+  const [dynamicSearchProvidersVersion, setDynamicSearchProvidersVersion] = useState(0);
   // Runtime-registered context-menu items, keyed `${pluginId}:${itemId}`
   // (mirrors dynamicHomeShelvesRef). Merged with the static manifest items.
   const dynamicMenuItemsRef = useRef(new Map<string, PluginMenuItem>());
@@ -1081,6 +1099,46 @@ export function usePlugins(
           },
         },
 
+        search: {
+          onQuery(
+            providerId: string,
+            handler: (query: string, limit: number) => Promise<PluginSearchResult>,
+          ): () => void {
+            const key = `${pluginId}:${providerId}`;
+            searchHandlersRef.current.set(key, handler);
+            const unsub = () => {
+              if (searchHandlersRef.current.get(key) === handler) {
+                searchHandlersRef.current.delete(key);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void {
+            const key = `${pluginId}:${descriptor.id}`;
+            dynamicSearchProvidersRef.current.set(key, {
+              pluginId,
+              providerId: descriptor.id,
+              name: descriptor.name,
+              icon: descriptor.icon,
+            });
+            setDynamicSearchProvidersVersion((v) => v + 1);
+            const unsub = () => {
+              if (dynamicSearchProvidersRef.current.delete(key)) {
+                setDynamicSearchProvidersVersion((v) => v + 1);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          unregisterProvider(providerId: string): void {
+            const key = `${pluginId}:${providerId}`;
+            if (dynamicSearchProvidersRef.current.delete(key)) {
+              setDynamicSearchProvidersVersion((v) => v + 1);
+            }
+          },
+        },
+
         nowPlayingInfo: {
           registerItem(descriptor: { id: string; label: string; priority?: number; defaultEnabled?: boolean }): () => void {
             const key = `${pluginId}:${descriptor.id}`;
@@ -1362,6 +1420,22 @@ export function usePlugins(
     if (nowPlayingInfoChanged) {
       setNowPlayingInfoVersion((v) => v + 1);
     }
+    // Clear global-search handlers + runtime providers for this plugin
+    for (const key of Array.from(searchHandlersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        searchHandlersRef.current.delete(key);
+      }
+    }
+    let searchProvidersChanged = false;
+    for (const key of Array.from(dynamicSearchProvidersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        dynamicSearchProvidersRef.current.delete(key);
+        searchProvidersChanged = true;
+      }
+    }
+    if (searchProvidersChanged) {
+      setDynamicSearchProvidersVersion((v) => v + 1);
+    }
 
     loadedPluginsRef.current.delete(pluginId);
   }, []);
@@ -1573,6 +1647,7 @@ export function usePlugins(
         limit: number;
         icon?: string;
       }> = [];
+      const searchers: PluginSearchProvider[] = [];
       const allInfoTypes: Array<[string, string, string, string, string, number, number, number, string]> = [];
       const allImageProviders: [string, string, number][] = []; // [plugin_id, entity, priority]
 
@@ -1703,6 +1778,16 @@ export function usePlugins(
               });
             }
           }
+          if (contrib.searchProviders) {
+            for (const sp of contrib.searchProviders) {
+              searchers.push({
+                pluginId: plugin.id,
+                providerId: sp.id,
+                name: sp.name,
+                icon: sp.icon,
+              });
+            }
+          }
         }
       }
 
@@ -1769,6 +1854,7 @@ export function usePlugins(
       setMenuItems(menus);
       setSettingsPanels(settings);
       setHomeShelves(shelves);
+      setSearchProviders(searchers);
     } catch (e) {
       console.error("Failed to load plugins:", e);
     } finally {
@@ -2325,10 +2411,56 @@ export function usePlugins(
     [],
   );
 
+  // Run one global-search provider. Never called while the user types — the
+  // dropdown offers the provider and the user picks it (see PluginSearchAPI) —
+  // so this is allowed to take real time and only needs a backstop against a
+  // handler that never settles. Failures come back as `error`, so one broken
+  // provider can never reject the caller.
+  const invokePluginSearch = useCallback(
+    async (
+      pluginId: string,
+      providerId: string,
+      query: string,
+      limit: number,
+    ): Promise<PluginSearchResult> => {
+      const handler = searchHandlersRef.current.get(`${pluginId}:${providerId}`);
+      if (!handler) return { status: "error", message: "handler not registered" };
+      try {
+        const result = await Promise.race([
+          Promise.resolve().then(() => handler(query, limit)),
+          new Promise<PluginSearchResult>((resolve) =>
+            setTimeout(
+              () => resolve({ status: "error", message: "timed out" }),
+              PLUGIN_SEARCH_TIMEOUT_MS,
+            ),
+          ),
+        ]);
+        return result ?? { status: "empty" };
+      } catch (e) {
+        console.error(`Plugin search "${pluginId}:${providerId}" failed:`, e);
+        return { status: "error", message: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    [],
+  );
+
   const pluginNames = useMemo(
     () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
     [pluginStates],
   );
+
+  const allSearchProviders = useMemo(() => {
+    const seen = new Set(searchProviders.map((p) => `${p.pluginId}:${p.providerId}`));
+    const merged = [...searchProviders];
+    for (const entry of dynamicSearchProvidersRef.current.values()) {
+      const key = `${entry.pluginId}:${entry.providerId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(entry);
+    }
+    return merged;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchProviders, dynamicSearchProvidersVersion]);
 
   const allHomeShelves = useMemo(() => {
     const seen = new Set(homeShelves.map((s) => `${s.pluginId}:${s.shelfId}`));
@@ -2383,6 +2515,8 @@ export function usePlugins(
     dispatchUIAction,
     invokeHomeShelfItemClick,
     invokeHomeShelfResolvePlay,
+    searchProviders: allSearchProviders,
+    invokePluginSearch,
     togglePlugin,
     reloadPlugin,
     reloadAllPlugins,

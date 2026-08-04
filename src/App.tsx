@@ -962,6 +962,22 @@ function App() {
     onNavigateToAlbum: (albumId, artistId) => {
       library.handleAlbumClick(albumId, artistId);
     },
+    searchProviders: plugins.searchProviders,
+    runProviderSearch: plugins.invokePluginSearch,
+    // A plugin search result is an external track like any other: convert, play
+    // through the canonical queue action, then reconcile its like state against
+    // the durable metadata-keyed store (same as every other plugin-track entry
+    // point — see the playback bridge).
+    onPlayPluginTrack: (track) => {
+      const converted = [pluginTrackToQueueTrack(track)];
+      queueHook.playTracks(converted, 0);
+      reconcileAddedLikeStates(converted);
+    },
+    onEnqueuePluginTrack: (track) => {
+      const converted = [pluginTrackToQueueTrack(track)];
+      queueHook.enqueueTracks(converted);
+      reconcileAddedLikeStates(converted);
+    },
   });
 
   peekNextRef.current = queueHook.peekNext;
