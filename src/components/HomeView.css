@@ -183,3 +183,13 @@
   color: var(--text-tertiary);
   margin-top: 2px;
 }
+/* Secondary row under the primary actions — the ways in the user probably
+   didn't come for (add a folder when they're streaming, and vice versa). */
+.home-empty-alt {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+}

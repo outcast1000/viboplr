@@ -1599,6 +1599,29 @@ function App() {
     }
   }, [playActions, queueHook, notify]);
 
+  // Same list the sidebar renders, reshaped for the surfaces that offer plugin
+  // views as a way out of an empty library (Home's empty state, the caption-bar
+  // search's no-match state). Deliberately unfiltered: a utility plugin that
+  // happens to have a view (library stats, say) is listed alongside the real
+  // sources, because separating them would need a source/utility distinction the
+  // manifest doesn't carry — a browse-only plugin like Spotify contributes no
+  // stream resolver of its own, so capability can't stand in for intent.
+  const pluginViewList = useMemo(
+    () => plugins.sidebarItems.map((i) => ({ pluginId: i.pluginId, viewId: i.id, label: i.label })),
+    [plugins.sidebarItems],
+  );
+
+  // Open a plugin's sidebar view. Shared by the sidebar itself and the empty
+  // states above, which offer these views as the way in for a setup whose only
+  // sources are plugins.
+  const handleOpenPluginView = useCallback((pluginId: string, viewId: string) => {
+    library.setView(`plugin:${pluginId}:${viewId}`);
+    library.setSelectedArtist(null);
+    library.setSelectedAlbum(null);
+    library.setSelectedTag(null);
+    library.setSelectedTrack(null);
+  }, [library]);
+
   const handleHomeShelfItemPlay = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
     // "Latest play" tiles replay their session (the shipped `tracks` are empty).
     if (shelf.id === LATEST_PLAY_SHELF_ID) {
@@ -3659,13 +3682,7 @@ function App() {
         extensionUpdateCount={extensionsHook.updateCount}
         pluginNavItems={plugins.sidebarItems}
         badgeMap={mergedBadgeMap}
-        onPluginView={(pluginId, viewId) => {
-          library.setView(`plugin:${pluginId}:${viewId}`);
-          library.setSelectedArtist(null);
-          library.setSelectedAlbum(null);
-          library.setSelectedTag(null);
-          library.setSelectedTrack(null);
-        }}
+        onPluginView={handleOpenPluginView}
       />
       <button
         className="g-btn g-btn-xs sidebar-collapse-btn"
@@ -3805,6 +3822,8 @@ function App() {
         searchInputRef={searchInputRef}
         getAlbumImage={albumImageCache.getImage}
         getArtistImage={artistImageCache.getImage}
+        pluginViews={pluginViewList}
+        onOpenPluginView={handleOpenPluginView}
         onToggleMiniMode={mini.toggleMiniMode}
         resyncProgress={resyncProgress}
         resyncComplete={resyncComplete}
@@ -3939,6 +3958,8 @@ function App() {
             onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}
             collectionCount={library.collections.length}
+            pluginViews={pluginViewList}
+            onOpenPluginView={handleOpenPluginView}
             indexing={
               resyncProgress
                 ? {
@@ -3958,6 +3979,7 @@ function App() {
           {/* Search view — always mounted to preserve state and scroll position */}
           <SearchView
             style={{ display: view === "search" ? undefined : "none" }}
+            hasPluginViews={pluginViewList.length > 0}
             initialQuery={searchInitialQuery}
             initialQueryKey={searchQueryKey}
             libraryRefreshKey={searchLibraryKey}
@@ -4586,11 +4608,14 @@ function App() {
             deps={dependencies.deps}
             depInstalling={dependencies.installing}
             onInstallDep={dependencies.installDep}
-            onRecheckDeps={() => {
-              dependencies.checkAll(true).catch((e) => {
-                console.error("Failed to recheck dependencies:", e);
-              });
-            }}
+            onRecheckDeps={() =>
+              dependencies
+                .checkAll(true)
+                .then(() => undefined)
+                .catch((e) => {
+                  console.error("Failed to recheck dependencies:", e);
+                })
+            }
             crossfadeSecs={crossfadeSecs}
             onCrossfadeChange={handleCrossfadeChange}
             autoContinueEnabled={autoContinue.enabled}

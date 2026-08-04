@@ -9,6 +9,9 @@ import {
   prevStepId,
   onboardingDecision,
   normalizeProfile,
+  joinNames,
+  ONBOARDING_PROFILES,
+  PROFILE_PRESETS,
 } from "../components/onboardingSteps";
 
 function dep(overrides: Partial<DependencyInfo> = {}): DependencyInfo {
@@ -176,5 +179,41 @@ describe("normalizeProfile", () => {
     expect(normalizeProfile(undefined)).toBe("normal");
     expect(normalizeProfile(null)).toBe("normal");
     expect(normalizeProfile(42)).toBe("normal");
+  });
+});
+
+describe("joinNames", () => {
+  it("renders one, two, and three names as prose", () => {
+    expect(joinNames(["yt-dlp"])).toBe("yt-dlp");
+    expect(joinNames(["yt-dlp", "ffmpeg"])).toBe("yt-dlp and ffmpeg");
+    expect(joinNames(["a", "b", "c"])).toBe("a, b and c");
+  });
+
+  it("renders nothing for an empty list", () => {
+    expect(joinNames([])).toBe("");
+  });
+});
+
+describe("PROFILE_PRESETS", () => {
+  it("gives every profile a music-step title", () => {
+    for (const id of ONBOARDING_PROFILES) {
+      expect(PROFILE_PRESETS[id].musicTitle.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("does not advertise sources the plugins step filters out", () => {
+    // tidal-browse is `stability: experimental`, and filterOnboardingEntries
+    // drops experimental entries — so naming TIDAL on the card promised a
+    // source that never appeared in the list below it.
+    expect(PROFILE_PRESETS.streaming.description).not.toMatch(/tidal/i);
+  });
+
+  it("marks the music step optional only for the streaming profile", () => {
+    // Streaming users have no folder to add; the other profiles' music step is
+    // the point of the wizard, so it must not read as skippable.
+    expect(PROFILE_PRESETS.streaming.musicTitle).toMatch(/optional/i);
+    expect(PROFILE_PRESETS.normal.musicTitle).not.toMatch(/optional/i);
+    expect(PROFILE_PRESETS.video.musicTitle).not.toMatch(/optional/i);
+    expect(PROFILE_PRESETS.server.musicTitle).not.toMatch(/optional/i);
   });
 });

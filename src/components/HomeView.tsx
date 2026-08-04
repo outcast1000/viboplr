@@ -41,6 +41,11 @@ export interface HomeViewProps {
   onShelfItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   /** How many music sources exist — decides which empty state Home shows. */
   collectionCount: number;
+  /** Sidebar views of the active plugins. With no collections these are the
+   *  user's actual sources, so the empty state offers them instead of asking
+   *  for a folder they deliberately don't have. */
+  pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
+  onOpenPluginView: (pluginId: string, viewId: string) => void;
   /** Live scan/sync of a collection, so a bare Home reads as "working", not "broken". */
   indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number } | null;
   onAddFolder: () => void;
@@ -181,6 +186,8 @@ export function HomeView(props: HomeViewProps) {
       {ordered.length === 0 && settled && (
         <HomeEmptyState
           collectionCount={props.collectionCount}
+          pluginViews={props.pluginViews}
+          onOpenPluginView={props.onOpenPluginView}
           indexing={props.indexing}
           onAddFolder={props.onAddFolder}
           onConnectServer={props.onConnectServer}
@@ -220,15 +227,20 @@ export function HomeView(props: HomeViewProps) {
  * a fresh install this is the app's actual first screen — without it the user
  * lands on a blank page with two ghost buttons and no next step.
  *
- * Three distinct situations, in priority order:
+ * Four distinct situations, in priority order:
  *  1. A scan/sync is running — the shelves are empty only because the library
  *     is still filling. Report progress rather than asking for music again.
- *  2. No music sources at all — the real first-run. Offer the ways in.
- *  3. Sources exist but every shelf came back empty — nothing is wrong; the
+ *  2. No collections, but plugin views exist — a streaming setup (e.g. yt-dlp +
+ *     Spotify). Nothing is missing; the shelves just have no plays to draw on
+ *     yet, so point at the sources the user actually chose.
+ *  3. No sources of any kind — the real first-run. Offer the ways in.
+ *  4. Sources exist but every shelf came back empty — nothing is wrong; the
  *     content shelves just need listening history, so say so.
  */
 function HomeEmptyState({
   collectionCount,
+  pluginViews,
+  onOpenPluginView,
   indexing,
   onAddFolder,
   onConnectServer,
@@ -237,6 +249,8 @@ function HomeEmptyState({
   onCustomize,
 }: {
   collectionCount: number;
+  pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
+  onOpenPluginView: (pluginId: string, viewId: string) => void;
   indexing: { collectionName: string; kind: "scan" | "sync"; scanned: number; total: number } | null;
   onAddFolder: () => void;
   onConnectServer: () => void;
@@ -256,6 +270,57 @@ function HomeEmptyState({
             ? `${indexing.scanned.toLocaleString()}${indexing.total > 0 ? ` of ${indexing.total.toLocaleString()}` : ""} tracks so far — Home fills in as they land.`
             : "Home fills in as your tracks land. This runs in the background, so feel free to look around."}
         </p>
+      </div>
+    );
+  }
+
+  // A plugins-only setup: no collection will ever exist, so "Let's find your
+  // music" would sit on Home forever telling a correctly-configured user that
+  // their setup is unfinished — and pushing them at a folder picker they chose
+  // not to use. What they actually need is the first click.
+  if (collectionCount === 0 && pluginViews.length > 0) {
+    return (
+      <div className="home-empty">
+        <svg
+          className="home-empty-art"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+          <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+          <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+          <path d="M12 20h.01" />
+        </svg>
+        <h2 className="home-empty-title">Pick something to play</h2>
+        <p className="home-empty-desc">
+          Your sources are plugins, so Home starts out bare — these shelves are
+          built from what you play, and they fill in from your first track
+          onward. Open a source to get going:
+        </p>
+        <div className="home-empty-actions">
+          {pluginViews.map((v, i) => (
+            <button
+              key={`${v.pluginId}:${v.viewId}`}
+              className={`ds-btn ${i === 0 ? "ds-btn--primary" : "ds-btn--secondary"}`}
+              onClick={() => onOpenPluginView(v.pluginId, v.viewId)}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+        <div className="home-empty-alt">
+          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onBrowseExtensions}>
+            Add more sources
+          </button>
+          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onAddFolder}>
+            Add a local folder
+          </button>
+        </div>
       </div>
     );
   }

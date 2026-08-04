@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { type PluginState } from "../types/plugin";
@@ -50,6 +50,27 @@ interface DepModalState {
   feature: string;
 }
 
+/** One declared "plugin X needs binary Y" pair, as sent to `check_dependencies`. */
+export interface PluginDepDeclaration {
+  name: string;
+  pluginName: string;
+  reason: string;
+  required: boolean;
+}
+
+/**
+ * Stable identity of a set of plugin dependency declarations. Every row's
+ * `pluginConsumers` is derived from this set, so a change means the cached
+ * consumer data is stale and has to be rebuilt. Order-insensitive: the plugin
+ * list is rebuilt on every render and its order is not meaningful.
+ */
+export function pluginDepSignature(decls: PluginDepDeclaration[]): string {
+  return decls
+    .map((d) => `${d.name} ${d.pluginName} ${d.required ? 1 : 0}`)
+    .sort()
+    .join("");
+}
+
 function parseDependencyInfo(raw: Record<string, unknown>): DependencyInfo {
   const status = raw.status as string;
   return {
@@ -74,6 +95,9 @@ export function useDependencies(pluginStates: PluginState[]) {
   const [installing, setInstalling] = useState<Record<string, InstallProgress>>({});
   const checkedRef = useRef<Set<string>>(new Set());
   const shownModalsRef = useRef<Set<string>>(new Set());
+  // Plugin-declaration signature the current `deps` were built from; null until
+  // the first successful `checkAll`. See the re-probe effect below.
+  const checkedSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     const stopProgress = subscribe<{ name: string; downloaded: number; total: number | null }>(
@@ -102,8 +126,8 @@ export function useDependencies(pluginStates: PluginState[]) {
     return combineUnlisten(stopProgress, stopUpdated);
   }, []);
 
-  const getPluginDeps = useCallback(() => {
-    const result: { name: string; pluginName: string; reason: string; required: boolean }[] = [];
+  const getPluginDeps = useCallback((): PluginDepDeclaration[] => {
+    const result: PluginDepDeclaration[] = [];
     for (const ps of pluginStates) {
       // Only enabled plugins' declarations count — a disabled plugin's missing
       // dependency isn't actionable and shouldn't drive the "needed by" list.
@@ -119,10 +143,11 @@ export function useDependencies(pluginStates: PluginState[]) {
 
   const checkAll = useCallback(
     async (forceRefresh = false) => {
+      const pluginDeps = getPluginDeps();
       try {
         const results = (await invoke("check_dependencies", {
           names: null,
-          pluginDeps: getPluginDeps(),
+          pluginDeps,
           forceRefresh,
         })) as Record<string, unknown>[];
         const parsed = results.map(parseDependencyInfo);
@@ -130,6 +155,9 @@ export function useDependencies(pluginStates: PluginState[]) {
         for (const d of parsed) {
           checkedRef.current.add(d.name);
         }
+        // Record what this result actually describes, so the effect below can
+        // tell "already current" from "the plugin set moved on since".
+        checkedSignatureRef.current = pluginDepSignature(pluginDeps);
         return parsed;
       } catch (e) {
         console.error("Failed to check dependencies:", e);
@@ -138,6 +166,26 @@ export function useDependencies(pluginStates: PluginState[]) {
     },
     [getPluginDeps],
   );
+
+  // Re-probe when the enabled plugins' declared binary dependencies change.
+  // `pluginConsumers` (and everything derived from it: the Settings "needed by"
+  // list, the onboarding wizard's missing-dependency step) comes from that
+  // declaration set, not from the binaries themselves, so installing or enabling
+  // a plugin mid-session otherwise leaves it describing the plugin set as it was
+  // at startup. That is exactly the first-run case: the wizard installs the
+  // yt-dlp plugin, and the "Companion tools" step that offers to install the
+  // yt-dlp binary is gated on consumer data collected before it existed.
+  //
+  // Gated on a baseline existing: the first probe is deliberately deferred by
+  // App (off the startup critical path) and this must not pull it forward. Not
+  // forced, either, since only the declarations changed and the cached binary
+  // probes are still good.
+  const currentSignature = useMemo(() => pluginDepSignature(getPluginDeps()), [getPluginDeps]);
+  useEffect(() => {
+    if (checkedSignatureRef.current === null) return;
+    if (checkedSignatureRef.current === currentSignature) return;
+    checkAll().catch(console.error);
+  }, [currentSignature, checkAll]);
 
   const checkDep = useCallback(
     async (name: string): Promise<DependencyInfo | null> => {

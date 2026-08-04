@@ -83,6 +83,8 @@ External CLI binaries the app/plugins shell out to (currently `ffmpeg`, `yt-dlp`
 
 Frontend: `useDependencies.ts` (install/update/progress/checkUpdates), `DependencyModal.tsx` ("Install for me" when managed, else copy-command + download-page), Settings > Dependencies (origin labels, outdated badges, Install/Update buttons, system upgrade-command copy, auto-update toggle).
 
+**Consumer data is derived, not probed** — each row's `pluginConsumers` comes from the *enabled* plugins' manifest `binaryDependencies`, which `useDependencies` sends as the `pluginDeps` argument on every check. So it goes stale the moment a plugin is installed, enabled, or disabled, and everything downstream goes with it (the Settings "needed by" list; the onboarding wizard's `missingPluginDeps` gate, which decides whether the Companion-tools step exists at all). `useDependencies` therefore re-checks itself whenever `pluginDepSignature(getPluginDeps())` changes — never forced (only the declarations moved, the binary probes are still valid) and only once a first check has set the baseline, because App defers the initial probe off the startup critical path and this must not pull it forward. Callers must not rely on calling `checkAll` after an install instead: a captured `checkAll` closes over the plugin list as it was when the closure was made, which is exactly the pre-install list.
+
 ## Collections
 
 All music sources are unified under a Collections abstraction with `kind` discriminator:

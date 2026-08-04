@@ -195,6 +195,37 @@
   font-weight: 600;
 }
 
+/* Shown when the query matched nothing in the library — see the component's
+   `showNoMatches`. Centered block, not a result row, so it can't be mistaken for
+   something selectable by the arrow keys. */
+.central-search-nomatch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 16px;
+  text-align: center;
+}
+
+.central-search-nomatch-text {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.central-search-nomatch-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.central-search-nomatch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 .central-search-footer {
   padding: 8px 12px;
   border-top: 1px solid var(--border);

@@ -39,6 +39,11 @@ interface CentralSearchDropdownProps {
   inputRef?: React.RefObject<HTMLInputElement | null>;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
+  /** Sidebar views of the active plugins, offered when the library has no match
+   *  — for a streaming-only setup this search can never hit, and an empty box
+   *  reads as a broken search rather than "your music isn't indexed here". */
+  pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
+  onOpenPluginView: (pluginId: string, viewId: string) => void;
 }
 
 // Track art mirrors the queue's chain (queue.md "Image Resolution"): album image
@@ -76,6 +81,8 @@ export function CentralSearchDropdown({
   inputRef: externalInputRef,
   getAlbumImage,
   getArtistImage,
+  pluginViews,
+  onOpenPluginView,
 }: CentralSearchDropdownProps) {
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
@@ -85,6 +92,11 @@ export function CentralSearchDropdown({
   const [focused, setFocused] = useState(false);
   const showDropdown = isOpen && items.length > 0;
   const showOverlay = focused || showDropdown;
+  // This search covers the library only. A query that matched nothing used to
+  // render an empty box, which reads as "search is broken" — worst for a
+  // streaming-only setup, where it can never match anything. Say where the
+  // music actually is instead.
+  const showNoMatches = isOpen && items.length === 0 && query.trim() !== "";
 
   useEffect(() => {
     const id = setInterval(() => setPlaceholder(randomPlaceholder()), 5 * 60 * 1000);
@@ -254,6 +266,35 @@ export function CentralSearchDropdown({
                   </div>
                 ))}
               </>
+            )}
+            {showNoMatches && (
+              <div className="central-search-nomatch">
+                <div className="central-search-nomatch-text">
+                  Nothing in your library matches “{query.trim()}”.
+                </div>
+                {pluginViews.length > 0 && (
+                  <>
+                    <div className="central-search-nomatch-hint">
+                      This searches music on this machine — try one of your sources:
+                    </div>
+                    <div className="central-search-nomatch-actions">
+                      {pluginViews.map((v) => (
+                        <button
+                          key={`${v.pluginId}:${v.viewId}`}
+                          className="ds-btn ds-btn--secondary ds-btn--sm"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            onOpenPluginView(v.pluginId, v.viewId);
+                            onClose();
+                          }}
+                        >
+                          {v.label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
           {items.length > 0 && (

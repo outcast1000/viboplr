@@ -17,6 +17,9 @@ interface CaptionBarProps {
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
+  /** Passed through to the search dropdown's no-match state. */
+  pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
+  onOpenPluginView: (pluginId: string, viewId: string) => void;
   onToggleMiniMode: () => void;
   minimizeToMiniPlayer: boolean;
   resyncProgress: ResyncProgress | null;
@@ -29,6 +32,8 @@ export function CaptionBar({
   searchInputRef,
   getAlbumImage,
   getArtistImage,
+  pluginViews,
+  onOpenPluginView,
   onToggleMiniMode,
   minimizeToMiniPlayer,
   resyncProgress,
@@ -64,6 +69,8 @@ export function CaptionBar({
           inputRef={searchInputRef}
           getAlbumImage={getAlbumImage}
           getArtistImage={getArtistImage}
+          pluginViews={pluginViews}
+          onOpenPluginView={onOpenPluginView}
         />
         {(resyncProgress || resyncComplete) && (
           <button

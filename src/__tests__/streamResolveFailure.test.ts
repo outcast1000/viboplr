@@ -7,7 +7,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   convertFileSrc: (p: string) => `asset://${p}`,
 }));
 
-import { entryFailureLabel, describeChainFailure } from "../hooks/useStreamResolution";
+import {
+  entryFailureLabel,
+  describeChainFailure,
+  unownedSchemeLabel,
+} from "../hooks/useStreamResolution";
 
 describe("entryFailureLabel", () => {
   it("names the failed resolver", () => {
@@ -47,5 +51,28 @@ describe("describeChainFailure", () => {
     expect(
       describeChainFailure([{ name: "Library" }, { name: "Subsonic Servers" }]),
     ).toBe("No playable source found");
+  });
+
+  it("prefers the native entry's own label over the generic wording", () => {
+    // A spotify:// row from a browse-only plugin, with no resolver installed
+    // that can turn it into a stream. "Spotify failed" would blame the plugin
+    // that produced the row and did nothing wrong.
+    expect(
+      describeChainFailure([
+        { name: "Spotify", native: true, label: unownedSchemeLabel("spotify") },
+        { name: "Library" },
+      ]),
+    ).toBe("No installed plugin can play spotify:// links");
+  });
+
+  it("ignores a label on a non-native entry", () => {
+    // Only the native entry decides the blame, so a fallback's label must not
+    // leak into the message.
+    expect(
+      describeChainFailure([
+        { name: "Subsonic", native: true },
+        { name: "Ytdlp", label: "should not win" },
+      ]),
+    ).toBe("Subsonic failed");
   });
 });

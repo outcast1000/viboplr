@@ -34,6 +34,10 @@ export interface ProfilePreset {
   title: string;
   /** Card one-liner on the profile step. */
   description: string;
+  /** Header for the music-sources step. Profile-dependent because for a
+   *  streaming setup that step genuinely is optional, and a bare "Add your
+   *  music" reads as a requirement with no way past it. */
+  musicTitle: string;
   /** Intro copy for the music-sources step. */
   musicDesc: string;
   /** List the Subsonic option first on the music step. */
@@ -48,6 +52,7 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
   normal: {
     title: "Local music",
     description: "Play music files from folders on this computer",
+    musicTitle: "Add your music",
     musicDesc:
       "Where does your music live? Add a folder or connect a server — scanning runs in the background while you continue. You can add more sources later under Collections.",
     subsonicFirst: false,
@@ -57,6 +62,7 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
   video: {
     title: "Video collection",
     description: "Music videos and concert files, side by side with audio",
+    musicTitle: "Add your videos",
     musicDesc:
       "Where do your videos live? Add a folder — video files are scanned right alongside audio. You can add more sources later under Collections.",
     subsonicFirst: false,
@@ -65,9 +71,15 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
   },
   streaming: {
     title: "Streaming",
-    description: "Play from Spotify, TIDAL and YouTube — no local files required",
+    // Name only what the wizard can actually offer. TIDAL was listed here, but
+    // tidal-browse is `stability: experimental` and `filterOnboardingEntries`
+    // drops experimental entries from the plugins step outright — so the card
+    // promised a source that never appeared. Keep this in step with what the
+    // gallery ships as stable.
+    description: "Play from Spotify, YouTube and 1000+ other sites — no local files required",
+    musicTitle: "Local music (optional)",
     musicDesc:
-      "Streaming plugins are set up in the next step — adding a local source here is optional. You can always add folders or servers later under Collections.",
+      "Your streaming plugins are set up in the next step, so you can skip this one entirely — Continue moves on without adding anything. Add a folder or server only if you also keep music on this machine; Collections can do it later either way.",
     subsonicFirst: false,
     subsonicAutoExpand: false,
     showVideoHistoryToggle: false,
@@ -75,6 +87,7 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
   server: {
     title: "Music server",
     description: "Stream from your Subsonic or Navidrome server",
+    musicTitle: "Connect your server",
     musicDesc:
       "Connect your server — syncing runs in the background while you continue. You can add more sources later under Collections.",
     subsonicFirst: true,
@@ -82,6 +95,12 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
     showVideoHistoryToggle: false,
   },
 };
+
+/** "a", "a and b", "a, b and c" — for naming a handful of binaries in prose. */
+export function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
 
 export interface OnboardingStepContext {
   /** Missing external binaries needed by enabled plugins (see missingPluginDeps). */

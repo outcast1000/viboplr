@@ -111,6 +111,10 @@ interface SearchViewProps {
   onToggleTagDislike: (id: number) => void;
   columns: import("../types").ColumnConfig[];
   onColumnsChange: (columns: import("../types").ColumnConfig[]) => void;
+  /** True when a plugin contributes a browsable view. Changes what an empty
+   *  library is told to do about it: a streaming-only setup has no folder to add
+   *  and its music lives behind those views, not here. */
+  hasPluginViews: boolean;
 }
 
 const TRACK_PAGE_SIZE = 50;
@@ -165,6 +169,7 @@ export function SearchView({
   onToggleTagDislike,
   columns,
   onColumnsChange,
+  hasPluginViews,
 }: SearchViewProps) {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState<SearchTab>("tracks");
@@ -770,9 +775,14 @@ export function SearchView({
   // library is empty, not that a search missed. Saying "No tracks found" there
   // reads as a broken search to a first-time user who hasn't added music yet.
   const libraryIsEmpty = query.trim() === "" && counts.tracks === 0;
-  const emptyTracksMessage = libraryIsEmpty
-    ? "No music yet — add a folder or server under Collections to fill your library."
-    : "No tracks found.";
+  const emptyTracksMessage = !libraryIsEmpty
+    ? "No tracks found."
+    : hasPluginViews
+      // A streaming setup has no folder to add — this view stays empty by
+      // design, and its music is browsed from the plugin's own view. Saying
+      // "add a folder or server" would read as the only way forward.
+      ? "Nothing here yet — this view searches music stored on this machine. Browse your plugin sources from the sidebar, or add a folder under Collections."
+      : "No music yet — add a folder or server under Collections to fill your library.";
 
   return (
     <div className="search-view" style={style}>

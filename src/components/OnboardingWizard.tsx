@@ -23,6 +23,7 @@ import {
   stepsForDisplay,
   nextStepId,
   prevStepId,
+  joinNames,
 } from "./onboardingSteps";
 import "./OnboardingWizard.css";
 
@@ -65,7 +66,10 @@ interface OnboardingWizardProps {
   deps: DependencyInfo[];
   depInstalling: Record<string, InstallProgress>;
   onInstallDep: (name: string) => Promise<string | null>;
-  onRecheckDeps: () => void;
+  /** Re-probes dependencies. Resolves when `deps` reflects the current plugin
+   *  set — the plugins step awaits it so the "Companion tools" step is decided
+   *  before Continue re-enables. Never rejects. */
+  onRecheckDeps: () => Promise<void>;
   crossfadeSecs: number;
   onCrossfadeChange: (secs: number) => void;
   autoContinueEnabled: boolean;
@@ -119,7 +123,13 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
     <div className="ds-modal-overlay">
       <div className="ds-modal ds-modal--xl onboarding-modal" onClick={(e) => e.stopPropagation()}>
         <div className="onboarding-header">
-          <h2 className="ds-modal-title">{STEP_TITLES[stepId]}</h2>
+          {/* The music step's own title is profile-dependent: for a streaming
+              setup local sources really are optional, and a header that just
+              says "Add your music" reads as a required step with no way past
+              it other than a folder picker. */}
+          <h2 className="ds-modal-title">
+            {stepId === "music" ? PROFILE_PRESETS[profile].musicTitle : STEP_TITLES[stepId]}
+          </h2>
           <div className="onboarding-dots">
             {displaySteps.map((id) => {
               const state =
@@ -162,6 +172,7 @@ export function OnboardingWizard(props: OnboardingWizardProps) {
               installing={props.depInstalling}
               onInstallDep={props.onInstallDep}
               onRecheckDeps={props.onRecheckDeps}
+              noLocalSources={props.collections.length === 0}
               setBusy={setBusy}
             />
           )}
@@ -537,7 +548,7 @@ function PluginsStep({
   onInstall: (entry: GalleryPluginEntry) => Promise<{ ok: boolean; error?: string }>;
   onEnable: (pluginId: string) => Promise<void>;
   onFetchGallery: () => Promise<GalleryPluginEntry[]>;
-  onRecheckDeps: () => void;
+  onRecheckDeps: () => Promise<void>;
   setBusy: (busy: boolean) => void;
 }) {
   // Experimental plugins never surface in the wizard. The raw `entries` prop
@@ -620,9 +631,13 @@ function PluginsStep({
         if (ok) setDone((prev) => new Set(prev).add(entry.id));
         else setFailed((prev) => new Set(prev).add(entry.id));
       }
-      // New plugins may need external binaries (e.g. YouTube → yt-dlp), which
-      // decides whether the dependencies step appears next.
-      onRecheckDeps();
+      // New plugins may need external binaries (e.g. yt-dlp), which decides
+      // whether the dependencies step appears next. Awaited inside the busy
+      // window: Continue is disabled while `busy`, so waiting here costs the
+      // user nothing and guarantees the step exists before they can walk past
+      // it. Fire-and-forget would race — a quick Continue would skip straight
+      // to the next step and the wizard would never offer the binary.
+      await onRecheckDeps();
     } finally {
       setRunning(false);
       setBusy(false);
@@ -728,12 +743,16 @@ function DependenciesStep({
   installing,
   onInstallDep,
   onRecheckDeps,
+  noLocalSources,
   setBusy,
 }: {
   deps: DependencyInfo[];
   installing: Record<string, InstallProgress>;
   onInstallDep: (name: string) => Promise<string | null>;
-  onRecheckDeps: () => void;
+  onRecheckDeps: () => Promise<void>;
+  /** No folder or server was added — every source is a plugin, so a missing
+   *  required binary means nothing plays at all, not just one feature. */
+  noLocalSources: boolean;
   setBusy: (busy: boolean) => void;
 }) {
   const [installingNames, setInstallingNames] = useState<Set<string>>(new Set());
@@ -744,6 +763,12 @@ function DependenciesStep({
   // Show every plugin-consumed dep (installed ones stay visible with a check
   // mark, so the list doesn't jump around as installs complete).
   const rows = deps.filter((d) => d.pluginConsumers.length > 0);
+  // Binaries a plugin marks as *required* and that aren't there yet. With no
+  // local folder or server, these are the only route to audio — so the step
+  // stops calling itself optional and names the consequence instead.
+  const blocking = noLocalSources
+    ? rows.filter((d) => d.status !== "installed" && d.pluginConsumers.some((c) => c.required))
+    : [];
 
   async function handleInstall(name: string) {
     setInstallingNames((prev) => new Set(prev).add(name));
@@ -777,10 +802,20 @@ function DependenciesStep({
 
   return (
     <>
-      <p className="onboarding-step-desc">
-        Some plugins rely on small companion tools. Install them now, or skip and
-        do it later from Settings → Dependencies.
-      </p>
+      {blocking.length > 0 ? (
+        <p className="onboarding-step-desc">
+          You haven't added a folder or a server, so every source here is a
+          plugin — and plugins reach the web through{" "}
+          {joinNames(blocking.map((d) => d.name))}. Until{" "}
+          {blocking.length > 1 ? "they're" : "it's"} installed, nothing will
+          play. It only takes a few seconds.
+        </p>
+      ) : (
+        <p className="onboarding-step-desc">
+          Some plugins rely on small companion tools. Install them now, or skip and
+          do it later from Settings → Dependencies.
+        </p>
+      )}
       {rows.map((dep) => {
         const isInstalled = dep.status === "installed";
         const isInstalling = installingNames.has(dep.name);

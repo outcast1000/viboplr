@@ -41,6 +41,9 @@ export interface ChainFailure {
   name: string;
   /** True for the entry that plays the track's own URL (its native source). */
   native?: boolean;
+  /** Overrides the default "<name> failed" wording when the reason is known up
+   *  front — e.g. a plugin scheme no installed plugin can resolve. */
+  label?: string;
 }
 
 /**
@@ -54,7 +57,18 @@ export interface ChainFailure {
  */
 export function describeChainFailure(failures: ChainFailure[]): string {
   const native = failures.find((f) => f.native);
-  return native ? entryFailureLabel(native.name) : "No playable source found";
+  if (!native) return "No playable source found";
+  return native.label ?? entryFailureLabel(native.name);
+}
+
+/**
+ * Wording for a track whose own scheme belongs to no installed resolver — e.g. a
+ * `spotify://` row from a browse-only plugin with no yt-dlp installed. Blaming
+ * "Spotify failed" points at the plugin that produced the row and did nothing
+ * wrong; the missing piece is a plugin that can turn that link into a stream.
+ */
+export function unownedSchemeLabel(scheme: string): string {
+  return `No installed plugin can play ${scheme}:// links`;
 }
 
 interface UseStreamResolutionDeps {
@@ -206,8 +220,25 @@ export function useStreamResolution({
       setResolvedSource(null);
       const url = track.path;
 
-      interface ResolverEntry { name: string; id: string | null; native?: boolean; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; fellBackToAudio?: boolean; videoFirst?: boolean; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
+      interface ResolverEntry { name: string; id: string | null; native?: boolean; failureLabel?: string; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; fellBackToAudio?: boolean; videoFirst?: boolean; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
       const chain: ResolverEntry[] = [];
+
+      // Which plugin (if any) owns this track's own scheme. Drives two things:
+      // the honest failure label below, and skipping that plugin's *metadata*
+      // resolver later (see the comment at nativeSchemeOwner's use).
+      const nativeScheme =
+        url && !url.startsWith("http://") && !url.startsWith("https://")
+          ? parseUrlScheme(url)
+          : null;
+      const nativeSchemeOwner =
+        nativeScheme?.scheme === "plugin" ? ownerRef.current(nativeScheme.protocol) : null;
+      // A plugin scheme nobody registered a resolver for can never resolve by id,
+      // no matter how many times it's retried — say that instead of blaming the
+      // plugin whose browse view produced the row.
+      const nativeFailureLabel =
+        nativeScheme?.scheme === "plugin" && !nativeSchemeOwner
+          ? unownedSchemeLabel(nativeScheme.protocol)
+          : undefined;
 
       // Pre-resolution: check if a local copy exists for remote OR path-less tracks
       if (!url || isRemoteScheme(url)) {
@@ -249,6 +280,7 @@ export function useStreamResolution({
             name: nativeResolverName(url),
             id: null,
             native: true,
+            failureLabel: nativeFailureLabel,
             sourceUrl: url,
             effectiveSource: classifyEffectiveSource(url, ownerRef.current),
             resolve: async () => {
@@ -282,17 +314,13 @@ export function useStreamResolution({
         }
       }
 
-      // A track that already carries a plugin's native scheme (e.g.
-      // youtube://{id}) gets that plugin's by-id resolver in the chain above.
-      // Don't also append the SAME plugin's metadata stream resolver: if the
-      // exact id fails to resolve, re-searching by title/artist just re-picks
-      // the same item (often the same unavailable video) after a long delay.
-      // Other plugins and the local-library copy still serve as real fallbacks.
-      let nativeSchemeOwner: string | null = null;
-      if (url && !url.startsWith("http://") && !url.startsWith("https://")) {
-        const parsedScheme = parseUrlScheme(url);
-        if (parsedScheme.scheme === "plugin") nativeSchemeOwner = ownerRef.current(parsedScheme.protocol);
-      }
+      // `nativeSchemeOwner` (computed above) is also why a track that already
+      // carries a plugin's native scheme (e.g. youtube://{id}) does NOT get that
+      // same plugin's metadata stream resolver appended below: it already has the
+      // plugin's by-id entry, and if the exact id fails to resolve, re-searching
+      // by title/artist just re-picks the same item (often the same unavailable
+      // video) after a long delay. Other plugins and the local-library copy still
+      // serve as real fallbacks.
 
       // Build one resolver-chain entry for a user-configured stream resolver.
       // `videoOnly` marks the "prefer video" pass (below): that entry then
@@ -417,9 +445,9 @@ export function useStreamResolution({
           return { src, patch: entry.patch, engineSource, meta };
         } catch (e) {
           console.error(`Stream resolver "${entry.name}" failed:`, e);
-          lastError = entryFailureLabel(entry.name);
+          lastError = entry.failureLabel ?? entryFailureLabel(entry.name);
           lastThrown = e;
-          failures.push({ name: entry.name, native: entry.native });
+          failures.push({ name: entry.name, native: entry.native, label: entry.failureLabel });
           continue;
         }
       }
