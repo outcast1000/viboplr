@@ -1,3 +1,8 @@
+---
+paths:
+  - "docs/**"
+---
+
 # Marketing Site (docs/)
 
 `docs/` is the public marketing + docs site served at **viboplr.com** (GitHub Pages; `docs/CNAME`). It is **separate from the Tauri app UI** — editing the site never changes the app, and vice versa. Plain HTML/CSS/JS, no build step, single font (Outfit) and a pink→magenta `gradient-text` wordmark as the established brand identity.

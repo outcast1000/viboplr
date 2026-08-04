@@ -1,3 +1,17 @@
+---
+paths:
+  - "src/hooks/useQueue.ts"
+  - "src/hooks/usePlayback.ts"
+  - "src/hooks/usePlayActions.ts"
+  - "src/hooks/useAutoContinue.ts"
+  - "src/playback/**"
+  - "src/components/QueuePanel.tsx"
+  - "src/components/NowPlayingBar.tsx"
+  - "src/utils/queueEntry.ts"
+  - "src/utils/queueNav.ts"
+  - "src-tauri/src/main_playlist.rs"
+---
+
 # Queue
 
 The queue is the central playback pipeline. All tracks flow through `useQueue.ts` (state/logic) and render in `QueuePanel.tsx` (UI). This document is the behavioral contract — all code that touches the queue must preserve these invariants.
@@ -47,7 +61,7 @@ Image resolution is **async-only** — there is no synchronous stamping. Tracks 
 Operations that need a library ID (delete, show in folder, audio properties) use on-demand metadata lookup:
 - Call `invoke("find_track_by_metadata", { title, artistName, albumName })` to resolve the library track
 - If found, proceed with the resolved ID
-- If not found, show feedback "Track not in library" via `addLog()`
+- If not found, show feedback "Track not in library" via `notify()` (from `useToasts`)
 
 **Like/dislike is the exception** — it does NOT require a library ID. `useLikeActions` persists via `set_entity_like_state` against the metadata-keyed `entity_likes` store, so any `QueueTrack` (library or not) can be liked, and the new state propagates to same-song copies in the queue/`currentTrack` via the `sameSong()` predicate. The `QueueTrack.liked` field drives the like/dislike indicator rendered before the title in `QueuePanel.tsx`.
 

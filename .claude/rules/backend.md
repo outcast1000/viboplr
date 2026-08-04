@@ -1,3 +1,8 @@
+---
+paths:
+  - "src-tauri/**"
+---
+
 # Backend (src-tauri/src/)
 
 ## Supported Formats

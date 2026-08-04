@@ -1,3 +1,17 @@
+---
+paths:
+  - "src-tauri/plugins/**"
+  - "src/types/plugin.ts"
+  - "src/hooks/usePlugins.ts"
+  - "src/hooks/useInformationTypes.ts"
+  - "src/hooks/useImageResolver.ts"
+  - "src/hooks/useExtensions.ts"
+  - "src/components/PluginViewRenderer.tsx"
+  - "src/components/InformationSections.tsx"
+  - "src/components/ExtensionsView.tsx"
+  - "src-tauri/src/plugins.rs"
+---
+
 # Plugins
 
 Plugins extend Viboplr with information sections, image providers, stream resolvers, download providers, context menu actions, sidebar views, event hooks, and settings panels.
@@ -386,7 +400,7 @@ For each track to play:
 1. If a local copy exists for the track's metadata, use it.
 2. If the track has a native URL (`file://`, `subsonic://`, or `http(s)://`), try the native resolver. Plugin-registered schemes are resolved via `onResolveStreamByUri`.
 3. Walk the user-ordered list of plugin stream resolvers. Each is called with `(title, artistName, albumName, durationSecs)` and has 60 seconds to return `{ url, label } | null` (resolvers like YouTube shell out to `yt-dlp`, which can be slow).
-4. First success wins. Failures fall through to the next resolver. `addLog` surfaces fallback info to the user.
+4. First success wins. Failures fall through to the next resolver. `notify()` surfaces fallback info to the user.
 
 ### Custom URL Schemes
 

@@ -1,3 +1,12 @@
+---
+paths:
+  - "src/components/**"
+  - "src/**/*.css"
+  - "src/skins/**"
+  - "src/types/skin.ts"
+  - "src/skinUtils.ts"
+---
+
 # UI
 
 ## Entity System

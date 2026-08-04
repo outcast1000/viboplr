@@ -1,22 +1,19 @@
+---
+paths:
+  - "src/__tests__/**"
+  - "tests/**"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.test.js"
+---
+
 # Testing
 
-## Commands
-
-```bash
-npm run test:all   # Rust + TypeScript + E2E (sequential)
-npm test           # TypeScript unit tests (vitest run)
-npm run test:watch # TypeScript tests in watch mode
-npm run test:rust  # Rust tests (cd src-tauri && cargo test)
-npm run test:e2e   # Playwright E2E tests
-```
+Commands live in `package.json` scripts (`test`, `test:rust`, `test:e2e`, `test:all`) — see `CLAUDE.md` for the ones that carry required flags.
 
 ## Backend (Rust)
 
-**Framework:** `cargo test` with `#[cfg(test)]` modules.
-
-**Files with tests:** `db/mod.rs`, `db/history.rs`, `db/image_failures.rs`, `db/likes.rs`, `scanner.rs`, `mixtape.rs`, `main_playlist.rs`, `plugins.rs`, `commands/mod.rs`, `skins.rs`, `entity_image.rs`, `dependencies.rs`, `downloader.rs`, `models.rs`, `subsonic.rs`, `update_checker.rs`, `video_frames.rs`.
-
-**Test dependencies:** `tempfile = "3"` for temporary files.
+**Framework:** `cargo test` with `#[cfg(test)]` modules. Find current coverage with `grep -rl '#\[cfg(test)\]' src-tauri/src`.
 
 **Patterns:**
 - All database tests use `Database::new_in_memory()` — no external DB needed
@@ -24,87 +21,18 @@ npm run test:e2e   # Playwright E2E tests
 - Test naming: `test_<what_it_verifies>()` (e.g., `test_upsert_and_get_track`, `test_artist_crud`)
 - Tests cover: CRUD operations, deduplication, file detection, filename parsing
 
-**Writing new Rust tests:**
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_db() -> Database {
-        Database::new_in_memory().unwrap()
-    }
-
-    #[test]
-    fn test_your_feature() {
-        let db = test_db();
-        // setup, act, assert
-    }
-}
-```
-
 ## Frontend (TypeScript)
 
-**Framework:** Vitest 4.1.0, configured in `vite.config.ts`.
-
-**Test location:** `src/__tests__/`
-
-**Existing test files** (representative — see `src/__tests__/` for the full set):
-- `computeSelection.test.ts` — multi-select, range selection, Shift/Cmd+click
-- `hooks-logic.test.ts` — extracted hook logic (strategy selection, positioning)
-- `queueNav.test.ts` — per-mode next/prev index helpers (normal/repeat-all/repeat-one)
-- `trackKey.test.ts` — `sameSong()` identity / key matching
-- `likeKeys.test.ts` — like entity-key building + tri-state transitions
-- `videoOverlay.test.ts` — `nextQueueTrack` ambient-overlay helper
-- `mainPlaylist.test.ts` — manifest/state serialization (incl. legacy mode normalization)
-- `informationTypes.test.ts` — cache decision logic
-- `queueEntry.test.ts` — queue/track URL handling and scheme parsing
-- `skinUtils.test.ts` — skin validation, CSS generation, CSS sanitization
-- `utils.test.ts` — formatDuration, isVideoTrack, getInitials, shouldScrobble, etc.
+**Framework:** Vitest, configured in `vite.config.ts`. **Test location:** `src/__tests__/`.
 
 **Patterns:**
 - Test pure functions extracted from hooks — don't test React components directly
 - Use `vi.fn()` for mocks
 - Factory helpers like `makeTrack()`, `makeProvider()` for test data
-- Tests excluded from E2E: `exclude: ["tests/e2e/**"]` in vitest config
-
-**Writing new TypeScript tests:**
-```typescript
-import { describe, it, expect, vi } from "vitest";
-
-describe("featureName", () => {
-  it("does the expected thing", () => {
-    const result = yourFunction(input);
-    expect(result).toBe(expected);
-  });
-});
-```
+- E2E specs are excluded from the vitest run via `exclude: ["tests/e2e/**"]` in the vitest config
 
 ## End-to-End (Playwright)
 
-**Framework:** Playwright 1.59.1
+**Config:** `tests/e2e/playwright.config.js`. **Test location:** `tests/e2e/specs/`.
 
-**Config:** `tests/e2e/playwright.config.js`
-- Browser: Chromium
-- Base URL: `http://localhost:1420`
-- Timeout: 30s per test
-- Auto-starts dev server (`npm run dev`), reuses if already running
-- Screenshots on failure only
-
-**Test location:** `tests/e2e/specs/`
-
-**Existing test files:**
-- `smoke.test.js` — app launches, sidebar items render, view switching, search input, settings panel
-- `queue-url.test.js` — track playback, queue behavior, now playing bar updates, URL scheme stamping
-
-**Mocks:** `tests/e2e/tauri-mock.js` mocks the Tauri IPC layer so tests run in a browser without the Rust backend.
-
-**Writing new E2E tests:**
-```javascript
-const { test, expect } = require("@playwright/test");
-
-test("description of what it tests", async ({ page }) => {
-  await page.goto("/");
-  // interact and assert
-  await expect(page.locator(".sidebar")).toBeVisible();
-});
-```
+**Mocks:** `tests/e2e/tauri-mock.js` mocks the Tauri IPC layer so tests run in a browser without the Rust backend. E2E tests drive the dev server, not a built app — anything that only exists in a Tauri build (native menus, the mpv engine, file dialogs) cannot be asserted here.

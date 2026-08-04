@@ -29,12 +29,22 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 
 **Home view:** the default landing surface. A radio-station carousel plus a stack of horizontal shelves (built-in: Recently played, Most played · 30 days, Most played artists · 30 days, Recently added, Liked albums, Liked artists, Jump back in). Plugins contribute additional shelves via static `contributes.homeShelves` or the runtime `api.home.registerShelf` API. See `ui.md` for layout / shelf rendering and `plugins.md` for the plugin contribution surface.
 
-Detailed rules are in `.claude/rules/`:
-- `backend.md` — backend files, collections, background tasks, playback resolution, database, profiles
-- `frontend.md` — frontend files, components, hooks, keyboard shortcuts, state persistence
-- `conventions.md` — canonical action patterns and behavioral rules
-- `plugins.md` — plugin system API, manifest format, display kinds, existing plugins
-- `queue.md` — queue state, QueueTrack type, playback progression, mutations, persistence, duplicate detection
-- `ui.md` — layout, entities, detail pages, information sections, context menus, skins
-- `testing.md` — test frameworks, commands, patterns for Rust/TS/E2E
-- `site.md` — the public `docs/` marketing site, `features.json`→`features.html` generation, core-vs-plugin presentation
+## Do Not Reintroduce
+
+Features that were deliberately removed. Re-adding them as core is a regression, not a fix:
+
+- **P2P engine.** The libp2p engine (`src-tauri/src/p2p/`, `commands/p2p.rs`, the `api.p2p` plugin bridge) was removed. There is no `p2p_*` command and no `api.p2p` namespace. Peer transfer is a networking source like any other — it belongs in a plugin, per the plugin-first rule. Do not re-add `p2p-sharing` to the gallery `index.json`; the plugin still exists but has no host to answer it.
+- **Core YouTube search.** There is no core "Find in YouTube" action and no `search_youtube` command. YouTube search/playback is owned entirely by the yt-dlp plugin. There is no per-track YouTube URL storage.
+
+## Rules
+
+Detailed rules are in `.claude/rules/`. Each file carries `paths:` frontmatter and loads only when you touch matching files — read the relevant one directly when you need it before opening code.
+
+- `conventions.md` — canonical action patterns and behavioral rules (**always loaded**; applies everywhere)
+- `backend.md` — backend files, collections, background tasks, playback resolution, database, profiles → `src-tauri/**`
+- `frontend.md` — frontend files, components, hooks, keyboard shortcuts, state persistence → `src/**`
+- `plugins.md` — plugin system API, manifest format, display kinds, existing plugins → plugin sources
+- `queue.md` — queue state, QueueTrack type, playback progression, mutations, persistence, duplicate detection → queue/playback sources
+- `ui.md` — layout, entities, detail pages, information sections, context menus, skins → components, CSS, skins
+- `testing.md` — test frameworks, patterns for Rust/TS/E2E → test sources
+- `site.md` — the public `docs/` marketing site, `features.json`→`features.html` generation, core-vs-plugin presentation → `docs/**`

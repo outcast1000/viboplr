@@ -1,3 +1,8 @@
+---
+paths:
+  - "src/**"
+---
+
 # Frontend (src/)
 
 ## Core Files
@@ -81,7 +86,7 @@
 - **useViewSearchState.ts** — Per-view independent search state, persists across view switches.
 - **useCentralSearch.ts** — Global search with parallel artist/album/track queries.
 - **useNavigationHistory.ts** — Single-direction back navigation (history stack only, no forward) with per-view search query persistence and scroll restoration. History is pushed **only on detail-page entry** — the `onBeforeNavigate` hook fired by `useLibrary`'s `handle*Click` / `navigateTo*ByName` paths (plus plugin navigate-to-entity). Top-level view switches (sidebar, Cmd+1/2/3) do **not** push. Because a detail page is only reachable through a push point, the top of the stack is always the page's immediate origin, so the first back is always correct. The only back affordance is the detail-page back button (`DetailHero` `onBack`, gated on `canGoBack`); there is no caption-bar back/forward UI and no global keyboard/mouse nav shortcuts.
-- **useSessionLog.ts** — Session logging via `addLog()`.
+- **useToasts.ts** — Transient user feedback via `notify()`; rendered by `Toasts.tsx`. Toasts auto-dismiss after 4.5s, so they are not a substitute for a persistent indicator (see the backfill "Filling in the rest…" row in `queue.md`).
 - **useAppUpdater.ts** — App update checking and installation.
 - **usePasteImage.ts** — Clipboard image paste handling for entity images.
 - **useSkins.ts** — Skin management: load/apply/import/delete, gallery browsing, CSS injection via `<style id="viboplr-skin">`.

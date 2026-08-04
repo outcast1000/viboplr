@@ -9,7 +9,7 @@ Each entry documents the gold standard implementation for a repeated user action
 ### Delete Tracks
 
 - **Canonical:** `useContextMenuActions.ts` -> `handleDeleteRequest()` (builds the delete request + gates confirmation) / `handleDeleteConfirm()` (modal accept) / `performDelete(trackIds, title)` (shared deletion — both paths call this).
-- **Flow:** `handleDeleteRequest` resolves the `{ trackIds, title, network }` request, then either shows the confirmation modal or, when confirmation is off, calls `performDelete` directly -> `performDelete` runs `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> remove matching queue entries by path -> stop playback if deleted track is playing -> show error modal if partial/total failure. There is **no** `addLog`/success toast — the track vanishing from the list is the feedback; failures surface via the error modal.
+- **Flow:** `handleDeleteRequest` resolves the `{ trackIds, title, network }` request, then either shows the confirmation modal or, when confirmation is off, calls `performDelete` directly -> `performDelete` runs `invoke("delete_tracks", { trackIds })` -> filter from `library.tracks` -> remove matching queue entries by path -> stop playback if deleted track is playing -> show error modal if partial/total failure. There is **no** success toast — the track vanishing from the list is the feedback; failures surface via the error modal.
 - **Confirmation opt-out:** the `confirmTrashDelete` store key (default `true`, Settings → General; also flippable via the modal's "Don't ask again" checkbox) gates the modal for **safe (reversible) trash deletes only**. Permanent deletes — network-share files with no Recycle Bin (`request.network`) — **always** confirm regardless, and never offer the "Don't ask again" checkbox. New delete entry points must reuse this gate, not reimplement it.
 - **Availability:** Local tracks only (`file://` scheme). Uses `isLocalTrack()` helper from `queueEntry.ts`. Single-track checks `target.isLocal` on the context menu target. Multi-track filters with `isLocalTrack(t)`.
 
@@ -74,7 +74,7 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical editor:** `TagEditor.tsx` — the shared chip+autocomplete component. Used on every tag surface: `TrackDetailView`, `BulkEditModal`, `NowPlayingView` (inline), and `NowPlayingBar` (via `TagPopover`, a `variant="popover"` host). New tag-editing surfaces must reuse `TagEditor`, not reimplement chips/autocomplete.
 - **Suggestion pool:** `buildTagSuggestionPool(libraryTags, communityTags)` in `utils/tagSuggestions.ts` — library tags ranked by `track_count` descending, then community/Last.fm tags appended (case-insensitive dedup) via the shared `appendCommunityTags(pool, communityTags)` helper. Order is preserved so `filterSuggestions` keeps the frequency ranking. Surfaces that already hold a ranked `string[]` library pool (`BulkEditModal`, the Now Playing `TagPopover`) call `appendCommunityTags` directly to fold in Last.fm track/artist tags fetched on demand via the `useCommunityTags` hook (gated by `enabled`; artist-level tags only for multi-track selections). Community tags reach the pool on **every** tag-editing surface, not just `TrackDetailView`. Already-applied tags are hidden from the dropdown via `AutocompleteInput`'s `exclude` set (built inside `TagEditor`), not stripped from the pool — so a just-removed tag is immediately suggestable again.
-- **Single-track add/remove (canonical path):** route through `useTagActions` (`hooks/useTagActions.ts`). `add` -> `invoke("plugin_apply_tags", { trackId, tagNames: [name] })`; `remove` -> `invoke("replace_track_tags", { trackId, tagNames: remaining })`. Both return `Array<[tagId, tagName]>`. Quick-edit is **DB-only** and uses **optimistic UI**: the chip appears/disappears immediately, reverts on failure. There is **no** `addLog` mechanism in this codebase — feedback is the optimistic chip update; every `catch` must `console.error`.
+- **Single-track add/remove (canonical path):** route through `useTagActions` (`hooks/useTagActions.ts`). `add` -> `invoke("plugin_apply_tags", { trackId, tagNames: [name] })`; `remove` -> `invoke("replace_track_tags", { trackId, tagNames: remaining })`. Both return `Array<[tagId, tagName]>`. Quick-edit is **DB-only** and uses **optimistic UI**: the chip appears/disappears immediately, reverts on failure. Quick-edit raises **no** toast — feedback is the optimistic chip update; every `catch` must `console.error`.
 - **Bulk edit / file write:** `BulkEditModal` keeps its replace/add/remove mode selector and saves via `invoke("bulk_update_tracks", { trackIds, fields })` with `fields.tag_names` + `fields.tag_mode`. This is the **only** path that writes tags into audio-file genre metadata. The inline quick-editors never touch files.
 - **Non-library tracks:** the Now Playing surfaces operate on `QueueTrack` (no DB id). They resolve the playing track to a library row via `invoke("find_track_by_metadata", { title, artistName, albumName })` (on the Bar, only when the popover opens). If not found, `TagEditor` renders read-only (`disabled` + `disabledHint`).
 
@@ -132,10 +132,10 @@ Cross-cutting rules that apply to all code everywhere.
 ### User Feedback for Significant Operations
 
 - Any operation that hits the network, writes to disk, or takes >500ms must show feedback
-- Use `addLog()` for lightweight feedback (searches, saves, fetches)
+- Use `notify()` from `useToasts` for lightweight feedback (searches, saves, fetches)
 - Use loading states / disabled buttons for operations where the user is waiting
 - Use progress indicators for multi-step operations (downloads, syncs, imports)
-- On failure, the user must know something went wrong -- either `addLog()` with error, or error modal for critical failures
+- On failure, the user must know something went wrong -- either `notify()` with the error, or error modal for critical failures
 
 ### Modal Dismiss Behavior
 
