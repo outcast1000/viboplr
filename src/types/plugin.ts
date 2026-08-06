@@ -8,8 +8,13 @@ import type {
 // One definition, shared by the plugin API and the host's own renderer/cache — a
 // plugin-supplied storyboard and a locally generated one are the same shape.
 import type { Storyboard } from "../utils/storyboard";
+import type {
+  PluginVisualizerAPI,
+  PluginVisualizerDescriptor,
+} from "./pluginVisualizer";
 
 export type { Storyboard };
+export type * from "./pluginVisualizer";
 
 // -- Manifest types --
 
@@ -33,6 +38,9 @@ export type PluginEventName =
   | "track:liked"
   | "track:added"
   | "track:removed"
+  // Queue contents or current index moved. Coalesced — read the new state back
+  // via `api.playback.getQueue()`; the event carries no payload.
+  | "queue:changed"
   | "scan:complete";
 
 export interface PluginManifestInfoType {
@@ -102,6 +110,8 @@ export interface PluginManifestContributes {
   settingsPanel?: PluginManifestSettingsPanel;
   homeShelves?: PluginManifestHomeShelf[];
   searchProviders?: PluginManifestSearchProvider[];
+  /** Rich visuals that fill host-owned slots. See types/pluginVisualizer.ts. */
+  visualizers?: PluginVisualizerDescriptor[];
 }
 
 export interface PluginApiUsage {
@@ -513,6 +523,15 @@ export interface PluginPlaybackAPI {
   getCurrentTrack(): QueueTrack | null;
   isPlaying(): boolean;
   getPosition(): number;
+  /** The whole play queue, in order, plus the index of the playing entry.
+   *  Metadata-only `QueueTrack`s, same as `getCurrentTrack`. Guard with a
+   *  `typeof` check — older hosts don't have it. */
+  getQueue(): { tracks: QueueTrack[]; index: number };
+  /** Fires whenever the queue's contents or current index change (enqueue,
+   *  reorder, remove, clear, track advance). Returns an unsubscriber.
+   *  This is a coalesced notification, not a per-frame one: read the new state
+   *  with `getQueue()` when it fires. */
+  onQueueChanged(handler: () => void): () => void;
   playTrack(track: PluginTrack): void;
   playTracks(tracks: PluginTrack[], startIndex?: number, context?: PluginPlayContext): void;
   insertTrack(track: PluginTrack, position: number): void;
@@ -1149,6 +1168,9 @@ export interface ViboplrPluginAPI {
   home: PluginHomeAPI;
   nowPlayingInfo: PluginNowPlayingInfoAPI;
   search: PluginSearchAPI;
+  /** Rich visuals in host-owned slots. Plugins render host state; they do not
+   *  own it. See types/pluginVisualizer.ts for the contract. */
+  visualizers: PluginVisualizerAPI;
 }
 
 // -- Gallery types --

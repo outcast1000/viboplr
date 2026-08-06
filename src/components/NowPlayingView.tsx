@@ -21,6 +21,12 @@ interface NowPlayingViewProps {
   getArtistImage: (name: string) => string | null;
   /** Seek playback to an absolute position (seconds) — wired to tap-to-seek on synced lines. */
   onSeek?: (secs: number) => void;
+  /** A plugin visualizer filling the `nowplaying` slot. When present it takes
+      the art column's place — a vinyl deck or a meter belongs where the static
+      square was. App owns the plugin plumbing; this view just gives it room. */
+  visualizerSlot?: ReactNode;
+  /** Right-click on the art column to pick a visualizer (native menu). */
+  onVisualizerMenu?: (x: number, y: number) => void;
 }
 
 /** Centered, lean-back lyrics display. Synced (karaoke) when LRC timing is
@@ -185,6 +191,8 @@ export function NowPlayingView({
   getAlbumImage,
   getArtistImage,
   onSeek,
+  visualizerSlot,
+  onVisualizerMenu,
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
 
@@ -275,8 +283,17 @@ export function NowPlayingView({
         />
       )}
       <div className="np-stage">
-        <div className="np-art-col">
-          {hasArt ? (
+        <div
+          className={"np-art-col" + (visualizerSlot ? " np-art-col--visualizer" : "")}
+          onContextMenu={
+            onVisualizerMenu
+              ? (e) => { e.preventDefault(); onVisualizerMenu(e.clientX, e.clientY); }
+              : undefined
+          }
+        >
+          {visualizerSlot ? (
+            visualizerSlot
+          ) : hasArt ? (
             <Crossfade
               src={albumImageSrc}
               className="np-xfade--art"

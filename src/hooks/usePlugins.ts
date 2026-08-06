@@ -44,6 +44,9 @@ import type {
   HomeShelfResult,
   NowPlayingInfoResult,
   PluginSearchProvider,
+  PluginVisualizer,
+  PluginVisualizerDescriptor,
+  PluginVisualizerRegistration,
   PluginSearchResult,
   InfoValueMatch,
   StreamCandidate,
@@ -153,6 +156,7 @@ interface LoadedPlugin {
   streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>>;
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
   schedulerHandlers: Map<string, () => void>;
+  visualizerFactories: Map<string, () => PluginVisualizer>;
 }
 
 /** Max time a single plugin's activate() may block the sequential load before
@@ -224,6 +228,9 @@ export function usePlugins(
   currentTrackRef: React.RefObject<QueueTrack | null>,
   playingRef: React.RefObject<boolean>,
   positionRef: React.RefObject<number>,
+  // Live queue, for plugins that render the queue itself (the vinyl deck).
+  // A ref, like the three above, so reading it never re-runs the api builder.
+  queueRef: React.RefObject<{ tracks: QueueTrack[]; index: number }>,
   playbackCallbacks?: PluginPlaybackCallbacks,
   hostCallbacks?: PluginHostCallbacks,
   debugMode?: boolean,
@@ -252,6 +259,9 @@ export function usePlugins(
     icon?: string;
   }>>([]);
   const [searchProviders, setSearchProviders] = useState<PluginSearchProvider[]>([]);
+  const [visualizers, setVisualizers] = useState<PluginVisualizerRegistration[]>([]);
+  const dynamicVisualizersRef = useRef<Map<string, PluginVisualizerRegistration>>(new Map());
+  const [dynamicVisualizersVersion, setDynamicVisualizersVersion] = useState(0);
   const [galleryPlugins, setGalleryPlugins] = useState<GalleryPluginEntry[]>(
     [],
   );
@@ -282,6 +292,7 @@ export function usePlugins(
     "track:liked": [],
     "track:added": [],
     "track:removed": [],
+    "queue:changed": [],
     "scan:complete": [],
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
@@ -614,6 +625,9 @@ export function usePlugins(
           getCurrentTrack: () => currentTrackRef.current,
           isPlaying: () => playingRef.current ?? false,
           getPosition: () => positionRef.current ?? 0,
+          getQueue: () => queueRef.current ?? { tracks: [], index: 0 },
+          onQueueChanged: (handler) =>
+            subscribeEvent("queue:changed", handler as (...args: unknown[]) => void),
           playTrack: (track) => {
             playbackCallbacksRef.current?.playTrack(track);
           },
@@ -1145,6 +1159,36 @@ export function usePlugins(
           },
         },
 
+        visualizers: {
+          onMount(id: string, factory: () => PluginVisualizer): () => void {
+            loaded.visualizerFactories.set(id, factory);
+            const unsub = () => {
+              if (loaded.visualizerFactories.get(id) === factory) {
+                loaded.visualizerFactories.delete(id);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          register(descriptor: PluginVisualizerDescriptor): () => void {
+            const key = `${pluginId}:${descriptor.id}`;
+            dynamicVisualizersRef.current.set(key, { pluginId, ...descriptor });
+            setDynamicVisualizersVersion((v) => v + 1);
+            const unsub = () => {
+              if (dynamicVisualizersRef.current.delete(key)) {
+                setDynamicVisualizersVersion((v) => v + 1);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          unregister(id: string): void {
+            if (dynamicVisualizersRef.current.delete(`${pluginId}:${id}`)) {
+              setDynamicVisualizersVersion((v) => v + 1);
+            }
+          },
+        },
+
         search: {
           onQuery(
             providerId: string,
@@ -1340,7 +1384,7 @@ export function usePlugins(
         },
       };
     },
-    [currentTrackRef, playingRef, positionRef, tapInvoke],
+    [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke],
   );
 
   // Listen for scheduler due events from the Rust backend
@@ -1393,6 +1437,7 @@ export function usePlugins(
     loaded.streamUriResolvers.clear();
     loaded.storyboardResolvers.clear();
     loaded.schedulerHandlers.clear();
+    loaded.visualizerFactories.clear();
 
     // Clear view data for this plugin
     for (const key of viewDataRef.current.keys()) {
@@ -1520,6 +1565,7 @@ export function usePlugins(
         streamUriResolvers: new Map(),
         storyboardResolvers: new Map(),
         schedulerHandlers: new Map(),
+        visualizerFactories: new Map(),
       };
 
       try {
@@ -1694,6 +1740,7 @@ export function usePlugins(
         icon?: string;
       }> = [];
       const searchers: PluginSearchProvider[] = [];
+      const vizzes: PluginVisualizerRegistration[] = [];
       const allInfoTypes: Array<[string, string, string, string, string, number, number, number, string]> = [];
       const allImageProviders: [string, string, number][] = []; // [plugin_id, entity, priority]
 
@@ -1834,6 +1881,11 @@ export function usePlugins(
               });
             }
           }
+          if (contrib.visualizers) {
+            for (const vz of contrib.visualizers) {
+              vizzes.push({ pluginId: plugin.id, ...vz });
+            }
+          }
         }
       }
 
@@ -1901,6 +1953,7 @@ export function usePlugins(
       setSettingsPanels(settings);
       setHomeShelves(shelves);
       setSearchProviders(searchers);
+      setVisualizers(vizzes);
     } catch (e) {
       console.error("Failed to load plugins:", e);
     } finally {
@@ -2508,6 +2561,43 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchProviders, dynamicSearchProvidersVersion]);
 
+  /**
+   * Build a fresh visualizer instance for a slot.
+   *
+   * One instance per occupied slot — the same visualizer can legitimately be in
+   * `nowplaying` and `miniplayer` at once, and they must not share DOM or
+   * derived state. Returns null when the plugin is gone or never registered a
+   * factory, which the slot renders as "nothing selected" rather than an error:
+   * a disabled plugin taking a slot down with it should be invisible.
+   */
+  const createVisualizer = useCallback(
+    (pluginId: string, visualizerId: string): PluginVisualizer | null => {
+      const loaded = loadedPluginsRef.current.get(pluginId);
+      const factory = loaded?.visualizerFactories.get(visualizerId);
+      if (!factory) return null;
+      try {
+        return factory();
+      } catch (e) {
+        console.error(`[plugin:${pluginId}] visualizer ${visualizerId} factory failed:`, e);
+        return null;
+      }
+    },
+    [],
+  );
+
+  const allVisualizers = useMemo(() => {
+    const seen = new Set(visualizers.map((v) => `${v.pluginId}:${v.id}`));
+    const merged = [...visualizers];
+    for (const entry of dynamicVisualizersRef.current.values()) {
+      const key = `${entry.pluginId}:${entry.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(entry);
+    }
+    return merged;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visualizers, dynamicVisualizersVersion]);
+
   const allHomeShelves = useMemo(() => {
     const seen = new Set(homeShelves.map((s) => `${s.pluginId}:${s.shelfId}`));
     const merged = [...homeShelves];
@@ -2611,6 +2701,8 @@ export function usePlugins(
     invokeHomeShelfResolvePlay,
     searchProviders: visibleSearchProviders,
     invokePluginSearch,
+    visualizers: allVisualizers,
+    createVisualizer,
     togglePlugin,
     reloadPlugin,
     reloadAllPlugins,

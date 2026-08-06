@@ -358,3 +358,34 @@
     animation: none;
   }
 }
+
+/* A plugin visualizer takes the art column's place. It needs a square-ish box
+   to work with (a vinyl deck is round; a meter can letterbox itself), so mirror
+   the art's sizing rather than stretching to the column. */
+.np-art-col--visualizer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* The art column is `flex: 0 0 auto` and takes its width from its content —
+   `.np-art` carries an explicit size. So the slot needs one too: a percentage
+   here would resolve against a content-sized parent and collapse to zero,
+   which renders the visualizer invisibly at 0x0.
+
+   A visualizer is the centrepiece when it's on, so unlike the static artwork it
+   is allowed to grow into whatever space the window offers — bounded by height,
+   by a share of the width so the lyrics column still gets its half, and by an
+   absolute ceiling so it stops short of absurd on a huge display. The deck
+   re-presses and repaints itself on resize, and a bigger disc also makes the
+   per-track bands and their gaps far easier to read. */
+.np-art-col--visualizer .visualizer-slot {
+  width: min(66vh, 40vw, 720px);
+  height: min(66vh, 40vw, 720px);
+}
+/* Narrow windows: the stage stacks, so let it use the width instead. */
+@media (max-width: 1100px) {
+  .np-art-col--visualizer .visualizer-slot {
+    width: min(52vh, 62vw, 520px);
+    height: min(52vh, 62vw, 520px);
+  }
+}

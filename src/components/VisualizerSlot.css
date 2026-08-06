@@ -1,0 +1,18 @@
+/* Host container for a plugin visualizer.
+ *
+ * Deliberately almost empty: the visualizer's own styles live inside its shadow
+ * root, and skin custom properties inherit through the boundary from here. This
+ * element only has to be a correctly-sized box for the slot. */
+
+.visualizer-slot {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.visualizer-mount {
+  position: absolute;
+  inset: 0;
+}

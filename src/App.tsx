@@ -23,7 +23,7 @@ import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, b
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
-import { resolveImageUrl, stripImageVersion } from "./utils/resolveImageUrl";
+import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
 import { pickEntityImagePath } from "./utils/trackImage";
 import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
@@ -124,6 +124,14 @@ import {
 } from "./components/modals/ConfirmModals";
 import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
+import { VisualizerSlot } from "./components/VisualizerSlot";
+import {
+  buildVisualizerMenuSpecs,
+  candidatesFor,
+  resolveSlot,
+  visualizerKey,
+  type VisualizerSlotSelection,
+} from "./utils/visualizerSlots";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
@@ -360,6 +368,17 @@ function App() {
     return () => { cancelled = true; };
   }, [playback.scrobbled]);
 
+  // Which plugin visualizer fills each host-owned slot, keyed by placement.
+  // A stale entry (plugin disabled/uninstalled) is deliberately kept rather
+  // than pruned — resolveSlot renders the slot empty, and the choice comes back
+  // if the plugin returns. See utils/visualizerSlots.ts.
+  const [visualizerSlots, setVisualizerSlots] = useState<VisualizerSlotSelection>({});
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("visualizerSlots", visualizerSlots);
+  }, [visualizerSlots]);
+
   // Persist the Now Playing info selection (guarded so startup defaults don't
   // overwrite saved state). Mirrors the homeShelfVisibility persistence.
   useEffect(() => {
@@ -414,6 +433,12 @@ function App() {
   useEffect(() => subscribePlaybackPosition(() => {
     pluginPositionRef.current = getPlaybackPosition();
   }), []);
+  // Live queue for plugins that render the queue itself (the vinyl deck presses
+  // it to a record). Mirrored into a ref per render like the three above, and
+  // announced via one `queue:changed` event so a plugin can re-push its view
+  // without polling.
+  const pluginQueueRef = useRef<{ tracks: QueueTrack[]; index: number }>({ tracks: [], index: 0 });
+  pluginQueueRef.current = { tracks: queueHook.queue, index: queueHook.queueIndex };
   const pluginTrackToQueueTrack = useCallback((info: PluginTrack): QueueTrack => {
     return {
       key: nextExternalKey(),
@@ -548,7 +573,34 @@ function App() {
   // plugins then load in the background without contending with startup on the
   // single IPC channel. debugMode/devPluginPath are restored before this flips,
   // so the deferred first load already sees their final values.
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
+
+  // The `nowplaying` visualizer slot. resolveSlot returns null when the chosen
+  // visualizer isn't available, so a disabled plugin silently frees the slot
+  // instead of breaking the view.
+  const nowPlayingVisualizer = resolveSlot(plugins.visualizers, visualizerSlots, "nowplaying");
+
+
+  const openVisualizerMenu = useCallback(
+    (placement: "nowplaying", x: number, y: number) => {
+      showNativeMenu(
+        x,
+        y,
+        buildVisualizerMenuSpecs(plugins.visualizers, visualizerSlots, placement, (key) => {
+          setVisualizerSlots((prev) => ({ ...prev, [placement]: key }));
+        }),
+      );
+    },
+    [plugins.visualizers, visualizerSlots],
+  );
+
+  // Tell plugins the queue moved. One coalesced signal — handlers read the new
+  // state back via `api.playback.getQueue()` — so a plugin rendering the queue
+  // (the vinyl deck) re-presses its record on enqueue / reorder / remove /
+  // advance without polling for it.
+  useEffect(() => {
+    plugins.dispatchEvent("queue:changed");
+  }, [queueHook.queue, queueHook.queueIndex, plugins.dispatchEvent]);
 
   // Seek-bar hover previews for video. Complements the waveform, which is audio-only:
   // at most one of the two is non-null for a given track. Declared after `plugins`
@@ -1164,6 +1216,25 @@ function App() {
 
   // Image caches
   const artistImageCache = useImageCache("artist");
+
+  // Art for the deck's label. Resolved here, in render, because that's where the
+  // image cache lives: a queue track's own `image_url` is usually empty and the
+  // real art comes from the album→artist chain by name, exactly as the queue
+  // rows and now-playing bar resolve it.
+  const nowPlayingArtSrc = (() => {
+    const t = playback.currentTrack;
+    if (!t) return null;
+    if (t.image_url) return resolveImageSrc(t.image_url);
+    if (t.album_title) {
+      const a = albumImageCache.getImage(t.album_title, t.artist_name ?? undefined);
+      if (a) return resolveImageSrc(a);
+    }
+    if (t.artist_name) {
+      const a = artistImageCache.getImage(t.artist_name);
+      if (a) return resolveImageSrc(a);
+    }
+    return null;
+  })();
   const tagImageCache = useImageCache("tag");
 
   // After the Retrieve modal applies a new image, drop the cached entry so the
@@ -2073,6 +2144,9 @@ function App() {
 
         const savedNowPlayingInfo = await store.get<Record<string, boolean>>("nowPlayingInfoSelection");
         if (savedNowPlayingInfo && typeof savedNowPlayingInfo === "object") setNowPlayingInfoSelection(savedNowPlayingInfo);
+
+        const savedVisualizerSlots = await store.get<VisualizerSlotSelection>("visualizerSlots");
+        if (savedVisualizerSlots && typeof savedVisualizerSlots === "object") setVisualizerSlots(savedVisualizerSlots);
 
         const savedNowPlayingInfoTop = await store.get<Record<string, number>>("nowPlayingInfoPersistence");
         if (savedNowPlayingInfoTop && typeof savedNowPlayingInfoTop === "object") setNowPlayingInfoPersistence(savedNowPlayingInfoTop);
@@ -4066,6 +4140,28 @@ function App() {
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
               onSeek={playback.handleSeek}
+              onVisualizerMenu={(x, y) => openVisualizerMenu("nowplaying", x, y)}
+              visualizerSlot={
+                nowPlayingVisualizer ? (
+                  <VisualizerSlot
+                    placement="nowplaying"
+                    selection={nowPlayingVisualizer}
+                    createVisualizer={plugins.createVisualizer}
+                    queue={queueHook.queue}
+                    currentIndex={queueHook.queueIndex}
+                    playing={playback.playing}
+                    durationSecs={playback.currentTrack?.duration_secs ?? null}
+                    currentArtUrl={nowPlayingArtSrc}
+                    onSeek={playback.handleSeek}
+                    onPlayQueueIndex={(index) => {
+                      const t = queueHook.queue[index];
+                      if (!t) return;
+                      queueHook.setQueueIndex(index);
+                      playback.handlePlay(t);
+                    }}
+                  />
+                ) : undefined
+              }
             />
           )}
 
@@ -4144,6 +4240,7 @@ function App() {
                 data={data}
                 scrollKey={scrollKey}
                 currentTrack={playback.currentTrack}
+                playing={playback.playing}
                 onPlayTrack={(track) => {
                   queueHook.playTracks([track], 0);
                 }}
@@ -4284,6 +4381,9 @@ function App() {
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               preferVideoResolution={preferVideoResolution}
+              nowPlayingVisualizers={candidatesFor(plugins.visualizers, "nowplaying").map(v => ({ key: visualizerKey(v), name: v.name }))}
+              nowPlayingVisualizer={nowPlayingVisualizer}
+              onNowPlayingVisualizerChange={(key) => setVisualizerSlots(prev => ({ ...prev, nowplaying: key }))}
               onPreferVideoResolutionChange={handlePreferVideoResolutionChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}

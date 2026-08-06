@@ -1050,6 +1050,10 @@ interface SettingsPanelProps {
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   preferVideoResolution: boolean;
+  /** Visualizer candidates for the Now Playing slot + the current pick. */
+  nowPlayingVisualizers: { key: string; name: string }[];
+  nowPlayingVisualizer: string | null;
+  onNowPlayingVisualizerChange: (key: string | null) => void;
   onPreferVideoResolutionChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
@@ -1166,6 +1170,9 @@ export function SettingsPanel({
   trackVideoHistory,
   onTrackVideoHistoryChange,
   preferVideoResolution,
+  nowPlayingVisualizers,
+  nowPlayingVisualizer,
+  onNowPlayingVisualizerChange,
   onPreferVideoResolutionChange,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
@@ -1630,6 +1637,23 @@ export function SettingsPanel({
                         />
                         <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
                       </div>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Now Playing visualizer</span>
+                        <span className="settings-description">Replace the artwork in the Now Playing view with a plugin visual, such as the Vinyl Deck. Also reachable by right-clicking the artwork.{nowPlayingVisualizers.length === 0 ? " Install and enable a visualizer plugin from Extensions to use this." : ""}</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={nowPlayingVisualizer ?? ""}
+                        disabled={nowPlayingVisualizers.length === 0}
+                        onChange={e => onNowPlayingVisualizerChange(e.target.value || null)}
+                      >
+                        <option value="">None</option>
+                        {nowPlayingVisualizers.map(v => (
+                          <option key={v.key} value={v.key}>{v.name}</option>
+                        ))}
+                      </select>
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">

@@ -1,0 +1,25 @@
+{
+  "id": "vinyl-deck",
+  "name": "Vinyl Deck",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Presses the play queue onto a single-sided record: one groove band per track, sized by its duration. Drag the tonearm or scrub the grooves to cue. Right-click the Now Playing artwork to use it.",
+  "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 6a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 3a1 1 0 1 0 0 2 1 1 0 0 0 0-2z",
+  "minAppVersion": "1.0.15",
+  "stability": "experimental",
+  "autoEnable": false,
+  "contributes": {
+    "visualizers": [
+      {
+        "id": "deck",
+        "name": "Vinyl Deck",
+        "placements": ["nowplaying"]
+      }
+    ],
+    "settingsPanel": {
+      "id": "vinyl-deck-settings",
+      "label": "Vinyl Deck",
+      "order": 60
+    }
+  }
+}

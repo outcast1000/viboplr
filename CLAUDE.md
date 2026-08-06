@@ -13,7 +13,8 @@ cd src-tauri && cargo check --release # Release build check
 node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv — REQUIRED before `tauri build` (bundled); dev/tests load it at runtime; engine tests self-skip without it
 cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
 node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
-npx tsc --noEmit                     # TypeScript type-check
+npm run build:plugins                # Bundle plugins that have a build step (runs inside `npm run build`)
+npx tsc --noEmit                     # TypeScript type-check (covers src/ and src-tauri/plugins/*/src)
 npm run test:all                     # All tests (Rust + TS + E2E)
 npm test                             # TypeScript tests only
 npm run test:rust                    # Rust tests only

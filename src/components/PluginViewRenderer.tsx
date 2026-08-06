@@ -33,6 +33,10 @@ interface PluginViewRendererProps {
   data: PluginViewData | undefined;
   scrollKey?: string;
   currentTrack: QueueTrack | null;
+  /** Live transport state, for view kinds that animate with playback (the
+   *  vinyl deck's tonearm). Position is read from the shared position store by
+   *  the node itself; only the play/pause flag has to be handed down. */
+  playing?: boolean;
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
@@ -46,6 +50,7 @@ export function PluginViewRenderer({
   data,
   scrollKey,
   currentTrack,
+  playing,
   onPlayTrack,
   onAction,
   onTrackContextMenu,
@@ -118,6 +123,7 @@ export function PluginViewRenderer({
           key={i}
           node={node}
           currentTrack={currentTrack}
+          playing={playing}
           onPlayTrack={onPlayTrack}
           onAction={onAction}
           onTrackContextMenu={onTrackContextMenu}
@@ -132,6 +138,7 @@ export function PluginViewRenderer({
           <PluginViewNode
             node={contentData}
             currentTrack={currentTrack}
+            playing={playing}
             onPlayTrack={onPlayTrack}
             onAction={onAction}
             onTrackContextMenu={onTrackContextMenu}
@@ -149,6 +156,7 @@ export function PluginViewRenderer({
 interface PluginViewNodeProps {
   node: PluginViewData;
   currentTrack: QueueTrack | null;
+  playing?: boolean;
   onPlayTrack?: (track: Track) => void;
   onAction?: (actionId: string, data?: unknown) => void;
   onTrackContextMenu?: (e: React.MouseEvent, track: Track) => void;
@@ -161,6 +169,7 @@ interface PluginViewNodeProps {
 function PluginViewNode({
   node,
   currentTrack,
+  playing,
   onPlayTrack,
   onAction,
   onTrackContextMenu,
@@ -229,6 +238,7 @@ function PluginViewNode({
               key={i}
               node={child}
               currentTrack={currentTrack}
+              playing={playing}
               onPlayTrack={onPlayTrack}
               onAction={onAction}
               onTrackContextMenu={onTrackContextMenu}
@@ -364,6 +374,7 @@ function PluginViewNode({
             <PluginViewNode
               node={control}
               currentTrack={currentTrack}
+              playing={playing}
               onPlayTrack={onPlayTrack}
               onAction={onAction}
               onTrackContextMenu={onTrackContextMenu}
@@ -384,6 +395,7 @@ function PluginViewNode({
                 key={i}
                 node={child}
                 currentTrack={currentTrack}
+                playing={playing}
                 onPlayTrack={onPlayTrack}
                 onAction={onAction}
                 onTrackContextMenu={onTrackContextMenu}

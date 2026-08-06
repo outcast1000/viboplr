@@ -123,7 +123,7 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
       "label": "Sidebar Label",
       "icon": "icon-name"
     }],
-    "eventHooks": ["track:started", "track:scrobbled", "track:liked", "track:added", "track:removed", "scan:complete"],
+    "eventHooks": ["track:started", "track:scrobbled", "track:liked", "track:added", "track:removed", "queue:changed", "scan:complete"],
     "settingsPanel": {
       "id": "settings-id",
       "label": "Settings Tab Label",
@@ -215,6 +215,9 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 
 ### api.playback
 - `getCurrentTrack()` / `isPlaying()` / `getPosition()`
+- `visualizers` — see "Visualizers" below.
+- `getQueue()` — the whole play queue in order plus the playing index: `{ tracks: QueueTrack[], index }`. Metadata-only `QueueTrack`s, same as `getCurrentTrack`. Guard with a `typeof` check for older hosts.
+- `onQueueChanged(handler)` — fires when the queue's contents *or* current index change (enqueue, reorder, remove, clear, track advance). **Coalesced and payload-free** — read the new state back with `getQueue()` when it fires. Dispatched from App.tsx off the live queue, so it's one signal per committed change rather than a diff stream.
 - `playTrack(track)` / `playTracks(tracks, startIndex?, context?)` — `track` is a `PluginTrack`; `context` is `{ name, coverUrl?, source?, metadata? }`
 - `insertTrack(track, position)` / `insertTracks(tracks, position)` — insert into the current queue
 - `playWithBackfill({ head, context?, resolveTail, tailErrorMessage? })` — **play the known opening track(s) now, hand the rest over when the slow work finishes.** For any play whose first track is known up front but whose remainder costs seconds (a scrape, a paged catalog) — e.g. a "song radio" that always opens with the seed the user picked. `head` plays immediately (metadata-only is fine — the stream-resolver chain resolves it on play); `resolveTail()` returns the full list (head included or not — the host strips a leading run it already started, per `dropPlayedHead`). On failure/empty the head keeps playing and `tailErrorMessage` shows as a toast. **Prefer this over `playTracks` + `insertTracks`:** the host discards the tail if the user replaced or cleared the queue mid-resolve (generation-guarded — see conventions.md "Play With Backfill"), which a hand-rolled insert can't detect, and it needs no loading modal — the queue panel shows its own "Filling in the rest…" row for the whole wait. **Resolves with the number of tracks actually appended** (0 = the tail failed, was empty, was entirely the head, or was discarded because the user moved on), so announce success from that number rather than from your own resolved list. Guard with `typeof api.playback.playWithBackfill === "function"` for older hosts.
@@ -526,6 +529,69 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 | `section` | Titled grouping wrapper |
 | `confirm` | Modal-style confirm with `confirmAction` / `cancelAction` and optional `data` payload |
 | `detail-header` | Renders the **native** detail hero (`DetailHero`): multi-image crossfade background (`bgImages[]`, 0-4), effect looks + FX selector (inherits the global hero effect preference), square/`circle` art (`artShape`), `title`, `subtitle`+`meta` as chips, foreground art from `imageUrl`, Play (`playAction`) / Enqueue (`enqueueAction`) buttons, and an overflow (⋯) menu built from `actions[]` then `contextMenuActions[]`. Like/dislike, eyebrow, and titleLine are not exposed to plugins. |
+
+## Visualizers
+
+Rich visuals that fill **host-owned slots**. Contract: `src/types/pluginVisualizer.ts`. Host: `components/VisualizerSlot.tsx`, slot resolution in `utils/visualizerSlots.ts`, registry in `usePlugins` (`plugins.visualizers` / `plugins.createVisualizer`).
+
+**The governing rule: plugins render, the host acts.** A visualizer is a pure function of (host state, user gesture). It holds no state anyone else depends on, and its only writes are `actions.seek(secs)` and `actions.playQueueIndex(n)` — the two gestures a playback visual naturally has. There is deliberately **no** pause / volume / queue mutation: transport state stays with the host, so a misbehaving visualizer can cost you a view but never your music. (`seek` is in on the principle that the host's own seek bar is a visual that writes position.)
+
+**`mount` is the escape hatch, not the default.** Anything that is a list, a form or a header belongs in the declarative `PluginViewData` node union — that's what makes plugin content look native. Reach for a visualizer only for genuine visuals.
+
+**Declaring one** — `contributes.visualizers: [{ id, name, placements, icon? }]` (static) or `api.visualizers.register(descriptor)` (runtime), then `api.visualizers.onMount(id, factory)`. The factory must return a **fresh** object per call: one instance per occupied slot. Placements: `nowplaying`, `sidebar`, `queue-header`, `fullscreen`, `miniplayer` — currently only **`nowplaying`** is wired (it replaces the art column; right-click there for the native picker). Selection persists as `visualizerSlots` in the app store.
+
+**The host owns the frame loop**, not the plugin. It calls `frame(state)` and therefore can stop calling an off-screen or backgrounded visualizer, and gives up on one that throws 10 frames in a row. Never run your own `requestAnimationFrame`.
+
+`PluginVisualizerState` arrives as one consistent snapshot — `currentIndex` always indexes the `queue` it came with, which removes the staleness bug a plugin assembling this from separate reads would have. **`queueRevision`** is the cheap signal for "redo per-queue work": it only changes when the queue does, so expensive layout/repaint happens once per change rather than once per frame.
+
+**Render target is a shadow root.** CSS custom properties inherit through shadow boundaries, so skin tokens arrive for free while the plugin's CSS can't leak out; `host.useDesignSystem()` adopts the `.ds-*` sheet into it. Two consequences to know:
+- The app's global `prefers-reduced-motion` guard **does not cross a shadow boundary**, and could never reach a canvas animation anyway. The host adopts a base sheet carrying that guard, and `host.reducedMotion` covers everything animated in JS. Honour it.
+- Skin-safety is no longer structural — a plugin's canvas *can* hardcode a colour where a host renderer's provably can't. Use `host.token()` + `host.onSkinChange()`, and prefer the **alpha-only** painting trick (paint black/white alpha, let CSS underneath supply the colour): the vinyl deck reads no token at all, so it cannot break a skin.
+
+Gestures: attach your own listeners to the shadow root — the contract has no pointer hook on purpose, since owning real DOM is strictly more capable. Follow the repo drag rule inside it (manual mouse events, never HTML5 DnD).
+
+**Known limitation:** cue hit-testing derived from the on-screen projection is exact only at zero platter tilt; a tilted exact test needs the inverse rotateX projection.
+
+**Conformance check:** `src/__tests__/pluginVisualizerContract.test.ts` rebuilds the deck against the contract alone (no React, no host node) and drives it with synthetic frames. Change the contract, run that.
+
+### Vinyl Deck (reference visualizer)
+
+`src-tauri/plugins/vinyl-deck/` — the worked example of a rich visual living entirely in a plugin. **The host holds none of it**: there is no `vinyl-deck` view kind, no deck component, no geometry in `src/`.
+
+| | |
+|---|---|
+| `src/geometry.ts` | Band layout, radius↔position, tonearm angle, crop windows. Pure. |
+| `src/surface.ts` | Canvas painter (black/white alpha only). |
+| `src/style.ts` | Shadow-root CSS, all skin tokens. |
+| `src/visualizer.ts` | The `PluginVisualizer`. |
+| `src/index.ts` | `activate` — settings + `api.visualizers.onMount`. |
+| `src/*.test.ts` | 51 tests, run by the app's own `npm test`. |
+
+**Geometry is measured, not eyeballed.** `LP_MM` holds the real 12" LP dimensions (302mm disc, 292mm maximum recorded diameter, 100mm label) and every radius derives from them. The unplayable outer band is ~5mm — **3.3% of the radius**; a wider one reads as a black moat no record has. A real inter-track gap is ~1mm, i.e. ~1.2px on a 368px deck.
+
+Two floors keep that honest at real sizes, both mirroring `WaveformSeekBar`'s `MIN_BAR_WIDTH_PX` / `SegmentedSeekBar`'s `MIN_SEG_WIDTH`:
+- `MIN_GAP_PX` (2) — a true-proportion gap is sub-pixel on a small deck and would vanish, and the gap is what the surface exists to show.
+- `MAX_GAP_SHARE` (0.5) — the floor is per-gap, so a long queue would demand more total land than the program area has (a 60-track queue wants 118px of gap in a ~104px span) and the bands would run through the label. `layoutBands` shrinks the gap to fit instead, so the pressing always ends exactly on the run-out. **Read the painted gap via `gapAfter(bands, i)`, never `geo.gap`** — once shrunk, the band table is the only truthful source.
+
+**Unknown durations are tolerated**, because they're common (metadata-only plugin/streaming tracks): a queue with no usable durations presses even bands rather than collapsing.
+
+**Settings reach a running deck by shared mutable reference.** The host re-mounts only when a slot's *selection* changes, so `activate` hands the same live options object to every instance and mutates it in place; `frame` folds it into the same "does the expensive work need redoing?" check as `queueRevision`.
+
+## Plugin build step
+
+A plugin is still **one file the host evaluates as a function body, using whatever it returns** — that contract is unchanged, and hand-written ES5 plugins keep working untouched. What's new is that a plugin may *generate* that file.
+
+`src-tauri/plugins/vinyl-deck/vite.config.ts` is the pattern: vite lib mode, `formats: ["iife"]`, plus `output.footer: "return __viboplrPlugin;"`. The result is `var X = (function(exports){…})({}); return X;` — exactly what the loader wants. So the toolchain is **purely author-side**: no CSP work, no module resolution in the webview, no host change.
+
+- A plugin opts in by having a `vite.config.ts`; `scripts/build-plugins.mjs` finds it. Wired into `npm run build`, so `tauri build` (via `beforeBuildCommand`) always bundles.
+- **The built `index.js` is committed** — `tauri.conf.json` ships `plugins/` wholesale, so a missing bundle would ship a broken plugin. Rebuild after editing `src/` (`npm run build:plugins`).
+- Plugin sources are in the root `tsconfig.json` `include`, so one `tsc` type-checks them **against the host's real contract** via type-only imports of `src/types/pluginVisualizer.ts`. (A third-party plugin would consume the same file as a published types package.) This immediately caught three malformed view nodes that the hand-written ES5 version had shipped silently.
+- Tests live beside the source and run in the app's `npm test` — vitest already globs the directory.
+
+**What the sandbox does and doesn't give you.** The loader passes a frozen stand-in for `window`/`globalThis`/`self` and **`document: undefined`**. So a visualizer cannot use ambient DOM, and this is not incidental:
+- Get the document from the contract — `host.root.ownerDocument`.
+- There is no ambient `window`, so **window-level drag listeners are impossible**. Use `setPointerCapture` on your own element with `pointermove`/`pointerup`; it's the better primitive anyway (the drag survives leaving the element and can't be stolen). Pointer events, not HTML5 DnD, which is banned in this webview.
+- `setTimeout`/`setInterval`, `console`, `Math`, `JSON`, `Date`, `Promise` and the core constructors are available; almost nothing else is.
 
 ### Toggle Control Note
 
