@@ -10,6 +10,8 @@ import type {
 import type { QueueTrack } from "../types";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { getPlaybackPosition } from "../playback/positionStore";
+import { invoke } from "@tauri-apps/api/core";
+import { waveformKey } from "../hooks/useWaveform";
 import dsCss from "../design-system.css?raw";
 import "./VisualizerSlot.css";
 
@@ -50,7 +52,10 @@ function addSheet(root: ShadowRoot, css: string) {
   }
 }
 
-export function toVisualizerTrack(t: QueueTrack): PluginVisualizerTrack {
+export function toVisualizerTrack(
+  t: QueueTrack,
+  peaks?: readonly number[],
+): PluginVisualizerTrack {
   return {
     title: t.title ?? "",
     artistName: t.artist_name ?? null,
@@ -59,7 +64,52 @@ export function toVisualizerTrack(t: QueueTrack): PluginVisualizerTrack {
     // Resolved here, not in the plugin: convertFileSrc and the image-cache
     // chain are host machinery.
     artUrl: resolveImageSrc(t.image_url ?? null),
+    peaks,
   };
+}
+
+/**
+ * Read cached peaks for a queue, so a visualizer can texture each track's own
+ * region with its real audio.
+ *
+ * CACHE READ ONLY — `get_cached_waveform` never analyses. That restraint is the
+ * whole design: analysis decodes a file to PCM in the webview and is deliberately
+ * limited to local audio under a size cap (see useWaveform), so doing it per queue
+ * entry would be orders of magnitude more expensive than drawing the result. Every
+ * track the user has actually played is already cached and comes back free;
+ * everything else is simply absent, which the contract tells visualizers to expect.
+ *
+ * Deduplicated by cache key, because a queue can hold the same song twice and one
+ * lookup should serve both.
+ */
+async function loadCachedPeaks(
+  queue: QueueTrack[],
+  into: Map<string, number[] | null>,
+): Promise<boolean> {
+  const wanted = new Set<string>();
+  for (const t of queue) {
+    if (!t.title) continue;
+    const key = waveformKey(t.artist_name ?? null, t.title, t.duration_secs ?? null);
+    if (!into.has(key)) wanted.add(key);
+  }
+  if (wanted.size === 0) return false;
+
+  let gained = false;
+  await Promise.all(
+    [...wanted].map(async (key) => {
+      try {
+        const cached = await invoke<{ peaks?: number[] } | null>("get_cached_waveform", { key });
+        const peaks = cached?.peaks?.length ? cached.peaks : null;
+        into.set(key, peaks);
+        if (peaks) gained = true;
+      } catch {
+        // A miss and a read error are the same outcome here: no texture for that
+        // band. Recorded as null so we don't ask again for this queue.
+        into.set(key, null);
+      }
+    }),
+  );
+  return gained;
 }
 
 export interface VisualizerSlotProps {
@@ -137,6 +187,27 @@ export function VisualizerSlot({
     src: null,
     out: [],
   });
+
+  /** Cached peaks by waveform key. `null` = looked up, nothing cached. */
+  const peaksRef = useRef<Map<string, number[] | null>>(new Map());
+
+  // Fetch what the cache already has for this queue. Async, so it lands on a
+  // later frame; bumping the revision is what tells the visualizer to re-press
+  // with the new texture rather than waiting for the next queue change.
+  useEffect(() => {
+    if (!selection || queue.length === 0) return;
+    let cancelled = false;
+    loadCachedPeaks(queue, peaksRef.current)
+      .then((gained) => {
+        if (cancelled || !gained) return;
+        mappedRef.current = { src: null, out: [] }; // force a re-map
+        revisionRef.current += 1;
+      })
+      .catch((e) => console.error("Failed to read cached waveforms for visualizer:", e));
+    return () => {
+      cancelled = true;
+    };
+  }, [queue, selection]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -258,7 +329,19 @@ export function VisualizerSlot({
 
       const live = liveRef.current;
       if (mappedRef.current.src !== live.queue) {
-        mappedRef.current = { src: live.queue, out: live.queue.map(toVisualizerTrack) };
+        const peaks = peaksRef.current;
+        mappedRef.current = {
+          src: live.queue,
+          out: live.queue.map((t) =>
+            toVisualizerTrack(
+              t,
+              t.title
+                ? peaks.get(waveformKey(t.artist_name ?? null, t.title, t.duration_secs ?? null)) ??
+                    undefined
+                : undefined,
+            ),
+          ),
+        };
       }
       // Overlay the host-resolved art onto the playing entry without disturbing
       // the memoised mapping (which is keyed on queue identity).

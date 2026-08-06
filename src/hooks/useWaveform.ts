@@ -15,7 +15,12 @@ interface WaveformCache {
   peaks: number[];
 }
 
-function waveformKey(artistName: string | null, title: string, durationSecs: number | null): string {
+/**
+ * Cache key for a track's peaks. Exported because `VisualizerSlot` reads the same
+ * cache to texture a visualizer's grooves — duplicating this format there would
+ * silently miss every entry the moment either copy changed.
+ */
+export function waveformKey(artistName: string | null, title: string, durationSecs: number | null): string {
   const artist = (artistName ?? "unknown").toLowerCase().trim();
   const t = title.toLowerCase().trim();
   const d = Math.round(durationSecs ?? 0);

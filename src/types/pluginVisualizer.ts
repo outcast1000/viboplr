@@ -64,6 +64,18 @@ export interface PluginVisualizerTrack {
   /** Null is common and must be handled — streaming and metadata-only entries. */
   readonly durationSecs: number | null;
   readonly artUrl: string | null;
+  /**
+   * Per-second amplitude peaks (0..1), from the host's waveform cache.
+   *
+   * Present only for tracks that already have a cached waveform — the host reads
+   * the cache and never analyses on a visualizer's behalf. Decoding a whole queue
+   * to PCM would cost orders of magnitude more than drawing it, and analysis is
+   * already restricted to local audio files under a size limit. So treat this as
+   * an enrichment that arrives late or not at all: draw something sensible when
+   * it's absent, and expect it to appear on a later frame (with a bumped
+   * `queueRevision`) once a lookup lands.
+   */
+  readonly peaks?: readonly number[];
 }
 
 /**
@@ -81,7 +93,8 @@ export interface PluginVisualizerState {
   /** Index into `queue`, or -1 when nothing is loaded. */
   readonly currentIndex: number;
   /**
-   * Bumped only when `queue` actually changes.
+   * Bumped when the PRESSING changes — the queue's contents or order, or
+   * per-track data that arrived late (peaks resolving from the waveform cache).
    *
    * Lets a visualizer decide in O(1) whether to redo expensive per-queue work
    * (the deck re-lays out its bands and repaints its canvas) instead of
