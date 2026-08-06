@@ -45,6 +45,7 @@ These plugins are **not bundled** in `src-tauri/plugins/`. Their canonical sourc
 | `tidal-browse` | `outcast1000/viboplr-tidal` | Self-contained (HTTP via `api.network.fetch`); same release flow. |
 | `youtube` | `outcast1000/viboplr-youtube` | Self-contained; contributes the `youtube-fallback` stream resolver + `youtube-download` download provider. Shells out to `yt-dlp`/`ffmpeg` via `api.system.exec`. Same release flow (`scripts/bump.sh` + CI) as the others. **Not** in the gallery as a loose copy — un-bundling means fresh installs have no YouTube playback/download until it's installed from the gallery. |
 | `ffmpeg-tools` | `outcast1000/viboplr-ffmpeg-tools` | Self-contained; bulk-convert (`api.contextMenu.registerItem` "Convert to…" submenu) + a Media Info tab (`ffmpeg-probe` information type: container/stream/tag probe + loudness). Shells out to `ffmpeg` only — there's no `ffprobe` in the allow-list, so probe/loudness data is parsed from plain ffmpeg's stderr banner. Same release flow (`scripts/bump.sh` + CI) as the others. |
+| `vinyl-deck` | `outcast1000/viboplr-vinyl-deck` | The reference **visualizer** — the play queue pressed onto a record, filling the `nowplaying` slot. **The only external plugin with a real toolchain**: TypeScript across six modules with 51 tests, bundled by vite to the single IIFE the loader wants, so `index.js` is a committed build artifact and its CI fails if it drifts from a fresh build. Vendors the host's visualizer contract (it can't import `src/`) and re-syncs it with `npm run sync-types`. Same release flow (`scripts/package.sh` + CI) as the others. |
 
 ### Registering a plugin in the gallery
 
@@ -556,42 +557,60 @@ Gestures: attach your own listeners to the shadow root — the contract has no p
 
 ### Vinyl Deck (reference visualizer)
 
-`src-tauri/plugins/vinyl-deck/` — the worked example of a rich visual living entirely in a plugin. **The host holds none of it**: there is no `vinyl-deck` view kind, no deck component, no geometry in `src/`.
+`outcast1000/viboplr-vinyl-deck` — the worked example of a rich visual living
+entirely outside the app. **The host holds none of it**: no view kind, no
+component, no geometry in `src/`. Read that repo's README before writing a
+visualizer; it carries the geometry rationale and a list of the non-obvious
+constraints (sandbox has no ambient DOM, measure the platter not the canvas, the
+stylus must be drawn at the arm's far end, rotating a concentric canvas is
+invisible).
 
-| | |
-|---|---|
-| `src/geometry.ts` | Band layout, radius↔position, tonearm angle, crop windows. Pure. |
-| `src/surface.ts` | Canvas painter (black/white alpha only). |
-| `src/style.ts` | Shadow-root CSS, all skin tokens. |
-| `src/visualizer.ts` | The `PluginVisualizer`. |
-| `src/index.ts` | `activate` — settings + `api.visualizers.onMount`. |
-| `src/*.test.ts` | 51 tests, run by the app's own `npm test`. |
-
-**Geometry is measured, not eyeballed.** `LP_MM` holds the real 12" LP dimensions (302mm disc, 292mm maximum recorded diameter, 100mm label) and every radius derives from them. The unplayable outer band is ~5mm — **3.3% of the radius**; a wider one reads as a black moat no record has. A real inter-track gap is ~1mm, i.e. ~1.2px on a 368px deck.
-
-Two floors keep that honest at real sizes, both mirroring `WaveformSeekBar`'s `MIN_BAR_WIDTH_PX` / `SegmentedSeekBar`'s `MIN_SEG_WIDTH`:
-- `MIN_GAP_PX` (2) — a true-proportion gap is sub-pixel on a small deck and would vanish, and the gap is what the surface exists to show.
-- `MAX_GAP_SHARE` (0.5) — the floor is per-gap, so a long queue would demand more total land than the program area has (a 60-track queue wants 118px of gap in a ~104px span) and the bands would run through the label. `layoutBands` shrinks the gap to fit instead, so the pressing always ends exactly on the run-out. **Read the painted gap via `gapAfter(bands, i)`, never `geo.gap`** — once shrunk, the band table is the only truthful source.
-
-**Unknown durations are tolerated**, because they're common (metadata-only plugin/streaming tracks): a queue with no usable durations presses even bands rather than collapsing.
-
-**Settings reach a running deck by shared mutable reference.** The host re-mounts only when a slot's *selection* changes, so `activate` hands the same live options object to every instance and mutates it in place; `frame` folds it into the same "does the expensive work need redoing?" check as `queueRevision`.
+What it exercises, and therefore what a new visualizer can rely on: the shadow
+root and skin-token inheritance, `useDesignSystem`, `onResize`, `onSkinChange`,
+`reducedMotion`, `queueRevision`, both `actions`, and settings reaching a running
+instance by shared mutable reference (the host re-mounts only when a slot's
+*selection* changes, so a settings change can never arrive as a new mount).
 
 ## Plugin build step
 
-A plugin is still **one file the host evaluates as a function body, using whatever it returns** — that contract is unchanged, and hand-written ES5 plugins keep working untouched. What's new is that a plugin may *generate* that file.
+A plugin is still **one file the host evaluates as a function body, using whatever
+it returns** — that contract is unchanged, and the hand-written ES5 plugins keep
+working untouched. What's new is that a plugin may *generate* that file.
 
-`src-tauri/plugins/vinyl-deck/vite.config.ts` is the pattern: vite lib mode, `formats: ["iife"]`, plus `output.footer: "return __viboplrPlugin;"`. The result is `var X = (function(exports){…})({}); return X;` — exactly what the loader wants. So the toolchain is **purely author-side**: no CSP work, no module resolution in the webview, no host change.
+The pattern, in `viboplr-vinyl-deck`: vite lib mode, `formats: ["iife"]`, plus
+`output.footer: "return __viboplrPlugin;"`. The result is
+`var X = (function(exports){…})({}); return X;` — exactly what the loader wants. So
+a toolchain is **purely author-side**: no CSP work, no module resolution inside the
+webview, and nothing in the host to change.
 
-- A plugin opts in by having a `vite.config.ts`; `scripts/build-plugins.mjs` finds it. Wired into `npm run build`, so `tauri build` (via `beforeBuildCommand`) always bundles.
-- **The built `index.js` is committed** — `tauri.conf.json` ships `plugins/` wholesale, so a missing bundle would ship a broken plugin. Rebuild after editing `src/` (`npm run build:plugins`).
-- Plugin sources are in the root `tsconfig.json` `include`, so one `tsc` type-checks them **against the host's real contract** via type-only imports of `src/types/pluginVisualizer.ts`. (A third-party plugin would consume the same file as a published types package.) This immediately caught three malformed view nodes that the hand-written ES5 version had shipped silently.
-- Tests live beside the source and run in the app's `npm test` — vitest already globs the directory.
+Two things that repo does which any bundled-to-source plugin should copy:
 
-**What the sandbox does and doesn't give you.** The loader passes a frozen stand-in for `window`/`globalThis`/`self` and **`document: undefined`**. So a visualizer cannot use ambient DOM, and this is not incidental:
+- **Assert the bundle's shape after building.** A footer that silently stops being
+  emitted produces a plugin that loads and exports nothing — it doesn't error, it
+  just does nothing. `scripts/finish-build.mjs` checks for the trailing `return`
+  and for `exports.activate` before moving the artifact into place.
+- **Fail CI when the committed `index.js` doesn't match a fresh build.** The
+  gallery installs from a release zip, so a stale committed bundle means users run
+  code that doesn't correspond to the source.
+
+**What the sandbox does and doesn't give you.** The loader passes a frozen stand-in
+for `window`/`globalThis`/`self` and **`document: undefined`**. So a visualizer
+cannot use ambient DOM, and this is not incidental:
+
 - Get the document from the contract — `host.root.ownerDocument`.
-- There is no ambient `window`, so **window-level drag listeners are impossible**. Use `setPointerCapture` on your own element with `pointermove`/`pointerup`; it's the better primitive anyway (the drag survives leaving the element and can't be stolen). Pointer events, not HTML5 DnD, which is banned in this webview.
-- `setTimeout`/`setInterval`, `console`, `Math`, `JSON`, `Date`, `Promise` and the core constructors are available; almost nothing else is.
+- There is no ambient `window`, so **window-level drag listeners are impossible**.
+  Use `setPointerCapture` on your own element with `pointermove`/`pointerup`; it's
+  the better primitive anyway (the drag survives leaving the element and can't be
+  stolen). Pointer events, not HTML5 DnD, which is banned in this webview.
+- `setTimeout`/`setInterval`, `console`, `Math`, `JSON`, `Date`, `Promise` and the
+  core constructors are available; almost nothing else is.
+
+**Host types.** There is no published types package. An external plugin vendors
+what it needs: copy the visualizer contract verbatim and re-sync it with a script
+(never hand-patch a vendored copy — it drifts silently and nothing fails until a
+user sees it misbehave), and hand-write a *subset* of the API surface for the calls
+you actually make. Typing the view nodes you emit is worth it: it caught three
+malformed ones the deck had shipped as hand-written JS.
 
 ### Toggle Control Note
 
