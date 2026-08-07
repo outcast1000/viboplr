@@ -134,6 +134,8 @@ export interface VisualizerSlotProps {
   currentArtUrl?: string | null;
   onSeek: (secs: number) => void;
   onPlayQueueIndex: (index: number) => void;
+  /** Start/stop playback — see `PluginVisualizerActions.setPlaying`. */
+  onSetPlaying: (playing: boolean) => void;
   className?: string;
 }
 
@@ -156,6 +158,7 @@ export function VisualizerSlot({
   currentArtUrl,
   onSeek,
   onPlayQueueIndex,
+  onSetPlaying,
   className,
 }: VisualizerSlotProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -166,8 +169,8 @@ export function VisualizerSlot({
   const liveRef = useRef({ queue, currentIndex, playing, durationSecs, currentArtUrl });
   liveRef.current = { queue, currentIndex, playing, durationSecs, currentArtUrl };
 
-  const actionsRef = useRef({ onSeek, onPlayQueueIndex });
-  actionsRef.current = { onSeek, onPlayQueueIndex };
+  const actionsRef = useRef({ onSeek, onPlayQueueIndex, onSetPlaying });
+  actionsRef.current = { onSeek, onPlayQueueIndex, onSetPlaying };
 
   /**
    * `queueRevision` lets a visualizer decide in O(1) whether to redo per-queue
@@ -273,6 +276,7 @@ export function VisualizerSlot({
       actions: {
         seek: (secs) => actionsRef.current.onSeek(secs),
         playQueueIndex: (index) => actionsRef.current.onPlayQueueIndex(index),
+        setPlaying: (playing) => actionsRef.current.onSetPlaying(playing),
       },
     };
 

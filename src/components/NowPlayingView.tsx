@@ -25,8 +25,19 @@ interface NowPlayingViewProps {
       the art column's place — a vinyl deck or a meter belongs where the static
       square was. App owns the plugin plumbing; this view just gives it room. */
   visualizerSlot?: ReactNode;
-  /** Right-click on the art column to pick a visualizer (native menu). */
-  onVisualizerMenu?: (x: number, y: number) => void;
+  /** Open the view's native menu (visualizer picker, lyrics, fullscreen).
+      Reached from the ⋯ button and from a right-click anywhere in the view. */
+  onOpenMenu?: (x: number, y: number) => void;
+  /** Enter the fullscreen visualizer. Absent when nothing can fill that slot,
+      which is also what hides the button — the same gate the menu item uses.
+      Mirrors the video theater's own fullscreen button (VideoAmbientOverlay):
+      the two are the same view in the same state, so the affordance shouldn't
+      be a visible button for one and a buried menu item for the other. */
+  onEnterFullscreen?: () => void;
+  /** The user collapsed the lyrics column. Independent of whether this track
+      has lyrics at all — both end up hiding the column, and both hand the
+      freed width to whatever is in the art column. */
+  lyricsHidden?: boolean;
 }
 
 /** Centered, lean-back lyrics display. Synced (karaoke) when LRC timing is
@@ -192,7 +203,9 @@ export function NowPlayingView({
   getArtistImage,
   onSeek,
   visualizerSlot,
-  onVisualizerMenu,
+  onOpenMenu,
+  onEnterFullscreen,
+  lyricsHidden,
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
 
@@ -268,11 +281,59 @@ export function NowPlayingView({
   // with an up-next peek on the side.
   const hasArt = !!albumImageSrc;
   const hasLyrics = lyrics.status === "loaded" && !!lyrics.data;
+  // One flag drives the layout: "no lyrics on screen", whether because the
+  // track has none or because the user collapsed them. The art column — and so
+  // a visualizer sitting in it — takes the whole stage either way.
+  const showLyrics = hasLyrics && !lyricsHidden;
   return (
     <div
-      className={`now-playing-view np-audio${hasArt ? "" : " np-audio--noart"}${hasLyrics ? "" : " np-audio--nolyrics"}`}
+      className={`now-playing-view np-audio${hasArt ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
       style={style}
+      onContextMenu={
+        onOpenMenu
+          ? (e) => { e.preventDefault(); onOpenMenu(e.clientX, e.clientY); }
+          : undefined
+      }
     >
+      {(onEnterFullscreen || onOpenMenu) && (
+        <div className="np-actions">
+          {/* Same icon and placement as the video theater's fullscreen button,
+              so the control doesn't move or change shape when the queue turns
+              up a video. */}
+          {onEnterFullscreen && (
+            <button
+              className="np-action-btn"
+              onClick={onEnterFullscreen}
+              title="Enter fullscreen"
+              aria-label="Enter fullscreen"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="15 3 21 3 21 9" />
+                <polyline points="9 21 3 21 3 15" />
+                <line x1="21" y1="3" x2="14" y2="10" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            </button>
+          )}
+          {onOpenMenu && (
+            <button
+              className="np-action-btn"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                onOpenMenu(r.left, r.bottom);
+              }}
+              title="View options"
+              aria-label="View options"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="12" r="1.8" />
+                <circle cx="12" cy="12" r="1.8" />
+                <circle cx="19" cy="12" r="1.8" />
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
       {hasArt && (
         <Crossfade
           src={albumImageSrc}
@@ -283,14 +344,7 @@ export function NowPlayingView({
         />
       )}
       <div className="np-stage">
-        <div
-          className={"np-art-col" + (visualizerSlot ? " np-art-col--visualizer" : "")}
-          onContextMenu={
-            onVisualizerMenu
-              ? (e) => { e.preventDefault(); onVisualizerMenu(e.clientX, e.clientY); }
-              : undefined
-          }
-        >
+        <div className={"np-art-col" + (visualizerSlot ? " np-art-col--visualizer" : "")}>
           {visualizerSlot ? (
             visualizerSlot
           ) : hasArt ? (
@@ -305,13 +359,18 @@ export function NowPlayingView({
             </div>
           )}
         </div>
-        <div className="np-lyrics-col">
-          {lyrics.status === "loaded" && lyrics.data ? (
-            <NowPlayingLyrics key={track.key} data={lyrics.data} onSeek={onSeek} />
-          ) : lyrics.status === "loading" ? (
-            <div className="np-lyrics-hint" aria-hidden="true" />
-          ) : null}
-        </div>
+        {/* Unmounted, not just hidden, when collapsed — the synced panel runs a
+            position-driven auto-scroll, and leaving that ticking behind
+            `display: none` would burn frames on something nobody can see. */}
+        {!lyricsHidden && (
+          <div className="np-lyrics-col">
+            {lyrics.status === "loaded" && lyrics.data ? (
+              <NowPlayingLyrics key={track.key} data={lyrics.data} onSeek={onSeek} />
+            ) : lyrics.status === "loading" ? (
+              <div className="np-lyrics-hint" aria-hidden="true" />
+            ) : null}
+          </div>
+        )}
       </div>
       {metaLine}
       {trackTags.length > 0 && (

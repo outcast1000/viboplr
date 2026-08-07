@@ -57,6 +57,19 @@ interface FullscreenControlsProps {
   onToggleSubtitles: () => void;
   onNavigateToArtistByName: (name: string) => void;
   onNavigateToAlbumByName: (name: string, artistName?: string | null) => void;
+  /**
+   * Treat this as a live fullscreen presentation even though there is no DOM
+   * `:fullscreen` element.
+   *
+   * Two surfaces need it, both of which use WINDOW fullscreen: the audio /
+   * visualizer overlay (see AudioFullscreen) and **native mpv video**
+   * (`.video-container--native-fs`). In both, `document.fullscreenElement` is
+   * null, so the idle auto-hide and the cursor-hiding — both gated on it — never
+   * arm and the controls sit permanently over the picture. Only the browser
+   * engine's video fullscreen is a real DOM `:fullscreen`, which is detected
+   * without help.
+   */
+  active?: boolean;
 }
 
 const IDLE_TIMEOUT = 3000;
@@ -73,12 +86,16 @@ export function FullscreenControls({
   onSeek, onVolume, onMute, onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
+  active = false,
 }: FullscreenControlsProps) {
   // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
   // only this overlay.
   const positionSecs = usePlaybackPosition();
   const [visible, setVisible] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [domFullscreen, setDomFullscreen] = useState(false);
+  // Either kind of fullscreen counts: the video path uses a DOM :fullscreen
+  // element, the audio path uses window fullscreen + a pinned overlay.
+  const isFullscreen = active || domFullscreen;
   const timerRef = useRef<number>(0);
   const draggingRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -92,7 +109,7 @@ export function FullscreenControls({
   useEffect(() => {
     const onChange = () => {
       const fs = !!document.fullscreenElement;
-      setIsFullscreen(fs);
+      setDomFullscreen(fs);
       if (!fs) {
         clearTimeout(timerRef.current);
         setVisible(true);
@@ -186,8 +203,9 @@ export function FullscreenControls({
         }}
         onMouseLeave={() => setSeekHover(null)}
       >
-        {/* Fullscreen is always video, so the storyboard branch is the usual one here
-            — the flat fill below only survives for boards that never resolved. */}
+        {/* Video fullscreen usually has a storyboard; audio fullscreen never does
+            and falls to the waveform. The flat fill is the last resort — a video
+            whose board never resolved, or audio with no cached waveform. */}
         {storyboard && durationSecs > 0 ? (
           <FilmstripSeekBar
             board={storyboard}
@@ -370,7 +388,7 @@ export function FullscreenControls({
           <button
             className="g-btn g-btn-sm"
             onClick={onToggleFullscreen}
-            title="Exit fullscreen (F)"
+            title="Exit fullscreen"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="4 14 10 14 10 20" />

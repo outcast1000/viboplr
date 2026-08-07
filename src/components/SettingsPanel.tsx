@@ -1641,7 +1641,7 @@ export function SettingsPanel({
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Now Playing visualizer</span>
-                        <span className="settings-description">Replace the artwork in the Now Playing view with a plugin visual, such as the Vinyl Deck. Also reachable by right-clicking the artwork.{nowPlayingVisualizers.length === 0 ? " Install and enable a visualizer plugin from Extensions to use this." : ""}</span>
+                        <span className="settings-description">Replace the artwork in the Now Playing view with a plugin visual, such as the Vinyl Deck. It grows to fill the view when lyrics are off, and Cmd/Ctrl+F puts it fullscreen. Also reachable from the ⋯ button in the Now Playing view.{nowPlayingVisualizers.length === 0 ? " Install and enable a visualizer plugin from Extensions to use this." : ""}</span>
                       </div>
                       <select
                         className="ds-select"

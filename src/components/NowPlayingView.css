@@ -335,9 +335,13 @@
   text-overflow: ellipsis;
 }
 
-/* When there are no lyrics, center the art alone (no two-column split). */
+/* When there are no lyrics, center the art alone (no two-column split). The
+   1100px stage cap exists to stop art and lyrics drifting apart on a wide
+   screen; with nothing to hold together it would only crop a visualizer that
+   just earned the extra width. */
 .np-audio--nolyrics .np-stage {
   gap: 0;
+  max-width: none;
 }
 .np-audio--nolyrics .np-lyrics-col {
   display: none;
@@ -367,6 +371,7 @@
   align-items: center;
   justify-content: center;
 }
+
 /* The art column is `flex: 0 0 auto` and takes its width from its content —
    `.np-art` carries an explicit size. So the slot needs one too: a percentage
    here would resolve against a content-sized parent and collapse to zero,
@@ -377,15 +382,84 @@
    by a share of the width so the lyrics column still gets its half, and by an
    absolute ceiling so it stops short of absurd on a huge display. The deck
    re-presses and repaints itself on resize, and a bigger disc also makes the
-   per-track bands and their gaps far easier to read. */
-.np-art-col--visualizer .visualizer-slot {
-  width: min(66vh, 40vw, 720px);
-  height: min(66vh, 40vw, 720px);
+   per-track bands and their gaps far easier to read.
+
+   The size goes through a custom property rather than being set on the slot in
+   each case. With four combinations (lyrics on/off × wide/narrow) written as
+   plain rules, the two-class `--nolyrics` selectors would out-specify the
+   narrow-window overrides and win inside the media query — silently handing a
+   small window the large size. One property, resolved per case, can't.
+
+   The height term subtracts a fixed px budget rather than taking a fraction of
+   `vh`. `vh` is the whole window, but the stage only gets what the caption bar,
+   the now-playing bar, this view's padding and the title block leave behind
+   (~300px together). A plain `80vh` overshoots that on a 900px-tall window and
+   the view's `overflow: hidden` silently crops the visual — which for a record
+   means slicing off the outer bands. */
+.np-art-col--visualizer {
+  --np-vis-chrome: 300px;
+  --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 40vw, 720px);
+}
+/* No lyrics on screen (none for this track, or the user collapsed them): drop
+   the width cap that was reserving half the stage for them. On a short, wide
+   window the height is already the binding constraint, so this mostly buys a
+   centred, uncluttered stage; on a tall or narrow one — or with the queue panel
+   open wide — it is a real size increase. */
+.np-audio--nolyrics .np-art-col--visualizer {
+  --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 88vw, 1040px);
 }
 /* Narrow windows: the stage stacks, so let it use the width instead. */
 @media (max-width: 1100px) {
-  .np-art-col--visualizer .visualizer-slot {
-    width: min(52vh, 62vw, 520px);
-    height: min(52vh, 62vw, 520px);
+  .np-art-col--visualizer {
+    --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 62vw, 520px);
   }
+  .np-audio--nolyrics .np-art-col--visualizer {
+    --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 92vw, 720px);
+  }
+}
+.np-art-col--visualizer .visualizer-slot {
+  width: var(--np-vis-size);
+  height: var(--np-vis-size);
+}
+
+/* ── View actions (fullscreen, ⋯) ─────────────── */
+/* Top-right, matching where the video theater puts its own controls
+   (VideoAmbientOverlay) — the same view in the same corner, so the control set
+   doesn't jump when the queue turns up a video.
+   The ⋯ is the discoverable way into the visualizer picker and the lyrics
+   toggle: right-clicking the view opens the same menu, but a right-click nobody
+   can see is not an affordance. Dim at rest so they stay out of a lean-back
+   view, legible the moment the pointer is anywhere in it. */
+.np-actions {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.np-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ds-radius);
+  background: transparent;
+  color: var(--np-text-secondary);
+  opacity: 0.4;
+  cursor: pointer;
+  transition: opacity 0.2s ease, background 0.15s ease, color 0.15s ease;
+}
+.now-playing-view:hover .np-action-btn {
+  opacity: 0.85;
+}
+.np-action-btn:hover,
+.np-action-btn:focus-visible {
+  opacity: 1;
+  background: var(--bg-hover);
+  color: var(--np-text-primary);
 }

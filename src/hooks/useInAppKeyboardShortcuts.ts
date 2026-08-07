@@ -34,6 +34,11 @@ export interface KeyboardShortcutDeps {
   handleNext: () => void;
   handleToggleQueueCollapsed: () => void;
   handleToggleSidebar: () => void;
+  // Fullscreen for a non-video track. Video keeps its own path (it owns the
+  // <video> element); these two are the only branches, so the key always does
+  // something whenever anything is playing.
+  canAudioFullscreen: boolean;
+  toggleAudioFullscreen: () => void;
   // Interface zoom: +1 larger, -1 smaller (acts on mini player or full window).
   adjustZoom: (dir: 1 | -1) => void;
   // Mini-player quick search.
@@ -172,6 +177,11 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
           if (d.currentTrack && isVideoTrack(d.currentTrack)) {
             e.preventDefault();
             playback.toggleFullscreen();
+          } else if (d.canAudioFullscreen) {
+            // Audio: same key, same intent, different surface — the visualizer
+            // if one is selected, otherwise the album art.
+            e.preventDefault();
+            d.toggleAudioFullscreen();
           }
           break;
         case "l":

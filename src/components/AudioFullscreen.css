@@ -1,0 +1,56 @@
+/* Fullscreen presentation for a non-video track (visualizer or album art).
+ *
+ * Pinned rather than DOM-fullscreen — see AudioFullscreen.tsx for why.
+ * z-index matches .video-container--native-fs (999) so the two fullscreen
+ * surfaces sit at the same layer, still below modals (1000/1200) and toasts
+ * (9000): a dialog raised while this is up must not be trapped underneath. */
+.audio-fs {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+/* Square and centred, sized off the short edge so a wide display doesn't crop a
+   round visual, and held back from the full edge so it clears the control bar
+   rather than running under it. The deck re-presses and repaints on resize, so
+   it adapts to whatever this resolves to. */
+.audio-fs-stage {
+  width: min(88vh, 88vw);
+  height: min(88vh, 88vw);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Album art (no visualizer selected): fill the stage, keep it square. */
+.audio-fs-art {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: var(--ds-radius-card);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+}
+
+.audio-fs-art--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--ds-radius-card);
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+}
+
+/* .fs-controls is `display: none` until a :fullscreen ancestor shows it (see
+   TrackDetailView.css). This container is fullscreen by window, not by DOM, so
+   it has to opt the bar in itself — otherwise the shared controls would render
+   and stay invisible. */
+.audio-fs .fs-controls {
+  display: block;
+}

@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { exit } from "@tauri-apps/plugin-process";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
-import { subscribe, combineUnlisten } from "./utils/tauriEvents";
+import { subscribe, combineUnlisten, safeUnlisten } from "./utils/tauriEvents";
 import "./base.css";
 import "./design-system.css";
 import "./App.css";
@@ -125,13 +125,16 @@ import {
 import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { VisualizerSlot } from "./components/VisualizerSlot";
+import { AudioFullscreen } from "./components/AudioFullscreen";
+import { TrackArtFallback } from "./components/TrackArtFallback";
 import {
-  buildVisualizerMenuSpecs,
   candidatesFor,
+  resolveFullscreenSlot,
   resolveSlot,
   visualizerKey,
   type VisualizerSlotSelection,
 } from "./utils/visualizerSlots";
+import { buildNowPlayingMenuSpecs } from "./contextMenu/buildNowPlayingMenuSpecs";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
@@ -379,6 +382,21 @@ function App() {
     store.set("visualizerSlots", visualizerSlots);
   }, [visualizerSlots]);
 
+  // The user collapsed the Now Playing lyrics column. Persisted because it is a
+  // standing preference about how that view is laid out ("I want the visual, not
+  // the words"), not a per-track state — re-deciding it every launch would be
+  // the annoying half of a toggle.
+  const [nowPlayingLyricsHidden, setNowPlayingLyricsHidden] = useState(false);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("nowPlayingLyricsHidden", nowPlayingLyricsHidden);
+  }, [nowPlayingLyricsHidden]);
+
+  // Fullscreen visualizer. Transient by design — landing back in fullscreen on
+  // launch with no way to have anticipated it would be hostile.
+  const [audioFullscreen, setAudioFullscreen] = useState(false);
+
   // Persist the Now Playing info selection (guarded so startup defaults don't
   // overwrite saved state). Mirrors the homeShelfVisibility persistence.
   useEffect(() => {
@@ -580,19 +598,73 @@ function App() {
   // instead of breaking the view.
   const nowPlayingVisualizer = resolveSlot(plugins.visualizers, visualizerSlots, "nowplaying");
 
+  // The `fullscreen` slot inherits the Now Playing pick unless one was chosen
+  // for it explicitly — see resolveFullscreenSlot.
+  const fullscreenVisualizer = resolveFullscreenSlot(plugins.visualizers, visualizerSlots);
 
-  const openVisualizerMenu = useCallback(
-    (placement: "nowplaying", x: number, y: number) => {
-      showNativeMenu(
-        x,
-        y,
-        buildVisualizerMenuSpecs(plugins.visualizers, visualizerSlots, placement, (key) => {
-          setVisualizerSlots((prev) => ({ ...prev, [placement]: key }));
-        }),
+  // Anything playing can go fullscreen. A visualizer is only what *fills* the
+  // screen when one is selected — without it the album art does, the same way
+  // the Now Playing view already falls back. Gating fullscreen on having a
+  // visualizer made the feature come and go with a plugin setting.
+  //
+  // Video is excluded here only because it has its own path (the video container
+  // / native mpv layer, which owns the element and must not have it moved); both
+  // answering the same key would be a bug. From the user's side there is one
+  // fullscreen, and the control bar inside it is literally the same component.
+  const canAudioFullscreen =
+    !!playback.currentTrack && !isVideoTrack(playback.currentTrack);
+
+  // Kept out of a functional setState updater on purpose: updaters must be pure
+  // (React may run one twice), and this one moves the OS window.
+  const toggleAudioFullscreen = useCallback(() => {
+    const next = !audioFullscreen;
+    if (next && !canAudioFullscreen) return;
+    setAudioFullscreen(next);
+    getCurrentWindow()
+      .setFullscreen(next)
+      .catch((e) => console.error("Failed to set window fullscreen:", e));
+  }, [audioFullscreen, canAudioFullscreen]);
+
+  // Leave fullscreen the moment it stops being valid — the track changed to a
+  // video, the plugin was disabled, playback stopped. Otherwise the window stays
+  // fullscreen showing an empty overlay with no obvious way back.
+  useEffect(() => {
+    if (audioFullscreen && !canAudioFullscreen) toggleAudioFullscreen();
+  }, [audioFullscreen, canAudioFullscreen, toggleAudioFullscreen]);
+
+  // Reconcile against the window, because we are not the only thing that can
+  // end fullscreen. In macOS native fullscreen AppKit consumes Escape itself,
+  // so the capture-phase handler below never runs; the green button, Mission
+  // Control and Ctrl+Cmd+F don't involve the webview at all either. Without
+  // this the flag stays true over a now-windowed app — the overlay is stuck up,
+  // and the next toggle reads inverted and just turns it off. Observed, not
+  // theorised: entering worked, Escape left fullscreen with our state still
+  // true, and the following Cmd+F did nothing.
+  useEffect(() => {
+    if (!audioFullscreen) return;
+    let cancelled = false;
+    const w = getCurrentWindow();
+    // No fullscreen-changed event in the Tauri API; the transition always
+    // resizes, so onResized + a state read is the available signal.
+    const unlisten = w.onResized(() => {
+      w.isFullscreen()
+        .then((fs) => {
+          // Set the flag directly rather than toggling — the window has already
+          // left, so asking it to leave again would be wrong.
+          if (!cancelled && !fs) setAudioFullscreen(false);
+        })
+        .catch((e) => console.error("Failed to read window fullscreen state:", e));
+    });
+    return () => {
+      cancelled = true;
+      unlisten.then(safeUnlisten).catch((e) =>
+        console.error("Failed to stop watching window resize:", e),
       );
-    },
-    [plugins.visualizers, visualizerSlots],
-  );
+    };
+  }, [audioFullscreen]);
+
+  // (openNowPlayingMenu is defined further down, next to `nowPlayingLyrics` —
+  // the menu's "Show lyrics" item needs it and it is declared with the view.)
 
   // Tell plugins the queue moved. One coalesced signal — handlers read the new
   // state back via `api.playback.getQueue()` — so a plugin rendering the queue
@@ -853,6 +925,22 @@ function App() {
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [playback.nativeFullscreen]);
+
+  // Same for the fullscreen visualizer — window fullscreen, so there is no DOM
+  // :fullscreen state for the browser to unwind on Escape. Capture phase for the
+  // same reason: a focused list would otherwise swallow the key.
+  useEffect(() => {
+    if (!audioFullscreen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleAudioFullscreen();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [audioFullscreen, toggleAudioFullscreen]);
 
   // Centered, cancelable "Retrieve" modal for user-triggered image/info fetches
   // (preview → Apply). Automatic background image fetching is unaffected.
@@ -2148,6 +2236,9 @@ function App() {
         const savedVisualizerSlots = await store.get<VisualizerSlotSelection>("visualizerSlots");
         if (savedVisualizerSlots && typeof savedVisualizerSlots === "object") setVisualizerSlots(savedVisualizerSlots);
 
+        const savedLyricsHidden = await store.get<boolean>("nowPlayingLyricsHidden");
+        if (typeof savedLyricsHidden === "boolean") setNowPlayingLyricsHidden(savedLyricsHidden);
+
         const savedNowPlayingInfoTop = await store.get<Record<string, number>>("nowPlayingInfoPersistence");
         if (savedNowPlayingInfoTop && typeof savedNowPlayingInfoTop === "object") setNowPlayingInfoPersistence(savedNowPlayingInfoTop);
 
@@ -2751,6 +2842,8 @@ function App() {
     handleNext: () => handleNext(),
     handleToggleQueueCollapsed,
     handleToggleSidebar,
+    canAudioFullscreen,
+    toggleAudioFullscreen,
     adjustZoom,
     miniSearchOpen: miniSearch.isOpen,
     openMiniSearch: (initialChar) => miniSearch.open(initialChar),
@@ -3337,6 +3430,100 @@ function App() {
     const lines = parseLrc(nowPlayingLyrics.data.text);
     return syncedLyricsFitMedia(lines, t.duration_secs) ? lines : null;
   }, [playback.currentTrack, nowPlayingLyrics]);
+
+  // One prop set for the fullscreen control bar, rendered twice: once inside the
+  // video container and once inside the audio/visualizer overlay. Shared rather
+  // than duplicated because "the controls are consistent across fullscreens" is
+  // the requirement — two 40-prop call sites would drift the first time either
+  // was touched. Only `onToggleFullscreen` differs (each surface exits itself),
+  // so each call site overrides that one.
+  const fullscreenControlsProps = {
+    waveformPeaks,
+    storyboard,
+    currentTrack: playback.currentTrack,
+    playing: playback.playing,
+    durationSecs: playback.durationSecs,
+    scrobbled: playback.scrobbled,
+    volume: playback.volume,
+    muted: playback.muted,
+    queueMode: queueHook.queueMode,
+    autoContinueEnabled: autoContinue.enabled,
+    autoContinueSameFormat: autoContinue.sameFormat,
+    showAutoContinuePopover: autoContinue.showPopover,
+    autoContinueWeights: autoContinue.weights,
+    imagePath: playback.currentTrack?.image_url || null,
+    onPause: playback.handlePause,
+    onStop: playback.handleStop,
+    onNext: handleNext,
+    onPrevious: queueHook.playPrevious,
+    onSeek: playback.handleSeek,
+    onVolume: playback.handleVolume,
+    onMute: playback.toggleMute,
+    onToggleQueueMode: queueHook.toggleQueueMode,
+    onRandomize: queueHook.randomizeQueue,
+    queueLength: queueHook.queue.length,
+    onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
+    onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
+    onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
+    onAdjustAutoContinueWeight: autoContinue.adjustWeight,
+    onResetAutoContinueWeights: autoContinue.resetWeights,
+    onCloseAutoContinuePopover: () => autoContinue.setShowPopover(false),
+    onToggleLike: () => { if (playback.currentTrack) likeActions.handleToggleLike(playback.currentTrack); },
+    onToggleDislike: () => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); },
+    showQueue: !queueCollapsed,
+    onToggleQueue: handleToggleQueueCollapsed,
+    hasSubtitles: !!videoSyncedLyricLines,
+    subtitlesOn: videoSubtitlesOn,
+    onToggleSubtitles: handleToggleSubtitles,
+    onNavigateToArtistByName: library.navigateToArtistByName,
+    onNavigateToAlbumByName: (name: string, artistName?: string | null) =>
+      library.navigateToAlbumByName(name, artistName ?? undefined),
+  };
+
+  // `PluginVisualizerActions.setPlaying`. Idempotent: the visualizer states what
+  // it wants, and this compares against live state, so a request that already
+  // matches is a no-op rather than a toggle that inverts. `handlePause` is the
+  // app's play/pause toggle, hence the comparison instead of calling it blind.
+  const handleVisualizerSetPlaying = useCallback(
+    (playing: boolean) => {
+      if (playing === playback.playing) return;
+      playback.handlePause();
+    },
+    [playback.playing, playback.handlePause],
+  );
+
+  // The Now Playing view's native menu: the visualizer picker, the lyrics
+  // toggle, and the way into fullscreen. Reached from the view's ⋯ button and
+  // from a right-click anywhere in it. Lives here rather than with the other
+  // visualizer state because it reads `nowPlayingLyrics`, which is declared
+  // above with the view it belongs to.
+  const openNowPlayingMenu = useCallback(
+    (x: number, y: number) => {
+      showNativeMenu(
+        x,
+        y,
+        buildNowPlayingMenuSpecs({
+          visualizers: plugins.visualizers,
+          selection: visualizerSlots,
+          onPickVisualizer: (key) =>
+            setVisualizerSlots((prev) => ({ ...prev, nowplaying: key })),
+          hasLyrics: nowPlayingLyrics.status === "loaded" && !!nowPlayingLyrics.data,
+          lyricsHidden: nowPlayingLyricsHidden,
+          onToggleLyrics: () => setNowPlayingLyricsHidden((v) => !v),
+          onEnterFullscreen: canAudioFullscreen ? toggleAudioFullscreen : null,
+        }),
+      );
+    },
+    [
+      plugins.visualizers,
+      visualizerSlots,
+      nowPlayingLyrics.status,
+      nowPlayingLyrics.data,
+      nowPlayingLyricsHidden,
+      canAudioFullscreen,
+      toggleAudioFullscreen,
+    ],
+  );
   const detailViewState: DetailViewState = useMemo(() => ({
     currentTrack: playback.currentTrack,
     playing: playback.playing,
@@ -4140,9 +4327,15 @@ function App() {
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
               onSeek={playback.handleSeek}
-              onVisualizerMenu={(x, y) => openVisualizerMenu("nowplaying", x, y)}
+              onOpenMenu={openNowPlayingMenu}
+              onEnterFullscreen={canAudioFullscreen ? toggleAudioFullscreen : undefined}
+              lyricsHidden={nowPlayingLyricsHidden}
               visualizerSlot={
-                nowPlayingVisualizer ? (
+                // Dropped while the fullscreen slot is up. The overlay is opaque,
+                // so this instance is invisible — but it stays on screen as far
+                // as the slot's IntersectionObserver is concerned, and would keep
+                // painting a second copy of the same visualizer behind it.
+                nowPlayingVisualizer && !audioFullscreen ? (
                   <VisualizerSlot
                     placement="nowplaying"
                     selection={nowPlayingVisualizer}
@@ -4159,6 +4352,7 @@ function App() {
                       queueHook.setQueueIndex(index);
                       playback.handlePlay(t);
                     }}
+                    onSetPlaying={handleVisualizerSetPlaying}
                   />
                 ) : undefined
               }
@@ -4580,47 +4774,20 @@ function App() {
               </button>
             </div>
           )}
+          {/* The video fullscreen's control bar. The audio fullscreen renders the
+              same component from the same `fullscreenControlsProps`, which is what
+              makes the two surfaces identical rather than merely similar — see the
+              AudioFullscreen render near the app root. */}
+          {/* `active` is needed for the NATIVE (mpv) video fullscreen, which is
+              window fullscreen and so has no DOM `:fullscreen` element — the bar
+              is revealed by `.video-container--native-fs`, but the idle auto-hide
+              and cursor-hiding are gated on the flag, so without this they never
+              armed and the controls sat permanently over the video. The browser
+              engine's DOM fullscreen is detected on its own. */}
           <FullscreenControls
-            waveformPeaks={waveformPeaks}
-            storyboard={storyboard}
-            currentTrack={playback.currentTrack}
-            playing={playback.playing}
-            durationSecs={playback.durationSecs}
-            scrobbled={playback.scrobbled}
-            volume={playback.volume}
-            muted={playback.muted}
-            queueMode={queueHook.queueMode}
-            autoContinueEnabled={autoContinue.enabled}
-            autoContinueSameFormat={autoContinue.sameFormat}
-            showAutoContinuePopover={autoContinue.showPopover}
-            autoContinueWeights={autoContinue.weights}
-            imagePath={playback.currentTrack?.image_url || null}
-            onPause={playback.handlePause}
-            onStop={playback.handleStop}
-            onNext={handleNext}
-            onPrevious={queueHook.playPrevious}
-            onSeek={playback.handleSeek}
-            onVolume={playback.handleVolume}
-            onMute={playback.toggleMute}
-            onToggleQueueMode={queueHook.toggleQueueMode}
-            onRandomize={queueHook.randomizeQueue}
-            queueLength={queueHook.queue.length}
-            onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
-            onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
-            onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
-            onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-            onResetAutoContinueWeights={autoContinue.resetWeights}
-            onCloseAutoContinuePopover={() => autoContinue.setShowPopover(false)}
-            onToggleLike={() => playback.currentTrack && likeActions.handleToggleLike(playback.currentTrack)}
-            onToggleDislike={() => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); }}
+            {...fullscreenControlsProps}
             onToggleFullscreen={playback.toggleFullscreen}
-            showQueue={!queueCollapsed}
-            onToggleQueue={handleToggleQueueCollapsed}
-            hasSubtitles={!!videoSyncedLyricLines}
-            subtitlesOn={videoSubtitlesOn}
-            onToggleSubtitles={handleToggleSubtitles}
-            onNavigateToArtistByName={library.navigateToArtistByName}
-            onNavigateToAlbumByName={(name, artistName) => library.navigateToAlbumByName(name, artistName ?? undefined)}
+            active={playback.nativeFullscreen}
           />
           {videoTheater && playback.currentTrack && isVideoTrack(playback.currentTrack) && (
             <VideoAmbientOverlay
@@ -5233,6 +5400,54 @@ function App() {
           onApplyNow={retrieve.applyNow}
           onCancel={retrieve.cancel}
           onSetKeepOpen={retrieve.setKeepOpen}
+        />
+      )}
+
+      {/* Fullscreen for a non-video track. Mounted at the app root, not inside
+          the Now Playing view, so it survives a view switch underneath it and
+          pins over everything without inheriting the grid. The stage is the
+          visualizer when one is selected and the album art otherwise — the same
+          fallback the Now Playing view makes — so fullscreen is available for
+          anything playing, not only for users who installed a visualizer. */}
+      {audioFullscreen && (
+        <AudioFullscreen
+          stage={
+            fullscreenVisualizer ? (
+              <VisualizerSlot
+                placement="fullscreen"
+                selection={fullscreenVisualizer}
+                createVisualizer={plugins.createVisualizer}
+                queue={queueHook.queue}
+                currentIndex={queueHook.queueIndex}
+                playing={playback.playing}
+                durationSecs={playback.currentTrack?.duration_secs ?? null}
+                currentArtUrl={nowPlayingArtSrc}
+                onSeek={playback.handleSeek}
+                onPlayQueueIndex={(index) => {
+                  const t = queueHook.queue[index];
+                  if (!t) return;
+                  queueHook.setQueueIndex(index);
+                  playback.handlePlay(t);
+                }}
+                onSetPlaying={handleVisualizerSetPlaying}
+              />
+            ) : nowPlayingArtSrc ? (
+              <img className="audio-fs-art" src={nowPlayingArtSrc} alt="" />
+            ) : (
+              <div className="audio-fs-art audio-fs-art--placeholder">
+                {playback.currentTrack && (
+                  <TrackArtFallback track={playback.currentTrack} size={96} />
+                )}
+              </div>
+            )
+          }
+          controls={
+            <FullscreenControls
+              {...fullscreenControlsProps}
+              onToggleFullscreen={toggleAudioFullscreen}
+              active
+            />
+          }
         />
       )}
 

@@ -120,6 +120,23 @@ export interface PluginVisualizerActions {
   seek(positionSecs: number): void;
   /** Play the queue entry at `index`. Out-of-range is ignored by the host. */
   playQueueIndex(index: number): void;
+  /**
+   * Start or stop playback.
+   *
+   * A deliberate, narrow exception to "no transport" — added for the physical
+   * control a deck already draws: a cue lever whose raised state IS the paused
+   * state. Without it the lever can only lie, animating a lift while the music
+   * keeps playing.
+   *
+   * Idempotent by design: pass the state you want, not a toggle. A visualizer
+   * renders from a snapshot that may be a frame stale, and a toggle read against
+   * a stale snapshot inverts. The host compares against live state and does
+   * nothing when they already agree.
+   *
+   * This is still not general transport: there is no volume, no next/previous,
+   * no queue mutation. Those stay with the host.
+   */
+  setPlaying(playing: boolean): void;
 }
 
 /**

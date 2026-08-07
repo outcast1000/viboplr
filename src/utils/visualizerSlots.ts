@@ -56,6 +56,33 @@ export function resolveSlot(
 }
 
 /**
+ * Resolve the `fullscreen` slot, falling back to the Now Playing pick.
+ *
+ * Going fullscreen from the Now Playing view means "show me this, bigger" —
+ * so the slot inherits whatever is already on screen, provided that visualizer
+ * declares it can fill it. Treating fullscreen as a second, separately-chosen
+ * visualizer would leave the obvious gesture doing nothing until the user found
+ * a setting they had no reason to look for.
+ *
+ * An explicit `fullscreen` selection still wins, so the key keeps its meaning
+ * for a visualizer that is only worth showing at full size. Nothing sets it
+ * today — it is honoured, not offered.
+ */
+export function resolveFullscreenSlot(
+  visualizers: PluginVisualizerRegistration[],
+  selection: VisualizerSlotSelection,
+): string | null {
+  const explicit = resolveSlot(visualizers, selection, "fullscreen");
+  if (explicit) return explicit;
+  const nowPlaying = resolveSlot(visualizers, selection, "nowplaying");
+  if (!nowPlaying) return null;
+  const willing = candidatesFor(visualizers, "fullscreen").some(
+    (v) => visualizerKey(v) === nowPlaying,
+  );
+  return willing ? nowPlaying : null;
+}
+
+/**
  * Native menu for picking a slot's visualizer — a check list with an explicit
  * "None" at the top. Native, per the app-wide rule that every menu is an OS
  * menu; returns specs so the item set is assertable without a DOM.

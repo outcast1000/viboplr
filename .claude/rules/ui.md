@@ -279,6 +279,14 @@ interface PlaylistContext {
 
 **Audio tracks:** blurred album-art backdrop + foreground album art + centered lyrics. Image resolution uses the album→artist `useImageCache` chain (same as queue/bar).
 
+**View actions (top-right):** a dim row (`.np-actions`) that brightens on hover of the view, in the same corner the video theater puts its own controls so the set doesn't jump when the queue turns up a video.
+- **Fullscreen** — same icon and placement as `VideoAmbientOverlay`'s fullscreen button. Shown only when a visualizer can fill the `fullscreen` slot, the same gate the menu item uses. Video already had a visible button here; leaving the audio equivalent buried in a menu was the inconsistency this fixes.
+- **⋯** — opens the view's native menu; right-clicking anywhere in the view opens the same one. Items: **Visualizer** (submenu picker), **Fullscreen visualizer** (same gate), and a **Show lyrics** check. Built by the pure `contextMenu/buildNowPlayingMenuSpecs.ts`. This is the discoverable route to the visualizer picker — the older ones (an unhinted right-click, a select in Settings → Playback) left a freshly-installed visualizer plugin looking inert.
+
+**Lyrics collapse:** hiding lyrics — because the track has none, or because the user unchecked Show lyrics (persisted as `nowPlayingLyricsHidden`) — drops the lyrics column and hands the whole stage to the art column, so a **visualizer grows to fill the view** instead of staying square in half of it. The static artwork grows too, but modestly (it's a fixed-resolution image). The column is unmounted rather than hidden so its position-driven auto-scroll stops.
+
+**Fullscreen visualizer:** `VisualizerFullscreen.tsx`, an opaque full-window overlay at the app root hosting the `fullscreen` slot, which inherits the Now Playing pick (see `plugins.md` "Visualizers"). Window fullscreen, not DOM element fullscreen. Chrome is a title plus an exit button on the usual idle fade; **Escape** or **Cmd/Ctrl+F** exits. Audio only — video has its own fullscreen path.
+
 **Video tracks:** the shared `<video>` element is repositioned to fill the column (theater mode via `.video-container--theater` — no remount, mirrors fullscreen). The surround is the skin's `--video-bg` letterbox fill (black by default); nothing tints the picture — there is deliberately **no** ambient glow/vignette layer (it was removed: an `inset: 0` overlay lands on the video's own edges, not just the letterbox, and its color came from static artwork rather than live frames). A `VideoAmbientOverlay` paints auto-hiding layers over the full-bleed video without adding transport controls:
 - An "up next" chip (bottom-right, click to jump)
 - A title/artist intro (bottom-left, re-triggers on track change)

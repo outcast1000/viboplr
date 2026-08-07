@@ -5,6 +5,7 @@ import {
   parseVisualizerKey,
   candidatesFor,
   resolveSlot,
+  resolveFullscreenSlot,
   buildVisualizerMenuSpecs,
 } from "../utils/visualizerSlots";
 
@@ -91,6 +92,69 @@ describe("resolveSlot", () => {
     expect(resolveSlot(ALL, selection, "nowplaying")).toBe("meters:vu");
     expect(resolveSlot(ALL, selection, "sidebar")).toBe("vinyl-deck:deck");
     expect(resolveSlot(ALL, selection, "miniplayer")).toBeNull();
+  });
+});
+
+describe("resolveFullscreenSlot", () => {
+  // A visualizer willing to fill both slots, and one that only does nowplaying.
+  const both: PluginVisualizerRegistration = {
+    pluginId: "vinyl-deck",
+    id: "deck",
+    name: "Vinyl Deck",
+    placements: ["nowplaying", "fullscreen"],
+  };
+  const nowPlayingOnly: PluginVisualizerRegistration = {
+    pluginId: "meters",
+    id: "vu",
+    name: "VU Meters",
+    placements: ["nowplaying"],
+  };
+
+  it("inherits the Now Playing pick when that visualizer declares fullscreen", () => {
+    // The point of the fallback: F on the Now Playing view enlarges what's
+    // already on screen, with nothing to configure first.
+    expect(
+      resolveFullscreenSlot([both], { nowplaying: "vinyl-deck:deck" }),
+    ).toBe("vinyl-deck:deck");
+  });
+
+  it("does not inherit a visualizer that never offered to fill the slot", () => {
+    expect(resolveFullscreenSlot([nowPlayingOnly], { nowplaying: "meters:vu" })).toBeNull();
+  });
+
+  it("prefers an explicit fullscreen selection over the Now Playing one", () => {
+    const fsOnly: PluginVisualizerRegistration = {
+      pluginId: "lights",
+      id: "strobe",
+      name: "Strobe",
+      placements: ["fullscreen"],
+    };
+    expect(
+      resolveFullscreenSlot([both, fsOnly], {
+        nowplaying: "vinyl-deck:deck",
+        fullscreen: "lights:strobe",
+      }),
+    ).toBe("lights:strobe");
+  });
+
+  it("falls back when the explicit choice went stale rather than resolving to nothing", () => {
+    // Plugin uninstalled: the inherited pick is still perfectly usable, so
+    // fullscreen keeps working instead of silently doing nothing.
+    expect(
+      resolveFullscreenSlot([both], {
+        nowplaying: "vinyl-deck:deck",
+        fullscreen: "lights:strobe",
+      }),
+    ).toBe("vinyl-deck:deck");
+  });
+
+  it("is null with nothing selected anywhere", () => {
+    expect(resolveFullscreenSlot([both], {})).toBeNull();
+    expect(resolveFullscreenSlot([both], { nowplaying: null })).toBeNull();
+  });
+
+  it("is null when the Now Playing pick itself is stale", () => {
+    expect(resolveFullscreenSlot([nowPlayingOnly], { nowplaying: "vinyl-deck:deck" })).toBeNull();
   });
 });
 
