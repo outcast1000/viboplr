@@ -136,7 +136,32 @@ export interface VisualizerSlotProps {
   onPlayQueueIndex: (index: number) => void;
   /** Start/stop playback — see `PluginVisualizerActions.setPlaying`. */
   onSetPlaying: (playing: boolean) => void;
+  /** Current playback rate; 1 is normal. Surfaced in the frame state so a deck's
+   *  speed selector can show which speed is lit. */
+  rate?: number;
+  /** Set the playback rate — see `PluginVisualizerActions.setRate`. Clamped here
+   *  before it reaches the host. */
+  onSetRate?: (rate: number) => void;
   className?: string;
+}
+
+/** Slowest and fastest a visualizer may ask for. 78rpm on a 33 pressing is
+ *  2.34x, which is the fastest thing a deck can honestly want. */
+export const MIN_VISUALIZER_RATE = 0.25;
+export const MAX_VISUALIZER_RATE = 4;
+
+/**
+ * Clamp a rate a plugin asked for.
+ *
+ * Not a formality. Every other write in the contract is instantly visible and
+ * trivially undone; a rate is audible, subtle and sticky, so this is the first
+ * one that could really cost someone their music. A visualizer that asks for 0
+ * (silence that looks like a hang), a negative, or NaN gets 1 instead of a dead
+ * player.
+ */
+export function clampRate(rate: number): number {
+  if (!Number.isFinite(rate) || rate <= 0) return 1;
+  return Math.min(MAX_VISUALIZER_RATE, Math.max(MIN_VISUALIZER_RATE, rate));
 }
 
 /**
@@ -159,6 +184,8 @@ export function VisualizerSlot({
   onSeek,
   onPlayQueueIndex,
   onSetPlaying,
+  rate = 1,
+  onSetRate,
   className,
 }: VisualizerSlotProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -166,11 +193,11 @@ export function VisualizerSlot({
   // Live values the frame loop reads without re-subscribing. The loop runs
   // outside React's render cycle on purpose: a 60fps setState would re-render
   // the whole Now Playing view.
-  const liveRef = useRef({ queue, currentIndex, playing, durationSecs, currentArtUrl });
-  liveRef.current = { queue, currentIndex, playing, durationSecs, currentArtUrl };
+  const liveRef = useRef({ queue, currentIndex, playing, durationSecs, currentArtUrl, rate });
+  liveRef.current = { queue, currentIndex, playing, durationSecs, currentArtUrl, rate };
 
-  const actionsRef = useRef({ onSeek, onPlayQueueIndex, onSetPlaying });
-  actionsRef.current = { onSeek, onPlayQueueIndex, onSetPlaying };
+  const actionsRef = useRef({ onSeek, onPlayQueueIndex, onSetPlaying, onSetRate });
+  actionsRef.current = { onSeek, onPlayQueueIndex, onSetPlaying, onSetRate };
 
   /**
    * `queueRevision` lets a visualizer decide in O(1) whether to redo per-queue
@@ -277,6 +304,7 @@ export function VisualizerSlot({
         seek: (secs) => actionsRef.current.onSeek(secs),
         playQueueIndex: (index) => actionsRef.current.onPlayQueueIndex(index),
         setPlaying: (playing) => actionsRef.current.onSetPlaying(playing),
+        setRate: (r) => actionsRef.current.onSetRate?.(clampRate(r)),
       },
     };
 
@@ -365,6 +393,7 @@ export function VisualizerSlot({
         currentIndex: live.currentIndex,
         queueRevision: revisionRef.current,
         timeMs,
+        rate: live.rate,
       };
       try {
         visualizer.frame(state);

@@ -1052,6 +1052,8 @@ interface SettingsPanelProps {
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   preferVideoResolution: boolean;
   /** Visualizer candidates for the Now Playing slot + the current pick. */
+  playbackRate: number;
+  onPlaybackRateChange: (rate: number) => void;
   nowPlayingVisualizers: { key: string; name: string }[];
   nowPlayingVisualizer: string | null;
   onNowPlayingVisualizerChange: (key: string | null) => void;
@@ -1171,6 +1173,8 @@ export function SettingsPanel({
   trackVideoHistory,
   onTrackVideoHistoryChange,
   preferVideoResolution,
+  playbackRate,
+  onPlaybackRateChange,
   nowPlayingVisualizers,
   nowPlayingVisualizer,
   onNowPlayingVisualizerChange,
@@ -1637,6 +1641,33 @@ export function SettingsPanel({
                           className="settings-slider"
                         />
                         <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
+                      </div>
+                    </div>
+                    {/* The host-owned route back to normal speed. A visualizer can
+                        set the rate (the Vinyl Deck's 33/45 buttons do), so there
+                        has to be a way out that doesn't depend on the plugin still
+                        being installed. Rate also resets to 1× on every launch. */}
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Playback speed</span>
+                        <span className="settings-description">Plays everything faster or slower. Pitch follows the speed, the way a turntable does rather than the way a podcast app does — so this transposes the music, it doesn't just hurry it. Not remembered between launches.</span>
+                      </div>
+                      <div className="settings-row-control settings-row-slider">
+                        <select
+                          className="ds-select"
+                          value={String(playbackRate)}
+                          onChange={e => onPlaybackRateChange(parseFloat(e.target.value))}
+                        >
+                          <option value="1">Normal</option>
+                          <option value="1.35">45 on a 33 (1.35×)</option>
+                          <option value="2.34">78 on a 33 (2.34×)</option>
+                          <option value="0.74">33 on a 45 (0.74×)</option>
+                        </select>
+                        {playbackRate !== 1 && (
+                          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => onPlaybackRateChange(1)}>
+                            Reset
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="settings-row">

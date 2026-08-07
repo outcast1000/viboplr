@@ -120,6 +120,27 @@ export function crossfadeGainPair<T>(activeSlot: "A" | "B", gainA: T, gainB: T):
   return activeSlot === "A" ? { incoming: gainA, outgoing: gainB } : { incoming: gainB, outgoing: gainA };
 }
 
+/**
+ * Set a media element's playback rate the way a turntable behaves.
+ *
+ * `preservesPitch` defaults to TRUE, which time-stretches to hold the original
+ * pitch — right for a podcast, wrong for a deck. A turntable resamples: 45 on a
+ * 33 pressing plays faster AND higher, and that is the effect. The
+ * webkit-prefixed name is what older Safari / some WKWebView builds honour, so
+ * set both and let the unsupported one be ignored.
+ *
+ * Exported for the unit test — this is the one line that decides whether the
+ * feature is a deck or a speed-reader, and it is invisible in a screenshot.
+ */
+export function applyRateTo(el: HTMLMediaElement | null, rate: number): void {
+  if (!el) return;
+  type PitchPreserving = { preservesPitch?: boolean; webkitPreservesPitch?: boolean };
+  const p = el as HTMLMediaElement & PitchPreserving;
+  p.preservesPitch = false;
+  p.webkitPreservesPitch = false;
+  el.playbackRate = rate;
+}
+
 export function usePlayback(
   restoredRef: React.RefObject<boolean>,
   peekNextRef: React.RefObject<() => QueueTrack | null>,
@@ -150,6 +171,17 @@ export function usePlayback(
   const [volume, setVolume] = useState(1.0);
   const [muted, setMuted] = useState(false);
   const [activeSlot, setActiveSlot] = useState<"A" | "B">("A");
+  /**
+   * Playback rate, as a deck's speed selector rather than a tempo tool: pitch
+   * rides along with it on both engines (see `preservesPitch` below and mpv's
+   * `audio-pitch-correction`).
+   *
+   * NOT persisted, on purpose. A rate is audible but easy to forget you set, and
+   * one restored silently at 1.35x on a fresh launch reads as "my library got
+   * transposed" rather than "I left the deck on 45". Every start is 1x.
+   */
+  const [playbackRate, setPlaybackRate] = useState(1);
+
   const [eqEnabled, setEqEnabled] = useState(false);
   const [eqMode, setEqMode] = useState<EqMode>("advanced");
   const [eqPreset, setEqPreset] = useState<string>("flat");
@@ -391,6 +423,7 @@ export function usePlayback(
   // Brick-wall limiter on the master bus, engaged only while a simple-mode boost
   // is active. Prevents shelf boosts from clipping without dropping overall level.
   const limiterRef = useRef<DynamicsCompressorNode | null>(null);
+  const playbackRateRef = useRef(playbackRate);
   const eqEnabledRef = useRef(eqEnabled);
   const eqModeRef = useRef<EqMode>(eqMode);
   const eqGainsRef = useRef<number[]>(eqGains);
@@ -400,6 +433,7 @@ export function usePlayback(
   const rgModeRef = useRef(rgMode);
   const rgPreampDbRef = useRef(rgPreampDb);
   const rgPreventClipRef = useRef(rgPreventClip);
+  playbackRateRef.current = playbackRate;
   eqEnabledRef.current = eqEnabled;
   eqModeRef.current = eqMode;
   eqGainsRef.current = eqGains;
@@ -739,6 +773,27 @@ export function usePlayback(
     }).catch(console.error);
   }, [rgMode, rgPreampDb, rgPreventClip]);
 
+  /**
+   * Push the playback rate to whichever engine is rendering.
+   *
+   * BOTH audio elements, not just the active one: the idle element is what
+   * gapless/crossfade preloads into, and one left at 1.0 would snap back to
+   * normal speed at the track change. Same reason the mpv side applies to both
+   * decks. `applyRateTo` is reused by preloadNext for an element armed later.
+   *
+   * `preservesPitch = false` is the whole point. It defaults to TRUE, which
+   * time-stretches and holds the original pitch — right for a podcast, wrong for
+   * a deck. A turntable resamples, so 45 on a 33 pressing is faster and higher,
+   * and that is the effect. The webkit-prefixed name is still what older Safari
+   * and some WKWebView builds honour, so set both.
+   */
+  useEffect(() => {
+    for (const el of [audioRefA.current, audioRefB.current, videoRef.current]) {
+      applyRateTo(el, playbackRate);
+    }
+    nativeEngine.setSpeed(playbackRate).catch(console.error);
+  }, [playbackRate]);
+
   // Load video source once the element is available after render
   useEffect(() => {
     if (pendingSrcRef.current && currentTrack && isVideoTrack(currentTrack) && videoRef.current) {
@@ -925,6 +980,9 @@ export function usePlayback(
       inactiveEl.pause();
       inactiveEl.volume = effectiveVolume();
       inactiveEl.preload = "auto";
+      // Arm the preloaded element at the current rate too, or the gapless
+      // hand-off drops back to 1x exactly as the next track starts.
+      applyRateTo(inactiveEl, playbackRateRef.current);
       // Pre-apply RG to the inactive chain so the gapless/crossfade swap is already
       // normalized when this track becomes active.
       applyReplayGain(activeSlotRef.current === "A" ? "B" : "A", nextTrack);
@@ -1026,6 +1084,7 @@ export function usePlayback(
           isPreloading: nativePreloadingRef.current,
           isCrossfading: nativeFadingRef.current,
           prefetchRequested: prefetchRequestedRef.current,
+          rate: playbackRateRef.current,
         });
         if (actions.requestPrefetch) {
           logPlayback(`Prefetch: requesting auto-continue (native, ${(duration - payload.positionSecs).toFixed(1)}s remaining)`);
@@ -1926,6 +1985,7 @@ export function usePlayback(
         isPreloading: isPreloadingRef.current,
         isCrossfading: isCrossfadingRef.current,
         prefetchRequested: prefetchRequestedRef.current,
+        rate: playbackRateRef.current,
       });
       if (actions.requestPrefetch) {
         logPlayback(`Prefetch: requesting auto-continue (${(effectiveDuration - effectivePosition).toFixed(1)}s remaining)`);
@@ -2090,6 +2150,7 @@ export function usePlayback(
     icyTitle,
     playbackError, failedTrack, clearPlaybackError,
     loadingTrack,
+    playbackRate, setPlaybackRate,
     eqEnabled, setEqEnabled,
     eqMode, setEqMode,
     eqPreset, setEqPreset,

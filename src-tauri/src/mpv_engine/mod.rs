@@ -68,6 +68,10 @@ struct DspSettings {
     /// pushed from the frontend to match the active skin's `--bg-primary`. None =
     /// leave mpv's default (black).
     video_bg: Option<String>,
+    /// Playback rate. `Option` rather than `f64` because this struct derives
+    /// `Default` and `f64::default()` is 0.0 — a speed of zero is not "unset",
+    /// it's a stopped deck. None = never set, leave mpv's own default of 1.0.
+    speed: Option<f64>,
 }
 
 /// Live media-stream facts read off the active deck — what's actually being
@@ -128,6 +132,9 @@ impl EngineHandle {
         if let Some(ref bg) = dsp.video_bg {
             engine.apply_video_background(bg);
         }
+        if let Some(speed) = dsp.speed {
+            engine.apply_speed(speed)?;
+        }
         // Give the static-OpenSSL TLS stack a CA store (see set_tls_ca_file).
         // On failure we log and leave verification ON — https sources then
         // fail closed and fall back to the browser engine per-track.
@@ -159,6 +166,14 @@ impl EngineHandle {
         self.pending_dsp.lock().unwrap().rg = rg.clone();
         match self.get() {
             Some(engine) => engine.apply_replaygain(&rg),
+            None => Ok(()),
+        }
+    }
+
+    pub fn set_speed(&self, speed: f64) -> Result<(), String> {
+        self.pending_dsp.lock().unwrap().speed = Some(speed);
+        match self.get() {
+            Some(engine) => engine.apply_speed(speed),
             None => Ok(()),
         }
     }
@@ -364,6 +379,12 @@ impl Engine {
                 init.set_property("idle", "yes")?;
                 init.set_property("terminal", "no")?;
                 init.set_property("audio-client-name", "Viboplr")?;
+                // Let `speed` shift pitch as well as tempo. mpv defaults this to
+                // yes, which inserts scaletempo and holds the original pitch —
+                // correct for an audiobook, wrong for a deck. A turntable
+                // resamples: 45 on a 33 pressing plays faster AND higher, and
+                // that IS the effect. Harmless at the default speed of 1.0.
+                init.set_property("audio-pitch-correction", false)?;
                 // No magic yt-dlp fallback for unloadable URLs — the app's
                 // stream-resolver chain owns that, and the hook would spawn a
                 // yt-dlp subprocess on every failed load otherwise.
@@ -951,6 +972,25 @@ impl Engine {
                 log::warn!("mpv-engine: background-color failed: {e}");
             }
         }
+    }
+
+    /// Playback rate, applied to BOTH decks.
+    ///
+    /// Both, not just the active one: the idle deck is what gapless/crossfade
+    /// preloads the next track into, and a deck left at 1.0 would snap back to
+    /// normal speed the moment the track changed.
+    ///
+    /// Pitch rides along with tempo — see `audio-pitch-correction` at init. That
+    /// is the whole point: a turntable resamples, so 45 on a 33 pressing is
+    /// faster AND higher. mpv would otherwise time-stretch and hold the pitch,
+    /// which is a useful thing but a different one.
+    pub fn apply_speed(&self, speed: f64) -> Result<(), String> {
+        for deck in &self.decks {
+            deck.mpv
+                .set_property("speed", speed)
+                .map_err(|e| format!("mpv speed failed: {e}"))?;
+        }
+        Ok(())
     }
 
     pub fn apply_replaygain(&self, rg: &ReplayGainParams) -> Result<(), String> {

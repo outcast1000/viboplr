@@ -175,6 +175,12 @@ export const nativeEngine = {
   setReplayGain(params: { mode: string; preampDb: number; preventClip: boolean }): Promise<void> {
     return whenCapable(() => invoke("engine_set_replaygain", { params }));
   },
+  /** Playback rate; pitch rides along with it (see the engine's
+   *  `audio-pitch-correction`). Applied to both decks, so the next track in a
+   *  gapless run doesn't snap back to 1.0. */
+  setSpeed(speed: number): Promise<void> {
+    return whenCapable(() => invoke("engine_set_speed", { speed }));
+  },
   clearPreload(): Promise<void> {
     return whenCapable(() => invoke("engine_clear_preload"));
   },

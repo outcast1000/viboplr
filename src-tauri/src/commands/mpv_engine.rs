@@ -186,6 +186,16 @@ pub fn engine_set_eq(
     state.mpv_engine.set_eq(eq)
 }
 
+/// Playback rate. 1.0 is normal; the host clamps before it reaches here.
+#[tauri::command]
+pub fn engine_set_speed(
+    state: tauri::State<'_, super::AppState>,
+    speed: f64,
+) -> Result<(), String> {
+    // Cached on the handle when the engine isn't running; applied at creation.
+    state.mpv_engine.set_speed(speed)
+}
+
 #[tauri::command]
 pub fn engine_set_replaygain(
     state: tauri::State<'_, super::AppState>,

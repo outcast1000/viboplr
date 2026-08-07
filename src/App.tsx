@@ -4343,6 +4343,8 @@ function App() {
                       playback.handlePlay(t);
                     }}
                     onSetPlaying={handleVisualizerSetPlaying}
+                    rate={playback.playbackRate}
+                    onSetRate={playback.setPlaybackRate}
                   />
                 ) : undefined
               }
@@ -4565,6 +4567,8 @@ function App() {
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               preferVideoResolution={preferVideoResolution}
+              playbackRate={playback.playbackRate}
+              onPlaybackRateChange={playback.setPlaybackRate}
               nowPlayingVisualizers={candidatesFor(plugins.visualizers, "nowplaying").map(v => ({ key: visualizerKey(v), name: v.name }))}
               nowPlayingVisualizer={nowPlayingVisualizer}
               onNowPlayingVisualizerChange={(key) => setVisualizerSlots(prev => ({ ...prev, nowplaying: key }))}
@@ -5420,6 +5424,8 @@ function App() {
                   playback.handlePlay(t);
                 }}
                 onSetPlaying={handleVisualizerSetPlaying}
+                rate={playback.playbackRate}
+                onSetRate={playback.setPlaybackRate}
               />
             ) : nowPlayingArtSrc ? (
               <img className="audio-fs-art" src={nowPlayingArtSrc} alt="" />

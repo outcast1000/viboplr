@@ -20,6 +20,17 @@ export interface ProgressInputs {
   isPreloading: boolean;
   isCrossfading: boolean;
   prefetchRequested: boolean;
+  /**
+   * Playback rate. Defaults to 1 so every existing caller is unaffected.
+   *
+   * LOAD-BEARING, and easy to miss: every threshold in here is in TRACK seconds,
+   * but what they are really budgeting is WALL-CLOCK time — how long a preload or
+   * a crossfade needs to finish. Above 1x the track drains faster than the clock,
+   * so an unscaled 45s lead is only 33 real seconds at 1.35x and 19 at 2.34x.
+   * That silently eats the window the slow stream-resolver path (yt-dlp) was
+   * given, and the failure looks like a gap between tracks, not like a rate bug.
+   */
+  rate?: number;
 }
 
 export interface ProgressActions {
@@ -52,8 +63,12 @@ export function driveProgressMachine(i: ProgressInputs): ProgressActions {
   if (!(i.duration > 0 && i.duration - i.position > 0)) return NO_ACTIONS;
   const remaining = i.duration - i.position;
   const actions: ProgressActions = { ...NO_ACTIONS };
+  // Convert each wall-clock budget into the track seconds that will elapse
+  // during it. Guarded against a zero/absent rate so a bad value can't disable
+  // preloading outright.
+  const rate = i.rate && i.rate > 0 ? i.rate : 1;
 
-  if (remaining <= preloadLeadTime(i.next)) {
+  if (remaining <= preloadLeadTime(i.next) * rate) {
     // Queue exhausted → ask auto-continue to extend it (once per track).
     if (!i.prefetchRequested && !i.next) actions.requestPrefetch = true;
 
@@ -67,7 +82,7 @@ export function driveProgressMachine(i: ProgressInputs): ProgressActions {
   }
 
   if (
-    remaining <= i.crossfadeSecs &&
+    remaining <= i.crossfadeSecs * rate &&
     i.crossfadeSecs > 0 &&
     i.preloadReady &&
     !i.isCrossfading

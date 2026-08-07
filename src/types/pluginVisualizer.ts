@@ -106,6 +106,16 @@ export interface PluginVisualizerState {
    * `performance.now()` so a visualizer stays deterministic under test.
    */
   readonly timeMs: number;
+  /**
+   * Current playback rate; 1 is normal. Ships with `actions.setRate`, because a
+   * speed control that cannot show which speed is selected is a control that
+   * lies — the deck's 33/45 buttons need this to know which one is lit.
+   *
+   * Also the honest input for anything that animates at the music's pace: a
+   * platter drawn at a fixed 33 while the audio runs at 45 is a picture of the
+   * wrong deck.
+   */
+  readonly rate: number;
 }
 
 /**
@@ -137,6 +147,28 @@ export interface PluginVisualizerActions {
    * no queue mutation. Those stay with the host.
    */
   setPlaying(playing: boolean): void;
+  /**
+   * Set the playback rate. 1 is normal.
+   *
+   * Added for the other control a deck draws: the speed selector. Pitch rides
+   * along with tempo on both engines, because that is what a turntable does —
+   * this is "the deck is set to 45", not a tempo tool.
+   *
+   * A state, not a delta, for the same staleness reason as `setPlaying`.
+   *
+   * THE HOST CLAMPS IT, and the clamp is not a formality. Everything else a
+   * visualizer can write is instantly visible and trivially undone; a rate is
+   * audible, subtle and sticky, so an unclamped one is the first thing in this
+   * contract that could really cost you your music. The host also owns a way
+   * back to 1 that does not depend on the plugin (Settings → Playback, and a
+   * reset on every launch) — a visualizer must never be the only route out of a
+   * state it put you in.
+   *
+   * Read the CURRENT rate from `PluginVisualizerState.rate`. A speed selector
+   * that can't show which speed is lit is a control that lies, so the two ship
+   * together.
+   */
+  setRate(rate: number): void;
 }
 
 /**
