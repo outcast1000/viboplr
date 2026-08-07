@@ -463,3 +463,20 @@
   background: var(--bg-hover);
   color: var(--np-text-primary);
 }
+/* Toggle in its off state (lyrics hidden): dimmer than its siblings so the row
+   reads at a glance, but still fully lit under the cursor — hence the :not()
+   guards, which keep this from out-specifying the :hover rule above. */
+.now-playing-view:hover .np-action-btn.is-off:not(:hover):not(:focus-visible) {
+  opacity: 0.45;
+}
+/* Nothing to toggle (a track with no lyrics). Dimmer again, and no hover
+   affordance at all — a background highlight on a dead button invites a click. */
+.np-action-btn:disabled,
+.np-action-btn:disabled:hover {
+  cursor: default;
+  background: transparent;
+  color: var(--np-text-secondary);
+}
+.now-playing-view:hover .np-action-btn:disabled {
+  opacity: 0.22;
+}

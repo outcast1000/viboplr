@@ -128,13 +128,13 @@ import { VisualizerSlot } from "./components/VisualizerSlot";
 import { AudioFullscreen } from "./components/AudioFullscreen";
 import { TrackArtFallback } from "./components/TrackArtFallback";
 import {
+  buildVisualizerMenuSpecs,
   candidatesFor,
   resolveFullscreenSlot,
   resolveSlot,
   visualizerKey,
   type VisualizerSlotSelection,
 } from "./utils/visualizerSlots";
-import { buildNowPlayingMenuSpecs } from "./contextMenu/buildNowPlayingMenuSpecs";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
@@ -663,8 +663,29 @@ function App() {
     };
   }, [audioFullscreen]);
 
-  // (openNowPlayingMenu is defined further down, next to `nowPlayingLyrics` —
-  // the menu's "Show lyrics" item needs it and it is declared with the view.)
+  // The Now Playing view's visualizer picker, opened from the button that names
+  // it. This is all that's left of what used to be a whole view menu behind a ⋯:
+  // fullscreen and the lyrics toggle are their own buttons now, and a picker is
+  // the one item that genuinely is a list of choices — so it stays a native menu.
+  //
+  // It sits here with the rest of the visualizer state. It used to be declared
+  // far below, beside `nowPlayingLyrics`, purely because the old menu's "Show
+  // lyrics" item read it; nothing here does any more.
+  const openVisualizerPicker = useCallback(
+    (x: number, y: number) => {
+      showNativeMenu(
+        x,
+        y,
+        buildVisualizerMenuSpecs(
+          plugins.visualizers,
+          visualizerSlots,
+          "nowplaying",
+          (key) => setVisualizerSlots((prev) => ({ ...prev, nowplaying: key })),
+        ),
+      );
+    },
+    [plugins.visualizers, visualizerSlots],
+  );
 
   // Tell plugins the queue moved. One coalesced signal — handlers read the new
   // state back via `api.playback.getQueue()` — so a plugin rendering the queue
@@ -3492,38 +3513,6 @@ function App() {
     [playback.playing, playback.handlePause],
   );
 
-  // The Now Playing view's native menu: the visualizer picker, the lyrics
-  // toggle, and the way into fullscreen. Reached from the view's ⋯ button and
-  // from a right-click anywhere in it. Lives here rather than with the other
-  // visualizer state because it reads `nowPlayingLyrics`, which is declared
-  // above with the view it belongs to.
-  const openNowPlayingMenu = useCallback(
-    (x: number, y: number) => {
-      showNativeMenu(
-        x,
-        y,
-        buildNowPlayingMenuSpecs({
-          visualizers: plugins.visualizers,
-          selection: visualizerSlots,
-          onPickVisualizer: (key) =>
-            setVisualizerSlots((prev) => ({ ...prev, nowplaying: key })),
-          hasLyrics: nowPlayingLyrics.status === "loaded" && !!nowPlayingLyrics.data,
-          lyricsHidden: nowPlayingLyricsHidden,
-          onToggleLyrics: () => setNowPlayingLyricsHidden((v) => !v),
-          onEnterFullscreen: canAudioFullscreen ? toggleAudioFullscreen : null,
-        }),
-      );
-    },
-    [
-      plugins.visualizers,
-      visualizerSlots,
-      nowPlayingLyrics.status,
-      nowPlayingLyrics.data,
-      nowPlayingLyricsHidden,
-      canAudioFullscreen,
-      toggleAudioFullscreen,
-    ],
-  );
   const detailViewState: DetailViewState = useMemo(() => ({
     currentTrack: playback.currentTrack,
     playing: playback.playing,
@@ -4327,7 +4316,8 @@ function App() {
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
               onSeek={playback.handleSeek}
-              onOpenMenu={openNowPlayingMenu}
+              onOpenVisualizerPicker={openVisualizerPicker}
+              onToggleLyrics={() => setNowPlayingLyricsHidden((v) => !v)}
               onEnterFullscreen={canAudioFullscreen ? toggleAudioFullscreen : undefined}
               lyricsHidden={nowPlayingLyricsHidden}
               visualizerSlot={

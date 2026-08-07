@@ -7,6 +7,7 @@ import {
   resolveSlot,
   resolveFullscreenSlot,
   buildVisualizerMenuSpecs,
+  ARTWORK_VISUALIZER_NAME,
 } from "../utils/visualizerSlots";
 
 const deck: PluginVisualizerRegistration = {
@@ -159,12 +160,13 @@ describe("resolveFullscreenSlot", () => {
 });
 
 describe("buildVisualizerMenuSpecs", () => {
-  it("offers None plus every candidate, with the current one checked", () => {
+  it("lists Artwork as a peer of every candidate, with the current one checked", () => {
+    // Artwork is first but NOT fenced off behind a separator: an unselected slot
+    // renders the track's album/artist image, so it is a choice like the others.
     const onPick = vi.fn();
     const specs = buildVisualizerMenuSpecs(ALL, { nowplaying: "meters:vu" }, "nowplaying", onPick);
     expect(specs.map((s) => ("text" in s ? s.text : "---"))).toEqual([
-      "None",
-      "---",
+      "Artwork",
       "Vinyl Deck",
       "VU Meters",
     ]);
@@ -173,23 +175,34 @@ describe("buildVisualizerMenuSpecs", () => {
     expect(checked[0]).toMatchObject({ text: "VU Meters" });
   });
 
-  it("checks None when nothing is selected", () => {
-    const specs = buildVisualizerMenuSpecs(ALL, {}, "nowplaying", vi.fn());
-    expect(specs[0]).toMatchObject({ text: "None", checked: true });
+  it("never offers a bare 'None' — the old label for the artwork slot", () => {
+    // Guards the rename itself: "None" described the mechanism (no plugin) and
+    // misdescribed the result (the artwork is what's on screen).
+    const texts = buildVisualizerMenuSpecs(ALL, {}, "nowplaying", vi.fn()).map((s) =>
+      "text" in s ? s.text : "---",
+    );
+    expect(texts).not.toContain("None");
   });
 
-  it("checks None when the selection is stale, so the menu never lies", () => {
+  it("checks Artwork when nothing is selected", () => {
+    const specs = buildVisualizerMenuSpecs(ALL, {}, "nowplaying", vi.fn());
+    expect(specs[0]).toMatchObject({ text: ARTWORK_VISUALIZER_NAME, checked: true });
+  });
+
+  it("checks Artwork when the selection is stale, so the menu never lies", () => {
     const specs = buildVisualizerMenuSpecs(
       [meter],
       { nowplaying: "vinyl-deck:deck" },
       "nowplaying",
       vi.fn(),
     );
-    expect(specs[0]).toMatchObject({ text: "None", checked: true });
+    expect(specs[0]).toMatchObject({ text: ARTWORK_VISUALIZER_NAME, checked: true });
     expect(specs.filter((s) => s.kind === "check" && s.checked)).toHaveLength(1);
   });
 
-  it("fires the right key, and null for None", () => {
+  it("fires the right key, and null for Artwork", () => {
+    // Still null on the wire — the rename is presentation only, so no stored
+    // `visualizerSlots` needs migrating.
     const onPick = vi.fn();
     const specs = buildVisualizerMenuSpecs(ALL, {}, "nowplaying", onPick);
     (specs.find((s) => "text" in s && s.text === "Vinyl Deck") as { action: () => void }).action();
@@ -198,9 +211,24 @@ describe("buildVisualizerMenuSpecs", () => {
     expect(onPick).toHaveBeenLastCalledWith(null);
   });
 
-  it("shows a disabled explanation rather than a bare None when nothing can fill the slot", () => {
+  it("still offers Artwork, plus a hint, when nothing can fill the slot", () => {
+    // It used to return ONLY the disabled hint, so the picker couldn't say what
+    // was on screen. The hint stays (it's the one nudge toward Extensions) but
+    // now sits under a real, checked entry.
     const specs = buildVisualizerMenuSpecs(ALL, {}, "fullscreen", vi.fn());
-    expect(specs).toHaveLength(1);
-    expect(specs[0]).toMatchObject({ kind: "item", enabled: false });
+    expect(specs[0]).toMatchObject({
+      kind: "check",
+      text: ARTWORK_VISUALIZER_NAME,
+      checked: true,
+    });
+    expect(specs[specs.length - 1]).toMatchObject({ kind: "item", enabled: false });
+  });
+
+  it("picking Artwork works even with no plugin installed", () => {
+    // The disabled hint must not be the only actionable-looking row.
+    const onPick = vi.fn();
+    const specs = buildVisualizerMenuSpecs([], {}, "nowplaying", onPick);
+    (specs[0] as { action: () => void }).action();
+    expect(onPick).toHaveBeenCalledWith(null);
   });
 });

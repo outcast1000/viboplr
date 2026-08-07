@@ -83,9 +83,32 @@ export function resolveFullscreenSlot(
 }
 
 /**
- * Native menu for picking a slot's visualizer — a check list with an explicit
- * "None" at the top. Native, per the app-wide rule that every menu is an OS
- * menu; returns specs so the item set is assertable without a DOM.
+ * The built-in choice: fill the slot with the track's own artwork.
+ *
+ * This used to be presented as **"None"**, which described the mechanism and
+ * misdescribed the result — an unselected slot has never rendered nothing, it
+ * renders the image-provider chain's answer for the track (explicit `image_url`
+ * → album image → artist image → the letter placeholder). So "None" told the user
+ * their choice was an absence when it was in fact the default visual, and made a
+ * freshly-installed plugin look like the only thing on the list that *did*
+ * anything.
+ *
+ * It is still persisted as `null`, deliberately. Giving it a key would mean
+ * migrating every stored `visualizerSlots` and teaching `resolveSlot` /
+ * `VisualizerSlot` about a visualizer with no plugin and no factory behind it —
+ * all to store a different spelling of the same state. The rename is a
+ * presentation change, and stays one.
+ */
+export const ARTWORK_VISUALIZER_NAME = "Artwork";
+
+/**
+ * Native menu for picking a slot's visualizer — a check list of every option,
+ * artwork included. Native, per the app-wide rule that every menu is an OS menu;
+ * returns specs so the item set is assertable without a DOM.
+ *
+ * Artwork leads the list as a peer of the plugins rather than sitting above a
+ * separator, because it is one: picking it is a choice about what fills the slot,
+ * not a refusal to choose.
  */
 export function buildVisualizerMenuSpecs(
   visualizers: PluginVisualizerRegistration[],
@@ -96,16 +119,18 @@ export function buildVisualizerMenuSpecs(
   const candidates = candidatesFor(visualizers, placement);
   const current = resolveSlot(visualizers, selection, placement);
 
-  if (candidates.length === 0) {
-    return [
-      { kind: "item", text: "No visualizers installed", enabled: false, action: () => {} },
-    ];
-  }
-
+  // Checked whenever no plugin visualizer is live — which includes a *stale*
+  // selection (plugin disabled or uninstalled), since that is what the slot is
+  // actually showing. The list never names something that isn't on screen.
   const specs: MenuItemSpec[] = [
-    { kind: "check", text: "None", checked: current === null, action: () => onPick(null) },
-    { kind: "separator" },
+    {
+      kind: "check",
+      text: ARTWORK_VISUALIZER_NAME,
+      checked: current === null,
+      action: () => onPick(null),
+    },
   ];
+
   for (const v of candidates) {
     const key = visualizerKey(v);
     specs.push({
@@ -115,5 +140,21 @@ export function buildVisualizerMenuSpecs(
       action: () => onPick(key),
     });
   }
+
+  // Nothing installed: keep the hint that was the whole value of the old empty
+  // state, but below a real checked entry instead of replacing one. The picker
+  // previously showed *only* this line, so it couldn't say what was on screen.
+  if (candidates.length === 0) {
+    specs.push(
+      { kind: "separator" },
+      {
+        kind: "item",
+        text: "No visualizer plugins installed",
+        enabled: false,
+        action: () => {},
+      },
+    );
+  }
+
   return specs;
 }

@@ -11,6 +11,7 @@ import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
 import { trashLabel } from "../utils";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
+import { ARTWORK_VISUALIZER_NAME } from "../utils/visualizerSlots";
 import { store } from "../store";
 import { PromptModal } from "./PromptModal";
 import { HelpLink } from "./HelpLink";
@@ -1641,15 +1642,17 @@ export function SettingsPanel({
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Now Playing visualizer</span>
-                        <span className="settings-description">Replace the artwork in the Now Playing view with a plugin visual, such as the Vinyl Deck. It grows to fill the view when lyrics are off, and Cmd/Ctrl+F puts it fullscreen. Also reachable from the ⋯ button in the Now Playing view.{nowPlayingVisualizers.length === 0 ? " Install and enable a visualizer plugin from Extensions to use this." : ""}</span>
+                        <span className="settings-description">What fills the art column in the Now Playing view. {ARTWORK_VISUALIZER_NAME} is the track's own album or artist image; a plugin visual, such as the Vinyl Deck, replaces it. Whichever you pick grows to fill the view when lyrics are off, and Cmd/Ctrl+F puts it fullscreen. Also on the Now Playing view's own visualizer button.{nowPlayingVisualizers.length === 0 ? " Install and enable a visualizer plugin from Extensions for more options." : ""}</span>
                       </div>
+                      {/* Never disabled: {ARTWORK_VISUALIZER_NAME} is a real choice, so with no
+                          plugin installed this is a one-option select rather than
+                          a greyed-out control that hides what's on screen. */}
                       <select
                         className="ds-select"
                         value={nowPlayingVisualizer ?? ""}
-                        disabled={nowPlayingVisualizers.length === 0}
                         onChange={e => onNowPlayingVisualizerChange(e.target.value || null)}
                       >
-                        <option value="">None</option>
+                        <option value="">{ARTWORK_VISUALIZER_NAME}</option>
                         {nowPlayingVisualizers.map(v => (
                           <option key={v.key} value={v.key}>{v.name}</option>
                         ))}

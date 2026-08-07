@@ -25,11 +25,17 @@ interface NowPlayingViewProps {
       the art column's place — a vinyl deck or a meter belongs where the static
       square was. App owns the plugin plumbing; this view just gives it room. */
   visualizerSlot?: ReactNode;
-  /** Open the view's native menu (visualizer picker, lyrics, fullscreen).
-      Reached from the ⋯ button and from a right-click anywhere in the view. */
-  onOpenMenu?: (x: number, y: number) => void;
+  /** Open the visualizer picker, anchored under the Visualizer button.
+      Still a native menu (a list of choices is a menu, and the app-wide rule
+      admits no JS dropdowns) — it just hangs off a visible button now instead of
+      a ⋯ that gave no clue what was behind it. */
+  onOpenVisualizerPicker?: (x: number, y: number) => void;
+  /** Show/hide the lyrics column. The view gates the button on whether this
+      track has lyrics at all, so there is no `hasLyrics` prop to keep in step
+      with the one it already derives for the layout. */
+  onToggleLyrics?: () => void;
   /** Enter the fullscreen visualizer. Absent when nothing can fill that slot,
-      which is also what hides the button — the same gate the menu item uses.
+      which is also what hides the button.
       Mirrors the video theater's own fullscreen button (VideoAmbientOverlay):
       the two are the same view in the same state, so the affordance shouldn't
       be a visible button for one and a buried menu item for the other. */
@@ -203,7 +209,8 @@ export function NowPlayingView({
   getArtistImage,
   onSeek,
   visualizerSlot,
-  onOpenMenu,
+  onOpenVisualizerPicker,
+  onToggleLyrics,
   onEnterFullscreen,
   lyricsHidden,
 }: NowPlayingViewProps) {
@@ -289,17 +296,61 @@ export function NowPlayingView({
     <div
       className={`now-playing-view np-audio${hasArt ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
       style={style}
-      onContextMenu={
-        onOpenMenu
-          ? (e) => { e.preventDefault(); onOpenMenu(e.clientX, e.clientY); }
-          : undefined
-      }
     >
-      {(onEnterFullscreen || onOpenMenu) && (
+      {/* Every view action is a visible button. There is no ⋯ and no right-click
+          menu: the three things this view can do are now all on screen, so a
+          second, hidden route to the same three would be duplication rather than
+          convenience. The visualizer picker is still a native menu — it's a list
+          of choices — but it hangs off the button that describes it. */}
+      {(onOpenVisualizerPicker || onToggleLyrics || onEnterFullscreen) && (
         <div className="np-actions">
-          {/* Same icon and placement as the video theater's fullscreen button,
-              so the control doesn't move or change shape when the queue turns
-              up a video. */}
+          {onOpenVisualizerPicker && (
+            <button
+              className="np-action-btn"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                onOpenVisualizerPicker(r.left, r.bottom);
+              }}
+              title="Choose visualizer"
+              aria-label="Choose visualizer"
+            >
+              {/* A record, echoing the sidebar's Now Playing disc. Deliberately
+                  NOT equalizer bars: the now-playing bar already uses those for
+                  the actual EQ, and this picks what fills the art column. */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="3.2" />
+              </svg>
+            </button>
+          )}
+          {onToggleLyrics && (
+            <button
+              className={`np-action-btn${showLyrics ? "" : " is-off"}`}
+              onClick={onToggleLyrics}
+              // Disabled rather than hidden, so the row doesn't reshuffle as the
+              // queue moves between tracks that have lyrics and tracks that don't.
+              disabled={!hasLyrics}
+              title={
+                hasLyrics
+                  ? showLyrics
+                    ? "Hide lyrics"
+                    : "Show lyrics"
+                  : "No lyrics for this track"
+              }
+              aria-label={showLyrics ? "Hide lyrics" : "Show lyrics"}
+              aria-pressed={showLyrics}
+            >
+              {/* Same glyph as the video theater's subtitle toggle — same idea,
+                  same corner of the same view. */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="M7 14.5a2 2 0 0 1 0-4" />
+                <path d="M15 14.5a3 3 0 0 1 0-4" />
+              </svg>
+            </button>
+          )}
+          {/* Last, so it lands in the extreme corner — the same spot the video
+              theater's fullscreen button occupies. */}
           {onEnterFullscreen && (
             <button
               className="np-action-btn"
@@ -312,23 +363,6 @@ export function NowPlayingView({
                 <polyline points="9 21 3 21 3 15" />
                 <line x1="21" y1="3" x2="14" y2="10" />
                 <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
-            </button>
-          )}
-          {onOpenMenu && (
-            <button
-              className="np-action-btn"
-              onClick={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                onOpenMenu(r.left, r.bottom);
-              }}
-              title="View options"
-              aria-label="View options"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <circle cx="5" cy="12" r="1.8" />
-                <circle cx="12" cy="12" r="1.8" />
-                <circle cx="19" cy="12" r="1.8" />
               </svg>
             </button>
           )}
