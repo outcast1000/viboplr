@@ -120,6 +120,8 @@ export interface VisualizerSlotProps {
   queue: QueueTrack[];
   currentIndex: number;
   playing: boolean;
+  /** Playback was stopped rather than paused — see `PluginVisualizerState.stopped`. */
+  stopped?: boolean;
   durationSecs: number | null;
   /**
    * Art for the playing track, already resolved through the host's image chain.
@@ -179,6 +181,7 @@ export function VisualizerSlot({
   queue,
   currentIndex,
   playing,
+  stopped = false,
   durationSecs,
   currentArtUrl,
   onSeek,
@@ -193,8 +196,8 @@ export function VisualizerSlot({
   // Live values the frame loop reads without re-subscribing. The loop runs
   // outside React's render cycle on purpose: a 60fps setState would re-render
   // the whole Now Playing view.
-  const liveRef = useRef({ queue, currentIndex, playing, durationSecs, currentArtUrl, rate });
-  liveRef.current = { queue, currentIndex, playing, durationSecs, currentArtUrl, rate };
+  const liveRef = useRef({ queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate });
+  liveRef.current = { queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate };
 
   const actionsRef = useRef({ onSeek, onPlayQueueIndex, onSetPlaying, onSetRate });
   actionsRef.current = { onSeek, onPlayQueueIndex, onSetPlaying, onSetRate };
@@ -387,6 +390,11 @@ export function VisualizerSlot({
 
       const state: PluginVisualizerState = {
         playing: live.playing,
+        // The contract promises these are never both true. Enforced here rather
+        // than trusted from the host: `stopped` self-clears via an effect, so it
+        // trails `playing` by a render on resume, and a visualizer branching on
+        // stopped-first would draw one frame of the wrong state every time.
+        stopped: live.stopped && !live.playing,
         positionSecs: getPlaybackPosition(),
         durationSecs: live.durationSecs,
         queue: tracks,

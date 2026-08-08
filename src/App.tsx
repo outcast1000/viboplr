@@ -4333,6 +4333,7 @@ function App() {
                     queue={queueHook.queue}
                     currentIndex={queueHook.queueIndex}
                     playing={playback.playing}
+                    stopped={playback.stopped}
                     durationSecs={playback.currentTrack?.duration_secs ?? null}
                     currentArtUrl={nowPlayingArtSrc}
                     onSeek={playback.handleSeek}
@@ -5414,6 +5415,7 @@ function App() {
                 queue={queueHook.queue}
                 currentIndex={queueHook.queueIndex}
                 playing={playback.playing}
+                stopped={playback.stopped}
                 durationSecs={playback.currentTrack?.duration_secs ?? null}
                 currentArtUrl={nowPlayingArtSrc}
                 onSeek={playback.handleSeek}

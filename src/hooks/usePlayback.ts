@@ -163,6 +163,23 @@ export function usePlayback(
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
+  /**
+   * Playback was STOPPED, as distinct from paused.
+   *
+   * Both leave `playing` false, but they are different states and always have
+   * been — `handleStop` also rewinds to 0 and drops the asset — the difference
+   * simply had no name until something outside this hook needed to read it.
+   * Visualizers do: a deck depicts a stop as the arm returning to its rest and a
+   * pause as the arm lifting where it stands, and with one flag it can only ever
+   * draw one of the two.
+   *
+   * Self-clearing on the rising edge of `playing`, so no play path has to
+   * remember to reset it (the native engine's included).
+   */
+  const [stopped, setStopped] = useState(false);
+  useEffect(() => {
+    if (playing) setStopped(false);
+  }, [playing]);
   // The live position deliberately does NOT live in React state — it ticks
   // ~4×/sec and would re-render the whole tree from App down. It goes to the
   // external positionStore instead; display surfaces subscribe individually
@@ -1774,6 +1791,7 @@ export function usePlayback(
       el.currentTime = 0;
     }
     setPlaying(false);
+    setStopped(true);
     setPlaybackPosition(0);
     setCurrentAssetUrl(null);
   }
@@ -2127,7 +2145,7 @@ export function usePlayback(
     currentTrack, setCurrentTrack,
     trackChangeSourceRef,
     currentAssetUrl,
-    playing, setPlaying, scrobbled,
+    playing, setPlaying, stopped, scrobbled,
     durationSecs, setDurationSecs,
     volume, setVolume,
     muted, setMuted, toggleMute,

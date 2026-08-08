@@ -86,6 +86,19 @@ export interface PluginVisualizerTrack {
  */
 export interface PluginVisualizerState {
   readonly playing: boolean;
+  /**
+   * Playback was STOPPED rather than paused. Never true while `playing`.
+   *
+   * Two things end the sound and they are not the same gesture: pause holds the
+   * position, stop rewinds and lets go. A visualizer that draws a machine has to
+   * tell them apart — a deck raises its arm for a pause and returns it to the
+   * rest for a stop — and with only `playing` it can draw at most one of the two,
+   * so it will draw the wrong one half the time.
+   *
+   * A visualizer that doesn't care can ignore it: `stopped` is always accompanied
+   * by `playing: false`, so existing code keeps working unchanged.
+   */
+  readonly stopped: boolean;
   readonly positionSecs: number;
   /** Duration of the playing track, if known. */
   readonly durationSecs: number | null;
