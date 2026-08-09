@@ -939,6 +939,36 @@
   margin-top: 2px;
 }
 
+/* Byte progress inside the loading card, when the operation reports it. */
+.loading-card-bar {
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.loading-card-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s var(--ease-out-quart);
+}
+/* No Content-Length: sweep rather than claim a percentage we don't have. */
+.loading-card-fill.is-indeterminate {
+  width: 35%;
+  animation: loading-card-sweep 1.2s ease-in-out infinite;
+}
+@keyframes loading-card-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+.loading-card-bytes {
+  margin-top: 4px;
+  font-size: var(--fs-2xs);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Plugin install progress dialog (PluginInstallModal) */
 .plugin-install-body {
   margin: 6px 0 20px;

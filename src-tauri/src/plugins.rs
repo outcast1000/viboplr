@@ -95,7 +95,11 @@ pub fn install_plugin_from_zip(
 pub fn install_plugin_from_url(app_dir: &Path, url: &str) -> Result<String, String> {
     let zip_url = normalize_github_url(url);
 
-    let resp = reqwest::blocking::Client::new()
+    let resp = reqwest::blocking::Client::builder()
+        // Without a timeout a stalled socket hangs the caller indefinitely.
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?
         .get(&zip_url)
         .header("User-Agent", "Viboplr")
         .send()

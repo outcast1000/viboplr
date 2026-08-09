@@ -41,7 +41,12 @@ interface ExtensionsViewProps {
   onToggleEnabled: (id: string, kind: "plugin" | "skin") => void;
   onFetchPluginGallery: () => void;
   onFetchSkinGallery: () => void;
-  onInstallFromUrl: (url: string) => Promise<void>;
+  /** Resolves false when the install failed (the hook surfaces the reason itself). */
+  onInstallFromUrl: (url: string) => Promise<boolean>;
+  /** Lightweight feedback for the skin-install path, which has no staged dialog. */
+  onNotify?: (message: string) => void;
+  /** An extension operation is in flight; enable/disable controls are frozen. */
+  busy?: boolean;
   galleryPlugins: GalleryPluginEntry[];
   gallerySkins: GallerySkinEntry[];
   getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
@@ -165,9 +170,11 @@ function SectionHeader({
 /* ── Plugins: cards + skeletons ───────────────────────────────────────── */
 
 function PluginCard({
-  ext, installing, onDetails, onConfig, onToggleEnabled, onInstall, onUpdate, onUninstall,
+  ext, installing, busy, onDetails, onConfig, onToggleEnabled, onInstall, onUpdate, onUninstall,
 }: {
   ext: ExtensionItem; installing: boolean;
+  /** An extension operation is in flight — the toggle must not queue a second one. */
+  busy?: boolean;
   onDetails: () => void; onConfig: () => void;
   onToggleEnabled: () => void; onInstall: () => void;
   // Optional: only wired where the action is applicable. `onUpdate` is passed in
@@ -203,6 +210,7 @@ function PluginCard({
             role="switch"
             aria-checked={isOn}
             aria-label={isOn ? `Disable ${ext.name}` : `Enable ${ext.name}`}
+            disabled={busy || installing}
             onClick={onToggleEnabled}
           >
             <span className="ds-toggle-thumb" />
@@ -265,9 +273,10 @@ function PluginCardSkeleton() {
 // a single-line horizontal layout. Secondary actions (Details/Config/Uninstall)
 // are revealed on row hover/focus to keep the resting state clean.
 function PluginRow({
-  ext, installing, onDetails, onConfig, onToggleEnabled, onInstall, onUpdate, onUninstall,
+  ext, installing, busy, onDetails, onConfig, onToggleEnabled, onInstall, onUpdate, onUninstall,
 }: {
   ext: ExtensionItem; installing: boolean;
+  busy?: boolean;
   onDetails: () => void; onConfig: () => void;
   onToggleEnabled: () => void; onInstall: () => void;
   onUpdate?: () => void; onUninstall?: () => void;
@@ -319,6 +328,7 @@ function PluginRow({
                 role="switch"
                 aria-checked={isOn}
                 aria-label={isOn ? `Disable ${ext.name}` : `Enable ${ext.name}`}
+                disabled={busy || installing}
                 onClick={onToggleEnabled}
               >
                 <span className="ds-toggle-thumb" />
@@ -353,11 +363,12 @@ function PluginRowSkeleton() {
 /* ── Plugin detail pane ───────────────────────────────────────────────── */
 
 function PluginDetail({
-  ext, installing, onUpdate, onUninstall, onToggleEnabled, onInstall,
+  ext, installing, busy, onUpdate, onUninstall, onToggleEnabled, onInstall,
   getPluginViewData, onPluginAction, autoScrollToConfig,
   contributions, contributionVisibility, onSetContributionEnabled,
 }: {
   ext: ExtensionItem; installing: boolean; onUpdate: () => void; onUninstall: () => void;
+  busy?: boolean;
   onToggleEnabled: () => void; onInstall: () => void;
   getPluginViewData?: (pluginId: string, viewId: string) => PluginViewData | undefined;
   onPluginAction?: (pluginId: string, actionId: string, data?: unknown) => void;
@@ -421,7 +432,7 @@ function PluginDetail({
             )}
             {isInstalled && (
               <>
-                <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onToggleEnabled}>
+                <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled={busy || installing} onClick={onToggleEnabled}>
                   {ext.status === "active" ? "Disable" : "Enable"}
                 </button>
                 {ext.source !== "builtin" && (
@@ -681,7 +692,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     searchQuery, onSetSearchQuery, installing, checking,
     onCheckForUpdates, onUpdateExtension, onUpdateAll, onInstallFromGallery,
     onUninstall, onToggleEnabled, onFetchPluginGallery, onFetchSkinGallery,
-    onInstallFromUrl, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
+    onInstallFromUrl, onNotify, busy, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
     contributions, contributionVisibility, onSetContributionEnabled,
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
@@ -861,9 +872,15 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     if (!entry) return;
 
     // Skins install-and-apply quickly and have their own inline card spinner —
-    // the staged dialog is a plugin-install affordance only.
+    // the staged dialog is a plugin-install affordance only. A *failure* still
+    // needs saying, though: discarding `res.error` here made a failed skin
+    // install completely silent, the spinner just stopping.
     if (ext.kind !== "plugin") {
-      await onInstallFromGallery(entry);
+      const res = await onInstallFromGallery(entry);
+      if (!res.ok && res.error !== INSTALL_CANCELLED) {
+        console.error(`Failed to install skin ${ext.id}:`, res.error);
+        onNotify?.(`Couldn't install ${ext.name} — ${res.error ?? "unknown error"}`);
+      }
       return;
     }
 
@@ -924,6 +941,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             key={ext.id}
             ext={ext}
             installing={installing.has(ext.id)}
+            busy={busy}
             onDetails={() => openDetail(ext.id)}
             onConfig={() => openDetail(ext.id, true)}
             onToggleEnabled={() => onToggleEnabled(ext.id, "plugin")}
@@ -1018,6 +1036,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             <PluginDetail
               ext={detailExt}
               installing={installing.has(detailExt.id)}
+              busy={busy}
               autoScrollToConfig={detail?.configMode}
               onUpdate={() => onUpdateExtension(detailExt.id)}
               onUninstall={() => setUninstallPrompt({ id: detailExt.id, name: detailExt.name })}

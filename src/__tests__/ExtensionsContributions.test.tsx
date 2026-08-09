@@ -98,7 +98,7 @@ function renderDetail(opts?: {
       onToggleEnabled={() => {}}
       onFetchPluginGallery={() => {}}
       onFetchSkinGallery={() => {}}
-      onInstallFromUrl={async () => {}}
+      onInstallFromUrl={async () => true}
       galleryPlugins={[]}
       gallerySkins={[]}
       contributions={opts?.contributions ?? contributions}

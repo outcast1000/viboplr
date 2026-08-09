@@ -172,9 +172,20 @@ export function NavErrorModal({ message, onDismiss }: NavErrorModalProps) {
 
 interface PluginLoadingModalProps {
   message: string;
+  /**
+   * Live download bytes, when the operation has them. Without this the card is
+   * a bare spinner, which can't distinguish "downloading a 5 MB plugin" from
+   * "hung" — the complaint that motivated it.
+   */
+  progress?: { downloaded: number; total: number | null } | null;
 }
 
-export function PluginLoadingModal({ message }: PluginLoadingModalProps) {
+export function PluginLoadingModal({ message, progress }: PluginLoadingModalProps) {
+  const total = progress?.total ?? 0;
+  const downloaded = progress?.downloaded ?? 0;
+  const pct = progress && total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : null;
+  const mb = (n: number) => `${(n / 1_000_000).toFixed(1)} MB`;
+
   return (
     <div className="ds-modal-overlay">
       <div className="loading-card">
@@ -184,6 +195,19 @@ export function PluginLoadingModal({ message }: PluginLoadingModalProps) {
         <div className="loading-card-text">
           <div className="loading-card-title">Loading...</div>
           <div className="loading-card-sub">{message}</div>
+          {progress && (
+            <>
+              <div className="loading-card-bar">
+                <div
+                  className={`loading-card-fill${pct === null ? " is-indeterminate" : ""}`}
+                  style={pct === null ? undefined : { width: `${pct}%` }}
+                />
+              </div>
+              <div className="loading-card-bytes">
+                {pct === null ? mb(downloaded) : `${pct}% · ${mb(downloaded)} of ${mb(total)}`}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

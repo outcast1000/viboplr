@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { resolveInstalledStability } from "../utils/pluginStability";
+import { errorText as errText } from "../utils/errorKind";
 import type {
   ExtensionUpdate,
   ExtensionItem,
@@ -18,7 +19,8 @@ interface UseExtensionsProps {
   gallerySkins: GallerySkinEntry[];
   galleryPlugins: GalleryPluginEntry[];
   onTogglePlugin: (id: string) => void | Promise<void>;
-  onReloadPlugin: (id: string) => void;
+  /** Awaited — a fire-and-forget reload let N of them race during "Update All". */
+  onReloadPlugin: (id: string) => void | Promise<void>;
   onDeletePlugin: (id: string) => Promise<{ ok: boolean; error?: string }>;
   onInstallPluginFromGallery: (
     entry: GalleryPluginEntry,
@@ -30,7 +32,16 @@ interface UseExtensionsProps {
   onApplySkin: (id: string) => void;
   onFetchPluginGallery: () => void;
   onFetchSkinGallery: () => void;
-  onReloadAllPlugins: () => void;
+  onReloadAllPlugins: () => void | Promise<void>;
+  /** Lightweight feedback for operations that used to fail into console.error only. */
+  onNotify?: (message: string) => void;
+}
+
+/** Live download progress for one extension, from `plugin-install-progress`. */
+export interface ExtensionProgress {
+  phase: "resolving" | "downloading" | "installing";
+  downloaded: number;
+  total: number | null;
 }
 
 export function useExtensions(props: UseExtensionsProps) {
@@ -50,6 +61,7 @@ export function useExtensions(props: UseExtensionsProps) {
     onFetchPluginGallery,
     onFetchSkinGallery,
     onReloadAllPlugins,
+    onNotify,
   } = props;
 
   const [updates, setUpdates] = useState<ExtensionUpdate[]>([]);
@@ -59,6 +71,11 @@ export function useExtensions(props: UseExtensionsProps) {
   const [installing, setInstalling] = useState<Set<string>>(new Set());
   const [lastChecked, setLastChecked] = useState<number | null>(null);
   const [checking, setChecking] = useState(false);
+  // Per-extension download progress, keyed by id.
+  const [progress, setProgress] = useState<Record<string, ExtensionProgress>>({});
+  // Ids whose `extension-update-installed` event we raised ourselves, so the
+  // listener can tell our installs from the background auto-updater's.
+  const selfInitiatedRef = useRef<Set<string>>(new Set());
   // Non-null while a blocking extension operation (check/update/enable) is in
   // flight. Drives the shared PluginLoadingModal so the user knows something is
   // happening — these operations otherwise run silently with no on-screen change.
@@ -80,11 +97,40 @@ export function useExtensions(props: UseExtensionsProps) {
         setLastChecked(Date.now());
       },
     );
-    const stopInstalled = subscribe<string>("extension-update-installed", () => {
-      // Background re-check — silent so it never pops a modal unprompted.
+    const stopInstalled = subscribe<string>("extension-update-installed", (event) => {
+      // Only re-check for installs we did NOT initiate (i.e. the background
+      // auto-updater). Our own updates already prune `updates` locally, and
+      // re-checking per install made "Update All" quadratic: N installs × a
+      // check that is itself N sequential network round-trips.
+      if (selfInitiatedRef.current.delete(event.payload)) return;
       checkForUpdates({ silent: true });
     });
-    return combineUnlisten(stopUpdates, stopInstalled);
+    const stopProgress = subscribe<{
+      pluginId: string;
+      phase: ExtensionProgress["phase"];
+      downloaded: number;
+      total: number | null;
+    }>("plugin-install-progress", ({ payload }) => {
+      setProgress((prev) => ({
+        ...prev,
+        [payload.pluginId]: {
+          phase: payload.phase,
+          downloaded: payload.downloaded,
+          total: payload.total,
+        },
+      }));
+    });
+    return combineUnlisten(stopUpdates, stopInstalled, stopProgress);
+  }, []);
+
+  /** Drop any progress row for `id` — call when its operation settles. */
+  const clearProgress = useCallback((id: string) => {
+    setProgress((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   }, []);
 
   const checkForUpdates = useCallback(
@@ -93,24 +139,36 @@ export function useExtensions(props: UseExtensionsProps) {
       setChecking(true);
       if (!silent) setBusyMessage("Checking for extension updates…");
       try {
-        const result = await invoke<ExtensionUpdate[]>(
-          "check_for_extension_updates",
-        );
-        setUpdates(result);
+        const report = await invoke<{
+          updates: ExtensionUpdate[];
+          failed: string[];
+        }>("check_for_extension_updates");
+        setUpdates(report.updates);
         setLastChecked(Date.now());
         if (!silent) {
-          const n = result.filter((u) => u.status === "available").length;
-          setResultModal(
-            n > 0
-              ? {
-                  title: "Updates Available",
-                  message: `${n} extension update${n !== 1 ? "s are" : " is"} available. Use "Update All" or open an extension to install.`,
-                }
-              : {
-                  title: "Up to Date",
-                  message: "All your extensions are up to date.",
-                },
-          );
+          const n = report.updates.filter((u) => u.status === "available").length;
+          // A failed check is NOT "up to date" — the backend now separates the
+          // two, so an unreachable host is reported instead of being rounded
+          // down to good news.
+          const failedNote = report.failed.length
+            ? ` ${report.failed.length} couldn't be checked (${report.failed.join(", ")}) — they may still have updates.`
+            : "";
+          if (n > 0) {
+            setResultModal({
+              title: "Updates Available",
+              message: `${n} extension update${n !== 1 ? "s are" : " is"} available. Use "Update All" or open an extension to install.${failedNote}`,
+            });
+          } else if (report.failed.length) {
+            setResultModal({
+              title: "Check Incomplete",
+              message: `No updates found for the extensions we could reach.${failedNote}`,
+            });
+          } else {
+            setResultModal({
+              title: "Up to Date",
+              message: "All your extensions are up to date.",
+            });
+          }
         }
       } catch (e) {
         console.error("Failed to check for updates:", e);
@@ -132,18 +190,22 @@ export function useExtensions(props: UseExtensionsProps) {
   // callers own the user-facing feedback so single-update and Update-All can
   // present one coherent message instead of one per item.
   const performUpdate = useCallback(
-    async (id: string): Promise<boolean> => {
+    async (id: string, opts?: { deferReload?: boolean }): Promise<boolean> => {
       const update = updates.find((u) => u.id === id);
       if (!update || update.status !== "available") return false;
 
       setInstalling((prev) => new Set(prev).add(id));
+      selfInitiatedRef.current.add(id);
       try {
         if (update.kind === "plugin") {
           await invoke("download_and_install_plugin_update", {
             pluginId: id,
             downloadUrl: update.downloadUrl,
           });
-          onReloadPlugin(id);
+          // Each reload rebuilds the ENTIRE plugin runtime, so a batch defers
+          // it and reloads once at the end instead of N times. Awaited either
+          // way — it used to be fire-and-forget, letting N rebuilds overlap.
+          if (!opts?.deferReload) await onReloadPlugin(id);
         } else {
           await invoke("download_and_install_skin_update", {
             skinId: id,
@@ -154,8 +216,10 @@ export function useExtensions(props: UseExtensionsProps) {
         return true;
       } catch (e) {
         console.error("Failed to update extension:", e);
+        selfInitiatedRef.current.delete(id);
         return false;
       } finally {
+        clearProgress(id);
         setInstalling((prev) => {
           const next = new Set(prev);
           next.delete(id);
@@ -163,7 +227,7 @@ export function useExtensions(props: UseExtensionsProps) {
         });
       }
     },
-    [updates, onReloadPlugin],
+    [updates, onReloadPlugin, clearProgress],
   );
 
   const updateExtension = useCallback(
@@ -192,14 +256,27 @@ export function useExtensions(props: UseExtensionsProps) {
     const available = updates.filter((u) => u.status === "available");
     if (available.length === 0) return;
     let succeeded = 0;
+    let anyPlugin = false;
     const failed: string[] = [];
     try {
+      // Downloads stay sequential on purpose — parallel installs would race on
+      // the plugin directory. What changed is that each one no longer drags a
+      // full runtime rebuild and a fresh update check behind it.
       for (let i = 0; i < available.length; i++) {
         setBusyMessage(
           `Updating ${available[i].name} (${i + 1}/${available.length})…`,
         );
-        if (await performUpdate(available[i].id)) succeeded++;
-        else failed.push(available[i].name);
+        if (await performUpdate(available[i].id, { deferReload: true })) {
+          succeeded++;
+          if (available[i].kind === "plugin") anyPlugin = true;
+        } else {
+          failed.push(available[i].name);
+        }
+      }
+      // One rebuild for the whole batch.
+      if (anyPlugin) {
+        setBusyMessage("Reloading plugins…");
+        await onReloadAllPlugins();
       }
     } finally {
       setBusyMessage(null);
@@ -215,7 +292,7 @@ export function useExtensions(props: UseExtensionsProps) {
         message: `${succeeded} of ${available.length} updated. Failed: ${failed.join(", ")}.`,
       });
     }
-  }, [updates, performUpdate]);
+  }, [updates, performUpdate, onReloadAllPlugins]);
 
   const installFromGallery = useCallback(
     async (
@@ -232,6 +309,7 @@ export function useExtensions(props: UseExtensionsProps) {
           : await onInstallPluginFromGallery(entry as GalleryPluginEntry);
         return { ok: res.ok, kind: isSkin ? "skin" : "plugin", error: res.error };
       } finally {
+        clearProgress(entry.id);
         setInstalling((prev) => {
           const next = new Set(prev);
           next.delete(entry.id);
@@ -239,7 +317,7 @@ export function useExtensions(props: UseExtensionsProps) {
         });
       }
     },
-    [onInstallPluginFromGallery, onInstallSkinFromGallery],
+    [onInstallPluginFromGallery, onInstallSkinFromGallery, clearProgress],
   );
 
   const uninstall = useCallback(
@@ -249,15 +327,18 @@ export function useExtensions(props: UseExtensionsProps) {
           const res = await onDeletePlugin(id);
           if (!res.ok) {
             console.error(`Failed to uninstall plugin "${id}":`, res.error);
+            // The row staying put is not feedback — it reads as a dead button.
+            onNotify?.(`Couldn't uninstall — ${res.error ?? "unknown error"}`);
           }
         } else {
           onDeleteSkin(id);
         }
       } catch (e) {
         console.error("Failed to uninstall:", e);
+        onNotify?.(`Couldn't uninstall — ${errText(e)}`);
       }
     },
-    [onDeletePlugin, onDeleteSkin],
+    [onDeletePlugin, onDeleteSkin, onNotify],
   );
 
   const toggleEnabled = useCallback(
@@ -277,23 +358,36 @@ export function useExtensions(props: UseExtensionsProps) {
         await onTogglePlugin(id);
       } catch (e) {
         console.error("Failed to toggle plugin:", e);
+        onNotify?.(
+          `Couldn't ${enabling ? "enable" : "disable"} the plugin — ${errText(e)}`,
+        );
       } finally {
         setBusyMessage(null);
       }
     },
-    [onTogglePlugin, onApplySkin, pluginStates],
+    [onTogglePlugin, onApplySkin, pluginStates, onNotify],
   );
 
   const installFromUrl = useCallback(
-    async (url: string) => {
+    async (url: string): Promise<boolean> => {
+      setBusyMessage("Installing plugin…");
       try {
         await invoke<string>("install_plugin_from_url", { url });
-        onReloadAllPlugins();
+        await onReloadAllPlugins();
+        onNotify?.("Plugin installed");
+        return true;
       } catch (e) {
         console.error("Failed to install from URL:", e);
+        setResultModal({
+          title: "Install Failed",
+          message: `Couldn't install that plugin — ${errText(e)}`,
+        });
+        return false;
+      } finally {
+        setBusyMessage(null);
       }
     },
-    [onReloadAllPlugins],
+    [onReloadAllPlugins, onNotify],
   );
 
   const extensions: ExtensionItem[] = useMemo(() => {
@@ -461,6 +555,7 @@ export function useExtensions(props: UseExtensionsProps) {
     searchQuery,
     setSearchQuery,
     installing,
+    progress,
     checking,
     busyMessage,
     resultModal,

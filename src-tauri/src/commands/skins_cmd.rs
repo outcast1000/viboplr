@@ -42,14 +42,31 @@ pub fn open_skin_in_editor(state: State<'_, AppState>, id: String) -> Result<(),
         .map_err(|e| e.to_string())
 }
 
+// `async` for the same reason as the commands in `extensions.rs`: a sync
+// `#[tauri::command]` runs inline on the main thread, so blocking network I/O
+// here froze the webview.
 #[tauri::command]
-pub fn fetch_skin_gallery() -> Result<String, String> {
-    skins::fetch_url("https://raw.githubusercontent.com/outcast1000/viboplr-skins/main/index.json")
+pub async fn fetch_skin_gallery() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        skins::fetch_url(
+            "https://raw.githubusercontent.com/outcast1000/viboplr-skins/main/index.json",
+        )
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
-pub fn install_gallery_skin(state: State<'_, AppState>, url: String) -> Result<String, String> {
-    let content = skins::fetch_url(&url)?;
-    let dir = skins::skins_dir(&state.app_dir);
-    skins::save_skin_to_dir(&dir, &content)
+pub async fn install_gallery_skin(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<String, String> {
+    let app_dir = state.app_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let content = skins::fetch_url(&url)?;
+        let dir = skins::skins_dir(&app_dir);
+        skins::save_skin_to_dir(&dir, &content)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }

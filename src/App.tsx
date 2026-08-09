@@ -1229,6 +1229,7 @@ function App() {
     onFetchPluginGallery: plugins.fetchPluginGallery,
     onFetchSkinGallery: skins.fetchGallery,
     onReloadAllPlugins: plugins.reloadAllPlugins,
+    onNotify: notify,
   });
 
   // Stable wrapper so switchToProfile's identity doesn't churn per render.
@@ -4511,6 +4512,8 @@ function App() {
               onFetchPluginGallery={extensionsHook.onFetchPluginGallery}
               onFetchSkinGallery={extensionsHook.onFetchSkinGallery}
               onInstallFromUrl={extensionsHook.installFromUrl}
+              onNotify={notify}
+              busy={extensionsHook.busyMessage !== null}
               galleryPlugins={plugins.galleryPlugins || []}
               gallerySkins={skins.gallerySkins || []}
               getPluginViewData={plugins.getViewData}
@@ -5185,7 +5188,12 @@ function App() {
       )}
 
       {extensionsHook.busyMessage && (
-        <PluginLoadingModal message={extensionsHook.busyMessage} />
+        <PluginLoadingModal
+          message={extensionsHook.busyMessage}
+          // Only one extension operation runs at a time, so the single live
+          // progress row (if any) is the one this modal is describing.
+          progress={Object.values(extensionsHook.progress)[0] ?? null}
+        />
       )}
 
       {extensionsHook.resultModal && (

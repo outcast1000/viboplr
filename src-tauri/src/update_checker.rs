@@ -1,4 +1,5 @@
 use crate::models::{ExtensionUpdate, UpdateInfo};
+use serde::Serialize;
 use std::path::Path;
 use tauri::Emitter;
 
@@ -55,8 +56,18 @@ pub struct InstalledExtension {
     pub update_url: String,
 }
 
+/// Per-manifest ceiling. A missing timeout here meant one unreachable host
+/// could stall the whole update check indefinitely.
+const MANIFEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 pub fn fetch_update_info(url: &str) -> Result<UpdateInfo, String> {
-    let resp = reqwest::blocking::get(url)
+    let resp = reqwest::blocking::Client::builder()
+        .user_agent("Viboplr")
+        .timeout(MANIFEST_TIMEOUT)
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))?
+        .get(url)
+        .send()
         .map_err(|e| format!("HTTP error: {}", e))?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
@@ -65,17 +76,19 @@ pub fn fetch_update_info(url: &str) -> Result<UpdateInfo, String> {
     serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))
 }
 
+/// `Ok(None)` = definitively no update. `Err` = we couldn't find out.
+///
+/// These were the same value before (`Err(_) => return None`), which is why a
+/// network outage reported "All your extensions are up to date" — the one
+/// answer the check had no evidence for.
 pub fn check_extension(
     ext: &InstalledExtension,
     app_version: &str,
-) -> Option<ExtensionUpdate> {
-    let info = match fetch_update_info(&ext.update_url) {
-        Ok(info) => info,
-        Err(_) => return None,
-    };
+) -> Result<Option<ExtensionUpdate>, String> {
+    let info = fetch_update_info(&ext.update_url)?;
 
     if !semver_is_newer(&ext.version, &info.version) {
-        return None;
+        return Ok(None);
     }
 
     let status = if let Some(ref min_ver) = info.min_app_version {
@@ -88,7 +101,7 @@ pub fn check_extension(
         "available".to_string()
     };
 
-    Some(ExtensionUpdate {
+    Ok(Some(ExtensionUpdate {
         id: ext.id.clone(),
         kind: ext.kind.clone(),
         name: ext.name.clone(),
@@ -98,7 +111,7 @@ pub fn check_extension(
         download_url: info.file,
         status,
         min_app_version: info.min_app_version,
-    })
+    }))
 }
 
 /// Resolve a plugin's updateUrl to its downloadable zip URL, enforcing
@@ -198,22 +211,59 @@ pub fn collect_installed_extensions(
     extensions
 }
 
+/// How many manifests are fetched at once. These are release-asset URLs, not
+/// GitHub API calls, so they aren't subject to the 60/hr limit — the old
+/// serial loop's 200 ms sleep between each was buying nothing and cost
+/// `n × 200 ms` of pure latency on top of `n` sequential round-trips.
+const CHECK_CONCURRENCY: usize = 5;
+
+/// Outcome of a full check. `failed` exists so "we couldn't reach these" can be
+/// told apart from "these are up to date" — see `check_extension`.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckReport {
+    pub updates: Vec<ExtensionUpdate>,
+    /// Display names of extensions whose check failed.
+    pub failed: Vec<String>,
+}
+
 pub fn check_all_updates(
     app_dir: &Path,
     native_plugins_dir: &Path,
     app_version: &str,
-) -> Vec<ExtensionUpdate> {
+) -> UpdateCheckReport {
     let extensions = collect_installed_extensions(app_dir, native_plugins_dir);
-    let mut updates = Vec::new();
+    let mut report = UpdateCheckReport::default();
 
-    for ext in &extensions {
-        if let Some(update) = check_extension(ext, app_version) {
-            updates.push(update);
+    for chunk in extensions.chunks(CHECK_CONCURRENCY) {
+        // Scoped threads so the borrowed `ext` / `app_version` need no cloning
+        // and every thread is joined before the chunk ends.
+        let results = std::thread::scope(|s| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|ext| s.spawn(move || (ext, check_extension(ext, app_version))))
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join())
+                .collect::<Vec<_>>()
+        });
+
+        for result in results {
+            match result {
+                Ok((_, Ok(Some(update)))) => report.updates.push(update),
+                Ok((_, Ok(None))) => {}
+                Ok((ext, Err(e))) => {
+                    log::warn!("update check failed for {}: {}", ext.id, e);
+                    report.failed.push(ext.name.clone());
+                }
+                // A panicked check is still a check we don't have an answer for.
+                Err(_) => log::warn!("update check thread panicked"),
+            }
         }
-        std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
-    updates
+    report
 }
 
 pub fn spawn_update_checker(
@@ -233,9 +283,11 @@ pub fn spawn_update_checker(
                 break;
             }
 
-            let updates = check_all_updates(&app_dir, &native_plugins_dir, &app_version);
-            if !updates.is_empty() {
-                let _ = app_handle.emit("extensions-updates-available", &updates);
+            let report = check_all_updates(&app_dir, &native_plugins_dir, &app_version);
+            // Only the updates are broadcast — a background check that couldn't
+            // reach a host stays silent rather than nagging about the network.
+            if !report.updates.is_empty() {
+                let _ = app_handle.emit("extensions-updates-available", &report.updates);
             }
 
             for _ in 0..(24 * 60 * 2) {
@@ -251,6 +303,38 @@ pub fn spawn_update_checker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A check that can't reach its host must not be reported as "up to date".
+    /// `check_extension` returned `Option` before, collapsing "no update" and
+    /// "couldn't tell" into the same `None` — which is how a network outage
+    /// came out as "All your extensions are up to date."
+    ///
+    /// Uses an unparseable URL rather than an unroutable address so the failure
+    /// is immediate: a real dead host would sit out the 15s `MANIFEST_TIMEOUT`
+    /// and make the whole suite that much slower for no extra coverage.
+    #[test]
+    fn test_unfetchable_manifest_is_an_error_not_no_update() {
+        let ext = InstalledExtension {
+            id: "example".into(),
+            kind: "plugin".into(),
+            name: "Example".into(),
+            version: "1.0.0".into(),
+            update_url: "not-a-valid-url".into(),
+        };
+        let result = check_extension(&ext, "1.0.0");
+        assert!(result.is_err(), "a failed fetch must surface as Err, got {result:?}");
+    }
+
+    /// The report keeps the two apart so the UI can word them differently.
+    #[test]
+    fn test_report_separates_updates_from_failures() {
+        let report = UpdateCheckReport {
+            updates: Vec::new(),
+            failed: vec!["Example".into()],
+        };
+        assert!(report.updates.is_empty());
+        assert_eq!(report.failed, vec!["Example".to_string()]);
+    }
 
     #[test]
     fn test_semver_is_newer() {

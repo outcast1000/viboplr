@@ -488,50 +488,47 @@ fn take_install_cancel(set: &Mutex<HashSet<String>>, plugin_id: &str) -> bool {
     }
 }
 
-#[tauri::command]
-pub fn install_gallery_plugin_by_update_url(
-    state: State<'_, AppState>,
-    app: tauri::AppHandle,
-    plugin_id: String,
-    update_url: String,
-) -> Result<(), String> {
+/// Ceiling on a single plugin zip download. Every network call in the extension
+/// paths needs one: without it a stalled socket hangs until the OS gives up,
+/// which on a captive portal or half-open connection can be minutes.
+pub(crate) const PLUGIN_DOWNLOAD_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(120);
+
+/// Stream a plugin zip into memory, emitting `plugin-install-progress` and
+/// honouring the cooperative cancel set. Shared by the gallery install and the
+/// update path so both report progress the same way — the update path used to
+/// do a single blocking `resp.bytes()` with no events at all.
+///
+/// Blocking by design: callers must already be inside `spawn_blocking`.
+pub(crate) fn download_plugin_zip(
+    app: &tauri::AppHandle,
+    cancel: &Mutex<HashSet<String>>,
+    plugin_id: &str,
+    zip_url: &str,
+) -> Result<Vec<u8>, String> {
     use std::io::Read;
 
-    // Fresh install — drop any stale cancel request left over for this id.
-    take_install_cancel(&state.plugin_install_cancel, &plugin_id);
-
-    let emit_phase = |phase: &str, downloaded: u64, total: Option<u64>| {
+    let emit = |phase: &str, downloaded: u64, total: Option<u64>| {
         let _ = app.emit(
             "plugin-install-progress",
-            PluginInstallProgress { plugin_id: &plugin_id, phase, downloaded, total },
+            PluginInstallProgress { plugin_id, phase, downloaded, total },
         );
     };
 
-    // Resolve the plugin's own-repo updateUrl to a zip URL (enforces minAppVersion).
-    emit_phase("resolving", 0, None);
-    let app_version = app.package_info().version.to_string();
-    let zip_url = crate::update_checker::resolve_install_zip_url(&update_url, &app_version)?;
-
-    if take_install_cancel(&state.plugin_install_cancel, &plugin_id) {
-        return Err(INSTALL_CANCELLED.to_string());
-    }
-
-    // Stream the zip so the dialog can report real download progress (mirrors the
-    // engine-component installer). Same download+install path the auto-updater uses.
     let client = reqwest::blocking::Client::builder()
         .user_agent("Viboplr")
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(PLUGIN_DOWNLOAD_TIMEOUT)
         .build()
         .map_err(|e| format!("HTTP client error: {}", e))?;
     let mut resp = client
-        .get(&zip_url)
+        .get(zip_url)
         .send()
         .map_err(|e| format!("Download failed: {}", e))?;
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
     let total = resp.content_length();
-    emit_phase("downloading", 0, total);
+    emit("downloading", 0, total);
 
     let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
     let mut buf = [0u8; 64 * 1024];
@@ -539,7 +536,7 @@ pub fn install_gallery_plugin_by_update_url(
     loop {
         // Cooperative cancel — only meaningful during the download (extraction
         // that follows is the point of no return; the UI hides Cancel by then).
-        if take_install_cancel(&state.plugin_install_cancel, &plugin_id) {
+        if take_install_cancel(cancel, plugin_id) {
             return Err(INSTALL_CANCELLED.to_string());
         }
         let n = resp.read(&mut buf).map_err(|e| format!("Read error: {}", e))?;
@@ -548,13 +545,49 @@ pub fn install_gallery_plugin_by_update_url(
         }
         bytes.extend_from_slice(&buf[..n]);
         downloaded += n as u64;
-        emit_phase("downloading", downloaded, total);
+        emit("downloading", downloaded, total);
     }
 
-    emit_phase("installing", downloaded, total);
-    crate::plugins::install_plugin_from_zip(&state.app_dir, &plugin_id, &bytes)?;
-    let _ = app.emit("extension-update-installed", &plugin_id);
-    Ok(())
+    emit("installing", downloaded, total);
+    Ok(bytes)
+}
+
+/// `async` so Tauri runs it off the main thread — a sync command is classified
+/// `ExecutionContext::Blocking` and executes inline on the event loop, which
+/// froze the whole webview for the length of the download.
+#[tauri::command]
+pub async fn install_gallery_plugin_by_update_url(
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+    plugin_id: String,
+    update_url: String,
+) -> Result<(), String> {
+    let app_dir = state.app_dir.clone();
+    let cancel = Arc::clone(&state.plugin_install_cancel);
+
+    tauri::async_runtime::spawn_blocking(move || {
+        // Fresh install — drop any stale cancel request left over for this id.
+        take_install_cancel(&cancel, &plugin_id);
+
+        // Resolve the plugin's own-repo updateUrl to a zip URL (enforces minAppVersion).
+        let _ = app.emit(
+            "plugin-install-progress",
+            PluginInstallProgress { plugin_id: &plugin_id, phase: "resolving", downloaded: 0, total: None },
+        );
+        let app_version = app.package_info().version.to_string();
+        let zip_url = crate::update_checker::resolve_install_zip_url(&update_url, &app_version)?;
+
+        if take_install_cancel(&cancel, &plugin_id) {
+            return Err(INSTALL_CANCELLED.to_string());
+        }
+
+        let bytes = download_plugin_zip(&app, &cancel, &plugin_id, &zip_url)?;
+        crate::plugins::install_plugin_from_zip(&app_dir, &plugin_id, &bytes)?;
+        let _ = app.emit("extension-update-installed", &plugin_id);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Request cancellation of an in-flight `install_gallery_plugin_by_update_url`.
