@@ -4343,6 +4343,12 @@ function App() {
                       queueHook.setQueueIndex(index);
                       playback.handlePlay(t);
                     }}
+                    onLoadQueueIndex={(index, positionSecs) => {
+                      const t = queueHook.queue[index];
+                      if (!t) return;
+                      queueHook.setQueueIndex(index);
+                      playback.loadPaused(t, positionSecs ?? 0);
+                    }}
                     onSetPlaying={handleVisualizerSetPlaying}
                     rate={playback.playbackRate}
                     onSetRate={playback.setPlaybackRate}
@@ -5424,6 +5430,12 @@ function App() {
                   if (!t) return;
                   queueHook.setQueueIndex(index);
                   playback.handlePlay(t);
+                }}
+                onLoadQueueIndex={(index, positionSecs) => {
+                  const t = queueHook.queue[index];
+                  if (!t) return;
+                  queueHook.setQueueIndex(index);
+                  playback.loadPaused(t, positionSecs ?? 0);
                 }}
                 onSetPlaying={handleVisualizerSetPlaying}
                 rate={playback.playbackRate}

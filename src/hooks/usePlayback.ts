@@ -1774,6 +1774,46 @@ export function usePlayback(
     }
   }
 
+  /**
+   * Make `track` the current one WITHOUT starting it, cued to `positionSecs`.
+   *
+   * The gap this fills: every existing route to a different track plays it.
+   * That is right for a click in the queue and wrong for anything that places a
+   * playhead — a turntable visualizer moving its tonearm on a paused deck, most
+   * obviously, which could otherwise only change track by starting the music and
+   * then stopping it again, blipping a fraction of a second of audio each time.
+   *
+   * "Loaded but never played" is not a new state to the app: a restored track
+   * sits in exactly it on every launch, and `handlePause` already knows to turn
+   * the next play into a full `handlePlay` when the element holds no source. So
+   * this leans on that rather than inventing a parallel one — DETACHING the
+   * outgoing source is what makes it work, since an element left holding the old
+   * track would happily resume THAT on the next press.
+   *
+   * The position rides on the same `pendingSeekRef` the seek-then-play path uses,
+   * so the eventual play starts where the needle was put rather than at zero.
+   */
+  function loadPaused(track: QueueTrack, positionSecs = 0) {
+    cancelCrossfade();
+    invalidatePreload();
+    if (nativeSessionRef.current) {
+      nativeSessionRef.current = null;
+      nativePreloadedRef.current = null;
+      nativeFadingRef.current = false;
+      nativeEngine.stop().catch(console.error);
+    }
+    setNativeVideoActive(false);
+    setIcyTitle(null);
+    // Not merely paused: the next play must re-resolve and re-install, or it
+    // would resume whatever this element was still holding.
+    [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
+    setPlaying(false);
+    setCurrentTrack(track);
+    setCurrentAssetUrl(null);
+    setPendingSeek(Math.max(0, positionSecs));
+    setPlaybackPosition(Math.max(0, positionSecs));
+  }
+
   function handleStop() {
     cancelCrossfade();
     invalidatePreload();
@@ -2152,7 +2192,7 @@ export function usePlayback(
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,
-    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop,
+    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop, loadPaused,
     loadRestoredVideoPreview,
     handleVolume, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,

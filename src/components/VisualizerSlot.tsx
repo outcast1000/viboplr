@@ -136,6 +136,9 @@ export interface VisualizerSlotProps {
   currentArtUrl?: string | null;
   onSeek: (secs: number) => void;
   onPlayQueueIndex: (index: number) => void;
+  /** Make an entry current without starting it — see
+   *  `PluginVisualizerActions.loadQueueIndex`. Omit and the action is absent. */
+  onLoadQueueIndex?: (index: number, positionSecs?: number) => void;
   /** Start/stop playback — see `PluginVisualizerActions.setPlaying`. */
   onSetPlaying: (playing: boolean) => void;
   /** Current playback rate; 1 is normal. Surfaced in the frame state so a deck's
@@ -186,6 +189,7 @@ export function VisualizerSlot({
   currentArtUrl,
   onSeek,
   onPlayQueueIndex,
+  onLoadQueueIndex,
   onSetPlaying,
   rate = 1,
   onSetRate,
@@ -199,8 +203,8 @@ export function VisualizerSlot({
   const liveRef = useRef({ queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate });
   liveRef.current = { queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate };
 
-  const actionsRef = useRef({ onSeek, onPlayQueueIndex, onSetPlaying, onSetRate });
-  actionsRef.current = { onSeek, onPlayQueueIndex, onSetPlaying, onSetRate };
+  const actionsRef = useRef({ onSeek, onPlayQueueIndex, onLoadQueueIndex, onSetPlaying, onSetRate });
+  actionsRef.current = { onSeek, onPlayQueueIndex, onLoadQueueIndex, onSetPlaying, onSetRate };
 
   /**
    * `queueRevision` lets a visualizer decide in O(1) whether to redo per-queue
@@ -306,6 +310,16 @@ export function VisualizerSlot({
       actions: {
         seek: (secs) => actionsRef.current.onSeek(secs),
         playQueueIndex: (index) => actionsRef.current.onPlayQueueIndex(index),
+        // Present only when the host supplied a handler, so a visualizer's
+        // `typeof host.actions.loadQueueIndex === "function"` check is the truth
+        // about whether this app can do it — the contract marks it optional for
+        // exactly that reason.
+        ...(onLoadQueueIndex
+          ? {
+              loadQueueIndex: (index: number, positionSecs?: number) =>
+                actionsRef.current.onLoadQueueIndex?.(index, positionSecs),
+            }
+          : {}),
         setPlaying: (playing) => actionsRef.current.onSetPlaying(playing),
         setRate: (r) => actionsRef.current.onSetRate?.(clampRate(r)),
       },

@@ -144,6 +144,24 @@ export interface PluginVisualizerActions {
   /** Play the queue entry at `index`. Out-of-range is ignored by the host. */
   playQueueIndex(index: number): void;
   /**
+   * Make the queue entry at `index` current WITHOUT starting it, cued to
+   * `positionSecs`. Out-of-range is ignored by the host.
+   *
+   * The counterpart to `playQueueIndex`, for a visualizer that places a PLAYHEAD
+   * rather than starting a track. A deck moving its tonearm over a paused record
+   * is doing the first: it is saying where the needle is, not that the music
+   * should start — and with only `playQueueIndex` it had to start the track and
+   * immediately stop it again, blipping audio every time.
+   *
+   * "Loaded but never played" is an ordinary state for the host: a restored
+   * track sits in it on every launch, and the next play resolves and starts from
+   * `positionSecs` as if it had been seeked there.
+   *
+   * Optional on the interface because a host older than this cannot do it —
+   * check before calling and fall back to `playQueueIndex`.
+   */
+  loadQueueIndex?(index: number, positionSecs?: number): void;
+  /**
    * Start or stop playback.
    *
    * A deliberate, narrow exception to "no transport" — added for the physical
