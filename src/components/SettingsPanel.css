@@ -105,6 +105,15 @@
   border-radius: 50%;
   background: var(--accent);
 }
+/* An update is ready — the long-standing default. */
+.update-badge--available {
+  background: var(--accent);
+}
+/* The updater failed. Colour alone can't be the signal (both the dot's
+   meanings are "look here"), so the badge also carries a title/aria-label. */
+.update-badge--error {
+  background: var(--error);
+}
 
 /* Settings view — inline layout with horizontal tabs */
 .settings-view {
@@ -257,6 +266,74 @@
 .update-up-to-date {
   font-size: var(--fs-sm);
   color: var(--success);
+}
+
+/* Update download progress (replaces the old static "Downloading…" text). */
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+}
+.update-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.update-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s var(--ease-out-quart);
+}
+/* No Content-Length: sweep instead of claiming a percentage we don't have. */
+.update-progress-fill.is-indeterminate {
+  width: 35%;
+  animation: update-progress-sweep 1.2s ease-in-out infinite;
+}
+@keyframes update-progress-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+.update-progress-text {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Persistent updater failure notice. */
+.update-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--error);
+  border-radius: var(--ds-radius);
+  background: rgba(var(--bg-primary-rgb), 0.4);
+}
+.update-error-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--error);
+}
+.update-error-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.update-error-message {
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+.update-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .update-available {
   background: var(--bg-primary);

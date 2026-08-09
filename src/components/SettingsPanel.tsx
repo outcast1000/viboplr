@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
+import type { DiagnosticContext } from "../utils/diagnosticReport";
 import type { PluginState } from "../types/plugin";
 import type { EngineComponentStatus } from "../playback/nativeEngine";
 import type { InstallProgress } from "../hooks/useDependencies";
@@ -609,6 +610,76 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
+function formatMb(bytes: number): string {
+  return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
+/**
+ * Live download progress for the app update. The backend has always streamed
+ * `app-update-progress`, but the panel used to render a static "Downloading…"
+ * — so a 50 MB download over a slow link was indistinguishable from a hang.
+ * `total` is 0 until the first chunk carries a Content-Length, and some
+ * servers never send one, so the indeterminate case stays supported.
+ */
+function UpdateProgress({ progress }: { progress: { downloaded: number; total: number } | null }) {
+  const total = progress?.total ?? 0;
+  const downloaded = progress?.downloaded ?? 0;
+  const pct = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : null;
+
+  return (
+    <div className="update-progress" role="status" aria-live="polite">
+      <div className="update-progress-bar">
+        <div
+          className={`update-progress-fill ${pct === null ? "is-indeterminate" : ""}`}
+          style={pct === null ? undefined : { width: `${pct}%` }}
+        />
+      </div>
+      <span className="update-progress-text">
+        {pct === null
+          ? `Downloading… ${formatMb(downloaded)}`
+          : `Downloading… ${pct}% · ${formatMb(downloaded)} of ${formatMb(total)}`}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Persistent failure notice for the updater. Deliberately not a toast: a toast
+ * auto-dismisses after 4.5s, and the failure a user most needs to see is the
+ * one from a background check they weren't watching.
+ */
+function UpdateErrorRow({
+  error,
+  onRetry,
+  onDismiss,
+  onReport,
+}: {
+  error: NonNullable<UpdateState["error"]>;
+  onRetry: () => void;
+  onDismiss: () => void;
+  /** Handed the narrowed error so the caller doesn't re-derive it from nullable state. */
+  onReport: (error: NonNullable<UpdateState["error"]>) => void;
+}) {
+  return (
+    <div className="update-error" role="alert">
+      <svg className="update-error-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      <div className="update-error-body">
+        <span className="update-error-message">{error.message}</span>
+        <div className="update-error-actions">
+          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onRetry}>Try again</button>
+          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => openUrl(LINKS.downloadPage).catch(console.error)}>
+            Download from viboplr.com
+          </button>
+          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => onReport(error)}>Report a problem</button>
+          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onDismiss}>Dismiss</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DependenciesSection({
   dependencies,
   autoUpdateManagedDeps,
@@ -1072,6 +1143,7 @@ interface SettingsPanelProps {
   updateState: UpdateState;
   onCheckForUpdates: () => void;
   onInstallUpdate: () => void;
+  onDismissUpdateError: () => void;
   onRunSetupWizard?: () => void;
   backendTimings: TimingEntry[];
   frontendTimings: TimingEntry[];
@@ -1086,7 +1158,8 @@ interface SettingsPanelProps {
   debugMode: boolean;
   onDebugModeChange: (enabled: boolean) => void;
   /** Opens the diagnostic report builder (Settings → Debug → Problems). */
-  onReportProblem: () => void;
+  /** Called with no argument for a plain bug report, or with a prefilled context. */
+  onReportProblem: (report?: { title: string; context: DiagnosticContext }) => void;
   /** Opens the hidden Song Quiz game (supporter easter egg). */
   onOpenQuiz: () => void;
   devPluginPath: string | null;
@@ -1193,6 +1266,7 @@ export function SettingsPanel({
   updateState,
   onCheckForUpdates,
   onInstallUpdate,
+  onDismissUpdateError,
   onRunSetupWizard,
   backendTimings,
   frontendTimings,
@@ -1352,7 +1426,7 @@ export function SettingsPanel({
                         </button>
                       )}
                       {updateState.downloading && (
-                        <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>Downloading...</span>
+                        <UpdateProgress progress={updateState.progress} />
                       )}
                       {!updateState.available && !updateState.downloading && (
                         <>
@@ -1382,6 +1456,27 @@ export function SettingsPanel({
                         </button>
                       )}
                     </div>
+                    {updateState.error && (
+                      <UpdateErrorRow
+                        error={updateState.error}
+                        onRetry={updateState.error.stage === "install" ? onInstallUpdate : onCheckForUpdates}
+                        onDismiss={onDismissUpdateError}
+                        onReport={(err) => onReportProblem({
+                          title: "Update failed",
+                          context: {
+                            title: "Update failure",
+                            lines: [
+                              `Stage: ${err.stage}`,
+                              `Message: ${err.message}`,
+                              `Detail: ${err.detail}`,
+                              `Target version: ${err.version ?? updateState.available?.version ?? "unknown"}`,
+                              `Installed version: ${appVersion}`,
+                              `Channel: ${betaUpdates ? "beta" : "stable"}`,
+                            ],
+                          },
+                        })}
+                      />
+                    )}
                   </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
@@ -1796,7 +1891,7 @@ export function SettingsPanel({
                       <span className="settings-label">Report a problem</span>
                       <span className="settings-description">Collect version, engine, plugin and log details into a report you can review and paste into a GitHub issue</span>
                     </div>
-                    <button className="ds-btn ds-btn--secondary" onClick={onReportProblem}>Create report</button>
+                    <button className="ds-btn ds-btn--secondary" onClick={() => onReportProblem()}>Create report</button>
                   </div>
                 </div>
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Mode</div>

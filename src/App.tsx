@@ -57,7 +57,7 @@ import { useImageCache } from "./hooks/useImageCache";
 import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
-import { useAppUpdater } from "./hooks/useAppUpdater";
+import { useAppUpdater, updateBadgeFor } from "./hooks/useAppUpdater";
 import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
@@ -3951,7 +3951,7 @@ function App() {
           library.setSelectedTag(null);
           library.setSelectedTrack(null);
         }}
-        updateAvailable={updater.updateState.available !== null}
+        updateBadge={updateBadgeFor(updater.updateState)}
         extensionUpdateCount={extensionsHook.updateCount}
         pluginNavItems={plugins.sidebarItems}
         badgeMap={mergedBadgeMap}
@@ -4597,6 +4597,7 @@ function App() {
               updateState={updater.updateState}
               onCheckForUpdates={updater.handleCheckForUpdates}
               onInstallUpdate={updater.handleInstallUpdate}
+              onDismissUpdateError={updater.dismissUpdateError}
               onRunSetupWizard={() => setShowOnboarding(true)}
               backendTimings={backendTimings}
               frontendTimings={getTimingEntries()}
@@ -4612,7 +4613,7 @@ function App() {
               onDebugLoggingChange={handleDebugLoggingChange}
               debugMode={debugMode}
               onDebugModeChange={handleDebugModeChange}
-              onReportProblem={() => setReportProblem({ title: "Bug report", context: null })}
+              onReportProblem={(report) => setReportProblem(report ?? { title: "Bug report", context: null })}
               devPluginPath={devPluginPath}
               onDevPluginPathChange={handleDevPluginPathChange}
               onReloadPlugins={plugins.reloadAllPlugins}

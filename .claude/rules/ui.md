@@ -123,7 +123,7 @@ Navigation items (top to bottom):
 - **Now Playing** (Cmd+3) — lean-back view of the current track (`NowPlayingView`). Its sidebar icon reflects playback state: a spinning disc (`SpinningDisc`) for audio, a `FilmStrip` for video, both frozen when paused.
 - Playlists
 - Plugin sidebar items (below separator)
-- Bottom: Collections, Extensions (with update count badge), Settings (with update badge)
+- Bottom: Collections, Extensions (with update count badge), Settings (with update badge — one dot, `accent` when an update is ready and `error` when the last update attempt failed; `updateBadge` prop, derived by `updateBadgeFor` in `useAppUpdater`. Colour can't be the only signal, so the dot carries a `title`/`aria-label` naming its state.)
 
 App startup always lands on Home. The previously-selected view is **not** persisted — `view` is neither read nor written from the app store, and selected entities (artist/album/tag) are not restored on startup either. Within a session, opening an entity navigates to its detail page as usual.
 

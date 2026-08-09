@@ -1,10 +1,17 @@
 import { useRef, useEffect, type ReactNode } from "react";
 import type { View } from "../types";
 import type { PluginSidebarItem, PluginBadge } from "../types/plugin";
+import type { UpdateBadge } from "../hooks/useAppUpdater";
 import { SpinningDisc } from "./SpinningDisc";
 import { track as trackTelemetry } from "../telemetry";
 import { FilmReel } from "./FilmReel";
 import "./Sidebar.css";
+
+/** A bare coloured dot means nothing on its own — every state names itself. */
+const UPDATE_BADGE_LABEL: Record<UpdateBadge, string> = {
+  available: "An update is available",
+  error: "The last update attempt failed",
+};
 
 const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
@@ -68,7 +75,13 @@ interface SidebarProps {
   onShowSettings: () => void;
   onShowExtensions?: () => void;
   extensionUpdateCount?: number;
-  updateAvailable: boolean;
+  /**
+   * Settings dot. One dot, colour-coded by what it wants: an update is ready
+   * (accent) or the updater failed (error). `error` wins when both hold — a
+   * failure is the more actionable of the two, and the update stays available
+   * behind it either way.
+   */
+  updateBadge?: UpdateBadge | null;
   pluginNavItems?: PluginSidebarItem[];
   onPluginView?: (pluginId: string, viewId: string) => void;
   badgeMap?: Map<string, PluginBadge>;
@@ -82,7 +95,7 @@ export function Sidebar({
   collapsed,
   onShowHome, onShowSearch, onShowHistory, onShowNowPlaying, onShowPlaylists, onShowCollections, onShowSettings, onShowExtensions,
   extensionUpdateCount,
-  updateAvailable,
+  updateBadge,
   pluginNavItems,
   onPluginView,
   badgeMap,
@@ -189,7 +202,14 @@ export function Sidebar({
         </button>
         <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={() => navClick("settings", onShowSettings)} title={collapsed ? "Settings" : undefined}>
           <span className="nav-btn-label">{icons.settings} {!collapsed && "Settings"}</span>
-          {updateAvailable && <span className="update-badge" />}
+          {updateBadge && (
+            <span
+              className={`update-badge update-badge--${updateBadge}`}
+              role="status"
+              aria-label={UPDATE_BADGE_LABEL[updateBadge]}
+              title={UPDATE_BADGE_LABEL[updateBadge]}
+            />
+          )}
         </button>
       </div>
     </aside>

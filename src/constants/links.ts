@@ -5,6 +5,8 @@ export const LINKS = {
   skinsPage: "https://viboplr.com/skins.html",
   issues: "https://github.com/outcast1000/viboplr/issues",
   supportPage: "https://viboplr.com/support.html",
+  // Manual-download fallback, offered when the in-app updater fails.
+  downloadPage: "https://viboplr.com/download.html",
   // Topic explainers; HelpLink appends "#<anchor>". Anchors on that page are
   // add-only — older app builds link into the live site.
   helpPage: "https://viboplr.com/help.html",

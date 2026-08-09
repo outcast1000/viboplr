@@ -111,6 +111,60 @@ pub async fn app_update_check(
     Ok(meta)
 }
 
+/// How many times a transient download failure is retried before the user ever
+/// sees it. GitHub's release CDN answers 503 for a window after a release's
+/// assets are uploaded, and intermittently under load — that is a
+/// wait-and-succeed condition, not something worth surfacing as an error.
+const DOWNLOAD_ATTEMPTS: u32 = 3;
+
+/// Transient = worth retrying. A signature or decode failure is deterministic
+/// (and, for minisign, a security signal), so it fails on the first attempt
+/// instead of being tried three times.
+fn is_transient(e: &tauri_plugin_updater::Error) -> bool {
+    use tauri_plugin_updater::Error;
+    matches!(e, Error::Network(_) | Error::Reqwest(_) | Error::Io(_))
+}
+
+/// Download (with retries) then install. Split out of the command so the
+/// command itself only owns the take/restore of the pending update.
+async fn download_and_install(
+    app: &AppHandle,
+    update: &tauri_plugin_updater::Update,
+) -> Result<(), String> {
+    for attempt in 1..=DOWNLOAD_ATTEMPTS {
+        // Counted per attempt: a carried-over total would run past `total` and
+        // drive the frontend's progress bar past 100% on a retry.
+        let mut downloaded: u64 = 0;
+        let progress_app = app.clone();
+        let result = update
+            .download(
+                move |chunk, total| {
+                    downloaded += chunk as u64;
+                    let _ = progress_app.emit(
+                        "app-update-progress",
+                        serde_json::json!({ "downloaded": downloaded, "total": total }),
+                    );
+                },
+                || {},
+            )
+            .await;
+
+        match result {
+            Ok(bytes) => return update.install(bytes).map_err(|e| e.to_string()),
+            Err(e) => {
+                if !is_transient(&e) || attempt == DOWNLOAD_ATTEMPTS {
+                    return Err(e.to_string());
+                }
+                log::warn!("app-update: download attempt {attempt} failed ({e}); retrying");
+                tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+            }
+        }
+    }
+    // Unreachable: the final attempt always returns above. Kept as a plain Err
+    // rather than `unreachable!()` so a future edit can't turn it into a panic.
+    Err("update download failed".to_string())
+}
+
 /// Download + install the update found by the last `app_update_check`.
 /// Progress streams via the `app-update-progress` event; the frontend
 /// relaunches on success (same contract as the old JS-plugin flow).
@@ -119,27 +173,24 @@ pub async fn app_update_install(
     app: AppHandle,
     state: State<'_, super::AppState>,
 ) -> Result<(), String> {
+    // Taken rather than borrowed so a concurrent `app_update_check` isn't
+    // blocked behind a 50 MB download.
     let update = state
         .pending_app_update
         .lock()
         .await
         .take()
         .ok_or("no pending update — run app_update_check first")?;
-    let progress_app = app.clone();
-    let mut downloaded: u64 = 0;
-    update
-        .download_and_install(
-            move |chunk, total| {
-                downloaded += chunk as u64;
-                let _ = progress_app.emit(
-                    "app-update-progress",
-                    serde_json::json!({ "downloaded": downloaded, "total": total }),
-                );
-            },
-            || {},
-        )
-        .await
-        .map_err(|e| e.to_string())
+
+    let result = download_and_install(&app, &update).await;
+
+    if result.is_err() {
+        // A retry needs something to retry. Dropping the pending update on
+        // failure made the frontend's "Try again" fail with "no pending
+        // update" until the user manually re-ran the check.
+        *state.pending_app_update.lock().await = Some(update);
+    }
+    result
 }
 
 #[cfg(test)]
