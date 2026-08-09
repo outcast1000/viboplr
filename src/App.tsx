@@ -4353,6 +4353,8 @@ function App() {
                     onSetPlaying={handleVisualizerSetPlaying}
                     rate={playback.playbackRate}
                     onSetRate={playback.setPlaybackRate}
+                    volume={playback.volume}
+                    muted={playback.muted}
                   />
                 ) : undefined
               }
@@ -5449,6 +5451,8 @@ function App() {
                 onSetPlaying={handleVisualizerSetPlaying}
                 rate={playback.playbackRate}
                 onSetRate={playback.setPlaybackRate}
+                volume={playback.volume}
+                muted={playback.muted}
               />
             ) : nowPlayingArtSrc ? (
               <img className="audio-fs-art" src={nowPlayingArtSrc} alt="" />

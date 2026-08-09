@@ -240,7 +240,53 @@ export interface PluginVisualizerHost {
   /** Skin changed — re-read tokens and repaint anything colour-baked.
    *  Returns an unsubscriber. */
   onSkinChange(handler: () => void): () => void;
+  /**
+   * Audio output, for a visualizer that makes noises of its own.
+   *
+   * Optional, and absent unless the host can honour the terms below — so
+   * `typeof host.audio` is the truth about whether this app can do it, the same
+   * way `actions.loadQueueIndex` is for cueing without playing.
+   *
+   * Why the plugin can't just build its own: the sandbox (`usePlugins.ts`) is a
+   * frozen, null-prototype object with an explicit allowlist and no
+   * `AudioContext` in it. Reaching one via the shadow root's `ownerDocument`
+   * would work and is exactly the kind of thing that stops working when the
+   * sandbox is tightened. More importantly it would be WRONG: a context of the
+   * plugin's own connects to the speakers directly, so its noises would ignore
+   * the app's volume slider, survive mute, and keep playing over a paused
+   * track. Granting the capability and owning the mix is the only version of
+   * this that behaves.
+   */
+  readonly audio?: PluginVisualizerAudio;
   readonly actions: PluginVisualizerActions;
+}
+
+/**
+ * Somewhere to make a sound, and the one node it may make it into.
+ *
+ * `destination` is NOT `context.destination`. It is a host-owned gain node
+ * tracking the app's volume and mute, so a visualizer's noises move with the
+ * transport the user is already operating. Connect to it; connecting to
+ * `context.destination` bypasses that and is a bug.
+ *
+ * This matters more than it looks on the native mpv engine, which is the
+ * default: music leaves through mpv while WebAudio leaves through the webview,
+ * so the two are genuinely independent outputs. Without the host mirroring its
+ * own volume onto this node, muting the app would silence the music and leave
+ * the visualizer clicking away to itself.
+ */
+export interface PluginVisualizerAudio {
+  /**
+   * Shared across every visualizer instance — an AudioContext is a real audio
+   * device, not a cheap object, and browsers cap how many can exist.
+   *
+   * Created on first access rather than at mount: a context built before any
+   * user gesture starts suspended, and one built for a visualizer that never
+   * makes a sound is a device opened for nothing.
+   */
+  readonly context: AudioContext;
+  /** Connect voices here. Host-owned; do not disconnect what you did not make. */
+  readonly destination: AudioNode;
 }
 
 /**

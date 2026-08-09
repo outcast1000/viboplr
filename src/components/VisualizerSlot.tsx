@@ -147,6 +147,16 @@ export interface VisualizerSlotProps {
   /** Set the playback rate — see `PluginVisualizerActions.setRate`. Clamped here
    *  before it reaches the host. */
   onSetRate?: (rate: number) => void;
+  /**
+   * App volume (0..1) and mute, mirrored onto the visualizer audio bus so a
+   * visualizer's own noises move with the transport the user is operating.
+   *
+   * Omit both and the bus sits at full — correct for a caller that has no
+   * volume of its own to speak for, wrong for the now-playing surfaces, which
+   * do.
+   */
+  volume?: number;
+  muted?: boolean;
   className?: string;
 }
 
@@ -154,6 +164,73 @@ export interface VisualizerSlotProps {
  *  2.34x, which is the fastest thing a deck can honestly want. */
 export const MIN_VISUALIZER_RATE = 0.25;
 export const MAX_VISUALIZER_RATE = 4;
+
+/**
+ * The one audio device visualizers share, and the one node they may play into.
+ *
+ * MODULE-LEVEL, not per slot. An AudioContext is a real output device — browsers
+ * cap how many can exist and each costs a hardware stream — and two slots can be
+ * mounted at once (the fullscreen overlay is dropped while it's up precisely
+ * because both would otherwise run). One device, one trim, every voice through
+ * it.
+ *
+ * BUILT ON FIRST REQUEST, never at mount. A context constructed before any user
+ * gesture starts `suspended` and plays nothing, and one constructed for a
+ * visualizer that never makes a sound is a device opened for the sake of it —
+ * which on some machines spins up an audio path that was asleep.
+ */
+let sharedAudio: { context: AudioContext; destination: GainNode } | null = null;
+
+/** Last volume/mute the app told us, so a bus built later opens at the right
+ *  level instead of at full and ducking a frame afterwards. */
+let lastBusLevel = 1;
+
+export function busGain(volume: number, muted: boolean): number {
+  if (muted) return 0;
+  return Math.min(1, Math.max(0, Number.isFinite(volume) ? volume : 1));
+}
+
+/**
+ * The shared bus, created on demand.
+ *
+ * Returns null if the platform has no Web Audio at all, which keeps the
+ * capability honestly absent rather than throwing inside a plugin's mount.
+ */
+function getSharedAudio(): { context: AudioContext; destination: GainNode } | null {
+  if (sharedAudio) return sharedAudio;
+  const Ctor = window.AudioContext ?? (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!Ctor) return null;
+  try {
+    const context = new Ctor();
+    const destination = context.createGain();
+    destination.gain.value = lastBusLevel;
+    destination.connect(context.destination);
+    sharedAudio = { context, destination };
+    return sharedAudio;
+  } catch (e) {
+    console.error("Failed to create the visualizer audio bus:", e);
+    return null;
+  }
+}
+
+/**
+ * Mirror the app's volume onto the bus.
+ *
+ * Load-bearing on the native mpv engine, which is the default: music leaves
+ * through mpv and WebAudio leaves through the webview, so they are independent
+ * outputs. Without this, muting the app would silence the music and leave a
+ * deck clicking to itself.
+ */
+function setBusLevel(volume: number, muted: boolean) {
+  lastBusLevel = busGain(volume, muted);
+  if (!sharedAudio) return;
+  const { context, destination } = sharedAudio;
+  const t = context.currentTime;
+  destination.gain.cancelScheduledValues(t);
+  destination.gain.setValueAtTime(destination.gain.value, t);
+  // Ramped, not stepped: a gain jump on a running noise bed is a click.
+  destination.gain.linearRampToValueAtTime(lastBusLevel, t + 0.05);
+}
 
 /**
  * Clamp a rate a plugin asked for.
@@ -193,9 +270,16 @@ export function VisualizerSlot({
   onSetPlaying,
   rate = 1,
   onSetRate,
+  volume = 1,
+  muted = false,
   className,
 }: VisualizerSlotProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Straight through on every render rather than in an effect: this is a plain
+  // assignment onto an audio node, not React state, and an effect would land a
+  // frame late — which on a mute is a frame of noise the user asked not to hear.
+  setBusLevel(volume, muted);
 
   // Live values the frame loop reads without re-subscribing. The loop runs
   // outside React's render cycle on purpose: a 60fps setState would re-render
@@ -306,6 +390,20 @@ export function VisualizerSlot({
           const i = skinHandlers.indexOf(h);
           if (i >= 0) skinHandlers.splice(i, 1);
         };
+      },
+      // A GETTER, so the device is opened by the first visualizer that actually
+      // asks for it and never by one that only draws. `host.audio` itself is
+      // always present here; what it exposes is built on read.
+      get audio() {
+        const bus = getSharedAudio();
+        if (!bus) return undefined;
+        // An autoplay policy can leave the context suspended however it was
+        // built. Resuming on each read is cheap when it is already running, and
+        // a visualizer only reads this from inside a mount or a gesture.
+        if (bus.context.state === "suspended") {
+          bus.context.resume().catch((e) => console.error("Failed to resume the visualizer audio bus:", e));
+        }
+        return { context: bus.context, destination: bus.destination };
       },
       actions: {
         seek: (secs) => actionsRef.current.onSeek(secs),

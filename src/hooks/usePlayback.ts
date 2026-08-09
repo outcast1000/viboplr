@@ -1808,6 +1808,18 @@ export function usePlayback(
     // would resume whatever this element was still holding.
     [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
     setPlaying(false);
+    // NOT stopped any more. `stopped` means "no position — send the arm home",
+    // and a track loaded at a position is the opposite of that. It self-clears on
+    // the rising edge of `playing`, which a load deliberately never produces, so
+    // without this it could only be cleared by playback actually resuming.
+    //
+    // That is what made cueing a finished queue look broken: the queue ends,
+    // `handleStop` sets this, the visualizer drops its needle somewhere and the
+    // load lands correctly — and the surface still reads "stopped", so a deck
+    // parks its arm again over a track it has just been told is current and
+    // cued. Launch already agrees: a restored track sits in exactly this
+    // loaded-but-never-played state with `stopped` false.
+    setStopped(false);
     setCurrentTrack(track);
     setCurrentAssetUrl(null);
     setPendingSeek(Math.max(0, positionSecs));
