@@ -7,6 +7,7 @@ import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
 import { parseLrc, currentSyncedLineIndex } from "../utils/lyrics";
+import { resolveNowPlayingArt } from "../utils/nowPlayingArt";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { TrackArtFallback } from "./TrackArtFallback";
 import "./NowPlayingView.css";
@@ -19,6 +20,13 @@ interface NowPlayingViewProps {
       so the async cache-resolve re-render is picked up, same as HomeShelf/cards. */
   getAlbumImage: (name: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
+  /** Has that lookup settled? The getters above return `null` for "no image" and
+      "still looking" alike, and this view can't treat the two the same: art
+      decides the whole surface regime (blurred backdrop + always-light text vs
+      skin gradient + skin text), so an in-flight lookup read as "no art" commits
+      to the wrong regime and then flips — on a light skin the text inverts. */
+  isAlbumImageResolved?: (name: string, artistName?: string | null) => boolean;
+  isArtistImageResolved?: (name: string) => boolean;
   /** Seek playback to an absolute position (seconds) — wired to tap-to-seek on synced lines. */
   onSeek?: (secs: number) => void;
   /** A plugin visualizer filling the `nowplaying` slot. When present it takes
@@ -207,6 +215,8 @@ export function NowPlayingView({
   lyrics,
   getAlbumImage,
   getArtistImage,
+  isAlbumImageResolved,
+  isArtistImageResolved,
   onSeek,
   visualizerSlot,
   onOpenVisualizerPicker,
@@ -241,17 +251,19 @@ export function NowPlayingView({
     return () => { cancelled = true; };
   }, [track?.title, track?.artist_name, track?.album_title]);
 
-  // Resolve art via the image-provider plugin chain: explicit url → album → artist.
-  let albumImageSrc: string | null = null;
-  if (track && !isVideo) {
-    if (track.image_url) {
-      albumImageSrc = resolveImageSrc(track.image_url);
-    } else {
-      const albumPath = track.album_title ? getAlbumImage(track.album_title, track.artist_name) : null;
-      const artistPath = !albumPath && track.artist_name ? getArtistImage(track.artist_name) : null;
-      albumImageSrc = resolveImageSrc(albumPath ?? artistPath);
-    }
-  }
+  // Resolve art via the image-provider plugin chain: explicit url → album →
+  // artist. `pending` distinguishes "no art" from "still looking", which this
+  // view has to act on — see resolveNowPlayingArt.
+  const art = track && !isVideo
+    ? resolveNowPlayingArt(track, {
+        getAlbumImage,
+        getArtistImage,
+        isAlbumImageResolved,
+        isArtistImageResolved,
+      })
+    : { path: null, pending: false };
+  const albumImageSrc = resolveImageSrc(art.path);
+  const artPending = art.pending;
 
   // Keyed on the track identity so a track change remounts the line and replays
   // the entrance animation (it stays put across position ticks).
@@ -287,6 +299,11 @@ export function NowPlayingView({
   // Audio: blurred-art backdrop + sharp art + centered karaoke/plain lyrics,
   // with an up-next peek on the side.
   const hasArt = !!albumImageSrc;
+  // The no-art surface is a commitment — skin gradient, skin text colors — so it
+  // waits for a settled answer. While a lookup is out the art regime holds, and
+  // `--np-backdrop-base` is the dark layer its light text sits on until the
+  // backdrop itself arrives.
+  const artRegime = hasArt || artPending;
   const hasLyrics = lyrics.status === "loaded" && !!lyrics.data;
   // One flag drives the layout: "no lyrics on screen", whether because the
   // track has none or because the user collapsed them. The art column — and so
@@ -294,7 +311,7 @@ export function NowPlayingView({
   const showLyrics = hasLyrics && !lyricsHidden;
   return (
     <div
-      className={`now-playing-view np-audio${hasArt ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
+      className={`now-playing-view np-audio${artRegime ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
       style={style}
     >
       {/* Every view action is a visible button. There is no ⋯ and no right-click
@@ -387,6 +404,11 @@ export function NowPlayingView({
               className="np-xfade--art"
               render={(src) => <img className="np-art" src={src} alt="" />}
             />
+          ) : artPending ? (
+            // An empty frame, not the initials fallback: the lookup may still
+            // come back with a cover, and initials that appear for one frame and
+            // are then replaced read as a glitch rather than as a placeholder.
+            <div className="np-art np-art--pending" aria-hidden="true" />
           ) : (
             <div key={track.key} className="np-art np-art--placeholder np-enter">
               <TrackArtFallback track={track} size={72} />

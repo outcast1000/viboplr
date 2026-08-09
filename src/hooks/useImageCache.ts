@@ -33,6 +33,16 @@ export function imageUrlWithVersion(path: string | null, version: number): strin
 
 export interface UseImageCacheReturn {
   getImage: (name: string, artistName?: string | null) => string | null;
+  /**
+   * Has this key's lookup finished? `getImage` returns `null` for both "there is
+   * no image" and "the lookup is still in flight", which is fine for an <img>
+   * that just appears late — but not for a consumer that changes its *layout or
+   * text regime* on the answer, since it would commit to "no image" and then
+   * flip. A settled miss is stored as an explicit `null`, so key presence is the
+   * distinction. Reads the ref, so it's safe to call during render; consumers
+   * re-render when the cache state lands.
+   */
+  isResolved: (name: string, artistName?: string | null) => boolean;
   invalidate: (name: string, artistName?: string | null) => void;
   requestFetch: (name: string, artistName?: string | null) => void;
   clearAllFailures: () => void;
@@ -93,6 +103,10 @@ export function useImageCache(
       });
 
     return null;
+  }, [kind]);
+
+  const isResolved = useCallback((name: string, artistName?: string | null): boolean => {
+    return imageCacheKey(kind, name, artistName) in cacheRef.current;
   }, [kind]);
 
   const invalidate = useCallback((name: string, artistName?: string | null) => {
@@ -174,5 +188,5 @@ export function useImageCache(
     return combineUnlisten(stopReady, stopError);
   }, [kind, bumpVersion]);
 
-  return { getImage, invalidate, requestFetch, clearAllFailures, cache };
+  return { getImage, isResolved, invalidate, requestFetch, clearAllFailures, cache };
 }

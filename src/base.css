@@ -46,6 +46,14 @@
   --overlay-base: 255, 255, 255;
   --overlay-inverse: 0, 0, 0;
 
+  /* Base under the Now Playing view's blurred album backdrop. That view switches
+     to always-light text whenever the track has art, so the layer beneath the
+     backdrop has to be dark on its own — an album image lookup is an async round
+     trip, and on a light skin a bare --bg-primary underneath would leave white
+     text on a white screen until it lands. Independent from --bg-primary for the
+     same reason --video-bg is; skinnable via customCSS. */
+  --np-backdrop-base: #101014;
+
   /* Detail-page hero scrim & on-image text. Skinnable via customCSS — defaults
      use the skin's now-playing-bg (a dark accent that matches the chrome) for
      the scrim and pure white for text since the scrim guarantees a dark base. */

@@ -43,6 +43,10 @@
   --np-text-tertiary: var(--hero-text-tertiary);
   --np-text-shadow: var(--hero-text-shadow);
   --np-text-shadow-sm: var(--hero-text-shadow-sm);
+  /* Hover chip for the corner buttons. Dark here for the same reason the text is
+     light: the surface is scrimmed album art, whatever the skin. The skin's own
+     --bg-hover would be a pale block under a white glyph on a light skin. */
+  --np-btn-hover-bg: rgba(0, 0, 0, 0.45);
 }
 .np-audio--noart {
   background: linear-gradient(160deg, var(--accent-dim), var(--bg-primary) 70%);
@@ -51,6 +55,16 @@
   --np-text-tertiary: var(--text-tertiary);
   --np-text-shadow: none;
   --np-text-shadow-sm: none;
+  /* Skin surface, so the skin's own hover is the right chip again. */
+  --np-btn-hover-bg: var(--bg-hover);
+}
+
+/* Base under the blurred backdrop. The art regime is entered as soon as a lookup
+   is outstanding — before there is anything to blur — so the light text needs a
+   dark layer of its own for that moment; `--bg-primary` would be white-on-white
+   on a light skin. See --np-backdrop-base in base.css. */
+.np-audio:not(.np-audio--noart) {
+  background: var(--np-backdrop-base);
 }
 
 .np-backdrop {
@@ -161,6 +175,13 @@
   border-radius: var(--ds-radius-card);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
   background: var(--bg-secondary);
+}
+
+/* Art lookup still out: hold the frame, show nothing in it. Skin-independent for
+   the same reason the scrim is — this only ever sits on the dark art regime. */
+.np-art--pending {
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: none;
 }
 
 .np-art--placeholder {
@@ -422,14 +443,13 @@
   height: var(--np-vis-size);
 }
 
-/* ── View actions (fullscreen, ⋯) ─────────────── */
-/* Top-right, matching where the video theater puts its own controls
-   (VideoAmbientOverlay) — the same view in the same corner, so the control set
-   doesn't jump when the queue turns up a video.
-   The ⋯ is the discoverable way into the visualizer picker and the lyrics
-   toggle: right-clicking the view opens the same menu, but a right-click nobody
-   can see is not an affordance. Dim at rest so they stay out of a lean-back
-   view, legible the moment the pointer is anywhere in it. */
+/* ── View actions (visualizer, lyrics, fullscreen) ── */
+/* Top-right, the corner the video theater puts its own controls in
+   (VideoAmbientOverlay) — the same view, so the control set shouldn't move when
+   the queue turns up a video. Every action is a visible button; there is no ⋯
+   and no context menu behind them (see NowPlayingView.tsx). Dim at rest so they
+   stay out of a lean-back view, legible the moment the pointer is anywhere in
+   it. */
 .np-actions {
   position: absolute;
   top: 14px;
@@ -454,19 +474,25 @@
   cursor: pointer;
   transition: opacity 0.2s ease, background 0.15s ease, color 0.15s ease;
 }
-.now-playing-view:hover .np-action-btn {
+/* Pointer anywhere in the view lifts every button off its resting dim. This is a
+   *floor*, not a state, so the ancestor goes in `:where()` and contributes no
+   specificity. Written plainly, `.now-playing-view:hover .np-action-btn` (0,3,0)
+   out-specifies `.np-action-btn:hover` (0,2,0) below — and since the pointer has
+   to be in the view to reach a button, the button's own hover could then never
+   win, leaving it stuck at 0.85 while mere keyboard focus reached 1. */
+:where(.now-playing-view:hover) .np-action-btn {
   opacity: 0.85;
 }
 .np-action-btn:hover,
 .np-action-btn:focus-visible {
   opacity: 1;
-  background: var(--bg-hover);
+  background: var(--np-btn-hover-bg);
   color: var(--np-text-primary);
 }
 /* Toggle in its off state (lyrics hidden): dimmer than its siblings so the row
    reads at a glance, but still fully lit under the cursor — hence the :not()
    guards, which keep this from out-specifying the :hover rule above. */
-.now-playing-view:hover .np-action-btn.is-off:not(:hover):not(:focus-visible) {
+:where(.now-playing-view:hover) .np-action-btn.is-off:not(:hover):not(:focus-visible) {
   opacity: 0.45;
 }
 /* Nothing to toggle (a track with no lyrics). Dimmer again, and no hover
@@ -477,6 +503,8 @@
   background: transparent;
   color: var(--np-text-secondary);
 }
-.now-playing-view:hover .np-action-btn:disabled {
+/* Later than the :hover rule on purpose: the two tie at (0,2,0), and a disabled
+   button must not brighten under the cursor. */
+:where(.now-playing-view:hover) .np-action-btn:disabled {
   opacity: 0.22;
 }

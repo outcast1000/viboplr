@@ -4316,6 +4316,8 @@ function App() {
               lyrics={nowPlayingLyrics}
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
+              isAlbumImageResolved={albumImageCache.isResolved}
+              isArtistImageResolved={artistImageCache.isResolved}
               onSeek={playback.handleSeek}
               onOpenVisualizerPicker={openVisualizerPicker}
               onToggleLyrics={() => setNowPlayingLyricsHidden((v) => !v)}
