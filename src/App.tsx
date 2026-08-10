@@ -4248,6 +4248,7 @@ function App() {
             onShelfItemPlay={handleHomeShelfItemPlay}
             onShelfItemContextMenu={handleHomeShelfItemContextMenu}
             collectionCount={library.collections.length}
+            onboardingProfile={onboardingProfile}
             pluginViews={pluginViewList}
             onOpenPluginView={handleOpenPluginView}
             indexing={

@@ -15,6 +15,7 @@ import { HeroCarousel } from "./HeroCarousel";
 import { HomeShelf } from "./HomeShelf";
 import { CustomizeHomeModal } from "./CustomizeHomeModal";
 import { store } from "../store";
+import { seedProfileShelfVisibility, type OnboardingProfile } from "./onboardingSteps";
 import "./HomeView.css";
 
 export interface HomeViewProps {
@@ -52,6 +53,11 @@ export interface HomeViewProps {
   onConnectServer: () => void;
   onBrowseExtensions: () => void;
   onRunSetup: () => void;
+  /** Chosen usage profile, which may switch on the shelves that profile
+   *  implies (see `seedProfileShelfVisibility`). Defaults to "normal" before
+   *  restore, which seeds nothing — so an unrestored render is a no-op rather
+   *  than a wrong seed. */
+  onboardingProfile: OnboardingProfile;
 }
 
 export function HomeView(props: HomeViewProps) {
@@ -87,6 +93,25 @@ export function HomeView(props: HomeViewProps) {
       }
     })();
   }, []);
+
+  // Switch on the shelves the chosen usage profile implies — currently Video →
+  // "Recently added tracks", the only built-in shelf that surfaces videos at
+  // all (videos have no album_id, so "Recently added albums" can never show
+  // one, and it is the album shelf that is visible by default).
+  //
+  // This lives here rather than in the wizard's close handler because this
+  // component owns `visibility`: a store write from outside would be silently
+  // reverted by the persist effect below the moment the user next toggled
+  // anything, since that write would carry this component's stale state.
+  // Seeding through setVisibility keeps one owner and persists via the same
+  // path as a manual toggle. `seedProfileShelfVisibility` returns null when
+  // there is nothing to fill, and returning `v` unchanged makes React bail out
+  // of the update, so this can run on every profile change without churn.
+  useEffect(() => {
+    if (!configHydrated) return;
+    const profile = props.onboardingProfile;
+    setVisibility((v) => seedProfileShelfVisibility(profile, v) ?? v);
+  }, [configHydrated, props.onboardingProfile]);
 
   // Persist visibility
   useEffect(() => {

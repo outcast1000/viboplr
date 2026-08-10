@@ -46,6 +46,17 @@ export interface ProfilePreset {
   subsonicAutoExpand: boolean;
   /** Show the "Track video history" row on the playback step. */
   showVideoHistoryToggle: boolean;
+  /**
+   * Home shelves this profile switches on, by id. Applied by `HomeView` via
+   * `seedProfileShelfVisibility` — only to shelves the user has never set, so
+   * it seeds a default rather than overriding a choice.
+   *
+   * Ids are literals rather than imports from `useHome`: that module pulls in
+   * the store and tauri `invoke`, and this file is the wizard's pure-helper
+   * module. `profileShelves.test.ts` pins them against the real descriptor
+   * list so a renamed shelf can't rot into a silent no-op here.
+   */
+  profileShelves: string[];
 }
 
 export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
@@ -58,6 +69,7 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
     subsonicFirst: false,
     subsonicAutoExpand: false,
     showVideoHistoryToggle: false,
+    profileShelves: [],
   },
   video: {
     title: "Video collection",
@@ -68,6 +80,7 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
     subsonicFirst: false,
     subsonicAutoExpand: false,
     showVideoHistoryToggle: true,
+    profileShelves: ["builtin:recently-added-tracks"],
   },
   streaming: {
     title: "Streaming",
@@ -83,6 +96,7 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
     subsonicFirst: false,
     subsonicAutoExpand: false,
     showVideoHistoryToggle: false,
+    profileShelves: [],
   },
   server: {
     title: "Music server",
@@ -93,8 +107,32 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
     subsonicFirst: true,
     subsonicAutoExpand: true,
     showVideoHistoryToggle: false,
+    profileShelves: [],
   },
 };
+
+/**
+ * Home shelf visibility with this profile's shelves switched on — but only for
+ * shelves the user has never set either way. Returns `null` when there is
+ * nothing to change, so callers can skip the state update entirely.
+ *
+ * "Only where unset" is the whole contract. The wizard is re-runnable from
+ * Settings, and a profile that re-asserted its shelves on every run would
+ * silently undo a shelf the user had deliberately switched off. An absent key
+ * means "no opinion yet", which is the only case a default may fill.
+ */
+export function seedProfileShelfVisibility(
+  profile: OnboardingProfile,
+  visibility: Record<string, boolean>,
+): Record<string, boolean> | null {
+  const unset = PROFILE_PRESETS[profile].profileShelves.filter(
+    (id) => visibility[id] === undefined,
+  );
+  if (unset.length === 0) return null;
+  const next = { ...visibility };
+  for (const id of unset) next[id] = true;
+  return next;
+}
 
 /** "a", "a and b", "a, b and c" — for naming a handful of binaries in prose. */
 export function joinNames(names: string[]): string {
