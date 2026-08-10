@@ -166,6 +166,63 @@ export const MIN_VISUALIZER_RATE = 0.25;
 export const MAX_VISUALIZER_RATE = 4;
 
 /**
+ * Frames per second the host will drive a visualizer at, at most.
+ *
+ * A CEILING FOR PORTABILITY, NOT A WIN ON MACOS — and the difference was measured,
+ * so don't re-justify it as a saving. `requestAnimationFrame` is documented as
+ * firing at the display's refresh rate, but WKWebView on macOS drives it at 60Hz
+ * even on a 120Hz ProMotion panel: instrumented in the running app, raw rAF came
+ * back at 60.0Hz and the gate below passed 60.0 of those per second, so on that
+ * machine this constant skips nothing. Alternating A/B runs (deck on screen,
+ * playing, everything else held identical) put capped and uncapped within ~0.7
+ * CPU-s/min of each other, which is the noise floor of that rig.
+ *
+ * It stays because the platforms differ and the loop is the only place that can
+ * bound them: a webview that does honour a high-refresh display (WebView2 on a
+ * 120/144Hz monitor) would otherwise hand every visualizer 2-2.4x the frames for
+ * a picture nobody can tell apart. 60 is the ceiling of what reads as smooth for
+ * the motion these slots hold — a turning platter, a tracking arm, a meter.
+ *
+ * Capped centrally rather than left to each plugin for the same reason the loop
+ * itself lives here: a visualizer cannot be trusted to throttle itself, and one
+ * that tried would have no way to know what else is on screen.
+ *
+ * For scale, from the same rig: the vinyl deck's whole animation is ~1 CPU-s/min
+ * (~1.7% of one core) at 60fps, against ~7.8 CPU-s/min for the rest of the Now
+ * Playing view with the deck frozen. A visualizer's frame rate is not where that
+ * screen's cost lives.
+ */
+export const VISUALIZER_TARGET_FPS = 60;
+
+const FRAME_BUDGET_MS = 1000 / VISUALIZER_TARGET_FPS;
+
+/**
+ * Has enough time passed to draw again?
+ *
+ * **Deliberately lenient** — it draws once 75% of the budget has elapsed, not
+ * strictly at it. A display whose interval doesn't divide the budget would
+ * otherwise miss the deadline by a hair on every second frame and fall to *half*
+ * the target: at 144Hz two frames are 13.9ms, which a strict 16.67ms test
+ * rejects, so the third frame would carry it and the visual would run at 48fps
+ * instead of 60. Erring toward drawing lands such a display just above the
+ * target rather than well below it, and costs an exactly-120Hz panel nothing
+ * (8.3ms is still short, 16.7ms still passes).
+ *
+ * `lastMs === null` is the first frame of a mount, and a backwards `timeMs` is a
+ * new timeline (the loop resuming after the page was hidden) — both draw.
+ */
+export function shouldRenderFrame(
+  timeMs: number,
+  lastMs: number | null,
+  budgetMs: number = FRAME_BUDGET_MS,
+): boolean {
+  if (lastMs === null) return true;
+  const elapsed = timeMs - lastMs;
+  if (elapsed < 0) return true;
+  return elapsed >= budgetMs * 0.75;
+}
+
+/**
  * The one audio device visualizers share, and the one node they may play into.
  *
  * MODULE-LEVEL, not per slot. An AudioContext is a real output device — browsers
@@ -184,6 +241,67 @@ let sharedAudio: { context: AudioContext; destination: GainNode } | null = null;
 /** Last volume/mute the app told us, so a bus built later opens at the right
  *  level instead of at full and ducking a frame afterwards. */
 let lastBusLevel = 1;
+
+/**
+ * How many visualizer slots are mounted, so a bus nobody is holding can be put
+ * back to sleep.
+ *
+ * A running `AudioContext` is a live render thread waking every 128-sample
+ * quantum — ~2.7ms at 48kHz — whether or not anything is connected to it. Since
+ * the context is module-level and outlives every slot, one visit to Now Playing
+ * with a visualizer that reads `host.audio` used to leave that thread awake for
+ * the rest of the session, which on a laptop is heat for nothing.
+ */
+let mountedSlots = 0;
+
+/** Pending idle suspend, cancelled if a slot mounts inside the grace window. */
+let busIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Grace period before an unheld bus is suspended.
+ *
+ * Long enough to let a one-shot that was fired on the way out finish (a needle
+ * drop, a transport click), and to cover a slot handover — leaving fullscreen
+ * unmounts one instance and mounts the other, so the count legitimately touches
+ * zero for a tick and a suspend/resume pair there would be an audible seam.
+ */
+const BUS_IDLE_SUSPEND_MS = 2000;
+
+/** Claim the bus for a mounted slot. Never *builds* one — that stays on the
+ *  first `host.audio` read, so a visualizer that only draws opens no device. */
+function acquireAudioBus() {
+  mountedSlots += 1;
+  if (busIdleTimer !== null) {
+    clearTimeout(busIdleTimer);
+    busIdleTimer = null;
+  }
+  if (sharedAudio && sharedAudio.context.state === "suspended") {
+    sharedAudio.context
+      .resume()
+      .catch((e) => console.error("Failed to resume the visualizer audio bus:", e));
+  }
+}
+
+/**
+ * Release a slot's claim, suspending the bus once the last one is gone.
+ *
+ * Suspended, not closed: a closed context can never be reused, so the next visit
+ * would pay the device spin-up this is trying to avoid — and browsers cap how
+ * many contexts may exist, which is why there is one to begin with.
+ */
+function releaseAudioBus() {
+  mountedSlots = Math.max(0, mountedSlots - 1);
+  if (mountedSlots > 0) return;
+  if (busIdleTimer !== null) clearTimeout(busIdleTimer);
+  busIdleTimer = setTimeout(() => {
+    busIdleTimer = null;
+    if (mountedSlots > 0 || !sharedAudio) return;
+    if (sharedAudio.context.state !== "running") return;
+    sharedAudio.context
+      .suspend()
+      .catch((e) => console.error("Failed to suspend the idle visualizer audio bus:", e));
+  }, BUS_IDLE_SUSPEND_MS);
+}
 
 export function busGain(volume: number, muted: boolean): number {
   if (muted) return 0;
@@ -468,11 +586,17 @@ export function VisualizerSlot({
     let raf = 0;
     let alive = true;
     let framesFailed = 0;
+    /** Last frame actually handed to the plugin — see `shouldRenderFrame`. */
+    let lastFrameMs: number | null = null;
 
     const tick = (timeMs: number) => {
       if (!alive) return;
       raf = requestAnimationFrame(tick);
       if (!onScreen || document.hidden) return;
+      // A gap — off-screen, hidden, a slow frame — is always over budget, so the
+      // frame that brings the visualizer back is never the one withheld.
+      if (!shouldRenderFrame(timeMs, lastFrameMs)) return;
+      lastFrameMs = timeMs;
 
       const live = liveRef.current;
       if (mappedRef.current.src !== live.queue) {
@@ -537,6 +661,11 @@ export function VisualizerSlot({
       raf = requestAnimationFrame(tick);
     };
 
+    // Before `mount`, which is where a visualizer that makes noise reads
+    // `host.audio` — so a bus left suspended by the previous slot is awake by the
+    // time the plugin takes its reference to it.
+    acquireAudioBus();
+
     try {
       const maybe = visualizer.mount(host);
       if (maybe && typeof (maybe as Promise<void>).then === "function") {
@@ -563,6 +692,9 @@ export function VisualizerSlot({
         console.error(`[plugin:${pluginId}] visualizer destroy failed:`, e);
       }
       mountEl.remove();
+      // After `destroy`, so the plugin's own teardown ramps and stops still land
+      // on a running context rather than being frozen mid-fade.
+      releaseAudioBus();
     };
     // Re-mount only when the selected visualizer changes. Queue/transport
     // changes reach the running instance through refs and the frame loop.
