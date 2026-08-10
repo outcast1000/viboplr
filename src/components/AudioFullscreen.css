@@ -1,4 +1,4 @@
-/* Fullscreen presentation for a non-video track (visualizer or album art).
+/* Fullscreen presentation for a non-video track.
  *
  * Pinned rather than DOM-fullscreen — see AudioFullscreen.tsx for why.
  * z-index matches .video-container--native-fs (999) so the two fullscreen
@@ -8,44 +8,25 @@
   position: fixed;
   inset: 0;
   z-index: 999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-primary);
   overflow: hidden;
+  /* Base under the surface, which paints its own backdrop over this. */
+  background: var(--bg-primary);
 }
 
-/* Square and centred, sized off the short edge so a wide display doesn't crop a
-   round visual, and held back from the full edge so it clears the control bar
-   rather than running under it. The deck re-presses and repaints on resize, so
-   it adapts to whatever this resolves to. */
-.audio-fs-stage {
-  width: min(88vh, 88vw);
-  height: min(88vh, 88vw);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Album art (no visualizer selected): fill the stage, keep it square. */
-.audio-fs-art {
+/* The surface fills the container; nothing here sizes or centres it. What the
+   stage looks like at this size is the `.now-playing-view--fs` tier in
+   NowPlayingView.css, next to the sizing it overrides. */
+.audio-fs > .now-playing-view {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  border-radius: var(--ds-radius-card);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
 }
 
-.audio-fs-art--placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  border-radius: var(--ds-radius-card);
-  background: var(--bg-secondary);
-  color: var(--text-tertiary);
-}
+/* The queue drawer (QueuePanel.css) deliberately does NOT reserve width here.
+   It is summoned by a pointer gesture and leaves again, so it overlays; making
+   the surface shorter for it would slide the artwork sideways every time the
+   pointer brushed the right edge, which is far more distracting than the drawer
+   briefly covering the stage's edge. Persistent panels reserve space, transient
+   ones cover. */
 
 /* .fs-controls is `display: none` until a :fullscreen ancestor shows it (see
    TrackDetailView.css). This container is fullscreen by window, not by DOM, so

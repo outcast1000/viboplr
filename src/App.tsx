@@ -25,6 +25,7 @@ import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited"
 import { collectionAlert } from "./utils/collectionAlert";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
+import { resolveNowPlayingArt } from "./utils/nowPlayingArt";
 import { pickEntityImagePath } from "./utils/trackImage";
 import { buildTagSuggestionPool } from "./utils/tagSuggestions";
 import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
@@ -127,7 +128,6 @@ import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
 import { VisualizerSlot } from "./components/VisualizerSlot";
 import { AudioFullscreen } from "./components/AudioFullscreen";
-import { TrackArtFallback } from "./components/TrackArtFallback";
 import {
   buildVisualizerMenuSpecs,
   candidatesFor,
@@ -136,6 +136,7 @@ import {
   visualizerKey,
   type VisualizerSlotSelection,
 } from "./utils/visualizerSlots";
+import type { PluginVisualizerPlacement } from "./types/pluginVisualizer";
 import { TrackDetailView } from "./components/TrackDetailView";
 import { DownloadModal } from "./components/DownloadModal";
 import { OnboardingWizard } from "./components/OnboardingWizard";
@@ -1194,6 +1195,35 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [queueCollapsed, setQueueCollapsed] = useState(false);
   const [queueWidth, setQueueWidth] = useState(300);
+
+  // Edge-revealed queue drawer, fullscreen only.
+  //
+  // Fullscreen has no room for a permanently-parked panel and no button to summon
+  // one (both were removed from the bar), so the gesture is the affordance: push
+  // the pointer into the right edge and the queue slides in; move away and it
+  // leaves. Same shape as the control bar's own idle-hide — pointer-driven, no
+  // state the user has to manage — which is why the queue button became redundant
+  // rather than merely relocated.
+  //
+  // Hysteresis, not one threshold: reveal at the outer EDGE strip, hide only once
+  // the pointer is clear of the whole drawer. A single boundary would flicker the
+  // panel every time the pointer crossed it, and the drawer is exactly the region
+  // you have to be inside to click a track in it.
+  const [fsQueueRevealed, setFsQueueRevealed] = useState(false);
+  useEffect(() => {
+    if (!audioFullscreen) {
+      setFsQueueRevealed(false);
+      return;
+    }
+    const EDGE_PX = 24;
+    const onMove = (e: MouseEvent) => {
+      const fromRight = window.innerWidth - e.clientX;
+      if (fromRight <= EDGE_PX) setFsQueueRevealed(true);
+      else if (fromRight > queueWidth) setFsQueueRevealed(false);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [audioFullscreen, queueWidth]);
   const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" });
   const [pluginViewMode, setPluginViewMode] = useState<PluginViewMode>("list");
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
@@ -1335,24 +1365,23 @@ function App() {
   // Image caches
   const artistImageCache = useImageCache("artist");
 
-  // Art for the deck's label. Resolved here, in render, because that's where the
-  // image cache lives: a queue track's own `image_url` is usually empty and the
-  // real art comes from the album→artist chain by name, exactly as the queue
-  // rows and now-playing bar resolve it.
-  const nowPlayingArtSrc = (() => {
-    const t = playback.currentTrack;
-    if (!t) return null;
-    if (t.image_url) return resolveImageSrc(t.image_url);
-    if (t.album_title) {
-      const a = albumImageCache.getImage(t.album_title, t.artist_name ?? undefined);
-      if (a) return resolveImageSrc(a);
-    }
-    if (t.artist_name) {
-      const a = artistImageCache.getImage(t.artist_name);
-      if (a) return resolveImageSrc(a);
-    }
-    return null;
-  })();
+  // Art for the deck's label and the fullscreen stage. Resolved here, in render,
+  // because that's where the image cache lives: a queue track's own `image_url` is
+  // usually empty and the real art comes from the album→artist chain by name,
+  // exactly as the queue rows and now-playing bar resolve it.
+  //
+  // The same chain the Now Playing view reads, so it goes through the same
+  // (unit-tested) resolver rather than a second copy of the walk. `pending` is
+  // ignored here: these consumers just show an image late, they don't switch a
+  // text/layout regime on the answer — the distinction that made the flag exist.
+  const nowPlayingArtSrc = playback.currentTrack
+    ? resolveImageSrc(
+        resolveNowPlayingArt(playback.currentTrack, {
+          getAlbumImage: albumImageCache.getImage,
+          getArtistImage: artistImageCache.getImage,
+        }).path,
+      )
+    : null;
   const tagImageCache = useImageCache("tag");
 
   // After the Retrieve modal applies a new image, drop the cached entry so the
@@ -3435,14 +3464,17 @@ function App() {
   // Now Playing view: lyrics via the shared info-type chain, and resolved art.
   const nowPlayingLyrics = useLyrics({
     track: playback.currentTrack,
-    // Fetch for the Now Playing view (centered lyrics) and for any playing video
-    // (subtitle overlay). Fetching for video regardless of `videoSubtitlesOn` is
-    // deliberate: the subtitle toggle is gated on lyrics *existing*, so if we
-    // only fetched while subtitles were on, turning them off would hide the
-    // toggle and make the choice irreversible. Lyrics are cached, so this is one
-    // background fetch per video.
+    // Fetch for the Now Playing view (centered lyrics), for the fullscreen
+    // overlay — which is that same view, and is reachable from *any* view, so
+    // gating on `nowplaying` alone left fullscreen entered from the Library with
+    // no lyrics at all — and for any playing video (subtitle overlay). Fetching
+    // for video regardless of `videoSubtitlesOn` is deliberate: the subtitle
+    // toggle is gated on lyrics *existing*, so if we only fetched while subtitles
+    // were on, turning them off would hide the toggle and make the choice
+    // irreversible. Lyrics are cached, so this is one background fetch per video.
     enabled:
       library.view === "nowplaying" ||
+      audioFullscreen ||
       (!!playback.currentTrack && isVideoTrack(playback.currentTrack)),
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
@@ -3521,6 +3553,46 @@ function App() {
       playback.handlePause();
     },
     [playback.playing, playback.handlePause],
+  );
+
+  // One host for every visualizer slot. The Now Playing view and the fullscreen
+  // overlay differ only in `placement` and which selection they resolved, so the
+  // ~15 props the plugin host contract needs are built once — two call sites
+  // would drift the first time that contract gains a field, and only one of them
+  // would be the one anybody tested.
+  const renderVisualizerSlot = (
+    placement: PluginVisualizerPlacement,
+    selection: string,
+  ) => (
+    <VisualizerSlot
+      placement={placement}
+      selection={selection}
+      createVisualizer={plugins.createVisualizer}
+      queue={queueHook.queue}
+      currentIndex={queueHook.queueIndex}
+      playing={playback.playing}
+      stopped={playback.stopped}
+      durationSecs={playback.currentTrack?.duration_secs ?? null}
+      currentArtUrl={nowPlayingArtSrc}
+      onSeek={playback.handleSeek}
+      onPlayQueueIndex={(index) => {
+        const t = queueHook.queue[index];
+        if (!t) return;
+        queueHook.setQueueIndex(index);
+        playback.handlePlay(t);
+      }}
+      onLoadQueueIndex={(index, positionSecs) => {
+        const t = queueHook.queue[index];
+        if (!t) return;
+        queueHook.setQueueIndex(index);
+        playback.loadPaused(t, positionSecs ?? 0);
+      }}
+      onSetPlaying={handleVisualizerSetPlaying}
+      rate={playback.playbackRate}
+      onSetRate={playback.setPlaybackRate}
+      volume={playback.volume}
+      muted={playback.muted}
+    />
   );
 
   const detailViewState: DetailViewState = useMemo(() => ({
@@ -3872,7 +3944,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""} ${audioFullscreen ? "audio-fs-open" : ""} ${audioFullscreen && fsQueueRevealed ? "fs-queue-revealed" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -4326,8 +4398,12 @@ function App() {
             onColumnsChange={library.setTrackColumns}
           />
 
-          {/* Now Playing view */}
-          {view === "nowplaying" && (
+          {/* Now Playing view. Dropped entirely while the fullscreen overlay is
+              up: that overlay renders this same component, and two live copies
+              would each run the tag lookup and each hold a visualizer instance —
+              the second painting behind an opaque surface, since the slot's
+              IntersectionObserver still counts it as on screen. */}
+          {view === "nowplaying" && !audioFullscreen && (
             <NowPlayingView
               track={playback.currentTrack}
               lyrics={nowPlayingLyrics}
@@ -4338,44 +4414,12 @@ function App() {
               onSeek={playback.handleSeek}
               onOpenVisualizerPicker={openVisualizerPicker}
               onToggleLyrics={() => setNowPlayingLyricsHidden((v) => !v)}
-              onEnterFullscreen={canAudioFullscreen ? toggleAudioFullscreen : undefined}
+              onToggleFullscreen={canAudioFullscreen ? toggleAudioFullscreen : undefined}
               lyricsHidden={nowPlayingLyricsHidden}
               visualizerSlot={
-                // Dropped while the fullscreen slot is up. The overlay is opaque,
-                // so this instance is invisible — but it stays on screen as far
-                // as the slot's IntersectionObserver is concerned, and would keep
-                // painting a second copy of the same visualizer behind it.
-                nowPlayingVisualizer && !audioFullscreen ? (
-                  <VisualizerSlot
-                    placement="nowplaying"
-                    selection={nowPlayingVisualizer}
-                    createVisualizer={plugins.createVisualizer}
-                    queue={queueHook.queue}
-                    currentIndex={queueHook.queueIndex}
-                    playing={playback.playing}
-                    stopped={playback.stopped}
-                    durationSecs={playback.currentTrack?.duration_secs ?? null}
-                    currentArtUrl={nowPlayingArtSrc}
-                    onSeek={playback.handleSeek}
-                    onPlayQueueIndex={(index) => {
-                      const t = queueHook.queue[index];
-                      if (!t) return;
-                      queueHook.setQueueIndex(index);
-                      playback.handlePlay(t);
-                    }}
-                    onLoadQueueIndex={(index, positionSecs) => {
-                      const t = queueHook.queue[index];
-                      if (!t) return;
-                      queueHook.setQueueIndex(index);
-                      playback.loadPaused(t, positionSecs ?? 0);
-                    }}
-                    onSetPlaying={handleVisualizerSetPlaying}
-                    rate={playback.playbackRate}
-                    onSetRate={playback.setPlaybackRate}
-                    volume={playback.volume}
-                    muted={playback.muted}
-                  />
-                ) : undefined
+                nowPlayingVisualizer
+                  ? renderVisualizerSlot("nowplaying", nowPlayingVisualizer)
+                  : undefined
               }
             />
           )}
@@ -5441,57 +5485,46 @@ function App() {
 
       {/* Fullscreen for a non-video track. Mounted at the app root, not inside
           the Now Playing view, so it survives a view switch underneath it and
-          pins over everything without inheriting the grid. The stage is the
-          visualizer when one is selected and the album art otherwise — the same
-          fallback the Now Playing view makes — so fullscreen is available for
-          anything playing, not only for users who installed a visualizer. */}
+          pins over everything without inheriting the grid.
+          The surface IS the Now Playing view — same backdrop, same
+          visualizer-or-artwork stage, same lyrics, same corner buttons, just
+          bigger and with the shared control bar under it. Which is why fullscreen
+          works for anything playing rather than only for users who installed a
+          visualizer: the fallback ladder is the one the view already had. */}
       {audioFullscreen && (
         <AudioFullscreen
-          stage={
-            fullscreenVisualizer ? (
-              <VisualizerSlot
-                placement="fullscreen"
-                selection={fullscreenVisualizer}
-                createVisualizer={plugins.createVisualizer}
-                queue={queueHook.queue}
-                currentIndex={queueHook.queueIndex}
-                playing={playback.playing}
-                stopped={playback.stopped}
-                durationSecs={playback.currentTrack?.duration_secs ?? null}
-                currentArtUrl={nowPlayingArtSrc}
-                onSeek={playback.handleSeek}
-                onPlayQueueIndex={(index) => {
-                  const t = queueHook.queue[index];
-                  if (!t) return;
-                  queueHook.setQueueIndex(index);
-                  playback.handlePlay(t);
-                }}
-                onLoadQueueIndex={(index, positionSecs) => {
-                  const t = queueHook.queue[index];
-                  if (!t) return;
-                  queueHook.setQueueIndex(index);
-                  playback.loadPaused(t, positionSecs ?? 0);
-                }}
-                onSetPlaying={handleVisualizerSetPlaying}
-                rate={playback.playbackRate}
-                onSetRate={playback.setPlaybackRate}
-                volume={playback.volume}
-                muted={playback.muted}
-              />
-            ) : nowPlayingArtSrc ? (
-              <img className="audio-fs-art" src={nowPlayingArtSrc} alt="" />
-            ) : (
-              <div className="audio-fs-art audio-fs-art--placeholder">
-                {playback.currentTrack && (
-                  <TrackArtFallback track={playback.currentTrack} size={96} />
-                )}
-              </div>
-            )
+          surface={
+            <NowPlayingView
+              variant="fullscreen"
+              track={playback.currentTrack}
+              lyrics={nowPlayingLyrics}
+              getAlbumImage={albumImageCache.getImage}
+              getArtistImage={artistImageCache.getImage}
+              isAlbumImageResolved={albumImageCache.isResolved}
+              isArtistImageResolved={artistImageCache.isResolved}
+              onSeek={playback.handleSeek}
+              onOpenVisualizerPicker={openVisualizerPicker}
+              onToggleLyrics={() => setNowPlayingLyricsHidden((v) => !v)}
+              // Same callback as the windowed view — the row keeps all three
+              // buttons in both states, and this one just points the other way.
+              onToggleFullscreen={toggleAudioFullscreen}
+              lyricsHidden={nowPlayingLyricsHidden}
+              visualizerSlot={
+                fullscreenVisualizer
+                  ? renderVisualizerSlot("fullscreen", fullscreenVisualizer)
+                  : undefined
+              }
+            />
           }
           controls={
             <FullscreenControls
               {...fullscreenControlsProps}
-              onToggleFullscreen={toggleAudioFullscreen}
+              // Both dropped here, and only here — video fullscreen still gets
+              // them. The surface's own corner row already carries the fullscreen
+              // toggle, and the queue reveals itself at the right edge, so both
+              // buttons would be a second route to something already on screen.
+              onToggleFullscreen={undefined}
+              onToggleQueue={undefined}
               active
             />
           }

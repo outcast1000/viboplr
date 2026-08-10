@@ -13,6 +13,52 @@
   container-name: queue;
 }
 
+/* ── Fullscreen: edge-revealed drawer ─────────── */
+/* Audio fullscreen pins an overlay at z-index 999 over the whole app, this panel
+   included, so in the grid the panel simply cannot be seen. In fullscreen it
+   stops being a column and becomes a drawer: parked off the right edge, slid in
+   while the pointer is there (App.tsx owns the reveal), gone again after.
+ *
+ * `position: fixed` rather than a z-index bump on the grid item, for two reasons:
+ * the drawer must be full width even when the user has the queue *collapsed*
+ * (`--queue-width` is the resizable width and is kept regardless of the collapsed
+ * 40px column, so reading it here sidesteps that entirely), and taking it out of
+ * flow means entering fullscreen doesn't reflow the grid underneath.
+ *
+ * 1000 is deliberate, not "big": it must clear the overlay (999) while staying
+ * under the auto-continue popover (1100), which is opened FROM the fullscreen
+ * bar, and under modals (2000) — a dialog raised over fullscreen must not end up
+ * behind the queue. */
+.app.audio-fs-open .queue-panel {
+  position: fixed;
+  /* Clear the surface's corner action row (`.np-actions`: top 14px + a 30px
+     button). Full-height would slide the drawer straight over the visualizer /
+     lyrics / exit buttons, so opening the queue would appear to delete them —
+     and the only way to get them back would be to move away, which closes the
+     thing you just opened. */
+  top: 52px;
+  /* Stop where the now-playing bar would be, which is also roughly where the
+     fullscreen control bar's own controls begin — so the drawer never covers
+     transport. */
+  bottom: var(--now-playing-h, 106px);
+  right: 0;
+  width: var(--queue-width, 300px);
+  z-index: 1000;
+  border-top: 1px solid var(--border);
+  transform: translateX(100%);
+  transition: transform 0.22s var(--ease-out-quart, ease);
+}
+.app.audio-fs-open.fs-queue-revealed .queue-panel {
+  transform: translateX(0);
+}
+/* The drawer is summoned by a pointer gesture; with no pointer there is no way to
+   ask for it, so don't animate it in and out under the user. */
+@media (prefers-reduced-motion: reduce) {
+  .app.audio-fs-open .queue-panel {
+    transition: none;
+  }
+}
+
 .queue-resize-handle {
   position: absolute;
   top: 0;

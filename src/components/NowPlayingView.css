@@ -118,8 +118,8 @@
 /* Art variant owns the framed box (size, radius, shadow); the layered <img>s
    just fill it and crossfade. */
 .np-xfade--art {
-  width: min(38vh, 360px);
-  height: min(38vh, 360px);
+  width: var(--np-art-size);
+  height: var(--np-art-size);
   border-radius: var(--ds-radius-card);
   overflow: hidden;
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
@@ -131,10 +131,6 @@
   border-radius: 0;
   box-shadow: none;
   background: transparent;
-}
-.np-audio--nolyrics .np-xfade--art {
-  width: min(50vh, 460px);
-  height: min(50vh, 460px);
 }
 
 /* ── Entrance on track change / appearance ───── */
@@ -161,16 +157,24 @@
   min-height: 0;
 }
 
+/* Art size lives in one custom property, resolved per case, for the same reason
+   `--np-vis-size` does (see the long note below it): the size is set for four
+   combinations (lyrics on/off × the fullscreen variant) and is read by two
+   elements — `.np-art` and the `.np-xfade--art` frame that wraps it. Written as
+   plain width/height rules that is eight declarations that must agree, and the
+   two-class `--nolyrics`/`--fs` selectors out-specify anything scoped narrower.
+   One property, declared on the column both readers sit in, can't disagree. */
 .np-art-col {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
+  --np-art-size: min(38vh, 360px);
 }
 
 .np-art {
-  width: min(38vh, 360px);
-  height: min(38vh, 360px);
+  width: var(--np-art-size);
+  height: var(--np-art-size);
   object-fit: cover;
   border-radius: var(--ds-radius-card);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
@@ -367,9 +371,11 @@
 .np-audio--nolyrics .np-lyrics-col {
   display: none;
 }
-.np-audio--nolyrics .np-art {
-  width: min(50vh, 460px);
-  height: min(50vh, 460px);
+/* The static artwork grows too, but modestly — it's a fixed-resolution image, so
+   past a point it is only being upscaled. (A visualizer draws itself and takes
+   the far larger `--np-vis-size` below.) */
+.np-audio--nolyrics .np-art-col {
+  --np-art-size: min(50vh, 460px);
 }
 
 /* Honor reduced-motion: keep the layout but drop the track-change motion. The
@@ -442,6 +448,80 @@
   width: var(--np-vis-size);
   height: var(--np-vis-size);
 }
+
+/* ── Fullscreen variant ──────────────────────── */
+/* The same surface inside AudioFullscreen. Only sizing changes: with the caption
+   bar, sidebar, now-playing bar and this view's own title block all gone, every
+   budget the in-grid tier reserves for them is wrong here.
+ *
+ * `--np-vis-chrome` is the clearest case. In-grid it subtracts ~300px of app
+ * furniture from the height; in fullscreen the only thing below the stage is the
+ * control bar. Left at 300px a fullscreen visualizer would come out *smaller*
+ * than the windowed one, which is the opposite of what pressing the button asks
+ * for.
+ *
+ * `--np-fs-chrome` is that budget, and BOTH the art and the visualizer derive
+ * from it — a fraction of `vh` cannot, because the thing being cleared is a
+ * fixed-height bar. `.fs-controls` measures ~130px (40px of it a transparent
+ * gradient), so this is that plus the top padding plus a little slack. Measured,
+ * not guessed: at 900px tall an earlier `min(82vh, …)` art ran 17px *under* the
+ * bar, which is exactly the class of bug the in-grid comment below warns about. */
+.now-playing-view--fs {
+  --np-fs-chrome: 190px;
+  /* Bottom padding clears the control strip so the stage never runs under it. */
+  padding: 32px 32px 140px;
+}
+.now-playing-view--fs .np-art-col {
+  --np-art-size: min(calc(100vh - var(--np-fs-chrome)), 620px);
+}
+.now-playing-view--fs.np-audio--nolyrics .np-art-col {
+  --np-art-size: min(calc(100vh - var(--np-fs-chrome)), 1000px);
+}
+/* Lyrics still take their column, so the visualizer keeps a width cap — just a
+   more generous one, since no sidebar or queue panel is eating the window. */
+.now-playing-view--fs .np-art-col--visualizer {
+  --np-vis-chrome: var(--np-fs-chrome);
+  --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 46vw, 900px);
+}
+.now-playing-view--fs.np-audio--nolyrics .np-art-col--visualizer {
+  --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 92vw, 1400px);
+}
+/* The 1100px cap exists to stop art and lyrics drifting apart on a wide monitor.
+   At fullscreen width that reads as a narrow strip in the middle of the screen,
+   so it loosens rather than lifting entirely.
+   `:not(--nolyrics)` is load-bearing: `.np-audio--nolyrics .np-stage` already
+   lifts the cap to `none` at the same specificity, and this rule is later in the
+   file — so written plainly it would put a 1600px cap *back* on the one case that
+   deliberately has none, silently clipping a visualizer that just earned the
+   whole stage. There is nothing to hold together when there are no lyrics. */
+.now-playing-view--fs:not(.np-audio--nolyrics) .np-stage {
+  max-width: 1600px;
+}
+.now-playing-view--fs .np-lyrics-col {
+  max-width: 720px;
+}
+/* The corner buttons' resting dim assumes the pointer is often somewhere *else*
+   in the app — the sidebar, the queue, the now-playing bar. Fullscreen is the
+   whole screen, so `:hover` on the view is always true and the floor below would
+   pin the row at 0.85 forever: three lit buttons in the corner of a lean-back
+   surface. Drop back to the resting opacity here and let each button's own
+   :hover (which still wins, the floor being `:where()`-neutralised) light it. */
+:where(.now-playing-view--fs:hover) .np-action-btn {
+  opacity: 0.4;
+}
+:where(.now-playing-view--fs:hover) .np-action-btn.is-off:not(:hover):not(:focus-visible) {
+  opacity: 0.28;
+}
+:where(.now-playing-view--fs:hover) .np-action-btn:disabled {
+  opacity: 0.16;
+}
+
+/* No short-window override is needed here, and adding one would be a step
+   backwards: `100vh - --np-fs-chrome` already shrinks with the window, so a 600px
+   display resolves to a 410px stage inside a 428px content box on its own. A
+   media query that re-stated the size as a `vh` fraction — or trimmed the bottom
+   padding below the bar's own height — is how the stage ends up under the bar
+   again on exactly the displays with the least room to spare. */
 
 /* ── View actions (visualizer, lyrics, fullscreen) ── */
 /* Top-right, the corner the video theater puts its own controls in

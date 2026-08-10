@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { isVideoTrack } from "../utils";
@@ -13,7 +13,21 @@ import { TrackArtFallback } from "./TrackArtFallback";
 import "./NowPlayingView.css";
 
 interface NowPlayingViewProps {
-  style?: CSSProperties;
+  /**
+   * Which chrome surrounds this surface.
+   *
+   * `view` (default) is the `nowplaying` main-content view: the app's caption bar,
+   * sidebar and now-playing bar are all on screen around it, and this view owns
+   * the track's title/artist/album line.
+   *
+   * `fullscreen` is the same surface inside `AudioFullscreen` — bigger, and with
+   * `FullscreenControls` underneath it. That bar already carries the title with
+   * clickable artist/album links, so the identity block here would be a second
+   * copy of it; and with the app chrome gone the stage has far more room to fill.
+   * Everything else — backdrop, art regime, lyrics, the corner action row — is
+   * deliberately identical, which is the point of there being one component.
+   */
+  variant?: "view" | "fullscreen";
   track: QueueTrack | null;
   lyrics: UseLyricsResult;
   /** Image-provider chain lookups (album → artist fallback). Called during render
@@ -42,12 +56,15 @@ interface NowPlayingViewProps {
       track has lyrics at all, so there is no `hasLyrics` prop to keep in step
       with the one it already derives for the layout. */
   onToggleLyrics?: () => void;
-  /** Enter the fullscreen visualizer. Absent when nothing can fill that slot,
-      which is also what hides the button.
+  /** Toggle the fullscreen surface — enter from the view, leave from fullscreen.
+      One callback for both directions, because it is one button in one place:
+      the row would otherwise have three items windowed and two in fullscreen,
+      and the odd one out is the button the user just pressed to get there.
+      Absent when fullscreen isn't available, which is what hides it.
       Mirrors the video theater's own fullscreen button (VideoAmbientOverlay):
       the two are the same view in the same state, so the affordance shouldn't
       be a visible button for one and a buried menu item for the other. */
-  onEnterFullscreen?: () => void;
+  onToggleFullscreen?: () => void;
   /** The user collapsed the lyrics column. Independent of whether this track
       has lyrics at all — both end up hiding the column, and both hand the
       freed width to whatever is in the art column. */
@@ -210,7 +227,7 @@ function CrossfadeLayer({ top, children }: { top: boolean; children: ReactNode }
 }
 
 export function NowPlayingView({
-  style,
+  variant = "view",
   track,
   lyrics,
   getAlbumImage,
@@ -221,10 +238,14 @@ export function NowPlayingView({
   visualizerSlot,
   onOpenVisualizerPicker,
   onToggleLyrics,
-  onEnterFullscreen,
+  onToggleFullscreen,
   lyricsHidden,
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
+  const isFullscreen = variant === "fullscreen";
+  // Fullscreen's identity comes from the control bar under it, so this surface
+  // draws neither the title block nor the tags line there.
+  const showIdentity = !isFullscreen;
 
   // Read-only tags for the metadata line. NowPlayingView operates on a
   // QueueTrack (no DB id), so resolve to a library track by metadata; tags show
@@ -234,7 +255,8 @@ export function NowPlayingView({
 
   useEffect(() => {
     let cancelled = false;
-    if (!track) { setTrackTags([]); return; }
+    // Two DB round-trips for a line fullscreen doesn't render.
+    if (!track || !showIdentity) { setTrackTags([]); return; }
     invoke<{ id: number } | null>("find_track_by_metadata", {
       title: track.title,
       artistName: track.artist_name ?? null,
@@ -249,7 +271,7 @@ export function NowPlayingView({
       })
       .catch((e) => console.error("Failed to resolve now-playing track:", e));
     return () => { cancelled = true; };
-  }, [track?.title, track?.artist_name, track?.album_title]);
+  }, [track?.title, track?.artist_name, track?.album_title, showIdentity]);
 
   // Resolve art via the image-provider plugin chain: explicit url → album →
   // artist. `pending` distinguishes "no art" from "still looking", which this
@@ -278,9 +300,13 @@ export function NowPlayingView({
     );
   }, [track]);
 
+  // Sizing tier for the fullscreen variant (see NowPlayingView.css). Carried on
+  // every branch so the empty/video states are laid out consistently too.
+  const rootClass = `now-playing-view${variant === "fullscreen" ? " now-playing-view--fs" : ""}`;
+
   if (!track) {
     return (
-      <div className="now-playing-view np-empty" style={style}>
+      <div className={`${rootClass} np-empty`}>
         <div className="np-empty-msg">Nothing playing</div>
       </div>
     );
@@ -290,7 +316,7 @@ export function NowPlayingView({
   // (.video-container--theater). We only reserve space + show metadata.
   if (isVideo) {
     return (
-      <div className="now-playing-view np-video" style={style}>
+      <div className={`${rootClass} np-video`}>
         <div className="np-video-spacer" />
       </div>
     );
@@ -311,15 +337,17 @@ export function NowPlayingView({
   const showLyrics = hasLyrics && !lyricsHidden;
   return (
     <div
-      className={`now-playing-view np-audio${artRegime ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
-      style={style}
+      className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
     >
       {/* Every view action is a visible button. There is no ⋯ and no right-click
           menu: the three things this view can do are now all on screen, so a
           second, hidden route to the same three would be duplication rather than
           convenience. The visualizer picker is still a native menu — it's a list
-          of choices — but it hangs off the button that describes it. */}
-      {(onOpenVisualizerPicker || onToggleLyrics || onEnterFullscreen) && (
+          of choices — but it hangs off the button that describes it.
+
+          The row travels into fullscreen unchanged; only "enter fullscreen" drops
+          out there, because the control bar under it owns the exit. */}
+      {(onOpenVisualizerPicker || onToggleLyrics || onToggleFullscreen) && (
         <div className="np-actions">
           {onOpenVisualizerPicker && (
             <button
@@ -367,20 +395,34 @@ export function NowPlayingView({
             </button>
           )}
           {/* Last, so it lands in the extreme corner — the same spot the video
-              theater's fullscreen button occupies. */}
-          {onEnterFullscreen && (
+              theater's fullscreen button occupies. Present in BOTH variants, and
+              in the same place: the row is the surface's own control set, so it
+              would read as a glitch if the button that got you here vanished on
+              arrival. Only the direction (and so the glyph) flips. */}
+          {onToggleFullscreen && (
             <button
               className="np-action-btn"
-              onClick={onEnterFullscreen}
-              title="Enter fullscreen"
-              aria-label="Enter fullscreen"
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+              aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 3 21 3 21 9" />
-                <polyline points="9 21 3 21 3 15" />
-                <line x1="21" y1="3" x2="14" y2="10" />
-                <line x1="3" y1="21" x2="10" y2="14" />
-              </svg>
+              {isFullscreen ? (
+                // Arrows pointing in — the same glyph FullscreenControls' own
+                // exit button uses, so the two routes out look like one action.
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="4 14 10 14 10 20" />
+                  <polyline points="20 10 14 10 14 4" />
+                  <line x1="14" y1="10" x2="21" y2="3" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 3 21 3 21 9" />
+                  <polyline points="9 21 3 21 3 15" />
+                  <line x1="21" y1="3" x2="14" y2="10" />
+                  <line x1="3" y1="21" x2="10" y2="14" />
+                </svg>
+              )}
             </button>
           )}
         </div>
@@ -411,7 +453,11 @@ export function NowPlayingView({
             <div className="np-art np-art--pending" aria-hidden="true" />
           ) : (
             <div key={track.key} className="np-art np-art--placeholder np-enter">
-              <TrackArtFallback track={track} size={72} />
+              {/* Scaled with the frame, which the fullscreen tier roughly doubles.
+                  A fixed 72px glyph in a 710px square reads as a rendering fault
+                  rather than a placeholder — and the art-only fullscreen this
+                  replaced already drew it at 96. */}
+              <TrackArtFallback track={track} size={variant === "fullscreen" ? 128 : 72} />
             </div>
           )}
         </div>
@@ -428,8 +474,11 @@ export function NowPlayingView({
           </div>
         )}
       </div>
-      {metaLine}
-      {trackTags.length > 0 && (
+      {/* Fullscreen's control bar already shows the title with clickable
+          artist/album links, so drawing them here too would be the same fact
+          twice on one screen. */}
+      {showIdentity && metaLine}
+      {showIdentity && trackTags.length > 0 && (
         <div className="np-tags np-enter" key={`${track.key}-tags`}>{trackTags.join(" · ")}</div>
       )}
     </div>

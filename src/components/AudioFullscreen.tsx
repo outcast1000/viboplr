@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import "./AudioFullscreen.css";
 
 interface AudioFullscreenProps {
-  /** What fills the screen: the `fullscreen` visualizer slot, or the album art. */
-  stage: ReactNode;
+  /** The whole presentation — `NowPlayingView` in its `fullscreen` variant. */
+  surface: ReactNode;
   /** `FullscreenControls`, the same bar the video path uses. */
   controls: ReactNode;
 }
@@ -11,21 +11,26 @@ interface AudioFullscreenProps {
 /**
  * Fullscreen presentation for a non-video track.
  *
- * The video path can't be reused directly — it fullscreens `.video-container`,
- * and the shared `<video>` element must never be remounted or moved out of it.
- * So audio gets its own container, and the *controls* are what's shared: this
- * renders the very same `FullscreenControls` the video overlay does, so the two
- * fullscreens differ only in what is behind the bar.
+ * Deliberately almost nothing: the surface *is* the Now Playing view, so what
+ * fills the screen — blurred-art backdrop, visualizer-or-artwork stage, lyrics,
+ * the corner action row — is rendered by one component in both places rather
+ * than described twice. This container's whole job is to pin that surface over
+ * the app grid and hang the control bar off the bottom of it.
+ *
+ * The video path can't join in: it fullscreens `.video-container`, and the shared
+ * `<video>` element must never be remounted or moved out of it. So the container
+ * differs there and the *controls* are what's shared. From the user's side there
+ * is one fullscreen with one control bar.
  *
  * Window fullscreen (set by the caller), not DOM element fullscreen — the same
  * choice the native video path made. `requestFullscreen` in WKWebView is
  * activation-consuming and needs a re-entrancy guard to survive a double-press,
  * and on macOS it moves the webview to its own space.
  */
-export function AudioFullscreen({ stage, controls }: AudioFullscreenProps) {
+export function AudioFullscreen({ surface, controls }: AudioFullscreenProps) {
   return (
     <div className="audio-fs">
-      <div className="audio-fs-stage">{stage}</div>
+      {surface}
       {controls}
     </div>
   );

@@ -53,9 +53,16 @@ interface FullscreenControlsProps {
   onCloseAutoContinuePopover: () => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
-  onToggleFullscreen: () => void;
-  showQueue: boolean;
-  onToggleQueue: () => void;
+  /** Leave fullscreen. **Optional**: the audio surface omits it, because its own
+      corner action row carries the fullscreen toggle in both directions and two
+      exits on one screen is one too many. Video has no corner row, so it passes
+      this and the button is its only visible way out besides Escape. */
+  onToggleFullscreen?: () => void;
+  showQueue?: boolean;
+  /** Show/hide the queue. **Optional**, and for the same reason: in audio
+      fullscreen the queue reveals itself when the pointer reaches the right edge,
+      so a button that toggles it is redundant. Video still passes it. */
+  onToggleQueue?: () => void;
   /** Whether synced lyrics exist for the current video (gates the subtitle toggle). */
   hasSubtitles: boolean;
   subtitlesOn: boolean;
@@ -397,25 +404,29 @@ export function FullscreenControls({
               </svg>
             </button>
           )}
-          <button
-            className={`g-btn g-btn-sm${showQueue ? " active" : ""}`}
-            onClick={onToggleQueue}
-            title="Playlist"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-          </button>
-          <button
-            className="g-btn g-btn-sm"
-            onClick={onToggleFullscreen}
-            title="Exit fullscreen"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="4 14 10 14 10 20" />
-              <polyline points="20 10 14 10 14 4" />
-              <line x1="14" y1="10" x2="21" y2="3" />
-              <line x1="3" y1="21" x2="10" y2="14" />
-            </svg>
-          </button>
+          {onToggleQueue && (
+            <button
+              className={`g-btn g-btn-sm${showQueue ? " active" : ""}`}
+              onClick={onToggleQueue}
+              title="Playlist"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+          )}
+          {onToggleFullscreen && (
+            <button
+              className="g-btn g-btn-sm"
+              onClick={onToggleFullscreen}
+              title="Exit fullscreen"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
+              </svg>
+            </button>
+          )}
           </div>
         </div>
       </div>
