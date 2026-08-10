@@ -79,7 +79,7 @@
       <div class="docs-body reveal">
         <h2>Playback engine</h2>
         <p class="docs-lead">Viboplr can play audio through two different engines: the browser engine and mpv.</p>
-        <p>The <strong>Browser</strong> engine plays audio through the system webview. It works everywhere with nothing to install, and it is the default.</p>
+        <p>The <strong>Browser</strong> engine plays audio through the system webview. It works everywhere, and it is what Viboplr falls back to if mpv can't load or can't play a particular track.</p>
         <p>The <strong>mpv</strong> engine is a native audio engine built on <a href="https://mpv.io" target="_blank" rel="noopener">libmpv</a>, the same playback core used by the mpv media player. Compared to the browser engine it:</p>
         <ul class="docs-list">
           <li>Decodes every supported format natively — FLAC, ALAC, Opus, and friends — without transcoding.</li>
@@ -87,7 +87,7 @@
           <li>On macOS, also renders video natively (beta).</li>
           <li>Unlocks <a href="#exclusive-audio">exclusive audio access</a> for bit-perfect output.</li>
         </ul>
-        <p>The <strong>mpv engine</strong> is built on libmpv, which now ships bundled with Viboplr &mdash; no separate download, and it works offline out of the box. (On the rare setup where the bundled library can't load, Settings &rarr; Playback offers a one-time component download as a fallback.) If the engine can't play a particular track, Viboplr automatically falls back to the browser engine for that track.</p>
+        <p>The <strong>mpv engine</strong> is built on libmpv, which ships bundled with every copy of Viboplr &mdash; there is one download, there are no editions to choose between, and mpv is the engine Viboplr uses by default. It works offline out of the box. (On the rare machine where the bundled library can't load, Settings &rarr; Playback says so and offers to fetch a replacement copy.) If the engine can't play a particular track, Viboplr automatically falls back to the browser engine for that track.</p>
         <div class="docs-note">
           Switching engines stops the current playback — playback resumes on the new engine with the next track you play.
         </div>

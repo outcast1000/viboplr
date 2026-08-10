@@ -3,14 +3,6 @@ use super::*;
 
 // --- Profile commands ---
 
-/// Build flavor for anonymous telemetry. There is now a single build that
-/// bundles the native engine (libmpv), so this is a constant "full". Kept as a
-/// command for telemetry continuity (dashboards still key on full/lean).
-#[tauri::command]
-pub fn app_build_flavor() -> &'static str {
-    "full"
-}
-
 /// Read the current clipboard text ("" when the clipboard holds no text).
 /// Backs the plugin `search-input` paste button — the read goes through
 /// arboard (like the image-paste path) because the webview's

@@ -298,7 +298,6 @@ macro_rules! invoke_handler {
             commands::start_transcode,
             commands::stop_transcode,
             commands::engine_capabilities,
-            commands::app_build_flavor,
             commands::engine_component_status,
             commands::engine_component_install,
             commands::engine_component_uninstall,

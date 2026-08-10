@@ -1,7 +1,8 @@
 // Typed bridge to the native mpv playback engine. The engine is compiled
-// into every build; libmpv itself is loaded at runtime (bundled with the
-// Full build, or downloaded on demand as the "engine component" — see
-// Settings > Playback). Capability is probed via `engine_capabilities` and
+// into every build and libmpv ships bundled with every release; it is loaded
+// at runtime rather than linked, which also leaves room for the downloadable
+// "engine component" as a recovery path when the bundled copy won't load on a
+// given machine. Capability is probed via `engine_capabilities` and
 // cached; `refreshEngineCapabilities` re-probes after a component install,
 // which the backend picks up without a restart. All control methods silently
 // no-op when incapable; only `play` requires the caller to have checked

@@ -1095,6 +1095,9 @@ interface SettingsPanelProps {
   onCrossfadeChange: (secs: number) => void;
   /** Whether libmpv is currently loadable (bundled, downloaded, or system). */
   mpvCapable: boolean;
+  /** Whether the capability probe has answered yet. Distinguishes "still
+   *  checking" from "bundled but unloadable" — see App.tsx `mpvProbed`. */
+  mpvProbed: boolean;
   /** Install state of the downloadable libmpv component, if known. */
   engineComponent: EngineComponentStatus | null;
   /** Download progress while the component installs, else null. */
@@ -1223,6 +1226,7 @@ export function SettingsPanel({
   crossfadeSecs,
   onCrossfadeChange,
   mpvCapable,
+  mpvProbed,
   engineComponent,
   engineComponentInstalling,
   onEngineComponentInstall,
@@ -1618,50 +1622,63 @@ export function SettingsPanel({
                 <div className="settings-group">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
-                    {(mpvCapable || engineComponent?.available) && (
-                      <div className="settings-row">
-                        <div className="settings-row-info">
-                          <span className="settings-label">Playback engine<HelpLink anchor="playback-engine" topic="the playback engine" /></span>
-                          <span className="settings-description">
-                            {mpvCapable
-                              ? "mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback."
-                              : `mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). One-time download${engineComponent?.sizeMb ? ` (~${Math.round(engineComponent.sizeMb)} MB)` : ""}.`}
-                          </span>
-                          {engineComponentError && (
-                            <span className="settings-description" style={{ color: "var(--error)" }}>
-                              {engineComponentError}
-                            </span>
-                          )}
-                        </div>
-                        {mpvCapable ? (
-                          <select
-                            className="ds-select"
-                            value={playbackEngine}
-                            onChange={e => onPlaybackEngineChange(e.target.value as "browser" | "native")}
-                          >
-                            <option value="browser">Browser</option>
-                            <option value="native">mpv</option>
-                          </select>
-                        ) : (
-                          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            {engineComponentInstalling && (
-                              <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-tertiary)" }}>
-                                {engineComponentInstalling.total
-                                  ? `${Math.round((engineComponentInstalling.downloaded / engineComponentInstalling.total) * 100)}%`
-                                  : "…"}
-                              </span>
-                            )}
-                            <button
-                              className="ds-btn ds-btn--primary ds-btn--sm"
-                              onClick={handleEngineComponentInstall}
-                              disabled={!!engineComponentInstalling}
-                            >
-                              {engineComponentInstalling ? "Downloading..." : "Download engine"}
-                            </button>
+                    {/* Always rendered. libmpv ships bundled in every release, so
+                        this row is where the engine is chosen, not an offer that
+                        appears once something is downloadable — the old
+                        `mpvCapable || available` gate hid the engine choice
+                        entirely on exactly the machines that needed explaining. */}
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Playback engine<HelpLink anchor="playback-engine" topic="the playback engine" /></span>
+                        <span className="settings-description">
+                          {mpvCapable
+                            ? "mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback."
+                            : !mpvProbed
+                              ? "Checking which engines this machine can use…"
+                              : "The mpv engine ships with Viboplr but couldn't load on this machine, so playback is using the browser engine."}
+                        </span>
+                        {engineComponentError && (
+                          <span className="settings-description" style={{ color: "var(--error)" }}>
+                            {engineComponentError}
                           </span>
                         )}
                       </div>
-                    )}
+                      {mpvCapable ? (
+                        <select
+                          className="ds-select"
+                          value={playbackEngine}
+                          onChange={e => onPlaybackEngineChange(e.target.value as "browser" | "native")}
+                        >
+                          <option value="browser">Browser</option>
+                          <option value="native">mpv</option>
+                        </select>
+                      ) : !mpvProbed ? (
+                        <span className="ds-spinner ds-spinner--sm" />
+                      ) : (
+                        // Recovery only — a replacement copy of a library that is
+                        // supposed to be there already, not the normal way in.
+                        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {engineComponentInstalling && (
+                            <span style={{ fontSize: "var(--fs-2xs)", color: "var(--text-tertiary)" }}>
+                              {engineComponentInstalling.total
+                                ? `${Math.round((engineComponentInstalling.downloaded / engineComponentInstalling.total) * 100)}%`
+                                : "…"}
+                            </span>
+                          )}
+                          {engineComponent?.available && (
+                            <button
+                              className="ds-btn ds-btn--secondary ds-btn--sm"
+                              onClick={handleEngineComponentInstall}
+                              disabled={!!engineComponentInstalling}
+                            >
+                              {engineComponentInstalling
+                                ? "Downloading..."
+                                : `Try a replacement copy${engineComponent.sizeMb ? ` (~${Math.round(engineComponent.sizeMb)} MB)` : ""}`}
+                            </button>
+                          )}
+                        </span>
+                      )}
+                    </div>
                     {engineComponent?.installed && (
                       <div className="settings-row">
                         <div className="settings-row-info">

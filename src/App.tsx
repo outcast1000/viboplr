@@ -236,9 +236,16 @@ function App() {
   useNativeVideoRef.current = mpvCapable && mpvVideoCapable && playbackEngine === "native";
   // Assigned to `() => handleNext("auto")` once handleNext exists below.
   const nativeEndedRef = useRef<() => void>(() => {});
+  // False only until the first probe answers. libmpv ships bundled in every
+  // release, so `mpvCapable === false` means one of two very different things:
+  // "we haven't looked yet" or "it's here and it wouldn't load". Settings says
+  // something different for each, and the probe is raced against a 5s timeout
+  // in the restore effect — long enough to render the wrong one.
+  const [mpvProbed, setMpvProbed] = useState(false);
   const applyEngineCapabilities = useCallback((caps: EngineCapabilities) => {
     setMpvCapable(caps.mpv);
     setMpvVideoCapable(caps.video);
+    setMpvProbed(true);
   }, []);
   // The probe itself is kicked off inside the restore effect below (in
   // parallel with the rest of restore, awaited right before appRestoring
@@ -2157,7 +2164,8 @@ function App() {
         }
         if (savedAudioExclusive) {
           setAudioExclusive(true);
-          // Cached engine-side until the engine exists; no-op on lean builds.
+          // Cached engine-side until the engine exists; no-op where libmpv
+          // couldn't be loaded.
           nativeEngine.setAudioExclusive(true).catch(console.error);
         }
         if (savedBetaUpdates) setBetaUpdates(true);
@@ -2175,22 +2183,21 @@ function App() {
             // `probeEngineCapabilities()` is cached (the mount-time probe above
             // shares this promise), so this resolves the same result without a
             // second `engine_capabilities` round-trip.
-            const [trackCount, cols, buildFlavor, enabledPlugins, installReported, caps] = await Promise.all([
+            const [trackCount, cols, enabledPlugins, installReported, caps] = await Promise.all([
               invoke<number>("get_track_count").catch(() => null),
               invoke<Collection[]>("get_collections").catch(() => null),
-              invoke<string>("app_build_flavor").catch(() => null),
               store.get<string[]>("enabledPlugins").catch(() => null),
               store.get<boolean>("telemetryInstallReported").catch(() => null),
               probeEngineCapabilities(),
             ]);
             // Effective audio engine: the user's choice (default native) gated by
-            // whether libmpv actually loaded on this machine. Build flavor is a
-            // constant "full" now, so real mpv adoption is measured here instead.
+            // whether libmpv actually loaded on this machine. There is one build
+            // and it always bundles libmpv, so there is no flavor to report —
+            // `mpv_capable` is the only thing that actually varies per machine.
             const engineChoice = savedPlaybackEngine === "browser" ? "browser" : "native";
             const effectiveEngine = caps.mpv && engineChoice === "native" ? "native" : "browser";
             trackTelemetry("app_started", {
               channel: savedBetaUpdates ? "beta" : "stable",
-              ...(buildFlavor ? { build: buildFlavor } : {}),
               engine: effectiveEngine,
               mpv_capable: caps.mpv ? "yes" : "no",
               mpv_video: caps.video ? "yes" : "no",
@@ -4565,6 +4572,7 @@ function App() {
               crossfadeSecs={crossfadeSecs}
               onCrossfadeChange={handleCrossfadeChange}
               mpvCapable={mpvCapable}
+              mpvProbed={mpvProbed}
               engineComponent={engineComponent.status}
               engineComponentInstalling={engineComponent.installing}
               onEngineComponentInstall={engineComponent.install}
