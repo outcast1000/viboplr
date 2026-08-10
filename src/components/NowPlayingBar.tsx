@@ -15,6 +15,8 @@ import { EqBarControl } from "./EqBarControl";
 import type { EqMode } from "../eqPresets";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
+import { BufferingChip } from "./BufferingChip";
+import { bufferedFraction, type PlaybackBuffer } from "../playback/bufferState";
 import { FilmstripSeekBar } from "./FilmstripSeekBar";
 import { StoryboardTile } from "./StoryboardTile";
 import { tileIndexAt, type Storyboard } from "../utils/storyboard";
@@ -106,6 +108,10 @@ interface NowPlayingBarProps {
   /** Live ICY StreamTitle for internet-radio streams (mpv engine) — shown in
    * place of the static Artist · Album line, which is empty for stations. */
   icyTitle?: string | null;
+  /** Buffer state of the current source, or null when no engine reported one
+   *  (a local file usually doesn't). Drives the seek bar's buffered edge and
+   *  the "Buffering…" chip. */
+  buffer?: PlaybackBuffer | null;
   trackRank: number | null;
   volume: number;
   muted: boolean;
@@ -197,6 +203,7 @@ export function NowPlayingBar({
   currentTrack, nativeVideoActive, playing,
   durationSecs, scrobbled,
   icyTitle,
+  buffer,
   trackRank,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
@@ -224,6 +231,7 @@ export function NowPlayingBar({
   // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
   // only this bar, not the whole tree.
   const positionSecs = usePlaybackPosition();
+  const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sourceTooltipOpen, setSourceTooltipOpen] = useState(false);
@@ -552,6 +560,7 @@ export function NowPlayingBar({
                 durationSecs={durationSecs}
                 progress={positionSecs / durationSecs}
                 hoverPct={seekHover?.pct ?? null}
+                bufferedPct={bufferedPct}
               />
             ) : waveformPeaks ? (
               <WaveformSeekBar
@@ -563,8 +572,10 @@ export function NowPlayingBar({
               <SegmentedSeekBar
                 progress={positionSecs / durationSecs}
                 durationSecs={durationSecs}
+                bufferedPct={bufferedPct}
               />
             ) : null}
+            <BufferingChip buffer={buffer} />
           </div>
           <span className="now-seek-time now-seek-total">
             {formatDuration(durationSecs)}

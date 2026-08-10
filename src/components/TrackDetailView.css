@@ -325,6 +325,20 @@
   pointer-events: none;
 }
 
+/* How far a network source has downloaded, as a band under .fs-seek-fill (which
+   follows it in the DOM and so paints on top). Only rendered when an engine
+   actually reported a buffer — a local source has none and the bar keeps its
+   plain two-tone look. */
+.fs-seek-buffered {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(var(--overlay-base), 0.14);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
 .fs-seek-time {
   position: relative;
   z-index: 1;

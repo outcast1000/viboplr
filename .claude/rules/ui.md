@@ -264,7 +264,7 @@ interface PlaylistContext {
 **Component:** `NowPlayingBar.tsx` (row 3, all columns)
 
 **Full mode:**
-- Seek bar (waveform visualization or segmented bar) with elapsed | total time
+- Seek bar (waveform visualization or segmented bar) with elapsed | total time. For a **network** source the bar also carries a buffered edge — blocks past the point the stream has downloaded are drawn fainter (`bufferedPct`, from `usePlayback.buffer`) — and a stall renders the shared `BufferingChip` centred over the seek track. All three seek surfaces take `bufferedPct`: `SegmentedSeekBar` (what a streamed *audio* track gets), `FilmstripSeekBar` (what a streamed *video* gets — a plugin-supplied storyboard means a streamed source, so this is the case that needs it most; frames past the edge take a second knock-back beyond the ahead-of-playhead treatment), and `FullscreenControls`' flat fill (a band under the played fill). `WaveformSeekBar` deliberately does **not** — a waveform only exists for `file://` sources and a buffer only for network ones, so the two can never co-occur. Both are absent for local files by design: no engine reports a buffer for them, and `bufferedPct = null` renders exactly as it did before the feature existed. The same treatment is in `FullscreenControls`, so both surfaces show a stall identically.
 - Track info: album art, like/dislike buttons, title + a **static Artist · Album** line (clickable artist/album links). The full bar does **not** show the cycling Now Playing info section — that lives only in the mini player (see below).
 - Controls: previous, play/pause, next, stop
 - Right: queue mode (normal/repeat-all/repeat-one), randomize, auto-continue, equalizer, volume

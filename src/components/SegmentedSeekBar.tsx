@@ -3,6 +3,10 @@ import { useRef, useEffect, useCallback } from "react";
 interface SegmentedSeekBarProps {
   progress: number; // 0..1
   durationSecs: number;
+  /** How far the source has buffered, as a 0..1 fraction, or null when the
+   *  engine can't say. Blocks past the edge are drawn fainter. Null renders
+   *  exactly as before — "unknown" is not "nothing buffered". */
+  bufferedPct?: number | null;
 }
 
 const GROW_DURATION = 400;
@@ -24,6 +28,8 @@ function getSkinColors(canvas: HTMLCanvasElement) {
     playedBot: `rgba(${accent}, 0.24)`,
     unplayedTop: `rgba(${overlay}, 0.12)`,
     unplayedBot: `rgba(${overlay}, 0.06)`,
+    unbufferedTop: `rgba(${overlay}, 0.045)`,
+    unbufferedBot: `rgba(${overlay}, 0.022)`,
   };
 }
 
@@ -46,7 +52,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   }
 }
 
-export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarProps) {
+export function SegmentedSeekBar({ progress, durationSecs, bufferedPct = null }: SegmentedSeekBarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number>(0);
   const growRef = useRef(0);
@@ -82,6 +88,9 @@ export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarPro
 
     const colors = getSkinColors(canvas);
     const playedX = progress * w;
+    // No buffer report ⇒ treat the whole track as available, which is the
+    // pre-existing single-tone rendering.
+    const bufferedX = bufferedPct != null ? bufferedPct * w : w;
     const axis = h * AXIS_RATIO;
     const topMax = axis - PADDING;
     const botMax = h - axis - PADDING;
@@ -116,7 +125,14 @@ export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarPro
       };
 
       if (playedX <= x) {
-        drawSeg(colors.unplayedTop, colors.unplayedBot);
+        // Whole block is unplayed — the only question is whether its data has
+        // arrived. A block straddling the buffered edge counts as unbuffered so
+        // the fade lands on or before the edge, never past it.
+        const buffered = segEnd <= bufferedX;
+        drawSeg(
+          buffered ? colors.unplayedTop : colors.unbufferedTop,
+          buffered ? colors.unplayedBot : colors.unbufferedBot,
+        );
       } else if (playedX >= segEnd) {
         drawSeg(colors.playedTop, colors.playedBot);
       } else {
@@ -143,7 +159,7 @@ export function SegmentedSeekBar({ progress, durationSecs }: SegmentedSeekBarPro
     } else {
       growRef.current = 1;
     }
-  }, [progress, durationSecs]);
+  }, [progress, durationSecs, bufferedPct]);
 
   // Re-trigger grow animation on track change
   useEffect(() => {

@@ -50,6 +50,20 @@ export interface EngineErrorEvent {
   message: string;
 }
 
+/** Demuxer-cache state of the active deck. Emitted when it actually moves —
+ * a settled cache (any local file, and a network stream that has caught up)
+ * goes quiet rather than repeating itself at the position tick's rate. Every
+ * field but `pausedForCache` is null when mpv doesn't report it. */
+export interface EngineBufferEvent {
+  trackKey: string;
+  /** Playback is halted waiting for data (mpv `paused-for-cache`). */
+  pausedForCache: boolean;
+  /** Seconds of readahead beyond the play position. */
+  readaheadSecs: number | null;
+  /** Absolute track position (secs) the cached data reaches. */
+  cacheEndSecs: number | null;
+}
+
 /** mpv media-title updates — ICY StreamTitle for live radio streams. Local
  * files emit their tag title once; consumers drop titles equal to the
  * track's own. */

@@ -26,7 +26,8 @@
 //! stale events, mirroring the browser path's play-generation guard):
 //! `engine-position` (~4 Hz while playing), `engine-duration`,
 //! `engine-track-changed {reason}`, `engine-ended`, `engine-state`,
-//! `engine-error {code}`.
+//! `engine-error {code}`, `engine-buffer` (demuxer cache state — see
+//! `BufferSnapshot`).
 
 mod af;
 mod api;
@@ -97,6 +98,83 @@ pub struct EngineMediaInfo {
     pub video_bitrate: Option<f64>,
     /// Nominal container frame rate.
     pub fps: Option<f64>,
+}
+
+/// What the active deck's demuxer cache is holding right now. Only really
+/// moves for network sources — a local file's cache saturates and then reports
+/// the same numbers forever, which the emit guard turns into silence.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct BufferSnapshot {
+    /// mpv `paused-for-cache`: playback is halted waiting for data.
+    paused_for_cache: bool,
+    /// mpv `demuxer-cache-time`: absolute track position the cache reaches.
+    cache_end_secs: Option<f64>,
+    /// mpv `demuxer-cache-duration`: readahead beyond the play position.
+    readahead_secs: Option<f64>,
+}
+
+/// Coarse identity of a snapshot — the emit guard's comparison key, quantized
+/// per field to the granularity that field is actually *displayed* at. Without
+/// this the position tick would emit a redundant event 4× a second for every
+/// network track whose cache has settled.
+type BufferFingerprint = (bool, Option<i64>, Option<i64>);
+
+fn buffer_fingerprint(s: &BufferSnapshot) -> BufferFingerprint {
+    (
+        s.paused_for_cache,
+        // Drives the seek bar's buffered edge: half a second is well under a
+        // pixel of movement on any sane bar width.
+        s.cache_end_secs.map(|v| (v * 2.0).round() as i64),
+        // Readahead is only ever *shown* while stalled (it's the number in the
+        // buffering chip), so let it drive emits only then. Outside a stall it
+        // changes continuously and nobody can see it, so including it
+        // unconditionally would re-emit on every tick of every network track.
+        s.paused_for_cache
+            .then(|| s.readahead_secs.map(|v| (v * 10.0).round() as i64))
+            .flatten(),
+    )
+}
+
+/// Read the cache properties off a deck, or `None` when the source isn't a
+/// network stream.
+///
+/// The network gate is load-bearing, not a nicety. mpv keeps a *bounded*
+/// demuxer readahead for local files too — a few tens of seconds, not the
+/// whole file — so a five-minute FLAC on the user's own disk reports a cache
+/// that ends barely past the playhead. Reporting that would dim most of its
+/// seek bar as "not downloaded yet", which is the exact opposite of true.
+///
+/// Everything past the gate is optional: a source or an mpv build that doesn't
+/// report a given property yields `None` (or, for the stall flag, "not
+/// stalled"), never an error the caller has to handle.
+///
+/// **Split streams describe the video only.** These properties read the *main*
+/// demuxer and never aggregate with an external `audio-file` track — measured,
+/// not assumed: attaching a 3 KB/s starved stream as external audio reported
+/// `demuxer-cache-time` as `None` throughout, while the identical stream as the
+/// main file produced a full stall trace (`probe_split_stream_buffer_attribution`).
+/// So for a YouTube ≥720p play (video-only + audio-only, see `play`'s
+/// `audio_url`) the readout describes the **video** stream. That is coherent
+/// with where it is rendered — the seek bar it decorates *is* the video
+/// timeline — but an audio-side underrun with healthy video is a gap: the
+/// number would stay reassuring, or the chip may not appear at all. It is a
+/// missing signal rather than a wrong one, which is why the readout is kept
+/// rather than suppressed for split sources.
+fn read_buffer_snapshot(mpv: &Mpv) -> Option<BufferSnapshot> {
+    if !mpv.get_property::<bool>("demuxer-via-network").unwrap_or(false) {
+        return None;
+    }
+    let finite = |v: f64| v.is_finite().then_some(v);
+    let paused_for_cache = mpv.get_property::<bool>("paused-for-cache").unwrap_or(false);
+    Some(BufferSnapshot {
+        paused_for_cache,
+        cache_end_secs: mpv.get_property::<f64>("demuxer-cache-time").ok().and_then(finite),
+        readahead_secs: mpv
+            .get_property::<f64>("demuxer-cache-duration")
+            .ok()
+            .and_then(finite)
+            .filter(|v| *v >= 0.0),
+    })
 }
 
 #[derive(Default)]
@@ -583,6 +661,26 @@ impl Engine {
             // ICY StreamTitle for radio streams surfaces as media-title.
             .and_then(|_| client.observe_property("media-title", Format::String, 4))
             .map_err(|e| format!("failed to observe mpv properties: {e}"))?;
+        // Buffer state, observed best-effort: an mpv build that doesn't carry
+        // one of these must lose the buffer readout, not the whole engine.
+        // Both change rarely (only when the cache underruns), so observing them
+        // costs nothing during healthy playback.
+        //
+        // `cache-buffering-state`'s *value* is deliberately unused — it reads a
+        // near-constant 0 through a real stall, because mpv unpauses the moment
+        // it has ~1s of data and so is only ever "buffering" while the cache is
+        // near empty (confirmed against a throttled HTTP source). It's observed
+        // purely as a **wake-up**: `time-pos` stops advancing the instant mpv
+        // pauses for cache, so without this trigger the readout would freeze at
+        // exactly the moment the user is watching it.
+        for (name, format, id) in [
+            ("paused-for-cache", Format::Flag, 5u64),
+            ("cache-buffering-state", Format::Int64, 6u64),
+        ] {
+            if let Err(e) = client.observe_property(name, format, id) {
+                log::warn!("mpv-engine: cannot observe {name} (no buffer readout): {e}");
+            }
+        }
 
         let state = self.state.clone();
         let sink = self.sink.clone();
@@ -1058,6 +1156,46 @@ impl Engine {
     }
 }
 
+/// Emit the active deck's buffer state, unless nothing has moved since the
+/// last emit. Must be called with no lock on `state` held — it takes one.
+fn emit_buffer_if_changed(
+    client: &Mpv,
+    deck: usize,
+    state: &Mutex<EngineState>,
+    sink: &EventSink,
+    last: &mut Option<BufferFingerprint>,
+) {
+    let key = {
+        let st = state.lock().unwrap();
+        if deck != st.active {
+            return;
+        }
+        match st.current_key.clone() {
+            Some(key) => key,
+            None => return,
+        }
+    };
+    // Non-network source: stay silent rather than emitting a snapshot the UI
+    // would have to know to ignore.
+    let Some(snap) = read_buffer_snapshot(client) else {
+        return;
+    };
+    let fingerprint = buffer_fingerprint(&snap);
+    if *last == Some(fingerprint) {
+        return;
+    }
+    *last = Some(fingerprint);
+    sink(
+        "engine-buffer",
+        json!({
+            "trackKey": key,
+            "pausedForCache": snap.paused_for_cache,
+            "readaheadSecs": snap.readahead_secs,
+            "cacheEndSecs": snap.cache_end_secs,
+        }),
+    );
+}
+
 fn run_event_loop(
     client: Arc<Mpv>,
     deck: usize,
@@ -1066,6 +1204,7 @@ fn run_event_loop(
     sink: EventSink,
 ) {
     let mut last_position_emit = Instant::now() - POSITION_EMIT_INTERVAL;
+    let mut last_buffer: Option<BufferFingerprint> = None;
     loop {
         let Some(event) = client.wait_event(0.5) else {
             continue;
@@ -1077,6 +1216,10 @@ fn run_event_loop(
         match event {
             Ok(Event::Shutdown) => break,
             Ok(Event::StartFile) => {
+                // A new file owns a new cache — drop the guard's memory so the
+                // first snapshot of this track always reaches the frontend,
+                // even when it happens to match the last one of the previous.
+                last_buffer = None;
                 let mut st = state.lock().unwrap();
                 if st.expecting_start[deck] {
                     // Our own explicit loadfile (play or crossfade arm).
@@ -1165,19 +1308,34 @@ fn run_event_loop(
                 match (name.as_str(), change) {
                     ("time-pos", PropertyData::Double(pos)) => {
                         if last_position_emit.elapsed() >= POSITION_EMIT_INTERVAL {
-                            let st = state.lock().unwrap();
-                            if deck == st.active {
-                                if let Some(key) = st.current_key.as_ref() {
-                                    last_position_emit = Instant::now();
-                                    sink(
-                                        "engine-position",
-                                        json!({
-                                            "trackKey": key,
-                                            "positionSecs": pos,
-                                            "durationSecs": st.duration,
-                                        }),
-                                    );
+                            let owner = {
+                                let st = state.lock().unwrap();
+                                if deck == st.active {
+                                    st.current_key.clone().map(|key| (key, st.duration))
+                                } else {
+                                    None
                                 }
+                            };
+                            if let Some((key, duration)) = owner {
+                                last_position_emit = Instant::now();
+                                sink(
+                                    "engine-position",
+                                    json!({
+                                        "trackKey": key,
+                                        "positionSecs": pos,
+                                        "durationSecs": duration,
+                                    }),
+                                );
+                                // Ride the position throttle so the buffered-ahead
+                                // range keeps moving during healthy playback. The
+                                // change guard keeps a settled cache silent.
+                                emit_buffer_if_changed(
+                                    &client,
+                                    deck,
+                                    &state,
+                                    &sink,
+                                    &mut last_buffer,
+                                );
                             }
                         }
                     }
@@ -1209,6 +1367,14 @@ fn run_event_loop(
                                 json!({ "playing": !paused, "trackKey": key }),
                             );
                         }
+                    }
+                    // The stall signals. They fire on their own schedule, which
+                    // matters: `time-pos` stops advancing the moment mpv pauses
+                    // for cache, so the position tick alone would freeze the
+                    // readout exactly when the user needs it.
+                    ("paused-for-cache", PropertyData::Flag(_))
+                    | ("cache-buffering-state", PropertyData::Int64(_)) => {
+                        emit_buffer_if_changed(&client, deck, &state, &sink, &mut last_buffer);
                     }
                     ("media-title", PropertyData::Str(title)) => {
                         // ICY StreamTitle updates for live radio streams. Local
@@ -1286,6 +1452,59 @@ mod tests {
         f.write_all(b"data").unwrap();
         f.write_all(&data_len.to_le_bytes()).unwrap();
         f.write_all(&vec![0u8; data_len as usize]).unwrap();
+    }
+
+    fn buffer_snap(paused: bool, cache_end: Option<f64>, readahead: Option<f64>) -> BufferSnapshot {
+        BufferSnapshot { paused_for_cache: paused, cache_end_secs: cache_end, readahead_secs: readahead }
+    }
+
+    #[test]
+    fn test_buffer_fingerprint_ignores_sub_half_second_cache_drift() {
+        // A settled cache reports a value that jitters in the noise. If that
+        // counted as a change, every network track would emit a redundant
+        // engine-buffer 4× a second for its whole duration.
+        let a = buffer_snap(false, Some(180.02), Some(12.0));
+        let b = buffer_snap(false, Some(180.21), Some(12.0));
+        assert_eq!(buffer_fingerprint(&a), buffer_fingerprint(&b));
+    }
+
+    #[test]
+    fn test_buffer_fingerprint_tracks_a_filling_cache() {
+        let a = buffer_snap(false, Some(30.0), Some(6.0));
+        let b = buffer_snap(false, Some(34.5), Some(10.5));
+        assert_ne!(buffer_fingerprint(&a), buffer_fingerprint(&b));
+    }
+
+    #[test]
+    fn test_buffer_fingerprint_tracks_stall_and_refill() {
+        // The two states the chip renders. A refill behind a *frozen* playhead
+        // moves only the readahead — the cache end can be unchanged at 0.5s
+        // resolution — so readahead alone has to trigger an emit. This is the
+        // whole reason the chip's number can climb during a stall.
+        let playing = buffer_snap(false, Some(50.0), Some(20.0));
+        let stalled = buffer_snap(true, Some(50.0), Some(0.0));
+        let refilling = buffer_snap(true, Some(50.0), Some(0.4));
+        assert_ne!(buffer_fingerprint(&playing), buffer_fingerprint(&stalled));
+        assert_ne!(buffer_fingerprint(&stalled), buffer_fingerprint(&refilling));
+    }
+
+    #[test]
+    fn test_buffer_fingerprint_ignores_readahead_while_playing() {
+        // Readahead is only displayed while stalled. Outside a stall it drifts
+        // continuously and invisibly, so it must not wake an emit — otherwise
+        // every healthy network track pays for a number nobody can see.
+        let a = buffer_snap(false, Some(90.0), Some(11.2));
+        let b = buffer_snap(false, Some(90.0), Some(18.9));
+        assert_eq!(buffer_fingerprint(&a), buffer_fingerprint(&b));
+    }
+
+    #[test]
+    fn test_buffer_fingerprint_distinguishes_unknown_from_zero() {
+        // "mpv didn't report a cache" and "the cache is empty" render
+        // differently (no number vs. a real zero), so they can't share a key.
+        let unknown = buffer_snap(true, None, None);
+        let empty = buffer_snap(true, Some(0.0), Some(0.0));
+        assert_ne!(buffer_fingerprint(&unknown), buffer_fingerprint(&empty));
     }
 
     fn collect_events() -> (EventSink, mpsc::Receiver<(String, serde_json::Value)>) {
@@ -1375,6 +1594,113 @@ mod tests {
         // Track B finishes with nothing armed -> ended.
         let ended = wait_for(&rx, "engine-ended", Duration::from_secs(10));
         assert_eq!(ended["trackKey"], "trk:b");
+    }
+
+    /// Which demuxer does the buffer readout describe? Two shapes, back to
+    /// back against the same starved audio stream:
+    ///
+    /// - **A:** that stream as the *main* file. The readout must track it.
+    /// - **B:** a fast video file as main with that same starved stream
+    ///   attached as an external `audio-file` — the shape every YouTube ≥720p
+    ///   play takes (see `play`'s `audio_url`).
+    ///
+    /// **Measured result** (see `read_buffer_snapshot`'s note): A produced 16
+    /// buffer events tracking the stall precisely (readahead climbing
+    /// 0.0 → 0.28 → 0.74 → 1.02 and draining again); B produced **one**, with
+    /// `cacheEnd: null`, while the playhead advanced off that same starved
+    /// stream. The cache properties describe the **main demuxer only** — they
+    /// never fall back to, or aggregate with, an external track.
+    ///
+    /// Harness: serve two endpoints on :8720, video fast and audio at ~3 KB/s.
+    ///   ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30:duration=60 \
+    ///          -f lavfi -i sine=frequency=440:duration=60 \
+    ///          -map 0:v -c:v libx264 -preset ultrafast -pix_fmt yuv420p -an video.mp4 \
+    ///          -map 1:a -c:a aac -vn audio.m4a
+    /// plus any throttling static server that honours Range. `#[ignore]`d
+    /// because of that dependency — run by hand when changing
+    /// `read_buffer_snapshot`.
+    #[test]
+    #[ignore]
+    fn probe_split_stream_buffer_attribution() {
+        fn watch(label: &str, rx: &mpsc::Receiver<(String, serde_json::Value)>, secs: u64) {
+            let deadline = Instant::now() + Duration::from_secs(secs);
+            let mut pos = 0.0;
+            let mut seen = 0;
+            while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+                match rx.recv_timeout(remaining) {
+                    Ok((n, p)) if n == "engine-position" => {
+                        pos = p["positionSecs"].as_f64().unwrap_or(0.0)
+                    }
+                    Ok((n, p)) if n == "engine-buffer" => {
+                        seen += 1;
+                        eprintln!(
+                            "[{label}] pos={pos:6.2}  stalled={}  readahead={}  cacheEnd={}",
+                            p["pausedForCache"], p["readaheadSecs"], p["cacheEndSecs"],
+                        );
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+            }
+            eprintln!("[{label}] {seen} buffer event(s), final pos={pos:.2}");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine.set_tls_ca_file(&test_ca_bundle(dir.path())).expect("tls ca");
+
+        // A — the starved stream is the main file.
+        engine
+            .play("http://127.0.0.1:8720/audio.m4a", None, "trk:solo", None, 0.5, false, false)
+            .expect("play audio alone");
+        watch("solo", &rx, 20);
+
+        // B — same starved stream, now attached to a fast main file.
+        engine
+            .play(
+                "http://127.0.0.1:8720/video.mp4",
+                Some("http://127.0.0.1:8720/audio.m4a"),
+                "trk:split",
+                None,
+                0.5,
+                false,
+                false,
+            )
+            .expect("play split pair");
+        watch("split", &rx, 20);
+    }
+
+    #[test]
+    fn test_local_file_emits_no_buffer_events() {
+        // The network gate, against real mpv. mpv keeps a bounded demuxer
+        // readahead for local files too, so without the gate a file on disk
+        // would report a cache ending just past the playhead — and the seek
+        // bar would dim the rest of a track that is entirely local.
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("local.wav");
+        write_wav(&wav, 1.0);
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine
+            .play(wav.to_str().unwrap(), None, "trk:local", None, 1.0, false, false)
+            .expect("play");
+
+        // Drain the whole session; any engine-buffer in it is a failure.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("timed out waiting for engine-ended");
+            let (name, payload) = rx
+                .recv_timeout(remaining)
+                .expect("timed out waiting for engine-ended");
+            assert_ne!(name, "engine-buffer", "local file reported a buffer: {payload}");
+            if name == "engine-ended" {
+                break;
+            }
+        }
     }
 
     #[test]
@@ -1552,6 +1878,12 @@ mod tests {
         let info = engine.media_info().expect("media info");
         eprintln!("[https-test] info: {info:?}");
         assert!(info.codec.is_some());
+        // The buffer readout is network-gated, so this is the only shape of
+        // test that can prove the properties are actually wired to real mpv.
+        let buffer = wait_for(&rx, "engine-buffer", Duration::from_secs(30));
+        eprintln!("[https-test] buffer: {buffer}");
+        assert_eq!(buffer["trackKey"], "trk:https");
+        assert!(buffer["cacheEndSecs"].is_f64(), "http source must report a cache end");
         let ended = wait_for(&rx, "engine-ended", Duration::from_secs(30));
         assert_eq!(ended["trackKey"], "trk:https");
     }

@@ -9,6 +9,11 @@ interface WaveformSeekBarProps {
   hoverPct?: number | null;
 }
 
+// No buffered-ahead rendering here, deliberately: a waveform only exists for
+// local files (`isWaveformAnalyzable` gates on `file://`) and a buffer is only
+// reported for network sources, so the two can never co-occur. The buffered
+// edge lives on SegmentedSeekBar, which is what a network track actually gets.
+
 /** Fraction of the height where the mirror axis sits — the main lobe renders
  *  above it, the quieter reflection below (SoundCloud-style asymmetry). */
 const AXIS_RATIO = 0.62;

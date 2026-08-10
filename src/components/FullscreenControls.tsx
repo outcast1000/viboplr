@@ -13,6 +13,8 @@ import { tileIndexAt, type Storyboard } from "../utils/storyboard";
 // art, so the bubble downscales — percentage-based positioning keeps it sharp.
 const SEEK_THUMB_WIDTH = 176;
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import { BufferingChip } from "./BufferingChip";
+import { bufferedFraction, type PlaybackBuffer } from "../playback/bufferState";
 
 interface FullscreenControlsProps {
   waveformPeaks: number[] | null;
@@ -22,6 +24,9 @@ interface FullscreenControlsProps {
   playing: boolean;
   durationSecs: number;
   scrobbled: boolean;
+  /** Buffer state of the current source, or null when no engine reported one.
+   *  Same contract as the now-playing bar's. */
+  buffer?: PlaybackBuffer | null;
   volume: number;
   muted: boolean;
   queueMode: QueueMode;
@@ -78,7 +83,7 @@ export function FullscreenControls({
   waveformPeaks,
   storyboard,
   currentTrack, playing,
-  durationSecs, scrobbled,
+  durationSecs, scrobbled, buffer,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath,
@@ -91,6 +96,7 @@ export function FullscreenControls({
   // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
   // only this overlay.
   const positionSecs = usePlaybackPosition();
+  const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
   const [visible, setVisible] = useState(true);
   const [domFullscreen, setDomFullscreen] = useState(false);
   // Either kind of fullscreen counts: the video path uses a DOM :fullscreen
@@ -212,6 +218,7 @@ export function FullscreenControls({
             durationSecs={durationSecs}
             progress={positionSecs / durationSecs}
             hoverPct={seekHover?.pct ?? null}
+            bufferedPct={bufferedPct}
           />
         ) : waveformPeaks ? (
           <WaveformSeekBar
@@ -219,8 +226,20 @@ export function FullscreenControls({
             progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
           />
         ) : (
-          <div className="fs-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+          <>
+            {/* The flat fill is what a NETWORK audio track actually gets here —
+                no storyboard (audio) and no waveform (those are local-only), so
+                this is the only branch the buffered edge can ever reach. Drawn
+                as a band under the played fill, the shape every video player
+                uses. Absent when `bufferedPct` is null (any local source), so
+                that case renders exactly as it did before. */}
+            {bufferedPct != null && (
+              <div className="fs-seek-buffered" style={{ width: `${bufferedPct * 100}%` }} />
+            )}
+            <div className="fs-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
+          </>
         )}
+        <BufferingChip buffer={buffer} />
         <span className="fs-seek-time fs-seek-elapsed">{formatDuration(positionSecs)}</span>
         <span className="fs-seek-time fs-seek-total">
           {formatDuration(durationSecs)}

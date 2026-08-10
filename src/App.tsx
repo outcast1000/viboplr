@@ -3466,6 +3466,7 @@ function App() {
     playing: playback.playing,
     durationSecs: playback.durationSecs,
     scrobbled: playback.scrobbled,
+    buffer: playback.buffer,
     volume: playback.volume,
     muted: playback.muted,
     queueMode: queueHook.queueMode,
@@ -3874,6 +3875,9 @@ function App() {
         onPause={playback.onPauseSlotA}
         onEnded={() => playback.onEndedSlotA(onEnded)}
         onError={playback.onMediaError}
+        onProgress={playback.onMediaProgress}
+        onWaiting={playback.onMediaWaiting}
+        onPlaying={playback.onMediaPlaying}
       />
       <audio
         ref={playback.audioRefB}
@@ -3884,6 +3888,9 @@ function App() {
         onPause={playback.onPauseSlotB}
         onEnded={() => playback.onEndedSlotB(onEnded)}
         onError={playback.onMediaError}
+        onProgress={playback.onMediaProgress}
+        onWaiting={playback.onMediaWaiting}
+        onPlaying={playback.onMediaPlaying}
       />
 
       <Sidebar
@@ -4726,6 +4733,9 @@ function App() {
             onPlay={playback.onPlay}
             onPause={playback.onPause}
             onError={playback.onMediaError}
+            onProgress={playback.onMediaProgress}
+            onWaiting={playback.onMediaWaiting}
+            onPlaying={playback.onMediaPlaying}
             onClick={playback.handlePause}
             onDoubleClick={playback.toggleFullscreen}
           />
@@ -5244,6 +5254,7 @@ function App() {
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}
         icyTitle={playback.icyTitle}
+        buffer={playback.buffer}
         trackRank={trackRank}
         volume={playback.volume}
         muted={playback.muted}

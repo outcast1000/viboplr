@@ -10,6 +10,12 @@ interface FilmstripSeekBarProps {
   progress: number; // 0..1
   /** Cursor position as a 0..1 fraction, or null when not hovering. */
   hoverPct?: number | null;
+  /** How far the source has downloaded, as a 0..1 fraction, or null when the
+   *  engine can't say (any local file). Frames past the edge are knocked back
+   *  further than the ordinary ahead-of-playhead treatment. This matters more
+   *  here than on the audio bars: a storyboard means a streamed video, which
+   *  is the source most likely to stall. */
+  bufferedPct?: number | null;
 }
 
 /** Height of each perforation rail. The frames get whatever is left, so this is the
@@ -75,11 +81,15 @@ export function planCells(
  * desaturated so progress reads as a colour front, and the playhead is a needle plus
  * carets that bite in from the perforation rails, where they cost no frame area.
  *
+ * Frames past the *buffered* edge are knocked back a second step. Both boundaries land
+ * on a frame edge (they test the cell midpoint), which suits a filmstrip — the needle
+ * carries the exact position.
+ *
  * Tiles are drawn with background offsets rather than a canvas, matching `StoryboardTile`
  * — nothing reads pixels, so cross-origin (plugin-supplied) sheets never taint anything.
  */
 export function FilmstripSeekBar({
-  board, durationSecs, progress, hoverPct = null,
+  board, durationSecs, progress, hoverPct = null, bufferedPct = null,
 }: FilmstripSeekBarProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
@@ -106,6 +116,9 @@ export function FilmstripSeekBar({
   );
 
   const clamped = Math.min(1, Math.max(0, progress));
+  // Null (no engine report) means the whole strip counts as available, which is
+  // the pre-existing single-step rendering.
+  const bufferedEdge = bufferedPct != null ? Math.min(1, Math.max(0, bufferedPct)) : 1;
 
   return (
     <div className="filmstrip" ref={ref}>
@@ -113,7 +126,7 @@ export function FilmstripSeekBar({
         {cells.map((c, i) => (
           <div
             key={i}
-            className={`filmstrip-cell${c.mid > clamped ? " filmstrip-cell--ahead" : ""}`}
+            className={`filmstrip-cell${c.mid > clamped ? " filmstrip-cell--ahead" : ""}${c.mid > bufferedEdge ? " filmstrip-cell--unbuffered" : ""}`}
             style={{ ...(c.style ?? undefined), width: c.width }}
           />
         ))}

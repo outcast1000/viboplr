@@ -1,0 +1,38 @@
+/* Stall indicator over a seek bar. Shared by the now-playing bar and the
+   fullscreen controls, so it lives with the component rather than in either
+   surface's stylesheet.
+
+   Absolutely centred over the seek track it's placed in: taking layout would
+   push the waveform sideways on every network hiccup, and a bar that jumps
+   when the stream stutters is worse than showing nothing. Both hosts are
+   `position: relative` (.now-seek-track, .fs-seek-bar). */
+.buffering-chip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--ds-radius);
+  background: rgba(var(--bg-surface-rgb), 0.88);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  animation: fade-in 0.15s var(--ease-out-quart);
+}
+
+.buffering-chip-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ds-spin 0.8s linear infinite;
+}

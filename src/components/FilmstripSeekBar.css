@@ -33,6 +33,15 @@
   filter: grayscale(0.8) brightness(0.5);
 }
 
+/* A second step back for frames the source hasn't downloaded yet. Must come
+   AFTER --ahead: an unbuffered cell always carries both classes, the two
+   selectors have equal specificity, and `filter` does not compose across
+   rules — so source order is what makes this one win. Restated in full rather
+   than layered for that reason. */
+.filmstrip-cell--unbuffered {
+  filter: grayscale(1) brightness(0.25);
+}
+
 /* Perforation rails. They overlay the frames top and bottom, which is what buys the
    playhead carets somewhere to live without eating into the picture. */
 .filmstrip-rail {

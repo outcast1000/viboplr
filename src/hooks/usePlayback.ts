@@ -19,7 +19,9 @@ import {
   type EngineStateEvent,
   type EngineErrorEvent,
   type EngineIcyTitleEvent,
+  type EngineBufferEvent,
 } from "../playback/nativeEngine";
+import { applyBuffer, bufferedEndAt, type PlaybackBuffer } from "../playback/bufferState";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { setPlaybackPosition, getPlaybackPosition, subscribePlaybackPosition } from "../playback/positionStore";
 import {
@@ -295,6 +297,28 @@ export function usePlayback(
   // song the station is currently playing. Null for ordinary tracks (the
   // engine's media-title then equals the track's own title and is dropped).
   const [icyTitle, setIcyTitle] = useState<string | null>(null);
+  // How far the current source has buffered, and whether playback is stalled
+  // waiting for more. Null until an engine says something — a source that
+  // never reports (most local files) has no buffer to show, which is not the
+  // same as an empty one. Cleared alongside icyTitle on every session change.
+  const [buffer, setBuffer] = useState<PlaybackBuffer | null>(null);
+
+  /** Readouts that describe *this* stream and nothing else. Reset together at
+   *  every session boundary (explicit play, stop, engine track change, engine
+   *  error) so a new track can never inherit the last one's radio title or
+   *  buffered edge. One call site per boundary, not one per readout. */
+  function clearStreamReadouts() {
+    setIcyTitle(null);
+    setBuffer(null);
+    browserPlaybackStartedRef.current = false;
+  }
+
+  // Browser-engine stall detection is armed only once playback has actually
+  // begun. A media element fires `waiting` during its *initial* load as well,
+  // and mpv's `paused-for-cache` does not — without this gate the two engines
+  // would report different things, and every track start on the browser engine
+  // would flash "Buffering…" for what is just an ordinary load.
+  const browserPlaybackStartedRef = useRef(false);
 
   function setWindowFullscreen(fullscreen: boolean) {
     import("@tauri-apps/api/window")
@@ -1135,7 +1159,7 @@ export function usePlayback(
         nativeLastPositionRef.current = 0;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
-        setIcyTitle(null);
+        clearStreamReadouts();
         trackChangeSourceRef.current = "auto";
         setCurrentTrack(promoted.track);
         prefetchRequestedRef.current = false;
@@ -1153,7 +1177,7 @@ export function usePlayback(
         nativePreloadedRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
-        setIcyTitle(null);
+        clearStreamReadouts();
         onNativeAutoEndedRef.current();
       }),
       subscribe<EnginePlaybackRestartEvent>("engine-playback-restart", ({ payload }) => {
@@ -1169,6 +1193,16 @@ export function usePlayback(
         if (!nativeSessionRef.current) return;
         if (payload.trackKey && payload.trackKey !== nativeSessionRef.current.key) return;
         setPlaying(payload.playing);
+      }),
+      subscribe<EngineBufferEvent>("engine-buffer", ({ payload }) => {
+        if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        setBuffer((prev) =>
+          applyBuffer(prev, {
+            stalled: payload.pausedForCache,
+            readaheadSecs: payload.readaheadSecs,
+            bufferedToSecs: payload.cacheEndSecs,
+          }),
+        );
       }),
       subscribe<EngineIcyTitleEvent>("engine-icy-title", ({ payload }) => {
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
@@ -1194,7 +1228,7 @@ export function usePlayback(
         nativeSessionRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
-        setIcyTitle(null);
+        clearStreamReadouts();
         logPlayback(`Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine: ${payload.message}`);
         trackTelemetry("engine_fallback", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
         const track = currentTrackRef.current;
@@ -1388,6 +1422,8 @@ export function usePlayback(
     setCurrentAssetUrl(inactiveEl.src);
     setPlaybackPosition(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
+    // New element, new buffer — the outgoing track's readouts don't describe it.
+    clearStreamReadouts();
     scrobbledRef.current = false;
     setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
@@ -1634,7 +1670,7 @@ export function usePlayback(
     lastPlaySrcRef.current = src;
     setPlaybackPosition(seekTo > 0 ? seekTo : 0);
     setDurationSecs(track.duration_secs ?? 0);
-    setIcyTitle(null);
+    clearStreamReadouts();
     scrobbledRef.current = false;
     setScrobbled(false);
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
@@ -1803,7 +1839,7 @@ export function usePlayback(
       nativeEngine.stop().catch(console.error);
     }
     setNativeVideoActive(false);
-    setIcyTitle(null);
+    clearStreamReadouts();
     // Not merely paused: the next play must re-resolve and re-install, or it
     // would resume whatever this element was still holding.
     [audioRefA.current, audioRefB.current].forEach(stopMediaElement);
@@ -1836,7 +1872,7 @@ export function usePlayback(
       nativeEngine.stop().catch(console.error);
     }
     setNativeVideoActive(false);
-    setIcyTitle(null);
+    clearStreamReadouts();
     const el = getMediaElement();
     if (el) {
       el.pause();
@@ -2068,6 +2104,43 @@ export function usePlayback(
     }
   }
 
+  // ---- Browser-engine buffer readout -------------------------------------
+  // The element reports a *range list* rather than mpv's scalars, but the same
+  // two numbers fall out of it: the covering range's end is the buffered edge,
+  // and `end - currentTime` is the readahead mpv reports directly. Driven by
+  // events, never polled — a fully-buffered element simply stops firing
+  // `progress` and the last value stands.
+
+  function onMediaProgress(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
+    const el = e.target as HTMLMediaElement;
+    if (!isActiveElement(el)) return;
+    // Remote sources only, matching the engine's `demuxer-via-network` gate.
+    // A local file's ranges fill in bursts as the webview reads it off disk,
+    // and a seek bar that dims a file the user already owns is a lie about
+    // the one case where nothing can possibly be missing.
+    const track = currentTrackRef.current;
+    if (!track || isLocalTrack(track)) return;
+    const bufferedToSecs = bufferedEndAt(el.buffered, el.currentTime);
+    const readaheadSecs = bufferedToSecs == null ? null : Math.max(0, bufferedToSecs - el.currentTime);
+    setBuffer((prev) => applyBuffer(prev, { bufferedToSecs, readaheadSecs }));
+  }
+
+  /** The element ran dry mid-playback (or is fetching a seek target). */
+  function onMediaWaiting(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
+    const el = e.target as HTMLMediaElement;
+    if (!isActiveElement(el) || !browserPlaybackStartedRef.current) return;
+    setBuffer((prev) => applyBuffer(prev, { stalled: true }));
+  }
+
+  /** Data arrived and playback is running again. Also the signal that arms
+   *  stall detection for this session — see `browserPlaybackStartedRef`. */
+  function onMediaPlaying(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
+    const el = e.target as HTMLMediaElement;
+    if (!isActiveElement(el)) return;
+    browserPlaybackStartedRef.current = true;
+    setBuffer((prev) => applyBuffer(prev, { stalled: false }));
+  }
+
   function onLoadedMetadata(e: React.SyntheticEvent<HTMLAudioElement | HTMLVideoElement>) {
     const el = e.target as HTMLMediaElement;
     if (!isActiveElement(el)) return;
@@ -2209,6 +2282,7 @@ export function usePlayback(
     handleVolume, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,
+    onMediaProgress, onMediaWaiting, onMediaPlaying,
     isActiveElement,
     onEndedSlotA, onEndedSlotB,
     onPlaySlotA, onPlaySlotB,
@@ -2218,6 +2292,7 @@ export function usePlayback(
     nativeVideoPresenting,
     nativeFullscreen,
     icyTitle,
+    buffer,
     playbackError, failedTrack, clearPlaybackError,
     loadingTrack,
     playbackRate, setPlaybackRate,
