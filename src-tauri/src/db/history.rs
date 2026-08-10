@@ -1,19 +1,38 @@
 // Auto-split from db.rs. Shared types/helpers live in db/mod.rs;
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
+use std::sync::LazyLock;
 
 // Video container formats as stored in `tracks.format`. Auto-continue and radio
-// share these clauses so their audio/video filtering can't drift apart.
-const VIDEO_FORMAT_CLAUSE: &str = " AND LOWER(t.format) IN ('mp4','m4v','mov','webm')";
-const AUDIO_FORMAT_CLAUSE: &str =
-    " AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))";
+// share these clauses so their audio/video filtering can't drift apart — and
+// both are built from `scanner::VIDEO_EXTENSIONS` so they can't drift from what
+// the scanner actually indexed as video either. That second drift was real:
+// this list named four containers while the scanner indexed seven, so an .mkv
+// concert was video to every surface in the UI and audio to the two features
+// here. Radio seeded from one mixed the whole audio library in; radio seeded
+// from an .mp4 could never reach it. `tracks.format` is the lowercased file
+// extension for every collection kind, so the lists compare directly.
+static VIDEO_FORMAT_LIST: LazyLock<String> = LazyLock::new(|| {
+    crate::scanner::VIDEO_EXTENSIONS
+        .iter()
+        .map(|e| format!("'{}'", e))
+        .collect::<Vec<_>>()
+        .join(",")
+});
+static VIDEO_FORMAT_CLAUSE: LazyLock<String> =
+    LazyLock::new(|| format!(" AND LOWER(t.format) IN ({})", *VIDEO_FORMAT_LIST));
+static AUDIO_FORMAT_CLAUSE: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        " AND (t.format IS NULL OR LOWER(t.format) NOT IN ({}))",
+        *VIDEO_FORMAT_LIST
+    )
+});
 
 /// True when a `tracks.format` value names a video container.
 fn is_video_format(format: Option<&str>) -> bool {
-    matches!(
-        format.map(|f| f.to_lowercase()).as_deref(),
-        Some("mp4") | Some("m4v") | Some("mov") | Some("webm")
-    )
+    format
+        .map(|f| crate::scanner::VIDEO_EXTENSIONS.contains(&f.to_lowercase().as_str()))
+        .unwrap_or(false)
 }
 
 impl Database {
@@ -29,8 +48,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         let format_clause = match format_filter {
-            Some("video") => VIDEO_FORMAT_CLAUSE,
-            Some("audio") => AUDIO_FORMAT_CLAUSE,
+            Some("video") => VIDEO_FORMAT_CLAUSE.as_str(),
+            Some("audio") => AUDIO_FORMAT_CLAUSE.as_str(),
             _ => "",
         };
 
@@ -164,9 +183,9 @@ impl Database {
         // auto-continue's same-format behavior so an audio seed never queues
         // video tracks (and a video seed never queues audio).
         let format_clause = if is_video_format(seed.format.as_deref()) {
-            VIDEO_FORMAT_CLAUSE
+            VIDEO_FORMAT_CLAUSE.as_str()
         } else {
-            AUDIO_FORMAT_CLAUSE
+            AUDIO_FORMAT_CLAUSE.as_str()
         };
 
         let mut result: Vec<Track> = vec![seed.clone()];
@@ -1091,5 +1110,68 @@ mod tests {
         // Oldest play (ts=50) sorts last in newest-first order.
         let all = db.get_history_plays_page(None, None, 10).unwrap();
         assert_eq!(all.last().unwrap().played_at, 50);
+    }
+
+    /// The audio/video split here must name exactly what the scanner indexed as
+    /// video. These drifted once (four containers here against the scanner's
+    /// seven), which made .mkv/.avi/.wmv video everywhere in the UI and audio to
+    /// radio and auto-continue.
+    #[test]
+    fn test_format_clauses_cover_every_scanned_video_extension() {
+        for ext in crate::scanner::VIDEO_EXTENSIONS {
+            let quoted = format!("'{}'", ext);
+            assert!(
+                VIDEO_FORMAT_CLAUSE.contains(&quoted),
+                "video clause is missing {} — it must list every scanner::VIDEO_EXTENSIONS entry",
+                ext
+            );
+            assert!(
+                AUDIO_FORMAT_CLAUSE.contains(&quoted),
+                "audio clause fails to exclude {} — it must exclude every scanner::VIDEO_EXTENSIONS entry",
+                ext
+            );
+            assert!(
+                is_video_format(Some(ext)),
+                "is_video_format disagrees with the scanner about {}",
+                ext
+            );
+        }
+        assert!(!is_video_format(Some("flac")));
+        assert!(!is_video_format(None));
+    }
+
+    /// A station seeded from a video stays video, whichever container that video
+    /// happens to be in. Before the lists were unified, an .mkv seed fell to the
+    /// audio clause and pulled the whole audio library into the station.
+    #[test]
+    fn test_radio_from_video_seed_excludes_audio_for_every_container() {
+        for ext in crate::scanner::VIDEO_EXTENSIONS {
+            let db = test_db();
+            db.upsert_track(
+                &format!("v/seed.{}", ext), "Seed Concert", None, None, None,
+                Some(300.0), Some(ext), None, None, None, None,
+            ).unwrap();
+            db.upsert_track(
+                &format!("v/other.{}", ext), "Other Concert", None, None, None,
+                Some(300.0), Some(ext), None, None, None, None,
+            ).unwrap();
+            for (i, audio) in ["mp3", "flac", "opus"].iter().enumerate() {
+                db.upsert_track(
+                    &format!("a/song{}.{}", i, audio), &format!("Song {}", i), None, None, None,
+                    Some(200.0), Some(audio), None, None, None, None,
+                ).unwrap();
+            }
+
+            let station = db.build_radio_for_track("Seed Concert", None, 5).unwrap();
+            assert!(!station.is_empty(), "{}: station came back empty", ext);
+            for track in &station {
+                assert!(
+                    is_video_format(track.format.as_deref()),
+                    "{} seed pulled a non-video track into the station: {:?}",
+                    ext,
+                    track.format
+                );
+            }
+        }
     }
 }

@@ -783,8 +783,6 @@ pub fn bulk_update_tracks(
     let mut errors = Vec::new();
     let tags_touched = fields.tag_names.is_some();
 
-    const VIDEO_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "mkv", "avi", "wmv"];
-
     for (track_id, path, _collection_id) in &track_info {
         // Skip non-local files
         if !path.starts_with("file://") {
@@ -801,7 +799,7 @@ pub fn bulk_update_tracks(
         // Skip video files — they don't support embedded metadata tags
         let is_video = file_path.extension()
             .and_then(|e| e.to_str())
-            .map(|e| VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+            .map(|e| crate::scanner::VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
             .unwrap_or(false);
         if is_video {
             continue;
