@@ -82,6 +82,14 @@ interface SidebarProps {
    * behind it either way.
    */
   updateBadge?: UpdateBadge | null;
+  /**
+   * Collections dot: the label from `collectionAlert()` when an enabled
+   * collection failed to sync, else null. Doubles as the title/aria-label —
+   * colour alone would say "look here" without saying why, and this is the one
+   * place a user who doesn't yet know their server is down would have no reason
+   * to click.
+   */
+  collectionAlertLabel?: string | null;
   pluginNavItems?: PluginSidebarItem[];
   onPluginView?: (pluginId: string, viewId: string) => void;
   badgeMap?: Map<string, PluginBadge>;
@@ -96,6 +104,7 @@ export function Sidebar({
   onShowHome, onShowSearch, onShowHistory, onShowNowPlaying, onShowPlaylists, onShowCollections, onShowSettings, onShowExtensions,
   extensionUpdateCount,
   updateBadge,
+  collectionAlertLabel,
   pluginNavItems,
   onPluginView,
   badgeMap,
@@ -190,8 +199,20 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-bottom">
-        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "collections" ? " active" : ""}`} onClick={() => navClick("collections", onShowCollections)} title={collapsed ? "Collections" : undefined}>
+        <button
+          className={`nav-btn sidebar-bottom-btn${noDetail && view === "collections" ? " active" : ""}`}
+          onClick={() => navClick("collections", onShowCollections)}
+          title={collapsed ? (collectionAlertLabel ?? "Collections") : undefined}
+        >
           <span className="nav-btn-label">{icons.collections} {!collapsed && "Collections"}</span>
+          {collectionAlertLabel && (
+            <span
+              className="update-badge update-badge--error"
+              role="status"
+              aria-label={collectionAlertLabel}
+              title={collectionAlertLabel}
+            />
+          )}
         </button>
         <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "extensions" ? " active" : ""}`} onClick={() => navClick("extensions", () => onShowExtensions?.())} title={collapsed ? "Extensions" : undefined}>
           <span className="nav-btn-label">

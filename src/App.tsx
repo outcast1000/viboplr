@@ -22,6 +22,7 @@ import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
+import { collectionAlert } from "./utils/collectionAlert";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
 import { pickEntityImagePath } from "./utils/trackImage";
@@ -3967,6 +3968,7 @@ function App() {
           library.setSelectedTrack(null);
         }}
         updateBadge={updateBadgeFor(updater.updateState)}
+        collectionAlertLabel={collectionAlert(library.collections)}
         extensionUpdateCount={extensionsHook.updateCount}
         pluginNavItems={plugins.sidebarItems}
         badgeMap={mergedBadgeMap}
