@@ -73,7 +73,7 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
    }
    ```
    - `id` **must** match the plugin's `manifest.json` `id` exactly (it's the override/storage key).
-   - `updateUrl` is the only load-bearing field for install. `name`/`description` are display metadata you maintain by hand; **`version` and `minAppVersion` are auto-synced from your live `update.json` by the gallery's reconcile bot** (`scripts/reconcile-versions.mjs` — daily + on release), so you don't hand-maintain them (omit them and the bot backfills; the submission bot also seeds `version` on merge). The *real* version/min-app gate is always enforced from the live `update.json` at install regardless.
+   - `updateUrl` is the only load-bearing field for install. **It is not the only copy of that URL that matters:** the update checker reads `updateUrl` from the *installed manifest*, so a plugin whose own `manifest.json` omits it installs perfectly and is then never checked again. Put it in the plugin's manifest too. (The host now stamps a missing one in at install time, which retro-fixes a copy on its next reinstall — but a plugin should still declare it, since that's what makes a side-loaded or already-installed copy checkable.) `vinyl-deck`, `genius` and `auto-tagger` all shipped without it and went releases-deep unnoticed. `name`/`description` are display metadata you maintain by hand; **`version` and `minAppVersion` are auto-synced from your live `update.json` by the gallery's reconcile bot** (`scripts/reconcile-versions.mjs` — daily + on release), so you don't hand-maintain them (omit them and the bot backfills; the submission bot also seeds `version` on merge). The *real* version/min-app gate is always enforced from the live `update.json` at install regardless.
    - Optional behavior fields: `recommended` / `profiles` (onboarding pre-selection) and `stability` (`"experimental"` moves the entry into the gallery's collapsed Experimental section in-app and the Experimental group on the site, excludes it from onboarding, and badges already-installed copies until the plugin's own manifest carries the field — see "Manifest Format").
 
 3. **Commit & push `index.json`.** Live for everyone on their next Extensions open — no host app release required.
@@ -93,7 +93,7 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
   "debugOnly": false,
   "icon": "M...",
   "homepage": "https://...",
-  "updateUrl": "https://.../manifest.json",
+  "updateUrl": "https://.../releases/latest/download/update.json",
   "apiUsage": [{ "api": "network.fetch", "reason": "Fetch metadata" }],
   "contributes": {
     "informationTypes": [{

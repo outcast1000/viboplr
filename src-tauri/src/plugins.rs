@@ -92,6 +92,61 @@ pub fn install_plugin_from_zip(
     Ok(())
 }
 
+/// Read an installed plugin's manifest `updateUrl`, if it declares one.
+pub fn installed_update_url(app_dir: &Path, plugin_id: &str) -> Option<String> {
+    let path = plugins_dir(app_dir).join(plugin_id).join("manifest.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&content).ok()?;
+    value["updateUrl"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// Stamp `updateUrl` into an installed plugin's manifest when it carries none.
+///
+/// The update checker reads this field from the manifest **on disk** and skips
+/// any plugin without one before it compares versions, so a plugin whose author
+/// left it out of their zip can never learn about its own next release — the
+/// gallery installs it happily and that copy is then deaf forever. The gallery
+/// entry has always carried the URL, so the host knows it at install time and
+/// fills it in rather than relying on every plugin author having remembered.
+///
+/// Only ever fills a **missing** field: an author who points updates somewhere
+/// other than the gallery's URL keeps their own value.
+pub fn stamp_update_url(app_dir: &Path, plugin_id: &str, update_url: &str) -> Result<(), String> {
+    sanitize_plugin_id(plugin_id)?;
+    if update_url.is_empty() {
+        return Ok(());
+    }
+
+    let path = plugins_dir(app_dir).join(plugin_id).join("manifest.json");
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read manifest for '{}': {}", plugin_id, e))?;
+    let mut value: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Invalid manifest for '{}': {}", plugin_id, e))?;
+
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| format!("Manifest for '{}' is not a JSON object", plugin_id))?;
+    let declared = obj
+        .get("updateUrl")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty());
+    if declared {
+        return Ok(());
+    }
+
+    obj.insert(
+        "updateUrl".to_string(),
+        serde_json::Value::String(update_url.to_string()),
+    );
+    let out = serde_json::to_string_pretty(&value)
+        .map_err(|e| format!("Failed to serialize manifest for '{}': {}", plugin_id, e))?;
+    std::fs::write(&path, out + "\n")
+        .map_err(|e| format!("Failed to write manifest for '{}': {}", plugin_id, e))
+}
+
 pub fn install_plugin_from_url(app_dir: &Path, url: &str) -> Result<String, String> {
     let zip_url = normalize_github_url(url);
 

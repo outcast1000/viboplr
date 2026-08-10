@@ -130,16 +130,29 @@ pub fn resolve_install_zip_url(update_url: &str, app_version: &str) -> Result<St
     Ok(info.file)
 }
 
-pub fn collect_installed_extensions(
-    app_dir: &Path,
-    native_plugins_dir: &Path,
-) -> Vec<InstalledExtension> {
-    let mut extensions = Vec::new();
+/// What a scan of the extension directories found.
+///
+/// `unchecked` exists for the same reason `check_extension` separates `Ok(None)`
+/// from `Err`: an extension nothing could be *asked* about must not be folded
+/// into "up to date". Dropping those silently is how a plugin sat five releases
+/// behind while the dialog reported good news.
+#[derive(Debug, Default)]
+pub struct InstalledScan {
+    pub extensions: Vec<InstalledExtension>,
+    /// Display names of **user-installed** extensions declaring no `updateUrl`.
+    /// Built-in plugins are excluded: they ship with the app and correctly
+    /// declare none, so listing them would bury the ones that are really stuck.
+    pub unchecked: Vec<String>,
+}
+
+pub fn collect_installed_extensions(app_dir: &Path, native_plugins_dir: &Path) -> InstalledScan {
+    let mut scan = InstalledScan::default();
 
     let user_plugins = crate::plugins::plugins_dir(app_dir);
+    let native = native_plugins_dir.to_path_buf();
     let mut seen_plugin_ids = std::collections::HashSet::new();
 
-    for dir in &[&user_plugins, &native_plugins_dir.to_path_buf()] {
+    for (dir, is_user) in [(&user_plugins, true), (&native, false)] {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -156,15 +169,18 @@ pub fn collect_installed_extensions(
                         if id.is_empty() || seen_plugin_ids.contains(&id) {
                             continue;
                         }
+                        let name = manifest["name"].as_str().unwrap_or(&id).to_string();
                         let update_url = manifest["updateUrl"].as_str().unwrap_or_default().to_string();
                         if update_url.is_empty() {
+                            if is_user {
+                                scan.unchecked.push(name);
+                            }
                             seen_plugin_ids.insert(id);
                             continue;
                         }
-                        let name = manifest["name"].as_str().unwrap_or(&id).to_string();
                         let version = manifest["version"].as_str().unwrap_or("0.0.0").to_string();
                         seen_plugin_ids.insert(id.clone());
-                        extensions.push(InstalledExtension {
+                        scan.extensions.push(InstalledExtension {
                             id,
                             kind: "plugin".to_string(),
                             name,
@@ -186,17 +202,18 @@ pub fn collect_installed_extensions(
             }
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(skin) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let update_url = skin["updateUrl"].as_str().unwrap_or_default().to_string();
-                    if update_url.is_empty() {
-                        continue;
-                    }
                     let id = path.file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("unknown")
                         .to_string();
                     let name = skin["name"].as_str().unwrap_or(&id).to_string();
+                    let update_url = skin["updateUrl"].as_str().unwrap_or_default().to_string();
+                    if update_url.is_empty() {
+                        scan.unchecked.push(name);
+                        continue;
+                    }
                     let version = skin["version"].as_str().unwrap_or("0.0.0").to_string();
-                    extensions.push(InstalledExtension {
+                    scan.extensions.push(InstalledExtension {
                         id,
                         kind: "skin".to_string(),
                         name,
@@ -208,7 +225,7 @@ pub fn collect_installed_extensions(
         }
     }
 
-    extensions
+    scan
 }
 
 /// How many manifests are fetched at once. These are release-asset URLs, not
@@ -225,6 +242,11 @@ pub struct UpdateCheckReport {
     pub updates: Vec<ExtensionUpdate>,
     /// Display names of extensions whose check failed.
     pub failed: Vec<String>,
+    /// Display names of extensions that could not be checked at all because they
+    /// declare no `updateUrl`. Three outcomes, all distinct: absent here and in
+    /// `failed` means checked and current; `failed` means we tried and couldn't
+    /// reach it; this means there was nothing to ask.
+    pub unchecked: Vec<String>,
 }
 
 pub fn check_all_updates(
@@ -232,10 +254,13 @@ pub fn check_all_updates(
     native_plugins_dir: &Path,
     app_version: &str,
 ) -> UpdateCheckReport {
-    let extensions = collect_installed_extensions(app_dir, native_plugins_dir);
-    let mut report = UpdateCheckReport::default();
+    let scan = collect_installed_extensions(app_dir, native_plugins_dir);
+    let mut report = UpdateCheckReport {
+        unchecked: scan.unchecked,
+        ..Default::default()
+    };
 
-    for chunk in extensions.chunks(CHECK_CONCURRENCY) {
+    for chunk in scan.extensions.chunks(CHECK_CONCURRENCY) {
         // Scoped threads so the borrowed `ext` / `app_version` need no cloning
         // and every thread is joined before the chunk ends.
         let results = std::thread::scope(|s| {
@@ -325,15 +350,18 @@ mod tests {
         assert!(result.is_err(), "a failed fetch must surface as Err, got {result:?}");
     }
 
-    /// The report keeps the two apart so the UI can word them differently.
+    /// The report keeps the three apart so the UI can word them differently:
+    /// an update, a check that failed, and one there was nothing to ask about.
     #[test]
     fn test_report_separates_updates_from_failures() {
         let report = UpdateCheckReport {
             updates: Vec::new(),
             failed: vec!["Example".into()],
+            unchecked: vec!["No Source".into()],
         };
         assert!(report.updates.is_empty());
         assert_eq!(report.failed, vec!["Example".to_string()]);
+        assert_eq!(report.unchecked, vec!["No Source".to_string()]);
     }
 
     #[test]
@@ -360,8 +388,9 @@ mod tests {
     fn test_collect_installed_extensions_empty_dirs() {
         let tmp = tempfile::tempdir().unwrap();
         let native = tempfile::tempdir().unwrap();
-        let exts = collect_installed_extensions(tmp.path(), native.path());
-        assert!(exts.is_empty());
+        let scan = collect_installed_extensions(tmp.path(), native.path());
+        assert!(scan.extensions.is_empty());
+        assert!(scan.unchecked.is_empty());
     }
 
     #[test]
@@ -383,9 +412,80 @@ mod tests {
             r#"{"id":"no-update","name":"No Update","version":"1.0.0"}"#,
         ).unwrap();
 
-        let exts = collect_installed_extensions(tmp.path(), native.path());
-        assert_eq!(exts.len(), 1);
-        assert_eq!(exts[0].id, "test-plugin");
-        assert_eq!(exts[0].update_url, "https://example.com/update.json");
+        let scan = collect_installed_extensions(tmp.path(), native.path());
+        assert_eq!(scan.extensions.len(), 1);
+        assert_eq!(scan.extensions[0].id, "test-plugin");
+        assert_eq!(scan.extensions[0].update_url, "https://example.com/update.json");
+        // Not silently dropped: a user plugin with no updateUrl is reportable,
+        // because "we never asked" must not read as "up to date".
+        assert_eq!(scan.unchecked, vec!["No Update".to_string()]);
+    }
+
+    #[test]
+    fn test_builtin_plugin_without_update_url_is_not_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let native = tempfile::tempdir().unwrap();
+
+        // Built-ins ship with the app and correctly declare no updateUrl. Listing
+        // them would bury the user-installed ones that are genuinely stuck.
+        let builtin = native.path().join("lastfm");
+        std::fs::create_dir_all(&builtin).unwrap();
+        std::fs::write(
+            builtin.join("manifest.json"),
+            r#"{"id":"lastfm","name":"Last.fm","version":"1.0.0"}"#,
+        ).unwrap();
+
+        let scan = collect_installed_extensions(tmp.path(), native.path());
+        assert!(scan.extensions.is_empty());
+        assert!(scan.unchecked.is_empty());
+    }
+
+    #[test]
+    fn test_skin_without_update_url_is_reported() {
+        let tmp = tempfile::tempdir().unwrap();
+        let native = tempfile::tempdir().unwrap();
+
+        // No gallery skin has ever carried updateUrl, so every installed skin
+        // landed in the silent-skip path. It is now visible.
+        let skins = crate::skins::skins_dir(tmp.path());
+        std::fs::create_dir_all(&skins).unwrap();
+        std::fs::write(
+            skins.join("dracula.json"),
+            r#"{"name":"Dracula","version":"1.1.0"}"#,
+        ).unwrap();
+
+        let scan = collect_installed_extensions(tmp.path(), native.path());
+        assert!(scan.extensions.is_empty());
+        assert_eq!(scan.unchecked, vec!["Dracula".to_string()]);
+    }
+
+    #[test]
+    fn test_stamp_update_url_fills_missing_and_preserves_declared() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = crate::plugins::plugins_dir(tmp.path()).join("stamped");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            r#"{"id":"stamped","name":"Stamped","version":"1.0.0"}"#,
+        ).unwrap();
+
+        crate::plugins::stamp_update_url(tmp.path(), "stamped", "https://example.com/u.json").unwrap();
+        assert_eq!(
+            crate::plugins::installed_update_url(tmp.path(), "stamped").as_deref(),
+            Some("https://example.com/u.json")
+        );
+
+        // An author pointing updates elsewhere keeps their own value.
+        crate::plugins::stamp_update_url(tmp.path(), "stamped", "https://gallery.example/u.json").unwrap();
+        assert_eq!(
+            crate::plugins::installed_update_url(tmp.path(), "stamped").as_deref(),
+            Some("https://example.com/u.json")
+        );
+
+        // And the stamped copy is now visible to the checker.
+        let native = tempfile::tempdir().unwrap();
+        let scan = collect_installed_extensions(tmp.path(), native.path());
+        assert_eq!(scan.extensions.len(), 1);
+        assert!(scan.unchecked.is_empty());
     }
 }

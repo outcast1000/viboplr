@@ -142,6 +142,7 @@ export function useExtensions(props: UseExtensionsProps) {
         const report = await invoke<{
           updates: ExtensionUpdate[];
           failed: string[];
+          unchecked: string[];
         }>("check_for_extension_updates");
         setUpdates(report.updates);
         setLastChecked(Date.now());
@@ -153,15 +154,24 @@ export function useExtensions(props: UseExtensionsProps) {
           const failedNote = report.failed.length
             ? ` ${report.failed.length} couldn't be checked (${report.failed.join(", ")}) — they may still have updates.`
             : "";
+          // Nothing was even attempted for these — they declare no update source,
+          // so the backend has nobody to ask. Same reasoning as `failed`: rounding
+          // them down to good news is how an extension sits releases behind while
+          // this dialog says everything is current. Reinstalling from the gallery
+          // fixes it, because the install now stamps the URL into the manifest.
+          const uncheckedNote = report.unchecked.length
+            ? ` ${report.unchecked.length} declare${report.unchecked.length === 1 ? "s" : ""} no update source (${report.unchecked.join(", ")}) — reinstall from the gallery to enable update checks.`
+            : "";
+          const caveats = `${failedNote}${uncheckedNote}`;
           if (n > 0) {
             setResultModal({
               title: "Updates Available",
-              message: `${n} extension update${n !== 1 ? "s are" : " is"} available. Use "Update All" or open an extension to install.${failedNote}`,
+              message: `${n} extension update${n !== 1 ? "s are" : " is"} available. Use "Update All" or open an extension to install.${caveats}`,
             });
-          } else if (report.failed.length) {
+          } else if (report.failed.length || report.unchecked.length) {
             setResultModal({
               title: "Check Incomplete",
-              message: `No updates found for the extensions we could reach.${failedNote}`,
+              message: `No updates found for the extensions we could check.${caveats}`,
             });
           } else {
             setResultModal({

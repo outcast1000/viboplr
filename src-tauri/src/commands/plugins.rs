@@ -583,6 +583,13 @@ pub async fn install_gallery_plugin_by_update_url(
 
         let bytes = download_plugin_zip(&app, &cancel, &plugin_id, &zip_url)?;
         crate::plugins::install_plugin_from_zip(&app_dir, &plugin_id, &bytes)?;
+        // The gallery knows the updateUrl; the plugin's own manifest may not, and
+        // the update checker only reads the manifest. Stamp it so this copy can
+        // hear about its next release even if the author forgot the field. Never
+        // fatal — the plugin is installed and working either way.
+        if let Err(e) = crate::plugins::stamp_update_url(&app_dir, &plugin_id, &update_url) {
+            log::warn!("could not stamp updateUrl for {}: {}", plugin_id, e);
+        }
         let _ = app.emit("extension-update-installed", &plugin_id);
         Ok(())
     })

@@ -34,10 +34,20 @@ pub async fn download_and_install_plugin_update(
     let cancel = Arc::clone(&state.plugin_install_cancel);
 
     tauri::async_runtime::spawn_blocking(move || {
+        // Carried across the install: reaching this command at all means the old
+        // copy declared an updateUrl, and the new zip may not. Losing it would
+        // make THIS update the last one the plugin ever hears about.
+        let prior_update_url = crate::plugins::installed_update_url(&app_dir, &plugin_id);
+
         // Same streamed download the gallery install uses, so an update reports
         // real progress instead of the single opaque `resp.bytes()` it was.
         let bytes = super::plugins::download_plugin_zip(&app, &cancel, &plugin_id, &download_url)?;
         crate::plugins::install_plugin_from_zip(&app_dir, &plugin_id, &bytes)?;
+        if let Some(url) = prior_update_url {
+            if let Err(e) = crate::plugins::stamp_update_url(&app_dir, &plugin_id, &url) {
+                log::warn!("could not preserve updateUrl for {}: {}", plugin_id, e);
+            }
+        }
         let _ = app.emit("extension-update-installed", &plugin_id);
         Ok(())
     })
