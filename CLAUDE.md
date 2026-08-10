@@ -34,7 +34,7 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 Features that were deliberately removed. Re-adding them as core is a regression, not a fix:
 
 - **P2P engine.** The libp2p engine (`src-tauri/src/p2p/`, `commands/p2p.rs`, the `api.p2p` plugin bridge) was removed. There is no `p2p_*` command and no `api.p2p` namespace. Peer transfer is a networking source like any other — it belongs in a plugin, per the plugin-first rule. Do not re-add `p2p-sharing` to the gallery `index.json`; the plugin still exists but has no host to answer it.
-- **Core YouTube search.** There is no core "Find in YouTube" action and no `search_youtube` command. YouTube search/playback is owned entirely by the yt-dlp plugin. There is no per-track YouTube URL storage.
+- **Core YouTube search.** There is no core "Find in YouTube" action and no `search_youtube` command. YouTube search/playback is owned entirely by the yt-dlp plugin. There is no per-track YouTube URL storage. The older `youtube` plugin was **de-registered from the gallery** (2026-08-10) as `ytdlp` supersedes it — do not re-add `youtube` to the gallery `index.json`. Unlike `p2p-sharing` it still works, and installed copies keep auto-updating from their own `updateUrl`; only discovery was removed.
 
 ## Rules
 
