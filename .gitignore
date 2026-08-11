@@ -40,6 +40,8 @@ src/components/Issues.md
 
 ISSUES.md
 benchmarks/report.html
+# Scratch buffer for the in-progress perf-probe run (committed history lives in resource-usage.json)
+benchmarks/.resource-usage-latest.json
 test-results/
 
 src-tauri/.impeccable/

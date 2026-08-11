@@ -19,7 +19,47 @@ npm test                             # TypeScript tests only
 npm run test:rust                    # Rust tests only
 npm run test:e2e                     # Playwright E2E tests
 cd src-tauri && cargo test bench_search_performance -- --ignored --nocapture  # DB benchmarks
+npm run perf:probe -- run                 # macOS CPU/GPU/memory cost per scenario (needs sudo; see below)
+npm run perf:probe -- save --note "..."   # append the last probe run to benchmarks/resource-usage.json
 ```
+
+### Host resource profiling (macOS)
+
+`scripts/perf-probe.mjs` measures what the app costs the host. It exists because Viboplr is
+**not one process** — WKWebView's `WebContent` / `GPU` / `Networking` XPC helpers reparent to
+launchd (`PPID 1`), so a process-tree walk finds none of them and any measurement of the
+`Viboplr` pid alone undercounts badly. Attribution goes through `powermetrics` **coalitions**:
+the `com.alex.viboplr` coalition contains all four processes, so one `pgrep` for the app pid is
+enough to discover the helpers. Memory uses `phys_footprint` (via `footprint`), never RSS, which
+double-counts pages shared across those four processes.
+
+**Compositing is billed to `com.apple.WindowServer`, not to the app**, so the app's own GPU
+figure understates its true screen cost — which matters here because the window is transparent +
+undecorated with `macOSPrivateApi`. The probe records WindowServer separately and reports it as
+`ΔwsCPU` / `ΔwsGPU` against the app-quit baseline; read the app's `gpu` **plus** those deltas as
+the real screen cost. Measured on a synthetic check, WindowServer's rise dwarfed the app's own
+GPU number, so ignoring it would understate GPU load several-fold.
+
+The powermetrics plist schema is unobvious and the parser depends on it — `all_tasks` is a
+*system-wide summary dict* rather than a per-task array, coalitions key on `id` not `pid`, GPU
+time exists only at coalition level *and is omitted outright when idle* (3 of 136 coalitions
+carried it in one capture), and the one `<date>` node makes `plutil` reject the whole document
+for JSON. `src/__tests__/perfProbe.test.ts` pins all of this against a recorded fixture; run it
+before trusting a change to the parser.
+
+Profile the **release** build; `probe` prints which one is running and every saved scenario
+records a `build` field. Note that the process **name cannot tell the builds apart** — Tauri names
+the bundle executable after the Cargo package (`name = "viboplr"`), not `productName`, so the
+installed app runs `/Applications/Viboplr.app/Contents/MacOS/viboplr` in lowercase exactly like
+the dev binary. `classifyBuild()` discriminates on the executable *path* (`/target/` → dev,
+`.app/Contents/MacOS/` → release). Do not reintroduce a name-based check.
+
+Scenarios are ordered so each isolates one extra cost. The `playing-minimized` vs
+`playing-visible` pair is the load-bearing one: it splits libmpv decode cost from render cost,
+and only the second is ours to optimize. Both tools need root; sudo is primed once per run.
+
+Instruments/`xctrace` is unavailable unless full Xcode is installed (Command Line Tools alone
+ships a stub that errors out).
 
 ## Architecture
 
