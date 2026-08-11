@@ -820,7 +820,7 @@ async function main() {
   );
 }
 
-// Exported for scripts/perf-probe.test.mjs, which replays a recorded powermetrics
+// Exported for src/__tests__/perfProbe.test.ts, which replays a recorded powermetrics
 // plist through the real parser. Only self-execute when invoked directly.
 export { extractSample, ourCoalitions, parsePlistStream, renderReport, rateFrom, windowServer };
 

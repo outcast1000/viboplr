@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs dev script, no type declarations
 import { classifyBuild, extractSample, ourCoalitions, parsePlistStream } from "../../scripts/perf-probe.mjs";
+
+// `parsePlistStream` shells out to `plutil`, which exists only on macOS, and it
+// deliberately swallows a conversion failure (a schema change must not abort a
+// 60s capture). On CI's ubuntu-latest that swallowing turns the whole fixture
+// into zero samples, so driving these tests through the parser made every
+// assertion read empty data and fail. The JSON below is therefore the source of
+// truth for the schema tests — they are pure and run everywhere — and the one
+// test that genuinely needs plutil is gated on having it.
+const HAS_PLUTIL = !spawnSync("plutil", ["-help"]).error;
 
 // Fixture values are copied from a real `powermetrics -s tasks --show-process-coalition
 // --show-process-gpu --show-process-energy --format plist` capture on macOS 25.5, so this
@@ -19,8 +29,22 @@ const VIBO_TASKS = [
   { pid: 54699, name: "com.apple.WebKit.GPU", cpu: 24.74 },
   { pid: 54700, name: "com.apple.WebKit.Networking", cpu: 1.34 },
 ];
+const VSCODE_TASK = { pid: 111, name: "Code Helper (Renderer)", cpu: 589.41 };
+const WS_TASK = { pid: 222, name: "WindowServer", cpu: 88.4 };
 
-function taskXml(t: { pid: number; name: string; cpu: number }) {
+type Task = { pid: number; name: string; cpu: number };
+
+function taskObj(t: Task) {
+  return {
+    name: t.name,
+    pid: t.pid,
+    cputime_ms_per_s: t.cpu,
+    cputime_ns: Math.round(t.cpu * 1e6),
+    energy_impact: t.cpu / 4,
+  };
+}
+
+function taskXml(t: Task) {
   return `<dict><key>name</key><string>${t.name}</string><key>pid</key><integer>${t.pid}</integer>` +
     `<key>cputime_ms_per_s</key><real>${t.cpu}</real><key>cputime_ns</key><integer>${Math.round(t.cpu * 1e6)}</integer>` +
     `<key>energy_impact</key><real>${t.cpu / 4}</real></dict>`;
@@ -28,9 +52,46 @@ function taskXml(t: { pid: number; name: string; cpu: number }) {
 
 type SampleSpec = { cpu: number; gpu: number | null; energy: number };
 
+// gpu: null reproduces powermetrics omitting gputime_* entirely for a coalition that
+// did no GPU work — observed on 133 of 136 coalitions in a real capture.
+function sampleObj({ cpu, gpu, energy }: SampleSpec) {
+  return {
+    is_delta: true,
+    elapsed_ns: 1048588416,
+    // The parser demotes the <date> node to a string on the way in, so what
+    // comes back out is a plain string.
+    timestamp: "2026-08-11T10:21:58Z",
+    all_tasks: { name: "all_tasks", cputime_ms_per_s: 2179.18 },
+    coalitions: [
+      {
+        name: "com.microsoft.VSCode",
+        id: 12345,
+        cputime_ms_per_s: 977.61,
+        gputime_ms_per_s: 10.3,
+        energy_impact: 1400,
+        tasks: [taskObj(VSCODE_TASK)],
+      },
+      {
+        name: "com.apple.WindowServer",
+        id: 222,
+        cputime_ms_per_s: 88.4,
+        gputime_ms_per_s: 20.9597,
+        energy_impact: 60,
+        tasks: [taskObj(WS_TASK)],
+      },
+      {
+        name: "com.alex.viboplr",
+        id: 56774,
+        cputime_ms_per_s: cpu,
+        ...(gpu === null ? {} : { gputime_ms_per_s: gpu, gputime_ns: Math.round(gpu * 1e6) }),
+        energy_impact: energy,
+        tasks: VIBO_TASKS.map(taskObj),
+      },
+    ],
+  };
+}
+
 function sampleXml({ cpu, gpu, energy }: SampleSpec) {
-  // gpu: null reproduces powermetrics omitting gputime_* entirely for a coalition that
-  // did no GPU work — observed on 133 of 136 coalitions in a real capture.
   const gpuKeys =
     gpu === null
       ? ""
@@ -50,7 +111,7 @@ function sampleXml({ cpu, gpu, energy }: SampleSpec) {
     <key>cputime_ms_per_s</key><real>977.61</real>
     <key>gputime_ms_per_s</key><real>10.30</real>
     <key>energy_impact</key><real>1400.0</real>
-    <key>tasks</key><array>${taskXml({ pid: 111, name: "Code Helper (Renderer)", cpu: 589.41 })}</array>
+    <key>tasks</key><array>${taskXml(VSCODE_TASK)}</array>
   </dict>
   <dict>
     <key>name</key><string>com.apple.WindowServer</string>
@@ -58,7 +119,7 @@ function sampleXml({ cpu, gpu, energy }: SampleSpec) {
     <key>cputime_ms_per_s</key><real>88.4</real>
     <key>gputime_ms_per_s</key><real>20.9597</real>
     <key>energy_impact</key><real>60.0</real>
-    <key>tasks</key><array>${taskXml({ pid: 222, name: "WindowServer", cpu: 88.4 })}</array>
+    <key>tasks</key><array>${taskXml(WS_TASK)}</array>
   </dict>
   <dict>
     <key>name</key><string>com.alex.viboplr</string>
@@ -87,6 +148,8 @@ const SAMPLES: SampleSpec[] = [
   // Real capture: the app's coalition carried no gputime_* keys at all this interval.
   { cpu: 108.183, gpu: null, energy: 30.0 },
 ];
+
+const PARSED = SAMPLES.map(sampleObj);
 
 describe("perf-probe build classification", () => {
   // Tauri names the bundle executable after the Cargo package (`name = "viboplr"`),
@@ -117,25 +180,30 @@ describe("perf-probe build classification", () => {
   });
 });
 
-describe("perf-probe powermetrics parsing", () => {
-  const { path, dir } = writeStream(SAMPLES);
-  const parsed = parsePlistStream(path, dir);
-
-  it("splits NUL-separated samples and survives the <date> node", () => {
+// The only test that needs the macOS toolchain. It also pins the fixture the rest
+// of the file asserts against: if plutil's output ever stops looking like PARSED,
+// the schema tests below are testing fiction, and this is what says so.
+describe.runIf(HAS_PLUTIL)("perf-probe plist conversion (needs macOS plutil)", () => {
+  it("splits NUL-separated samples, survives the <date> node, and yields the fixture", () => {
     // JSON has no date type; without demoting <date> to <string>, plutil rejects
     // the entire document and every metric silently reads zero.
+    const { path, dir } = writeStream(SAMPLES);
+    const parsed = parsePlistStream(path, dir);
     expect(parsed).toHaveLength(3);
     expect(parsed[0].elapsed_ns).toBe(1048588416);
+    expect(parsed).toEqual(PARSED);
   });
+});
 
+describe("perf-probe powermetrics parsing", () => {
   it("identifies the coalition from the app pid alone", () => {
-    const mine = ourCoalitions(parsed[1], new Set([54696]));
+    const mine = ourCoalitions(PARSED[1], new Set([54696]));
     expect(mine).toHaveLength(1);
     expect(mine[0].name).toBe("com.alex.viboplr");
   });
 
   it("picks up the launchd-parented WebKit helpers via coalition membership", () => {
-    const mine = ourCoalitions(parsed[1], new Set([54696]));
+    const mine = ourCoalitions(PARSED[1], new Set([54696]));
     const names = (mine[0].tasks as Array<{ name: string }>).map((t) => t.name);
     expect(names).toContain("com.apple.WebKit.WebContent");
     expect(names).toContain("com.apple.WebKit.GPU");
@@ -143,7 +211,7 @@ describe("perf-probe powermetrics parsing", () => {
   });
 
   it("reports the coalition aggregate for cpu and gpu", () => {
-    const ex = extractSample(parsed[1], new Set([54696]));
+    const ex = extractSample(PARSED[1], new Set([54696]));
     expect(ex.cpu).toBeCloseTo(109.4, 2);
     // GPU exists only on the coalition — member tasks have no gputime_* keys.
     expect(ex.gpu).toBeCloseTo(0.97, 2);
@@ -153,13 +221,13 @@ describe("perf-probe powermetrics parsing", () => {
   it("never counts all_tasks as one of ours", () => {
     // all_tasks is a system-wide summary (2179 ms/s here). Counting it would report
     // the whole machine's load as the app's.
-    const ex = extractSample(parsed[1], new Set([54696]));
+    const ex = extractSample(PARSED[1], new Set([54696]));
     expect(Object.keys(ex.perProcess)).not.toContain("all_tasks");
     expect(ex.cpu).toBeLessThan(200);
   });
 
   it("does not attribute an unrelated coalition", () => {
-    const ex = extractSample(parsed[1], new Set([54696]));
+    const ex = extractSample(PARSED[1], new Set([54696]));
     expect(Object.keys(ex.perProcess)).toHaveLength(4);
     expect(Object.keys(ex.perProcess)).not.toContain("Code Helper (Renderer)");
   });
@@ -168,9 +236,9 @@ describe("perf-probe powermetrics parsing", () => {
     // A forgotten `tauri dev` alongside the release build must not double the totals,
     // which is why pid membership wins over the name match.
     const twoInstances = {
-      ...parsed[1],
+      ...PARSED[1],
       coalitions: [
-        ...parsed[1].coalitions,
+        ...PARSED[1].coalitions,
         {
           name: "com.alex.viboplr",
           id: 99999,
@@ -185,7 +253,7 @@ describe("perf-probe powermetrics parsing", () => {
   });
 
   it("treats omitted gputime_* keys as zero, not as a crash or NaN", () => {
-    const ex = extractSample(parsed[2], new Set([54696]));
+    const ex = extractSample(PARSED[2], new Set([54696]));
     expect(ex.gpu).toBe(0);
     expect(ex.cpu).toBeCloseTo(108.183, 2);
   });
@@ -193,7 +261,7 @@ describe("perf-probe powermetrics parsing", () => {
   it("reads WindowServer separately from the app's own coalition", () => {
     // Compositing is billed to WindowServer, so without this the transparent,
     // undecorated window's GPU cost would be invisible in every scenario.
-    const ex = extractSample(parsed[1], new Set([54696]));
+    const ex = extractSample(PARSED[1], new Set([54696]));
     expect(ex.wsGpu).toBeCloseTo(20.9597, 3);
     expect(ex.wsCpu).toBeCloseTo(88.4, 2);
     // And it must not be folded into the app's own numbers.
@@ -205,10 +273,8 @@ describe("perf-probe powermetrics parsing", () => {
     // The baseline scenario has no app coalition but its WindowServer reading is
     // what every other scenario's delta is measured against.
     const stripped = {
-      ...parsed[1],
-      coalitions: parsed[1].coalitions.filter(
-        (c: { name: string }) => !/viboplr/i.test(c.name),
-      ),
+      ...PARSED[1],
+      coalitions: PARSED[1].coalitions.filter((c: { name: string }) => !/viboplr/i.test(c.name)),
     };
     const ex = extractSample(stripped, new Set([999999]));
     expect(ex.source).toBe("absent");
@@ -216,17 +282,15 @@ describe("perf-probe powermetrics parsing", () => {
   });
 
   it("falls back to the name match when no pid is known", () => {
-    const mine = ourCoalitions(parsed[1], new Set([999999]));
+    const mine = ourCoalitions(PARSED[1], new Set([999999]));
     expect(mine).toHaveLength(1);
     expect(mine[0].name).toBe("com.alex.viboplr");
   });
 
   it("reports absent rather than zero-with-confidence when the coalition is gone", () => {
     const stripped = {
-      ...parsed[1],
-      coalitions: parsed[1].coalitions.filter(
-        (c: { name: string }) => !/viboplr/i.test(c.name),
-      ),
+      ...PARSED[1],
+      coalitions: PARSED[1].coalitions.filter((c: { name: string }) => !/viboplr/i.test(c.name)),
     };
     const ex = extractSample(stripped, new Set([999999]));
     expect(ex.source).toBe("absent");

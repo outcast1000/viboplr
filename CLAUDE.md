@@ -47,6 +47,15 @@ carried it in one capture), and the one `<date>` node makes `plutil` reject the 
 for JSON. `src/__tests__/perfProbe.test.ts` pins all of this against a recorded fixture; run it
 before trusting a change to the parser.
 
+That test file holds the fixture as **JSON**, not as the plist, because CI runs `ubuntu-latest`
+and `parsePlistStream` shells out to macOS-only `plutil` — which the parser *deliberately*
+swallows, so on Linux the fixture silently became zero samples and every assertion failed. The
+schema assertions are therefore pure and run everywhere; the single XML→JSON conversion test is
+gated on `plutil` being present and asserts the parse deep-equals that JSON, so the fixture can't
+drift from what `plutil` really emits. Anything else that shells out to a macOS binary must be
+gated the same way — `npm run bump` runs its CI checks **locally** (i.e. on macOS), so it cannot
+catch a Linux-only failure and the release workflow is the first thing that will.
+
 Profile the **release** build; `probe` prints which one is running and every saved scenario
 records a `build` field. Note that the process **name cannot tell the builds apart** — Tauri names
 the bundle executable after the Cargo package (`name = "viboplr"`), not `productName`, so the
