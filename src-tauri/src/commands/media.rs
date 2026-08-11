@@ -1,12 +1,153 @@
 // Auto-split from commands.rs. See commands/mod.rs for shared types & helpers.
 use super::*;
 
+/// The error text a killed exec resolves to. The frontend matches on it to tell
+/// "the user cancelled" apart from "the tool failed", so don't reword it without
+/// updating `isExecCancelled` in `usePlugins.ts`.
+pub const EXEC_CANCELLED: &str = "Cancelled";
+
+struct ExecEntry {
+    /// Process-group leader pid — `None` between registration and spawn.
+    pid: Option<u32>,
+    cancelled: bool,
+}
+
+/// Live `plugin_exec` runs that carry an `execId`, so a long tool run (a yt-dlp
+/// video download can be minutes) can be killed from the UI instead of being
+/// abandoned to finish invisibly. Entries are keyed by the frontend's exec id
+/// and removed the moment the child is reaped.
+pub struct PluginExecRegistry {
+    running: Mutex<std::collections::HashMap<String, ExecEntry>>,
+}
+
+impl PluginExecRegistry {
+    pub fn new() -> Self {
+        Self { running: Mutex::new(std::collections::HashMap::new()) }
+    }
+
+    /// Claim an id before spawning. Returns false when a cancel for this id
+    /// already landed — the cancel invoke can win the race against the exec
+    /// invoke it is cancelling, and the child must not outlive that.
+    fn claim(&self, id: &str) -> bool {
+        let mut map = self.running.lock().unwrap();
+        match map.get(id) {
+            Some(e) if e.cancelled => false,
+            _ => {
+                map.insert(id.to_string(), ExecEntry { pid: None, cancelled: false });
+                true
+            }
+        }
+    }
+
+    /// Record the spawned pid. Returns false if a cancel landed in the window
+    /// between `claim` and the spawn, in which case the caller kills its child.
+    fn attach(&self, id: &str, pid: u32) -> bool {
+        let mut map = self.running.lock().unwrap();
+        match map.get_mut(id) {
+            Some(e) if e.cancelled => false,
+            Some(e) => { e.pid = Some(pid); true }
+            None => false, // cancelled and swept
+        }
+    }
+
+    fn finish(&self, id: &str) -> bool {
+        self.running.lock().unwrap().remove(id).map(|e| e.cancelled).unwrap_or(false)
+    }
+
+    /// Mark the id cancelled and kill its child if one is already running.
+    /// Records the cancel even for an unknown id so a not-yet-spawned exec is
+    /// stopped at `claim` — the two invokes race and the cancel can arrive
+    /// first. Cancelling an id that already finished therefore leaves a small
+    /// tombstone behind; exec ids are unique per session, so it is inert, and
+    /// it only happens when a cancel lands in the instant a run completes.
+    fn cancel(&self, id: &str) -> bool {
+        let mut map = self.running.lock().unwrap();
+        let entry = map.entry(id.to_string())
+            .or_insert(ExecEntry { pid: None, cancelled: false });
+        entry.cancelled = true;
+        match entry.pid {
+            Some(pid) => { kill_process_tree(pid); true }
+            None => false,
+        }
+    }
+}
+
+/// SIGKILL the whole process group (helper children — yt-dlp spawns ffmpeg, and
+/// the PyInstaller build forks a bootstrap pair — must die with it), falling back
+/// to the leader alone. Mirrors the probe-timeout kill in `dependencies.rs`.
+fn kill_process_tree(pid: u32) {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+        libc::kill(pid as i32, libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    {
+        use std::process::Stdio;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExecOutputEvent {
+    exec_id: String,
+    stream: &'static str,
+    line: String,
+}
+
+/// Drain a child pipe, forwarding each completed line to `sink` and returning the
+/// output **verbatim** (the returned text is the raw bytes, so a caller parsing
+/// stdout sees exactly what `Command::output()` would have given it).
+///
+/// Lines are split on `\r` as well as `\n`: progress-reporting CLIs (yt-dlp
+/// without `--newline`, ffmpeg) redraw one line with carriage returns, and a
+/// `\n`-only reader would hold the entire run in its buffer — which is precisely
+/// the output a caller streaming for progress is asking for.
+fn pump_lines<R: std::io::Read>(reader: R, mut sink: impl FnMut(String)) -> String {
+    use std::io::Read;
+    let mut reader = std::io::BufReader::new(reader);
+    let mut all: Vec<u8> = Vec::new();
+    let mut line: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                all.extend_from_slice(&buf[..n]);
+                for &b in &buf[..n] {
+                    if b == b'\n' || b == b'\r' {
+                        if !line.is_empty() {
+                            sink(String::from_utf8_lossy(&line).to_string());
+                            line.clear();
+                        }
+                    } else {
+                        line.push(b);
+                    }
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    if !line.is_empty() {
+        sink(String::from_utf8_lossy(&line).to_string());
+    }
+    String::from_utf8_lossy(&all).to_string()
+}
+
 #[tauri::command]
 pub async fn plugin_exec(
+    app: AppHandle,
     state: State<'_, AppState>,
     program: String,
     args: Vec<String>,
     cwd: Option<String>,
+    exec_id: Option<String>,
+    stream_output: Option<bool>,
 ) -> Result<ExecResult, String> {
     let allowed = dependencies::allowed_names();
     if !allowed.contains(&program.as_str()) {
@@ -14,29 +155,127 @@ pub async fn plugin_exec(
     }
 
     let app_dir = state.app_dir.clone();
+    let registry = Arc::clone(&state.plugin_execs);
+
+    // No exec id → the original fire-and-wait path, byte for byte. Most plugin
+    // execs are short probes that need neither cancellation nor a line stream,
+    // and they must not start paying for pipes and threads.
+    let Some(exec_id) = exec_id else {
+        return tauri::async_runtime::spawn_blocking(move || {
+            let mut cmd = build_plugin_command(&program, &args, cwd, &app_dir);
+            let output = cmd.output()
+                .map_err(|e| format!("Failed to run {}: {}", program, e))?;
+            Ok(ExecResult {
+                exit_code: output.status.code().unwrap_or(-1),
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            })
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?;
+    };
+
+    if !registry.claim(&exec_id) {
+        registry.finish(&exec_id);
+        return Err(EXEC_CANCELLED.to_string());
+    }
+
+    let stream = stream_output.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        let mut cmd = command_with_path(&program);
-        cmd.args(&args);
-        if let Some(dir) = cwd {
-            cmd.current_dir(dir);
-        } else {
-            cmd.current_dir(&app_dir);
-        }
-        #[cfg(target_os = "windows")]
+        use std::process::Stdio;
+        let mut cmd = build_plugin_command(&program, &args, cwd, &app_dir);
+        cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(unix)]
         {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            // Own process group so a cancel takes the helper children with it.
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
         }
-        let output = cmd.output()
-            .map_err(|e| format!("Failed to run {}: {}", program, e))?;
+
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                registry.finish(&exec_id);
+                return Err(format!("Failed to run {}: {}", program, e));
+            }
+        };
+        if !registry.attach(&exec_id, child.id()) {
+            kill_process_tree(child.id());
+            let _ = child.wait();
+            registry.finish(&exec_id);
+            return Err(EXEC_CANCELLED.to_string());
+        }
+
+        // Both pipes must be drained concurrently — a child that fills the one
+        // we aren't reading blocks forever, and yt-dlp writes to both.
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let emit = |stream_name: &'static str, line: String| {
+            if !stream {
+                return;
+            }
+            let _ = app.emit("plugin-exec-output", ExecOutputEvent {
+                exec_id: exec_id.clone(), stream: stream_name, line,
+            });
+        };
+        let (out_text, err_text) = std::thread::scope(|scope| {
+            let out_handle = scope.spawn(|| {
+                stdout.map(|p| pump_lines(p, |l| emit("stdout", l))).unwrap_or_default()
+            });
+            let err_handle = scope.spawn(|| {
+                stderr.map(|p| pump_lines(p, |l| emit("stderr", l))).unwrap_or_default()
+            });
+            (
+                out_handle.join().unwrap_or_default(),
+                err_handle.join().unwrap_or_default(),
+            )
+        });
+
+        let status = child.wait();
+        let cancelled = registry.finish(&exec_id);
+        if cancelled {
+            return Err(EXEC_CANCELLED.to_string());
+        }
+        let status = status.map_err(|e| format!("Failed to wait for {}: {}", program, e))?;
         Ok(ExecResult {
-            exit_code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: status.code().unwrap_or(-1),
+            stdout: out_text,
+            stderr: err_text,
         })
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+fn build_plugin_command(
+    program: &str,
+    args: &[String],
+    cwd: Option<String>,
+    app_dir: &std::path::Path,
+) -> std::process::Command {
+    let mut cmd = command_with_path(program);
+    cmd.args(args);
+    match cwd {
+        Some(dir) => { cmd.current_dir(dir); }
+        None => { cmd.current_dir(app_dir); }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
+/// Kill a running `plugin_exec` by its exec id. Returns true when a live child
+/// was signalled; false when the id is unknown or hasn't spawned yet (the cancel
+/// is still recorded, so the exec dies as it starts).
+#[tauri::command]
+pub async fn plugin_exec_cancel(
+    state: State<'_, AppState>,
+    exec_id: String,
+) -> Result<bool, String> {
+    Ok(state.plugin_execs.cancel(&exec_id))
 }
 
 // --- yt-dlp commands ---
@@ -527,4 +766,118 @@ pub async fn extract_storyboard(
 pub fn get_file_size(path: String) -> Option<u64> {
     let bare_path = path.strip_prefix("file://").unwrap_or(&path);
     std::fs::metadata(bare_path).ok().map(|m| m.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines_of(input: &[u8]) -> (Vec<String>, String) {
+        let mut seen = Vec::new();
+        let text = pump_lines(input, |l| seen.push(l));
+        (seen, text)
+    }
+
+    // A progress-reporting CLI redraws one line with carriage returns, so a
+    // `\n`-only reader emits nothing until the process exits — which is exactly
+    // the output the caller wanted live.
+    #[test]
+    fn pump_lines_splits_on_carriage_returns_too() {
+        let (seen, _) = lines_of(b"10%\r50%\r100%\ndone\n");
+        assert_eq!(seen, vec!["10%", "50%", "100%", "done"]);
+    }
+
+    // The returned text is what a plugin parses as stdout, so it must match what
+    // `Command::output()` would have produced byte for byte — blank lines and
+    // all. Rebuilding it from the emitted lines would quietly drop them.
+    #[test]
+    fn pump_lines_returns_output_verbatim() {
+        let raw = "first\n\nsecond\n";
+        let (seen, text) = lines_of(raw.as_bytes());
+        assert_eq!(text, raw, "blank line preserved in the returned text");
+        assert_eq!(seen, vec!["first", "second"], "but not emitted as a line");
+    }
+
+    #[test]
+    fn pump_lines_emits_a_trailing_unterminated_line() {
+        let (seen, text) = lines_of(b"/tmp/dl.0.mp4");
+        assert_eq!(seen, vec!["/tmp/dl.0.mp4"]);
+        assert_eq!(text, "/tmp/dl.0.mp4");
+    }
+
+    // The cancel invoke can beat the exec invoke it is cancelling to the
+    // backend — two separate IPC calls, no ordering guarantee. If `claim`
+    // ignored a cancel that arrived first, that exec would spawn anyway and run
+    // to completion with nobody left to receive it.
+    #[test]
+    fn cancel_before_claim_stops_the_exec_from_starting() {
+        let reg = PluginExecRegistry::new();
+        assert!(!reg.cancel("e1"), "no child to signal yet");
+        assert!(!reg.claim("e1"), "claim refuses an already-cancelled id");
+    }
+
+    #[test]
+    fn cancel_between_claim_and_spawn_is_not_lost() {
+        let reg = PluginExecRegistry::new();
+        assert!(reg.claim("e1"));
+        assert!(!reg.cancel("e1"), "cancel lands before a pid is known");
+        assert!(!reg.attach("e1", 424242), "caller is told to kill its child");
+    }
+
+    // The streaming path must drain stdout and stderr *concurrently*: a child
+    // that fills the pipe nobody is reading blocks forever, and yt-dlp writes
+    // to both (progress on stdout, postprocessor lines on stderr). Reading them
+    // in sequence deadlocks as soon as the idle pipe passes ~64 KB, which a
+    // long download comfortably does — so this drives a real child past that.
+    #[cfg(unix)]
+    #[test]
+    fn both_pipes_drain_concurrently_past_the_buffer_size() {
+        use std::process::Stdio;
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg("-c")
+            // stderr first and larger than the pipe buffer: a sequential reader
+            // starting on stdout would wedge here.
+            // ~8000 × ~15 bytes ≈ 120 KB, comfortably past Linux's 64 KB pipe
+            // buffer as well as macOS's smaller default.
+            .arg("i=0; while [ $i -lt 8000 ]; do echo \"err line $i\" >&2; i=$((i+1)); done; \
+                  printf 'progress\\rprogress2\\nfinal/path.mp4\\n'")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn /bin/sh");
+
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let (out_lines, out_text, err_lines) = std::thread::scope(|scope| {
+            let o = scope.spawn(|| {
+                let mut lines = Vec::new();
+                let text = stdout.map(|p| pump_lines(p, |l| lines.push(l))).unwrap_or_default();
+                (lines, text)
+            });
+            let e = scope.spawn(|| {
+                let mut n = 0usize;
+                stderr.map(|p| pump_lines(p, |_| n += 1));
+                n
+            });
+            let (ol, ot) = o.join().unwrap();
+            (ol, ot, e.join().unwrap())
+        });
+
+        let status = child.wait().expect("child exits");
+        assert!(status.success());
+        assert_eq!(err_lines, 8000, "the whole stderr stream was read");
+        assert_eq!(out_lines, vec!["progress", "progress2", "final/path.mp4"]);
+        assert_eq!(out_text, "progress\rprogress2\nfinal/path.mp4\n", "stdout is verbatim");
+    }
+
+    #[test]
+    fn a_clean_run_is_not_reported_as_cancelled() {
+        let reg = PluginExecRegistry::new();
+        assert!(reg.claim("e1"));
+        assert!(reg.attach("e1", 424242));
+        assert!(!reg.finish("e1"));
+        // Finished ids are swept, so a late cancel can't kill a recycled pid.
+        assert!(!reg.cancel("e1"));
+    }
 }

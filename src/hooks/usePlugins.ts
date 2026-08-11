@@ -34,6 +34,8 @@ import type {
   DownloadResolveByUriHandler,
   DownloadResolveByMetadataHandler,
   DownloadResolveResult,
+  DownloadResolveProgress,
+  ExecResult,
   InteractiveSearchHandler,
   InteractiveResolveHandler,
   InteractiveSearchResult,
@@ -157,6 +159,24 @@ interface LoadedPlugin {
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
   schedulerHandlers: Map<string, () => void>;
   visualizerFactories: Map<string, () => PluginVisualizer>;
+}
+
+type ExecOutputHandler = (line: string, stream: "stdout" | "stderr") => void;
+export type DownloadProgressHandler = (progress: DownloadResolveProgress) => void;
+
+/** One in-flight download resolve: what it reports progress to, and which
+ *  subprocesses it started (so a cancel can kill them). See `resolveScopesRef`. */
+interface ResolveScope {
+  onProgress?: DownloadProgressHandler;
+  execIds: Set<string>;
+  cancelled: boolean;
+}
+
+/** The rejection a killed `plugin_exec` produces (`EXEC_CANCELLED` in
+ *  `commands/media.rs`). Callers use it to tell "the user cancelled" apart from
+ *  "the tool failed" — the first must not surface as an error. */
+export function isExecCancelled(e: unknown): boolean {
+  return String(e instanceof Error ? e.message : e).trim() === "Cancelled";
 }
 
 /** Max time a single plugin's activate() may block the sequential load before
@@ -286,6 +306,17 @@ export function usePlugins(
 
   const fetchUrlCallbackRef = useRef<((url: string) => void) | null>(null);
   const loadedPluginsRef = useRef<Map<string, LoadedPlugin>>(new Map());
+  // --- Download-resolve scopes ---------------------------------------------
+  // A scope is one resolve call the host is awaiting. It exists because a
+  // provider that downloads the file itself (yt-dlp merging a video can run for
+  // minutes) is otherwise a black box: nothing to show and nothing to stop.
+  // Every `api.system.exec` started inside the scope is recorded, so cancelling
+  // the download kills the tool rather than orphaning it, and every
+  // `api.downloads.reportProgress` inside it reaches the modal that is waiting.
+  // A stack per plugin, since a resolve may nest (retry, cache probe).
+  const resolveScopesRef = useRef<Map<string, ResolveScope[]>>(new Map());
+  const execSeqRef = useRef(0);
+  const execOutputHandlersRef = useRef<Map<string, ExecOutputHandler>>(new Map());
   const eventHandlersRef = useRef<EventHandlers>({
     "track:started": [],
     "track:scrobbled": [],
@@ -1295,6 +1326,15 @@ export function usePlugins(
               provider: request.provider ?? null,
             });
           },
+          reportProgress(progress: DownloadResolveProgress): void {
+            // Only the resolve the host is currently awaiting has a listener;
+            // outside that window this is deliberately a no-op, so a provider
+            // can report unconditionally without knowing who called it.
+            const scopes = resolveScopesRef.current.get(pluginId);
+            const scope = scopes && scopes.length ? scopes[scopes.length - 1] : undefined;
+            try { scope?.onProgress?.(progress); }
+            catch (e) { console.error(`Download progress handler error [${pluginId}]:`, e); }
+          },
           onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void {
             loaded.downloadResolveByUriHandlers.set(providerId, handler);
             const unsub = () => { loaded.downloadResolveByUriHandlers.delete(providerId); };
@@ -1344,12 +1384,37 @@ export function usePlugins(
         },
 
         system: {
-          async exec(program: string, args?: string[], opts?: { cwd?: string }) {
-            return invoke<{ exitCode: number; stdout: string; stderr: string }>("plugin_exec", {
-              program,
-              args: args ?? [],
-              cwd: opts?.cwd ?? null,
-            });
+          async exec(
+            program: string,
+            args?: string[],
+            opts?: { cwd?: string; onOutput?: ExecOutputHandler },
+          ) {
+            const scopes = resolveScopesRef.current.get(pluginId);
+            const scope = scopes && scopes.length ? scopes[scopes.length - 1] : undefined;
+            const onOutput = opts?.onOutput;
+            // An exec id buys cancellability and line streaming, at the cost of
+            // piping both channels through the host. Only take it when someone
+            // can use it — a plain version probe keeps the original path.
+            if (!scope && !onOutput) {
+              return invoke<ExecResult>("plugin_exec", {
+                program, args: args ?? [], cwd: opts?.cwd ?? null,
+              });
+            }
+            const execId = `${pluginId}:${++execSeqRef.current}`;
+            scope?.execIds.add(execId);
+            if (onOutput) execOutputHandlersRef.current.set(execId, onOutput);
+            try {
+              return await invoke<ExecResult>("plugin_exec", {
+                program,
+                args: args ?? [],
+                cwd: opts?.cwd ?? null,
+                execId,
+                streamOutput: !!onOutput,
+              });
+            } finally {
+              execOutputHandlersRef.current.delete(execId);
+              scope?.execIds.delete(execId);
+            }
           },
           async getDependency(name: string) {
             // Cache-only: forceRefresh: false means the host serves its cached
@@ -1386,6 +1451,21 @@ export function usePlugins(
     },
     [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke],
   );
+
+  // Line-by-line output from a streaming `plugin_exec`, routed to the plugin
+  // call that asked for it. Only execs started with an `onOutput` are streamed,
+  // so an unmatched id here is a run whose caller already returned.
+  useEffect(() => {
+    return subscribe<{ execId: string; stream: "stdout" | "stderr"; line: string }>(
+      "plugin-exec-output",
+      (event) => {
+        const handler = execOutputHandlersRef.current.get(event.payload.execId);
+        if (!handler) return;
+        try { handler(event.payload.line, event.payload.stream); }
+        catch (e) { console.error("Plugin exec output handler error:", e); }
+      },
+    );
+  }, []);
 
   // Listen for scheduler due events from the Rust backend
   useEffect(() => {
@@ -2288,8 +2368,50 @@ export function usePlugins(
     [],
   );
 
+  /** Run a resolve inside a scope, so its subprocesses are cancellable and its
+   *  progress reports have somewhere to go. Nested resolves stack; the innermost
+   *  wins for progress, but a cancel kills the whole stack for that plugin. */
+  const withResolveScope = useCallback(
+    async <T,>(pluginId: string, onProgress: DownloadProgressHandler | undefined, fn: () => Promise<T>): Promise<T> => {
+      const scope: ResolveScope = { onProgress, execIds: new Set(), cancelled: false };
+      const stack = resolveScopesRef.current.get(pluginId) ?? [];
+      stack.push(scope);
+      resolveScopesRef.current.set(pluginId, stack);
+      try {
+        return await fn();
+      } finally {
+        const live = resolveScopesRef.current.get(pluginId);
+        if (live) {
+          const i = live.indexOf(scope);
+          if (i >= 0) live.splice(i, 1);
+          if (live.length === 0) resolveScopesRef.current.delete(pluginId);
+        }
+      }
+    },
+    [],
+  );
+
+  /** Stop whatever this plugin is doing for an in-flight download resolve —
+   *  the point of the whole scope mechanism. Kills every subprocess the resolve
+   *  started; the plugin's `exec` then rejects and its handler throws, which the
+   *  caller ignores because it asked for the cancel. */
+  const cancelDownloadResolve = useCallback((pluginId: string) => {
+    const stack = resolveScopesRef.current.get(pluginId);
+    if (!stack) return;
+    for (const scope of stack) {
+      scope.cancelled = true;
+      for (const execId of scope.execIds) {
+        invoke("plugin_exec_cancel", { execId })
+          .catch(e => console.error("Failed to cancel plugin exec:", e));
+      }
+    }
+  }, []);
+
   const invokeDownloadResolveByUri = useCallback(
-    async (pluginId: string, providerId: string, uri: string, format: string): Promise<DownloadResolveResult | null> => {
+    async (
+      pluginId: string, providerId: string, uri: string, format: string,
+      onProgress?: DownloadProgressHandler,
+    ): Promise<DownloadResolveResult | null> => {
       const provider = `${pluginId}:${providerId}`;
       const input = { uri, format };
       const loaded = loadedPluginsRef.current.get(pluginId);
@@ -2304,10 +2426,11 @@ export function usePlugins(
       // reason ("YouTube bot check", "region-locked", …) — the download modal
       // shows it, and the background chain catches per-provider and moves on.
       // Returning null still means "cannot serve this URI, try the next".
-      return await withResolverLog({ kind: "download:uri", provider, input },
-        () => handler(uri, format));
+      return await withResolveScope(pluginId, onProgress, () =>
+        withResolverLog({ kind: "download:uri", provider, input },
+          () => handler(uri, format)));
     },
-    [],
+    [withResolveScope],
   );
 
   const invokeDownloadResolveByMetadata = useCallback(
@@ -2315,6 +2438,7 @@ export function usePlugins(
       pluginId: string, providerId: string,
       title: string, artistName: string | null, albumName: string | null,
       durationSecs: number | null, format: string,
+      onProgress?: DownloadProgressHandler,
     ): Promise<DownloadResolveResult | null> => {
       const provider = `${pluginId}:${providerId}`;
       const input = { title, artistName, albumName, durationSecs, format };
@@ -2327,13 +2451,14 @@ export function usePlugins(
         return withResolverLog({ kind: "download:metadata", provider, input }, async () => { throw new Error("no resolveByMetadata handler registered"); }).catch(() => null);
       }
       try {
-        return await withResolverLog({ kind: "download:metadata", provider, input },
-          () => handler(title, artistName, albumName, durationSecs, format));
+        return await withResolveScope(pluginId, onProgress, () =>
+          withResolverLog({ kind: "download:metadata", provider, input },
+            () => handler(title, artistName, albumName, durationSecs, format)));
       } catch {
         return null;
       }
     },
-    [],
+    [withResolveScope],
   );
 
   const invokeInteractiveSearch = useCallback(
@@ -2354,7 +2479,10 @@ export function usePlugins(
   );
 
   const invokeInteractiveResolve = useCallback(
-    async (pluginId: string, providerId: string, matchId: string, format: string): Promise<DownloadResolveResult> => {
+    async (
+      pluginId: string, providerId: string, matchId: string, format: string,
+      onProgress?: DownloadProgressHandler,
+    ): Promise<DownloadResolveResult> => {
       const provider = `${pluginId}:${providerId}`;
       const input = { matchId, format };
       const loaded = loadedPluginsRef.current.get(pluginId);
@@ -2365,9 +2493,12 @@ export function usePlugins(
       if (!handler) {
         return withResolverLog({ kind: "download:resolve", provider, input }, async () => { throw new Error(`No interactive resolve handler for ${providerId}`); });
       }
-      return withResolverLog({ kind: "download:resolve", provider, input }, () => handler(matchId, format));
+      // Scoped like the by-uri/by-metadata paths: the manual-search flow ends in
+      // the same provider work, so it needs the same progress + cancel.
+      return withResolveScope(pluginId, onProgress, () =>
+        withResolverLog({ kind: "download:resolve", provider, input }, () => handler(matchId, format)));
     },
-    [],
+    [withResolveScope],
   );
 
   const hasInteractiveDownload = useCallback(
@@ -2718,6 +2849,7 @@ export function usePlugins(
     invokeStreamResolve,
     invokeDownloadResolveByUri,
     invokeDownloadResolveByMetadata,
+    cancelDownloadResolve,
     invokeInteractiveSearch,
     invokeInteractiveResolve,
     hasInteractiveDownload,

@@ -99,6 +99,8 @@ pub struct AppState {
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
     pub download_resolve_registry: Arc<DownloadResolveRegistry>,
+    /// Live cancellable `plugin_exec` runs (see `commands/media.rs`).
+    pub plugin_execs: Arc<PluginExecRegistry>,
     pub direct_download_cancel: Arc<AtomicBool>,
     pub mixtape_cancel: Arc<AtomicBool>,
     /// Cancel flag for an in-flight publish-to-server batch (reset to false at
@@ -1043,6 +1045,7 @@ pub(crate) fn test_app_state() -> AppState {
             pending: Mutex::new(std::collections::HashMap::new()),
         }),
         download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
+        plugin_execs: Arc::new(PluginExecRegistry::new()),
         direct_download_cancel: Arc::new(AtomicBool::new(false)),
         mixtape_cancel: Arc::new(AtomicBool::new(false)),
         publish_cancel: Arc::new(AtomicBool::new(false)),

@@ -1,4 +1,9 @@
-import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../types/plugin";
+import type {
+  InteractiveSearchResult,
+  DownloadResolveResult,
+  DownloadQualityOption,
+  DownloadResolveProgress,
+} from "../types/plugin";
 import type { AppStore } from "../store";
 import { SingleTrackDownload } from "./download/SingleTrackDownload";
 import { MultiTrackDownload } from "./download/MultiTrackDownload";
@@ -12,13 +17,23 @@ interface DownloadModalProps {
   providerId: string;
   providerName: string;
   confirmed?: boolean;
-  resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
+  resolveByUri?: (
+    uri: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult | null>;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
   lastDest: string | null;
   onSearch: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
-  onResolve: (matchId: string, format: string) => Promise<DownloadResolveResult>;
+  onResolve: (
+    matchId: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult>;
+  /** Stop the provider's in-flight resolve work (see `SingleTrackDownload`). */
+  onCancelResolve?: () => void;
   onClose: () => void;
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
@@ -36,6 +51,7 @@ export function DownloadModal({
   lastDest,
   onSearch,
   onResolve,
+  onCancelResolve,
   onClose,
   onComplete,
   onPlay,
@@ -57,6 +73,7 @@ export function DownloadModal({
             lastDest={lastDest}
             onSearch={onSearch}
             onResolve={onResolve}
+            onCancelResolve={onCancelResolve}
             onClose={onClose}
             onComplete={onComplete}
             onPlay={onPlay}

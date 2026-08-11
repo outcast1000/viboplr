@@ -5017,9 +5017,16 @@ function App() {
             const parts = downloadModal.providerId.split(":");
             return plugins.invokeInteractiveSearch(parts[0], parts.slice(1).join(":"), query, limit);
           }}
-          onResolve={(matchId, format) => {
+          onResolve={(matchId, format, onProgress) => {
             const parts = downloadModal.providerId.split(":");
-            return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format);
+            return plugins.invokeInteractiveResolve(parts[0], parts.slice(1).join(":"), matchId, format, onProgress);
+          }}
+          onCancelResolve={() => {
+            // The provider id is `${pluginId}:${providerId}`; the plugin id is
+            // what owns the running subprocesses. Built-in providers resolve in
+            // milliseconds and have no plugin, so this is simply a no-op there.
+            const pluginId = downloadModal.providerId.split(":")[0];
+            if (pluginId && pluginId !== "__builtin") plugins.cancelDownloadResolve(pluginId);
           }}
           onClose={() => setDownloadModal(null)}
           onComplete={(_msg) => { setDownloadModal(null); library.loadLibrary(); library.loadTracks(); }}

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../utils/tauriEvents";
 import type { Track, QueueTrack } from "../types";
-import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
+import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
 import type { ContextMenuState } from "../types/contextMenu";
 import { parseLibraryId, classifyEffectiveSource, trackToQueueTrack } from "../queueEntry";
@@ -16,14 +16,51 @@ export interface DownloadModalState {
   providerId: string;
   providerName: string;
   confirmed?: boolean;
-  resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
+  resolveByUri?: (
+    uri: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult | null>;
+}
+
+/** Per-provider budget for the background download chain. It is an **idle**
+ * timeout, not a deadline, and the distinction is the whole point: a provider
+ * that mints a URL answers in seconds, but one that downloads the file itself
+ * (yt-dlp fetching a video and merging it through ffmpeg) legitimately runs for
+ * many minutes — a 22 MB video measured about four of them on an ordinary line.
+ * The old fixed deadlines (60s by URI, 10s by metadata) failed every such
+ * download and reported it as "no download provider could resolve this track",
+ * which blamed the provider for being slow at work it was asked to do.
+ * Progress reports are the liveness signal, so what expires is silence, not
+ * elapsed time; a provider that reports nothing still gets the full budget. */
+const RESOLVE_IDLE_TIMEOUT_MS = 60000;
+
+/** Run one provider resolve, giving up only after `idleMs` with no progress.
+ * The timeout stops us waiting — it cannot stop the provider, which keeps
+ * running exactly as it did under the previous fixed race. */
+async function resolveWithIdleTimeout(
+  idleMs: number,
+  start: (onProgress: () => void) => Promise<DownloadResolveResult | null>,
+): Promise<DownloadResolveResult | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let expire: (v: null) => void = () => {};
+  const idle = new Promise<null>((resolve) => { expire = resolve; });
+  const arm = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => expire(null), idleMs);
+  };
+  arm();
+  try {
+    return await Promise.race([start(arm), idle]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** Walk the plugin download-provider chain (by-uri first, then by-metadata) and
- * return the first successful resolution. Each provider call is bounded to 60s —
- * the same budget stream resolvers get, because download resolvers may fetch the
- * whole file before answering (yt-dlp). The backend's resolve wait (300s) must
- * stay comfortably above this chain budget.
+ * return the first successful resolution. Each provider call is bounded by
+ * `RESOLVE_IDLE_TIMEOUT_MS` (see above). The backend's resolve wait must stay
+ * comfortably above whatever this chain can take.
  * Exported for unit testing of the provider-id matching. */
 export async function resolveTrackDownload(
   providers: DownloadProvider[],
@@ -47,10 +84,8 @@ export async function resolveTrackDownload(
   if (uri) {
     for (const p of targetProviders) {
       try {
-        const result = await Promise.race([
-          p.resolveByUri(uri, format),
-          new Promise<null>((r) => setTimeout(() => r(null), 60000)),
-        ]);
+        const result = await resolveWithIdleTimeout(RESOLVE_IDLE_TIMEOUT_MS,
+          (onProgress) => p.resolveByUri(uri, format, onProgress));
         if (result) return result;
       } catch (e) {
         // A throwing provider falls through to the next in the chain, but the
@@ -63,10 +98,11 @@ export async function resolveTrackDownload(
 
   for (const p of targetProviders) {
     try {
-      const result = await Promise.race([
-        p.resolveByMetadata(title, artistName, albumName, durationSecs, format),
-        new Promise<null>((r) => setTimeout(() => r(null), 10000)),
-      ]);
+      // Same budget as the by-URI leg. This one used to be 10s, which no
+      // download-the-file provider could ever meet — a yt-dlp metadata resolve
+      // searches AND downloads before it answers.
+      const result = await resolveWithIdleTimeout(RESOLVE_IDLE_TIMEOUT_MS,
+        (onProgress) => p.resolveByMetadata(title, artistName, albumName, durationSecs, format, onProgress));
       if (result) return result;
     } catch (e) {
       console.error(`Download provider "${p.id}" failed to resolve by metadata:`, e);
@@ -148,10 +184,10 @@ export function useDownloadOrchestration({
           id: `${ps.id}:${dp.id}`,
           name: dp.name,
           source: ps.id,
-          resolveByUri: (uri, format) =>
-            plugins.invokeDownloadResolveByUri(ps.id, dp.id, uri, format),
-          resolveByMetadata: (title, artistName, albumName, durationSecs, format) =>
-            plugins.invokeDownloadResolveByMetadata(ps.id, dp.id, title, artistName, albumName, durationSecs, format),
+          resolveByUri: (uri, format, onProgress) =>
+            plugins.invokeDownloadResolveByUri(ps.id, dp.id, uri, format, onProgress),
+          resolveByMetadata: (title, artistName, albumName, durationSecs, format, onProgress) =>
+            plugins.invokeDownloadResolveByMetadata(ps.id, dp.id, title, artistName, albumName, durationSecs, format, onProgress),
         });
       }
     }

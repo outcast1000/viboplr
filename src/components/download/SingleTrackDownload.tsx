@@ -2,7 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../../utils/tauriEvents";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { InteractiveSearchResult, DownloadResolveResult, DownloadQualityOption } from "../../types/plugin";
+import type {
+  InteractiveSearchResult,
+  DownloadResolveResult,
+  DownloadQualityOption,
+  DownloadResolveProgress,
+} from "../../types/plugin";
 import { formatDuration, formatFileSize, isVideoTrack } from "../../utils";
 import { defaultQualityValue } from "../../utils/downloadQuality";
 import type { AppStore } from "../../store";
@@ -16,6 +21,15 @@ import { resolveImageUrl, resolveImageSrc } from "../../utils/resolveImageUrl";
 
 type SingleStep = "search" | "configure" | "conflict" | "downloading" | "result";
 
+/** mm:ss for a live counter. Unlike `formatDuration`, zero is a real value here
+ *  (a resolve that just started, an ETA of "any moment") rather than missing
+ *  data, so it must not render as "--:--". */
+function formatElapsed(secs: number): string {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 export function SingleTrackDownload({
   track,
   providerId,
@@ -27,6 +41,7 @@ export function SingleTrackDownload({
   lastDest,
   onSearch,
   onResolve,
+  onCancelResolve,
   onClose,
   onComplete,
   onPlay,
@@ -34,13 +49,25 @@ export function SingleTrackDownload({
   track: DownloadTrack;
   providerId: string;
   providerName: string;
-  resolveByUri?: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
+  resolveByUri?: (
+    uri: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult | null>;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
   lastDest: string | null;
   onSearch: (query: string, limit: number) => Promise<InteractiveSearchResult[]>;
-  onResolve: (matchId: string, format: string) => Promise<DownloadResolveResult>;
+  onResolve: (
+    matchId: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult>;
+  /** Stop whatever the provider is doing for an in-flight resolve. Required for
+   *  providers that download the file themselves — without it, cancelling the
+   *  modal leaves a yt-dlp/ffmpeg run going with nothing left to receive it. */
+  onCancelResolve?: () => void;
   onClose: () => void;
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
@@ -154,6 +181,15 @@ export function SingleTrackDownload({
   // Download state
   const [resolving, setResolving] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  // What the provider says it's doing. A provider that mints a URL reports
+  // nothing and is over in a moment; one that downloads the file itself (yt-dlp
+  // fetching a video and merging it with ffmpeg) can run for minutes, and this
+  // is the only thing standing between the user and an unexplained spinner.
+  const [resolveProgress, setResolveProgress] = useState<DownloadResolveProgress | null>(null);
+  const [resolveElapsed, setResolveElapsed] = useState(0);
+  // Bumped on every resolve start and on cancel, so a result that lands after
+  // the user gave up is dropped instead of driving a download nobody wants.
+  const resolveGenRef = useRef(0);
 
   // Result state
   const [upgradePreview, setUpgradePreview] = useState<UpgradePreviewInfo | null>(null);
@@ -246,6 +282,12 @@ export function SingleTrackDownload({
     if (!selectedMatch) return;
     setError(null);
     setResolving(true);
+    setResolveProgress(null);
+    setResolveElapsed(0);
+    const gen = ++resolveGenRef.current;
+    const reportProgress = (p: DownloadResolveProgress) => {
+      if (resolveGenRef.current === gen) setResolveProgress(p);
+    };
 
     // Resolve stream URL and metadata from the provider
     let streamUrl: string;
@@ -253,7 +295,8 @@ export function SingleTrackDownload({
     let meta: DownloadResolveResult["metadata"] | undefined;
     try {
       if (directUri && resolveByUri && track.uri) {
-        const resolved = await resolveByUri(track.uri, quality);
+        const resolved = await resolveByUri(track.uri, quality, reportProgress);
+        if (resolveGenRef.current !== gen) return;
         if (!resolved) {
           setResolving(false);
           setError("Provider could not resolve this track for download");
@@ -263,19 +306,26 @@ export function SingleTrackDownload({
         effectiveExt = resolved.ext ?? null;
         meta = resolved.metadata ?? undefined;
       } else {
-        const resolved = await onResolveRef.current(selectedMatch.id, quality);
+        const resolved = await onResolveRef.current(selectedMatch.id, quality, reportProgress);
+        if (resolveGenRef.current !== gen) return;
         streamUrl = resolved.url;
         effectiveExt = resolved.ext ?? null;
         meta = resolved.metadata ?? undefined;
       }
     } catch (e) {
+      // A resolve the user cancelled fails by design — its process was killed.
+      // Reporting that as a download error blames the provider for doing what
+      // it was told, so the cancel path (which bumped the generation) is silent.
+      if (resolveGenRef.current !== gen) return;
       setResolving(false);
+      setResolveProgress(null);
       // Providers throw user-facing reasons (e.g. "YouTube rejected the
       // request with a sign-in / bot check") — show the message, not "Error:".
       setError(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
       setStep("configure");
       return;
     }
+    setResolveProgress(null);
 
     // Effective metadata: the resolver's corrections override the selected
     // match. Computed from the response itself and stored in the ref — the
@@ -450,6 +500,14 @@ export function SingleTrackDownload({
 
   async function handleCancel() {
     // Best-effort cleanup — modal is closing regardless
+    if (resolving) {
+      // Bump first: the generation guard is what makes the resolve's rejection
+      // (and any late success) a no-op rather than an error banner on a modal
+      // that is already gone.
+      resolveGenRef.current++;
+      setResolving(false);
+      onCancelResolve?.();
+    }
     if (step === "downloading") {
       await invoke("cancel_direct_download").catch(console.error);
     }
@@ -527,6 +585,16 @@ export function SingleTrackDownload({
     return () => { canceled = true; };
   }, [step, selectedMatch, resolvedCoverUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Elapsed seconds for the resolve. A provider that reports no percentage
+  // (nothing forces one to) would otherwise leave a spinner that looks
+  // identical at 3 seconds and at 3 minutes.
+  useEffect(() => {
+    if (!resolving) return;
+    const started = Date.now();
+    const id = setInterval(() => setResolveElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [resolving]);
+
   // Listen to progress events
   useEffect(() => {
     if (step !== "downloading") return;
@@ -538,6 +606,14 @@ export function SingleTrackDownload({
       setDownloadProgress(event.payload);
     });
   }, [step, isUpgrade, showDestPicker]);
+
+  // Elapsed is always shown: it is the one fact available for every provider,
+  // and it's what separates "slow but moving" from "stuck".
+  const resolveDetailLine = [
+    resolveProgress?.detail,
+    resolveProgress?.etaSecs != null ? `${formatElapsed(resolveProgress.etaSecs)} left` : null,
+    `${formatElapsed(resolveElapsed)} elapsed`,
+  ].filter(Boolean).join(" · ");
 
   return (
     <>
@@ -657,16 +733,37 @@ export function SingleTrackDownload({
           )}
 
           {resolving && (
-            <div className="dl-resolving"><div className="ds-spinner ds-spinner--sm" /><span>Preparing download...</span></div>
+            <div className="dl-resolving">
+              {typeof resolveProgress?.percent === "number" ? (
+                <div className="dl-progress">
+                  <div className="dl-progress-bar">
+                    <div
+                      className="dl-progress-fill"
+                      style={{ width: `${Math.max(0, Math.min(100, resolveProgress.percent))}%` }}
+                    />
+                  </div>
+                  <span className="dl-progress-pct">{Math.round(resolveProgress.percent)}%</span>
+                </div>
+              ) : (
+                <div className="ds-spinner ds-spinner--sm" />
+              )}
+              <span className="dl-resolving-label">
+                {resolveProgress?.label || "Preparing download…"}
+              </span>
+              <span className="dl-resolving-detail">{resolveDetailLine}</span>
+            </div>
           )}
 
           <div className="dl-actions">
-            <button onClick={directUri ? onClose : handleBackToSearch} disabled={resolving}>
-              {directUri ? "Cancel" : "Back"}
+            {/* Cancel stays live through the resolve. The provider may be
+                downloading the whole file here (see `onCancelResolve`), so a
+                disabled button is a trap, not a guard rail. */}
+            <button onClick={resolving ? handleCancel : (directUri ? onClose : handleBackToSearch)}>
+              {resolving || directUri ? "Cancel" : "Back"}
             </button>
             <button className="dl-btn-primary" onClick={handleStartDownload} disabled={resolving}>
               {!resolving && <IconDownload size={15} />}
-              {resolving ? "Resolving..." : "Download"}
+              {resolving ? "Working…" : "Download"}
             </button>
           </div>
         </>

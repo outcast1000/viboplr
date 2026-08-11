@@ -49,7 +49,17 @@ describe("decideDownload", () => {
     // resolveByUri is a metadata closure — it should not be the provider's own resolveByUri.
     expect(plan!.resolveByUri).not.toBe(youtube.resolveByUri);
     await plan!.resolveByUri("ignored", "flac");
-    expect(youtube.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac");
+    expect(youtube.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac", undefined);
+  });
+
+  // The metadata closure must forward the progress callback: this is the path a
+  // yt-dlp-style provider takes, and it is precisely the one that can run for
+  // minutes — dropping the callback here would leave the modal on a bare spinner.
+  it("forwards the progress callback through the metadata closure", async () => {
+    const plan = decideDownload({ kind: "plugin", pluginId: "youtube" }, track, ALL);
+    const onProgress = vi.fn();
+    await plan!.resolveByUri("ignored", "flac", onProgress);
+    expect(youtube.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac", onProgress);
   });
 
   it("returns null for a plugin source whose plugin contributes no downloader (hide)", () => {

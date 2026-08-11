@@ -171,6 +171,7 @@ macro_rules! invoke_handler {
             commands::dependency_uninstall_managed,
             commands::dependency_check_updates,
             commands::plugin_exec,
+            commands::plugin_exec_cancel,
             commands::yt_dlp_check,
             commands::ffmpeg_check,
             commands::yt_dlp_stream_audio,
@@ -926,13 +927,21 @@ pub fn run() {
                     }));
 
                     // Wait for the frontend to resolve the stream URL. Download
-                    // resolvers may fetch the whole file before answering (yt-dlp),
-                    // and the frontend walks the chain at 60s per provider — this
-                    // cap only guards against a dead/reloaded webview never
-                    // responding, so it must comfortably exceed the chain budget.
+                    // resolvers may fetch the whole file before answering (yt-dlp
+                    // downloading a video and merging it), so this is not a
+                    // "should have finished by now" bound — the frontend owns
+                    // liveness, giving up on a provider only after 60s of
+                    // SILENCE (RESOLVE_IDLE_TIMEOUT_MS). All this cap does is
+                    // stop the worker waiting forever on a webview that died,
+                    // so it has to sit above any real download rather than
+                    // above an expected duration: at 300s it was cutting off
+                    // ordinary video downloads (a 22 MB video takes ~4 minutes
+                    // on a normal line) and reporting them as resolve failures.
+                    // A stalled worker costs nothing when the webview is gone —
+                    // the webview IS the app, so there is no UI left to serve.
                     // On failure we record the error but leave `resolved` None and fall
                     // through, so the loop still reaches the post-batch bookkeeping below.
-                    let resolved = match rx.recv_timeout(std::time::Duration::from_secs(300)) {
+                    let resolved = match rx.recv_timeout(std::time::Duration::from_secs(3600)) {
                         Ok(Some(response)) => Some(response),
                         Ok(None) => {
                             // Frontend responded with None (provider could not resolve)
@@ -1386,6 +1395,7 @@ pub fn run() {
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
                     download_resolve_registry: dl_resolve_registry_for_state,
+                    plugin_execs: Arc::new(commands::PluginExecRegistry::new()),
                     direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     publish_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),

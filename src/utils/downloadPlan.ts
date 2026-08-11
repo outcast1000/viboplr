@@ -1,6 +1,6 @@
 import type { QueueTrack } from "../types";
 import type { EffectiveSource } from "../queueEntry";
-import type { DownloadProvider, DownloadResolveResult } from "../types/plugin";
+import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress } from "../types/plugin";
 
 /** The built-in Subsonic download provider id (see `useDownloadOrchestration`). */
 export const BUILTIN_SUBSONIC_PROVIDER_ID = "__builtin:subsonic";
@@ -16,8 +16,15 @@ export interface DownloadPlan {
   /** URI to stamp on the modal track (the effective-source URI when available). */
   uri: string | null;
   /** How the modal resolves the track — by URI for native/subsonic sources, or a
-   *  metadata closure for plugin stream-resolver wins (e.g. YouTube). */
-  resolveByUri: (uri: string, format: string) => Promise<DownloadResolveResult | null>;
+   *  metadata closure for plugin stream-resolver wins (e.g. YouTube).
+   *  `onProgress` receives whatever the provider reports while it works; a
+   *  provider that downloads the file itself (yt-dlp) reports real percentages,
+   *  one that just mints a URL reports nothing and returns fast. */
+  resolveByUri: (
+    uri: string,
+    format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
+  ) => Promise<DownloadResolveResult | null>;
 }
 
 /**
@@ -60,13 +67,14 @@ export function decideDownload(
     providerId: p.id,
     providerName: p.name,
     uri: null,
-    resolveByUri: (_uri, format) =>
+    resolveByUri: (_uri, format, onProgress) =>
       p.resolveByMetadata(
         track.title,
         track.artist_name ?? null,
         track.album_title ?? null,
         track.duration_secs ?? null,
         format,
+        onProgress,
       ),
   };
 }

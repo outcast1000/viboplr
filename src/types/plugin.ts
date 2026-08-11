@@ -1042,8 +1042,30 @@ export interface DownloadRequest {
   provider?: string | null;
 }
 
+/** A progress report from a provider that is doing real work inside a resolve
+ *  (see `PluginDownloadsAPI.reportProgress`). Every field is optional — a
+ *  provider that only knows "merging now" sends a `label` and no `percent`. */
+export interface DownloadResolveProgress {
+  /** 0-100. Omit (or null) when the work is indeterminate — the host then
+   *  keeps the spinner rather than parking a bar at a made-up number. */
+  percent?: number | null;
+  /** Short phase description, e.g. "Downloading video" / "Merging audio". */
+  label?: string | null;
+  /** Human-readable transfer detail, e.g. "12.4MiB / 48.1MiB at 3.2MiB/s". */
+  detail?: string | null;
+  /** Seconds remaining, when the tool reports an ETA. */
+  etaSecs?: number | null;
+}
+
 export interface PluginDownloadsAPI {
   enqueue(request: DownloadRequest): Promise<number>;
+  /** Report progress for the resolve currently being awaited by the host.
+   *  Only meaningful while one of this plugin's download-resolve handlers is
+   *  running — outside that window it is a no-op, so it is always safe to call.
+   *  Providers that download the file themselves (rather than handing back a
+   *  URL) should call this: without it the host can only show a spinner for
+   *  what may be several minutes of work. */
+  reportProgress(progress: DownloadResolveProgress): void;
   onResolveByUri(providerId: string, handler: DownloadResolveByUriHandler): () => void;
   onResolveByMetadata(providerId: string, handler: DownloadResolveByMetadataHandler): () => void;
   onInteractiveSearch(providerId: string, handler: InteractiveSearchHandler): () => void;
@@ -1055,9 +1077,12 @@ export interface DownloadProvider {
   id: string;
   name: string;
   source: string;
+  /** `onProgress` is forwarded to the provider's `api.downloads.reportProgress`
+   *  calls for the duration of this resolve (see `usePlugins` resolve scopes). */
   resolveByUri: (
     uri: string,
     format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
   ) => Promise<DownloadResolveResult | null>;
   resolveByMetadata: (
     title: string,
@@ -1065,6 +1090,7 @@ export interface DownloadProvider {
     albumName: string | null,
     durationSecs: number | null,
     format: string,
+    onProgress?: (progress: DownloadResolveProgress) => void,
   ) => Promise<DownloadResolveResult | null>;
 }
 
@@ -1137,7 +1163,17 @@ export interface PluginDependencyStatus {
 }
 
 export interface PluginSystemAPI {
-  exec(program: string, args?: string[], opts?: { cwd?: string }): Promise<ExecResult>;
+  /** Run a registry-allowed binary. `opts.onOutput` streams the child's output
+   *  line by line as it is produced (split on `\n` **and** `\r`, so a CLI that
+   *  redraws one progress line still reports) — pass it to drive a progress
+   *  readout; the resolved `ExecResult` still carries the full text either way.
+   *  An exec started inside a download resolve is killed when the user cancels
+   *  that download, and the promise then rejects with "Cancelled". */
+  exec(
+    program: string,
+    args?: string[],
+    opts?: { cwd?: string; onOutput?: (line: string, stream: "stdout" | "stderr") => void },
+  ): Promise<ExecResult>;
   /** Read the host's cached status for a registered dependency. Cache-only:
    *  never hits the network. `latest` is null until the host's background
    *  check populates it (~30s after startup, then daily, or via Settings). */
