@@ -106,7 +106,7 @@ describe("resolveTrackDownload provider budget", () => {
       const wedged = makeProvider({
         id: "yt:dl",
         source: "yt",
-        resolveByUri: vi.fn(() => new Promise(() => {})), // never settles, never reports
+        resolveByUri: vi.fn(() => new Promise<never>(() => {})), // never settles, never reports
       });
       const pending = resolveTrackDownload([wedged], "yt://x", "Song", null, null, null, "video", null);
       await vi.advanceTimersByTimeAsync(61000);
