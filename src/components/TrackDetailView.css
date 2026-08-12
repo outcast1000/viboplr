@@ -48,8 +48,18 @@
    hole is never in `.main` (column 2): it's either theater — excluded here,
    its container fills the whole main — or the "queue" placement, whose hole
    lives in the queue panel (column 3). Docked layouts carry `data-dock` and
-   have no gutter, so they're excluded too. */
-.app.mpv-video-hole:not(.mpv-hole-theater) .main:not([data-dock]) {
+   have no gutter, so they're excluded too.
+
+   Native fullscreen is excluded as well: there the hole IS the whole window, so
+   there is no gutter to back and this backing becomes an opaque rectangle
+   shaped like the old main column, sitting on top of the video (the native
+   layer is BELOW the webview). `.main` can't just join the `visibility: hidden`
+   list below — the fullscreen `.video-container` is its child and `visibility`
+   inherits — so the exclusion goes here, where it also keeps the whole
+   background decision in one rule. Reached from the DEFAULT video placement:
+   `dockSide: "queue"` leaves `data-dock` unset, so any fullscreen entered
+   outside the Now Playing view (which carries `.mpv-hole-theater`) matched. */
+.app.mpv-video-hole:not(.mpv-hole-theater):not(.mpv-native-fs) .main:not([data-dock]) {
   background: var(--bg-primary);
 }
 
