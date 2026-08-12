@@ -1,0 +1,20 @@
+[
+  {
+    "date": "2026-06-17T05:44:27Z",
+    "version": "0.9.122",
+    "ref": "v0.9.122",
+    "note": "baseline — matches the VSCodeCounter snapshot .VSCodeCounter/2026-06-17_08-53-27 file for file",
+    "total": {"files":443,"code":89113,"comment":4097,"blank":10456},
+    "languages": {"Markdown": {"files":18,"code":2447,"comment":0,"blank":765}, "Skill": {"files":5,"code":483,"comment":0,"blank":177}, "YAML": {"files":3,"code":190,"comment":0,"blank":45}, "JSON": {"files":27,"code":3907,"comment":0,"blank":27}, "HTML": {"files":9,"code":5840,"comment":53,"blank":228}, "XML": {"files":5,"code":42,"comment":6,"blank":9}, "PostCSS": {"files":40,"code":11900,"comment":364,"blank":1826}, "JavaScript": {"files":34,"code":4892,"comment":371,"blank":681}, "Rust": {"files":65,"code":20206,"comment":1287,"blank":2752}, "TypeScript JSX": {"files":97,"code":21625,"comment":748,"blank":1782}, "TypeScript": {"files":139,"code":17560,"comment":1266,"blank":2161}, "JSON with Comments": {"files":1,"code":21,"comment":2,"blank":3}},
+    "directories": {".claude": {"files":12,"code":1692,"comment":0,"blank":592}, ".github": {"files":3,"code":190,"comment":0,"blank":45}, ".": {"files":14,"code":3903,"comment":9,"blank":206}, "benchmarks": {"files":2,"code":415,"comment":0,"blank":24}, "docs": {"files":15,"code":7669,"comment":111,"blank":618}, "public": {"files":2,"code":7,"comment":0,"blank":1}, "scripts": {"files":4,"code":522,"comment":52,"blank":84}, "src-tauri": {"files":90,"code":23114,"comment":1408,"blank":3079}, "src": {"files":283,"code":49972,"comment":2343,"blank":5553}, "tests": {"files":18,"code":1629,"comment":174,"blank":254}}
+  },
+  {
+    "date": "2026-08-11T19:41:26Z",
+    "version": "1.0.21",
+    "ref": "v1.0.21",
+    "note": "last release before the counter was wired into bump",
+    "total": {"files":632,"code":127166,"comment":13383,"blank":14931},
+    "languages": {"Markdown": {"files":32,"code":5681,"comment":0,"blank":1728}, "JSON with Comments": {"files":2,"code":26,"comment":2,"blank":4}, "Skill": {"files":5,"code":483,"comment":0,"blank":177}, "YAML": {"files":6,"code":313,"comment":33,"blank":60}, "JSON": {"files":30,"code":4083,"comment":0,"blank":29}, "HTML": {"files":15,"code":9091,"comment":143,"blank":411}, "Properties": {"files":1,"code":17,"comment":2,"blank":5}, "XML": {"files":5,"code":38,"comment":4,"blank":7}, "PostCSS": {"files":53,"code":14303,"comment":982,"blank":2030}, "JavaScript": {"files":43,"code":5507,"comment":765,"blank":781}, "PowerShell": {"files":1,"code":77,"comment":0,"blank":18}, "TypeScript": {"files":238,"code":28848,"comment":4905,"blank":3640}, "Rust": {"files":78,"code":28547,"comment":3471,"blank":3658}, "TypeScript JSX": {"files":123,"code":30152,"comment":3076,"blank":2383}},
+    "directories": {".claude": {"files":14,"code":1984,"comment":0,"blank":698}, ".github": {"files":4,"code":241,"comment":15,"blank":53}, ".": {"files":16,"code":4811,"comment":9,"blank":409}, "benchmarks": {"files":2,"code":486,"comment":0,"blank":24}, "deploy": {"files":4,"code":147,"comment":20,"blank":29}, "docs": {"files":33,"code":13587,"comment":249,"blank":1539}, "public": {"files":2,"code":7,"comment":0,"blank":1}, "scripts": {"files":14,"code":1558,"comment":301,"blank":238}, "src-tauri": {"files":102,"code":30594,"comment":3614,"blank":3869}, "src": {"files":420,"code":71755,"comment":8909,"blank":7755}, "tests": {"files":21,"code":1996,"comment":266,"blank":316}}
+  }
+]

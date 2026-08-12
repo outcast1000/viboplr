@@ -21,6 +21,8 @@ npm run test:e2e                     # Playwright E2E tests
 cd src-tauri && cargo test bench_search_performance -- --ignored --nocapture  # DB benchmarks
 npm run perf:probe -- run                 # macOS CPU/GPU/memory cost per scenario (needs sudo; see below)
 npm run perf:probe -- save --note "..."   # append the last probe run to benchmarks/resource-usage.json
+npm run loc                               # code size now vs the last release (see below); `npm run bump` runs this
+npm run loc -- save --ref v1.0.21         # back-fill one past release into benchmarks/loc-history.json
 ```
 
 ### Host resource profiling (macOS)
@@ -69,6 +71,36 @@ and only the second is ours to optimize. Both tools need root; sudo is primed on
 
 Instruments/`xctrace` is unavailable unless full Xcode is installed (Command Line Tools alone
 ships a stub that errors out).
+
+### Code size tracking
+
+`npm run bump` counts the code as **Step 7** and appends an entry to `benchmarks/loc-history.json`,
+printing the delta against the previous release (totals, per language, per top-level directory, and
+the biggest per-file movers). It is never fatal — a release must not fail over a metric — and it is
+skipped for **betas**, which may be cut from any branch and would make the series jump around.
+
+The counter (`scripts/lib/loc.mjs`) is a **port of the VS Code Counter extension**
+(`uctakeoff.vscode-counter`), which produced the pre-existing snapshots under `.VSCodeCounter/`
+(gitignored, main checkout only). The port exists because that extension has no CLI and `bump` must
+run without VS Code installed. It is verified exact: re-counting `v0.9.122` reproduces the
+2026-06-17 snapshot on all 443 files, byte for byte. **Do not "fix" the following** — each one moves
+the numbers and silently breaks every historical delta:
+
+- `.css` reports as **PostCSS**, not CSS (both grammars claim `.css`; the extension's
+  last-writer-wins map landed on PostCSS).
+- `.toml` and `.plist` are **not counted at all**, so `Cargo.toml`, `Cargo.lock` and `Info.plist`
+  are invisible.
+- A file ending in a newline scores one trailing **blank** line, and an empty line inside a template
+  literal counts as **code** (the line type carries over while a block string is open).
+
+Two deliberate divergences from the extension, both about reproducibility: files come from git
+(tracked + untracked-not-ignored, minus anything `git check-ignore --no-index` matches — the
+`--no-index` flag is load-bearing, or the 37 tracked-but-ignored `docs/superpowers/` files would
+count), so the number is the same on any machine; and `benchmarks/loc-history.json` excludes itself,
+or the metric would inflate by ~9 lines every release and list itself as a mover forever.
+
+`src/__tests__/loc.test.ts` pins the line classifier. Run it before trusting a change to the counter
+— it is the only automated guard that the series stays comparable.
 
 ## Architecture
 

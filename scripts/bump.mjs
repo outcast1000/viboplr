@@ -12,7 +12,8 @@
 //   4. Generates changelog and prepends a new entry to docs/history.html
 //   5. Regenerates screenshots (only with --screenshots, requires Vite dev server)
 //   6. Regenerates docs/features.html from docs/features.json
-//   7. Commits, tags, and pushes (with --autocommit)
+//   7. Counts the code and appends to benchmarks/loc-history.json
+//   8. Commits, tags, and pushes (with --autocommit)
 //
 // BETA releases: a hyphenated version (e.g. 0.9.152-beta.1) switches to beta
 // mode automatically — the version files are bumped and the tag is pushed
@@ -28,6 +29,7 @@ import { fileURLToPath } from "url";
 import { generateChangelog } from "./lib/changelog.mjs";
 import { nextVersion } from "./lib/version.mjs";
 import { renderFeaturesHtml } from "./lib/features.mjs";
+import { locStep } from "./lib/locRepo.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -391,7 +393,31 @@ if (existsSync(featuresJsonPath)) {
 } // end !isBeta (site updates)
 
 // ---------------------------------------------------------------------------
-// Step 7 — Git operations
+// Step 7 — Count the code and record it in benchmarks/loc-history.json
+//
+// Counted from the working tree, so the entry describes exactly what the
+// release commit below is about to contain. Betas print the report but don't
+// append: they may be cut from any branch, and a feature branch's numbers
+// would make the series jump around instead of tracking shipped versions.
+// Never fatal — a release must not fail over a metric.
+// ---------------------------------------------------------------------------
+
+console.log("\nCounting code size...\n");
+
+try {
+  const { report } = locStep({ version, ref: `v${version}`, save: !isBeta });
+  console.log(report);
+  console.log(
+    isBeta
+      ? "\n  (beta — not appended to benchmarks/loc-history.json)"
+      : "\n✓ benchmarks/loc-history.json"
+  );
+} catch (e) {
+  console.error("⚠ Code size step failed (release continues):", e.message);
+}
+
+// ---------------------------------------------------------------------------
+// Step 8 — Git operations
 // ---------------------------------------------------------------------------
 
 // Stable releases ship the site and MUST come from main; betas may be cut

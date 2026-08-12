@@ -25,4 +25,4 @@ Run the release orchestrator to bump the version, update docs, generate changelo
    ```
    This handles everything: version files, docs, changelog, commit, tag, and push.
 
-4. **Report result.** Show the user the new version and confirm the tag was pushed.
+4. **Report result.** Show the user the new version and confirm the tag was pushed. Include the code-size delta the script prints in its "Counting code size" step (stable releases also append it to `benchmarks/loc-history.json`; betas only print it).

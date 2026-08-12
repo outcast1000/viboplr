@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "deploy:site:vps": "pwsh -NoProfile -File scripts/deploy-site-vps.ps1",
     "bump": "node scripts/bump.mjs",
+    "loc": "node scripts/loc.mjs",
     "perf:probe": "node scripts/perf-probe.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
