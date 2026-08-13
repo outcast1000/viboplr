@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { computeIndexSelection } from "../utils/rowSelection";
 import type { QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration, formatFileSize } from "../utils";
@@ -41,37 +42,6 @@ export function formatPlaylistSource(source: string | null | undefined): string 
     playlist: "Playing from playlist",
   };
   return known[s] ?? `Playing from ${s}`;
-}
-
-function computeIndexSelection(
-  current: Set<number>,
-  clickedIndex: number,
-  lastIndex: number | null,
-  meta: boolean,
-  shift: boolean,
-): Set<number> {
-  if (shift) {
-    const start = lastIndex ?? 0;
-    const lo = Math.min(start, clickedIndex);
-    const hi = Math.max(start, clickedIndex);
-    const range = new Set(Array.from({ length: hi - lo + 1 }, (_, k) => lo + k));
-    if (meta) {
-      const merged = new Set(current);
-      for (const idx of range) merged.add(idx);
-      return merged;
-    }
-    return range;
-  }
-  if (meta) {
-    const next = new Set(current);
-    if (next.has(clickedIndex)) {
-      next.delete(clickedIndex);
-    } else {
-      next.add(clickedIndex);
-    }
-    return next;
-  }
-  return new Set([clickedIndex]);
 }
 
 interface QueueRowProps {

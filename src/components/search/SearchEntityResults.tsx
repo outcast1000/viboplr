@@ -1,5 +1,6 @@
 // Per-tab entity result renderers for SearchView (albums/artists/tags).
 import type { Artist, Album, Tag, ViewMode } from "../../types";
+import { computeSelection } from "../../utils/rowSelection";
 import { ArtistCardArt } from "../ArtistCardArt";
 import { AlbumCardArt } from "../AlbumCardArt";
 import { TagCardArt } from "../TagCardArt";
@@ -28,34 +29,6 @@ function EntityRowActions({ onPlay, onEnqueue, onDetails }: { onPlay: () => void
   );
 }
 
-function computeIdSelection(
-  current: Set<number>,
-  clickedIndex: number,
-  ids: number[],
-  lastIndex: number | null,
-  meta: boolean,
-  shift: boolean,
-): Set<number> {
-  if (shift) {
-    const start = lastIndex ?? 0;
-    const lo = Math.min(start, clickedIndex);
-    const hi = Math.max(start, clickedIndex);
-    const range = new Set(ids.slice(lo, hi + 1));
-    if (meta) {
-      const merged = new Set(current);
-      for (const id of range) merged.add(id);
-      return merged;
-    }
-    return range;
-  }
-  if (meta) {
-    const next = new Set(current);
-    if (next.has(ids[clickedIndex])) next.delete(ids[clickedIndex]);
-    else next.add(ids[clickedIndex]);
-    return next;
-  }
-  return new Set([ids[clickedIndex]]);
-}
 
 export function SearchTagResults({
   tags, viewMode, getTagImage, onTagClick, onToggleLike, onToggleDislike,
@@ -86,7 +59,7 @@ export function SearchTagResults({
   const ids = tags.map(t => t.id);
   function handleClick(e: React.MouseEvent, index: number) {
     if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .ds-card-play, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
-    const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
+    const sel = computeSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
     onSelectionChange(sel);
     lastClickedRef.current = index;
   }
@@ -209,7 +182,7 @@ export function SearchAlbumResults({
   const ids = albums.map(a => a.id);
   function handleClick(e: React.MouseEvent, index: number) {
     if ((e.target as HTMLElement).closest('.track-link, .col-like, .album-card-menu-btn, .ds-card-play, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
-    const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
+    const sel = computeSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
     onSelectionChange(sel);
     lastClickedRef.current = index;
   }
@@ -344,7 +317,7 @@ export function SearchArtistResults({
   const ids = artists.map(a => a.id);
   function handleClick(e: React.MouseEvent, index: number) {
     if ((e.target as HTMLElement).closest('.col-like, .album-card-menu-btn, .ds-card-play, .entity-list-play, .entity-list-enqueue, .entity-table-action, .row-hover-action')) return;
-    const sel = computeIdSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
+    const sel = computeSelection(selectedIds, index, ids, lastClickedRef.current, e.metaKey || e.ctrlKey, e.shiftKey);
     onSelectionChange(sel);
     lastClickedRef.current = index;
   }

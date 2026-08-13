@@ -18,6 +18,7 @@ import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
 import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
+import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
@@ -490,32 +491,12 @@ function App() {
   // a pre-existing same-song copy. Patches by metadata via functional setQueue,
   // so it's correct regardless of the fresh keys useQueue assigns on insert.
   const reconcileAddedLikeStates = useCallback(async (added: QueueTrack[]) => {
-    const idOf = (title: string | null, artist: string | null) =>
-      `${(title ?? "").toLowerCase()}:${(artist ?? "").toLowerCase()}`;
-    const seen = new Set<string>();
-    const items: { title: string; artistName: string | null }[] = [];
-    for (const t of added) {
-      const id = idOf(t.title, t.artist_name ?? null);
-      if (seen.has(id)) continue;
-      seen.add(id);
-      items.push({ title: t.title, artistName: t.artist_name ?? null });
-    }
-    if (items.length === 0) return;
+    if (added.length === 0) return;
     try {
-      const states = await invoke<number[]>("get_track_like_states", { tracks: items });
-      const liked = new Map<string, number>();
-      items.forEach((it, i) => { const v = states[i] ?? 0; if (v !== 0) liked.set(idOf(it.title, it.artistName), v); });
-      if (liked.size === 0) return;
-      const apply = (t: QueueTrack): QueueTrack => {
-        const v = liked.get(idOf(t.title, t.artist_name ?? null));
-        return v != null && v !== t.liked ? { ...t, liked: v } : t;
-      };
-      queueHook.setQueue(prev => {
-        let changed = false;
-        const next = prev.map(t => { const n = apply(t); if (n !== t) changed = true; return n; });
-        return changed ? next : prev;
-      });
-      playback.setCurrentTrack(prev => (prev ? apply(prev) : prev));
+      const byId = await fetchLikeStates(added);
+      // onlyNonZero: never clears, so it can't race-revert an optimistic like.
+      queueHook.setQueue(prev => applyLikeStates(prev, byId, { onlyNonZero: true }));
+      playback.setCurrentTrack(prev => (prev ? applyLikeState(prev, byId, { onlyNonZero: true }) : prev));
     } catch (e) {
       console.error("Failed to reconcile like state for added tracks:", e);
     }
@@ -2318,11 +2299,9 @@ function App() {
               // before restart survives — keyed by metadata, works for
               // non-library tracks too. Best-effort: on failure leave neutral.
               try {
-                const states = await invoke<number[]>("get_track_like_states", {
-                  tracks: tracks.map(t => ({ title: t.title, artistName: t.artist_name })),
-                });
-                for (let i = 0; i < tracks.length && i < states.length; i++) {
-                  tracks[i].liked = states[i];
+                const byId = await fetchLikeStates(tracks);
+                for (let i = 0; i < tracks.length; i++) {
+                  tracks[i] = applyLikeState(tracks[i], byId);
                 }
               } catch (e) {
                 console.error("Failed to reconcile restored like states:", e);
@@ -2922,11 +2901,9 @@ function App() {
     let cancelled = false;
     (async () => {
       try {
-        const states = await invoke<number[]>("get_track_like_states", {
-          tracks: [{ title: track.title, artistName: track.artist_name ?? null }],
-        });
+        const byId = await fetchLikeStates([track]);
         if (cancelled) return;
-        const durable = states[0] ?? 0;
+        const durable = byId.get(trackLikeId(track.title, track.artist_name ?? null)) ?? 0;
         playback.setCurrentTrack(prev =>
           prev && prev.path === track.path && prev.title === track.title && prev.liked !== durable
             ? { ...prev, liked: durable } : prev);
@@ -2946,8 +2923,6 @@ function App() {
   // + the queue and patches any drift. Our own writes also fire this event —
   // reconciling to the just-written value is a harmless no-op.
   useEffect(() => {
-    const idOf = (title: string | null, artist: string | null) =>
-      `${(title ?? "").toLowerCase()}:${(artist ?? "").toLowerCase()}`;
     return subscribe<{ kind?: string }>("entity-likes-changed", async (event) => {
       const kind = event.payload?.kind;
       // Only track-level changes can move a track's like state. An artist/
@@ -2964,37 +2939,11 @@ function App() {
         library.loadLibrary().catch(e => console.error("Failed to reload library after likes import:", e));
         library.loadTracks().catch(e => console.error("Failed to reload tracks after likes import:", e));
       }
-      const items: { title: string; artistName: string | null }[] = [];
-      const seen = new Set<string>();
-      const push = (t: QueueTrack | null) => {
-        if (!t) return;
-        const id = idOf(t.title, t.artist_name ?? null);
-        if (seen.has(id)) return;
-        seen.add(id);
-        items.push({ title: t.title, artistName: t.artist_name ?? null });
-      };
-      push(currentTrackRef.current);
-      queueRef.current.forEach(push);
-      if (items.length === 0) return;
       try {
-        const states = await invoke<number[]>("get_track_like_states", { tracks: items });
-        const byId = new Map<string, number>();
-        items.forEach((it, i) => byId.set(idOf(it.title, it.artistName), states[i] ?? 0));
-        const lookup = (t: QueueTrack) => byId.get(idOf(t.title, t.artist_name ?? null));
-        playback.setCurrentTrack(prev => {
-          if (!prev) return prev;
-          const v = lookup(prev);
-          return v != null && v !== prev.liked ? { ...prev, liked: v } : prev;
-        });
-        queueHook.setQueue(prev => {
-          let changed = false;
-          const next = prev.map(t => {
-            const v = lookup(t);
-            if (v != null && v !== t.liked) { changed = true; return { ...t, liked: v }; }
-            return t;
-          });
-          return changed ? next : prev;
-        });
+        const byId = await fetchLikeStates([currentTrackRef.current, ...queueRef.current]);
+        if (byId.size === 0) return;
+        playback.setCurrentTrack(prev => (prev ? applyLikeState(prev, byId) : prev));
+        queueHook.setQueue(prev => applyLikeStates(prev, byId));
       } catch (e) {
         console.error("Failed to reconcile like states after change:", e);
       }

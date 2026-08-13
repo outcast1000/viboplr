@@ -37,3 +37,19 @@ export function computeSelection<K>(
   }
   return new Set([keys[clickedIndex]]);
 }
+
+/** The index-keyed specialization (the queue's Set<number> of row indices):
+ *  the row keys ARE 0..N, so callers don't pass a keys array — it's generated
+ *  up to the highest index the click can touch. Behavior matches the generic
+ *  exactly; this replaces the private copy QueuePanel used to carry. */
+export function computeIndexSelection(
+  current: Set<number>,
+  clickedIndex: number,
+  lastIndex: number | null,
+  meta: boolean,
+  shift: boolean,
+): Set<number> {
+  const hi = Math.max(clickedIndex, lastIndex ?? 0);
+  const keys = Array.from({ length: hi + 1 }, (_, i) => i);
+  return computeSelection(current, clickedIndex, keys, lastIndex, meta, shift);
+}

@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { computeSelection } from "../utils/rowSelection";
+import { fetchLikeStates, applyLikeState } from "../utils/likeReconcile";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { formatDuration } from "../utils";
@@ -100,37 +102,6 @@ function isLocalPath(source: string | null): boolean {
   return !!source && source.startsWith("file://");
 }
 
-// Index-based multi-select over the detail track rows, keyed by playlist-track
-// id. Mirrors TrackList's computeSelection: shift = range, meta = toggle, plain
-// = single.
-function computeRowSelection(
-  current: Set<number>,
-  clickedIndex: number,
-  ids: number[],
-  lastIndex: number | null,
-  meta: boolean,
-  shift: boolean,
-): Set<number> {
-  if (shift) {
-    const start = lastIndex ?? 0;
-    const lo = Math.min(start, clickedIndex);
-    const hi = Math.max(start, clickedIndex);
-    const range = new Set(ids.slice(lo, hi + 1));
-    if (meta) {
-      const merged = new Set(current);
-      for (const id of range) merged.add(id);
-      return merged;
-    }
-    return range;
-  }
-  if (meta) {
-    const next = new Set(current);
-    const id = ids[clickedIndex];
-    if (next.has(id)) next.delete(id); else next.add(id);
-    return next;
-  }
-  return new Set([ids[clickedIndex]]);
-}
 
 export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onLocateTrack, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart, onToggleLike, onToggleDislike }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -180,10 +151,8 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId });
     if (rows.length === 0) return rows;
     try {
-      const states = await invoke<number[]>("get_track_like_states", {
-        tracks: rows.map(t => ({ title: t.title, artistName: t.artist_name })),
-      });
-      return rows.map((t, i) => ({ ...t, liked: states[i] ?? 0 }));
+      const byId = await fetchLikeStates(rows);
+      return rows.map(t => applyLikeState(t, byId));
     } catch (e) {
       console.error("Failed to reconcile playlist like states:", e);
       return rows;
@@ -253,7 +222,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     if (didDragRef.current) return;
     if ((e.target as HTMLElement).closest(".row-hover-action")) return;
     const ids = tracks.map(t => t.id);
-    setSelectedTrackIds(prev => computeRowSelection(prev, index, ids, lastClickedTrackRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
+    setSelectedTrackIds(prev => computeSelection(prev, index, ids, lastClickedTrackRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
     lastClickedTrackRef.current = index;
   }, [tracks]);
 
