@@ -9,6 +9,8 @@
 //
 // Extracted from PlaylistsView so the classification/ordering logic is unit-testable.
 
+import { toStringMetadata } from "../mainPlaylist";
+
 export interface PlaylistLike {
   system_kind: string | null;
   metadata?: string | null;
@@ -89,6 +91,27 @@ export function featuredArtistsFromMetadata(metadata: string | null | undefined)
   } catch {
     return [];
   }
+}
+
+/**
+ * Parse a playlist row's metadata JSON into the flat string map its consumers
+ * (the queue's PlaylistContext, mixtape export) hand to the backend. Auto-mix
+ * rows carry values that are not strings — `featured_artists` (array), `tag_id`
+ * (number), `seed_title` (null) — and both commands deserialize the map into a
+ * Rust `HashMap<String, String>`, which rejects the entire payload over one of
+ * them. That is what silently stopped the live queue from persisting. Tolerant
+ * of missing/malformed JSON (returns null), like the other readers here.
+ */
+export function parsePlaylistMetadata(metadata: string | null | undefined): Record<string, string> | null {
+  if (!metadata) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(metadata);
+  } catch {
+    return null;
+  }
+  const map = toStringMetadata(raw);
+  return Object.keys(map).length > 0 ? map : null;
 }
 
 /**

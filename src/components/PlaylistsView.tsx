@@ -22,7 +22,7 @@ import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { nextTriState } from "../likeKeys";
-import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel } from "../utils/autoPlaylist";
+import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel, parsePlaylistMetadata } from "../utils/autoPlaylist";
 import { useImageCache } from "../hooks/useImageCache";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveTrackImage, pickEntityImagePath } from "../utils/trackImage";
@@ -122,7 +122,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   // image_path, so fall back to the mix's first-artist image — the same raw path
   // autoCoverSrc resolves for the card — otherwise the queue banner cover is blank.
   const playlistContext = useCallback((pl: Playlist): PlaylistContext => {
-    const metadata: Record<string, string> | null = pl.metadata ? JSON.parse(pl.metadata) : null;
+    const metadata = parsePlaylistMetadata(pl.metadata);
     let imagePath = pl.image_path;
     if (!imagePath) {
       const artist = firstArtist(pl.metadata);
@@ -336,7 +336,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         try {
           const rows = await invoke<PlaylistTrack[]>("get_playlist_tracks", { playlistId: pl.id });
           if (rows.length === 0) return;
-          const meta = pl.metadata ? JSON.parse(pl.metadata) as Record<string, string> : null;
+          const meta = parsePlaylistMetadata(pl.metadata);
           onExportAsMixtape(rows.map(t => ({
             title: t.title,
             artistName: t.artist_name || undefined,
@@ -528,7 +528,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         kind: "action", id: "export-mixtape", label: "Export as Mixtape",
         onClick: () => {
           if (tracks.length === 0) return;
-          const meta = selectedPlaylist.metadata ? JSON.parse(selectedPlaylist.metadata) as Record<string, string> : null;
+          const meta = parsePlaylistMetadata(selectedPlaylist.metadata);
           onExportAsMixtape(tracks.map(t => ({
             title: t.title,
             artistName: t.artist_name || undefined,

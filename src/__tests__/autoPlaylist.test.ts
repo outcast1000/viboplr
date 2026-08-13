@@ -9,6 +9,7 @@ import {
   featuredArtists,
   featuredArtistsFromMetadata,
   featuredArtistsLabel,
+  parsePlaylistMetadata,
 } from "../utils/autoPlaylist";
 
 const p = (system_kind: string | null, metadata: string | null = null) => ({ system_kind, metadata });
@@ -148,5 +149,36 @@ describe("featuredArtistsLabel", () => {
 
   it("returns null for an empty list", () => {
     expect(featuredArtistsLabel([])).toBe(null);
+  });
+});
+
+describe("parsePlaylistMetadata", () => {
+  it("flattens a real auto-mix row into an all-string map", () => {
+    // Verbatim shape from the playlists table. Every consumer hands this to a
+    // backend command typed HashMap<String, String>; the array alone rejected
+    // main_playlist_write, so the live queue silently stopped persisting.
+    const row = JSON.stringify({
+      featured_artists: ["Wipers", "Dead Moon", "Mark Lanegan"],
+      first_artist: "Wipers",
+      recipe: "daily-mix",
+      seed_artist: "Wipers",
+      seed_title: null,
+      tag_id: 2,
+    });
+    expect(parsePlaylistMetadata(row)).toEqual({
+      featured_artists: "Wipers, Dead Moon, Mark Lanegan",
+      first_artist: "Wipers",
+      recipe: "daily-mix",
+      seed_artist: "Wipers",
+      tag_id: "2",
+    });
+  });
+
+  it("returns null for missing, malformed, or all-unusable metadata", () => {
+    expect(parsePlaylistMetadata(null)).toBe(null);
+    expect(parsePlaylistMetadata(undefined)).toBe(null);
+    expect(parsePlaylistMetadata("not json {{{")).toBe(null);
+    expect(parsePlaylistMetadata("{}")).toBe(null);
+    expect(parsePlaylistMetadata(JSON.stringify({ seed_title: null }))).toBe(null);
   });
 });

@@ -9,6 +9,7 @@ import {
   diffThumbs,
   flushMainPlaylist,
   queueItemLocalThumb,
+  toStringMetadata,
   tracksFromManifest,
   type Manifest,
 } from "../mainPlaylist";
@@ -48,6 +49,50 @@ describe("buildManifest", () => {
   it("sets cover to 'cover.jpg' when context has an image", () => {
     const m = buildManifest([], { name: "P", imagePath: "/abs/x.jpg" });
     expect(m.cover).toBe("cover.jpg");
+  });
+
+  it("stringifies every metadata value — one non-string rejected the whole write", () => {
+    // An auto-mix playlist context carries values the TS type forbids but the
+    // DB really holds: featured_artists (array), tag_id (number), seed_title
+    // (null). The backend arg is a HashMap<String, String>, so any one of them
+    // failed main_playlist_write ("invalid type: sequence, expected a string")
+    // and the queue silently stopped persisting — next launch restored a stale
+    // playlist under the new playlist's cover.
+    const m = buildManifest([], {
+      name: "Wipers Mix",
+      source: "playlist",
+      metadata: {
+        featured_artists: ["Wipers", "Dead Moon"],
+        tag_id: 2,
+        seed_title: null,
+        recipe: "daily-mix",
+      } as unknown as Record<string, string>,
+    });
+    expect(m.metadata).toEqual({
+      source: "playlist",
+      featured_artists: "Wipers, Dead Moon",
+      tag_id: "2",
+      recipe: "daily-mix",
+    });
+    for (const v of Object.values(m.metadata ?? {})) expect(typeof v).toBe("string");
+  });
+});
+
+describe("toStringMetadata", () => {
+  it("keeps strings, stringifies scalars, joins string-ish arrays", () => {
+    expect(toStringMetadata({ a: "x", b: 3, c: true, d: ["p", "q"] }))
+      .toEqual({ a: "x", b: "3", c: "true", d: "p, q" });
+  });
+
+  it("drops values with no one-line form rather than failing the whole map", () => {
+    expect(toStringMetadata({ keep: "y", nul: null, undef: undefined, obj: { a: 1 }, nan: NaN, empty: [] }))
+      .toEqual({ keep: "y" });
+  });
+
+  it("returns an empty map for non-objects", () => {
+    expect(toStringMetadata(null)).toEqual({});
+    expect(toStringMetadata("nope")).toEqual({});
+    expect(toStringMetadata(undefined)).toEqual({});
   });
 });
 

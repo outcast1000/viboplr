@@ -82,11 +82,52 @@ export function isContextRemote(ctx: PlaylistContext | null | undefined): boolea
   return !LIBRARY_SOURCES.has(ctx.source);
 }
 
+/**
+ * Coerce one untyped metadata value into the single line the wire format and
+ * the QueuePanel tooltip both want, or null to drop it. String-ish arrays are
+ * joined rather than dropped — they render as one tooltip row, where an array
+ * would otherwise print with its members run together.
+ */
+function metadataValue(v: unknown): string | null {
+  if (typeof v === "string") return v;
+  if (typeof v === "boolean") return String(v);
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
+  if (Array.isArray(v)) {
+    const parts = v.map(metadataValue).filter((p): p is string => !!p);
+    return parts.length > 0 ? parts.join(", ") : null;
+  }
+  return null;
+}
+
+/**
+ * Coerce an untyped metadata bag into the `Record<string, string>` the manifest
+ * demands. The backend deserializes this field into a Rust `HashMap<String,
+ * String>`, so a **single** non-string value fails the whole command's argument
+ * decoding ("invalid type: sequence, expected a string") — and for the live
+ * queue that means the manifest silently stops being written, so the next
+ * launch restores whatever stale playlist was last written successfully.
+ *
+ * Values arrive untyped from two directions the TS type can't police: playlist
+ * rows (auto-mix metadata carries `featured_artists: string[]`, `tag_id:
+ * number`, `seed_title: null`) and plugin-supplied play contexts. Anything with
+ * no sensible one-line form — null, nested objects — is dropped.
+ */
+export function toStringMetadata(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const s = metadataValue(v);
+    if (s !== null) out[k] = s;
+  }
+  return out;
+}
+
 export function buildManifest(queue: QueueTrack[], context: PlaylistContext | null | undefined): Manifest {
-  const metadata: Record<string, string> = {};
-  if (context?.source) metadata.source = context.source;
-  if (context?.description) metadata.description = context.description;
-  if (context?.metadata) for (const [k, v] of Object.entries(context.metadata)) metadata[k] = v;
+  const raw: Record<string, unknown> = {};
+  if (context?.source) raw.source = context.source;
+  if (context?.description) raw.description = context.description;
+  if (context?.metadata) for (const [k, v] of Object.entries(context.metadata)) raw[k] = v;
+  const metadata = toStringMetadata(raw);
 
   return {
     version: 1,
@@ -194,14 +235,16 @@ export function contextFromManifest(manifest: Manifest, mainPlaylistDir: string 
  */
 export function contextToExportMetadata(ctx: PlaylistContext | null | undefined): Record<string, string> | null {
   if (!ctx) return null;
-  const meta: Record<string, string> = {};
-  if (ctx.source) meta.source = ctx.source;
-  if (ctx.description) meta.description = ctx.description;
+  const raw: Record<string, unknown> = {};
+  if (ctx.source) raw.source = ctx.source;
+  if (ctx.description) raw.description = ctx.description;
   if (ctx.metadata) {
     for (const [k, v] of Object.entries(ctx.metadata)) {
-      if (v) meta[k] = v;
+      if (v) raw[k] = v;
     }
   }
+  // Same string-map wire type as the manifest — see toStringMetadata.
+  const meta = toStringMetadata(raw);
   return Object.keys(meta).length > 0 ? meta : null;
 }
 
