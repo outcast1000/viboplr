@@ -518,7 +518,9 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const albums = (await invoke<Album[]>("get_albums", { artistId: null, sort: "added_desc" })) ?? [];
+              // limit is passed through to SQL — this used to fetch the whole
+              // album table (~300 KB of JSON on a large library) to show 20 cards.
+              const albums = (await invoke<Album[]>("get_albums", { artistId: null, sort: "added_desc", limit })) ?? [];
               return {
                 status: "ok",
                 items: albums.slice(0, limit).map(a => ({

@@ -763,6 +763,8 @@ function App() {
     pluginsLoaded: plugins.pluginsLoaded,
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
+    // The cycler renders only in the mini player — see the hook's doc.
+    cyclerVisible: mini.miniMode,
   });
   // The single per-item control in Settings: a time-of-persistence multiplier
   // (which also enables the item), or null to turn it off.
@@ -2177,6 +2179,15 @@ function App() {
           confirmTrashDelete: savedConfirmTrashDelete,
           reduceMotion: savedReduceMotion,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
+          eqEnabled: savedEqEnabled, eqMode: savedEqMode, eqPreset: savedEqPreset, eqGains: savedEqGains,
+          eqCustomPresets: savedEqCustomPresets, eqPreGainDb: savedEqPreGainDb, eqBassDb: savedEqBassDb, eqTrebleDb: savedEqTrebleDb,
+          eqShowBarControlSimple: savedEqShowBarSimple, eqShowBarControlAdvanced: savedEqShowBarAdvanced,
+          rgMode: savedRgMode, rgPreampDb: savedRgPreampDb, rgPreventClip: savedRgPreventClip,
+          nowPlayingInfoSelection: savedNowPlayingInfo, visualizerSlots: savedVisualizerSlots,
+          nowPlayingLyricsHidden: savedLyricsHidden, nowPlayingInfoPersistence: savedNowPlayingInfoTop,
+          nowPlayingInfoOrder: savedNowPlayingInfoOrder,
+          loggingEnabled: savedLoggingEnabled, debugLogging: savedDebugLogging, debugMode: savedDebugMode,
+          devPluginPath: savedDevPluginPath, autoUpdateManagedDeps: savedAutoUpdateDeps,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         zoom.hydrate(savedUiZoom, savedMiniZoom);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
@@ -2249,26 +2260,12 @@ function App() {
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
 
-        const [savedEqEnabled, savedEqMode, savedEqPreset, savedEqGains, savedEqCustomPresets, savedEqPreGainDb, savedEqBassDb, savedEqTrebleDb, savedEqShowBarSimple, savedEqShowBarAdvanced] = await Promise.all([
-          store.get<boolean>("eqEnabled"),
-          store.get<string>("eqMode"),
-          store.get<string>("eqPreset"),
-          store.get<number[]>("eqGains"),
-          store.get<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets"),
-          store.get<number>("eqPreGainDb"),
-          store.get<number>("eqBassDb"),
-          store.get<number>("eqTrebleDb"),
-          store.get<boolean>("eqShowBarControlSimple"),
-          store.get<boolean>("eqShowBarControlAdvanced"),
-        ]);
+        // EQ / RG / Now Playing info / debug values all arrive from the one
+        // batched readPersistedSettings entries() read above — this used to be
+        // ~23 more store.get round-trips (5 sequential) before window.show().
         if (typeof savedEqEnabled === "boolean") playback.setEqEnabled(savedEqEnabled);
         if (savedEqMode === "simple" || savedEqMode === "advanced") playback.setEqMode(savedEqMode);
 
-        const [savedRgMode, savedRgPreampDb, savedRgPreventClip] = await Promise.all([
-          store.get<string>("rgMode"),
-          store.get<number>("rgPreampDb"),
-          store.get<boolean>("rgPreventClip"),
-        ]);
         if (savedRgMode === "off" || savedRgMode === "track" || savedRgMode === "album") playback.setRgMode(savedRgMode);
         if (typeof savedRgPreampDb === "number") playback.setRgPreampDb(savedRgPreampDb);
         if (typeof savedRgPreventClip === "boolean") playback.setRgPreventClip(savedRgPreventClip);
@@ -2289,19 +2286,10 @@ function App() {
         if (typeof savedEqShowBarSimple === "boolean") setEqShowBarControlSimple(savedEqShowBarSimple);
         if (typeof savedEqShowBarAdvanced === "boolean") setEqShowBarControlAdvanced(savedEqShowBarAdvanced);
 
-        const savedNowPlayingInfo = await store.get<Record<string, boolean>>("nowPlayingInfoSelection");
         if (savedNowPlayingInfo && typeof savedNowPlayingInfo === "object") setNowPlayingInfoSelection(savedNowPlayingInfo);
-
-        const savedVisualizerSlots = await store.get<VisualizerSlotSelection>("visualizerSlots");
         if (savedVisualizerSlots && typeof savedVisualizerSlots === "object") setVisualizerSlots(savedVisualizerSlots);
-
-        const savedLyricsHidden = await store.get<boolean>("nowPlayingLyricsHidden");
         if (typeof savedLyricsHidden === "boolean") setNowPlayingLyricsHidden(savedLyricsHidden);
-
-        const savedNowPlayingInfoTop = await store.get<Record<string, number>>("nowPlayingInfoPersistence");
         if (savedNowPlayingInfoTop && typeof savedNowPlayingInfoTop === "object") setNowPlayingInfoPersistence(savedNowPlayingInfoTop);
-
-        const savedNowPlayingInfoOrder = await store.get<string[]>("nowPlayingInfoOrder");
         if (Array.isArray(savedNowPlayingInfoOrder)) {
           setNowPlayingInfoOrder(savedNowPlayingInfoOrder.filter((id): id is string => typeof id === "string"));
         }
@@ -2380,13 +2368,6 @@ function App() {
           }
         }
         if (savedPluginViewMode && ["cards", "list"].includes(savedPluginViewMode)) setPluginViewMode(savedPluginViewMode as PluginViewMode);
-        const [savedLoggingEnabled, savedDebugLogging, savedDebugMode, savedDevPluginPath, savedAutoUpdateDeps] = await Promise.all([
-          store.get<boolean>("loggingEnabled"),
-          store.get<boolean>("debugLogging"),
-          store.get<boolean>("debugMode"),
-          store.get<string | null>("devPluginPath"),
-          store.get<boolean>("autoUpdateManagedDeps"),
-        ]);
         if (savedLoggingEnabled) setLoggingEnabled(true);
         // Default ON: only disable when explicitly set to false.
         if (savedAutoUpdateDeps === false) setAutoUpdateManagedDeps(false);
@@ -3512,7 +3493,6 @@ function App() {
     playing: playback.playing,
     durationSecs: playback.durationSecs,
     scrobbled: playback.scrobbled,
-    buffer: playback.buffer,
     volume: playback.volume,
     muted: playback.muted,
     queueMode: queueHook.queueMode,
@@ -5489,7 +5469,6 @@ function App() {
         durationSecs={playback.durationSecs}
         scrobbled={playback.scrobbled}
         icyTitle={playback.icyTitle}
-        buffer={playback.buffer}
         trackRank={trackRank}
         volume={playback.volume}
         muted={playback.muted}

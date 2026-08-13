@@ -16,7 +16,8 @@ import type { EqMode } from "../eqPresets";
 import { WaveformSeekBar } from "./WaveformSeekBar";
 import { SegmentedSeekBar } from "./SegmentedSeekBar";
 import { BufferingChip } from "./BufferingChip";
-import { bufferedFraction, type PlaybackBuffer } from "../playback/bufferState";
+import { bufferedFraction } from "../playback/bufferState";
+import { usePlaybackBuffer } from "../playback/bufferStore";
 import { FilmstripSeekBar } from "./FilmstripSeekBar";
 import { StoryboardTile } from "./StoryboardTile";
 import { tileIndexAt, type Storyboard } from "../utils/storyboard";
@@ -108,10 +109,6 @@ interface NowPlayingBarProps {
   /** Live ICY StreamTitle for internet-radio streams (mpv engine) — shown in
    * place of the static Artist · Album line, which is empty for stations. */
   icyTitle?: string | null;
-  /** Buffer state of the current source, or null when no engine reported one
-   *  (a local file usually doesn't). Drives the seek bar's buffered edge and
-   *  the "Buffering…" chip. */
-  buffer?: PlaybackBuffer | null;
   trackRank: number | null;
   volume: number;
   muted: boolean;
@@ -210,7 +207,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   currentTrack, nativeVideoActive, playing,
   durationSecs, scrobbled,
   icyTitle,
-  buffer,
   trackRank,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
@@ -235,9 +231,11 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   invokeInfoFetch,
   pluginsLoaded,
 }: NowPlayingBarProps) {
-  // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
-  // only this bar, not the whole tree.
+  // Subscribed here (not passed from App) so the ~4 Hz position tick — and the
+  // buffer readout, which moves 1-4×/sec while a stream fills — re-render only
+  // this bar, not the whole tree.
   const positionSecs = usePlaybackPosition();
+  const buffer = usePlaybackBuffer();
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

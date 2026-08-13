@@ -14,7 +14,8 @@ import { tileIndexAt, type Storyboard } from "../utils/storyboard";
 const SEEK_THUMB_WIDTH = 176;
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { BufferingChip } from "./BufferingChip";
-import { bufferedFraction, type PlaybackBuffer } from "../playback/bufferState";
+import { bufferedFraction } from "../playback/bufferState";
+import { usePlaybackBuffer } from "../playback/bufferStore";
 
 interface FullscreenControlsProps {
   waveformPeaks: number[] | null;
@@ -24,9 +25,6 @@ interface FullscreenControlsProps {
   playing: boolean;
   durationSecs: number;
   scrobbled: boolean;
-  /** Buffer state of the current source, or null when no engine reported one.
-   *  Same contract as the now-playing bar's. */
-  buffer?: PlaybackBuffer | null;
   volume: number;
   muted: boolean;
   queueMode: QueueMode;
@@ -90,7 +88,7 @@ export function FullscreenControls({
   waveformPeaks,
   storyboard,
   currentTrack, playing,
-  durationSecs, scrobbled, buffer,
+  durationSecs, scrobbled,
   volume, muted, queueMode,
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath,
@@ -100,9 +98,10 @@ export function FullscreenControls({
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
   active = false,
 }: FullscreenControlsProps) {
-  // Subscribed here (not passed from App) so the ~4 Hz position tick re-renders
-  // only this overlay.
+  // Subscribed here (not passed from App) so the ~4 Hz position tick — and the
+  // buffer readout while a stream fills — re-render only this overlay.
   const positionSecs = usePlaybackPosition();
+  const buffer = usePlaybackBuffer();
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
   const [visible, setVisible] = useState(true);
   const [domFullscreen, setDomFullscreen] = useState(false);

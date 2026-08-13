@@ -8,6 +8,7 @@
 import type { AppStore } from "../store";
 import type { ViewMode, ColumnConfig } from "../types";
 import type { VideoLayoutState } from "../hooks/useVideoLayout";
+import type { VisualizerSlotSelection } from "../utils/visualizerSlots";
 
 export interface PersistedSettings {
   vol: number | undefined;
@@ -43,6 +44,34 @@ export interface PersistedSettings {
   reduceMotion: boolean | undefined;
   uiZoom: number | undefined;
   miniZoom: number | undefined;
+  // EQ / ReplayGain — previously re-read per key by the restore effect after
+  // this batch had already run (13 extra IPC round-trips before window.show()).
+  eqEnabled: boolean | undefined;
+  eqMode: string | undefined;
+  eqPreset: string | undefined;
+  eqGains: number[] | undefined;
+  eqCustomPresets: { id: string; name: string; gains: number[] }[] | undefined;
+  eqPreGainDb: number | undefined;
+  eqBassDb: number | undefined;
+  eqTrebleDb: number | undefined;
+  eqShowBarControlSimple: boolean | undefined;
+  eqShowBarControlAdvanced: boolean | undefined;
+  rgMode: string | undefined;
+  rgPreampDb: number | undefined;
+  rgPreventClip: boolean | undefined;
+  // Now Playing info / visualizer — previously five SEQUENTIAL awaits on the
+  // first-paint critical path.
+  nowPlayingInfoSelection: Record<string, boolean> | undefined;
+  visualizerSlots: VisualizerSlotSelection | undefined;
+  nowPlayingLyricsHidden: boolean | undefined;
+  nowPlayingInfoPersistence: Record<string, number> | undefined;
+  nowPlayingInfoOrder: string[] | undefined;
+  // Debug / logging flags.
+  loggingEnabled: boolean | undefined;
+  debugLogging: boolean | undefined;
+  debugMode: boolean | undefined;
+  devPluginPath: string | null | undefined;
+  autoUpdateManagedDeps: boolean | undefined;
 }
 
 /**
@@ -100,5 +129,28 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     reduceMotion: read<boolean>("reduceMotion"),
     uiZoom: read<number>("uiZoom"),
     miniZoom: read<number>("miniZoom"),
+    eqEnabled: read<boolean>("eqEnabled"),
+    eqMode: read<string>("eqMode"),
+    eqPreset: read<string>("eqPreset"),
+    eqGains: read<number[]>("eqGains"),
+    eqCustomPresets: read<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets"),
+    eqPreGainDb: read<number>("eqPreGainDb"),
+    eqBassDb: read<number>("eqBassDb"),
+    eqTrebleDb: read<number>("eqTrebleDb"),
+    eqShowBarControlSimple: read<boolean>("eqShowBarControlSimple"),
+    eqShowBarControlAdvanced: read<boolean>("eqShowBarControlAdvanced"),
+    rgMode: read<string>("rgMode"),
+    rgPreampDb: read<number>("rgPreampDb"),
+    rgPreventClip: read<boolean>("rgPreventClip"),
+    nowPlayingInfoSelection: read<Record<string, boolean>>("nowPlayingInfoSelection"),
+    visualizerSlots: read<VisualizerSlotSelection>("visualizerSlots"),
+    nowPlayingLyricsHidden: read<boolean>("nowPlayingLyricsHidden"),
+    nowPlayingInfoPersistence: read<Record<string, number>>("nowPlayingInfoPersistence"),
+    nowPlayingInfoOrder: read<string[]>("nowPlayingInfoOrder"),
+    loggingEnabled: read<boolean>("loggingEnabled"),
+    debugLogging: read<boolean>("debugLogging"),
+    debugMode: read<boolean>("debugMode"),
+    devPluginPath: read<string | null>("devPluginPath"),
+    autoUpdateManagedDeps: read<boolean>("autoUpdateManagedDeps"),
   };
 }

@@ -356,6 +356,11 @@ interface UseNowPlayingInfoArgs {
   // plugin hasn't activated yet, the provider call returns "error", which gets
   // cached for an hour and suppresses lyrics for the track playing at launch.
   pluginsLoaded: boolean;
+  // True while the NowPlayingInfoCycler is actually on screen (mini mode).
+  // Gates the synced-lyrics position subscription: it re-renders the HOST —
+  // App — every time the sung line changes (~every 2-5s for the whole track),
+  // which is pure waste in full mode, where the cycler doesn't render at all.
+  cyclerVisible: boolean;
 }
 
 export function useNowPlayingInfo({
@@ -370,6 +375,7 @@ export function useNowPlayingInfo({
   invokeInfoFetch,
   pluginNames,
   pluginsLoaded,
+  cyclerVisible,
 }: UseNowPlayingInfoArgs): {
   availableItems: NowPlayingInfoDescriptor[];
   resolvedItems: NowPlayingInfoResolved[];
@@ -411,10 +417,13 @@ export function useNowPlayingInfo({
   // so the synced-lyrics item drops out of the cycle instead of showing a stale
   // line (see activeSyncedLine). Reads the external position store with a
   // line-level snapshot (a string), so the host re-renders only when the sung
-  // LINE changes — not on every ~4 Hz position tick.
+  // LINE changes — not on every ~4 Hz position tick. Gated on cyclerVisible:
+  // the host is App, and re-rendering the whole tree per sung line buys
+  // nothing while the mini-only cycler isn't rendered.
+  const syncedLive = Boolean(syncedLines) && cyclerVisible;
   const syncedText = useSyncExternalStore(
-    syncedLines ? subscribePlaybackPosition : noopSubscribe,
-    () => (syncedLines ? activeSyncedLine(syncedLines, getPlaybackPosition()) : null),
+    syncedLive ? subscribePlaybackPosition : noopSubscribe,
+    () => (syncedLive && syncedLines ? activeSyncedLine(syncedLines, getPlaybackPosition()) : null),
   );
   // One line per track, stable across re-renders/cycles: pick by a hash of the
   // track + lyrics so it doesn't flicker, while still varying between songs.
