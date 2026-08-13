@@ -63,6 +63,7 @@ import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistor
 import { useAppUpdater, updateBadgeFor } from "./hooks/useAppUpdater";
 import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
 import { useStableCallbacks } from "./hooks/useStableCallbacks";
+import { usePersistedSetting, usePersistMirror } from "./hooks/usePersistedSetting";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
@@ -230,11 +231,11 @@ function App() {
   // (falls back to the browser engine when libmpv can't be loaded, and per-track
   // on any engine-error). An explicit user choice is restored on startup.
   const [playbackEngine, setPlaybackEngine] = useState<"browser" | "native">("native");
-  const [audioExclusive, setAudioExclusive] = useState(false);
+  const [audioExclusive, setAudioExclusive] = usePersistedSetting("audioExclusive", false, restoredRef);
   // Update channel: default stable-only; beta is an explicit opt-in.
-  const [betaUpdates, setBetaUpdates] = useState(false);
+  const [betaUpdates, setBetaUpdates] = usePersistedSetting("betaUpdates", false, restoredRef);
   // Anonymous usage telemetry: default on (opt-out). See telemetry.ts.
-  const [telemetryEnabled, setTelemetryEnabled] = useState(true);
+  const [telemetryEnabled, setTelemetryEnabled] = usePersistedSetting("telemetryEnabled", true, restoredRef);
   const useNativeEngineRef = useRef(false);
   useNativeEngineRef.current = mpvCapable && playbackEngine === "native";
   const useNativeVideoRef = useRef(false);
@@ -262,40 +263,36 @@ function App() {
   // the Playback Failed modal (the retry effect below fires when it's ready).
   const pendingMpvRetryRef = useRef<QueueTrack | null>(null);
   const trackVideoHistoryRef = useRef(true);
-  const [trackVideoHistory, setTrackVideoHistory] = useState(true);
+  const [trackVideoHistory, setTrackVideoHistory] = usePersistedSetting("trackVideoHistory", true, restoredRef);
   // "Prefer video" is an advisory hint passed to every stream resolver in normal
   // order: a resolver that understands it (e.g. yt-dlp) returns a video stream
   // and flags the result `video`, which the host then routes to the theater;
   // resolvers that ignore it (Library, Subsonic, …) play whatever they normally
   // would. Read via a ref inside the resolver wrapper so it stays fresh.
   const preferVideoRef = useRef(false);
-  const [preferVideoResolution, setPreferVideoResolution] = useState(false);
+  const [preferVideoResolution, setPreferVideoResolution] = usePersistedSetting("preferVideoResolution", false, restoredRef);
   // Show synced lyrics as subtitles over video (persisted; default on). One
   // shared toggle drives all three video surfaces — the docked preview, the Now
   // Playing theater, and fullscreen. The store key stays the legacy
   // `videoLyricsOverlay` so existing saved preferences carry over.
-  const [videoSubtitlesOn, setVideoSubtitlesOn] = useState(true);
+  const [videoSubtitlesOn, setVideoSubtitlesOn] = usePersistedSetting("videoLyricsOverlay", true, restoredRef);
   const handleToggleSubtitles = useCallback(() => {
-    setVideoSubtitlesOn((on) => {
-      const next = !on;
-      store.set("videoLyricsOverlay", next).catch((e) => console.error("Failed to persist videoLyricsOverlay:", e));
-      return next;
-    });
+    setVideoSubtitlesOn((on) => !on); // persistence: usePersistedSetting
   }, []);
-  const [loggingEnabled, setLoggingEnabled] = useState(false);
+  const [loggingEnabled, setLoggingEnabled] = usePersistedSetting("loggingEnabled", false, restoredRef);
   // Default ON — stale yt-dlp breaks against YouTube and the failure looks
   // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
-  const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = useState(true);
-  const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = useState(false);
-  const [confirmTrashDelete, setConfirmTrashDelete] = useState(true);
-  const [reduceMotion, setReduceMotion] = useState(false);
-  const [eqCustomPresets, setEqCustomPresets] = useState<{ id: string; name: string; gains: number[] }[]>([]);
-  const [eqShowBarControlSimple, setEqShowBarControlSimple] = useState(true);
-  const [eqShowBarControlAdvanced, setEqShowBarControlAdvanced] = useState(false);
+  const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = usePersistedSetting("autoUpdateManagedDeps", true, restoredRef);
+  const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = usePersistedSetting("minimizeToMiniPlayer", false, restoredRef);
+  const [confirmTrashDelete, setConfirmTrashDelete] = usePersistedSetting("confirmTrashDelete", true, restoredRef);
+  const [reduceMotion, setReduceMotion] = usePersistedSetting("reduceMotion", false, restoredRef);
+  const [eqCustomPresets, setEqCustomPresets] = usePersistedSetting<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets", [], restoredRef);
+  const [eqShowBarControlSimple, setEqShowBarControlSimple] = usePersistedSetting("eqShowBarControlSimple", true, restoredRef);
+  const [eqShowBarControlAdvanced, setEqShowBarControlAdvanced] = usePersistedSetting("eqShowBarControlAdvanced", false, restoredRef);
   const [eqSaveAsOpen, setEqSaveAsOpen] = useState(false);
-  const [debugLogging, setDebugLogging] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
-  const [devPluginPath, setDevPluginPath] = useState<string | null>(null);
+  const [debugLogging, setDebugLogging] = usePersistedSetting("debugLogging", false, restoredRef);
+  const [debugMode, setDebugMode] = usePersistedSetting("debugMode", false, restoredRef);
+  const [devPluginPath, setDevPluginPath] = usePersistedSetting<string | null>("devPluginPath", null, restoredRef);
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
   trackVideoHistoryRef.current = trackVideoHistory;
@@ -339,13 +336,13 @@ function App() {
   // Which Now Playing info items the user has enabled in the cycling section
   // (mini player + main bar). Empty default → only the combined "Artist · Album"
   // item shows, so the line looks exactly like before until customized.
-  const [nowPlayingInfoSelection, setNowPlayingInfoSelection] = useState<Record<string, boolean>>({});
+  const [nowPlayingInfoSelection, setNowPlayingInfoSelection] = usePersistedSetting<Record<string, boolean>>("nowPlayingInfoSelection", {}, restoredRef);
   // Per-item time-of-persistence multipliers (id → 0/1/2/5/10). Missing = 1, so
   // an un-customized item dwells for the base interval, exactly as before.
-  const [nowPlayingInfoPersistence, setNowPlayingInfoPersistence] = useState<Record<string, number>>({});
+  const [nowPlayingInfoPersistence, setNowPlayingInfoPersistence] = usePersistedSetting<Record<string, number>>("nowPlayingInfoPersistence", {}, restoredRef);
   // User priority order (ordered item ids) for the same section. Empty default →
   // registration order (built-ins as declared, then plugin items).
-  const [nowPlayingInfoOrder, setNowPlayingInfoOrder] = useState<string[]>([]);
+  const [nowPlayingInfoOrder, setNowPlayingInfoOrder] = usePersistedSetting<string[]>("nowPlayingInfoOrder", [], restoredRef);
   // One-shot deep link into a Settings section (element id), consumed by
   // SettingsPanel on mount and cleared once it has scrolled.
   const [settingsScrollTarget, setSettingsScrollTarget] = useState<string | null>(null);
@@ -387,44 +384,20 @@ function App() {
   // A stale entry (plugin disabled/uninstalled) is deliberately kept rather
   // than pruned — resolveSlot renders the slot empty, and the choice comes back
   // if the plugin returns. See utils/visualizerSlots.ts.
-  const [visualizerSlots, setVisualizerSlots] = useState<VisualizerSlotSelection>({});
+  const [visualizerSlots, setVisualizerSlots] = usePersistedSetting<VisualizerSlotSelection>("visualizerSlots", {}, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("visualizerSlots", visualizerSlots);
-  }, [visualizerSlots]);
 
   // The user collapsed the Now Playing lyrics column. Persisted because it is a
   // standing preference about how that view is laid out ("I want the visual, not
   // the words"), not a per-track state — re-deciding it every launch would be
   // the annoying half of a toggle.
-  const [nowPlayingLyricsHidden, setNowPlayingLyricsHidden] = useState(false);
+  const [nowPlayingLyricsHidden, setNowPlayingLyricsHidden] = usePersistedSetting("nowPlayingLyricsHidden", false, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("nowPlayingLyricsHidden", nowPlayingLyricsHidden);
-  }, [nowPlayingLyricsHidden]);
 
   // Fullscreen visualizer. Transient by design — landing back in fullscreen on
   // launch with no way to have anticipated it would be hostile.
   const [audioFullscreen, setAudioFullscreen] = useState(false);
 
-  // Persist the Now Playing info selection (guarded so startup defaults don't
-  // overwrite saved state). Mirrors the homeShelfVisibility persistence.
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("nowPlayingInfoSelection", nowPlayingInfoSelection);
-  }, [nowPlayingInfoSelection]);
-
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("nowPlayingInfoPersistence", nowPlayingInfoPersistence);
-  }, [nowPlayingInfoPersistence]);
-
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("nowPlayingInfoOrder", nowPlayingInfoOrder);
-  }, [nowPlayingInfoOrder]);
 
   const beforeNavRef = useRef<() => void>(() => {});
   const viewSearch = useViewSearchState();
@@ -1173,9 +1146,9 @@ function App() {
 
   const [backendTimings, setBackendTimings] = useState<TimingEntry[]>([]);
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [queueCollapsed, setQueueCollapsed] = useState(false);
-  const [queueWidth, setQueueWidth] = useState(300);
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedSetting("sidebarCollapsed", false, restoredRef);
+  const [queueCollapsed, setQueueCollapsed] = usePersistedSetting("queueCollapsed", false, restoredRef);
+  const [queueWidth, setQueueWidth] = usePersistedSetting("queueWidth", 300, restoredRef);
 
   // Edge-revealed queue drawer, fullscreen only.
   //
@@ -1205,8 +1178,8 @@ function App() {
     window.addEventListener("mousemove", onMove);
     return () => window.removeEventListener("mousemove", onMove);
   }, [audioFullscreen, queueWidth]);
-  const [searchViewModes, setSearchViewModes] = useState<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>({ tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" });
-  const [pluginViewMode, setPluginViewMode] = useState<PluginViewMode>("list");
+  const [searchViewModes, setSearchViewModes] = usePersistedSetting<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>("searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" }, restoredRef);
+  const [pluginViewMode, setPluginViewMode] = usePersistedSetting<PluginViewMode>("pluginViewMode", "list", restoredRef);
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
   // Bumped when a scan/sync changes the library's track population, so the
@@ -1513,7 +1486,7 @@ function App() {
     enqueue: (tracks) => contextMenuActions.handleEnqueue(tracks as unknown as Track[]),
     findDuplicates: queueHook.findDuplicates,
     expandQueue: () => {
-      if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
+      if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
     },
     notify,
   });
@@ -2504,70 +2477,27 @@ function App() {
     }
   }, [playback.currentTrack]);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqEnabled", playback.eqEnabled);
-  }, [playback.eqEnabled]);
+  usePersistMirror("eqEnabled", playback.eqEnabled, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqMode", playback.eqMode);
-  }, [playback.eqMode]);
+  usePersistMirror("eqMode", playback.eqMode, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqShowBarControlSimple", eqShowBarControlSimple);
-  }, [eqShowBarControlSimple]);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqShowBarControlAdvanced", eqShowBarControlAdvanced);
-  }, [eqShowBarControlAdvanced]);
+  usePersistMirror("eqPreset", playback.eqPreset, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqPreset", playback.eqPreset);
-  }, [playback.eqPreset]);
+  usePersistMirror("eqGains", playback.eqGains, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqGains", playback.eqGains);
-  }, [playback.eqGains]);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqCustomPresets", eqCustomPresets);
-  }, [eqCustomPresets]);
+  usePersistMirror("eqPreGainDb", playback.eqPreGainDb, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqPreGainDb", playback.eqPreGainDb);
-  }, [playback.eqPreGainDb]);
+  usePersistMirror("eqBassDb", playback.eqBassDb, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqBassDb", playback.eqBassDb);
-  }, [playback.eqBassDb]);
+  usePersistMirror("eqTrebleDb", playback.eqTrebleDb, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("eqTrebleDb", playback.eqTrebleDb);
-  }, [playback.eqTrebleDb]);
+  usePersistMirror("rgMode", playback.rgMode, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("rgMode", playback.rgMode);
-  }, [playback.rgMode]);
+  usePersistMirror("rgPreampDb", playback.rgPreampDb, restoredRef);
 
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("rgPreampDb", playback.rgPreampDb);
-  }, [playback.rgPreampDb]);
-
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("rgPreventClip", playback.rgPreventClip);
-  }, [playback.rgPreventClip]);
+  usePersistMirror("rgPreventClip", playback.rgPreventClip, restoredRef);
 
   // Persist recently visited entities (album/artist detail views)
   const recentlyVisitedRef = useRef<RecentlyVisitedEntry[]>([]);
@@ -3137,26 +3067,17 @@ function App() {
   }, [mpvCapable, playbackEngine]);
 
   function handleAudioExclusiveChange(enabled: boolean) {
-    setAudioExclusive(enabled);
-    store.set("audioExclusive", enabled).catch((e) => {
-      console.error("Failed to persist audioExclusive:", e);
-    });
+    setAudioExclusive(enabled); // persistence: usePersistedSetting
     nativeEngine.setAudioExclusive(enabled).catch(console.error);
   }
 
   function handleBetaUpdatesChange(enabled: boolean) {
-    setBetaUpdates(enabled);
-    store.set("betaUpdates", enabled).catch((e) => {
-      console.error("Failed to persist betaUpdates:", e);
-    });
+    setBetaUpdates(enabled); // persistence: usePersistedSetting
   }
 
   function handleTelemetryEnabledChange(enabled: boolean) {
-    setTelemetryEnabled(enabled);
+    setTelemetryEnabled(enabled); // persistence: usePersistedSetting
     syncTelemetryEnabled(enabled);
-    store.set("telemetryEnabled", enabled).catch((e) => {
-      console.error("Failed to persist telemetryEnabled:", e);
-    });
   }
 
   function handleOnboardingClose(profile: OnboardingProfile) {
@@ -3176,34 +3097,23 @@ function App() {
   }
 
   function handleTrackVideoHistoryChange(enabled: boolean) {
-    setTrackVideoHistory(enabled);
-    store.set("trackVideoHistory", enabled).catch((e) => {
-      console.error("Failed to persist trackVideoHistory:", e);
-    });
+    setTrackVideoHistory(enabled); // persistence: usePersistedSetting
   }
 
   function handlePreferVideoResolutionChange(enabled: boolean) {
-    setPreferVideoResolution(enabled);
-    store.set("preferVideoResolution", enabled).catch((e) => {
-      console.error("Failed to persist preferVideoResolution:", e);
-    });
+    setPreferVideoResolution(enabled); // persistence: usePersistedSetting
   }
 
   function handleMinimizeToMiniPlayerChange(enabled: boolean) {
-    setMinimizeToMiniPlayer(enabled);
-    store.set("minimizeToMiniPlayer", enabled);
+    setMinimizeToMiniPlayer(enabled); // persistence: usePersistedSetting
   }
 
   function handleConfirmTrashDeleteChange(enabled: boolean) {
-    setConfirmTrashDelete(enabled);
-    store.set("confirmTrashDelete", enabled).catch((e) => {
-      console.error("Failed to persist confirmTrashDelete:", e);
-    });
+    setConfirmTrashDelete(enabled); // persistence: usePersistedSetting
   }
 
   function handleReduceMotionChange(enabled: boolean) {
-    setReduceMotion(enabled);
-    store.set("reduceMotion", enabled);
+    setReduceMotion(enabled); // persistence: usePersistedSetting
     applyReduceMotionAttr(enabled); // toggles the root attr + notifies live JS animations
   }
 
@@ -3230,59 +3140,43 @@ function App() {
   }
 
   function handleLoggingEnabledChange(enabled: boolean) {
-    setLoggingEnabled(enabled);
-    store.set("loggingEnabled", enabled);
+    setLoggingEnabled(enabled); // persistence: usePersistedSetting
   }
 
   function handleAutoUpdateManagedDepsChange(enabled: boolean) {
-    setAutoUpdateManagedDeps(enabled);
-    store.set("autoUpdateManagedDeps", enabled);
+    setAutoUpdateManagedDeps(enabled); // persistence: usePersistedSetting
   }
 
   function handleDebugLoggingChange(enabled: boolean) {
-    setDebugLogging(enabled);
+    setDebugLogging(enabled); // persistence: usePersistedSetting
     setDebugLoggingRef(enabled);
-    store.set("debugLogging", enabled);
   }
 
   function handleDebugModeChange(enabled: boolean) {
-    setDebugMode(enabled);
-    store.set("debugMode", enabled);
+    setDebugMode(enabled); // persistence: usePersistedSetting
   }
 
   function handleDevPluginPathChange(path: string | null) {
-    setDevPluginPath(path);
-    store.set("devPluginPath", path);
+    setDevPluginPath(path); // persistence: usePersistedSetting
   }
 
   function handleToggleSidebar() {
-    setSidebarCollapsed(prev => {
-      const next = !prev;
-      store.set("sidebarCollapsed", next);
-      return next;
-    });
+    setSidebarCollapsed(prev => !prev); // persistence: usePersistedSetting
   }
 
   function handleToggleQueueCollapsed() {
-    setQueueCollapsed(prev => {
-      const next = !prev;
-      store.set("queueCollapsed", next);
-      return next;
-    });
+    setQueueCollapsed(prev => !prev); // persistence: usePersistedSetting
   }
 
   function handleResizeQueueWidth(width: number) {
-    setQueueWidth(width);
-    store.set("queueWidth", width);
+    setQueueWidth(width); // persistence: usePersistedSetting
   }
 
   function handleSearchViewModesChange(modes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }) {
-    setSearchViewModes(modes);
-    store.set("searchViewModes", modes);
+    setSearchViewModes(modes); // persistence: usePersistedSetting
   }
   function handlePluginViewModeChange(mode: PluginViewMode) {
-    setPluginViewMode(mode);
-    store.set("pluginViewMode", mode);
+    setPluginViewMode(mode); // persistence: usePersistedSetting
   }
   const handlePlayEntityAll = useCallback((kind: "artist" | "album" | "tag", name: string, entityArtistName?: string, opts?: { tracks?: Track[]; entityId?: number }) => {
     if (kind === "artist") {

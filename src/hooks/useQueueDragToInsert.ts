@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { QueueTrack } from "../types";
-import { store } from "../store";
 
 /** Pending enqueue captured when a drop (or enqueue) hits duplicates already in
  * the queue. `position` is set only for drag-to-insert drops; a plain enqueue
@@ -91,10 +90,10 @@ export function useQueueDragToInsert({ queueHook, queueCollapsed, setQueueCollap
         const { duplicates, unique } = queueHook.findDuplicates(dragTracks);
         if (duplicates.length > 0) {
           setPendingEnqueue({ all: dragTracks, duplicates, unique, position: pos });
-          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
+          if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
         } else {
           queueHook.insertAtPosition(dragTracks, pos);
-          if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
+          if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
         }
       }
 

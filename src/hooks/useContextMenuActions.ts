@@ -6,7 +6,6 @@ import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { useQueueDragToInsert, type PendingEnqueue } from "./useQueueDragToInsert";
 import { useDownloadActions } from "./useDownloadActions";
-import { store } from "../store";
 import { trashLabel } from "../utils";
 import { emitTracksDeleted } from "../trackEvents";
 
@@ -199,7 +198,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     const { duplicates, unique } = queueHook.findDuplicates(tracks);
     if (duplicates.length > 0) {
       setPendingEnqueue({ all: tracks, duplicates, unique });
-      if (queueCollapsed) { setQueueCollapsed(false); store.set("queueCollapsed", false); }
+      if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
     } else {
       queueHook.enqueueTracks(tracks);
     }
