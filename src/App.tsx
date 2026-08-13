@@ -61,6 +61,7 @@ import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
 import { useAppUpdater, updateBadgeFor } from "./hooks/useAppUpdater";
 import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
+import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
@@ -151,6 +152,7 @@ import type { ExportTrack } from "./components/MixtapeExportModal";
 
 import { SearchView } from "./components/SearchView";
 import { HomeView } from "./components/HomeView";
+import { FreezeWhileHidden } from "./components/FreezeWhileHidden";
 import { NowPlayingView } from "./components/NowPlayingView";
 import { MusicQuizView } from "./components/MusicQuizView";
 import { useLyrics } from "./hooks/useLyrics";
@@ -1154,11 +1156,7 @@ function App() {
   advanceIndexRef.current = queueHook.advanceIndex;
 
   // UI state
-  const [, setScanning] = useState(false);
-  const [, setSyncing] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [, setScanProgress] = useState({ scanned: 0, total: 0 });
-  const [, setSyncProgress] = useState({ synced: 0, total: 0, collection: "" });
   const [resyncProgress, setResyncProgress] = useState<{
     collectionId: number;
     collectionName: string;
@@ -1502,7 +1500,11 @@ function App() {
     setQueueCollapsed,
     confirmTrashDelete,
     onTracksDeleted: (deletedIds: number[]) => {
-      setSearchDeletedBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
+      // Accumulate rather than replace: SearchView is frozen while hidden
+      // (FreezeWhileHidden) and processes only the tail it hasn't seen yet, so
+      // a replaced batch delivered while frozen would be lost when the next
+      // one overwrote it — leaving deleted tracks visible in its results.
+      setSearchDeletedBatch(prev => ({ ids: [...prev.ids, ...deletedIds], key: prev.key + 1 }));
       for (const id of deletedIds) {
         videoFrameQueueRef.current?.evict(id);
       }
@@ -1711,8 +1713,6 @@ function App() {
   useEventListeners({
     loadLibrary: library.loadLibrary,
     loadTracks: library.loadTracks,
-    setScanning, setScanProgress,
-    setSyncing, setSyncProgress,
     onResyncDone: collectionActions.clearResyncingState,
     resyncingCollectionName: collectionActions.resyncingCollection?.name ?? null,
     setResyncProgress,
@@ -2968,10 +2968,18 @@ function App() {
     const idOf = (title: string | null, artist: string | null) =>
       `${(title ?? "").toLowerCase()}:${(artist ?? "").toLowerCase()}`;
     return subscribe<{ kind?: string }>("entity-likes-changed", async (event) => {
+      const kind = event.payload?.kind;
+      // Only track-level changes can move a track's like state. An artist/
+      // album/tag heart also fires this event, and reconciling then shipped
+      // the title+artist of every queue entry to the backend (30-150 KB for a
+      // large queue) to read back states that cannot have changed. Missing
+      // kind (never emitted today) falls through to the reconcile — a wasted
+      // round-trip is safer than a missed patch.
+      if (kind != null && kind !== "track" && kind !== "bulk") return;
       // A bulk change (Import likes file, or a plugin's loved-tracks import)
       // can touch any number of library rows, so refresh the library lists too
       // — the per-entity optimistic updates that cover single likes don't apply.
-      if (event.payload?.kind === "bulk") {
+      if (kind === "bulk") {
         library.loadLibrary().catch(e => console.error("Failed to reload library after likes import:", e));
         library.loadTracks().catch(e => console.error("Failed to reload tracks after likes import:", e));
       }
@@ -3105,8 +3113,6 @@ function App() {
     const selected = await open({ directory: true, multiple: false });
     if (selected) {
       const folderName = selected.split("/").pop() || selected.split("\\").pop() || selected;
-      setScanning(true);
-      setScanProgress({ scanned: 0, total: 0 });
       await invoke("add_collection", { kind: "local", name: folderName, path: selected });
       trackTelemetry("collection_added", { kind: "local" });
       library.loadLibrary();
@@ -3941,6 +3947,158 @@ function App() {
     onEnter: () => { if (highlightedListIndex >= 0) historyRef.current?.playItem(highlightedListIndex); },
   };
 
+  // Every NowPlayingBar callback goes through useStableCallbacks so the memo'd
+  // bar (see NowPlayingBar.tsx) isn't re-rendered just because App's frequent
+  // renders gave inline closures new identities. The bodies are re-captured
+  // every render (they read live state); only the identities are pinned.
+  const npBar = useStableCallbacks({
+    onCancelCollapseTimer: mini.cancelCollapseTimer,
+    onBeginMiniDrag: mini.beginMiniDrag,
+    onCycleRestingSize: () => mini.setMiniRestingSize(cycleRestingSize(mini.miniRestingSize)),
+    onCycleMiniWidth: () => mini.setMiniWidthSize(cycleMiniWidth(mini.miniWidthSize)),
+    onToggleMiniMode: mini.toggleMiniMode,
+    onClose: () => exit(0),
+    onPause: playback.handlePause,
+    onStop: playback.handleStop,
+    onNext: handleNext,
+    onPrevious: queueHook.playPrevious,
+    onSeek: playback.handleSeek,
+    onVolume: playback.handleVolume,
+    onMute: playback.toggleMute,
+    onEqEnabledChange: playback.setEqEnabled,
+    onEqModeChange: playback.setEqMode,
+    onEqPresetChange: (id: string) => {
+      if (id === "custom") {
+        playback.setEqPreset("custom");
+        return;
+      }
+      const builtIn = BUILTIN_PRESETS.find(p => p.id === id);
+      const cust = eqCustomPresets.find(p => p.id === id);
+      const target = builtIn ?? cust;
+      if (target) {
+        playback.setEqGains([...target.gains]);
+        playback.setEqPreset(id);
+      }
+    },
+    onEqGainChange: (i: number, db: number) => {
+      const next = [...playback.eqGains];
+      next[i] = db;
+      playback.setEqGains(next);
+      playback.setEqPreset(presetForGains(next, eqCustomPresets));
+    },
+    onEqPreGainChange: playback.setEqPreGainDb,
+    onEqBassChange: playback.setEqBassDb,
+    onEqTrebleChange: playback.setEqTrebleDb,
+    onEqResetAll: () => {
+      if (playback.eqMode === "simple") {
+        playback.setEqBassDb(0);
+        playback.setEqTrebleDb(0);
+        return;
+      }
+      playback.setEqGains([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+      playback.setEqPreset("flat");
+      playback.setEqPreGainDb(0);
+    },
+    onEqSaveAs: () => setEqSaveAsOpen(true),
+    // The mode ternary lives inside the body (not at the prop site) so the
+    // identity stays pinned while still targeting the live mode's setter.
+    onEqShowBarControlChange: (v: boolean) => {
+      if (playback.eqMode === "simple") setEqShowBarControlSimple(v);
+      else setEqShowBarControlAdvanced(v);
+    },
+    onToggleQueueMode: queueHook.toggleQueueMode,
+    onRandomize: queueHook.randomizeQueue,
+    onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
+    onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
+    onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
+    onAdjustAutoContinueWeight: autoContinue.adjustWeight,
+    onResetAutoContinueWeights: autoContinue.resetWeights,
+    onCloseAutoContinuePopover: () => autoContinue.setShowPopover(false),
+    onToggleLike: () => {
+      const t = playback.currentTrack;
+      if (!t) return;
+      setLikeBusy(true);
+      likeActions.handleToggleLike(t).finally(() => setLikeBusy(false));
+    },
+    onToggleDislike: () => {
+      const t = playback.currentTrack;
+      if (!t) return;
+      setLikeBusy(true);
+      likeActions.handleToggleDislike(t).finally(() => setLikeBusy(false));
+    },
+    onTrackClick: (trackId: string) => { library.handleTrackClick(trackId); },
+    onNavigateToArtistByName: library.navigateToArtistByName,
+    onNavigateToAlbumByName: library.navigateToAlbumByName,
+    onNavigateToTagByName: library.navigateToTagByName,
+    onSkipError: () => { playback.clearPlaybackError(); handleNext(); },
+    // Defined unconditionally; the call site gates PRESENCE on currentTrack +
+    // downloadPlan, so the bar still hides its download button.
+    onDownloadTrack: () => {
+      const t = playback.currentTrack;
+      if (t && downloadPlan) openDownloadForCurrentTrack(t, downloadPlan);
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      const specs: MenuItemSpec[] = [];
+      const t = playback.currentTrack;
+      if (t) {
+        specs.push({ kind: "item", text: playback.playing ? "Pause" : "Play", action: playback.handlePause });
+        specs.push({ kind: "item", text: "Next", action: handleNext });
+        specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
+        specs.push({ kind: "separator" });
+        const ratingItems: MenuItemSpec[] = [
+          { kind: "check", text: "Like", checked: t.liked === 1, action: () => likeActions.handleToggleLike(t) },
+          { kind: "check", text: "None", checked: t.liked === 0, action: () => { if (t.liked === 1) likeActions.handleToggleLike(t); else if (t.liked === -1) likeActions.handleToggleDislike(t); } },
+          { kind: "check", text: "Dislike", checked: t.liked === -1, action: () => likeActions.handleToggleDislike(t) },
+        ];
+        specs.push({ kind: "submenu", text: "Rating", items: ratingItems });
+        specs.push({ kind: "item", text: "Start radio from this track", action: () => {
+          contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null });
+        } });
+      }
+      const widthItems: MenuItemSpec[] = (["small", "medium", "large"] as const).map(size => ({
+        kind: "check" as const,
+        text: size === "small" ? "Small" : size === "medium" ? "Medium" : "Large",
+        checked: mini.miniWidthSize === size,
+        action: () => mini.setMiniWidthSize(size),
+      }));
+      specs.push({ kind: "submenu", text: "Width", items: widthItems });
+      const heightItems: MenuItemSpec[] = [
+        { kind: "check", text: "Normal", checked: mini.miniRestingSize === "normal", action: () => mini.setMiniRestingSize("normal") },
+        { kind: "check", text: "Compact", checked: mini.miniRestingSize === "compact", action: () => mini.setMiniRestingSize("compact") },
+      ];
+      specs.push({ kind: "submenu", text: "Height", items: heightItems });
+      // The info line is configured in Settings > Playback (drag to reorder,
+      // dwell, on/off) — the menu just takes you there, leaving the main
+      // window open on that section.
+      specs.push({ kind: "item", text: "Now playing info…", action: () => {
+        setSettingsScrollTarget("now-playing-info");
+        library.setView("settings");
+        if (mini.miniMode) mini.toggleMiniMode();
+      } });
+      specs.push({ kind: "separator" });
+      specs.push({ kind: "item", text: "Show Main Window", action: mini.toggleMiniMode });
+      specs.push({ kind: "item", text: "Exit App", action: () => exit(0) });
+      showNativeMenu(e.clientX, e.clientY, specs);
+    },
+    onMiniSearchQueryChange: miniSearch.setQuery,
+    onMiniSearchKeyDown: miniSearch.handleKeyDown,
+    onMiniSearchResultClick: miniSearch.handleResultClick,
+  });
+
+  // Object prop for the bar's mini-search panel — memoized on its value
+  // members (state, stable between changes) with pinned callback identities,
+  // so its identity only changes when the panel's data actually changes.
+  const npBarMiniSearch = useMemo(() => ({
+    isOpen: miniSearch.isOpen,
+    query: miniSearch.query,
+    results: miniSearch.results,
+    items: miniSearch.items,
+    highlightedIndex: miniSearch.highlightedIndex,
+    onQueryChange: npBar.onMiniSearchQueryChange,
+    onKeyDown: npBar.onMiniSearchKeyDown,
+    onResultClick: npBar.onMiniSearchResultClick,
+  }), [miniSearch.isOpen, miniSearch.query, miniSearch.results, miniSearch.items, miniSearch.highlightedIndex, npBar]);
+
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
@@ -4306,7 +4464,10 @@ function App() {
             return <AlbumDetail name={detailAlbumName} artistName={detailAlbumArtistName} />;
           })()}
 
-          {/* Home view — always mounted to preserve state and avoid re-fetching on revisit */}
+          {/* Home view — always mounted to preserve state and avoid re-fetching
+              on revisit; frozen while hidden so it doesn't reconcile on every
+              App render (see FreezeWhileHidden). */}
+          <FreezeWhileHidden hidden={view !== "home"}>
           <HomeView
             style={{ display: view === "home" ? undefined : "none" }}
             isVisible={view === "home"}
@@ -4338,10 +4499,16 @@ function App() {
             onBrowseExtensions={() => library.setView("extensions")}
             onRunSetup={() => setShowOnboarding(true)}
           />
+          </FreezeWhileHidden>
 
-          {/* Search view — always mounted to preserve state and scroll position */}
+          {/* Search view — always mounted to preserve state and scroll position;
+              frozen while hidden. Its deleted-track/tag batches accumulate (and
+              SearchView slices off the unprocessed tail) so deletes made from
+              other views while this is frozen are not lost — see the producers. */}
+          <FreezeWhileHidden hidden={view !== "search"}>
           <SearchView
             style={{ display: view === "search" ? undefined : "none" }}
+            isVisible={view === "search"}
             hasPluginViews={pluginViewList.length > 0}
             initialQuery={searchInitialQuery}
             initialQueryKey={searchQueryKey}
@@ -4397,6 +4564,7 @@ function App() {
             columns={library.trackColumns}
             onColumnsChange={library.setTrackColumns}
           />
+          </FreezeWhileHidden>
 
           {/* Now Playing view. Dropped entirely while the fullscreen overlay is
               up: that overlay renders this same component, and two live copies
@@ -4557,7 +4725,9 @@ function App() {
           })()}
           {/* Extensions view */}
           {/* Extensions — always mounted (display toggle) so it doesn't remount
-              and re-fetch the gallery on every open; fetch is gated on isVisible. */}
+              and re-fetch the gallery on every open; fetch is gated on isVisible.
+              Frozen while hidden (see FreezeWhileHidden). */}
+          <FreezeWhileHidden hidden={view !== "extensions"}>
           <ExtensionsView
               style={{ display: view === "extensions" ? undefined : "none" }}
               isVisible={view === "extensions"}
@@ -4609,6 +4779,7 @@ function App() {
               pluginViewMode={pluginViewMode}
               onSetPluginViewMode={handlePluginViewModeChange}
             />
+          </FreezeWhileHidden>
           {/* Settings view */}
           {view === "settings" && (
             <SettingsPanel
@@ -5115,7 +5286,9 @@ function App() {
             }
             if (deletedIds.length > 0) {
               library.setTags(prev => prev.filter(t => !deletedIds.includes(t.id)));
-              setSearchDeletedTagBatch(prev => ({ ids: deletedIds, key: prev.key + 1 }));
+              // Accumulated, not replaced — same freeze-safety reasoning as
+              // onTracksDeleted's searchDeletedBatch.
+              setSearchDeletedTagBatch(prev => ({ ids: [...prev.ids, ...deletedIds], key: prev.key + 1 }));
               if (library.selectedTag !== null && deletedIds.includes(library.selectedTag)) {
                 library.setSelectedTag(null);
               }
@@ -5330,19 +5503,19 @@ function App() {
         miniExpanded={mini.miniExpanded}
         miniRestingSize={mini.miniRestingSize}
         miniWidthSize={mini.miniWidthSize}
-        onCancelCollapseTimer={mini.cancelCollapseTimer}
-        onBeginMiniDrag={mini.beginMiniDrag}
-        onCycleRestingSize={() => mini.setMiniRestingSize(cycleRestingSize(mini.miniRestingSize))}
-        onCycleMiniWidth={() => mini.setMiniWidthSize(cycleMiniWidth(mini.miniWidthSize))}
-        onToggleMiniMode={mini.toggleMiniMode}
-        onClose={() => exit(0)}
-        onPause={playback.handlePause}
-        onStop={playback.handleStop}
-        onNext={handleNext}
-        onPrevious={queueHook.playPrevious}
-        onSeek={playback.handleSeek}
-        onVolume={playback.handleVolume}
-        onMute={playback.toggleMute}
+        onCancelCollapseTimer={npBar.onCancelCollapseTimer}
+        onBeginMiniDrag={npBar.onBeginMiniDrag}
+        onCycleRestingSize={npBar.onCycleRestingSize}
+        onCycleMiniWidth={npBar.onCycleMiniWidth}
+        onToggleMiniMode={npBar.onToggleMiniMode}
+        onClose={npBar.onClose}
+        onPause={npBar.onPause}
+        onStop={npBar.onStop}
+        onNext={npBar.onNext}
+        onPrevious={npBar.onPrevious}
+        onSeek={npBar.onSeek}
+        onVolume={npBar.onVolume}
+        onMute={npBar.onMute}
         eqEnabled={playback.eqEnabled}
         eqMode={playback.eqMode}
         eqPreset={playback.eqPreset}
@@ -5351,130 +5524,43 @@ function App() {
         eqBassDb={playback.eqBassDb}
         eqTrebleDb={playback.eqTrebleDb}
         eqCustomPresets={eqCustomPresets}
-        onEqEnabledChange={playback.setEqEnabled}
-        onEqModeChange={playback.setEqMode}
-        onEqPresetChange={(id) => {
-          if (id === "custom") {
-            playback.setEqPreset("custom");
-            return;
-          }
-          const builtIn = BUILTIN_PRESETS.find(p => p.id === id);
-          const cust = eqCustomPresets.find(p => p.id === id);
-          const target = builtIn ?? cust;
-          if (target) {
-            playback.setEqGains([...target.gains]);
-            playback.setEqPreset(id);
-          }
-        }}
-        onEqGainChange={(i, db) => {
-          const next = [...playback.eqGains];
-          next[i] = db;
-          playback.setEqGains(next);
-          playback.setEqPreset(presetForGains(next, eqCustomPresets));
-        }}
-        onEqPreGainChange={playback.setEqPreGainDb}
-        onEqBassChange={playback.setEqBassDb}
-        onEqTrebleChange={playback.setEqTrebleDb}
-        onEqResetAll={() => {
-          if (playback.eqMode === "simple") {
-            playback.setEqBassDb(0);
-            playback.setEqTrebleDb(0);
-            return;
-          }
-          playback.setEqGains([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-          playback.setEqPreset("flat");
-          playback.setEqPreGainDb(0);
-        }}
-        onEqSaveAs={() => setEqSaveAsOpen(true)}
+        onEqEnabledChange={npBar.onEqEnabledChange}
+        onEqModeChange={npBar.onEqModeChange}
+        onEqPresetChange={npBar.onEqPresetChange}
+        onEqGainChange={npBar.onEqGainChange}
+        onEqPreGainChange={npBar.onEqPreGainChange}
+        onEqBassChange={npBar.onEqBassChange}
+        onEqTrebleChange={npBar.onEqTrebleChange}
+        onEqResetAll={npBar.onEqResetAll}
+        onEqSaveAs={npBar.onEqSaveAs}
         eqShowBarControl={playback.eqMode === "simple" ? eqShowBarControlSimple : eqShowBarControlAdvanced}
-        onEqShowBarControlChange={playback.eqMode === "simple" ? setEqShowBarControlSimple : setEqShowBarControlAdvanced}
-        onToggleQueueMode={queueHook.toggleQueueMode}
-        onRandomize={queueHook.randomizeQueue}
+        onEqShowBarControlChange={npBar.onEqShowBarControlChange}
+        onToggleQueueMode={npBar.onToggleQueueMode}
+        onRandomize={npBar.onRandomize}
         queueLength={queueHook.queue.length}
-        onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
-        onToggleAutoContinueSameFormat={() => autoContinue.setSameFormat(!autoContinue.sameFormat)}
-        onToggleAutoContinuePopover={() => autoContinue.setShowPopover(!autoContinue.showPopover)}
-        onAdjustAutoContinueWeight={autoContinue.adjustWeight}
-        onResetAutoContinueWeights={autoContinue.resetWeights}
-        onCloseAutoContinuePopover={() => autoContinue.setShowPopover(false)}
-        onToggleLike={() => {
-          const t = playback.currentTrack;
-          if (!t) return;
-          setLikeBusy(true);
-          likeActions.handleToggleLike(t).finally(() => setLikeBusy(false));
-        }}
-        onToggleDislike={() => {
-          const t = playback.currentTrack;
-          if (!t) return;
-          setLikeBusy(true);
-          likeActions.handleToggleDislike(t).finally(() => setLikeBusy(false));
-        }}
+        onToggleAutoContinue={npBar.onToggleAutoContinue}
+        onToggleAutoContinueSameFormat={npBar.onToggleAutoContinueSameFormat}
+        onToggleAutoContinuePopover={npBar.onToggleAutoContinuePopover}
+        onAdjustAutoContinueWeight={npBar.onAdjustAutoContinueWeight}
+        onResetAutoContinueWeights={npBar.onResetAutoContinueWeights}
+        onCloseAutoContinuePopover={npBar.onCloseAutoContinuePopover}
+        onToggleLike={npBar.onToggleLike}
+        onToggleDislike={npBar.onToggleDislike}
         likeDisabled={likeBusy}
-        onTrackClick={(trackId) => { library.handleTrackClick(trackId); }}
-        onNavigateToArtistByName={library.navigateToArtistByName}
-        onNavigateToAlbumByName={library.navigateToAlbumByName}
-        onNavigateToTagByName={library.navigateToTagByName}
+        onTrackClick={npBar.onTrackClick}
+        onNavigateToArtistByName={npBar.onNavigateToArtistByName}
+        onNavigateToAlbumByName={npBar.onNavigateToAlbumByName}
+        onNavigateToTagByName={npBar.onNavigateToTagByName}
         resolvedSource={resolvedSource}
         loadingTrack={playback.loadingTrack}
         playbackError={playback.playbackError}
-        onSkipError={() => { playback.clearPlaybackError(); handleNext(); }}
-        onContextMenu={(e: React.MouseEvent) => {
-          const specs: MenuItemSpec[] = [];
-          const t = playback.currentTrack;
-          if (t) {
-            specs.push({ kind: "item", text: playback.playing ? "Pause" : "Play", action: playback.handlePause });
-            specs.push({ kind: "item", text: "Next", action: handleNext });
-            specs.push({ kind: "item", text: "Previous", action: queueHook.playPrevious });
-            specs.push({ kind: "separator" });
-            const ratingItems: MenuItemSpec[] = [
-              { kind: "check", text: "Like", checked: t.liked === 1, action: () => likeActions.handleToggleLike(t) },
-              { kind: "check", text: "None", checked: t.liked === 0, action: () => { if (t.liked === 1) likeActions.handleToggleLike(t); else if (t.liked === -1) likeActions.handleToggleDislike(t); } },
-              { kind: "check", text: "Dislike", checked: t.liked === -1, action: () => likeActions.handleToggleDislike(t) },
-            ];
-            specs.push({ kind: "submenu", text: "Rating", items: ratingItems });
-            specs.push({ kind: "item", text: "Start radio from this track", action: () => {
-              contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null });
-            } });
-          }
-          const widthItems: MenuItemSpec[] = (["small", "medium", "large"] as const).map(size => ({
-            kind: "check" as const,
-            text: size === "small" ? "Small" : size === "medium" ? "Medium" : "Large",
-            checked: mini.miniWidthSize === size,
-            action: () => mini.setMiniWidthSize(size),
-          }));
-          specs.push({ kind: "submenu", text: "Width", items: widthItems });
-          const heightItems: MenuItemSpec[] = [
-            { kind: "check", text: "Normal", checked: mini.miniRestingSize === "normal", action: () => mini.setMiniRestingSize("normal") },
-            { kind: "check", text: "Compact", checked: mini.miniRestingSize === "compact", action: () => mini.setMiniRestingSize("compact") },
-          ];
-          specs.push({ kind: "submenu", text: "Height", items: heightItems });
-          // The info line is configured in Settings > Playback (drag to reorder,
-          // dwell, on/off) — the menu just takes you there, leaving the main
-          // window open on that section.
-          specs.push({ kind: "item", text: "Now playing info…", action: () => {
-            setSettingsScrollTarget("now-playing-info");
-            library.setView("settings");
-            if (mini.miniMode) mini.toggleMiniMode();
-          } });
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: "Show Main Window", action: mini.toggleMiniMode });
-          specs.push({ kind: "item", text: "Exit App", action: () => exit(0) });
-          showNativeMenu(e.clientX, e.clientY, specs);
-        }}
+        onSkipError={npBar.onSkipError}
+        onContextMenu={npBar.onContextMenu}
         nowPlayingInfo={nowPlayingInfoResolved}
-        miniSearch={{
-          isOpen: miniSearch.isOpen,
-          query: miniSearch.query,
-          results: miniSearch.results,
-          items: miniSearch.items,
-          highlightedIndex: miniSearch.highlightedIndex,
-          onQueryChange: miniSearch.setQuery,
-          onKeyDown: miniSearch.handleKeyDown,
-          onResultClick: miniSearch.handleResultClick,
-        }}
+        miniSearch={npBarMiniSearch}
         getAlbumImage={albumImageCache.getImage}
         getArtistImage={artistImageCache.getImage}
-        onDownloadTrack={playback.currentTrack && downloadPlan ? () => openDownloadForCurrentTrack(playback.currentTrack!, downloadPlan) : undefined}
+        onDownloadTrack={playback.currentTrack && downloadPlan ? npBar.onDownloadTrack : undefined}
         tagSuggestions={tagSuggestionPool}
         invokeInfoFetch={plugins.invokeInfoFetch}
         pluginsLoaded={plugins.pluginsLoaded}

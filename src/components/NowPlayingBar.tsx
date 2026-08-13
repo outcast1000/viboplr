@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { memo, useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
@@ -197,7 +197,14 @@ interface NowPlayingBarProps {
   pluginsLoaded?: boolean;
 }
 
-export function NowPlayingBar({
+// memo'd: the bar renders on every App state change otherwise (App is its
+// parent and re-renders often — queue edits, modal opens, cache landings).
+// App.tsx keeps every callback prop identity-stable via useStableCallbacks and
+// the object props memoized, so this comparator only fails when data the bar
+// actually renders has changed. The ~4 Hz position tick stays out of App state
+// entirely (usePlaybackPosition below), so playback time keeps updating inside
+// the memo boundary.
+export const NowPlayingBar = memo(function NowPlayingBar({
   waveformPeaks,
   storyboard,
   currentTrack, nativeVideoActive, playing,
@@ -1055,4 +1062,4 @@ export function NowPlayingBar({
       })()}
     </footer>
   );
-}
+});

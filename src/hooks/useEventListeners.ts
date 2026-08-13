@@ -22,10 +22,6 @@ interface ResyncComplete {
 interface EventListenerOptions {
   loadLibrary: () => Promise<void>;
   loadTracks: () => Promise<void>;
-  setScanning: (v: boolean) => void;
-  setScanProgress: (v: { scanned: number; total: number }) => void;
-  setSyncing: (v: boolean) => void;
-  setSyncProgress: (v: { synced: number; total: number; collection: string }) => void;
   onResyncDone?: () => void;
   resyncingCollectionName: string | null;
   setResyncProgress: (v: ResyncProgress | null) => void;
@@ -46,8 +42,6 @@ export type { ResyncProgress, ResyncComplete };
 export function useEventListeners(opts: EventListenerOptions) {
   const {
     loadLibrary, loadTracks,
-    setScanning, setScanProgress,
-    setSyncing, setSyncProgress,
     onResyncDone,
     resyncingCollectionName,
     setResyncProgress,
@@ -58,30 +52,30 @@ export function useEventListeners(opts: EventListenerOptions) {
 
   // Scan events
   useEffect(() => {
-    let scanStarted = false;
+    // Coalesce progress renders to ~4 Hz. The backend emits every 10 files and
+    // a re-scan of unchanged files processes hundreds of files/sec; each event
+    // lands in React state on the App root, so unthrottled it re-renders the
+    // whole tree tens of times per second for the scan's duration. Dropping
+    // intermediate events is safe — scan-complete resets the state afterwards.
+    let lastProgressRender = 0;
     const stopProgress = subscribe<{ folder: string; scanned: number; total: number; collection_id?: number }>(
       "scan-progress",
       (event) => {
-        if (!scanStarted) {
-          scanStarted = true;
-        }
-        setScanning(true);
-        setScanProgress({ scanned: event.payload.scanned, total: event.payload.total });
-        if (event.payload.collection_id != null) {
-          setResyncComplete(null);
-          setResyncProgress({
-            collectionId: event.payload.collection_id,
-            collectionName: resyncingCollectionName ?? event.payload.folder,
-            kind: "scan",
-            scanned: event.payload.scanned,
-            total: event.payload.total,
-          });
-        }
+        if (event.payload.collection_id == null) return;
+        const now = Date.now();
+        if (now - lastProgressRender < 250) return;
+        lastProgressRender = now;
+        setResyncComplete(null);
+        setResyncProgress({
+          collectionId: event.payload.collection_id,
+          collectionName: resyncingCollectionName ?? event.payload.folder,
+          kind: "scan",
+          scanned: event.payload.scanned,
+          total: event.payload.total,
+        });
       }
     );
     const stopComplete = subscribe<{ folder?: string; collectionId?: number; newTracks?: number; removedTracks?: number }>("scan-complete", (event) => {
-      scanStarted = false;
-      setScanning(false);
       onResyncDone?.();
       if (event.payload.collectionId != null) {
         setResyncProgress(null);
@@ -112,34 +106,26 @@ export function useEventListeners(opts: EventListenerOptions) {
 
   // Sync events
   useEffect(() => {
-    let syncStarted = false;
+    // Same ~4 Hz coalescing as scan-progress above.
+    let lastProgressRender = 0;
     const stopProgress = subscribe<{ collection: string; synced: number; total: number; collection_id?: number }>(
       "sync-progress",
       (event) => {
-        if (!syncStarted) {
-          syncStarted = true;
-        }
-        setSyncing(true);
-        setSyncProgress({
-          synced: event.payload.synced,
+        if (event.payload.collection_id == null) return;
+        const now = Date.now();
+        if (now - lastProgressRender < 250) return;
+        lastProgressRender = now;
+        setResyncComplete(null);
+        setResyncProgress({
+          collectionId: event.payload.collection_id,
+          collectionName: resyncingCollectionName ?? event.payload.collection,
+          kind: "sync",
+          scanned: event.payload.synced,
           total: event.payload.total,
-          collection: event.payload.collection,
         });
-        if (event.payload.collection_id != null) {
-          setResyncComplete(null);
-          setResyncProgress({
-            collectionId: event.payload.collection_id,
-            collectionName: resyncingCollectionName ?? event.payload.collection,
-            kind: "sync",
-            scanned: event.payload.synced,
-            total: event.payload.total,
-          });
-        }
       }
     );
     const stopComplete = subscribe<{ collectionId: number; newTracks?: number; removedTracks?: number }>("sync-complete", (event) => {
-      syncStarted = false;
-      setSyncing(false);
       onResyncDone?.();
       setResyncProgress(null);
       setResyncComplete({
@@ -163,8 +149,6 @@ export function useEventListeners(opts: EventListenerOptions) {
       });
     });
     const stopError = subscribe<{ collectionId: number; error: string }>("sync-error", (event) => {
-      syncStarted = false;
-      setSyncing(false);
       console.error("Sync error:", event.payload.error);
       onResyncDone?.();
       setResyncProgress(null);
@@ -197,15 +181,16 @@ export function useEventListeners(opts: EventListenerOptions) {
   }, [loadLibrary, loadTracks]);
 
   // Download complete/error — toast the outcome (queue-based downloads, e.g.
-  // plugin api.downloads.enqueue, have no progress UI) and refresh the library
-  // on success so the new track appears.
+  // plugin api.downloads.enqueue, have no progress UI). No library refresh
+  // here: the download worker emits one scan-complete per batch (after its
+  // FTS/count rebuild) and the scan-complete listener above owns the refresh —
+  // refreshing per download-complete cost an N-track batch N whole-library
+  // refetches on top of the batch one.
   useEffect(() => {
     const notify = opts.notify;
     const stopComplete = subscribe<{ trackTitle?: string }>("download-complete", (e) => {
       const title = e.payload?.trackTitle;
       notify?.(title ? `Downloaded “${title}”` : "Download complete");
-      loadLibrary();
-      loadTracks();
     });
     const stopError = subscribe<{ trackTitle?: string; error?: string }>("download-error", (e) => {
       const title = e.payload?.trackTitle ?? "track";
@@ -217,7 +202,7 @@ export function useEventListeners(opts: EventListenerOptions) {
     });
 
     return combineUnlisten(stopComplete, stopError);
-  }, [loadLibrary, loadTracks, opts.notify]);
+  }, [opts.notify]);
 
   // Library change events — bridged to plugin event system
   useEffect(() => {

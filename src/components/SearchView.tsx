@@ -64,9 +64,16 @@ interface SearchViewModes {
 
 interface SearchViewProps {
   style?: React.CSSProperties;
+  /** False while the view is display-toggled away (and frozen — see
+   *  FreezeWhileHidden in App.tsx). Gates the window-level keyboard handler so
+   *  a hidden Library doesn't react to Cmd+A/Escape meant for another view. */
+  isVisible: boolean;
   initialQuery: string | null;
   initialQueryKey: number;
   libraryRefreshKey: number;
+  /** Accumulated (never replaced) across the whole session; the view slices
+   *  off the tail it hasn't processed yet. Accumulation is what makes deletes
+   *  survive the frozen-while-hidden window — see the App.tsx producers. */
   deletedTrackIds: number[];
   deletedTrackKey: number;
   deletedTagIds: number[];
@@ -122,6 +129,7 @@ const ENTITY_PAGE_SIZE = 40;
 
 export function SearchView({
   style,
+  isVisible,
   initialQuery,
   initialQueryKey,
   libraryRefreshKey,
@@ -295,9 +303,20 @@ export function SearchView({
     }
   }, [initialQueryKey]);
 
+  // The deleted-id props accumulate for the whole session (see App.tsx) so
+  // that batches arriving while this view is frozen aren't lost; these markers
+  // track how much of each array this instance has already processed. Several
+  // batches missed while hidden collapse into one effect run on unhide, whose
+  // fresh slice is exactly their union.
+  const processedDeletedTracksRef = useRef(0);
+  const processedDeletedTagsRef = useRef(0);
+
   useEffect(() => {
-    if (deletedTrackKey === 0 || deletedTrackIds.length === 0) return;
-    const deleted = new Set(deletedTrackIds);
+    if (deletedTrackKey === 0) return;
+    const fresh = deletedTrackIds.slice(processedDeletedTracksRef.current);
+    processedDeletedTracksRef.current = deletedTrackIds.length;
+    if (fresh.length === 0) return;
+    const deleted = new Set(fresh);
     setResults(prev => {
       const filtered = prev.tracks.filter(t => t.id == null || !deleted.has(t.id));
       if (filtered.length === prev.tracks.length) return prev;
@@ -305,13 +324,16 @@ export function SearchView({
     });
     setCounts(prev => ({
       ...prev,
-      tracks: Math.max(0, prev.tracks - deletedTrackIds.length),
+      tracks: Math.max(0, prev.tracks - fresh.length),
     }));
   }, [deletedTrackKey]);
 
   useEffect(() => {
-    if (deletedTagKey === 0 || deletedTagIds.length === 0) return;
-    const deleted = new Set(deletedTagIds);
+    if (deletedTagKey === 0) return;
+    const fresh = deletedTagIds.slice(processedDeletedTagsRef.current);
+    processedDeletedTagsRef.current = deletedTagIds.length;
+    if (fresh.length === 0) return;
+    const deleted = new Set(fresh);
     setResults(prev => {
       const filtered = prev.tags.filter(t => !deleted.has(t.id));
       if (filtered.length === prev.tags.length) return prev;
@@ -319,7 +341,7 @@ export function SearchView({
     });
     setCounts(prev => ({
       ...prev,
-      tags: Math.max(0, prev.tags - deletedTagIds.length),
+      tags: Math.max(0, prev.tags - fresh.length),
     }));
   }, [deletedTagKey]);
 
@@ -647,6 +669,10 @@ export function SearchView({
   }
 
   useEffect(() => {
+    // Never listen while hidden: this is a window-level handler, so without
+    // the gate a Cmd+A pressed on any other view silently selected everything
+    // in the hidden Library (and Escape cleared its selection).
+    if (!isVisible) return;
     const currentMode = viewModes[activeTab];
     if (currentMode === "basic") return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -665,7 +691,7 @@ export function SearchView({
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [viewModes, activeTab, selectedTrackIds, selectedArtistIds, selectedAlbumIds, selectedTagIds, results]);
+  }, [isVisible, viewModes, activeTab, selectedTrackIds, selectedArtistIds, selectedAlbumIds, selectedTagIds, results]);
 
   function computeLassoHits(rect: { x: number; y: number; w: number; h: number }): Set<number> {
     const container = resultsRef.current;

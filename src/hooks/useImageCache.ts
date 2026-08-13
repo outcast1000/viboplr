@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 
@@ -53,25 +53,25 @@ export function useImageCache(
   kind: "artist" | "album" | "tag",
 ): UseImageCacheReturn {
   const [cache, setCache] = useState<Record<string, string | null>>({});
-  const cacheRef = useRef(cache);
-  cacheRef.current = cache;
   // Per-key cache-bust version, bumped whenever the underlying image file is
-  // (re)written in place (invalidate / requestFetch / *-image-ready). State so a
-  // bump re-renders consumers; ref mirror so the getImage callback reads it
-  // without stale-closure issues.
+  // (re)written in place (invalidate / requestFetch / *-image-ready).
   const [versions, setVersions] = useState<Record<string, number>>({});
-  const versionsRef = useRef(versions);
-  versionsRef.current = versions;
   const bumpVersion = useCallback((key: string) => {
     setVersions((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + 1 }));
   }, []);
   const inFlight = useRef(new Set<string>());
 
+  // getImage / isResolved identity deliberately TRACKS THE DATA (cache +
+  // versions in the deps), not just `kind`. They are render-time getters, so a
+  // memo'd consumer that receives one as a prop must re-render when a lookup
+  // lands — a ref-reading, always-stable getter would leave it bailing on the
+  // very update that makes the image available. Unmemoized consumers see no
+  // difference (they re-render with their parent either way).
   const getImage = useCallback((name: string, artistName?: string | null): string | null => {
     const key = imageCacheKey(kind, name, artistName);
 
-    if (key in cacheRef.current) {
-      return imageUrlWithVersion(cacheRef.current[key], versionsRef.current[key] ?? 0);
+    if (key in cache) {
+      return imageUrlWithVersion(cache[key], versions[key] ?? 0);
     }
 
     if (inFlight.current.has(key)) {
@@ -103,11 +103,11 @@ export function useImageCache(
       });
 
     return null;
-  }, [kind]);
+  }, [kind, cache, versions]);
 
   const isResolved = useCallback((name: string, artistName?: string | null): boolean => {
-    return imageCacheKey(kind, name, artistName) in cacheRef.current;
-  }, [kind]);
+    return imageCacheKey(kind, name, artistName) in cache;
+  }, [kind, cache]);
 
   const invalidate = useCallback((name: string, artistName?: string | null) => {
     const key = imageCacheKey(kind, name, artistName);
@@ -188,5 +188,12 @@ export function useImageCache(
     return combineUnlisten(stopReady, stopError);
   }, [kind, bumpVersion]);
 
-  return { getImage, isResolved, invalidate, requestFetch, clearAllFailures, cache };
+  // Memoized so the object's identity also tracks the data: consumers that put
+  // the whole cache object in effect/memo deps (App's retrieve:image-applied
+  // listener, QueuePanel's getTrackImage) re-run on cache changes instead of on
+  // every parent render.
+  return useMemo(
+    () => ({ getImage, isResolved, invalidate, requestFetch, clearAllFailures, cache }),
+    [getImage, isResolved, invalidate, requestFetch, clearAllFailures, cache],
+  );
 }
