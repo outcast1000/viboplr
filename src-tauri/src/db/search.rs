@@ -102,19 +102,9 @@ impl Database {
             "tracks" => {
                 let mut where_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER);
                 let mut count_clauses = format!("WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE);
-                match opts.media_type.as_deref() {
-                    Some("audio") => {
-                        let f = " AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))";
-                        where_clauses.push_str(f);
-                        count_clauses.push_str(f);
-                    }
-                    Some("video") => {
-                        let f = " AND LOWER(t.format) IN ('mp4','m4v','mov','webm')";
-                        where_clauses.push_str(f);
-                        count_clauses.push_str(f);
-                    }
-                    _ => {}
-                }
+                let media_filter = media_type_clause(opts.media_type.as_deref());
+                where_clauses.push_str(media_filter);
+                count_clauses.push_str(media_filter);
 
                 let total: i64 = conn.query_row(
                     &format!("SELECT COUNT(*) FROM tracks t {}", count_clauses),
@@ -246,11 +236,7 @@ impl Database {
                          JOIN tracks_fts ON tracks_fts.rowid = t.id \
                          WHERE tracks_fts MATCH ?1 \
                          AND t.collection_id IN (SELECT id FROM collections WHERE enabled = 1)".to_string();
-                match opts.media_type.as_deref() {
-                    Some("audio") => count_sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
-                    Some("video") => count_sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),
-                    _ => {}
-                }
+                count_sql.push_str(media_type_clause(opts.media_type.as_deref()));
                 let total: i64 = conn.query_row(&count_sql, params![fts_query], |row| row.get(0))?;
 
                 Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, tags: None, total })

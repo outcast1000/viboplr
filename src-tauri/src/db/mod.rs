@@ -1,7 +1,7 @@
 use rusqlite::{params, Connection, OptionalExtension, Result as SqlResult};
 use rusqlite::functions::FunctionFlags;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::models::*;
@@ -48,6 +48,42 @@ const ENABLED_COLLECTION_FILTER: &str =
 
 const ENABLED_COLLECTION_FILTER_STANDALONE: &str =
     "AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1))";
+
+// Video container formats as stored in `tracks.format`. Every surface that
+// splits audio from video — the library media-type filter, FTS search, entity
+// listing, collection stats, auto-continue and radio — builds its SQL from
+// these, and they are built from `scanner::VIDEO_EXTENSIONS`, so no surface
+// can drift from what the scanner actually indexed as video. That drift was
+// real twice: restated four-container copies of this list survived while the
+// scanner indexed seven, so an .mkv concert was video to some surfaces and
+// audio to others. `tracks.format` is the lowercased file extension for every
+// collection kind, so the lists compare directly. Pinned by
+// `test_format_clauses_cover_every_scanned_video_extension` in db/history.rs.
+static VIDEO_FORMAT_LIST: LazyLock<String> = LazyLock::new(|| {
+    crate::scanner::VIDEO_EXTENSIONS
+        .iter()
+        .map(|e| format!("'{}'", e))
+        .collect::<Vec<_>>()
+        .join(",")
+});
+static VIDEO_FORMAT_CLAUSE: LazyLock<String> =
+    LazyLock::new(|| format!(" AND LOWER(t.format) IN ({})", *VIDEO_FORMAT_LIST));
+static AUDIO_FORMAT_CLAUSE: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        " AND (t.format IS NULL OR LOWER(t.format) NOT IN ({}))",
+        *VIDEO_FORMAT_LIST
+    )
+});
+
+/// WHERE fragment (against `tracks` aliased `t`) for a `media_type` filter
+/// value; empty for anything other than "audio"/"video".
+fn media_type_clause(media_type: Option<&str>) -> &'static str {
+    match media_type {
+        Some("video") => VIDEO_FORMAT_CLAUSE.as_str(),
+        Some("audio") => AUDIO_FORMAT_CLAUSE.as_str(),
+        _ => "",
+    }
+}
 
 fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
     let id: i64 = row.get(0)?;

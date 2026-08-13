@@ -396,11 +396,7 @@ impl Database {
             "ORDER BY ar.name, al.title, t.track_number, t.title, t.id".to_string()
         };
 
-        let media_type_filter = match opts.media_type.as_deref() {
-            Some("audio") => "AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))",
-            Some("video") => "AND LOWER(t.format) IN ('mp4','m4v','mov','webm')",
-            _ => "",
-        };
+        let media_type_filter = media_type_clause(opts.media_type.as_deref());
         let limit = opts.limit.unwrap_or(100);
         let offset = opts.offset.unwrap_or(0);
         let sql = format!("{} WHERE 1=1 {} {} {} LIMIT ?1 OFFSET ?2", TRACK_SELECT, ENABLED_COLLECTION_FILTER, media_type_filter, order_by);
@@ -898,11 +894,7 @@ fn fts_search_sql(opts: &TrackQuery) -> String {
     if opts.liked_only {
         sql.push_str(" AND t.liked = 1");
     }
-    match opts.media_type.as_deref() {
-        Some("audio") => sql.push_str(" AND (t.format IS NULL OR LOWER(t.format) NOT IN ('mp4','m4v','mov','webm'))"),
-        Some("video") => sql.push_str(" AND LOWER(t.format) IN ('mp4','m4v','mov','webm')"),
-        _ => {}
-    }
+    sql.push_str(media_type_clause(opts.media_type.as_deref()));
 
     // With no explicit sort, order by tracks_fts.rowid (== t.id via the join,
     // so the output order is unchanged): FTS5 satisfies it with an ordered

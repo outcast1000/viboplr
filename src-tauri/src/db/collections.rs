@@ -128,16 +128,17 @@ impl Database {
 
     pub fn get_collection_stats(&self) -> SqlResult<Vec<CollectionStats>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
+        let mut stmt = conn.prepare(&format!(
             "SELECT collection_id,
                     COUNT(*) as track_count,
-                    SUM(CASE WHEN lower(format) IN ('mp4','m4v','mov','webm') THEN 1 ELSE 0 END) as video_count,
+                    SUM(CASE WHEN LOWER(format) IN ({}) THEN 1 ELSE 0 END) as video_count,
                     COALESCE(SUM(file_size), 0) as total_size,
                     COALESCE(SUM(duration_secs), 0.0) as total_duration
              FROM tracks
              WHERE collection_id IS NOT NULL
-             GROUP BY collection_id"
-        )?;
+             GROUP BY collection_id",
+            *VIDEO_FORMAT_LIST
+        ))?;
         let rows = stmt.query_map([], |row| {
             Ok(CollectionStats {
                 collection_id: row.get(0)?,

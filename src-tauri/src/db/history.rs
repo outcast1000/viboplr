@@ -1,32 +1,10 @@
 // Auto-split from db.rs. Shared types/helpers live in db/mod.rs;
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
-use std::sync::LazyLock;
 
-// Video container formats as stored in `tracks.format`. Auto-continue and radio
-// share these clauses so their audio/video filtering can't drift apart — and
-// both are built from `scanner::VIDEO_EXTENSIONS` so they can't drift from what
-// the scanner actually indexed as video either. That second drift was real:
-// this list named four containers while the scanner indexed seven, so an .mkv
-// concert was video to every surface in the UI and audio to the two features
-// here. Radio seeded from one mixed the whole audio library in; radio seeded
-// from an .mp4 could never reach it. `tracks.format` is the lowercased file
-// extension for every collection kind, so the lists compare directly.
-static VIDEO_FORMAT_LIST: LazyLock<String> = LazyLock::new(|| {
-    crate::scanner::VIDEO_EXTENSIONS
-        .iter()
-        .map(|e| format!("'{}'", e))
-        .collect::<Vec<_>>()
-        .join(",")
-});
-static VIDEO_FORMAT_CLAUSE: LazyLock<String> =
-    LazyLock::new(|| format!(" AND LOWER(t.format) IN ({})", *VIDEO_FORMAT_LIST));
-static AUDIO_FORMAT_CLAUSE: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        " AND (t.format IS NULL OR LOWER(t.format) NOT IN ({}))",
-        *VIDEO_FORMAT_LIST
-    )
-});
+// The audio/video SQL clauses (VIDEO_FORMAT_CLAUSE / AUDIO_FORMAT_CLAUSE /
+// media_type_clause) live in db/mod.rs, shared by every surface that splits
+// audio from video; the pinning test stays below.
 
 /// True when a `tracks.format` value names a video container.
 fn is_video_format(format: Option<&str>) -> bool {
@@ -47,11 +25,7 @@ impl Database {
     pub fn get_auto_continue_track(&self, strategy: &str, current_title: &str, current_artist: Option<&str>, format_filter: Option<&str>, exclude_ids: &[i64]) -> SqlResult<Option<Track>> {
         let conn = self.conn.lock().unwrap();
 
-        let format_clause = match format_filter {
-            Some("video") => VIDEO_FORMAT_CLAUSE.as_str(),
-            Some("audio") => AUDIO_FORMAT_CLAUSE.as_str(),
-            _ => "",
-        };
+        let format_clause = media_type_clause(format_filter);
 
         let dislike_clause = " AND t.liked != -1";
 
@@ -1112,14 +1086,21 @@ mod tests {
         assert_eq!(all.last().unwrap().played_at, 50);
     }
 
-    /// The audio/video split here must name exactly what the scanner indexed as
-    /// video. These drifted once (four containers here against the scanner's
-    /// seven), which made .mkv/.avi/.wmv video everywhere in the UI and audio to
-    /// radio and auto-continue.
+    /// The audio/video split must name exactly what the scanner indexed as
+    /// video. These drifted twice (four-container copies against the scanner's
+    /// seven), which made .mkv/.avi/.wmv video to some surfaces and audio to
+    /// others. The shared items in db/mod.rs are now the only SQL source —
+    /// every media-type filter, collection stats, radio and auto-continue all
+    /// build from them.
     #[test]
     fn test_format_clauses_cover_every_scanned_video_extension() {
         for ext in crate::scanner::VIDEO_EXTENSIONS {
             let quoted = format!("'{}'", ext);
+            assert!(
+                VIDEO_FORMAT_LIST.contains(&quoted),
+                "format list is missing {} — it must list every scanner::VIDEO_EXTENSIONS entry",
+                ext
+            );
             assert!(
                 VIDEO_FORMAT_CLAUSE.contains(&quoted),
                 "video clause is missing {} — it must list every scanner::VIDEO_EXTENSIONS entry",
@@ -1136,6 +1117,10 @@ mod tests {
                 ext
             );
         }
+        assert_eq!(media_type_clause(Some("video")), VIDEO_FORMAT_CLAUSE.as_str());
+        assert_eq!(media_type_clause(Some("audio")), AUDIO_FORMAT_CLAUSE.as_str());
+        assert_eq!(media_type_clause(Some("anything-else")), "");
+        assert_eq!(media_type_clause(None), "");
         assert!(!is_video_format(Some("flac")));
         assert!(!is_video_format(None));
     }
