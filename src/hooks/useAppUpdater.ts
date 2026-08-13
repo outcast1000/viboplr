@@ -79,6 +79,15 @@ export function humanizeUpdateError(raw: string, stage: UpdateStage): string {
   if (s.includes("signature") || s.includes("minisign")) {
     return "The downloaded update failed its signature check and was not installed. Download it from viboplr.com instead.";
   }
+  // A connection the server accepted and then dropped, before answering. GitHub's
+  // release host does this under load (HTTP/2 REFUSED_STREAM, or a keep-alive
+  // closed mid-response) and the backend already retried it three times. It must
+  // be matched ABOVE the connectivity branch below — "connection closed" would
+  // otherwise land on "check your internet connection", blaming a link that is
+  // demonstrably working, since every other host answered fine.
+  if (s.includes("refused stream") || s.includes("goaway") || s.includes("connection closed") || s.includes("connection reset")) {
+    return "GitHub dropped the connection before answering. This is usually momentary — try again in a minute.";
+  }
   if (s.includes("dns") || s.includes("resolve") || s.includes("connect") || s.includes("network") || s.includes("timed out") || s.includes("timeout")) {
     return "Couldn't reach the update server. Check your internet connection and try again.";
   }

@@ -39,6 +39,16 @@ describe("humanizeUpdateError", () => {
     expect(msg.toLowerCase()).not.toContain("try again");
   });
 
+  it("blames the server, not the user's link, when the connection is dropped mid-request", () => {
+    // The real chain the backend now surfaces for github.com's load-shedding.
+    const h2 = "error sending request for url (https://github.com/…/latest.json): client error (SendRequest): http2 error: stream error received: refused stream before processing any application logic";
+    expect(humanizeUpdateError(h2, "check")).toContain("dropped the connection");
+    expect(humanizeUpdateError(h2, "check")).not.toContain("internet connection");
+    const h1 = "error sending request for url (https://github.com/…/latest.json): client error (SendRequest): connection closed before message completed";
+    expect(humanizeUpdateError(h1, "check")).toContain("dropped the connection");
+    expect(humanizeUpdateError(h1, "check")).not.toContain("internet connection");
+  });
+
   it("maps connection failures to a connectivity message", () => {
     expect(humanizeUpdateError("error sending request: dns error", "check")).toContain("internet connection");
     expect(humanizeUpdateError("operation timed out", "install")).toContain("internet connection");

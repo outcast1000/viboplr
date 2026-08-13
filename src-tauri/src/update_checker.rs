@@ -1,3 +1,4 @@
+use crate::error_chain::err_chain;
 use crate::models::{ExtensionUpdate, UpdateInfo};
 use serde::Serialize;
 use std::path::Path;
@@ -60,20 +61,99 @@ pub struct InstalledExtension {
 /// could stall the whole update check indefinitely.
 const MANIFEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
-pub fn fetch_update_info(url: &str) -> Result<UpdateInfo, String> {
-    let resp = reqwest::blocking::Client::builder()
+/// How many times a manifest fetch is retried before the extension is reported
+/// as unreachable — the extension checker's counterpart to the app updater's
+/// `CHECK_ATTEMPTS`, and the same failure: every gallery `updateUrl` is a
+/// `github.com` release asset, and that host intermittently refuses a fresh
+/// connection's HTTP/2 stream (`REFUSED_STREAM`) or closes a keep-alive
+/// mid-response instead of serving the file. Measured at 2/6–9/12 requests from
+/// one machine while every other host answered cleanly, so a single-shot fetch
+/// reported extensions as unreachable that were merely unlucky.
+const FETCH_ATTEMPTS: u32 = 3;
+
+/// A failed fetch, plus whether it is worth another attempt.
+struct FetchFailure {
+    text: String,
+    transient: bool,
+}
+
+/// Retried only when the failure came back *fast*.
+///
+/// A timeout has already spent `MANIFEST_TIMEOUT`, and this runs once per
+/// installed extension — tripling a blackholed host's 15s wait would turn one
+/// dead `updateUrl` into a 45s check, which is a worse bug than the one being
+/// fixed. A malformed URL is deterministic and must not be retried either. The
+/// refusal this retry exists for comes back in about a second.
+fn error_is_fast_transient(e: &reqwest::Error) -> bool {
+    !e.is_builder() && !e.is_timeout()
+}
+
+/// Whether an HTTP status is worth another attempt. GitHub's release CDN answers
+/// 503 for a window after a release's assets are uploaded, and 429 when it is
+/// rate-limiting — both clear on their own. A 404 does not: retrying it would
+/// cost every extension with a stale `updateUrl` the full backoff ladder for an
+/// answer that will not change.
+fn status_is_transient(status: u16) -> bool {
+    status == 429 || (500..=599).contains(&status)
+}
+
+fn fetch_update_info_once(url: &str) -> Result<UpdateInfo, FetchFailure> {
+    // The client is built per attempt on purpose: a retry that reused a pooled
+    // connection to a host that is shedding connections would be asking the same
+    // socket the same question.
+    let client = reqwest::blocking::Client::builder()
         .user_agent("Viboplr")
         .timeout(MANIFEST_TIMEOUT)
         .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?
-        .get(url)
-        .send()
-        .map_err(|e| format!("HTTP error: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+        .map_err(|e| FetchFailure {
+            text: format!("HTTP client error: {}", err_chain(&e)),
+            transient: false,
+        })?;
+    let resp = client.get(url).send().map_err(|e| FetchFailure {
+        text: format!("HTTP error: {}", err_chain(&e)),
+        transient: error_is_fast_transient(&e),
+    })?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(FetchFailure {
+            text: format!("HTTP {status}"),
+            transient: status_is_transient(status.as_u16()),
+        });
     }
-    let text = resp.text().map_err(|e| format!("Read error: {}", e))?;
-    serde_json::from_str(&text).map_err(|e| format!("Parse error: {}", e))
+    // A body that dies mid-read is the same class as a refused stream.
+    let text = resp.text().map_err(|e| FetchFailure {
+        text: format!("Read error: {}", err_chain(&e)),
+        transient: error_is_fast_transient(&e),
+    })?;
+    serde_json::from_str(&text).map_err(|e| FetchFailure {
+        text: format!("Parse error: {}", err_chain(&e)),
+        transient: false,
+    })
+}
+
+pub fn fetch_update_info(url: &str) -> Result<UpdateInfo, String> {
+    for attempt in 1..=FETCH_ATTEMPTS {
+        match fetch_update_info_once(url) {
+            Ok(info) => return Ok(info),
+            Err(failure) => {
+                if !failure.transient || attempt == FETCH_ATTEMPTS {
+                    return Err(failure.text);
+                }
+                log::warn!(
+                    "update manifest attempt {attempt} failed for {url} ({}); retrying",
+                    failure.text
+                );
+                // 1s then 3s, matching the app updater's ladder — the spacing
+                // that was measured to recover from this refusal. These run
+                // `CHECK_CONCURRENCY`-wide, so the cost is per chunk, not per
+                // extension.
+                std::thread::sleep(std::time::Duration::from_secs(attempt as u64 * 2 - 1));
+            }
+        }
+    }
+    // Unreachable: the final attempt always returns above. Kept as a plain Err
+    // rather than `unreachable!()` so a future edit can't turn it into a panic.
+    Err("update manifest fetch failed".to_string())
 }
 
 /// `Ok(None)` = definitively no update. `Err` = we couldn't find out.
@@ -346,8 +426,42 @@ mod tests {
             version: "1.0.0".into(),
             update_url: "not-a-valid-url".into(),
         };
+        let started = std::time::Instant::now();
         let result = check_extension(&ext, "1.0.0");
         assert!(result.is_err(), "a failed fetch must surface as Err, got {result:?}");
+        // And it must not have been retried: a malformed URL will never parse, so
+        // walking the `FETCH_ATTEMPTS` backoff ladder would spend 4s per
+        // extension to reach the same answer. Generous margin — the real path is
+        // microseconds, the ladder is seconds.
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "a deterministic failure must not be retried (took {:?})",
+            started.elapsed()
+        );
+    }
+
+    /// The retry exists for a host that refuses a connection it just accepted.
+    /// It must not also be spent on answers that will never change.
+    #[test]
+    fn test_only_recoverable_statuses_are_retried() {
+        for status in [429, 500, 502, 503, 504] {
+            assert!(status_is_transient(status), "{status} should be retried");
+        }
+        for status in [400, 401, 403, 404, 410] {
+            assert!(!status_is_transient(status), "{status} should not be retried");
+        }
+    }
+
+    #[test]
+    fn test_a_malformed_url_is_not_a_transient_error() {
+        // The one reqwest error that can be produced without a network: the URL
+        // never parses, so `send()` hands back a builder error.
+        let e = reqwest::blocking::Client::new()
+            .get("not-a-valid-url")
+            .send()
+            .expect_err("an unparseable URL must not send");
+        assert!(e.is_builder(), "expected a builder error, got {e:?}");
+        assert!(!error_is_fast_transient(&e));
     }
 
     /// The report keeps the three apart so the UI can word them differently:

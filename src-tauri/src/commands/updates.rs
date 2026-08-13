@@ -16,11 +16,18 @@
 //! endpoints); the frontend drives it via `app_update_check` /
 //! `app_update_install` and the `app-update-progress` event.
 
+use crate::error_chain::err_chain;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::UpdaterExt;
 
 const REPO: &str = "outcast1000/viboplr";
+
+/// Ceiling on the manifest fetch. Only the *check* honours it — the plugin
+/// hardcodes `timeout: None` onto the `Update` it hands back, so a 50 MB
+/// download can't be cut short by it.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Which updater manifest this build consumes. There is a single build flavor
 /// now (the native engine is bundled), so every build is on the one channel.
@@ -52,18 +59,22 @@ fn pick_beta_manifest_url(releases: &[GhRelease], asset: &str) -> Option<String>
 }
 
 async fn discover_beta_endpoint() -> Result<String, String> {
-    let releases: Vec<GhRelease> = reqwest::Client::new()
+    let client = reqwest::Client::builder()
+        .timeout(CHECK_TIMEOUT)
+        .build()
+        .map_err(|e| format!("GitHub releases client failed: {}", err_chain(&e)))?;
+    let releases: Vec<GhRelease> = client
         .get(format!("https://api.github.com/repos/{REPO}/releases?per_page=20"))
         .header("User-Agent", "viboplr-updater")
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
-        .map_err(|e| format!("GitHub releases request failed: {e}"))?
+        .map_err(|e| format!("GitHub releases request failed: {}", err_chain(&e)))?
         .error_for_status()
-        .map_err(|e| format!("GitHub releases request failed: {e}"))?
+        .map_err(|e| format!("GitHub releases request failed: {}", err_chain(&e)))?
         .json()
         .await
-        .map_err(|e| format!("GitHub releases parse failed: {e}"))?;
+        .map_err(|e| format!("GitHub releases parse failed: {}", err_chain(&e)))?;
     pick_beta_manifest_url(&releases, manifest_asset_name())
         .ok_or_else(|| "no release carries this build's updater manifest".to_string())
 }
@@ -73,6 +84,44 @@ async fn discover_beta_endpoint() -> Result<String, String> {
 pub struct AppUpdateMeta {
     pub version: String,
     pub body: Option<String>,
+}
+
+/// How many times a transient check failure is retried before the user ever
+/// sees it — the check's counterpart to `DOWNLOAD_ATTEMPTS`, and for the same
+/// reason: `github.com` intermittently answers a *fresh* connection with an
+/// HTTP/2 `REFUSED_STREAM` (or closes a keep-alive mid-response) instead of
+/// serving the manifest. Measured from one machine: 2/6 to 9/12 requests failed
+/// that way, while `api.github.com`, `objects.githubusercontent.com` and every
+/// non-GitHub host stayed at 0/6 and `curl` to the same URL stayed at 0/30. It
+/// is not the user's connection and not the TLS stack (native-tls failed at the
+/// same rate as rustls), it is load-shedding at that one edge — so a single-shot
+/// check turned a momentary refusal into a reported failure.
+const CHECK_ATTEMPTS: u32 = 3;
+
+/// Check, retrying transient failures. `check()` is a plain GET, so a retry is
+/// safe; only the errors `is_transient` admits are retried, exactly as on the
+/// download side.
+async fn check_with_retry(
+    updater: &tauri_plugin_updater::Updater,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    for attempt in 1..=CHECK_ATTEMPTS {
+        match updater.check().await {
+            Ok(update) => return Ok(update),
+            Err(e) => {
+                let detail = err_chain(&e);
+                if !is_transient(&e) || attempt == CHECK_ATTEMPTS {
+                    return Err(detail);
+                }
+                log::warn!("app-update: check attempt {attempt} failed ({detail}); retrying");
+                // 1s then 3s: the manual path has a user watching a spinner, so
+                // the whole ladder has to stay inside a few seconds.
+                tokio::time::sleep(Duration::from_secs(attempt as u64 * 2 - 1)).await;
+            }
+        }
+    }
+    // Unreachable: the final attempt always returns above. Kept as a plain Err
+    // rather than `unreachable!()` so a future edit can't turn it into a panic.
+    Err("update check failed".to_string())
 }
 
 #[tauri::command]
@@ -89,20 +138,29 @@ pub async fn app_update_check(
                 app.updater_builder()
                     .endpoints(vec![url])
                     .map_err(|e| e.to_string())?
+                    .timeout(CHECK_TIMEOUT)
                     .build()
                     .map_err(|e| e.to_string())?
             }
             Err(e) => {
                 // Fail open to stable so beta subscribers are never stranded.
                 log::error!("app-update: beta discovery failed ({e}); falling back to stable");
-                app.updater().map_err(|e| e.to_string())?
+                app.updater_builder()
+                    .timeout(CHECK_TIMEOUT)
+                    .build()
+                    .map_err(|e| e.to_string())?
             }
         }
     } else {
-        app.updater().map_err(|e| e.to_string())?
+        // Builder rather than `app.updater()` purely to carry the timeout; the
+        // endpoints still come from the config.
+        app.updater_builder()
+            .timeout(CHECK_TIMEOUT)
+            .build()
+            .map_err(|e| e.to_string())?
     };
 
-    let update = updater.check().await.map_err(|e| e.to_string())?;
+    let update = check_with_retry(&updater).await?;
     let meta = update.as_ref().map(|u| AppUpdateMeta {
         version: u.version.clone(),
         body: u.body.clone(),
@@ -150,13 +208,14 @@ async fn download_and_install(
             .await;
 
         match result {
-            Ok(bytes) => return update.install(bytes).map_err(|e| e.to_string()),
+            Ok(bytes) => return update.install(bytes).map_err(|e| err_chain(&e)),
             Err(e) => {
+                let detail = err_chain(&e);
                 if !is_transient(&e) || attempt == DOWNLOAD_ATTEMPTS {
-                    return Err(e.to_string());
+                    return Err(detail);
                 }
-                log::warn!("app-update: download attempt {attempt} failed ({e}); retrying");
-                tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+                log::warn!("app-update: download attempt {attempt} failed ({detail}); retrying");
+                tokio::time::sleep(Duration::from_secs(2 * attempt as u64)).await;
             }
         }
     }

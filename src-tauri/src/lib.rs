@@ -4,6 +4,7 @@ mod composite_image;
 mod db;
 pub mod dependencies;
 mod entity_image;
+mod error_chain;
 mod image_provider;
 mod logging;
 mod models;
