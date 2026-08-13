@@ -184,10 +184,23 @@ export function isExecCancelled(e: unknown): boolean {
  *  just stops one slow/hung activate() (e.g. one that awaits network) from
  *  freezing startup and everything queued behind it. */
 const ACTIVATE_TIMEOUT_MS = 3000;
-/** Budget for a plugin's storyboard lookup. Generous because discovery can spawn a
- *  subprocess (yt-dlp takes seconds to start), but bounded so a wedged resolver just
- *  means "no thumbnail" instead of a seek bar that never previews. */
-const STORYBOARD_RESOLVE_TIMEOUT_MS = 10000;
+/** Budget for a plugin's storyboard lookup. Bounded so a wedged resolver just means
+ *  "no thumbnail" instead of a seek bar that never previews.
+ *
+ *  This was 10s, which the only real producer could never meet — so the video
+ *  filmstrip silently never appeared for a yt-dlp track. Measured on a dev machine:
+ *  `yt-dlp -j --no-warnings --no-playlist <youtube url>` alone takes **12.2s** (yt-dlp
+ *  is pathologically slow to start here — the same reason dependency probes carry a
+ *  60s timeout and a persisted cache), and the resolver then downloads the chosen
+ *  level's sheets — up to 8 images — *inside the same budget*. It lost the race on
+ *  every play, including repeat plays: the plugin caches sheet bytes but runs yt-dlp
+ *  before consulting that cache.
+ *
+ *  A long budget costs nothing visible. `useStoryboard` starts in `loading` and the
+ *  seek bar renders its ordinary fallback meanwhile, so the only effect of waiting is
+ *  that the filmstrip appears late instead of never. Track changes are already guarded
+ *  by the effect's `cancelled` flag. */
+const STORYBOARD_RESOLVE_TIMEOUT_MS = 60000;
 // Cache the gallery index so the Extensions panel paints installable plugins
 // instantly on open (stale-while-revalidate), instead of waiting on the network.
 const PLUGIN_GALLERY_CACHE_KEY = "galleryPluginsCache";
@@ -2555,10 +2568,11 @@ export function usePlugins(
     [],
   );
 
-  // Seek-preview storyboard for a plugin-owned scheme. Bounded at 10s because
-  // discovery may shell out (yt-dlp is slow to start) and the seek bar must not be
-  // held hostage. Null when no plugin owns the scheme, the plugin has none for this
-  // id, it times out, or it throws — every case means "no preview", not an error.
+  // Seek-preview storyboard for a plugin-owned scheme. Bounded by
+  // STORYBOARD_RESOLVE_TIMEOUT_MS (see there for why it is as long as it is) because
+  // discovery may shell out and the seek bar must not be held hostage. Null when no
+  // plugin owns the scheme, the plugin has none for this id, it times out, or it
+  // throws — every case means "no preview", not an error.
   const resolveStoryboardByUri = useCallback(
     async (scheme: string, id: string): Promise<Storyboard | null> => {
       for (const [, lp] of loadedPluginsRef.current) {
