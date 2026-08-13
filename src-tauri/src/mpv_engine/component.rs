@@ -131,6 +131,9 @@ pub fn install(mut progress: impl FnMut(u64, Option<u64>)) -> Result<ComponentSt
     let mut data: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
     let mut buf = [0u8; 64 * 1024];
     let mut downloaded: u64 = 0;
+    // Throttled like downloader.rs: per-64KB-chunk progress became a frontend
+    // event (and a React render) per chunk — a ~70 MB component ≈ 1,100 events.
+    let mut last_progress = std::time::Instant::now();
     loop {
         let n = resp
             .read(&mut buf)
@@ -140,8 +143,13 @@ pub fn install(mut progress: impl FnMut(u64, Option<u64>)) -> Result<ComponentSt
         }
         data.extend_from_slice(&buf[..n]);
         downloaded += n as u64;
-        progress(downloaded, total);
+        if last_progress.elapsed() >= std::time::Duration::from_millis(250) {
+            progress(downloaded, total);
+            last_progress = std::time::Instant::now();
+        }
     }
+    // Final value so the bar lands on 100%.
+    progress(downloaded, total);
 
     let actual = sha256_hex(&data);
     if actual != entry.sha256.to_lowercase() {

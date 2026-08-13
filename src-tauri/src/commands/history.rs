@@ -103,22 +103,34 @@ pub fn get_auto_continue_track(
 }
 
 #[tauri::command]
-pub fn build_radio_for_track(
+pub async fn build_radio_for_track(
     state: State<'_, AppState>,
     seed_title: String,
     seed_artist: Option<String>,
     target_count: u32,
 ) -> Result<Vec<Track>, String> {
-    state
-        .db
-        .build_radio_for_track(&seed_title, seed_artist.as_deref(), target_count)
-        .map_err(|e| e.to_string())
+    // async + spawn_blocking: builds the station with repeated ORDER BY
+    // RANDOM() scans — run inline it froze the webview while the queue built.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.build_radio_for_track(&seed_title, seed_artist.as_deref(), target_count)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn pick_radio_seeds(
+pub async fn pick_radio_seeds(
     state: State<'_, AppState>,
     count: u32,
 ) -> Result<Vec<Track>, String> {
-    state.db.pick_radio_seeds(count).map_err(|e| e.to_string())
+    // async + spawn_blocking: a full-library GROUP BY with per-row
+    // strip_diacritics joins — Home calls this on every shelf refresh.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.pick_radio_seeds(count).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

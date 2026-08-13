@@ -332,34 +332,40 @@ pub fn download_url_to_playlist_images(
 }
 
 #[tauri::command]
-pub fn generate_playlist_composite(
+pub async fn generate_playlist_composite(
     state: State<'_, AppState>,
     artist_names: Vec<String>,
 ) -> Result<Option<String>, String> {
     if artist_names.is_empty() {
         return Ok(None);
     }
-    let app_dir = &state.app_dir;
-    let artist_image_paths: Vec<std::path::PathBuf> = artist_names
-        .iter()
-        .take(3)
-        .filter_map(|name| {
-            let slug = crate::entity_image::entity_image_slug("artist", name, None);
-            crate::entity_image::get_image_path(app_dir, "artist", &slug)
-        })
-        .collect();
-    if artist_image_paths.is_empty() {
-        return Ok(None);
-    }
-    let img_dir = app_dir.join("playlist_images");
-    std::fs::create_dir_all(&img_dir).map_err(|e| e.to_string())?;
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let dest = img_dir.join(format!("composite_{}.png", timestamp));
-    crate::composite_image::generate_tag_composite(&artist_image_paths, &dest, 400)?;
-    Ok(Some(dest.to_string_lossy().to_string()))
+    // async + spawn_blocking: decodes and composes PNGs via the image crate —
+    // CPU work that froze the webview when run inline.
+    let app_dir = state.app_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let artist_image_paths: Vec<std::path::PathBuf> = artist_names
+            .iter()
+            .take(3)
+            .filter_map(|name| {
+                let slug = crate::entity_image::entity_image_slug("artist", name, None);
+                crate::entity_image::get_image_path(&app_dir, "artist", &slug)
+            })
+            .collect();
+        if artist_image_paths.is_empty() {
+            return Ok(None);
+        }
+        let img_dir = app_dir.join("playlist_images");
+        std::fs::create_dir_all(&img_dir).map_err(|e| e.to_string())?;
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let dest = img_dir.join(format!("composite_{}.png", timestamp));
+        crate::composite_image::generate_tag_composite(&artist_image_paths, &dest, 400)?;
+        Ok(Some(dest.to_string_lossy().to_string()))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

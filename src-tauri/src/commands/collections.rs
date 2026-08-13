@@ -4,7 +4,7 @@ use super::*;
 // --- Collection commands ---
 
 #[tauri::command]
-pub fn add_collection(
+pub async fn add_collection(
     app: AppHandle,
     state: State<'_, AppState>,
     kind: String,
@@ -14,17 +14,22 @@ pub fn add_collection(
     username: Option<String>,
     password: Option<String>,
 ) -> Result<Collection, String> {
+    // async + spawn_blocking: the subsonic arm probes the server (1-2 network
+    // round-trips) and the manifest arm fetches + parses the manifest before
+    // creating anything — run inline these froze the webview for the whole
+    // handshake. The heavy scan/sync itself already runs on its own thread.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
     match kind.as_str() {
         "local" => {
             let folder_path = path.as_deref().ok_or("Path is required for local collections")?;
-            let collection = state
-                .db
+            let collection = db
                 .add_collection("local", &name, Some(folder_path), None, None, None, None, None)
                 .map_err(|e| e.to_string())?;
             let collection_id = collection.id;
 
             // Start background scan
-            let db = state.db.clone();
+            let db = db.clone();
             let scan_path = folder_path.to_string();
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
@@ -65,8 +70,7 @@ pub fn add_collection(
             let client = SubsonicClient::new(server_url, user, pass)
                 .map_err(|e| format!("Failed to connect: {}", e))?;
 
-            let collection = state
-                .db
+            let collection = db
                 .add_collection(
                     "subsonic",
                     &name,
@@ -83,7 +87,7 @@ pub fn add_collection(
             let collection_name = collection.name.clone();
 
             // Start background sync
-            let db = state.db.clone();
+            let db = db.clone();
             let creds_url = server_url.to_string();
             let creds_user = user.to_string();
             let creds_token = client.password_token.clone();
@@ -155,8 +159,7 @@ pub fn add_collection(
                 crate::manifest_sync::FetchOutcome::NotModified => return Err("Manifest could not be fetched".to_string()),
             };
 
-            let collection = state
-                .db
+            let collection = db
                 .add_collection("manifest", &name, None, Some(manifest_url), None, None, None, None)
                 .map_err(|e| e.to_string())?;
             let collection_id = collection.id;
@@ -165,30 +168,29 @@ pub fn add_collection(
             // Manifest sources are remote and change over time, so subscribe them
             // to the generic auto-update loop by default (daily). The user can
             // adjust the cadence or disable it in Settings > Collections.
-            let _ = state
-                .db
-                .update_collection(collection_id, &name, true, 1440, true);
+            let _ = db.update_collection(collection_id, &name, true, 1440, true);
             // Store the HTTP validators so the next resync can do a conditional GET.
-            let _ = state.db.set_manifest_http_cache(collection_id, etag.as_deref(), last_modified.as_deref());
+            let _ = db.set_manifest_http_cache(collection_id, etag.as_deref(), last_modified.as_deref());
 
             // Ingest the already-validated manifest in the background (DB work +
-            // progress events) so the command returns promptly.
-            let db = state.db.clone();
+            // progress events) so the command returns promptly. Distinct name:
+            // this arm still reads `db` after the spawn (the re-read below).
+            let ingest_db = db.clone();
             let base_url = manifest_url.to_string();
-            let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+            let track_count_before = ingest_db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let _ = app.emit(
                     "sync-progress",
                     SyncProgress { collection: collection_name.clone(), synced: 0, total: 0, collection_id },
                 );
-                match crate::manifest_sync::ingest_manifest(&db, &manifest, collection_id, &base_url, |synced, total| {
+                match crate::manifest_sync::ingest_manifest(&ingest_db, &manifest, collection_id, &base_url, |synced, total| {
                     let _ = app.emit(
                         "sync-progress",
                         SyncProgress { collection: collection_name.clone(), synced, total, collection_id },
                     );
                 }) {
                     Ok(removed_tracks) => {
-                        let track_count_after = db.get_track_count_for_collection(collection_id).unwrap_or(0);
+                        let track_count_after = ingest_db.get_track_count_for_collection(collection_id).unwrap_or(0);
                         let new_tracks = (track_count_after - track_count_before).max(0);
                         let _ = app.emit(
                             "sync-complete",
@@ -201,7 +203,7 @@ pub fn add_collection(
                     }
                     Err(e) => {
                         log::error!("Sync failed for manifest collection {}: {}", collection_id, e);
-                        let _ = db.update_collection_sync_error(collection_id, &e);
+                        let _ = ingest_db.update_collection_sync_error(collection_id, &e);
                         let _ = app.emit(
                             "sync-error",
                             serde_json::json!({ "collectionId": collection_id, "error": e }),
@@ -211,16 +213,15 @@ pub fn add_collection(
             });
 
             // Re-read so the returned collection reflects the auto-update defaults.
-            state.db.get_collection_by_id(collection_id).map_err(|e| e.to_string())
+            db.get_collection_by_id(collection_id).map_err(|e| e.to_string())
         }
         "seed" => {
             #[cfg(debug_assertions)]
             {
-                let collection = state
-                    .db
+                let collection = db
                     .add_collection("seed", &name, None, None, None, None, None, None)
                     .map_err(|e| e.to_string())?;
-                crate::seed::seed_database(&state.db, collection.id, 50, 200, 2000)?;
+                crate::seed::seed_database(&db, collection.id, 50, 200, 2000)?;
                 Ok(collection)
             }
             #[cfg(not(debug_assertions))]
@@ -230,6 +231,9 @@ pub fn add_collection(
         }
         _ => Err(format!("Unknown collection kind: {}", kind)),
     }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -307,52 +311,62 @@ pub fn resync_collection(
 // --- Connection test commands ---
 
 #[tauri::command]
-pub fn test_collection_connection(
+pub async fn test_collection_connection(
     state: State<'_, AppState>,
     collection_id: i64,
 ) -> Result<String, String> {
-    let collection = state
-        .db
-        .get_collection_by_id(collection_id)
-        .map_err(|e| e.to_string())?;
+    // async + spawn_blocking: pings the server — a slow/unreachable host froze
+    // the webview for the whole timeout when this ran inline.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = db
+            .get_collection_by_id(collection_id)
+            .map_err(|e| e.to_string())?;
 
-    let result = match collection.kind.as_str() {
-        "subsonic" => {
-            let creds = state
-                .db
-                .get_collection_credentials(collection_id)
-                .map_err(|e| e.to_string())?;
-            let client = SubsonicClient::from_stored(
-                &creds.url,
-                &creds.username,
-                &creds.password_token,
-                creds.salt.as_deref(),
-                &creds.auth_method,
-            );
-            client.ping().map_err(|e| format!("{}", e))?;
-            Ok("Connected successfully".to_string())
+        let result = match collection.kind.as_str() {
+            "subsonic" => {
+                let creds = db
+                    .get_collection_credentials(collection_id)
+                    .map_err(|e| e.to_string())?;
+                let client = SubsonicClient::from_stored(
+                    &creds.url,
+                    &creds.username,
+                    &creds.password_token,
+                    creds.salt.as_deref(),
+                    &creds.auth_method,
+                );
+                client.ping().map_err(|e| format!("{}", e))?;
+                Ok("Connected successfully".to_string())
+            }
+            _ => Err(format!("Connection test not supported for '{}' collections", collection.kind)),
+        };
+
+        match &result {
+            Ok(_) => { let _ = db.clear_collection_sync_error(collection_id); }
+            Err(e) => { let _ = db.update_collection_sync_error(collection_id, e); }
         }
-        _ => Err(format!("Connection test not supported for '{}' collections", collection.kind)),
-    };
 
-    match &result {
-        Ok(_) => { let _ = state.db.clear_collection_sync_error(collection_id); }
-        Err(e) => { let _ = state.db.update_collection_sync_error(collection_id, e); }
-    }
-
-    result
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn subsonic_test_connection(
+pub async fn subsonic_test_connection(
     url: String,
     username: String,
     password: String,
 ) -> Result<String, String> {
     log::info!("subsonic_test_connection called with url: {}", url);
-    SubsonicClient::new(&url, &username, &password)
-        .map_err(|e| format!("{}", e))?;
-    Ok("Connected successfully".to_string())
+    // async + spawn_blocking: SubsonicClient::new probes the server inline.
+    tauri::async_runtime::spawn_blocking(move || {
+        SubsonicClient::new(&url, &username, &password)
+            .map_err(|e| format!("{}", e))?;
+        Ok("Connected successfully".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // --- Publish a music source (export bundle / publish to server) ---

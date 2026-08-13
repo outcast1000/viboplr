@@ -371,7 +371,7 @@ fn test_get_albums_sort_added_desc() {
     }
     db.recompute_counts().unwrap();
 
-    let albums = db.get_albums_sorted(None, Some("added_desc"), false).unwrap();
+    let albums = db.get_albums_sorted(None, Some("added_desc"), false, None).unwrap();
     assert_eq!(albums.len(), 2);
     assert_eq!(albums[0].title, "New Album");
     assert_eq!(albums[1].title, "Old Album");

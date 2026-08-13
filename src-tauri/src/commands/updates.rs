@@ -193,11 +193,20 @@ async fn download_and_install(
         // Counted per attempt: a carried-over total would run past `total` and
         // drive the frontend's progress bar past 100% on a retry.
         let mut downloaded: u64 = 0;
+        // Throttled like downloader.rs — the updater calls this per chunk, and
+        // each emit lands in a React setState. The final chunk always emits so
+        // the bar reaches 100% before install begins.
+        let mut last_progress = std::time::Instant::now();
         let progress_app = app.clone();
         let result = update
             .download(
                 move |chunk, total| {
                     downloaded += chunk as u64;
+                    let finished = total.map_or(false, |t| downloaded >= t);
+                    if !finished && last_progress.elapsed() < Duration::from_millis(250) {
+                        return;
+                    }
+                    last_progress = std::time::Instant::now();
                     let _ = progress_app.emit(
                         "app-update-progress",
                         serde_json::json!({ "downloaded": downloaded, "total": total }),

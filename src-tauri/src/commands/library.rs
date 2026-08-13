@@ -22,8 +22,9 @@ pub fn get_albums(
     artist_id: Option<i64>,
     sort: Option<String>,
     liked_only: Option<bool>,
+    limit: Option<i64>,
 ) -> Result<Vec<Album>, String> {
-    state.db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false))
+    state.db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false), limit)
         .map_err(|e| e.to_string())
 }
 
@@ -214,7 +215,7 @@ pub fn find_track_id_by_path(
 /// the given tolerances. Returns one keeper-first group per duplicate set.
 /// Backs the Duplicate Finder plugin (`api.library.findDuplicates`).
 #[tauri::command]
-pub fn find_duplicate_tracks(
+pub async fn find_duplicate_tracks(
     state: State<'_, AppState>,
     match_duration: bool,
     duration_tolerance_secs: f64,
@@ -222,9 +223,11 @@ pub fn find_duplicate_tracks(
     size_tolerance_pct: f64,
     local_only: bool,
 ) -> Result<Vec<Vec<Track>>, String> {
-    state
-        .db
-        .find_duplicate_groups(
+    // async + spawn_blocking: a non-async command runs inline on the main
+    // thread, and this one loads and groups the whole library.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.find_duplicate_groups(
             match_duration,
             duration_tolerance_secs,
             match_size,
@@ -232,6 +235,9 @@ pub fn find_duplicate_tracks(
             local_only,
         )
         .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// A file-manager drop resolved into a playable queue entry. `path` is a
@@ -255,30 +261,37 @@ pub struct DroppedTrack {
 /// file dropped alongside its parent folder — are de-duplicated. No `AppState`
 /// is needed: this reads the filesystem directly, independent of the library.
 #[tauri::command]
-pub fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrack>, String> {
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for p in paths {
-        // Drops arrive as bare absolute paths on macOS/Windows, but strip a
-        // `file://` prefix defensively so a URI-shaped path also works.
-        let raw = p.strip_prefix("file://").unwrap_or(&p);
-        for file in scanner::collect_dropped_media(std::path::Path::new(raw)) {
-            let abs = file.to_string_lossy().to_string();
-            if !seen.insert(abs.clone()) {
-                continue;
+pub async fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrack>, String> {
+    // async + spawn_blocking: dropping a folder walks it recursively and reads
+    // tags from every media file — run inline this froze the webview for the
+    // whole walk (a 500-song folder = 500 lofty parses on the main thread).
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for p in paths {
+            // Drops arrive as bare absolute paths on macOS/Windows, but strip a
+            // `file://` prefix defensively so a URI-shaped path also works.
+            let raw = p.strip_prefix("file://").unwrap_or(&p);
+            for file in scanner::collect_dropped_media(std::path::Path::new(raw)) {
+                let abs = file.to_string_lossy().to_string();
+                if !seen.insert(abs.clone()) {
+                    continue;
+                }
+                let meta = scanner::read_dropped_media(&file);
+                out.push(DroppedTrack {
+                    path: format!("file://{}", abs),
+                    title: meta.title,
+                    artist_name: meta.artist,
+                    album_title: meta.album,
+                    duration_secs: meta.duration_secs,
+                    format: meta.format,
+                });
             }
-            let meta = scanner::read_dropped_media(&file);
-            out.push(DroppedTrack {
-                path: format!("file://{}", abs),
-                title: meta.title,
-                artist_name: meta.artist,
-                album_title: meta.album,
-                duration_secs: meta.duration_secs,
-                format: meta.format,
-            });
         }
-    }
-    Ok(out)
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // --- Track path command ---
@@ -565,22 +578,28 @@ const LIKES_FILE_VERSION: u32 = 1;
 /// another machine or profile. Covers tracks, artists, albums and tags (likes
 /// AND dislikes). Returns the number of rows written.
 #[tauri::command]
-pub fn export_likes(state: State<'_, AppState>, path: String) -> Result<usize, String> {
-    let likes = state.db.export_all_likes().map_err(|e| e.to_string())?;
-    let count = likes.len();
-    let exported_at: i64 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let file = LikesFile {
-        version: LIKES_FILE_VERSION,
-        app: "viboplr".to_string(),
-        exported_at,
-        likes,
-    };
-    let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())?;
-    Ok(count)
+pub async fn export_likes(state: State<'_, AppState>, path: String) -> Result<usize, String> {
+    // async + spawn_blocking: full-table read + file write off the main thread.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let likes = db.export_all_likes().map_err(|e| e.to_string())?;
+        let count = likes.len();
+        let exported_at: i64 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let file = LikesFile {
+            version: LIKES_FILE_VERSION,
+            app: "viboplr".to_string(),
+            exported_at,
+            likes,
+        };
+        let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+        std::fs::write(&path, json).map_err(|e| e.to_string())?;
+        Ok(count)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Import like/dislike state from a JSON file at `path` (produced by
@@ -589,24 +608,27 @@ pub fn export_likes(state: State<'_, AppState>, path: String) -> Result<usize, S
 /// `entity-likes-changed { kind: "bulk" }` so the frontend refreshes the queue
 /// and library lists. Returns the number of rows applied.
 #[tauri::command]
-pub fn import_likes(
+pub async fn import_likes(
     app: AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<usize, String> {
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let file: LikesFile = serde_json::from_str(&content)
-        .map_err(|_| "This file isn't a valid Viboplr likes export.".to_string())?;
-    if file.version > LIKES_FILE_VERSION {
-        return Err(format!(
-            "This likes file was made by a newer version of Viboplr (format v{}). Update Viboplr to import it.",
-            file.version
-        ));
-    }
-    let applied = state
-        .db
-        .import_likes_rows(&file.likes)
-        .map_err(|e| e.to_string())?;
+    // async + spawn_blocking: file read + full reconcile pass off the main thread.
+    let db = state.db.clone();
+    let applied = tauri::async_runtime::spawn_blocking(move || {
+        let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let file: LikesFile = serde_json::from_str(&content)
+            .map_err(|_| "This file isn't a valid Viboplr likes export.".to_string())?;
+        if file.version > LIKES_FILE_VERSION {
+            return Err(format!(
+                "This likes file was made by a newer version of Viboplr (format v{}). Update Viboplr to import it.",
+                file.version
+            ));
+        }
+        db.import_likes_rows(&file.likes).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": "bulk" }));
     Ok(applied)
 }
@@ -686,80 +708,95 @@ pub fn show_in_folder_path(file_path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn delete_tracks(
+pub async fn delete_tracks(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     track_ids: Vec<i64>,
 ) -> Result<DeleteTracksResult, String> {
-    let tracks = state.db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
-    let mut deleted_ids = Vec::new();
-    let mut failures = Vec::new();
-    for track in &tracks {
-        if track.is_remote() {
-            failures.push(DeleteFailure {
-                title: track.title.clone(),
-                reason: "Remote tracks cannot be deleted locally".to_string(),
-            });
-            continue;
-        }
-        let fs_path = track.filesystem_path().unwrap_or(&track.path);
-        let path = std::path::Path::new(fs_path);
-        if path.exists() {
-            // Windows has no Recycle Bin for network shares, so `trash::delete`
-            // can't move the file there — it fails (or would delete it without
-            // any undo). Permanently delete network-share files instead; the UI
-            // warns the user this is irreversible before reaching this command.
-            let result = if crate::models::is_network_path(fs_path) {
-                std::fs::remove_file(path).map_err(|e| e.to_string())
-            } else {
-                trash::delete(path).map_err(|e| e.to_string())
-            };
-            if let Err(e) = result {
-                log::warn!("Failed to delete file {}: {}", track.path, e);
+    // async + spawn_blocking: trash::delete round-trips through the OS per
+    // file — run inline, deleting dozens of tracks froze the webview for
+    // seconds.
+    let db = state.db.clone();
+    let app_dir = state.app_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let tracks = db.get_tracks_by_ids(&track_ids).map_err(|e| e.to_string())?;
+        let mut deleted_ids = Vec::new();
+        let mut failures = Vec::new();
+        for track in &tracks {
+            if track.is_remote() {
                 failures.push(DeleteFailure {
                     title: track.title.clone(),
-                    reason: e,
+                    reason: "Remote tracks cannot be deleted locally".to_string(),
                 });
                 continue;
             }
+            let fs_path = track.filesystem_path().unwrap_or(&track.path);
+            let path = std::path::Path::new(fs_path);
+            if path.exists() {
+                // Windows has no Recycle Bin for network shares, so `trash::delete`
+                // can't move the file there — it fails (or would delete it without
+                // any undo). Permanently delete network-share files instead; the UI
+                // warns the user this is irreversible before reaching this command.
+                let result = if crate::models::is_network_path(fs_path) {
+                    std::fs::remove_file(path).map_err(|e| e.to_string())
+                } else {
+                    trash::delete(path).map_err(|e| e.to_string())
+                };
+                if let Err(e) = result {
+                    log::warn!("Failed to delete file {}: {}", track.path, e);
+                    failures.push(DeleteFailure {
+                        title: track.title.clone(),
+                        reason: e,
+                    });
+                    continue;
+                }
+            }
+            deleted_ids.push(track.id);
         }
-        deleted_ids.push(track.id);
-    }
-    if !deleted_ids.is_empty() {
-        state.db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
-        state.db.recompute_counts().map_err(|e| e.to_string())?;
-        for &id in &deleted_ids {
-            crate::video_frames::delete_cached_frames(&state.app_dir, id);
-        }
-        // Storyboards are keyed by path, not id, so they need the track's path.
-        for track in &tracks {
-            if deleted_ids.contains(&track.id) {
-                crate::storyboard::delete_cached(&state.app_dir, &track.path);
+        let deleted_set: std::collections::HashSet<i64> = deleted_ids.iter().copied().collect();
+        if !deleted_ids.is_empty() {
+            db.delete_tracks_by_ids(&deleted_ids).map_err(|e| e.to_string())?;
+            db.recompute_counts().map_err(|e| e.to_string())?;
+            for &id in &deleted_ids {
+                crate::video_frames::delete_cached_frames(&app_dir, id);
+            }
+            // Storyboards are keyed by path, not id, so they need the track's path.
+            for track in &tracks {
+                if deleted_set.contains(&track.id) {
+                    crate::storyboard::delete_cached(&app_dir, &track.path);
+                }
+            }
+            for track in &tracks {
+                if deleted_set.contains(&track.id) {
+                    let _ = app.emit("track-removed", serde_json::json!({
+                        "trackId": track.id,
+                        "path": track.path,
+                    }));
+                }
             }
         }
-        for track in &tracks {
-            if deleted_ids.contains(&track.id) {
-                let _ = app.emit("track-removed", serde_json::json!({
-                    "trackId": track.id,
-                    "path": track.path,
-                }));
-            }
-        }
-    }
-    let deleted_paths: Vec<String> = tracks.iter()
-        .filter(|t| deleted_ids.contains(&t.id))
-        .map(|t| t.path.clone())
-        .collect();
-    Ok(DeleteTracksResult { deleted_ids, deleted_paths, failures })
+        let deleted_paths: Vec<String> = tracks.iter()
+            .filter(|t| deleted_set.contains(&t.id))
+            .map(|t| t.path.clone())
+            .collect();
+        Ok(DeleteTracksResult { deleted_ids, deleted_paths, failures })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-pub fn bulk_update_tracks(
+pub async fn bulk_update_tracks(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     track_ids: Vec<i64>,
     fields: BulkUpdateFields,
 ) -> Result<Vec<String>, String> {
+    // async + spawn_blocking: this rewrites tags into every selected local
+    // audio file (lofty read-modify-write per file) — run inline it froze the
+    // webview for the whole batch.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
     // Resolve each nullable field to its tri-state: Unchanged / Clear / Set.
     let artist_u = crate::models::FieldUpdate::from_double_opt(fields.artist_name);
     let album_u = crate::models::FieldUpdate::from_double_opt(fields.album_title);
@@ -767,7 +804,7 @@ pub fn bulk_update_tracks(
     let track_number_u = crate::models::FieldUpdate::from_double_opt(fields.track_number);
 
     // Perform DB updates
-    let track_info = state.db.bulk_update_tracks(
+    let track_info = db.bulk_update_tracks(
         &track_ids,
         artist_u.as_str_update(),
         album_u.as_str_update(),
@@ -807,7 +844,7 @@ pub fn bulk_update_tracks(
 
         // Only recompute genre when tags were touched; otherwise leave genre alone.
         let genre = if tags_touched {
-            match state.db.get_tags_for_track(*track_id) {
+            match db.get_tags_for_track(*track_id) {
                 Ok(tags) => Some(tags.into_iter().map(|t| t.name).collect::<Vec<_>>().join(", ")),
                 Err(_) => None,
             }
@@ -836,6 +873,9 @@ pub fn bulk_update_tracks(
     } else {
         Ok(errors)
     }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

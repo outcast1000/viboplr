@@ -533,6 +533,10 @@ pub(crate) fn download_plugin_zip(
     let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0) as usize);
     let mut buf = [0u8; 64 * 1024];
     let mut downloaded: u64 = 0;
+    // Throttle progress like downloader.rs: an emit per 64 KB chunk lands in a
+    // React setState per event, and a fast connection turned an install into a
+    // render storm (a 10 MB zip ≈ 160 events in a burst).
+    let mut last_progress = std::time::Instant::now();
     loop {
         // Cooperative cancel — only meaningful during the download (extraction
         // that follows is the point of no return; the UI hides Cancel by then).
@@ -545,9 +549,14 @@ pub(crate) fn download_plugin_zip(
         }
         bytes.extend_from_slice(&buf[..n]);
         downloaded += n as u64;
-        emit("downloading", downloaded, total);
+        if last_progress.elapsed() >= std::time::Duration::from_millis(250) {
+            emit("downloading", downloaded, total);
+            last_progress = std::time::Instant::now();
+        }
     }
 
+    // Always emit the final total so the bar lands on 100%.
+    emit("downloading", downloaded, total);
     emit("installing", downloaded, total);
     Ok(bytes)
 }

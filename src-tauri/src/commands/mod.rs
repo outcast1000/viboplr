@@ -1197,7 +1197,7 @@ mod tests {
         // Album liked
         state.db.toggle_liked("albums", album_id, 1).unwrap();
         state.db.recompute_counts().unwrap();
-        let albums = state.db.get_albums_sorted(None, None, false).unwrap();
+        let albums = state.db.get_albums_sorted(None, None, false, None).unwrap();
         assert!(albums.iter().any(|a| a.id == album_id && a.liked == 1));
     }
 
