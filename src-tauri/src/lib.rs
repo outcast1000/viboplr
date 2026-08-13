@@ -1018,11 +1018,6 @@ pub fn run() {
                                     "trackTitle": track_title,
                                     "destPath": dest_path.to_string_lossy(),
                                 }));
-
-                                // Emit scan-complete so frontend refreshes library
-                                let _ = dl_app_handle.emit("scan-complete", serde_json::json!({
-                                    "folder": request.dest_collection_path,
-                                }));
                             }
                             Err(e) => {
                                 log::error!("Download failed for {}: {}", track_title, e);
@@ -1062,6 +1057,14 @@ pub fn run() {
                             if let Err(e) = dl_worker_db.reconcile_track_likes_from_entity_likes() {
                                 log::error!("Failed to reconcile track likes after batch download: {}", e);
                             }
+                            // One scan-complete per batch, after the bookkeeping, so the
+                            // frontend's whole-library refresh runs once against rebuilt
+                            // FTS/counts. This used to fire per downloaded track, which
+                            // cost an N-track batch N full library refetches and N Home
+                            // rebuilds — all against pre-rebuild data.
+                            let _ = dl_app_handle.emit("scan-complete", serde_json::json!({
+                                "folder": request.dest_collection_path,
+                            }));
                         }
                         batch_had_success = false;
                     }
