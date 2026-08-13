@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, HistoryEntry, HistoryMostPlayed, HistoryArtistStats } from "../types";
 import type { ContextMenuTarget } from "../types/contextMenu";
 import { isLocalTrack } from "../queueEntry";
+import { formatRelativeTime } from "../utils";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { TrackRow } from "./TrackRow";
 // Index-based multi-select over the currently-visible rows (string keys so
@@ -34,15 +35,6 @@ interface HistoryViewProps {
   onShowContextMenu?: (x: number, y: number, target: ContextMenuTarget) => void;
 }
 
-function formatRelativeTime(unixSecs: number): string {
-  const now = Math.floor(Date.now() / 1000);
-  const diff = now - unixSecs;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return new Date(unixSecs * 1000).toLocaleDateString();
-}
 
 // A history entry — track OR artist — rendered via the shared TrackRow. The row
 // is entity-agnostic (rank in the leading slot, artist-only art with a blank

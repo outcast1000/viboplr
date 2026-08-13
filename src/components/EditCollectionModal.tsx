@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Collection } from "../types";
-import { collectionKindLabel } from "../utils";
+import { collectionKindLabel, formatDurationCoarse } from "../utils";
 
 interface EditCollectionModalProps {
   collection: Collection;
@@ -43,13 +43,6 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
     } finally {
       setTesting(false);
     }
-  }
-
-  function formatDuration(secs: number): string {
-    if (secs < 60) return `${secs.toFixed(1)}s`;
-    const mins = Math.floor(secs / 60);
-    const remainSecs = Math.round(secs % 60);
-    return `${mins}m ${remainSecs}s`;
   }
 
   function handleSave() {
@@ -143,7 +136,7 @@ export function EditCollectionModal({ collection, onSave, onClose }: EditCollect
             <div className="modal-field-static">
               {new Date(collection.last_synced_at * 1000).toLocaleString()}
               {collection.last_sync_duration_secs != null && (
-                <> ({formatDuration(collection.last_sync_duration_secs)})</>
+                <> ({formatDurationCoarse(collection.last_sync_duration_secs)})</>
               )}
             </div>
           </div>

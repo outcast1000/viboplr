@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, QueueTrack } from "../types";
-import { formatDuration } from "../utils";
+import { formatDuration, formatDateTime, formatRelativeTime } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { useDetailActions } from "../contexts/DetailViewContext";
 import { IconFolder, IconLastfm } from "./Icons";
@@ -41,20 +41,6 @@ function formatCount(n: number): string {
 }
 
 
-function formatTimestamp(ts: number): string {
-  const d = new Date(ts * 1000);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
-    " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-}
-
-function relativeTime(ts: number): string {
-  const diff = Math.floor(Date.now() / 1000) - ts;
-  if (diff < 60) return "just now";
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
-  return formatTimestamp(ts);
-}
 
 interface TrackPlayStats {
   play_count: number;
@@ -374,7 +360,7 @@ export function TrackDetailView({
                       <span className="track-details-label">Plays</span>
                       <span className="track-details-value">
                         {playStats.play_count}
-                        {playStats.last_played_at && <> &middot; last {relativeTime(playStats.last_played_at)}</>}
+                        {playStats.last_played_at && <> &middot; last {formatRelativeTime(playStats.last_played_at)}</>}
                       </span>
                     </div>
                   )}
@@ -424,7 +410,7 @@ export function TrackDetailView({
                   {track.added_at && (
                     <div className="track-details-row">
                       <span className="track-details-label">Added</span>
-                      <span className="track-details-value">{formatTimestamp(track.added_at)}</span>
+                      <span className="track-details-value">{formatDateTime(track.added_at)}</span>
                     </div>
                   )}
                   {extraTags && Object.entries(extraTags).map(([k, v]) => (
@@ -457,7 +443,7 @@ export function TrackDetailView({
                         <div className="scrobble-year-label">{year}</div>
                         {entries.map((entry, i) => (
                           <div key={i} className="scrobble-entry">
-                            {formatTimestamp(entry.played_at)}
+                            {formatDateTime(entry.played_at)}
                           </div>
                         ))}
                       </div>

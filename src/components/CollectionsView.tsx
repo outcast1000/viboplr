@@ -1,36 +1,7 @@
 import type { Collection, CollectionStats } from "../types";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
-import { collectionKindLabel } from "../utils";
+import { collectionKindLabel, formatDurationCoarse, formatFileSize, formatRelativeTime } from "../utils";
 import "./CollectionsView.css";
-
-function formatSyncDuration(secs: number): string {
-  if (secs < 60) return `${secs.toFixed(1)}s`;
-  const mins = Math.floor(secs / 60);
-  const remainSecs = Math.round(secs % 60);
-  return `${mins}m ${remainSecs}s`;
-}
-
-function formatTimeAgo(ts: number): string {
-  const diffSecs = Math.floor(Date.now() / 1000) - ts;
-  if (diffSecs < 60) return "just now";
-  if (diffSecs < 3600) return `${Math.floor(diffSecs / 60)}m ago`;
-  if (diffSecs < 86400) return `${Math.floor(diffSecs / 3600)}h ago`;
-  return `${Math.floor(diffSecs / 86400)}d ago`;
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function formatTotalDuration(secs: number): string {
-  const hours = Math.floor(secs / 3600);
-  const mins = Math.floor((secs % 3600) / 60);
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
-}
 
 function formatResyncStats(added: number, removed: number): string {
   const parts: string[] = [];
@@ -123,16 +94,16 @@ export function CollectionsView({
                   {stats && stats.track_count > 0 && (
                     <span className="collections-view-detail">
                       {stats.track_count.toLocaleString()} tracks{stats.video_count > 0 && ` (${stats.video_count} video${stats.video_count !== 1 ? "s" : ""})`}
-                      {" · "}{formatSize(stats.total_size)}
-                      {" · "}{formatTotalDuration(stats.total_duration)}
+                      {" · "}{formatFileSize(stats.total_size)}
+                      {" · "}{formatDurationCoarse(stats.total_duration)}
                     </span>
                   )}
                   {c.path && <span className="collections-view-detail" title={c.path}>{c.path}</span>}
                   {c.url && <span className="collections-view-detail">{c.url}</span>}
                   {c.last_synced_at && (
                     <span className="collections-view-detail">
-                      Synced {formatTimeAgo(c.last_synced_at)}
-                      {c.last_sync_duration_secs != null && <> in {formatSyncDuration(c.last_sync_duration_secs)}</>}
+                      Synced {formatRelativeTime(c.last_synced_at)}
+                      {c.last_sync_duration_secs != null && <> in {formatDurationCoarse(c.last_sync_duration_secs)}</>}
                     </span>
                   )}
                   {c.last_sync_error && (

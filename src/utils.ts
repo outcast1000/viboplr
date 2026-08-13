@@ -33,6 +33,41 @@ export function formatDuration(secs: number | null | undefined): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** "just now" / "5m ago" / "3h ago" / "12d ago", falling back to the locale
+ *  date past 30 days. The one relative-time formatter — three views used to
+ *  carry private variants that disagreed about the far tail (one kept "Nd
+ *  ago" forever, one switched to a date at 7 days, one at 30 with the time
+ *  appended). */
+export function formatRelativeTime(unixSecs: number): string {
+  const diff = Math.floor(Date.now() / 1000) - unixSecs;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(unixSecs * 1000).toLocaleDateString();
+}
+
+/** Locale date + time ("Aug 13, 2026, 5:04 PM"-style) for absolute
+ *  timestamps (added-at, play history). */
+export function formatDateTime(unixSecs: number): string {
+  const d = new Date(unixSecs * 1000);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
+    " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+/** Human duration at coarse granularity — "2h 5m" / "3m 42s" / "12.3s". For
+ *  elapsed and total figures (sync time, collection playtime), where
+ *  formatDuration's playback-position mm:ss reads wrong. Replaces three
+ *  local variants (two identical, one hours-only). */
+export function formatDurationCoarse(secs: number): string {
+  if (secs < 60) return `${secs.toFixed(1)}s`;
+  const hours = Math.floor(secs / 3600);
+  const mins = Math.floor((secs % 3600) / 60);
+  if (hours > 0) return `${hours}h ${mins}m`;
+  const remainSecs = Math.round(secs % 60);
+  return `${mins}m ${remainSecs}s`;
+}
+
 export function parseSubsonicUrl(raw: string): { serverUrl: string; username: string; password: string } | null {
   try {
     // Replace subsonic:// with https:// so URL parser can handle it
