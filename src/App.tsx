@@ -3310,9 +3310,12 @@ function App() {
     pluginNames: plugins.pluginNames,
   });
   // Synced lyrics for the video subtitle overlay: only when the current track is
-  // video, synced lyrics exist, and they roughly fit the media length (coarse
-  // guard against a wrong/short video). Rendered as subtitles across the docked
-  // preview, theater, and fullscreen; visibility is the shared `videoSubtitlesOn`.
+  // video, synced lyrics exist, and they fit the media length in BOTH directions
+  // — not running past it (a short edit/preview) and not covering only a sliver
+  // of it (a concert upload or extended remix). Rendered as subtitles across the
+  // docked preview, theater, and fullscreen; visibility is the shared
+  // `videoSubtitlesOn`. A rejected fit also hides the subtitle toggle, since
+  // both toggle sites are gated on this being non-null — no dead switch.
   const videoSyncedLyricLines = useMemo(() => {
     const t = playback.currentTrack;
     if (!t || !isVideoTrack(t)) return null;
@@ -3320,8 +3323,13 @@ function App() {
       return null;
     }
     const lines = parseLrc(nowPlayingLyrics.data.text);
-    return syncedLyricsFitMedia(lines, t.duration_secs) ? lines : null;
-  }, [playback.currentTrack, nowPlayingLyrics]);
+    // Prefer the live media duration over the queue entry's metadata: what a
+    // plugin resolved and is actually decoding can differ from what the entry
+    // claims, and the gate is about the video on screen. Falls back to metadata
+    // while the media is still loading; 0/null means "unknown" and allows.
+    const durationSecs = playback.durationSecs || t.duration_secs;
+    return syncedLyricsFitMedia(lines, durationSecs) ? lines : null;
+  }, [playback.currentTrack, playback.durationSecs, nowPlayingLyrics]);
 
   // One prop set for the fullscreen control bar, rendered twice: once inside the
   // video container and once inside the audio/visualizer overlay. Shared rather

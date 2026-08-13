@@ -107,8 +107,26 @@ describe("syncedLyricsFitMedia", () => {
     expect(syncedLyricsFitMedia(lines, 5)).toBe(true);    // within default 10s tolerance
   });
 
-  it("accepts a much longer (extended/instrumental) video", () => {
-    expect(syncedLyricsFitMedia(lines, 600)).toBe(true);
+  it("rejects lyrics that cover only a sliver of a long video", () => {
+    // A concert/DJ-set upload, or an extended edit: the lyrics are real but
+    // they describe a fraction of what is on screen, so they can't be in sync.
+    expect(syncedLyricsFitMedia(lines, 600)).toBe(false);
+    const song = parseLrc("[03:20.00]end"); // last line at 200s
+    expect(syncedLyricsFitMedia(song, 4800)).toBe(false); // 80-minute concert
+    expect(syncedLyricsFitMedia(song, 480)).toBe(false);  // 8-minute extended remix (0.42)
+  });
+
+  it("accepts a music video with an ordinary intro/outro", () => {
+    const song = parseLrc("[03:20.00]end"); // last line at 200s
+    expect(syncedLyricsFitMedia(song, 270)).toBe(true); // 4:30 video → 0.74
+    expect(syncedLyricsFitMedia(song, 215)).toBe(true); // 3:35 video → 0.93
+  });
+
+  it("applies the coverage floor at the boundary", () => {
+    const song = parseLrc("[01:00.00]end"); // last line at 60s
+    expect(syncedLyricsFitMedia(song, 100)).toBe(true);  // exactly 0.6
+    expect(syncedLyricsFitMedia(song, 101)).toBe(false); // just under
+    expect(syncedLyricsFitMedia(song, 200, 10, 0.3)).toBe(true); // floor is tunable
   });
 
   it("rejects lyrics that run well past the media (wrong/short clip)", () => {

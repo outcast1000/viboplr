@@ -65,6 +65,14 @@
   --hero-text-shadow: 0 2px 4px rgba(0, 0, 0, 0.85), 0 4px 16px rgba(0, 0, 0, 0.7);
   --hero-text-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.55);
 
+  /* Subtitle outline over video. Always dark, never a skin token: what sits
+     behind these glyphs is an arbitrary video frame, not a skin surface, so
+     following the skin put dark text under a white glow on light skins. The
+     text itself uses the --hero-text-* pair above for the same reason.
+     Skinnable via customCSS. */
+  --video-subtitle-stroke: rgba(0, 0, 0, 0.85);
+  --video-subtitle-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+
   /* Design tokens (skinnable) */
   --ds-radius: 6px;
   --ds-radius-pill: 20px;

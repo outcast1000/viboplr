@@ -1,8 +1,19 @@
 /* Subtitle-style synced lyrics over the shared <video>. A direct child of
    .video-container, so one instance covers every video mode. PERSISTENT (not
    gated on any idle-fade layer — subtitles are content, not a control).
-   Pointer-events off so clicks reach the video. Strong text-shadow keeps it
-   legible over arbitrary (bright/busy) video frames. */
+   Pointer-events off so clicks reach the video.
+
+   Colour comes from the --hero-text-* / --video-subtitle-* tokens, NOT from
+   --text-primary / --text-secondary. What backs these glyphs is a video frame,
+   so the treatment has to follow the video, not the skin: the skin tokens gave
+   light skins dark text, and the old rgba(var(--overlay-inverse)) glow resolves
+   to WHITE there (base.css flips that token per skin type) — dark text under a
+   white halo over video, which is where the "unreadable" report came from.
+
+   Legibility is a real outline, not a blurred glow. `paint-order: stroke fill`
+   paints the stroke first so the fill covers its inner half and letterforms
+   keep their weight; a 16px blur behind text washes out over bright or busy
+   footage exactly when it is needed most. */
 .video-subtitles {
   position: absolute;
   left: 50%;
@@ -10,32 +21,35 @@
   transform: translateX(-50%);
   max-width: min(90%, 900px);
   text-align: center;
+  text-wrap: balance;
   pointer-events: none;
   z-index: 6; /* above the video, below .fs-controls (z-index 10) */
 }
-.video-subtitle-current {
-  font-size: var(--fs-base);
-  font-weight: 700;
-  line-height: 1.3;
-  color: var(--text-primary);
-  text-shadow:
-    0 2px 16px rgba(var(--overlay-inverse), 0.9),
-    0 0 4px rgba(var(--overlay-inverse), 0.95);
-}
+.video-subtitle-current,
 .video-subtitle-next {
-  font-size: var(--fs-sm);
+  paint-order: stroke fill;
+  line-height: 1.35;
+  text-shadow: var(--video-subtitle-shadow);
+  -webkit-text-stroke: 2px var(--video-subtitle-stroke);
+}
+.video-subtitle-current {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--hero-text-primary);
+}
+/* The upcoming line is subordinate by size and weight, not by being dimmed into
+   the picture: --hero-text-secondary is 85% white, where the old
+   --text-secondary was a muted grey that vanished against real footage. */
+.video-subtitle-next {
+  font-size: var(--fs-base);
   font-weight: 600;
-  line-height: 1.3;
-  margin-top: 6px;
-  color: var(--text-secondary);
-  text-shadow:
-    0 2px 14px rgba(var(--overlay-inverse), 0.85),
-    0 0 4px rgba(var(--overlay-inverse), 0.9);
+  margin-top: 10px;
+  color: var(--hero-text-secondary);
 }
 
-/* Larger + lifted in the immersive modes (Now Playing theater / fullscreen),
-   matching the previous theater sizing. Both the browser :fullscreen path and
-   the native mpv fullscreen (--native-fs) are covered. */
+/* Larger + lifted in the immersive modes (Now Playing theater / fullscreen).
+   Both the browser :fullscreen path and the native mpv fullscreen (--native-fs)
+   are covered. */
 .video-container--theater .video-subtitles,
 .video-container--native-fs .video-subtitles,
 .video-container:fullscreen .video-subtitles {
@@ -44,10 +58,28 @@
 .video-container--theater .video-subtitle-current,
 .video-container--native-fs .video-subtitle-current,
 .video-container:fullscreen .video-subtitle-current {
-  font-size: var(--fs-xl);
+  font-size: var(--fs-2xl);
+  -webkit-text-stroke: 3px var(--video-subtitle-stroke);
 }
 .video-container--theater .video-subtitle-next,
 .video-container--native-fs .video-subtitle-next,
 .video-container:fullscreen .video-subtitle-next {
-  font-size: var(--fs-base);
+  font-size: var(--fs-lg);
+}
+
+/* Where paint-order is not honored the stroke stays centered on the glyph
+   outline and thins the letterforms, which is worse than no stroke. Drop it
+   there and rebuild the outline from hard offset shadows — universally
+   supported, slightly softer corners. */
+@supports not (paint-order: stroke) {
+  .video-subtitle-current,
+  .video-subtitle-next {
+    -webkit-text-stroke: 0;
+    text-shadow:
+      1px 1px 0 var(--video-subtitle-stroke),
+      -1px 1px 0 var(--video-subtitle-stroke),
+      1px -1px 0 var(--video-subtitle-stroke),
+      -1px -1px 0 var(--video-subtitle-stroke),
+      var(--video-subtitle-shadow);
+  }
 }

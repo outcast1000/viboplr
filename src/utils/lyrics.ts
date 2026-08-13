@@ -46,19 +46,34 @@ export function activeSyncedLine(lines: LrcLine[], position: number): string | n
 }
 
 /** Coarse sanity check that a synced LRC belongs to a track of roughly this
- *  media length — used to gate lyrics-over-video. Rejects only when the lyrics
- *  run well PAST the media (a short clip/preview, or the wrong/shorter video);
- *  a long instrumental/extended video is fine (the lyrics simply end early).
- *  Unknown duration → allow. Does NOT detect an intro offset (video timelines
+ *  media length — used to gate lyrics-over-video. Two-sided, because a wrong
+ *  match runs long in either direction:
+ *
+ *  - lyrics running well PAST the media (a 30s preview, or a shorter edit) —
+ *    rejected beyond `toleranceSecs`;
+ *  - lyrics covering only a sliver of the media (a 3-minute song's LRC against
+ *    an 80-minute concert upload, a DJ set, or an extended remix whose timings
+ *    won't line up anyway) — rejected below `minCoverage` of the duration.
+ *
+ *  60% coverage passes an ordinary music video with an intro and an outro
+ *  (4:30 video, last line at 3:20 → 0.74) while rejecting the long-upload
+ *  cases. The cost is a false negative on a track with a very long instrumental
+ *  outro; hiding lyrics there is the safer miss.
+ *
+ *  Unknown duration → allow (hiding lyrics because we can't measure would be
+ *  worse than the status quo). Does NOT detect an intro offset (video timelines
  *  can differ from the audio release) — that's a manual-offset concern. */
 export function syncedLyricsFitMedia(
   lines: LrcLine[],
   mediaDurationSecs: number | null | undefined,
   toleranceSecs = 10,
+  minCoverage = 0.6,
 ): boolean {
   if (!mediaDurationSecs || mediaDurationSecs <= 0) return true;
   if (!lines.length) return false;
-  return lines[lines.length - 1].time <= mediaDurationSecs + toleranceSecs;
+  const lastTime = lines[lines.length - 1].time;
+  if (lastTime > mediaDurationSecs + toleranceSecs) return false;
+  return lastTime >= mediaDurationSecs * minCoverage;
 }
 
 /** Non-empty, trimmed lines of plain (unsynced) lyrics text. */
