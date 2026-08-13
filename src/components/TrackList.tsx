@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useId } from "react";
+import { memo, useState, useEffect, useRef, useMemo, useId } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { computeSelection as computeSelectionGeneric } from "../utils/rowSelection";
@@ -178,7 +178,9 @@ export function TrackList({
     prevTrackIdsRef.current = currFirst + ":" + tracks.length;
   }, [tracks]);
 
-  const visibleColumns = columns.filter(c => c.visible);
+  // Memoized: this array is a TrackRow prop, and a fresh identity per render
+  // would defeat the row memo below.
+  const visibleColumns = useMemo(() => columns.filter(c => c.visible), [columns]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -427,105 +429,43 @@ export function TrackList({
     );
   }
 
-  function renderRowActions(t: Track) {
-    return (
-      <RowHoverActions
-        onPlay={onPlay ? () => onPlay(t) : undefined}
-        onEnqueue={onEnqueue ? () => onEnqueue(t) : undefined}
-        onStartRadio={onStartRadio ? () => onStartRadio(t) : undefined}
-        onDetails={onLocateTrack ? () => onLocateTrack(t) : undefined}
-      />
-    );
-  }
-
-  function renderCell(col: ColumnConfig, t: Track, i: number) {
-    switch (col.id) {
-      case "like":
-        return (
-          <span key="like" className="col-like">
-            <LikeDislikeButtons
-              liked={t.liked}
-              onToggleLike={() => onToggleLike(t)}
-              onToggleDislike={onToggleDislike ? () => onToggleDislike(t) : undefined}
-              variant="inline"
-              size={12}
-            />
-          </span>
-        );
-      case "num": {
-        const isCurrentTrack = currentTrack?.key === t.key;
-        if (isCurrentTrack && playing != null) {
-          return (
-            <span key="num" className="col-num">
-              <SpinningDisc size={14} playing={playing} />
-            </span>
-          );
-        }
-        return (
-          <span key="num" className="col-num">
-            {isVideoTrack(t) ? "\uD83C\uDFAC" : (t.track_number || i + 1)}
-          </span>
-        );
+  // The mutable half of the row contract (see TrackRow below): rebuilt with
+  // fresh closures every render, reached by rows through a ref whose identity
+  // never changes \u2014 the same latestRef pattern as QueuePanel's QueueRow.
+  const rowHandlersRef = useRef<TrackRowHandlers>(null!);
+  rowHandlersRef.current = {
+    mouseDown: handleRowMouseDown,
+    click: handleRowClick,
+    doubleClick: (index: number) => { setSelectedIds(new Set()); onDoubleClick([tracks[index]], 0); },
+    contextMenu: (e: React.MouseEvent, t: Track, index: number) => {
+      if (!selectedIds.has(t.key)) {
+        setSelectedIds(new Set([t.key]));
+        lastClickedIndexRef.current = index;
+        onContextMenu(e, t, new Set([t.key]));
+      } else {
+        onContextMenu(e, t, selectedIds.size > 1 ? selectedIds : new Set([t.key]));
       }
-      case "title":
-        return (
-          <span key="title" className="col-title">
-            <span className="col-title-main">
-              <span className="col-title-text">{t.title}</span>
-            </span>
-            {hasRowActions && renderRowActions(t)}
-          </span>
-        );
-      case "artist":
-        return (
-          <span key="artist" className="col-artist">
-            {t.artist_name ? (
-              <span className="track-link" onClick={(e) => { e.stopPropagation(); onArtistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
-            ) : "Unknown"}
-          </span>
-        );
-      case "album":
-        return (
-          <span key="album" className="col-album">
-            {t.album_title ? (
-              <span className="track-link" onClick={(e) => { e.stopPropagation(); onAlbumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
-            ) : "Unknown"}
-          </span>
-        );
-      case "duration":
-        return <span key="duration" className="col-duration">{formatDuration(t.duration_secs)}</span>;
-      case "path":
-        return <span key="path" className="col-path" title={t.path ?? ""}>{(t.path ?? "").replace(/^file:\/\//, "")}</span>;
-      case "year":
-        return <span key="year" className="col-year">{t.year ?? ""}</span>;
-      case "quality":
-        return <span key="quality" className="col-quality">{formatQuality(t)}</span>;
-      case "size":
-        return <span key="size" className="col-size">{formatFileSize(t.file_size)}</span>;
-      case "collection":
-        return <span key="collection" className="col-collection">{t.collection_name ?? ""}</span>;
-      case "added":
-        return <span key="added" className="col-added">{formatDate(t.added_at)}</span>;
-      case "modified":
-        return <span key="modified" className="col-modified">{formatDate(t.modified_at)}</span>;
-      case "popularity": {
-        const pop = t.id != null ? trackPopularity?.[t.id] : undefined;
-        const pct = (pop != null && maxPopularity > 0) ? (pop / maxPopularity) * 100 : 0;
-        return (
-          <span key="popularity" className="col-popularity">
-            {pop != null ? (
-              <>
-                <span className="popularity-fill" style={{ width: `${pct}%` }} />
-                <span className="popularity-count">{formatCount(pop)}</span>
-              </>
-            ) : null}
-          </span>
-        );
-      }
-    }
-  }
+    },
+    artistClick: onArtistClick,
+    albumClick: onAlbumClick,
+    toggleLike: onToggleLike,
+    toggleDislike: onToggleDislike,
+    play: onPlay,
+    enqueue: onEnqueue,
+    startRadio: onStartRadio,
+    locate: onLocateTrack,
+  };
 
-  const hasRowActions = !!onPlay || !!onEnqueue;
+  // Which optional actions exist decides what the row renders (hover buttons,
+  // the dislike half of the like control) \u2014 the ref above hides handler
+  // identity, so presence rides its own memoized prop.
+  const presence = useMemo<TrackRowActionPresence>(() => ({
+    play: !!onPlay,
+    enqueue: !!onEnqueue,
+    startRadio: !!onStartRadio,
+    locate: !!onLocateTrack,
+    dislike: !!onToggleDislike,
+  }), [!!onPlay, !!onEnqueue, !!onStartRadio, !!onLocateTrack, !!onToggleDislike]);
 
   // Infinite scroll appends pages without bound, so a large library can
   // accumulate thousands of rows. Above a threshold, opt each row into
@@ -549,29 +489,27 @@ export function TrackList({
       <div className="track-header" role="presentation" onContextMenu={handleHeaderContextMenu}>
         {visibleColumns.map(col => renderHeaderCell(col))}
       </div>
-      {tracks.map((t, i) => (
-        <div
-          key={t.key}
-          role="option"
-          id={optionId(i)}
-          aria-selected={selectedIds.has(t.key)}
-          className={`track-row ${currentTrack?.key === t.key ? "playing" : ""} ${highlightedIndex === i ? "highlighted" : ""} ${activeIndex === i ? "active" : ""} ${selectedIds.has(t.key) ? "selected" : ""}`}
-          onMouseDown={(e) => handleRowMouseDown(e, i)}
-          onClick={(e) => handleRowClick(e, i)}
-          onDoubleClick={() => { setSelectedIds(new Set()); onDoubleClick([tracks[i]], 0); }}
-          onContextMenu={(e) => {
-            if (!selectedIds.has(t.key)) {
-              setSelectedIds(new Set([t.key]));
-              lastClickedIndexRef.current = i;
-              onContextMenu(e, t, new Set([t.key]));
-            } else {
-              onContextMenu(e, t, selectedIds.size > 1 ? selectedIds : new Set([t.key]));
-            }
-          }}
-        >
-          {visibleColumns.map(col => renderCell(col, t, i))}
-        </div>
-      ))}
+      {tracks.map((t, i) => {
+        const isCurrent = currentTrack?.key === t.key;
+        return (
+          <TrackRow
+            key={t.key}
+            track={t}
+            index={i}
+            optId={optionId(i)}
+            isCurrent={isCurrent}
+            spinning={isCurrent && playing != null ? playing : null}
+            isHighlighted={highlightedIndex === i}
+            isActive={activeIndex === i}
+            isSelected={selectedIds.has(t.key)}
+            visibleColumns={visibleColumns}
+            presence={presence}
+            popularity={t.id != null ? trackPopularity?.[t.id] : undefined}
+            maxPopularity={maxPopularity}
+            handlers={rowHandlersRef}
+          />
+        );
+      })}
       {hasMore && (
         <div ref={sentinelRef} className="track-list-sentinel">
           {loadingMore && <div className="track-list-loading">Loading more tracks...</div>}
@@ -583,3 +521,169 @@ export function TrackList({
     </div>
   );
 }
+
+/** Everything a row may call back into. Rebuilt with fresh closures on every
+ *  TrackList render and reached through a stable ref, so rows never re-render
+ *  just because a handler closure was recreated. */
+interface TrackRowHandlers {
+  mouseDown: (e: React.MouseEvent, index: number) => void;
+  click: (e: React.MouseEvent, index: number) => void;
+  doubleClick: (index: number) => void;
+  contextMenu: (e: React.MouseEvent, t: Track, index: number) => void;
+  artistClick: (artistId: number, name?: string) => void;
+  albumClick: (albumId: number, artistId?: number | null, name?: string, artistName?: string) => void;
+  toggleLike: (track: Track) => void;
+  toggleDislike?: (track: Track) => void;
+  play?: (track: Track) => void;
+  enqueue?: (track: Track) => void;
+  startRadio?: (track: Track) => void;
+  locate?: (track: Track) => void;
+}
+
+/** Which optional actions this surface wired up — drives what renders (hover
+ *  buttons, the dislike half), since the handlers ref hides identity. */
+interface TrackRowActionPresence {
+  play: boolean;
+  enqueue: boolean;
+  startRadio: boolean;
+  locate: boolean;
+  dislike: boolean;
+}
+
+interface TrackRowProps {
+  track: Track;
+  index: number;
+  optId: string;
+  isCurrent: boolean;
+  /** Non-null only for the current row when a `playing` prop was supplied —
+   *  renders the spinning disc in the # cell. Scoped this way so a play/pause
+   *  toggle re-renders one row, not the list. */
+  spinning: boolean | null;
+  isHighlighted: boolean;
+  isActive: boolean;
+  isSelected: boolean;
+  visibleColumns: ColumnConfig[];
+  presence: TrackRowActionPresence;
+  popularity: number | undefined;
+  maxPopularity: number;
+  handlers: React.RefObject<TrackRowHandlers>;
+}
+
+// memo'd row, same pattern as QueuePanel's QueueRow: every accumulated page of
+// rows used to be reconciled on each TrackList render (a selection click alone
+// recreated thousands of cell elements on a scrolled library) — now only rows
+// whose flags actually changed re-render. `content-visibility: auto` above
+// 100 rows still skips layout/paint, but only this skips reconciliation.
+const TrackRow = memo(function TrackRow({
+  track: t, index, optId, isCurrent, spinning, isHighlighted, isActive, isSelected,
+  visibleColumns, presence, popularity, maxPopularity, handlers,
+}: TrackRowProps) {
+  const showRowActions = presence.play || presence.enqueue;
+
+  function renderCell(col: ColumnConfig) {
+    switch (col.id) {
+      case "like":
+        return (
+          <span key="like" className="col-like">
+            <LikeDislikeButtons
+              liked={t.liked}
+              onToggleLike={() => handlers.current.toggleLike(t)}
+              onToggleDislike={presence.dislike ? () => handlers.current.toggleDislike?.(t) : undefined}
+              variant="inline"
+              size={12}
+            />
+          </span>
+        );
+      case "num": {
+        if (spinning != null) {
+          return (
+            <span key="num" className="col-num">
+              <SpinningDisc size={14} playing={spinning} />
+            </span>
+          );
+        }
+        return (
+          <span key="num" className="col-num">
+            {isVideoTrack(t) ? "🎬" : (t.track_number || index + 1)}
+          </span>
+        );
+      }
+      case "title":
+        return (
+          <span key="title" className="col-title">
+            <span className="col-title-main">
+              <span className="col-title-text">{t.title}</span>
+            </span>
+            {showRowActions && (
+              <RowHoverActions
+                onPlay={presence.play ? () => handlers.current.play?.(t) : undefined}
+                onEnqueue={presence.enqueue ? () => handlers.current.enqueue?.(t) : undefined}
+                onStartRadio={presence.startRadio ? () => handlers.current.startRadio?.(t) : undefined}
+                onDetails={presence.locate ? () => handlers.current.locate?.(t) : undefined}
+              />
+            )}
+          </span>
+        );
+      case "artist":
+        return (
+          <span key="artist" className="col-artist">
+            {t.artist_name ? (
+              <span className="track-link" onClick={(e) => { e.stopPropagation(); handlers.current.artistClick(t.artist_id ?? 0, t.artist_name!); }}>{t.artist_name}</span>
+            ) : "Unknown"}
+          </span>
+        );
+      case "album":
+        return (
+          <span key="album" className="col-album">
+            {t.album_title ? (
+              <span className="track-link" onClick={(e) => { e.stopPropagation(); handlers.current.albumClick(t.album_id ?? 0, t.artist_id, t.album_title!, t.artist_name ?? undefined); }}>{t.album_title}</span>
+            ) : "Unknown"}
+          </span>
+        );
+      case "duration":
+        return <span key="duration" className="col-duration">{formatDuration(t.duration_secs)}</span>;
+      case "path":
+        return <span key="path" className="col-path" title={t.path ?? ""}>{(t.path ?? "").replace(/^file:\/\//, "")}</span>;
+      case "year":
+        return <span key="year" className="col-year">{t.year ?? ""}</span>;
+      case "quality":
+        return <span key="quality" className="col-quality">{formatQuality(t)}</span>;
+      case "size":
+        return <span key="size" className="col-size">{formatFileSize(t.file_size)}</span>;
+      case "collection":
+        return <span key="collection" className="col-collection">{t.collection_name ?? ""}</span>;
+      case "added":
+        return <span key="added" className="col-added">{formatDate(t.added_at)}</span>;
+      case "modified":
+        return <span key="modified" className="col-modified">{formatDate(t.modified_at)}</span>;
+      case "popularity": {
+        const pct = (popularity != null && maxPopularity > 0) ? (popularity / maxPopularity) * 100 : 0;
+        return (
+          <span key="popularity" className="col-popularity">
+            {popularity != null ? (
+              <>
+                <span className="popularity-fill" style={{ width: `${pct}%` }} />
+                <span className="popularity-count">{formatCount(popularity)}</span>
+              </>
+            ) : null}
+          </span>
+        );
+      }
+    }
+  }
+
+  return (
+    <div
+      role="option"
+      id={optId}
+      aria-selected={isSelected}
+      className={`track-row ${isCurrent ? "playing" : ""} ${isHighlighted ? "highlighted" : ""} ${isActive ? "active" : ""} ${isSelected ? "selected" : ""}`}
+      onMouseDown={(e) => handlers.current.mouseDown(e, index)}
+      onClick={(e) => handlers.current.click(e, index)}
+      onDoubleClick={() => handlers.current.doubleClick(index)}
+      onContextMenu={(e) => handlers.current.contextMenu(e, t, index)}
+    >
+      {visibleColumns.map(col => renderCell(col))}
+    </div>
+  );
+});
