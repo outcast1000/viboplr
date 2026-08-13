@@ -65,6 +65,54 @@
       <div class="timeline" id="timeline">
         <div class="timeline-entry reveal">
         <div class="timeline-header">
+          <span class="timeline-version">Viboplr v1.0.23</span>
+          <span class="timeline-date">August 14, 2026</span>
+        </div>
+        <div class="timeline-body">
+          <h4>Features</h4>
+          <ul>
+          <li><strong>filmstrip</strong>: carry progress on the rail instead of dimming the frames</li>
+          </ul>
+          <h4>Bug Fixes</h4>
+          <ul>
+          <li><strong>subtitles</strong>: make lyrics-over-video legible and hide mismatched sets</li>
+          <li><strong>storyboard</strong>: raise the plugin resolve budget so the filmstrip can appear</li>
+          <li><strong>queue</strong>: coerce playlist metadata to strings so the queue keeps persisting</li>
+          <li><strong>matching</strong>: normalize diacritics in JS-side metadata comparisons</li>
+          <li><strong>db</strong>: stop the media-type SQL filters drifting from the scanner's video list</li>
+          <li><strong>updates</strong>: retry GitHub's refused stream instead of reporting a failure</li>
+          </ul>
+          <h4>Performance</h4>
+          <ul>
+          <li><strong>scan</strong>: index the normalized lookups, batch scanner ingest into transactions</li>
+          <li><strong>frontend</strong>: buffer to an external store; gate lyric ticks; batch startup reads</li>
+          <li><strong>tracklist</strong>: memoize rows with the latest-ref handler pattern</li>
+          <li><strong>backend</strong>: stop sync commands freezing the webview; throttle install progress</li>
+          <li><strong>app</strong>: freeze hidden views, memoize the now-playing bar, coalesce scan renders</li>
+          <li><strong>playback</strong>: sample positionSecs persistence instead of mirroring every tick</li>
+          <li><strong>downloads</strong>: emit scan-complete once per batch, after the bookkeeping</li>
+          <li><strong>library</strong>: update one FTS row on tag removal instead of rebuilding the index</li>
+          </ul>
+          <h4>Refactoring</h4>
+          <ul>
+          <li><strong>settings</strong>: one usePersistedSetting hook instead of 100+ hand-written sites</li>
+          <li><strong>format</strong>: consolidate seven local time/size formatters into utils</li>
+          <li><strong>dedupe</strong>: one multi-select and one like-reconcile implementation</li>
+          </ul>
+          <h4>Documentation</h4>
+          <ul>
+          <li><strong>planning</strong>: codebase map snapshot in .planning/codebase/</li>
+          <li>remove the stale superpowers plan and spec archive</li>
+          </ul>
+        </div>
+        <div class="timeline-assets">
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.23/Viboplr_1.0.23_aarch64.dmg" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.23_aarch64.dmg</a>
+            <a href="https://github.com/outcast1000/viboplr/releases/download/v1.0.23/Viboplr_1.0.23_x64-setup.exe" class="timeline-asset-link"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Viboplr_1.0.23_x64-setup.exe</a>
+        </div>
+      </div>
+      
+        <div class="timeline-entry reveal">
+        <div class="timeline-header">
           <span class="timeline-version">Viboplr v1.0.22</span>
           <span class="timeline-date">August 12, 2026</span>
         </div>
