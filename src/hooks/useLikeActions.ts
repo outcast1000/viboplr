@@ -5,6 +5,7 @@ import type { PluginEventName } from "../types/plugin";
 import { parseLibraryId } from "../queueEntry";
 import { emitTrackPatch } from "../trackEvents";
 import { trackLikePayload, entityLikePayload, nextTriState } from "../likeKeys";
+import { normalizeForMatch } from "../utils/normalize";
 
 interface LibraryDeps {
   tracks: Track[];
@@ -46,9 +47,16 @@ interface UseLikeActionsDeps {
 // restored playlist, a duplicate add) and so carry a different `ext:N`/`lib:N`
 // key — when title + artist match. Without the metadata fallback, liking a song
 // from one surface would leave a same-song copy elsewhere in the queue stale.
+// Matching is diacritic-insensitive (normalizeForMatch) so it agrees with the
+// durable entity_likes key the write lands under — an exact comparison left a
+// "Jóga"/"Joga" pair looking like different songs to the optimistic patch
+// while the backend treated them as one.
 export function sameSong(a: QueueTrack, b: QueueTrack): boolean {
   if (a.key === b.key) return true;
-  return a.title === b.title && (a.artist_name ?? null) === (b.artist_name ?? null);
+  return (
+    normalizeForMatch(a.title) === normalizeForMatch(b.title) &&
+    normalizeForMatch(a.artist_name ?? "") === normalizeForMatch(b.artist_name ?? "")
+  );
 }
 
 export function useLikeActions(deps: UseLikeActionsDeps) {
@@ -62,7 +70,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   // the cycle and persist a rating the user never chose.
   const inFlightRef = useRef<Set<string>>(new Set());
   const likeIdentity = (track: QueueTrack) =>
-    `${(track.title ?? "").toLowerCase()}:${(track.artist_name ?? "").toLowerCase()}`;
+    `${normalizeForMatch(track.title ?? "")}:${normalizeForMatch(track.artist_name ?? "")}`;
 
   // Apply a track's liked value across every in-memory mirror: library list
   // (by key, else best-effort by metadata for external tracks), currentTrack,

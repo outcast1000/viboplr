@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
+import { normalizeForMatch } from "../utils/normalize";
 
 const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "popularity", "size", "collection", "added", "modified", "path"];
 
@@ -282,8 +283,8 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     if (!locate) return;
     pendingLocateRef.current = null;
     const idx = sortedTracks.findIndex(t =>
-      t.title.toLowerCase() === locate.title.toLowerCase() &&
-      (t.artist_name ?? "").toLowerCase() === (locate.artistName ?? "").toLowerCase()
+      normalizeForMatch(t.title) === normalizeForMatch(locate.title) &&
+      normalizeForMatch(t.artist_name ?? "") === normalizeForMatch(locate.artistName ?? "")
     );
     if (idx >= 0) {
       setHighlightedIndex(idx);
@@ -446,11 +447,14 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
   function handleLocateTrack(title: string, artistName: string | null, albumTitle: string | null, searchAllFallback?: () => void) {
     pendingLocateRef.current = { title, artistName };
+    // Diacritic-insensitive (normalizeForMatch), matching the backend's
+    // lookups — "Björk" from a plugin surface must locate the library's
+    // "Bjork" row exactly like find_track_by_metadata would.
     const matchedArtist = artistName
-      ? artists.find(a => a.name.toLowerCase() === artistName.toLowerCase())
+      ? artists.find(a => normalizeForMatch(a.name) === normalizeForMatch(artistName))
       : null;
     const matchedAlbum = albumTitle && matchedArtist
-      ? albums.find(a => a.title.toLowerCase() === albumTitle.toLowerCase() && a.artist_id === matchedArtist.id)
+      ? albums.find(a => normalizeForMatch(a.title) === normalizeForMatch(albumTitle) && a.artist_id === matchedArtist.id)
       : null;
     if (matchedAlbum && matchedArtist) {
       handleAlbumClick(matchedAlbum.id, matchedArtist.id);
