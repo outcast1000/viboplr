@@ -2,6 +2,42 @@
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
 
+/// One statement for both insert and refresh, `RETURNING id` in either path —
+/// shared by the single-file `upsert_track` and the scanner's batched ingest
+/// so the two can't drift.
+const UPSERT_TRACK_SQL: &str =
+    "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+     ON CONFLICT(collection_id, path) DO UPDATE SET
+        title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
+        track_number=excluded.track_number,
+        duration_secs=excluded.duration_secs, format=excluded.format,
+        file_size=excluded.file_size, modified_at=excluded.modified_at,
+        year=excluded.year
+     RETURNING id";
+
+/// Everything the scanner learned about one media file, ready for the DB —
+/// tag reading (lofty) happens before this exists, so ingesting a batch is
+/// pure DB work under one lock and one transaction.
+pub struct ScannedFileMeta {
+    pub relative_path: String,
+    pub title: String,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub year: Option<i32>,
+    pub track_number: Option<i32>,
+    pub duration_secs: Option<f64>,
+    pub format: Option<String>,
+    pub file_size: Option<i64>,
+    pub modified_at: Option<i64>,
+    /// Tag names to attach (the genre for audio; path-derived tags for video).
+    pub tag_names: Vec<String>,
+    /// The extra-tags JSON (or None to clear). Only written when
+    /// `write_extra_tags` — video rows never touch the column.
+    pub extra_tags: Option<String>,
+    pub write_extra_tags: bool,
+}
+
 impl Database {
 
     // --- Tracks ---
@@ -39,23 +75,70 @@ impl Database {
         year: Option<i32>,
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO tracks (path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
-             ON CONFLICT(collection_id, path) DO UPDATE SET
-                title=excluded.title, artist_id=excluded.artist_id, album_id=excluded.album_id,
-                track_number=excluded.track_number,
-                duration_secs=excluded.duration_secs, format=excluded.format,
-                file_size=excluded.file_size, modified_at=excluded.modified_at,
-                year=excluded.year",
-            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year],
-        )?;
+        // RETURNING covers both the insert and the conflict-update path, so the
+        // id comes back from the one statement instead of a follow-up SELECT
+        // (this runs once per scanned file). SQLite ≥3.35, already required.
         let id: i64 = conn.query_row(
-            "SELECT id FROM tracks WHERE collection_id IS ?1 AND path = ?2",
-            params![collection_id, path],
+            UPSERT_TRACK_SQL,
+            params![path, title, artist_id, album_id, track_number, duration_secs, format, file_size, modified_at, collection_id, year],
             |row| row.get(0),
         )?;
         Ok(id)
+    }
+
+    /// Batched scanner ingest: one lock acquisition and ONE transaction for a
+    /// whole chunk of files, with every statement prepare_cached. The per-file
+    /// path used to take 6-8 lock acquisitions, each a freshly-prepared
+    /// autocommit statement — the dominant constant factor of a scan once the
+    /// normalized lookups were indexed. A file that fails is logged and
+    /// yields `None` (the rest of the chunk still commits), matching the old
+    /// per-file resilience. Returns the upserted track ids in input order.
+    pub fn ingest_scanned_files(
+        &self,
+        files: &[ScannedFileMeta],
+        collection_id: Option<i64>,
+    ) -> SqlResult<Vec<Option<i64>>> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut ids = Vec::with_capacity(files.len());
+        for f in files {
+            let result: SqlResult<i64> = (|| {
+                let artist_id = match f.artist.as_deref() {
+                    Some(name) => Some(super::artists::get_or_create_artist_conn(&tx, name)?),
+                    None => None,
+                };
+                let album_id = match f.album.as_deref() {
+                    Some(title) => Some(super::albums::get_or_create_album_conn(&tx, title, artist_id, f.year)?),
+                    None => None,
+                };
+                let track_id: i64 = tx.prepare_cached(UPSERT_TRACK_SQL)?.query_row(
+                    params![
+                        f.relative_path, f.title, artist_id, album_id, f.track_number,
+                        f.duration_secs, f.format, f.file_size, f.modified_at, collection_id, f.year
+                    ],
+                    |row| row.get(0),
+                )?;
+                for name in &f.tag_names {
+                    let tag_id = super::tags::get_or_create_tag_conn(&tx, name)?;
+                    tx.prepare_cached("INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?1, ?2)")?
+                        .execute(params![track_id, tag_id])?;
+                }
+                if f.write_extra_tags {
+                    tx.prepare_cached("UPDATE tracks SET extra_tags = ?1 WHERE id = ?2")?
+                        .execute(params![f.extra_tags, track_id])?;
+                }
+                Ok(track_id)
+            })();
+            match result {
+                Ok(id) => ids.push(Some(id)),
+                Err(e) => {
+                    log::warn!("Failed to ingest scanned file {}: {}", f.relative_path, e);
+                    ids.push(None);
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(ids)
     }
 
     /// Store the JSON catch-all of file tags that have no dedicated column
@@ -970,5 +1053,45 @@ mod tests {
             details.iter().any(|d| d.contains("TEMP B-TREE")),
             "explicit sort should use a sorter, got plan: {details:?}"
         );
+    }
+
+    /// The diacritic-insensitive lookups must be served by the expression
+    /// indexes from run_migrations #8. Without them each of these is a full
+    /// table scan evaluating two UDFs per row — the scanner calls up to three
+    /// per file, so an initial scan cost O(files × entities) (20k files × 3k
+    /// artists ≈ 60M UDF evaluations), and find_track_by_metadata paid the
+    /// same scan on every like-mirror / tag-popover / download-dedup call.
+    /// The WHERE expressions below are copied VERBATIM from the source
+    /// queries (artists.rs / tags.rs / albums.rs / find_track_by_metadata) —
+    /// an expression index only serves an exactly-matching expression, so if
+    /// a query drifts from its index this fails.
+    #[test]
+    fn test_normalized_lookups_use_the_expression_indexes() {
+        let cases: [(&str, &str); 4] = [
+            (
+                "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                "idx_artists_name_norm",
+            ),
+            (
+                "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                "idx_tags_name_norm",
+            ),
+            (
+                "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+                 AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+                "idx_albums_title_norm",
+            ),
+            (
+                "SELECT t.id FROM tracks t WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1))",
+                "idx_tracks_title_norm",
+            ),
+        ];
+        for (sql, index) in cases {
+            let details = plan_details(sql);
+            assert!(
+                details.iter().any(|d| d.contains(index)),
+                "expected {index} in the plan for `{sql}`, got: {details:?}"
+            );
+        }
     }
 }

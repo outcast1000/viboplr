@@ -326,9 +326,15 @@ pub fn scan_folder(
 
     info!("Scan started: {} ({} media files found)", folder_path, total);
 
-    // Second pass: process files and collect seen relative paths
+    // Second pass: process files and collect seen relative paths. Tag reading
+    // (the slow file I/O) happens per file with no DB lock held; the DB work is
+    // ingested in chunks — one lock and one transaction per INGEST_CHUNK files
+    // (see Database::ingest_scanned_files) instead of 6-8 autocommit
+    // statements per file.
+    const INGEST_CHUNK: usize = 128;
     let mut scanned: u64 = 0;
     let mut seen_paths: HashSet<String> = HashSet::with_capacity(total as usize);
+    let mut pending: Vec<crate::db::ScannedFileMeta> = Vec::with_capacity(INGEST_CHUNK);
     for entry in WalkDir::new(&root)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -337,10 +343,23 @@ pub fn scan_folder(
         let path = entry.path();
         let relative = path.strip_prefix(&root).unwrap_or(path).to_string_lossy().to_string();
         seen_paths.insert(relative);
-        process_media_file(db, path, collection_id, Some(folder_path));
+        if let Some(meta) = prepare_media_file(db, path, collection_id, Some(folder_path)) {
+            pending.push(meta);
+            if pending.len() >= INGEST_CHUNK {
+                if let Err(e) = db.ingest_scanned_files(&pending, collection_id) {
+                    log::warn!("Failed to ingest scan chunk: {}", e);
+                }
+                pending.clear();
+            }
+        }
         scanned += 1;
         if scanned % 10 == 0 || scanned == total {
             progress_callback(scanned, total);
+        }
+    }
+    if !pending.is_empty() {
+        if let Err(e) = db.ingest_scanned_files(&pending, collection_id) {
+            log::warn!("Failed to ingest final scan chunk: {}", e);
         }
     }
 
@@ -364,7 +383,25 @@ pub fn scan_folder(
 
 /// Ingest one media file. Returns the upserted track's id, or `None` when the
 /// file was skipped (0-byte, unchanged since last scan) or the upsert failed.
+/// Single-file entry point (downloads, watch paths) — the folder scan goes
+/// through `prepare_media_file` + chunked `ingest_scanned_files` instead.
 pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<i64> {
+    let meta = prepare_media_file(db, path, collection_id, collection_root)?;
+    match db.ingest_scanned_files(std::slice::from_ref(&meta), collection_id) {
+        Ok(ids) => ids.into_iter().next().flatten(),
+        Err(e) => {
+            log::warn!("Failed to ingest {}: {}", meta.relative_path, e);
+            None
+        }
+    }
+}
+
+/// Everything `process_media_file` did up to (but not including) the DB
+/// writes: the mtime fast-path check, tag reading, video probing. Returns
+/// `None` when the file should be skipped. The DB is only touched for the
+/// one scan-state read; the writes happen in `Database::ingest_scanned_files`
+/// so a folder scan can batch them into chunked transactions.
+fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<crate::db::ScannedFileMeta> {
     // Compute relative path by stripping collection root
     let relative_path = match collection_root {
         Some(root) => path
@@ -421,67 +458,39 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
             .ok()
             .map(|f| f.properties().duration().as_secs_f64())
             .filter(|&d| d > 0.0);
-        return match db.upsert_track(
-            &relative_path,
-            &title,
-            None,
-            None,
-            None,
+        return Some(crate::db::ScannedFileMeta {
+            relative_path,
+            title,
+            artist: None,
+            album: None,
+            year: None,
+            track_number: None,
             duration_secs,
-            format.as_deref(),
+            format,
             file_size,
             modified_at,
-            collection_id,
-            None,
-        ) {
-            Ok(track_id) => {
-                for tag_name in extract_video_tags(path, collection_root) {
-                    if let Ok(tag_id) = db.get_or_create_tag(&tag_name) {
-                        let _ = db.add_track_tag(track_id, tag_id);
-                    }
-                }
-                Some(track_id)
-            }
-            Err(_) => None,
-        };
+            tag_names: extract_video_tags(path, collection_root),
+            extra_tags: None,
+            write_extra_tags: false,
+        });
     }
 
     let tags = read_tags(path);
-
-    let artist_id = tags
-        .artist
-        .as_ref()
-        .and_then(|name| db.get_or_create_artist(name).ok());
-
-    let album_id = tags
-        .album
-        .as_ref()
-        .and_then(|title| db.get_or_create_album(title, artist_id, tags.year).ok());
-
-    match db.upsert_track(
-        &relative_path,
-        &tags.title,
-        artist_id,
-        album_id,
-        tags.track_number,
-        tags.duration_secs,
-        format.as_deref(),
+    Some(crate::db::ScannedFileMeta {
+        relative_path,
+        title: tags.title,
+        artist: tags.artist,
+        album: tags.album,
+        year: tags.year,
+        track_number: tags.track_number,
+        duration_secs: tags.duration_secs,
+        format,
         file_size,
         modified_at,
-        collection_id,
-        tags.year,
-    ) {
-        Ok(track_id) => {
-            if let Some(genre) = &tags.genre {
-                if let Ok(tag_id) = db.get_or_create_tag(genre) {
-                    let _ = db.add_track_tag(track_id, tag_id);
-                }
-            }
-            let _ = db.set_track_extra_tags(track_id, tags.extra_tags.as_deref());
-            Some(track_id)
-        }
-        Err(_) => None,
-    }
+        tag_names: tags.genre.into_iter().collect(),
+        extra_tags: tags.extra_tags,
+        write_extra_tags: true,
+    })
 }
 
 /// Metadata for a file being added straight to the queue via a file-manager
@@ -558,6 +567,46 @@ pub fn collect_dropped_media(path: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// End-to-end scan through the chunked ingest path: file count crosses
+    /// INGEST_CHUNK (128) so both the full-chunk flush and the final partial
+    /// chunk run; the garbage bytes make lofty fail so titles/artists come
+    /// from the filename-parse fallback; a rescan takes the mtime fast path
+    /// (no duplicates), and a deleted file is pruned.
+    #[test]
+    fn test_scan_folder_ingests_in_chunks_and_prunes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        for i in 0..130 {
+            std::fs::write(root.join(format!("Artist {i:03} - Song {i:03}.mp3")), b"not really audio").unwrap();
+        }
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let collection = db
+            .add_collection("local", "t", Some(root.to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), |_, _| {});
+        assert_eq!(removed, 0);
+        assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 130);
+
+        // Filename-parse fallback landed artist + title through the batch path.
+        let track = db
+            .find_track_by_metadata("Song 000", Some("Artist 000"), None)
+            .unwrap()
+            .expect("scanned track should be findable by parsed metadata");
+        assert_eq!(track.title, "Song 000");
+
+        // Unchanged rescan: mtime fast path, still 130 rows.
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), |_, _| {});
+        assert_eq!(removed, 0);
+        assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 130);
+
+        // A file removed from disk is pruned on the next scan.
+        std::fs::remove_file(root.join("Artist 000 - Song 000.mp3")).unwrap();
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), |_, _| {});
+        assert_eq!(removed, 1);
+        assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 129);
+    }
 
     #[test]
     fn test_is_media_file_audio() {

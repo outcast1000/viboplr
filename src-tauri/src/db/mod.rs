@@ -230,6 +230,7 @@ pub mod publish_servers;
 mod search;
 mod tags;
 mod tracks;
+pub use tracks::ScannedFileMeta;
 
 impl Database {
     fn register_sql_functions(conn: &Connection) -> SqlResult<()> {
@@ -249,10 +250,17 @@ impl Database {
             },
         )?;
 
+        // DETERMINISTIC + INNOCUOUS: both flags are load-bearing for the
+        // normalized-name expression indexes (run_migrations #8). Expression
+        // indexes may only use deterministic functions, and a function that
+        // appears in the schema is rejected under `PRAGMA trusted_schema=off`
+        // unless marked innocuous — today's default is on, but SQLite has
+        // said it may flip, and these are pure string functions so the
+        // marking is simply true.
         conn.create_scalar_function(
             "strip_diacritics",
             1,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS,
             |ctx| {
                 let s: String = ctx.get(0)?;
                 Ok(strip_diacritics(&s))
@@ -262,7 +270,7 @@ impl Database {
         conn.create_scalar_function(
             "unicode_lower",
             1,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS,
             |ctx| {
                 let s: String = ctx.get(0)?;
                 Ok(s.to_lowercase())
@@ -721,6 +729,34 @@ impl Database {
                     created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
                 )",
                 [],
+            )?;
+        }
+
+        // 8. Normalized-name expression indexes. Every diacritic-insensitive
+        //    lookup — get_or_create_artist/album/tag on each scanned file,
+        //    find_track_by_metadata on every like-mirror / tag-popover /
+        //    download-dedup — filters on `strip_diacritics(unicode_lower(col))`,
+        //    which no column index can serve: it was a full table scan running
+        //    two UDFs per row, O(files × entities) on an initial scan (20k
+        //    files × 3k artists ≈ 60M UDF evaluations). Indexing the expression
+        //    itself serves those queries VERBATIM — no write site changes, no
+        //    stored column to drift. Requires both UDFs registered
+        //    deterministic (they are; see register_sql_functions) on every
+        //    connection that touches these tables (the app registers them at
+        //    open, always). Idempotent; the one-time index build on an
+        //    existing library happens here at startup. Pinned by
+        //    test_normalized_lookups_use_the_expression_indexes.
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_artists_name_norm
+                     ON artists(strip_diacritics(unicode_lower(name)));
+                 CREATE INDEX IF NOT EXISTS idx_tags_name_norm
+                     ON tags(strip_diacritics(unicode_lower(name)));
+                 CREATE INDEX IF NOT EXISTS idx_albums_title_norm
+                     ON albums(strip_diacritics(unicode_lower(title)));
+                 CREATE INDEX IF NOT EXISTS idx_tracks_title_norm
+                     ON tracks(strip_diacritics(unicode_lower(title)));",
             )?;
         }
 

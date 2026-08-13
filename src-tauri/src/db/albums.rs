@@ -2,6 +2,26 @@
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
 
+/// Connection-level find-or-create — see get_or_create_artist_conn for why.
+/// The title expression matches `idx_albums_title_norm` verbatim.
+pub(crate) fn get_or_create_album_conn(
+    conn: &Connection,
+    title: &str,
+    artist_id: Option<i64>,
+    year: Option<i32>,
+) -> SqlResult<i64> {
+    let existing: Option<i64> = conn.prepare_cached(
+        "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+         AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+    )?.query_row(params![title, artist_id], |row| row.get(0)).optional()?;
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+    conn.prepare_cached("INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)")?
+        .execute(params![title, artist_id, year])?;
+    Ok(conn.last_insert_rowid())
+}
+
 impl Database {
 
     // --- Albums ---
@@ -13,20 +33,7 @@ impl Database {
         year: Option<i32>,
     ) -> SqlResult<i64> {
         let conn = self.conn.lock().unwrap();
-        let existing: Option<i64> = conn.query_row(
-            "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
-             AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
-            params![title, artist_id],
-            |row| row.get(0),
-        ).optional()?;
-        if let Some(id) = existing {
-            return Ok(id);
-        }
-        conn.execute(
-            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
-            params![title, artist_id, year],
-        )?;
-        Ok(conn.last_insert_rowid())
+        get_or_create_album_conn(&conn, title, artist_id, year)
     }
 
     /// Set (or clear, with `None`) an album's year. Durable across rescans —
