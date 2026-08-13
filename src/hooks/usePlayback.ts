@@ -43,6 +43,13 @@ function logPlayback(message: string) {
 // so the boost stays loud rather than dropping the whole signal's level.
 const LIMITER_CEILING_DB = -1;
 
+// How often the ~4 Hz playback position is persisted to the store. Each
+// store.set is a webview↔Rust IPC round-trip, so mirroring every tick cost
+// ~14k invokes per hour of playback; restore precision only needs "roughly
+// where I was", and the exact boundaries (pause/stop/track change) flush
+// immediately via persistPositionNow.
+const POSITION_PERSIST_INTERVAL_MS = 5000;
+
 // A play request is "current" only while no later request has started. Used to
 // decide whether a caught playback error / loading-state reset belongs to the
 // active track or to a superseded one whose play() was aborted by the newer
@@ -911,18 +918,42 @@ export function usePlayback(
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
-  // positionSecs persisted by its own effect below; currentTrack persisted by App.tsx as QueueEntry
+  // positionSecs persisted by its own sampled subscription below; currentTrack
+  // persisted by App.tsx as QueueEntry.
+  const lastPositionPersistRef = useRef(0);
   useEffect(() => {
     if (currentTrack) logPlayback(`Track changed: ${currentTrack.artist_name ?? "?"} — ${currentTrack.title} (key=${currentTrack.key})`);
+    // Flush the new track's position immediately: every track-change entry
+    // point (play, cue-restore, engine hand-off, stop) sets the position store
+    // synchronously before this effect runs, so a quit right after a track
+    // change restores to the new track's start rather than a stale sample of
+    // the previous one.
+    persistPositionNow();
   }, [currentTrack]);
   // Position persistence: subscribe to the external store (position is not
-  // React state — see the comment at the top of the hook). store.set is
-  // debounced by the store layer's autoSave, same as the old per-tick effect.
+  // React state — see the comment at the top of the hook). The subscriber
+  // fires on every position tick (~4 Hz) for as long as anything plays, and
+  // each store.set is an IPC round-trip into the store plugin (autoSave only
+  // debounces the disk write), so persistence samples at most every
+  // POSITION_PERSIST_INTERVAL_MS. Restore only needs "roughly where I was";
+  // the boundaries that define it exactly — pause, stop, track change — flush
+  // via persistPositionNow.
   useEffect(() => subscribePlaybackPosition(() => {
-    if (restoredRef.current) store.set("positionSecs", getPlaybackPosition());
+    if (!restoredRef.current) return;
+    const now = Date.now();
+    if (now - lastPositionPersistRef.current < POSITION_PERSIST_INTERVAL_MS) return;
+    lastPositionPersistRef.current = now;
+    store.set("positionSecs", getPlaybackPosition()).catch(console.error);
   }), []);
-  useEffect(() => { if (restoredRef.current) store.set("volume", volume); }, [volume]);
-  useEffect(() => { if (restoredRef.current) store.set("muted", muted); }, [muted]);
+  useEffect(() => { if (restoredRef.current) store.set("volume", volume).catch(console.error); }, [volume]);
+  useEffect(() => { if (restoredRef.current) store.set("muted", muted).catch(console.error); }, [muted]);
+
+  /** Persist the playback position right now, resetting the sampling window. */
+  function persistPositionNow() {
+    if (!restoredRef.current) return;
+    lastPositionPersistRef.current = Date.now();
+    store.set("positionSecs", getPlaybackPosition()).catch(console.error);
+  }
 
   function invalidatePreload() {
     cancelCrossfade();
@@ -1759,6 +1790,11 @@ export function usePlayback(
   }
 
   function handlePause() {
+    // Pause is a session boundary the sampled position persistence must not
+    // miss: no ticks arrive while paused, so a quit from here would otherwise
+    // restore up to POSITION_PERSIST_INTERVAL_MS behind. (Harmless on the
+    // resume half of the toggle — it just re-writes the current position.)
+    persistPositionNow();
     // Native session: the engine owns play/pause; the media elements are empty.
     // Optimistic UI flip as on the element path; engine-state reconciles.
     if (nativeSessionRef.current) {
@@ -1881,6 +1917,9 @@ export function usePlayback(
     setPlaying(false);
     setStopped(true);
     setPlaybackPosition(0);
+    // Stop is a session boundary — persist the reset position immediately
+    // (the sampled subscription may be mid-window and skip the 0 write).
+    persistPositionNow();
     setCurrentAssetUrl(null);
   }
 
