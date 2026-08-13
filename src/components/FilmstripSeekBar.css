@@ -17,47 +17,95 @@
 }
 
 .filmstrip-cell {
+  position: relative; /* bounds the --unbuffered hatch */
   height: 100%;
   flex: 0 0 auto;
   background-repeat: no-repeat;
   background-color: var(--video-bg, #000);
-  /* Hairline seam so the strip reads as discrete frames, not one smeared image. */
-  box-shadow: inset -1px 0 0 rgba(var(--overlay-inverse), 0.6);
+  border-radius: 2px;
+  /* Hairline seam so the strip reads as discrete frames, not one smeared image. Drawn
+     in --overlay-base, NOT --overlay-inverse: the latter is `0, 0, 0` on a dark skin
+     (base.css), so the seam this replaces was a black line between dark video frames
+     and never appeared on any default skin. The real separation is the flex gap (see
+     GUTTER_PX); this outlines each frame within it. */
+  box-shadow: 0 0 0 1px rgba(var(--overlay-base), 0.3);
   transition: filter 0.16s ease;
 }
 
-/* Everything past the playhead is desaturated and knocked back, so progress reads as
-   a colour front sweeping the strip. The boundary lands on a frame edge, which suits
-   a filmstrip — the needle carries the exact position. */
+/* Frames ahead of the playhead. Only a token knock-back — enough to register, not
+   enough to obscure. Progress is carried by .filmstrip-rail-lit below, so this does
+   NOT have to be legible as a colour front on its own; the old
+   `grayscale(0.8) brightness(0.5)` multiplied already-dim footage into mud. The
+   boundary lands on a frame edge, which suits a filmstrip — the needle carries the
+   exact position. */
 .filmstrip-cell--ahead {
-  filter: grayscale(0.8) brightness(0.5);
+  filter: grayscale(0.12) brightness(0.92);
 }
 
-/* A second step back for frames the source hasn't downloaded yet. Must come
-   AFTER --ahead: an unbuffered cell always carries both classes, the two
-   selectors have equal specificity, and `filter` does not compose across
-   rules — so source order is what makes this one win. Restated in full rather
-   than layered for that reason. */
+/* Frames the source hasn't downloaded yet. Must come AFTER --ahead: an unbuffered
+   cell always carries both classes, the two selectors have equal specificity, and
+   `filter` does not compose across rules — so source order is what makes this one
+   win. Restated in full rather than layered for that reason. */
 .filmstrip-cell--unbuffered {
-  filter: grayscale(1) brightness(0.25);
+  filter: grayscale(0.5) brightness(0.78);
+}
+
+/* ...and the actual signal is a hatch, not more darkness. Stacking a second brightness
+   step (it was 0.25) is what made a stalled stream look like a broken one. Inherits the
+   parent's filter, so the alpha is set against that dimming. */
+.filmstrip-cell--unbuffered::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 3px,
+    rgba(var(--overlay-base), 0.12) 3px 6px
+  );
 }
 
 /* Perforation rails. They overlay the frames top and bottom, which is what buys the
-   playhead carets somewhere to live without eating into the picture. */
+   playhead carets somewhere to live without eating into the picture.
+
+   Band and holes are drawn in OPPOSITE tokens. They used to be one token at two alphas
+   (--overlay-inverse at 0.45 and 0.88), which on a dark skin is black on black — so the
+   film texture never rendered at all, and the strip only looked like film on light
+   skins. Dark band, bright holes is also how physical film reads. */
 .filmstrip-rail {
   position: absolute;
   left: 0;
   right: 0;
-  background-color: rgba(var(--overlay-inverse), 0.45);
+  overflow: hidden;
+  background-color: rgba(var(--overlay-inverse), 0.62);
   background-image: radial-gradient(
     circle at 3px 50%,
-    rgba(var(--overlay-inverse), 0.88) 1.4px,
-    transparent 1.6px
+    rgba(var(--overlay-base), 0.55) 1.4px,
+    transparent 1.7px
   );
   background-size: 9px 100%;
 }
 .filmstrip-rail--top { top: 0; }
 .filmstrip-rail--bottom { bottom: 0; }
+
+/* The progress channel: the played run of the bottom rail, with its sprocket holes lit.
+   Holes are --accent-text rather than an --overlay-* token because the band under them
+   is the accent on every skin, so they must contrast with THAT, not with the app
+   background. Width is set inline from the clamped progress. */
+.filmstrip-rail-lit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background-color: rgba(var(--accent-rgb), 0.85);
+  background-image: radial-gradient(
+    circle at 3px 50%,
+    var(--accent-text, #fff) 1.4px,
+    transparent 1.7px
+  );
+  background-size: 9px 100%;
+  transition: width 0.16s linear;
+}
 
 /* Hover hairline — the scrub target, distinct from the playhead below. */
 .filmstrip-hover {
@@ -100,5 +148,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .filmstrip-cell { transition: none; }
+  .filmstrip-cell,
+  .filmstrip-rail-lit { transition: none; }
 }

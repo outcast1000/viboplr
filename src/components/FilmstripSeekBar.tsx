@@ -23,8 +23,25 @@ interface FilmstripSeekBarProps {
 const RAIL_PX = 5;
 const RAIL_PX_COMPACT = 4; // shorter bars (the fullscreen overlay) can't spare 10px
 const COMPACT_HEIGHT = 32;
-/** Never slice the strip finer than this — sub-24px frames read as noise. */
-const MIN_SLOT_PX = 24;
+
+/**
+ * Gap between frames, in px, filled with the strip's own `--video-bg`.
+ *
+ * A real gap is what makes the strip read as discrete frames. It replaces a 1px seam
+ * drawn in `--overlay-inverse`, which is `0, 0, 0` on a dark skin — a black hairline
+ * between dark video frames, i.e. invisible on every default skin. The CSS keeps a
+ * hairline too, but in `--overlay-base` so it survives the skin flip.
+ */
+export const GUTTER_PX = 3;
+
+/**
+ * Slot floor. This is the number that sizes a frame at both heights the bar actually
+ * renders at: 16:9 against the 34px bar's 24px frame area is only ~43px, and against
+ * the 28px fullscreen bar's 20px area ~36px — small enough that neighbouring frames
+ * read as one smear however they are separated. Taller hosts still get wider slots
+ * from the aspect calculation below; this only sets the bottom.
+ */
+export const MIN_SLOT_PX = 60;
 
 export interface Cell {
   /** Null where the storyboard doesn't reach — rendered as an empty gate rather than
@@ -37,8 +54,9 @@ export interface Cell {
 
 /**
  * Lay the strip out: one cell per evenly-spaced moment, at integer widths that sum
- * back to the exact track width (a fractional width per cell accumulates into a
- * visible gap at the right edge).
+ * back to the exact frame budget — the track width minus the `GUTTER_PX` gap between
+ * each pair of frames (a fractional width per cell accumulates into a visible gap at
+ * the right edge). The gutters themselves are drawn by the flex `gap`.
  */
 export function planCells(
   board: Storyboard,
@@ -50,14 +68,20 @@ export function planCells(
   if (width <= 0 || frameH <= 0 || durationSecs <= 0) return [];
   const slot = Math.max(MIN_SLOT_PX, Math.round(frameH * (board.tileW / board.tileH)));
   // Cap at the tile count so cells never repeat a frame — past that point the strip
-  // would imply detail the storyboard doesn't have.
-  const n = Math.max(1, Math.min(board.count, Math.round(width / slot)));
+  // would imply detail the storyboard doesn't have. Each cell now costs its slot plus
+  // one gutter, except the last, which is why the gutter is added to the width too.
+  let n = Math.max(1, Math.min(board.count, Math.round((width + GUTTER_PX) / (slot + GUTTER_PX))));
+  // On a very narrow track the gutters can out-budget the frames. Drop cells until
+  // every remaining frame can still be at least 1px wide — a zero-width cell would
+  // round some frames out of existence while the gaps kept their space.
+  while (n > 1 && width - GUTTER_PX * (n - 1) < n) n--;
 
+  const budget = width - GUTTER_PX * (n - 1);
   const cells: Cell[] = [];
   let used = 0;
   for (let i = 0; i < n; i++) {
     // Distribute the remainder instead of rounding each cell independently.
-    const end = Math.round(((i + 1) * width) / n);
+    const end = Math.round(((i + 1) * budget) / n);
     const w = end - used;
     used = end;
     const mid = (i + 0.5) / n;
@@ -77,13 +101,18 @@ export function planCells(
  * A video's seek bar: the storyboard itself, laid out as a filmstrip.
  *
  * Video never gets a waveform (`useWaveform` bails on it outright), so there is nothing
- * to overlay here — the frames are the seek surface. Frames ahead of the playhead are
- * desaturated so progress reads as a colour front, and the playhead is a needle plus
- * carets that bite in from the perforation rails, where they cost no frame area.
+ * to overlay here — the frames are the seek surface. Which is why **progress is not drawn
+ * by dimming them**: the frames are the content, and degrading the content to signal
+ * position made the unplayed run unreadable (worst on dark footage, where the old
+ * `brightness(0.5)` — and `brightness(0.25)` past the buffered edge — bottomed out at
+ * black). Progress gets its own channel instead: the bottom perforation rail fills with
+ * the accent behind the playhead. Frames ahead take only a token knock-back, enough to
+ * register at a glance without obscuring anything.
  *
- * Frames past the *buffered* edge are knocked back a second step. Both boundaries land
- * on a frame edge (they test the cell midpoint), which suits a filmstrip — the needle
- * carries the exact position.
+ * Frames past the *buffered* edge are marked with a hatch (see the CSS) rather than more
+ * darkness, so "not downloaded yet" is a texture instead of another step toward black.
+ * Both boundaries land on a frame edge (they test the cell midpoint), which suits a
+ * filmstrip — the needle carries the exact position.
  *
  * Tiles are drawn with background offsets rather than a canvas, matching `StoryboardTile`
  * — nothing reads pixels, so cross-origin (plugin-supplied) sheets never taint anything.
@@ -122,7 +151,7 @@ export function FilmstripSeekBar({
 
   return (
     <div className="filmstrip" ref={ref}>
-      <div className="filmstrip-cells">
+      <div className="filmstrip-cells" style={{ gap: GUTTER_PX }}>
         {cells.map((c, i) => (
           <div
             key={i}
@@ -133,7 +162,11 @@ export function FilmstripSeekBar({
       </div>
 
       <div className="filmstrip-rail filmstrip-rail--top" style={{ height: rail }} />
-      <div className="filmstrip-rail filmstrip-rail--bottom" style={{ height: rail }} />
+      <div className="filmstrip-rail filmstrip-rail--bottom" style={{ height: rail }}>
+        {/* The progress channel. Lives on the rail rather than over the frames so it
+            costs no picture area — the same trade that buys the carets their space. */}
+        <i className="filmstrip-rail-lit" style={{ width: `${clamped * 100}%` }} />
+      </div>
 
       {hoverPct != null && (
         <div className="filmstrip-hover" style={{ left: `${hoverPct * 100}%` }} />
