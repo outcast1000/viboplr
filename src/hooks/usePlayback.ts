@@ -688,6 +688,13 @@ export function usePlayback(
     });
   }
 
+  function resetNativeVideoPresentation() {
+    clearTimeout(presentingFallbackRef.current);
+    presentingFallbackRef.current = undefined;
+    nativeVideoPresentingRef.current = false;
+    setNativeVideoPresenting(false);
+  }
+
   // ReplayGain --------------------------------------------------------------
   type ReplayGainInfo = {
     track_gain_db: number | null;
@@ -1191,6 +1198,7 @@ export function usePlayback(
         nativeLastPositionRef.current = 0;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
+        resetNativeVideoPresentation();
         clearStreamReadouts();
         trackChangeSourceRef.current = "auto";
         setCurrentTrack(promoted.track);
@@ -1209,6 +1217,7 @@ export function usePlayback(
         nativePreloadedRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
+        resetNativeVideoPresentation();
         clearStreamReadouts();
         onNativeAutoEndedRef.current();
       }),
@@ -1258,6 +1267,7 @@ export function usePlayback(
         nativeSessionRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
+        resetNativeVideoPresentation();
         clearStreamReadouts();
         logPlayback(`Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine: ${payload.message}`);
         trackTelemetry("engine_fallback", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
@@ -1577,6 +1587,7 @@ export function usePlayback(
         nativePreloadedRef.current = null;
         nativeFadingRef.current = false;
         setNativeVideoActive(false);
+        resetNativeVideoPresentation();
         nativeEngine.stop().catch(console.error);
       }
       setCurrentTrack(track);
@@ -1730,9 +1741,7 @@ export function usePlayback(
       // New session: hold the hole opaque until this session's first frame
       // presents (engine-playback-restart) or the fallback fires, so start never
       // flashes transparent over an empty native surface.
-      nativeVideoPresentingRef.current = false;
-      setNativeVideoPresenting(false);
-      clearTimeout(presentingFallbackRef.current);
+      resetNativeVideoPresentation();
       if (isVideo) {
         presentingFallbackRef.current = setTimeout(markNativeVideoPresenting, 1500);
       }
@@ -1753,6 +1762,7 @@ export function usePlayback(
         logPlayback(`Native play failed for "${track.title}" — browser fallback: ${e instanceof Error ? e.message : String(e)}`);
         nativeSessionRef.current = null;
         nativeBlockedKeysRef.current.add(track.key);
+        resetNativeVideoPresentation();
       }
     }
     setNativeVideoActive(false);
@@ -1874,6 +1884,7 @@ export function usePlayback(
       nativeEngine.stop().catch(console.error);
     }
     setNativeVideoActive(false);
+    resetNativeVideoPresentation();
     clearStreamReadouts();
     // Not merely paused: the next play must re-resolve and re-install, or it
     // would resume whatever this element was still holding.
@@ -1907,6 +1918,7 @@ export function usePlayback(
       nativeEngine.stop().catch(console.error);
     }
     setNativeVideoActive(false);
+    resetNativeVideoPresentation();
     clearStreamReadouts();
     const el = getMediaElement();
     if (el) {
