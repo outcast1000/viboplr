@@ -38,6 +38,13 @@ describe("describePlaybackFailure", () => {
     expect(isFormatPlaybackError(msg)).toBe(true);
   });
 
+  it("reworks WebKit's unsupported-source play rejection into the stream-specific message", () => {
+    const base = "Failed to load because no supported source was found.";
+    expect(describePlaybackFailure(base, true, "ok"))
+      .toBe(REMOTE_FORMAT_PLAYBACK_ERROR);
+    expect(isFormatPlaybackError(base)).toBe(true);
+  });
+
   it("keeps a NON-format base for reachable remote tracks (e.g. a resolution failure)", () => {
     const notFound = "Couldn't find a playable source for this track";
     expect(describePlaybackFailure(notFound, true, "ok")).toBe(notFound);

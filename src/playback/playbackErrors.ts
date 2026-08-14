@@ -47,8 +47,11 @@ const FORMAT_PLAYBACK_ERRORS = new Set<string>([
   REMOTE_FORMAT_PLAYBACK_ERROR,
 ]);
 
+const FORMAT_PLAYBACK_ERROR_PATTERN =
+  /\b(not supported|unsupported|no supported source|src not supported|media_err_src_not_supported)\b/i;
+
 export function isFormatPlaybackError(error: string | null | undefined): boolean {
-  return !!error && FORMAT_PLAYBACK_ERRORS.has(error);
+  return !!error && (FORMAT_PLAYBACK_ERRORS.has(error) || FORMAT_PLAYBACK_ERROR_PATTERN.test(error));
 }
 
 // Pick the user-facing message for a playback failure. `base` is the browser's

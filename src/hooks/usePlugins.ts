@@ -1402,6 +1402,13 @@ export function usePlugins(
             args?: string[],
             opts?: { cwd?: string; onOutput?: ExecOutputHandler },
           ) {
+            const logFailedExec = (result: ExecResult): ExecResult => {
+              if (result.exitCode !== 0) {
+                const detail = result.stderr.trim() || result.stdout.trim() || "no output";
+                console.error(`[plugin:${pluginId}] ${program} exited with code ${result.exitCode}:`, detail);
+              }
+              return result;
+            };
             const scopes = resolveScopesRef.current.get(pluginId);
             const scope = scopes && scopes.length ? scopes[scopes.length - 1] : undefined;
             const onOutput = opts?.onOutput;
@@ -1411,19 +1418,20 @@ export function usePlugins(
             if (!scope && !onOutput) {
               return invoke<ExecResult>("plugin_exec", {
                 program, args: args ?? [], cwd: opts?.cwd ?? null,
-              });
+              }).then(logFailedExec);
             }
             const execId = `${pluginId}:${++execSeqRef.current}`;
             scope?.execIds.add(execId);
             if (onOutput) execOutputHandlersRef.current.set(execId, onOutput);
             try {
-              return await invoke<ExecResult>("plugin_exec", {
+              const result = await invoke<ExecResult>("plugin_exec", {
                 program,
                 args: args ?? [],
                 cwd: opts?.cwd ?? null,
                 execId,
                 streamOutput: !!onOutput,
               });
+              return logFailedExec(result);
             } finally {
               execOutputHandlersRef.current.delete(execId);
               scope?.execIds.delete(execId);
