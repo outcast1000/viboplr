@@ -1269,6 +1269,16 @@ export function usePlayback(
         setNativeVideoActive(false);
         resetNativeVideoPresentation();
         clearStreamReadouts();
+        const sourceOrigin = lastPlaySrcRef.current
+          ? (() => {
+              try { return new URL(lastPlaySrcRef.current).origin; }
+              catch { return "non-URL source"; }
+            })()
+          : "unknown source";
+        console.error(
+          `[mpv] Native playback failed (${payload.code}) for ${payload.trackKey} from ${sourceOrigin}:`,
+          payload.message,
+        );
         logPlayback(`Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine: ${payload.message}`);
         trackTelemetry("engine_fallback", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
         const track = currentTrackRef.current;

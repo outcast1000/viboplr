@@ -69,7 +69,7 @@ export type EngineSource =
   // attaches to the video via `audio-file`, so hi-res sources that split
   // video-only + audio-only (e.g. YouTube ≥720p) play merged. Absent for
   // self-contained streams.
-  | { kind: "http"; url: string; audioUrl?: string };
+  | { kind: "http"; url: string; audioUrl?: string; headers?: Record<string, string> };
 
 // Result of resolving a track to a playable source. `patch` carries metadata
 // discovered during resolution (e.g. the real file path + format of a local

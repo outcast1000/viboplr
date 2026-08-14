@@ -6,7 +6,7 @@ import type { StreamCandidate } from "../types/plugin";
 // audio-only in m4a + opus.
 const YT: StreamCandidate[] = [
   { url: "mux360", kind: "muxed", height: 360, container: "mp4", vcodec: "avc1", acodec: "mp4a", tbr: 360 },
-  { url: "v1080", kind: "video", height: 1080, container: "mp4", vcodec: "avc1", tbr: 3248 },
+  { url: "v1080", kind: "video", height: 1080, container: "mp4", vcodec: "avc1", tbr: 3248, headers: { "User-Agent": "yt-dlp" } },
   { url: "v1080vp9", kind: "video", height: 1080, container: "webm", vcodec: "vp9", tbr: 2127 },
   { url: "v720", kind: "video", height: 720, container: "mp4", vcodec: "avc1", tbr: 1898 },
   { url: "am4a", kind: "audio", container: "m4a", acodec: "mp4a", tbr: 129 },
@@ -19,6 +19,7 @@ describe("selectStream — video", () => {
     expect(r).not.toBeNull();
     expect(r!.url).toBe("v1080"); // best mp4/avc video-only
     expect(r!.audioUrl).toBe("am4a"); // browser-safe audio preferred
+    expect(r!.headers).toEqual({ "User-Agent": "yt-dlp" });
     expect(r!.browserUrl).toBe("mux360"); // self-contained fallback
     expect(r!.video).toBe(true);
   });

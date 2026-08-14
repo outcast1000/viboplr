@@ -639,6 +639,9 @@ export interface StreamCandidate {
   acodec?: string;
   /** Total bitrate (kbps); tiebreaks equal-resolution/quality candidates. */
   tbr?: number;
+  /** Request headers the source requires for this signed URL. The host passes
+   *  these only to native playback; browser elements manage their own headers. */
+  headers?: Record<string, string>;
   label?: string;
 }
 

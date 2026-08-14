@@ -7,6 +7,7 @@
 //! on capability, not build flavor.
 
 use serde::Deserialize;
+use std::collections::HashMap;
 use tauri::Emitter;
 
 /// Pre-`convertFileSrc` origin of a track — libmpv takes raw paths/URLs.
@@ -23,6 +24,10 @@ pub enum EngineSource {
         /// via mpv's `audio-file`. `None` for self-contained streams.
         #[serde(default, rename = "audioUrl")]
         audio_url: Option<String>,
+        /// Request headers required by a signed stream URL (e.g. yt-dlp's
+        /// YouTube formats). Applied only to native mpv playback.
+        #[serde(default)]
+        headers: Option<HashMap<String, String>>,
     },
 }
 
@@ -37,6 +42,13 @@ impl EngineSource {
     fn audio_url(&self) -> Option<&str> {
         match self {
             EngineSource::Http { audio_url, .. } => audio_url.as_deref(),
+            EngineSource::File { .. } => None,
+        }
+    }
+
+    fn headers(&self) -> Option<&HashMap<String, String>> {
+        match self {
+            EngineSource::Http { headers, .. } => headers.as_ref(),
             EngineSource::File { .. } => None,
         }
     }
@@ -100,7 +112,7 @@ pub fn engine_play(
     video: bool,
 ) -> Result<(), String> {
     let engine = state.mpv_engine.ensure(&app)?;
-    engine.play(source.as_mpv_target(), source.audio_url(), &track_key, seek_secs, volume, muted, video)
+    engine.play_with_headers(source.as_mpv_target(), source.audio_url(), source.headers(), &track_key, seek_secs, volume, muted, video)
 }
 
 #[tauri::command]

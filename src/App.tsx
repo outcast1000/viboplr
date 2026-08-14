@@ -663,7 +663,10 @@ function App() {
   // Seek-bar hover previews for video. Complements the waveform, which is audio-only:
   // at most one of the two is non-null for a given track. Declared after `plugins`
   // because plugin-scheme tracks resolve their storyboard through the owning plugin.
-  const storyboardState = useStoryboard(playback.currentTrack, plugins.resolveStoryboardByUri);
+  const storyboardState = useStoryboard(
+    playback.playbackError ? null : playback.currentTrack,
+    plugins.resolveStoryboardByUri,
+  );
   const storyboard = storyboardState.board;
   const dependencies = useDependencies(plugins.pluginStates);
 

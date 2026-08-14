@@ -26,6 +26,8 @@ export interface SelectedStream {
   url: string;
   /** Companion audio stream for a native video pick (mpv attaches it). */
   audioUrl?: string;
+  /** Headers for the native source URL, when its provider requires them. */
+  headers?: Record<string, string>;
   /** A self-contained URL safe for the browser element / native-error fallback. */
   browserUrl: string;
   /** Whether the selected stream carries video. */
@@ -91,13 +93,14 @@ export function selectStream(
         return {
           url: videoOnly.url,
           audioUrl: audioOnly.url,
+          headers: videoOnly.headers,
           browserUrl: muxed?.url ?? videoOnly.url,
           video: true,
         };
       }
       // No usable split pair — fall back to the muxed stream for mpv too.
     }
-    if (muxed) return { url: muxed.url, browserUrl: muxed.url, video: true };
+    if (muxed) return { url: muxed.url, headers: muxed.headers, browserUrl: muxed.url, video: true };
     return null;
   }
 
@@ -109,5 +112,5 @@ export function selectStream(
     pickBest(candidates, (c) => c.kind === "audio", browserSafeAudio) ??
     pickBest(candidates, isAudioKind, browserSafeAudio);
   if (!bestAudio) return null;
-  return { url: bestAudio.url, browserUrl: bestAudio.url, video: false };
+  return { url: bestAudio.url, headers: bestAudio.headers, browserUrl: bestAudio.url, video: false };
 }

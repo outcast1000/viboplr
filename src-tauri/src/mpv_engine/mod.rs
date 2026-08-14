@@ -33,6 +33,7 @@ mod af;
 mod api;
 pub mod component;
 pub mod ffi;
+mod http_headers;
 #[cfg(target_os = "macos")]
 mod video_layer;
 #[cfg(windows)]
@@ -49,7 +50,9 @@ pub use ffi::set_component_dir;
 
 use af::{build_af_graph, replaygain_mode_value};
 use api::{mpv_end_file_reason, Event, Format, Mpv};
+use http_headers::mpv_http_header_fields;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -696,10 +699,25 @@ impl Engine {
         if muted { 0.0 } else { (volume.clamp(0.0, 1.0) * 100.0).round() }
     }
 
+    #[cfg(test)]
     pub fn play(
         self: &Arc<Self>,
         url: &str,
         audio_url: Option<&str>,
+        track_key: &str,
+        seek_secs: Option<f64>,
+        volume: f64,
+        muted: bool,
+        video: bool,
+    ) -> Result<(), String> {
+        self.play_with_headers(url, audio_url, None, track_key, seek_secs, volume, muted, video)
+    }
+
+    pub fn play_with_headers(
+        self: &Arc<Self>,
+        url: &str,
+        audio_url: Option<&str>,
+        headers: Option<&HashMap<String, String>>,
         track_key: &str,
         seek_secs: Option<f64>,
         volume: f64,
@@ -750,6 +768,8 @@ impl Engine {
             .map_err(|e| format!("mpv volume failed: {e}"))?;
         deck.set_property("pause", false)
             .map_err(|e| format!("mpv unpause failed: {e}"))?;
+        deck.set_property("http-header-fields", mpv_http_header_fields(headers))
+            .map_err(|e| format!("mpv request-header setup failed: {e}"))?;
         // Hi-res sources (e.g. YouTube ≥720p) only offer split video-only +
         // audio-only streams; attach the audio via mpv's per-file `audio-file`
         // option so mpv muxes them at playback. loadfile's options field is the

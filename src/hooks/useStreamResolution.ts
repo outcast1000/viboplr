@@ -185,7 +185,7 @@ export function useStreamResolution({
           if (r.candidates && r.candidates.length) {
             const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack });
             if (sel) {
-              return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl } };
+              return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers } };
             }
           }
           return resolveUrlDetailed(r.url, videoTrack);
