@@ -309,6 +309,9 @@ export type PluginViewData =
       value?: string;
       multiline?: boolean;
       rows?: number;
+      // Mask the input (a service password / API secret in a settings panel).
+      // Wins over `multiline`, which can't be masked.
+      password?: boolean;
     }
   | {
       type: "tabs";
@@ -704,6 +707,17 @@ export interface PluginTrack {
 
 export interface PluginCollectionsAPI {
   getLocalCollections(): Promise<Array<{ id: number; name: string; path: string | null }>>;
+  /**
+   * Rescan a collection — the plugin-side equivalent of the Resync button in
+   * Collections. For a plugin that lands new files inside a local collection
+   * (a completed download, an import), this is what makes them appear in the
+   * library without waiting for the daily auto-update.
+   *
+   * Resolves as soon as the scan is *spawned*; the host ignores a second call
+   * for a collection already scanning, so calling it after each batch is safe.
+   * Listen on `api.library.onScanComplete` for the finish.
+   */
+  resync(collectionId: number): Promise<void>;
 }
 
 /**
@@ -789,9 +803,24 @@ export interface PluginNetworkAPI {
       headers?: Record<string, string>;
       body?: string;
       insecure?: boolean;
+      /**
+       * Abort the request after this many milliseconds. There is no default:
+       * reqwest imposes none, so an unreachable host hangs the promise until
+       * the OS gives up. Set one on anything that polls; leave it off for a
+       * call that may legitimately run for minutes.
+       */
+      timeoutMs?: number;
     },
   ): Promise<{
     status: number;
+    /**
+     * Response headers, names lowercased. Repeated headers are joined with
+     * ", " as `Headers.get()` does — for `Set-Cookie` use `getSetCookie()`,
+     * whose values can't be split back out of that join.
+     */
+    headers: Record<string, string>;
+    /** Every `Set-Cookie` value, in the order the server sent them. */
+    getSetCookie(): string[];
     text(): Promise<string>;
     json(): Promise<unknown>;
   }>;

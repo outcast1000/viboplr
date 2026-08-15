@@ -423,12 +423,35 @@ pub fn image_resolve_response(
     }
 }
 
+/// Flatten a response's headers to an ordered `[name, value]` list.
+///
+/// Ordered pairs rather than a map because `Set-Cookie` may legitimately repeat
+/// and a map keeps only the last one — which is exactly the header a plugin
+/// authenticating against a session API needs (see `getSetCookie()` on the JS
+/// side). Names are lowercased so callers can look one up without case games.
+/// A value that isn't valid UTF-8 is dropped, not emitted as an empty string:
+/// a header we can't read is one a plugin can't use, and "" would read as a
+/// real value.
+fn flatten_response_headers(headers: &reqwest::header::HeaderMap) -> Vec<(String, String)> {
+    headers
+        .iter()
+        .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_lowercase(), v.to_string())))
+        .collect()
+}
+
 #[tauri::command]
-pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>) -> Result<serde_json::Value, String> {
+pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>, timeout_ms: Option<u64>) -> Result<serde_json::Value, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
     if insecure.unwrap_or(false) {
         builder = builder.danger_accept_invalid_certs(true);
+    }
+    // Opt-in only: reqwest has no default timeout, so an unreachable host hangs
+    // the plugin's promise until the OS gives up. A plugin that polls needs a
+    // bound; one that legitimately waits minutes (a slow API) must not get one
+    // imposed on it, so there is no default here.
+    if let Some(ms) = timeout_ms.filter(|ms| *ms > 0) {
+        builder = builder.timeout(std::time::Duration::from_millis(ms));
     }
     let client = builder
         .build()
@@ -453,10 +476,13 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
     let resp = req.send().await.map_err(|e| e.to_string())?;
     let status = resp.status().as_u16();
     log::info!("HTTP {} plugin_fetch {} -> {} ({:.0}ms)", method_str, url, status, start.elapsed().as_secs_f64() * 1000.0);
+    // Before `text()`, which consumes the response.
+    let resp_headers = flatten_response_headers(resp.headers());
     let text = resp.text().await.map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "status": status,
         "body": text,
+        "headers": resp_headers,
     }))
 }
 
@@ -639,4 +665,51 @@ pub fn plugin_scheduler_unregister(state: State<'_, AppState>, plugin_id: String
 #[tauri::command]
 pub fn plugin_scheduler_complete(state: State<'_, AppState>, plugin_id: String, task_id: String) -> Result<bool, String> {
     state.db.plugin_scheduler_complete(&plugin_id, &task_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::flatten_response_headers;
+    use reqwest::header::{HeaderMap, HeaderValue, SET_COOKIE};
+
+    #[test]
+    fn test_repeated_set_cookie_headers_all_survive() {
+        // The reason this returns pairs and not a map: a session API can send
+        // several Set-Cookie headers, and a map would silently keep only one.
+        let mut headers = HeaderMap::new();
+        headers.append(SET_COOKIE, HeaderValue::from_static("SID=abc; path=/"));
+        headers.append(SET_COOKIE, HeaderValue::from_static("theme=dark"));
+
+        let flat = flatten_response_headers(&headers);
+
+        let cookies: Vec<&str> = flat
+            .iter()
+            .filter(|(k, _)| k == "set-cookie")
+            .map(|(_, v)| v.as_str())
+            .collect();
+        assert_eq!(cookies, vec!["SID=abc; path=/", "theme=dark"]);
+    }
+
+    #[test]
+    fn test_header_names_are_lowercased() {
+        let mut headers = HeaderMap::new();
+        headers.insert("Content-Type", HeaderValue::from_static("application/json"));
+
+        let flat = flatten_response_headers(&headers);
+
+        assert_eq!(flat, vec![("content-type".to_string(), "application/json".to_string())]);
+    }
+
+    #[test]
+    fn test_non_utf8_header_value_is_dropped_not_emptied() {
+        // An unreadable header must not arrive as `""` — that reads like a real
+        // value the server sent.
+        let mut headers = HeaderMap::new();
+        headers.insert("x-binary", HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap());
+        headers.insert("x-ok", HeaderValue::from_static("fine"));
+
+        let flat = flatten_response_headers(&headers);
+
+        assert_eq!(flat, vec![("x-ok".to_string(), "fine".to_string())]);
+    }
 }

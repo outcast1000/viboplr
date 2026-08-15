@@ -308,13 +308,16 @@ Nested file I/O rooted inside the plugin's data directory. `path` is a string ar
 - `remove(path)` / `copy(src, dst)` / `move(src, dst)`
 
 ### api.network
-- `fetch(url, init?)` — HTTP requests proxied through Rust (bypasses CORS). Returns `{ status, text(), json() }`.
+- `fetch(url, init?)` — HTTP requests proxied through Rust (bypasses CORS). `init` is `{ method?, headers?, body?, insecure?, timeoutMs? }`. Returns `{ status, headers, getSetCookie(), text(), json() }`.
+  - **`headers`** is the response's headers, names lowercased, repeats joined with `", "` exactly as `Headers.get()` does. **`getSetCookie()`** returns every `Set-Cookie` value separately, in send order — needed because that join is not reversible (a cookie's `Expires` attribute contains a comma of its own), and because a session API may set several cookies at once. This is what makes cookie-authenticated APIs reachable at all: the backend sends ordered `[name, value]` pairs rather than a map precisely so a repeated `Set-Cookie` can't be collapsed to the last one. A header whose value isn't valid UTF-8 is **dropped**, not emitted as `""` — an unreadable header is one a plugin can't use, and an empty string reads like a real value.
+  - **`timeoutMs`** aborts the request after N ms. There is **no default**, deliberately: reqwest imposes none, so an unreachable host hangs the promise until the OS gives up — set one on anything that polls, and leave it off for a call that may legitimately run for minutes. A plugin can't cancel an in-flight fetch, so racing a `setTimeout` is not a substitute: the abandoned request keeps running and a poll loop leaks them.
 - `openUrl(url)` — open in system browser
 - `onDeepLink(handler)` — subscribe to deep links delivered to the app
 - `openBrowseWindow(url, opts?)` — opens an embedded browse window. Returns `BrowseWindowHandle` with `eval`, `close`, `show`, `hide`, `onMessage`, `onNavigation`.
 
 ### api.collections
 - `getLocalCollections()` — returns local-kind collections as `[{ id, name, path }]`
+- `resync(collectionId)` — rescan a collection; the plugin-side equivalent of the Resync button in Collections. For a plugin that lands new files **inside** a local collection (a completed download, an import), this is what makes them reach the library without waiting for the daily auto-update. Resolves as soon as the scan is *spawned*, not when it finishes — the backend ignores a second call for a collection already scanning (`resyncing_collections`), so calling it after each batch is safe. Listen on `api.library.onScanComplete` for the finish. Guard with a `typeof` check for older hosts.
 
 ### api.playlists
 - `save(data)` / `list()` / `delete(id)` / `getTracks(id)` — saved playlists (source-aware, image-aware)
@@ -530,7 +533,7 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 | `select` | Dropdown with options |
 | `layout` | Vertical / horizontal container with children |
 | `spacer` | Layout spacer |
-| `search-input` / `text-input` | Text entry that fires an action on change. `search-input` extras: `buttonLabel` (submit-only + labeled button), `pasteButton` (a "Paste" button that fills the input from the clipboard and submits — backed by the host `read_clipboard_text` command), `stateKey` (per-key text memory, so one node multiplexed across tabs keeps each tab's typed text) |
+| `search-input` / `text-input` | Text entry that fires an action on change. `search-input` extras: `buttonLabel` (submit-only + labeled button), `pasteButton` (a "Paste" button that fills the input from the clipboard and submits — backed by the host `read_clipboard_text` command), `stateKey` (per-key text memory, so one node multiplexed across tabs keeps each tab's typed text). `text-input` extras: `multiline`/`rows`, and `password` (masks the field for a service password or API secret; **wins over `multiline`**, since a textarea has no masked mode and silently falling back to a visible one would defeat the point) |
 | `tabs` | Tab bar with `activeTab` |
 | `loading` | Loading spinner with optional message |
 | `progress-bar` | `{value, max, label?}` |

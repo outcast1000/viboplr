@@ -3,6 +3,7 @@ import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/cor
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
 import { isExperimental } from "../utils/pluginStability";
+import { foldHeaderPairs, setCookieValues, type PluginHeaderPairs } from "../utils/pluginFetchHeaders";
 import {
   filterContributions,
   listPluginContributions,
@@ -882,7 +883,7 @@ export function usePlugins(
         network: {
           async fetch(url, init) {
             fetchUrlCallbackRef.current?.(url);
-            const resp = await invoke<{ status: number; body: string }>(
+            const resp = await invoke<{ status: number; body: string; headers?: PluginHeaderPairs }>(
               "plugin_fetch",
               {
                 url,
@@ -890,11 +891,17 @@ export function usePlugins(
                 headers: init?.headers ?? null,
                 body: init?.body ?? null,
                 insecure: init?.insecure ?? null,
+                timeoutMs: init?.timeoutMs ?? null,
               },
             );
             const bodyText = resp.body;
+            // Older backends sent no headers at all; treat that as none rather
+            // than throwing, so a plugin can feature-detect on the array.
+            const headerPairs = resp.headers ?? [];
             return {
               status: resp.status,
+              headers: foldHeaderPairs(headerPairs),
+              getSetCookie: () => setCookieValues(headerPairs),
               text: async () => bodyText,
               json: async () => JSON.parse(bodyText),
             };
@@ -1007,6 +1014,13 @@ export function usePlugins(
             return all
               .filter((c) => c.kind === "local")
               .map((c) => ({ id: c.id, name: c.name, path: c.path }));
+          },
+          async resync(collectionId: number): Promise<void> {
+            // Returns as soon as the rescan is spawned, not when it finishes —
+            // the backend guards against a second run for the same collection,
+            // so calling this after every file drop is safe. Completion arrives
+            // via api.library.onScanComplete.
+            await invoke("resync_collection", { collectionId });
           },
         },
 

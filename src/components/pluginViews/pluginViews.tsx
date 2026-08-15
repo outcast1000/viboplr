@@ -317,6 +317,7 @@ export function PluginTextInput({
   value,
   multiline,
   rows,
+  password,
   onAction,
 }: {
   placeholder?: string;
@@ -324,6 +325,7 @@ export function PluginTextInput({
   value?: string;
   multiline?: boolean;
   rows?: number;
+  password?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [text, setText] = useState(value ?? "");
@@ -332,7 +334,9 @@ export function PluginTextInput({
     prevValue.current = value;
     setText(value ?? "");
   }
-  if (multiline) {
+  // A textarea has no masked mode, so `password` takes precedence over
+  // `multiline` — falling back to a visible textarea would defeat the point.
+  if (multiline && !password) {
     return (
       <textarea
         className="ds-input"
@@ -350,7 +354,9 @@ export function PluginTextInput({
   return (
     <input
       className="ds-input"
-      type="text"
+      type={password ? "password" : "text"}
+      autoComplete={password ? "new-password" : undefined}
+      spellCheck={password ? false : undefined}
       placeholder={placeholder ?? ""}
       value={text}
       onChange={(e) => {

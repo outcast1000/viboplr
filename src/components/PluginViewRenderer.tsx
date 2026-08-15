@@ -273,6 +273,7 @@ function PluginViewNode({
           value={node.value}
           multiline={node.multiline}
           rows={node.rows}
+          password={node.password}
           onAction={onAction}
         />
       );
