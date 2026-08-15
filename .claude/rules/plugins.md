@@ -494,7 +494,7 @@ The merged manifest + runtime list is exposed by `usePlugins` as `homeShelves` a
 Plugins contribute searchable catalogs to the caption-bar search via `api.search`. Same two paths as Home Shelves:
 
 - **Static (manifest):** `contributes.searchProviders[]` — `{ id, name, icon? }`. Each entry must still register a handler via `api.search.onQuery(providerId, handler)`.
-- **Runtime:** `api.search.registerProvider(descriptor)`. Use this when the capability is **conditional** — the yt-dlp plugin registers only once the host reports its binary installed, because a provider that can't answer must not be offered.
+- **Runtime:** `api.search.registerProvider(descriptor)`. Use this when the capability is **conditional** — e.g. gate registration on the host reporting a required binary installed, because a provider that can't answer must not be offered.
 
 The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSearch` consumes it. That list is already filtered by the user's per-contribution toggles (see "Per-Contribution Visibility") — a provider the user hid never gets an offer row, and so is never queried.
 
@@ -510,7 +510,9 @@ The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSear
 
 **Not wired to the mini player.** `useMiniSearch` stays library-only: multi-second catalog searches with status rows don't fit a 40px bar.
 
-**Live example:** `registerGlobalSearch` in the yt-dlp plugin (`/Users/alex/Code/viboplr-ytdlp/index.js`) — runtime registration gated on `statusLoaded && ytDlpVersion`, re-run after the dependency status resolves, and reset in `deactivate` so a disable/enable cycle re-registers (the host drops the provider on unload).
+**No plugin currently ships a provider.** yt-dlp was the only one (v1.15.0–v1.20.0) and **removed** its provider deliberately — its sidebar view searches better, and a second entry point only spent more yt-dlp searches against YouTube's bot gate. Do not cite it as the example, and do not re-add it. The host side of this API stays; it is still the right surface for a catalog whose search is cheap.
+
+**If you build one:** register at runtime (not in the manifest) whenever the capability is conditional, and reset the "already registered" flag in `deactivate` — the host drops the provider on unload, so a disable/enable cycle must register again.
 
 ## Plugin View Rendering
 
