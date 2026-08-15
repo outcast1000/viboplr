@@ -25,6 +25,13 @@ import { bufferedEndAt } from "../playback/bufferState";
 import { updatePlaybackBuffer, clearPlaybackBuffer } from "../playback/bufferStore";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { setPlaybackPosition, getPlaybackPosition, subscribePlaybackPosition } from "../playback/positionStore";
+import { noteNativeFailure, clearNativeRetries, streamLadderStep } from "../playback/playbackRetry";
+
+/** Native attempts allowed for one remote track before it goes to the browser
+ *  engine. Three because each one costs a fresh resolve (a yt-dlp run, seconds)
+ *  and descends a rung: 1080p → 720p → 480p is already a far better floor than
+ *  the browser's 360p, and a fourth would mostly buy delay. */
+const NATIVE_RETRY_ATTEMPTS = 3;
 import {
   BANDS,
   BAND_Q,
@@ -1259,9 +1266,24 @@ export function usePlayback(
         }
       }),
       subscribe<EngineErrorEvent>("engine-error", ({ payload }) => {
+        // A REMOTE source gets a few more native attempts before it is written
+        // off, each one re-resolved so it plays a freshly signed URL. That is
+        // the whole of the recovery: the refusals are random (~1 in 4) and a new
+        // link is a new draw, so the retries stay at FULL quality — only the
+        // last one steps down a rung, and only because its alternative is the
+        // browser engine (see playbackRetry.streamLadderStep). The browser
+        // fallback is a silent quality cut, not a like-for-like retry: it can
+        // only play a self-contained stream, and on YouTube the only
+        // self-contained format is 360p. One transient refusal used to pin the
+        // track to 360p for the rest of the session.
+        // Local files are excluded: those failures are deterministic (a codec
+        // mpv can't decode), so more attempts only delay the fallback.
+        const remote = /^https?:/i.test(lastPlaySrcRef.current ?? "");
+        const failures = noteNativeFailure(payload.trackKey);
+        const retryNatively = remote && failures < NATIVE_RETRY_ATTEMPTS;
         // Blocklist regardless of which role the key held — a failed preload
         // must not be retried natively either.
-        nativeBlockedKeysRef.current.add(payload.trackKey);
+        if (!retryNatively) nativeBlockedKeysRef.current.add(payload.trackKey);
         if (nativePreloadedRef.current?.key === payload.trackKey) nativePreloadedRef.current = null;
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
         nativeSessionRef.current = null;
@@ -1279,11 +1301,19 @@ export function usePlayback(
           `[mpv] Native playback failed (${payload.code}) for ${payload.trackKey} from ${sourceOrigin}:`,
           payload.message,
         );
-        logPlayback(`Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine: ${payload.message}`);
-        trackTelemetry("engine_fallback", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
+        logPlayback(
+          retryNatively
+            ? `Native engine error (${payload.code}) key=${payload.trackKey} — re-resolving and retrying natively (attempt ${failures + 1}, stream ladder step ${streamLadderStep(payload.trackKey)}): ${payload.message}`
+            : `Native engine error (${payload.code}) key=${payload.trackKey} — falling back to browser engine after ${failures} native attempt(s): ${payload.message}`,
+        );
+        trackTelemetry(retryNatively ? "engine_retry" : "engine_fallback", { code: payload.code, error_kind: classifyErrorKind(payload.message) });
         const track = currentTrackRef.current;
         if (track && track.key === payload.trackKey) {
-          // Replay the same track at the same position via the browser engine.
+          // Replay the same track at the same position — natively again while
+          // the ladder has rungs left (with a freshly resolved source), on the
+          // browser engine once the key is blocklisted. `noteNativeFailure`
+          // above already recorded both facts, and it had to run BEFORE this
+          // replay: handlePlay resolves synchronously from here.
           pendingSeekRef.current = nativeLastPositionRef.current;
           handlePlayRef.current(track, "auto");
         }
@@ -1486,6 +1516,11 @@ export function usePlayback(
   }
 
   async function handlePlay(track: QueueTrack, source: "user" | "auto" = "user") {
+    // A deliberate play is a fresh start, so it starts at the top of the stream
+    // ladder again — a track that stepped down to 480p an hour ago must not stay
+    // there for the session. The engine-error replay comes through as "auto",
+    // which is exactly the path that must NOT reset the ladder it just advanced.
+    if (source === "user") clearNativeRetries(track.key);
     const generation = ++playGenerationRef.current;
     // Mark the explicit-play transition window: until the new source is installed,
     // the timeupdate-driven preload→crossfade machine must stay gated off so a

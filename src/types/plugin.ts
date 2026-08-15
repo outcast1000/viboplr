@@ -580,8 +580,14 @@ export interface PluginPlaybackAPI {
       /** Advisory hints from the host. `preferVideo`: the user asked to watch
        *  video when possible — a resolver that can should return a video stream
        *  and set `video: true` on its result (the host then plays it in the
-       *  theater). Ignore it to keep returning audio. Optional for back-compat. */
-      opts?: { preferVideo?: boolean },
+       *  theater). Ignore it to keep returning audio.
+       *  `externalAudio`: the host can merge a separate audio track (native mpv
+       *  engine), so a source whose hi-res streams are split should answer with
+       *  `candidates` rather than a single muxed URL — see `StreamResolveResult`.
+       *  `fresh`: the last answer for this track did not play — don't serve it
+       *  again from a cache of your own.
+       *  Optional for back-compat. */
+      opts?: { preferVideo?: boolean; externalAudio?: boolean; fresh?: boolean },
     ) => Promise<StreamResolveResult | null>,
   ): () => void;
   onResolveStreamByUri(
@@ -597,8 +603,11 @@ export interface PluginPlaybackAPI {
        *  engine + video). When set, a resolver with split streams should return
        *  a candidate list so the host can pick a hi-res video-only stream plus a
        *  companion audio stream; otherwise return a self-contained (muxed) URL.
-       *  Optional for back-compat — older hosts don't send it. */
-      opts?: { externalAudio?: boolean },
+       *  `fresh`: the answer you gave for this id last time did not play, so do
+       *  not serve it again from a cache of your own — mint a new one. (A signed
+       *  CDN URL that has been refused usually stays refused.)
+       *  Optional for back-compat — older hosts don't send them. */
+      opts?: { externalAudio?: boolean; fresh?: boolean },
     ) => Promise<string | { candidates: StreamCandidate[] } | null>,
   ): () => void;
   /** Supply seek-preview thumbnails for a custom URL scheme. The host shows one
@@ -651,6 +660,15 @@ export interface StreamCandidate {
  *  its formats; a metadata resolver has already *chosen* one. */
 export interface StreamResolveResult {
   url: string;
+  /** Every stream this source offers, when the resolver can enumerate them —
+   *  the same menu `onResolveStreamByUri` returns, for the metadata path. Answer
+   *  `opts.externalAudio` with this: without it the only shape available here is
+   *  a single self-contained stream, and on YouTube the only self-contained
+   *  format is 360p, so a "watch this" resolved by metadata could never play at
+   *  more than 360p however good the source was. The host runs its own
+   *  `selectStream` over these; `url` stays the self-contained fallback for when
+   *  no candidate suits the active engine. */
+  candidates?: StreamCandidate[];
   /** Display name for the resolver-chain entry that won ("yt-dlp", "Library"). */
   label: string;
   /** True when `url` is a video stream — the host reclassifies the track and

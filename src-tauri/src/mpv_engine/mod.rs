@@ -50,7 +50,7 @@ pub use ffi::set_component_dir;
 
 use af::{build_af_graph, replaygain_mode_value};
 use api::{mpv_end_file_reason, Event, Format, Mpv};
-use http_headers::mpv_http_header_fields;
+use http_headers::mpv_http_header_lines;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -768,8 +768,16 @@ impl Engine {
             .map_err(|e| format!("mpv volume failed: {e}"))?;
         deck.set_property("pause", false)
             .map_err(|e| format!("mpv unpause failed: {e}"))?;
-        deck.set_property("http-header-fields", mpv_http_header_fields(headers))
-            .map_err(|e| format!("mpv request-header setup failed: {e}"))?;
+        // One `change-list` op per header, never a delimited property write —
+        // see http_headers.rs for the malformed requests that produced. `clr`
+        // first because appends accumulate: without it the previous track's
+        // signed User-Agent would ride along on this one's request.
+        deck.command("change-list", &["http-header-fields", "clr", ""])
+            .map_err(|e| format!("mpv request-header reset failed: {e}"))?;
+        for line in mpv_http_header_lines(headers) {
+            deck.command("change-list", &["http-header-fields", "append", &line])
+                .map_err(|e| format!("mpv request-header setup failed: {e}"))?;
+        }
         // Hi-res sources (e.g. YouTube ≥720p) only offer split video-only +
         // audio-only streams; attach the audio via mpv's per-file `audio-file`
         // option so mpv muxes them at playback. loadfile's options field is the
@@ -1906,6 +1914,113 @@ mod tests {
         assert!(buffer["cacheEndSecs"].is_f64(), "http source must report a cache end");
         let ended = wait_for(&rx, "engine-ended", Duration::from_secs(30));
         assert_eq!(ended["trackKey"], "trk:https");
+    }
+
+    /// The headers a resolver supplies must reach the server **verbatim** — one
+    /// line per header, values intact. Asserted against a real socket rather than
+    /// by reading the property back, because mpv echoes whatever string it was
+    /// given and so cannot report that it mangled the request; the only place the
+    /// truth is visible is the wire. This is the regression that made signed
+    /// YouTube URLs answer 400 (malformed lines) and 403 (our User-Agent never
+    /// arriving) — see http_headers.rs.
+    #[test]
+    fn test_resolver_headers_reach_the_server_verbatim() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+
+        let seen = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut lines = Vec::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 { break; }
+                let line = line.trim_end_matches(['\r', '\n']).to_string();
+                if line.is_empty() { break; }
+                lines.push(line);
+            }
+            let mut s = stream;
+            let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            lines
+        });
+
+        let (sink, _rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        let mut headers = HashMap::new();
+        // Both values carry commas — the exact shape that used to be split into
+        // colon-less lines. yt-dlp reports precisely these on every format.
+        headers.insert("User-Agent".to_string(), "UA/1.0 (KHTML, like Gecko)".to_string());
+        headers.insert("Accept".to_string(), "text/html,application/xml;q=0.9".to_string());
+        engine
+            .play_with_headers(&format!("http://127.0.0.1:{port}/probe.m4a"), None, Some(&headers), "trk:hdr", None, 0.0, true, false)
+            .expect("play accepted");
+
+        let lines = seen.join().expect("server thread");
+        eprintln!("[header-test] request lines: {lines:#?}");
+        assert!(lines.contains(&"User-Agent: UA/1.0 (KHTML, like Gecko)".to_string()),
+            "the resolver's User-Agent must replace mpv's own — got {lines:#?}");
+        assert!(lines.contains(&"Accept: text/html,application/xml;q=0.9".to_string()),
+            "a comma-bearing value must arrive as ONE header — got {lines:#?}");
+        for line in &lines[1..] {
+            assert!(line.contains(':'), "every header line needs a colon; {line:?} is malformed");
+            assert!(!line.starts_with('%'), "length-prefix escaping leaked onto the wire: {line:?}");
+        }
+    }
+
+    /// Diagnostic probe for the yt-dlp / YouTube split-stream playback failure:
+    /// feeds real, freshly-resolved googlevideo URLs through the exact call the
+    /// app makes (`play_with_headers` + the per-file `audio-file` option), so the
+    /// mpv-side failure can be observed without driving the GUI. Plays as an
+    /// AUDIO session deliberately — a video session needs a window layer the test
+    /// engine has no AppHandle for, and the failure under investigation is the
+    /// stream open, which happens either way. Run:
+    ///   VIBOPLR_PROBE_URL=… VIBOPLR_PROBE_AUDIO=… VIBOPLR_PROBE_HEADERS='{…}' \
+    ///   cargo test probe_youtube_split_play -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn probe_youtube_split_play() {
+        let Ok(url) = std::env::var("VIBOPLR_PROBE_URL") else {
+            eprintln!("[probe] set VIBOPLR_PROBE_URL (optionally VIBOPLR_PROBE_AUDIO / _HEADERS / _CA)");
+            return;
+        };
+        let audio = std::env::var("VIBOPLR_PROBE_AUDIO").ok();
+        let headers: Option<HashMap<String, String>> = std::env::var("VIBOPLR_PROBE_HEADERS")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok());
+        eprintln!("[probe] audio_track={} headers={:?}", audio.is_some(), headers);
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        if let Ok(ca) = std::env::var("VIBOPLR_PROBE_CA") {
+            engine.set_tls_ca_file(std::path::Path::new(&ca)).expect("tls ca");
+        }
+        engine
+            .play_with_headers(&url, audio.as_deref(), headers.as_ref(), "trk:probe", None, 0.5, false, false)
+            .expect("play accepted");
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut positions = 0;
+        let mut verdict = "NO EVENTS (timed out)".to_string();
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(remaining) {
+                Ok((n, p)) if n == "engine-position" => {
+                    positions += 1;
+                    if positions >= 4 {
+                        verdict = format!("PLAYING (pos={})", p["positionSecs"]);
+                        break;
+                    }
+                }
+                Ok((n, p)) if n == "engine-error" => {
+                    verdict = format!("ENGINE ERROR {p}");
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        eprintln!("[probe] VERDICT: {verdict}");
+        eprintln!("[probe] media_info: {:?}", engine.media_info());
     }
 
     /// Network-dependent — run explicitly:

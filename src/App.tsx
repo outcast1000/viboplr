@@ -990,8 +990,8 @@ function App() {
             id: `${ps.id}:${sr.id}`,
             name: sr.name,
             source: ps.id,
-            resolve: (title, artistName, albumName, durationSecs) =>
-              plugins.invokeStreamResolve(ps.id, sr.id, title, artistName, albumName, durationSecs, preferVideoRef.current),
+            resolve: (title, artistName, albumName, durationSecs, opts) =>
+              plugins.invokeStreamResolve(ps.id, sr.id, title, artistName, albumName, durationSecs, preferVideoRef.current, opts?.externalAudio ?? false, opts?.fresh ?? false),
           });
         }
       }

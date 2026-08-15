@@ -22,6 +22,12 @@ export interface StreamResolver {
     artistName: string | null,
     albumName: string | null,
     durationSecs: number | null,
+    /** `externalAudio`: the native mpv engine will render this as video and can
+     *  merge a separate audio stream, so a resolver with split hi-res streams
+     *  should answer with `candidates`. Decided per *track* (not per resolver),
+     *  which is why it is an argument rather than a ref the builder closes over
+     *  — the same resolver serves an audio play and a video play in one session. */
+    opts?: { externalAudio?: boolean; fresh?: boolean },
   ) => Promise<ChainResult | null>;
 }
 

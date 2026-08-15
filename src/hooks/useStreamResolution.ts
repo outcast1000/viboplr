@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { consumeResolveStale, streamLadderStep } from "../playback/playbackRetry";
 import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, type EffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
@@ -159,6 +160,10 @@ export function useStreamResolution({
   // engine-error → handlePlay fallback replay).
   const inFlightResolvesRef = useRef<Map<string, Promise<ResolvedTrackSource>>>(new Map());
   const resolveCacheRef = useRef<Map<string, { at: number; resolved: ResolvedTrackSource; meta: ResolvedSource | null }>>(new Map());
+  // "The last source for this key failed to play", and how far down the stream
+  // ladder to pick next, both live in the shared `playbackRetry` store (written
+  // by usePlayback on its way into the replay — see that module for why it isn't
+  // derived from the engine-error event here).
 
   // `requireDep` is read inside the build-once resolver below; keep it in a ref so
   // the resolver always calls the latest one without re-building the chain.
@@ -191,6 +196,8 @@ export function useStreamResolution({
       url: string,
       videoTrack = false,
       headers?: Record<string, string>,
+      fresh = false,
+      ladderStep = 0,
     ): Promise<{ src: string; engineSource: EngineSource | null }> => {
       if (url.startsWith("http://") || url.startsWith("https://")) {
         return Promise.resolve({ src: url, engineSource: httpEngineSource(url, headers) });
@@ -207,14 +214,15 @@ export function useStreamResolution({
         // selectStream's `browserUrl` (always self-contained) is used as the
         // element src, which is also the safe fallback if the native play errors.
         const externalAudio = videoTrack && useNativeVideoRef.current;
-        return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null, externalAudio ? { externalAudio: true } : undefined).then(r => {
+        const opts = externalAudio || fresh ? { externalAudio, fresh } : undefined;
+        return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null, opts).then(r => {
           if (r.candidates && r.candidates.length) {
-            const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack });
+            const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack, skipTopVideo: ladderStep });
             if (sel) {
               return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers } };
             }
           }
-          return resolveUrlDetailed(r.url, videoTrack);
+          return resolveUrlDetailed(r.url, videoTrack, undefined, fresh, ladderStep);
         });
       }
       if (parsed.scheme === "subsonic") {
@@ -241,7 +249,13 @@ export function useStreamResolution({
     const doResolve = async (
       track: QueueTrack,
       preload: boolean,
+      // The previous answer for this track failed to play: bypass every cache on
+      // the way down, including the resolving plugin's own.
+      fresh: boolean,
     ): Promise<ResolvedTrackSource & { meta?: ResolvedSource | null }> => {
+      // How many failed native attempts this track has already had — each one
+      // steps the video pick down a rung (see playbackRetry).
+      const ladderStep = streamLadderStep(track.key);
       const generation = preload ? -1 : ++resolveGenerationRef.current;
       setResolvedSource(null);
       const url = track.path;
@@ -334,7 +348,7 @@ export function useStreamResolution({
                   throw e;
                 }
               }
-              return resolveUrlDetailed(url, isVideoTrack(track));
+              return resolveUrlDetailed(url, isVideoTrack(track), undefined, fresh, ladderStep);
             },
           });
         }
@@ -357,6 +371,13 @@ export function useStreamResolution({
         // resolver streams from whatever the matched row points at (file/subsonic/
         // plugin), so it's classified from the resolved URL inside resolve().
         const isBuiltinLibrary = sr.source === "built-in";
+        // What this entry is being asked to produce. The prefer-video pass is
+        // asking for video on a track that isn't one yet, so `videoOnly` has to
+        // count here as well as the track's own kind.
+        const asVideo = videoOnly || isVideoTrack(track);
+        // Same condition as the by-URI path in resolveUrlDetailed: only the
+        // native engine rendering video can merge a separate audio stream.
+        const externalAudio = asVideo && useNativeVideoRef.current;
         const entry: ResolverEntry = {
           name: sr.name,
           id: sr.id,
@@ -365,7 +386,7 @@ export function useStreamResolution({
           videoFirst: videoOnly,
           resolve: async () => {
             const result = await Promise.race([
-              sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null),
+              sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null, { externalAudio, fresh }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
             ]);
             if (!result) throw new Error("No result");
@@ -393,9 +414,21 @@ export function useStreamResolution({
               entry.fellBackToAudio = true;
             }
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
+            // A resolver that enumerated the source's streams gets the same
+            // treatment as the by-URI path: the host picks per its active engine,
+            // so a native video play can take a hi-res video-only stream plus a
+            // companion audio one instead of the single self-contained stream
+            // `url` has to be (360p, on YouTube). `url` remains the fallback for
+            // a candidate list nothing in it suits.
+            if (result.candidates?.length) {
+              const sel = selectStream(result.candidates, { engine: externalAudio ? "native" : "browser", video: asVideo, skipTopVideo: ladderStep });
+              if (sel) {
+                return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers } };
+              }
+            }
             // In the prefer-video pass we've confirmed a video result, so resolve
             // the URL as video (drives split-stream selection for the native engine).
-            return resolveUrlDetailed(result.url, videoOnly ? true : isVideoTrack(track), result.headers);
+            return resolveUrlDetailed(result.url, asVideo, result.headers, fresh, ladderStep);
           },
         };
         return entry;
@@ -505,7 +538,12 @@ export function useStreamResolution({
       const preload = !!opts?.preload;
       const key = track.key;
 
-      const cached = resolveCacheRef.current.get(key);
+      // One-shot: consumed here so the retry re-resolves and a third attempt
+      // (which would be re-answering an error we never saw) doesn't.
+      const fresh = consumeResolveStale(key);
+      if (fresh) resolveCacheRef.current.delete(key);
+
+      const cached = fresh ? undefined : resolveCacheRef.current.get(key);
       if (cached) {
         if (Date.now() - cached.at < RESOLVE_CACHE_TTL_MS && cached.resolved.src) {
           // A cache hit skips doResolve, which is what normally writes the
@@ -527,11 +565,13 @@ export function useStreamResolution({
         resolveCacheRef.current.delete(key);
       }
 
-      const existing = inFlightResolvesRef.current.get(key);
+      // A retry must not join the in-flight resolve it is retrying — that promise
+      // is the answer that just failed.
+      const existing = fresh ? undefined : inFlightResolvesRef.current.get(key);
       if (existing) return existing;
 
       const promise = (async () => {
-        const out = await doResolve(track, preload);
+        const out = await doResolve(track, preload, fresh);
         if (out.src) {
           if (resolveCacheRef.current.size >= RESOLVE_CACHE_MAX) resolveCacheRef.current.clear();
           resolveCacheRef.current.set(key, {

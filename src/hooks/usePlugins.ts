@@ -155,8 +155,8 @@ interface LoadedPlugin {
   interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
-  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean }) => Promise<StreamResolveResult | null>>;
-  streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>>;
+  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean; externalAudio?: boolean; fresh?: boolean }) => Promise<StreamResolveResult | null>>;
+  streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>>;
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
   schedulerHandlers: Map<string, () => void>;
   visualizerFactories: Map<string, () => PluginVisualizer>;
@@ -715,7 +715,7 @@ export function usePlugins(
           },
           onResolveStreamByUri(
             scheme: string,
-            handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>,
+            handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>,
           ): () => void {
             loaded.streamUriResolvers.set(scheme, handler);
             const unsub = () => {
@@ -2369,6 +2369,8 @@ export function usePlugins(
       albumName: string | null,
       durationSecs: number | null,
       preferVideo = false,
+      externalAudio = false,
+      fresh = false,
     ): Promise<StreamResolveResult | null> => {
       const provider = `${pluginId}:${providerId}`;
       const input = { title, artistName, albumName, durationSecs };
@@ -2382,7 +2384,7 @@ export function usePlugins(
       }
       try {
         return await withResolverLog({ kind: "stream", provider, input },
-          () => handler(title, artistName, albumName, durationSecs, { preferVideo }));
+          () => handler(title, artistName, albumName, durationSecs, { preferVideo, externalAudio, fresh }));
       } catch {
         return null;
       }
@@ -2556,7 +2558,7 @@ export function usePlugins(
       scheme: string,
       id: string,
       quality?: string | null,
-      opts?: { externalAudio?: boolean },
+      opts?: { externalAudio?: boolean; fresh?: boolean },
     ): Promise<{ url: string; candidates?: StreamCandidate[] }> => {
       for (const [, lp] of loadedPluginsRef.current) {
         const handler = lp.streamUriResolvers.get(scheme);

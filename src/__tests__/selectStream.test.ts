@@ -59,6 +59,41 @@ describe("selectStream — video", () => {
   });
 });
 
+describe("selectStream — retry ladder", () => {
+  it("steps down one video rung per failed attempt, keeping the same audio", () => {
+    // The point of the ladder: a refused 1080p stream becomes 720p on mpv,
+    // instead of the browser engine's 360p muxed — which is what a bare
+    // fallback would have given.
+    const first = selectStream(YT, { engine: "native", video: true, skipTopVideo: 0 });
+    const second = selectStream(YT, { engine: "native", video: true, skipTopVideo: 1 });
+    expect(first!.url).toBe("v1080");
+    expect(second!.url).toBe("v720");
+    expect(second!.audioUrl).toBe("am4a"); // audio is not stepped down with it
+  });
+
+  it("descends past the browser-safe streams into the rest rather than stopping", () => {
+    // v1080 (mp4/avc) and v720 (mp4/avc) are browser-safe; v1080vp9 is not. A
+    // ladder that only walked the safe list would run out at step 2 and drop to
+    // the browser engine while a perfectly playable vp9 stream was still there —
+    // mpv can decode it even though the <video> element can't.
+    const third = selectStream(YT, { engine: "native", video: true, skipTopVideo: 2 });
+    expect(third!.url).toBe("v1080vp9");
+  });
+
+  it("gives up on the split pair once the ladder runs off the end", () => {
+    const past = selectStream(YT, { engine: "native", video: true, skipTopVideo: 9 });
+    // No video-only rung left → the muxed stream, which is where the browser
+    // engine would have landed anyway. usePlayback caps the attempts before this.
+    expect(past!.url).toBe("mux360");
+    expect(past!.audioUrl).toBeUndefined();
+  });
+
+  it("is unchanged when no ladder step is supplied", () => {
+    expect(selectStream(YT, { engine: "native", video: true })!.url).toBe("v1080");
+    expect(selectStream(YT, { engine: "browser", video: true })!.url).toBe("mux360");
+  });
+});
+
 describe("selectStream — audio", () => {
   it("carries the chosen audio stream's headers", () => {
     // A resolver that has already picked its stream answers with a ONE-element

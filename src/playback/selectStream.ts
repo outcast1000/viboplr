@@ -18,6 +18,12 @@ export interface SelectStreamContext {
   engine: "native" | "browser";
   /** Whether the track is being played as video. */
   video: boolean;
+  /** How many of the preferred video streams to step past. Driven by
+   *  `playbackRetry.streamLadderStep`, which holds it at 0 for ordinary retries
+   *  — a refusal is not a property of the rung, so descending would trade
+   *  resolution away for nothing — and raises it only for a track's last native
+   *  attempt, where the alternative is the browser engine's 360p. */
+  skipTopVideo?: number;
 }
 
 export interface SelectedStream {
@@ -54,17 +60,23 @@ function byQualityDesc(a: StreamCandidate, b: StreamCandidate): number {
 }
 
 // Prefer browser-safe first (mp4/avc, m4a/aac), then quality — so the muxed /
-// browser stream is always element-playable when such a stream exists.
+// browser stream is always element-playable when such a stream exists. `skip`
+// steps down that same order, for retrying after a stream failed to open.
 function pickBest(
   candidates: StreamCandidate[],
   eligible: (c: StreamCandidate) => boolean,
   preferSafe: (c: StreamCandidate) => boolean,
+  skip = 0,
 ): StreamCandidate | null {
   const pool = candidates.filter(eligible);
   if (pool.length === 0) return null;
   const safe = pool.filter(preferSafe).sort(byQualityDesc);
-  if (safe.length) return safe[0];
-  return pool.slice().sort(byQualityDesc)[0];
+  if (skip <= 0) return safe.length ? safe[0] : pool.slice().sort(byQualityDesc)[0];
+  // Ranked preference order, browser-safe first then the rest, so a ladder that
+  // runs past the end of the safe streams keeps descending instead of stopping.
+  const unsafe = pool.filter((c) => !safe.includes(c)).sort(byQualityDesc);
+  const ordered = [...safe, ...unsafe];
+  return skip < ordered.length ? ordered[skip] : null;
 }
 
 /**
@@ -87,7 +99,10 @@ export function selectStream(
       // best video candidate so the browser at least shows a picture.
       pickBest(candidates, isVideoKind, browserSafeVideo);
     if (ctx.engine === "native") {
-      const videoOnly = pickBest(candidates, (c) => c.kind === "video", browserSafeVideo);
+      // Only the video rung steps down. The companion audio stream is small,
+      // and nothing suggests it is what a refusal was about — stepping it too
+      // would trade audio quality away for no reason.
+      const videoOnly = pickBest(candidates, (c) => c.kind === "video", browserSafeVideo, ctx.skipTopVideo ?? 0);
       const audioOnly = pickBest(candidates, (c) => c.kind === "audio", browserSafeAudio);
       if (videoOnly && audioOnly) {
         return {
