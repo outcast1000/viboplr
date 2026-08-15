@@ -47,15 +47,36 @@ async function download(url, dest) {
   fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
 }
 
+// Which tar to try, in order. On Windows the `tar` first on PATH is very often
+// Git Bash's GNU tar, which reads an absolute `D:\...` argument as a remote host
+// spec and dies with "Cannot connect to D: resolve failed" before it ever opens
+// the archive — so naming Windows' own bsdtar explicitly is not a preference,
+// it's the difference between working and not on a machine with Git installed.
+// (Windows' bsdtar does read .7z, despite the folklore; verified against the
+// pinned mpv-dev archive.)
+function tarCandidates() {
+  const list = [];
+  if (process.platform === "win32" && process.env.SystemRoot) {
+    list.push(path.join(process.env.SystemRoot, "System32", "tar.exe"));
+  }
+  list.push("tar");
+  return list;
+}
+
 function extract(archive, destDir) {
   // bsdtar handles .zip everywhere; its .7z support depends on the libarchive
-  // build (Windows' System32 tar lacks it), so fall back to 7z there.
-  try {
-    execFileSync("tar", ["-xf", archive, "-C", destDir]);
-  } catch (e) {
-    console.log(`  tar failed (${e.message?.split("\n")[0]}), trying 7z`);
-    execFileSync("7z", ["x", "-y", `-o${destDir}`, archive]);
+  // build, so 7z stays as the last resort.
+  const failures = [];
+  for (const tar of tarCandidates()) {
+    try {
+      execFileSync(tar, ["-xf", archive, "-C", destDir]);
+      return;
+    } catch (e) {
+      failures.push(`${tar}: ${e.message?.split("\n")[0]}`);
+    }
   }
+  console.log(`  tar failed (${failures.join(" | ")}), trying 7z`);
+  execFileSync("7z", ["x", "-y", `-o${destDir}`, archive]);
 }
 
 // Rewrite any absolute (CI-runner) or @rpath luajit reference to @loader_path —
