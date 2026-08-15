@@ -60,6 +60,27 @@ describe("selectStream — video", () => {
 });
 
 describe("selectStream — audio", () => {
+  it("carries the chosen audio stream's headers", () => {
+    // A resolver that has already picked its stream answers with a ONE-element
+    // candidate list, because that is the only shape in the contract that can
+    // carry headers (the yt-dlp plugin does this for `ytdlp://` audio). Signed
+    // CDN links bound to the minting User-Agent 403 without them, so dropping
+    // them here would silently undo the whole point of that shape.
+    const headers = { "User-Agent": "yt-dlp", Referer: "https://example/" };
+    const only: StreamCandidate[] = [{ url: "a1", kind: "audio", headers }];
+    const r = selectStream(only, { engine: "browser", video: false });
+    expect(r!.url).toBe("a1");
+    expect(r!.browserUrl).toBe("a1");
+    expect(r!.video).toBe(false);
+    expect(r!.headers).toEqual(headers);
+  });
+
+  it("leaves headers undefined when the chosen audio stream declares none", () => {
+    const r = selectStream(YT, { engine: "browser", video: false });
+    expect(r!.url).toBe("am4a");
+    expect(r!.headers).toBeUndefined();
+  });
+
   it("native prefers highest-quality browser-safe audio; browserUrl is m4a", () => {
     const r = selectStream(YT, { engine: "native", video: false });
     expect(r!.video).toBe(false);
