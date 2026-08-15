@@ -184,3 +184,15 @@
 .video-ambient-lyrics-toggle.is-off {
   color: var(--text-tertiary);
 }
+
+/* Lyrics timing offset: continues the same row leftwards, next to the toggle it
+   belongs to. Light text because it sits on video, not on the skin — the same
+   rule VideoSubtitles follows. Only rendered while subtitles are on, so nothing
+   below it has to reserve space. */
+.video-ambient-offset {
+  position: absolute;
+  top: 20px;
+  right: 116px; /* 70 (lyrics toggle right) + 38 (its width) + 8 gap */
+  pointer-events: auto;
+  color: var(--hero-text-primary);
+}

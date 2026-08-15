@@ -6,7 +6,8 @@ import { isVideoTrack } from "../utils";
 import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
-import { parseLrc, currentSyncedLineIndex } from "../utils/lyrics";
+import { parseLrc, currentSyncedLineIndex, lyricPosition } from "../utils/lyrics";
+import { LyricsOffsetControl } from "./LyricsOffsetControl";
 import { resolveNowPlayingArt } from "../utils/nowPlayingArt";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
@@ -70,6 +71,11 @@ interface NowPlayingViewProps {
       has lyrics at all — both end up hiding the column, and both hand the
       freed width to whatever is in the art column. */
   lyricsHidden?: boolean;
+  /** Per-track lyrics timing offset; positive delays. See `lyricPosition`. */
+  lyricsOffsetSecs?: number;
+  /** Omit to hide the offset control (it is also hidden for plain lyrics, which
+      have no timeline to shift). */
+  onLyricsOffsetChange?: (secs: number) => void;
 }
 
 /** Centered, lean-back lyrics display. Synced (karaoke) when LRC timing is
@@ -79,9 +85,12 @@ interface NowPlayingViewProps {
 function NowPlayingLyrics({
   data,
   onSeek,
+  offsetSecs = 0,
 }: {
   data: LyricsData;
   onSeek?: (secs: number) => void;
+  /** Per-track lyrics timing offset; positive delays. See `lyricPosition`. */
+  offsetSecs?: number;
 }) {
   // Subscribed at this leaf so the ~4 Hz position tick re-renders only the
   // lyrics panel, not the whole view (or App).
@@ -90,7 +99,7 @@ function NowPlayingLyrics({
     () => (data.kind === "synced" && data.text ? parseLrc(data.text) : null),
     [data.kind, data.text],
   );
-  const activeIdx = synced ? currentSyncedLineIndex(synced, positionSecs) : -1;
+  const activeIdx = synced ? currentSyncedLineIndex(synced, lyricPosition(positionSecs, offsetSecs)) : -1;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLDivElement>(null);
@@ -134,7 +143,11 @@ function NowPlayingLyrics({
               key={i}
               ref={active ? activeRef : undefined}
               className={`np-lyric-line np-lyric-line--${state}${onSeek ? " np-lyric-line--seekable" : ""}`}
-              onClick={onSeek ? () => onSeek(line.time) : undefined}
+              // Seek to where this line actually plays, which is its LRC time
+              // plus the offset — the inverse of lyricPosition. Seeking to the
+              // raw time would land `offsetSecs` away from the words the user
+              // clicked, i.e. wrong by exactly the amount they just corrected.
+              onClick={onSeek ? () => onSeek(Math.max(0, line.time + offsetSecs)) : undefined}
               title={onSeek ? "Jump to this line" : undefined}
             >
               {line.text || "♪"}
@@ -241,6 +254,8 @@ export function NowPlayingView({
   onToggleLyrics,
   onToggleFullscreen,
   lyricsHidden,
+  lyricsOffsetSecs = 0,
+  onLyricsOffsetChange,
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
   const isFullscreen = variant === "fullscreen";
@@ -484,10 +499,19 @@ export function NowPlayingView({
         {!lyricsHidden && (
           <div className="np-lyrics-col">
             {lyrics.status === "loaded" && lyrics.data ? (
-              <NowPlayingLyrics key={track.key} data={lyrics.data} onSeek={onSeek} />
+              <NowPlayingLyrics key={track.key} data={lyrics.data} onSeek={onSeek} offsetSecs={lyricsOffsetSecs} />
             ) : lyrics.status === "loading" ? (
               <div className="np-lyrics-hint" aria-hidden="true" />
             ) : null}
+            {/* Only for SYNCED lyrics: plain text has no timeline to shift, so
+                the control would be a knob wired to nothing. */}
+            {onLyricsOffsetChange && lyrics.data?.kind === "synced" && (
+              <LyricsOffsetControl
+                offsetSecs={lyricsOffsetSecs}
+                onChange={onLyricsOffsetChange}
+                className="np-lyrics-offset"
+              />
+            )}
           </div>
         )}
       </div>

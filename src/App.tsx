@@ -12,7 +12,7 @@ import "./App.css";
 
 import type { Track, QueueTrack, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
-import { parseLrc, syncedLyricsFitMedia } from "./utils/lyrics";
+import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from "./utils/lyrics";
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
@@ -393,6 +393,43 @@ function App() {
   // the words"), not a per-track state — re-deciding it every launch would be
   // the annoying half of a toggle.
   const [nowPlayingLyricsHidden, setNowPlayingLyricsHidden] = usePersistedSetting("nowPlayingLyricsHidden", false, restoredRef);
+  // Lyrics timing offsets, per track, keyed by metadata (`lyricOffsetKey`).
+  // Persisted rather than session-scoped: fetched LRC is timed against the audio
+  // release, so a music video is out by its intro EVERY time it plays — making
+  // the user re-dial it on each play would be the actual bug. Keyed by metadata
+  // for the same reason likes are: a QueueTrack has no DB id, and the same
+  // recording should keep its offset whichever source served it.
+  const [lyricsOffsets, setLyricsOffsets] = usePersistedSetting<Record<string, number>>("lyricsOffsets", {}, restoredRef);
+
+  // The current track's offset, and the setter that stores it. Declared here
+  // (rather than beside the other now-playing derivations further down) because
+  // `useNowPlayingInfo` needs it — the mini player's synced line must resolve to
+  // the same lyric the Now Playing view is showing.
+  const lyricsOffsetSecs = useMemo(() => {
+    const t = playback.currentTrack;
+    if (!t) return 0;
+    return clampLyricOffset(lyricsOffsets[lyricOffsetKey(t)] ?? 0);
+  }, [playback.currentTrack, lyricsOffsets]);
+
+  // Zero is pruned rather than stored: a reset should leave no trace, or the
+  // record accumulates a no-op entry for every track anyone ever nudged and
+  // undid, forever.
+  const handleLyricsOffsetChange = useCallback((secs: number) => {
+    const t = playback.currentTrack;
+    if (!t) return;
+    const key = lyricOffsetKey(t);
+    const value = clampLyricOffset(secs);
+    setLyricsOffsets((prev) => {
+      if (value === 0) {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      if (prev[key] === value) return prev;
+      return { ...prev, [key]: value };
+    });
+  }, [playback.currentTrack, setLyricsOffsets]);
 
 
   // Fullscreen visualizer. Transient by design — landing back in fullscreen on
@@ -736,6 +773,7 @@ function App() {
     pluginNames: plugins.pluginNames,
     // The cycler renders only in the mini player — see the hook's doc.
     cyclerVisible: mini.miniMode,
+    lyricsOffsetSecs,
   });
   // The single per-item control in Settings: a time-of-persistence multiplier
   // (which also enables the item), or null to turn it off.
@@ -4465,6 +4503,8 @@ function App() {
               onOpenVisualizerPicker={openVisualizerPicker}
               onToggleLyrics={() => setNowPlayingLyricsHidden((v) => !v)}
               onToggleFullscreen={canAudioFullscreen ? toggleAudioFullscreen : undefined}
+              lyricsOffsetSecs={lyricsOffsetSecs}
+              onLyricsOffsetChange={handleLyricsOffsetChange}
               lyricsHidden={nowPlayingLyricsHidden}
               visualizerSlot={
                 nowPlayingVisualizer
@@ -4851,7 +4891,7 @@ function App() {
               repositioned (never remounted), so this serves the docked preview,
               the theater, and fullscreen alike. */}
           {videoSubtitlesOn && videoSyncedLyricLines && (
-            <VideoSubtitles lines={videoSyncedLyricLines} />
+            <VideoSubtitles lines={videoSyncedLyricLines} offsetSecs={lyricsOffsetSecs} />
           )}
           {!videoTheater && (
             <div className="video-dock-actions">
@@ -4925,6 +4965,8 @@ function App() {
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
               onPlayQueueIndex={(index) => { queueHook.setQueueIndex(index); playback.handlePlay(queueHook.queue[index]); }}
+              lyricsOffsetSecs={lyricsOffsetSecs}
+              onLyricsOffsetChange={handleLyricsOffsetChange}
               onToggleFullscreen={playback.toggleFullscreen}
               syncedLyricLines={videoSyncedLyricLines}
               subtitlesOn={videoSubtitlesOn}
@@ -5484,6 +5526,8 @@ function App() {
               // Same callback as the windowed view — the row keeps all three
               // buttons in both states, and this one just points the other way.
               onToggleFullscreen={toggleAudioFullscreen}
+              lyricsOffsetSecs={lyricsOffsetSecs}
+              onLyricsOffsetChange={handleLyricsOffsetChange}
               lyricsHidden={nowPlayingLyricsHidden}
               visualizerSlot={
                 fullscreenVisualizer

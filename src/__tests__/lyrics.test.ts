@@ -7,6 +7,11 @@ import {
   plainLines,
   pickLineByRatio,
   hashStringToRatio,
+  lyricPosition,
+  clampLyricOffset,
+  formatLyricOffset,
+  lyricOffsetKey,
+  LYRIC_OFFSET_MAX,
 } from "../utils/lyrics";
 
 const LRC = ["[00:01.00]First line", "[00:05.50]Second line", "[00:10.00]Third line"].join("\n");
@@ -143,5 +148,82 @@ describe("syncedLyricsFitMedia", () => {
 
   it("rejects empty lyrics against a known duration", () => {
     expect(syncedLyricsFitMedia([], 180)).toBe(false);
+  });
+});
+
+describe("lyricPosition", () => {
+  // The sign is the whole point of the helper: this is the direction a music
+  // video with an intro needs, and getting it backwards is silent (the lyrics
+  // just go further out of sync as you "fix" them).
+  it("a POSITIVE offset delays the lyrics", () => {
+    // 15s intro: at 20s of video, the song itself is 5s in.
+    expect(lyricPosition(20, 15)).toBe(5);
+    const lines = parseLrc(LRC); // first line at 1s
+    // Without the offset the first line is already up at 2s...
+    expect(currentSyncedLineIndex(lines, 2)).toBe(0);
+    // ...with a +5s delay it isn't yet.
+    expect(currentSyncedLineIndex(lines, lyricPosition(2, 5))).toBe(-1);
+    expect(currentSyncedLineIndex(lines, lyricPosition(6.5, 5))).toBe(0);
+  });
+
+  it("a NEGATIVE offset advances them", () => {
+    expect(lyricPosition(20, -3)).toBe(23);
+    const lines = parseLrc(LRC); // second line at 5.5s
+    expect(currentSyncedLineIndex(lines, lyricPosition(4, -2))).toBe(1);
+  });
+
+  it("is identity at zero", () => {
+    expect(lyricPosition(42.5, 0)).toBe(42.5);
+  });
+});
+
+describe("clampLyricOffset", () => {
+  it("quantises to one decimal so repeated steps stay readable", () => {
+    expect(clampLyricOffset(0.5 + 0.5 + 0.5)).toBe(1.5);
+    expect(clampLyricOffset(1.5000000000000002)).toBe(1.5);
+    expect(clampLyricOffset(0.24)).toBe(0.2);
+  });
+
+  it("clamps to the supported range in both directions", () => {
+    expect(clampLyricOffset(999)).toBe(LYRIC_OFFSET_MAX);
+    expect(clampLyricOffset(-999)).toBe(-LYRIC_OFFSET_MAX);
+  });
+
+  // Non-finite is corrupt input, not a big offset — falling through to the clamp
+  // would silently apply a full 60s delay from a garbage stored value.
+  it("treats non-finite input as no offset", () => {
+    expect(clampLyricOffset(NaN)).toBe(0);
+    expect(clampLyricOffset(Infinity)).toBe(0);
+    expect(clampLyricOffset(-Infinity)).toBe(0);
+  });
+
+  it("still clamps large finite values", () => {
+    expect(clampLyricOffset(Number.MAX_SAFE_INTEGER)).toBe(LYRIC_OFFSET_MAX);
+  });
+});
+
+describe("formatLyricOffset", () => {
+  it("signs the value and keeps one decimal", () => {
+    expect(formatLyricOffset(0)).toBe("0.0s");
+    expect(formatLyricOffset(2.5)).toBe("+2.5s");
+    expect(formatLyricOffset(-1)).toBe("−1.0s");
+  });
+
+  it("uses a true minus sign, not a hyphen", () => {
+    expect(formatLyricOffset(-1)).toContain("−");
+    expect(formatLyricOffset(-1)).not.toContain("-");
+  });
+});
+
+describe("lyricOffsetKey", () => {
+  it("keys on metadata, case-insensitively", () => {
+    expect(lyricOffsetKey({ title: "Jóga", artist_name: "Björk" }))
+      .toBe(lyricOffsetKey({ title: "JÓGA", artist_name: "BJÖRK" }));
+  });
+
+  it("separates different songs and a missing artist", () => {
+    expect(lyricOffsetKey({ title: "A", artist_name: "X" }))
+      .not.toBe(lyricOffsetKey({ title: "B", artist_name: "X" }));
+    expect(lyricOffsetKey({ title: "A", artist_name: null })).toBe("track::a");
   });
 });

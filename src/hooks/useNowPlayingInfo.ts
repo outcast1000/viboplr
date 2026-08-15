@@ -6,7 +6,7 @@ import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { isLocalTrack, parseUrlScheme } from "../queueEntry";
 import { formatDuration } from "../utils";
 import { useLyrics } from "./useLyrics";
-import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio } from "../utils/lyrics";
+import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio, lyricPosition } from "../utils/lyrics";
 import { nativeEngine } from "../playback/nativeEngine";
 import { subscribePlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
 
@@ -361,6 +361,10 @@ interface UseNowPlayingInfoArgs {
   // App — every time the sung line changes (~every 2-5s for the whole track),
   // which is pure waste in full mode, where the cycler doesn't render at all.
   cyclerVisible: boolean;
+  /** Per-track lyrics timing offset; positive delays. The mini player's synced
+   *  line has to honour it too, or the same track reads one line here and a
+   *  different one on the Now Playing view. See `lyricPosition`. */
+  lyricsOffsetSecs?: number;
 }
 
 export function useNowPlayingInfo({
@@ -376,6 +380,7 @@ export function useNowPlayingInfo({
   pluginNames,
   pluginsLoaded,
   cyclerVisible,
+  lyricsOffsetSecs = 0,
 }: UseNowPlayingInfoArgs): {
   availableItems: NowPlayingInfoDescriptor[];
   resolvedItems: NowPlayingInfoResolved[];
@@ -423,7 +428,9 @@ export function useNowPlayingInfo({
   const syncedLive = Boolean(syncedLines) && cyclerVisible;
   const syncedText = useSyncExternalStore(
     syncedLive ? subscribePlaybackPosition : noopSubscribe,
-    () => (syncedLive && syncedLines ? activeSyncedLine(syncedLines, getPlaybackPosition()) : null),
+    () => (syncedLive && syncedLines
+      ? activeSyncedLine(syncedLines, lyricPosition(getPlaybackPosition(), lyricsOffsetSecs))
+      : null),
   );
   // One line per track, stable across re-renders/cycles: pick by a hash of the
   // track + lyrics so it doesn't flicker, while still varying between songs.

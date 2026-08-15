@@ -1,5 +1,5 @@
 import { usePlaybackPosition } from "../playback/positionStore";
-import { currentSyncedLineIndex, type LrcLine } from "../utils/lyrics";
+import { currentSyncedLineIndex, lyricPosition, type LrcLine } from "../utils/lyrics";
 import "./VideoSubtitles.css";
 
 /**
@@ -13,9 +13,12 @@ import "./VideoSubtitles.css";
  * re-renders. Shows nothing during the intro / instrumental gaps (no active
  * line), matching the mini-player's synced-lyrics behavior.
  */
-export function VideoSubtitles({ lines }: { lines: LrcLine[] }) {
+export function VideoSubtitles({ lines, offsetSecs = 0 }: { lines: LrcLine[]; offsetSecs?: number }) {
   const position = usePlaybackPosition();
-  const idx = currentSyncedLineIndex(lines, position);
+  // Video is the case this offset exists for: fetched LRC is timed against the
+  // audio release, and a music video usually opens with an intro the release
+  // doesn't have. Positive delays — see lyricPosition.
+  const idx = currentSyncedLineIndex(lines, lyricPosition(position, offsetSecs));
   const current = idx >= 0 ? lines[idx].text.trim() : "";
   if (!current) return null; // before the first line, or a blank gap line
   let next = "";

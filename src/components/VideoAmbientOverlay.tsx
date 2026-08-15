@@ -5,6 +5,7 @@ import type { QueueTrack } from "../types";
 import { getInitials } from "../utils";
 import { nextQueueTrack } from "../utils/videoOverlay";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
+import { LyricsOffsetControl } from "./LyricsOffsetControl";
 import type { LrcLine } from "../utils/lyrics";
 import "./VideoAmbientOverlay.css";
 
@@ -27,6 +28,10 @@ interface VideoAmbientOverlayProps {
   /** Shared subtitle visibility (App-owned; persisted). */
   subtitlesOn: boolean;
   onToggleSubtitles: () => void;
+  /** Per-track lyrics timing offset; positive delays. See `lyricPosition`. */
+  lyricsOffsetSecs?: number;
+  /** Omit to hide the offset control. */
+  onLyricsOffsetChange?: (secs: number) => void;
 }
 
 export function VideoAmbientOverlay({
@@ -41,6 +46,8 @@ export function VideoAmbientOverlay({
   syncedLyricLines,
   subtitlesOn,
   onToggleSubtitles,
+  lyricsOffsetSecs = 0,
+  onLyricsOffsetChange,
 }: VideoAmbientOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   // Bump on track change to re-trigger the intro slide-in animation.
@@ -119,6 +126,17 @@ export function VideoAmbientOverlay({
             <path d="M15 14.5a3 3 0 0 1 0-4" />
           </svg>
         </button>
+      )}
+
+      {/* Only while subtitles are actually up: this is the surface the offset
+          exists for (a music video's intro shifts every line), but a control for
+          something that isn't on screen is just clutter. */}
+      {syncedLyricLines && subtitlesOn && onLyricsOffsetChange && (
+        <LyricsOffsetControl
+          offsetSecs={lyricsOffsetSecs}
+          onChange={onLyricsOffsetChange}
+          className="video-ambient-offset video-ambient-fade"
+        />
       )}
 
       {onToggleFullscreen && (

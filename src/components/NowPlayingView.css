@@ -221,6 +221,7 @@
    guarantees it never comes out narrower than it is today. The 1100px stage cap
    still bounds it in practice. */
 .np-lyrics-col {
+  position: relative;
   flex: 1 1 0;
   min-width: 0;
   max-width: max(560px, 30vw);
@@ -325,6 +326,20 @@
   /* unsynced lyrics have no active line / state changes — no animation */
   transition: none;
   transform: none;
+}
+
+/* Timing offset, parked at the foot of the lyrics column. Out of flow so it
+   never shortens the scroll area (which would shift the karaoke centre line),
+   and inside the column rather than in the corner action row because it belongs
+   to what it adjusts — you reach for it while reading lyrics that are wrong.
+   Colour is inherited: the column carries the `--np-text-*` regime. */
+.np-lyrics-offset {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  color: var(--np-text-secondary);
 }
 
 /* Subtle loading placeholder — no text, just a faint pulse where lyrics will be. */

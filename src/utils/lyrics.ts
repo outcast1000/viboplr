@@ -22,6 +22,54 @@ export function parseLrc(lrc: string): LrcLine[] {
   return lines;
 }
 
+/** Nudge step for the offset control; Shift takes the coarse one. A music-video
+ *  intro is commonly 10-30s, which 0.5s alone would make a clicking exercise. */
+export const LYRIC_OFFSET_STEP = 0.5;
+export const LYRIC_OFFSET_COARSE_STEP = 5;
+/** Past a minute the lyrics are for a different recording, not out of sync. */
+export const LYRIC_OFFSET_MAX = 60;
+
+/**
+ * Playback position translated into the lyrics' own timeline.
+ *
+ * **Positive `offsetSecs` DELAYS the lyrics.** A music video with a 15s intro
+ * plays the first sung word at position 15 while the LRC times it at 0, so the
+ * user asks for "+15s" and we look up the line at `20 - 15 = 5` when 20s have
+ * played. That is the direction people mean by "the subtitles are early".
+ *
+ * A one-line subtraction behind a name on purpose: the sign is the thing that
+ * gets flipped, and it is applied at four call sites. Pinning it here means one
+ * test covers all of them.
+ */
+export function lyricPosition(position: number, offsetSecs: number): number {
+  return position - offsetSecs;
+}
+
+/** Clamp to the supported range and quantise to 0.1s — the offset is user-typed
+ *  arithmetic on floats, and `0.5 + 0.5 + 0.5` should read as `1.5`, not
+ *  `1.5000000000000002`. */
+export function clampLyricOffset(secs: number): number {
+  if (!Number.isFinite(secs)) return 0;
+  const clamped = Math.max(-LYRIC_OFFSET_MAX, Math.min(LYRIC_OFFSET_MAX, secs));
+  return Math.round(clamped * 10) / 10;
+}
+
+/** Signed, one-decimal label for the offset readout. Uses a true minus sign
+ *  (U+2212) rather than a hyphen so it aligns with the `+` at the same width. */
+export function formatLyricOffset(secs: number): string {
+  const v = clampLyricOffset(secs);
+  if (v === 0) return "0.0s";
+  const sign = v > 0 ? "+" : "−";
+  return `${sign}${Math.abs(v).toFixed(1)}s`;
+}
+
+/** Storage key for a track's lyric offset. Metadata-keyed, matching the
+ *  information-type cache (`track:{artist}:{title}`) — a `QueueTrack` has no DB
+ *  id, and the same recording should keep its offset across sources. */
+export function lyricOffsetKey(track: { title: string; artist_name?: string | null }): string {
+  return `track:${(track.artist_name ?? "").toLowerCase()}:${track.title.toLowerCase()}`;
+}
+
 /** Index of the active synced line at `position` seconds (the last line whose
  *  timestamp has passed), or -1 before the first line. */
 export function currentSyncedLineIndex(lines: LrcLine[], position: number): number {
