@@ -47,6 +47,14 @@
      light: the surface is scrimmed album art, whatever the skin. The skin's own
      --bg-hover would be a pale block under a white glyph on a light skin. */
   --np-btn-hover-bg: rgba(0, 0, 0, 0.45);
+  /* Identity type, scaled to the stage. Declared here rather than on `.np-meta`
+     because `.np-tags` is that block's *sibling*, and all three sizes derive
+     from this one so the group can't fall out of proportion as it grows.
+     Floored at the size the title was fixed at, so no window loses any.
+     Only the in-grid tier needs a value: the fullscreen variant doesn't render
+     this block at all (`showIdentity`), its identity coming from the control bar
+     — which scales its own the same way (`--fsbar-title-size`). */
+  --np-title-size: clamp(var(--fs-2xl), 1.6vh + 0.85vw, 52px);
 }
 .np-audio--noart {
   background: linear-gradient(160deg, var(--accent-dim), var(--bg-primary) 70%);
@@ -198,14 +206,29 @@
   background: var(--bg-tertiary);
 }
 
+/* Lyric type scales with the room the stage actually has, through one property
+   for the same reason `--np-art-size` and `--np-vis-size` do: two tiers (in-grid
+   / fullscreen) read it, and the `--fs` selector out-specifies anything scoped
+   narrower.
+
+   The floor is the size this used to be fixed at, so no window gets *smaller*
+   lyrics than before — the clamp only ever buys growth. Both axes are in the
+   preferred term because both bind: height decides how many lines are on screen,
+   width how many characters fit before wrapping.
+
+   The column's own cap grows with `max()` for the same reason. A hard 560px
+   meant a bigger font just wrapped more, which is not "bigger lyrics"; `max()`
+   guarantees it never comes out narrower than it is today. The 1100px stage cap
+   still bounds it in practice. */
 .np-lyrics-col {
   flex: 1 1 0;
   min-width: 0;
-  max-width: 560px;
+  max-width: max(560px, 30vw);
   height: 100%;
   display: flex;
   align-items: center;
   overflow: hidden;
+  --np-lyric-size: clamp(var(--fs-lg), 1.05vh + 0.5vw, var(--fs-2xl));
 }
 
 /* ── Karaoke / centered lyrics ───────────────── */
@@ -244,10 +267,12 @@
 }
 
 .np-lyric-line {
-  font-size: var(--fs-lg);
+  font-size: var(--np-lyric-size);
   font-weight: 600;
   line-height: 1.5;
-  padding: 7px 0;
+  /* em, not px: the gap between lines has to grow with the type or large lyrics
+     come out cramped (7px was 0.37em at the old fixed 19px). */
+  padding: 0.37em 0;
   /* keep lines narrower than the column so the active line's scale-up has
      horizontal headroom and isn't clipped by the scroll container */
   max-width: 86%;
@@ -325,7 +350,7 @@
   max-width: 80%;
 }
 .np-title {
-  font-size: var(--fs-2xl);
+  font-size: var(--np-title-size);
   font-weight: 800;
   letter-spacing: -0.01em;
   line-height: 1.15;
@@ -335,11 +360,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Derived, not clamped again: the pair has to stay in proportion as it grows,
+   and 0.53 is the ratio it already had (16px under a 30px title). */
 .np-subtitle {
-  font-size: var(--fs-base);
+  font-size: calc(var(--np-title-size) * 0.53);
   color: var(--np-text-secondary);
   text-shadow: var(--np-text-shadow-sm);
-  margin-top: 6px;
+  margin-top: 0.375em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -352,7 +379,9 @@
   margin-top: 6px;
   text-align: center;
   max-width: 80%;
-  font-size: var(--fs-sm);
+  /* Derived like .np-subtitle — 0.44 is the ratio it already had (13px under a
+     30px title) — so the three identity lines grow together. */
+  font-size: calc(var(--np-title-size) * 0.44);
   color: var(--np-text-tertiary);
   text-shadow: var(--np-text-shadow-sm);
   white-space: nowrap;
@@ -497,24 +526,22 @@
 .now-playing-view--fs:not(.np-audio--nolyrics) .np-stage {
   max-width: 1600px;
 }
+/* Fullscreen lyrics get their own tier for the same reason the art and the
+   visualizer do: none of the app furniture the in-grid budget reserves for is
+   here, and this surface exists to be read from across a room. Higher floor
+   (fullscreen is a deliberate act — it should look different the moment it opens)
+   and a higher ceiling, with the column widened to match so the extra type buys
+   larger text rather than more wrapping. */
 .now-playing-view--fs .np-lyrics-col {
-  max-width: 720px;
+  max-width: max(720px, 34vw);
+  --np-lyric-size: clamp(var(--fs-xl), 1.5vh + 0.7vw, 40px);
 }
-/* The corner buttons' resting dim assumes the pointer is often somewhere *else*
-   in the app — the sidebar, the queue, the now-playing bar. Fullscreen is the
-   whole screen, so `:hover` on the view is always true and the floor below would
-   pin the row at 0.85 forever: three lit buttons in the corner of a lean-back
-   surface. Drop back to the resting opacity here and let each button's own
-   :hover (which still wins, the floor being `:where()`-neutralised) light it. */
-:where(.now-playing-view--fs:hover) .np-action-btn {
-  opacity: 0.4;
-}
-:where(.now-playing-view--fs:hover) .np-action-btn.is-off:not(:hover):not(:focus-visible) {
-  opacity: 0.28;
-}
-:where(.now-playing-view--fs:hover) .np-action-btn:disabled {
-  opacity: 0.16;
-}
+/* No fullscreen override for the corner buttons any more. There used to be one:
+   the old resting dim assumed the pointer was often somewhere *else* in the app,
+   which in fullscreen it never is, so `:hover` on the view was permanently true
+   and the row sat lit forever — the override dimmed it back down. The row now
+   hides on an idle timer instead, which answers fullscreen and the docked view
+   with the same rule and no second tier to keep in step. */
 
 /* No short-window override is needed here, and adding one would be a step
    backwards: `100vh - --np-fs-chrome` already shrinks with the window, so a 600px
@@ -527,9 +554,15 @@
 /* Top-right, the corner the video theater puts its own controls in
    (VideoAmbientOverlay) — the same view, so the control set shouldn't move when
    the queue turns up a video. Every action is a visible button; there is no ⋯
-   and no context menu behind them (see NowPlayingView.tsx). Dim at rest so they
-   stay out of a lean-back view, legible the moment the pointer is anywhere in
-   it. */
+   and no context menu behind them (see NowPlayingView.tsx).
+
+   The row auto-hides on the same idle beat as the fullscreen bar and the theater
+   overlay (`useIdleVisibility`): at rest a lean-back surface should be the
+   artwork and the words, not three icons in the corner. `is-visible` comes from
+   the timer; `:hover` and `:focus-within` are the two escapes that must never
+   depend on it — the timer would otherwise fade a 30px button out from under the
+   pointer that was reaching for it, or hide one the keyboard had just focused.
+   Both are plain state rules here, not `:where()` floors, so they beat the base. */
 .np-actions {
   position: absolute;
   top: 14px;
@@ -538,6 +571,15 @@
   display: flex;
   align-items: center;
   gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.np-actions.is-visible,
+.np-actions:hover,
+.np-actions:focus-within {
+  opacity: 1;
+  pointer-events: auto;
 }
 .np-action-btn {
   display: flex;
@@ -550,18 +592,14 @@
   border-radius: var(--ds-radius);
   background: transparent;
   color: var(--np-text-secondary);
-  opacity: 0.4;
+  /* Relative weight within the row; the row itself decides whether the row is on
+     screen at all. Before the container handled that, this was 0.4 with a
+     `:where(view:hover)` floor lifting it to 0.85 — two mechanisms doing one
+     job, and the floor had to be specificity-neutralised so a button's own
+     :hover could still beat it. One less thing to get wrong. */
+  opacity: 0.85;
   cursor: pointer;
   transition: opacity 0.2s ease, background 0.15s ease, color 0.15s ease;
-}
-/* Pointer anywhere in the view lifts every button off its resting dim. This is a
-   *floor*, not a state, so the ancestor goes in `:where()` and contributes no
-   specificity. Written plainly, `.now-playing-view:hover .np-action-btn` (0,3,0)
-   out-specifies `.np-action-btn:hover` (0,2,0) below — and since the pointer has
-   to be in the view to reach a button, the button's own hover could then never
-   win, leaving it stuck at 0.85 while mere keyboard focus reached 1. */
-:where(.now-playing-view:hover) .np-action-btn {
-  opacity: 0.85;
 }
 .np-action-btn:hover,
 .np-action-btn:focus-visible {
@@ -572,7 +610,7 @@
 /* Toggle in its off state (lyrics hidden): dimmer than its siblings so the row
    reads at a glance, but still fully lit under the cursor — hence the :not()
    guards, which keep this from out-specifying the :hover rule above. */
-:where(.now-playing-view:hover) .np-action-btn.is-off:not(:hover):not(:focus-visible) {
+.np-action-btn.is-off:not(:hover):not(:focus-visible) {
   opacity: 0.45;
 }
 /* Nothing to toggle (a track with no lyrics). Dimmer again, and no hover
@@ -585,6 +623,6 @@
 }
 /* Later than the :hover rule on purpose: the two tie at (0,2,0), and a disabled
    button must not brighten under the cursor. */
-:where(.now-playing-view:hover) .np-action-btn:disabled {
+.np-action-btn:disabled {
   opacity: 0.22;
 }

@@ -8,7 +8,6 @@
 // single installed listener never reads stale closures.
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { isVideoTrack } from "../utils";
 import { shouldWakeMiniSearch } from "../utils/miniSearchTrigger";
 import type { QueueTrack } from "../types";
 import type { useLibrary } from "./useLibrary";
@@ -34,11 +33,11 @@ export interface KeyboardShortcutDeps {
   handleNext: () => void;
   handleToggleQueueCollapsed: () => void;
   handleToggleSidebar: () => void;
-  // Fullscreen for a non-video track. Video keeps its own path (it owns the
-  // <video> element); these two are the only branches, so the key always does
-  // something whenever anything is playing.
-  canAudioFullscreen: boolean;
-  toggleAudioFullscreen: () => void;
+  // Fullscreen, dispatched by track kind inside App (video keeps its own path —
+  // it owns the <video> element). The key shares this with the now-playing bar's
+  // fullscreen button so the two can't disagree about which surface answers.
+  canFullscreen: boolean;
+  toggleFullscreenForTrack: () => void;
   // Interface zoom: +1 larger, -1 smaller (acts on mini player or full window).
   adjustZoom: (dir: 1 | -1) => void;
   // Mini-player quick search.
@@ -174,14 +173,11 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
           library.setSelectedTrack(null);
           break;
         case "f":
-          if (d.currentTrack && isVideoTrack(d.currentTrack)) {
+          // Same key, same intent, different surface per track kind — the
+          // dispatch lives in App so the bar's button shares it verbatim.
+          if (d.canFullscreen) {
             e.preventDefault();
-            playback.toggleFullscreen();
-          } else if (d.canAudioFullscreen) {
-            // Audio: same key, same intent, different surface — the visualizer
-            // if one is selected, otherwise the album art.
-            e.preventDefault();
-            d.toggleAudioFullscreen();
+            d.toggleFullscreenForTrack();
           }
           break;
         case "l":

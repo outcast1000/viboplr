@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import type { QueueTrack } from "../types";
 import { getInitials } from "../utils";
 import { nextQueueTrack } from "../utils/videoOverlay";
+import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import type { LrcLine } from "../utils/lyrics";
 import "./VideoAmbientOverlay.css";
-
-const IDLE_TIMEOUT = 3000;
 
 interface VideoAmbientOverlayProps {
   currentTrack: QueueTrack | null;
@@ -44,8 +43,6 @@ export function VideoAmbientOverlay({
   onToggleSubtitles,
 }: VideoAmbientOverlayProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<number>(0);
-  const [visible, setVisible] = useState(true);
   // Bump on track change to re-trigger the intro slide-in animation.
   const [introKey, setIntroKey] = useState(0);
 
@@ -81,42 +78,19 @@ export function VideoAmbientOverlay({
     return () => { cancelled = true; };
   }, [currentTrack?.title, currentTrack?.artist_name, currentTrack?.album_title]);
 
-  // Idle-timer visibility: mirror FullscreenControls — show on activity, hide
-  // after the timeout while playing, stay visible while paused.
-  const resetTimer = useCallback(() => {
-    setVisible(true);
-    clearTimeout(timerRef.current);
-    if (playing) {
-      timerRef.current = window.setTimeout(() => setVisible(false), IDLE_TIMEOUT);
-    }
-  }, [playing]);
-
-  // Re-show + re-arm whenever play state flips (stay visible while paused).
-  useEffect(() => {
-    if (!playing) {
-      clearTimeout(timerRef.current);
-      setVisible(true);
-    } else {
-      resetTimer();
-    }
-  }, [playing, resetTimer]);
+  // Show on activity over the video container (our parent), hide after the idle
+  // wait while playing, stay up while paused. Shared with the fullscreen bar and
+  // the Now Playing corner buttons — see useIdleVisibility.
+  const { visible, reset: resetTimer } = useIdleVisibility({
+    hold: !playing,
+    getTarget: () => rootRef.current?.parentElement ?? null,
+  });
 
   // Track change: re-trigger intro animation and re-show.
   useEffect(() => {
     setIntroKey((k) => k + 1);
     resetTimer();
   }, [currentTrack?.key, resetTimer]);
-
-  // Show on mouse movement over the video container (our parent).
-  useEffect(() => {
-    const container = rootRef.current?.parentElement;
-    if (!container) return;
-    const onMove = () => resetTimer();
-    container.addEventListener("mousemove", onMove);
-    return () => container.removeEventListener("mousemove", onMove);
-  }, [resetTimer]);
-
-  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   const next = nextQueueTrack(queue, queueIndex);
   const nextTrack = next?.track ?? null;

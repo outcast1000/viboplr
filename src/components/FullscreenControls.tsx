@@ -1,17 +1,15 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { QueueTrack, QueueMode } from "../types";
+import type { QueueTrack, QueueMode, ResolvedSource } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
-import { formatDuration } from "../utils";
+import { formatDuration, isVideoTrack } from "../utils";
 import { usePlaybackPosition } from "../playback/positionStore";
-import { AutoContinuePopover } from "./AutoContinuePopover";
-import { WaveformSeekBar } from "./WaveformSeekBar";
-import { FilmstripSeekBar } from "./FilmstripSeekBar";
-import { StoryboardTile } from "./StoryboardTile";
-import { tileIndexAt, type Storyboard } from "../utils/storyboard";
-// Bubble thumbnail width. Sheet tiles are larger (up to 400px) to serve the hero
-// art, so the bubble downscales — percentage-based positioning keeps it sharp.
-const SEEK_THUMB_WIDTH = 176;
+import { useIdleVisibility } from "../hooks/useIdleVisibility";
+import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
+import { TransportButtons, QueueModeGroup, VolumeControl } from "./TransportControls";
+import { EqControlGroup, type EqControls } from "./EqButton";
+import { SourceIndicator } from "./SourceIndicator";
+import type { Storyboard } from "../utils/storyboard";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { BufferingChip } from "./BufferingChip";
 import { bufferedFraction } from "../playback/bufferState";
@@ -67,6 +65,17 @@ interface FullscreenControlsProps {
   onToggleSubtitles: () => void;
   onNavigateToArtistByName: (name: string) => void;
   onNavigateToAlbumByName: (name: string, artistName?: string | null) => void;
+  /** Equalizer state + handlers, the same bundle the now-playing bar builds.
+      **Optional** only so a host that has no EQ wiring can omit it; App passes
+      it on both surfaces, because "the controls are the same in every
+      fullscreen" also means they're the same as the windowed bar's. */
+  eq?: EqControls;
+  /** Whether mpv is driving the current video — the one case where video can be
+      EQ'd. Mirrors the now-playing bar's availability rule. */
+  nativeVideoActive?: boolean;
+  /** The winning stream resolver, for the `SourceIndicator` on the subtitle line.
+      Same prop, same component, same slot as the docked bar. */
+  resolvedSource?: ResolvedSource | null;
   /**
    * Treat this as a live fullscreen presentation even though there is no DOM
    * `:fullscreen` element.
@@ -82,8 +91,6 @@ interface FullscreenControlsProps {
   active?: boolean;
 }
 
-const IDLE_TIMEOUT = 3000;
-
 export function FullscreenControls({
   waveformPeaks,
   storyboard,
@@ -96,6 +103,7 @@ export function FullscreenControls({
   onSeek, onVolume, onMute, onToggleQueueMode, onRandomize, queueLength,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
+  eq, nativeVideoActive = false, resolvedSource = null,
   active = false,
 }: FullscreenControlsProps) {
   // Subscribed here (not passed from App) so the ~4 Hz position tick — and the
@@ -103,78 +111,47 @@ export function FullscreenControls({
   const positionSecs = usePlaybackPosition();
   const buffer = usePlaybackBuffer();
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
-  const [visible, setVisible] = useState(true);
   const [domFullscreen, setDomFullscreen] = useState(false);
   // Either kind of fullscreen counts: the video path uses a DOM :fullscreen
   // element, the audio path uses window fullscreen + a pinned overlay.
   const isFullscreen = active || domFullscreen;
-  const timerRef = useRef<number>(0);
-  const draggingRef = useRef(false);
+  // Same rule as the now-playing bar: audio always, video only under mpv.
+  const eqAvailable = !currentTrack || !isVideoTrack(currentTrack) || nativeVideoActive;
   const overlayRef = useRef<HTMLDivElement>(null);
-  const fsAcAnchorRef = useRef<HTMLButtonElement>(null);
   // Scrub preview: pct picks the storyboard tile, x positions the bubble
   // (px within .fs-seek-wrap).
-  const [seekHover, setSeekHover] = useState<{ pct: number; x: number } | null>(null);
+  const [seekHover, setSeekHover] = useState<SeekHover | null>(null);
   const seekWrapRef = useRef<HTMLDivElement>(null);
 
-  // Track fullscreen state
+  // Show on movement over the fullscreen container (our parent), hide after the
+  // idle wait, stay up while paused and while something is holding it. Only
+  // armed in fullscreen: docked, `.fs-controls` isn't even rendered.
+  const { visible, reset: resetTimer, pin } = useIdleVisibility({
+    enabled: isFullscreen,
+    hold: !playing,
+    getTarget: () => overlayRef.current?.parentElement ?? null,
+  });
+
+  // Track DOM fullscreen state. Leaving it re-shows via the hook's `enabled`
+  // gate, so there is nothing to unwind here.
   useEffect(() => {
-    const onChange = () => {
-      const fs = !!document.fullscreenElement;
-      setDomFullscreen(fs);
-      if (!fs) {
-        clearTimeout(timerRef.current);
-        setVisible(true);
-      }
-    };
+    const onChange = () => setDomFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", onChange);
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
-  // Auto-hide timer
-  const resetTimer = useCallback(() => {
-    setVisible(true);
-    clearTimeout(timerRef.current);
-    if (playing && !draggingRef.current) {
-      timerRef.current = window.setTimeout(() => setVisible(false), IDLE_TIMEOUT);
-    }
-  }, [playing]);
-
-  // Reset timer when play state changes (keep visible while paused)
-  useEffect(() => {
-    if (!isFullscreen) return;
-    if (!playing) {
-      clearTimeout(timerRef.current);
-      setVisible(true);
-    } else {
-      resetTimer();
-    }
-  }, [playing, isFullscreen, resetTimer]);
-
-  // Mousemove on the fullscreen container (parent of this component)
-  useEffect(() => {
-    if (!isFullscreen) return;
-    const container = overlayRef.current?.parentElement;
-    if (!container) return;
-    const onMove = () => resetTimer();
-    container.addEventListener("mousemove", onMove);
-    return () => container.removeEventListener("mousemove", onMove);
-  }, [isFullscreen, resetTimer]);
+  // The EQ popover is a 600px panel you read as much as you drag, so the idle
+  // timer must not yank the bar (and the popover inside it) out from under it.
+  // Keyed separately from the drag hold: releasing one must not release the other.
+  const handleEqOpenChange = useCallback((open: boolean) => pin("eq", open), [pin]);
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     resetTimer();
   };
 
-  const handleDragStart = () => {
-    draggingRef.current = true;
-    clearTimeout(timerRef.current);
-  };
-
-  const handleDragEnd = () => {
-    draggingRef.current = false;
-    resetTimer();
-  };
+  const handleDragStart = () => pin("drag", true);
+  const handleDragEnd = () => pin("drag", false);
 
   // Apply cursor style to fullscreen container
   useEffect(() => {
@@ -194,7 +171,10 @@ export function FullscreenControls({
     >
       {/* The bubble has to live outside .fs-seek-bar, which clips (overflow: hidden).
           Mirrors .now-seek-wrap in the now-playing bar. */}
-      <div className="fs-seek-wrap" ref={seekWrapRef}>
+      <div
+        className={`fs-seek-wrap${hasFilmstrip(storyboard, durationSecs) ? " has-filmstrip" : ""}`}
+        ref={seekWrapRef}
+      >
       <div
         className="fs-seek-bar"
         onClick={(e) => {
@@ -208,43 +188,19 @@ export function FullscreenControls({
           // Deliberately no stopPropagation: the overlay's idle timer watches
           // mousemove, and swallowing it here would hide the controls mid-scrub.
           if (!durationSecs) return;
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-          const wrapLeft = seekWrapRef.current?.getBoundingClientRect().left ?? rect.left;
-          setSeekHover({ pct, x: e.clientX - wrapLeft });
+          setSeekHover(seekHoverAt(e, seekWrapRef.current));
         }}
         onMouseLeave={() => setSeekHover(null)}
       >
-        {/* Video fullscreen usually has a storyboard; audio fullscreen never does
-            and falls to the waveform. The flat fill is the last resort — a video
-            whose board never resolved, or audio with no cached waveform. */}
-        {storyboard && durationSecs > 0 ? (
-          <FilmstripSeekBar
-            board={storyboard}
-            durationSecs={durationSecs}
-            progress={positionSecs / durationSecs}
-            hoverPct={seekHover?.pct ?? null}
-            bufferedPct={bufferedPct}
-          />
-        ) : waveformPeaks ? (
-          <WaveformSeekBar
-            peaks={waveformPeaks}
-            progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
-          />
-        ) : (
-          <>
-            {/* The flat fill is what a NETWORK audio track actually gets here —
-                no storyboard (audio) and no waveform (those are local-only), so
-                this is the only branch the buffered edge can ever reach. Drawn
-                as a band under the played fill, the shape every video player
-                uses. Absent when `bufferedPct` is null (any local source), so
-                that case renders exactly as it did before. */}
-            {bufferedPct != null && (
-              <div className="fs-seek-buffered" style={{ width: `${bufferedPct * 100}%` }} />
-            )}
-            <div className="fs-seek-fill" style={{ width: `${durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0}%` }} />
-          </>
-        )}
+        {/* Same ladder as the now-playing bar, by construction — see SeekLadder. */}
+        <SeekLadder
+          storyboard={storyboard}
+          waveformPeaks={waveformPeaks}
+          positionSecs={positionSecs}
+          durationSecs={durationSecs}
+          hoverPct={seekHover?.pct ?? null}
+          bufferedPct={bufferedPct}
+        />
         <BufferingChip buffer={buffer} />
         <span className="fs-seek-time fs-seek-elapsed">{formatDuration(positionSecs)}</span>
         <span className="fs-seek-time fs-seek-total">
@@ -252,27 +208,14 @@ export function FullscreenControls({
           {scrobbled && <span className="fs-scrobbled" title="Logged to play history">{"\u2713"}</span>}
         </span>
       </div>
-      {seekHover !== null && durationSecs > 0 && (() => {
-        const hoverSecs = seekHover.pct * durationSecs;
-        const tile = storyboard ? tileIndexAt(storyboard, hoverSecs) : null;
-        return (
-          <div
-            className={`fs-seek-bubble${tile !== null ? " has-thumb" : ""}`}
-            style={{ left: seekHover.x }}
-          >
-            {tile !== null && storyboard && (
-              <StoryboardTile
-                board={storyboard}
-                index={tile}
-                className="seek-preview-thumb"
-                width={SEEK_THUMB_WIDTH}
-                height={Math.round(SEEK_THUMB_WIDTH * (storyboard.tileH / storyboard.tileW))}
-              />
-            )}
-            <span>{formatDuration(hoverSecs)}</span>
-          </div>
-        );
-      })()}
+      <SeekHoverBubble
+        hover={seekHover}
+        storyboard={storyboard}
+        positionSecs={positionSecs}
+        durationSecs={durationSecs}
+        className="fs-seek-bubble"
+        deltaClassName="fs-seek-bubble-delta"
+      />
       </div>
       <div className="fs-main">
         <div className="fs-info">
@@ -293,6 +236,11 @@ export function FullscreenControls({
               <>
                 <span className="fs-title">{currentTrack.title}</span>
                 <span className="fs-subtitle">
+                  {/* Same indicator, same slot as the docked bar. Fullscreen is
+                      where a stream is most likely to be misbehaving, so it is
+                      the last place the "where is this coming from" answer
+                      should disappear. */}
+                  <SourceIndicator track={currentTrack} resolvedSource={resolvedSource ?? null} />
                   <span className="fs-link" onClick={currentTrack.artist_name ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
                   {currentTrack.album_title && (
                     <><span className="fs-sep"> — </span><span className="fs-link" onClick={() => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name)}>{currentTrack.album_title}</span></>
@@ -302,90 +250,48 @@ export function FullscreenControls({
             ) : null}
           </div>
         </div>
-        <div className="fs-center">
-          <button className="g-btn g-btn-md" onClick={onPrevious} title="Previous">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-          </button>
-          <button className="g-btn g-btn-play fs-play-btn" onClick={onPause} title="Play / Pause">
-            {playing
-              ? <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-              : <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
-          </button>
-          <button className="g-btn g-btn-md" onClick={onNext} title="Next">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
-          </button>
-          <button className="g-btn g-btn-xs" onClick={onStop} title="Stop">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-          </button>
-        </div>
+        <TransportButtons
+          playing={playing}
+          onPrevious={onPrevious}
+          onPause={onPause}
+          onNext={onNext}
+          onStop={onStop}
+          className="fs-center"
+          playClassName="fs-play-btn"
+        />
         <div className="fs-right">
           <div className="fs-group">
-          <button
-            className={`g-btn g-btn-sm${queueMode !== "normal" ? " active" : ""}`}
-            onClick={onToggleQueueMode}
-            title={queueMode === "normal" ? "Normal" : queueMode === "repeat-all" ? "Repeat All" : "Repeat One"}
-          >
-            {queueMode === "repeat-one"
-              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M11.5 9 13 8.3V16"/></svg>
-              : queueMode === "repeat-all"
-              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>}
-          </button>
-          <button
-            className="g-btn g-btn-sm"
-            onClick={onRandomize}
-            disabled={queueMode === "repeat-one" || queueLength < 2}
-            title="Randomize queue order"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg>
-          </button>
-          <div className="auto-continue-wrapper">
-            <button
-              ref={fsAcAnchorRef}
-              className={`g-btn g-btn-sm${autoContinueEnabled && queueMode === "normal" ? " active" : ""}`}
-              onClick={onToggleAutoContinuePopover}
-              disabled={queueMode !== "normal"}
-              title={queueMode === "normal" ? "Auto Continue" : "Auto Continue (only in Normal mode)"}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4z"/></svg>
-            </button>
-            {showAutoContinuePopover && (
-              <AutoContinuePopover
-                enabled={autoContinueEnabled}
-                sameFormat={autoContinueSameFormat}
-                weights={autoContinueWeights}
-                onToggle={onToggleAutoContinue}
-                onToggleSameFormat={onToggleAutoContinueSameFormat}
-                onAdjust={onAdjustAutoContinueWeight}
-                onResetAll={onResetAutoContinueWeights}
-                onClose={onCloseAutoContinuePopover}
-                anchorRef={fsAcAnchorRef}
-              />
-            )}
-          </div>
+          <QueueModeGroup
+            queueMode={queueMode}
+            onToggleQueueMode={onToggleQueueMode}
+            onRandomize={onRandomize}
+            queueLength={queueLength}
+            autoContinueEnabled={autoContinueEnabled}
+            autoContinueSameFormat={autoContinueSameFormat}
+            showAutoContinuePopover={showAutoContinuePopover}
+            autoContinueWeights={autoContinueWeights}
+            onToggleAutoContinue={onToggleAutoContinue}
+            onToggleAutoContinueSameFormat={onToggleAutoContinueSameFormat}
+            onToggleAutoContinuePopover={onToggleAutoContinuePopover}
+            onAdjustAutoContinueWeight={onAdjustAutoContinueWeight}
+            onResetAutoContinueWeights={onResetAutoContinueWeights}
+            onCloseAutoContinuePopover={onCloseAutoContinuePopover}
+          />
+          {/* Last in this group, immediately before volume — the same slot the
+              cluster occupies in the now-playing bar, and the same cluster:
+              inline Bass/Treble slot (or curve preview) plus the popover button. */}
+          {eq && <EqControlGroup eq={eq} available={eqAvailable} onOpenChange={handleEqOpenChange} />}
           </div>
           <div className="fs-group">
-          <div className="fs-volume">
-            <button className={`g-btn g-btn-sm${muted ? " is-muted" : ""}`} onClick={onMute} title="Mute">
-              {muted || volume === 0
-                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                : volume < 0.5
-                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>}
-            </button>
-            <input
-              type="range"
-              className={`volume-slider${muted ? " is-muted" : ""}`}
-              min="0"
-              max="1"
-              step="0.01"
-              value={volume}
-              style={{ background: `linear-gradient(to right, ${muted ? "var(--text-tertiary)" : "var(--accent)"} ${volume * 100}%, rgba(var(--overlay-base), 0.12) ${volume * 100}%)` }}
-              onChange={(e) => onVolume(parseFloat(e.target.value))}
-              onMouseDown={handleDragStart}
-              onMouseUp={handleDragEnd}
-            />
-          </div>
+          <VolumeControl
+            volume={volume}
+            muted={muted}
+            onVolume={onVolume}
+            onMute={onMute}
+            className="fs-volume"
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+          />
           </div>
           <div className="fs-group">
           {hasSubtitles && (

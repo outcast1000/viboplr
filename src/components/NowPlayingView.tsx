@@ -9,6 +9,7 @@ import type { UseLyricsResult } from "../hooks/useLyrics";
 import { parseLrc, currentSyncedLineIndex } from "../utils/lyrics";
 import { resolveNowPlayingArt } from "../utils/nowPlayingArt";
 import { usePlaybackPosition } from "../playback/positionStore";
+import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { TrackArtFallback } from "./TrackArtFallback";
 import "./NowPlayingView.css";
 
@@ -243,6 +244,17 @@ export function NowPlayingView({
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
   const isFullscreen = variant === "fullscreen";
+
+  // The corner buttons fade out when the pointer goes quiet and come back on
+  // movement, the same way the fullscreen bar and the video theater overlay do.
+  // This is a lean-back surface: at rest it should be the artwork and the words,
+  // not three icons. `:hover` / `:focus-within` on the row keep it up in CSS, so
+  // the timer can never pull a button out from under the cursor or off a
+  // keyboard focus — no JS needed for either.
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const { visible: actionsVisible, hide: hideActions } = useIdleVisibility({
+    getTarget: () => surfaceRef.current,
+  });
   // Fullscreen's identity comes from the control bar under it, so this surface
   // draws neither the title block nor the tags line there.
   const showIdentity = !isFullscreen;
@@ -337,7 +349,12 @@ export function NowPlayingView({
   const showLyrics = hasLyrics && !lyricsHidden;
   return (
     <div
+      ref={surfaceRef}
       className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
+      // Leaving the surface hides the row at once rather than after the idle
+      // wait — the pointer has gone to the sidebar or the queue, so there is
+      // nothing left to wait for.
+      onMouseLeave={hideActions}
     >
       {/* Every view action is a visible button. There is no ⋯ and no right-click
           menu: the three things this view can do are now all on screen, so a
@@ -348,7 +365,7 @@ export function NowPlayingView({
           The row travels into fullscreen unchanged; only "enter fullscreen" drops
           out there, because the control bar under it owns the exit. */}
       {(onOpenVisualizerPicker || onToggleLyrics || onToggleFullscreen) && (
-        <div className="np-actions">
+        <div className={`np-actions${actionsVisible ? " is-visible" : ""}`}>
           {onOpenVisualizerPicker && (
             <button
               className="np-action-btn"

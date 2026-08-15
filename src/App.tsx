@@ -94,6 +94,7 @@ import { ViewSearchBar } from "./components/ViewSearchBar";
 
 import { Sidebar } from "./components/Sidebar";
 import { NowPlayingBar } from "./components/NowPlayingBar";
+import type { EqControls } from "./components/EqButton";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import ExtensionsView, { type PluginViewMode } from "./components/ExtensionsView";
@@ -589,6 +590,19 @@ function App() {
       .setFullscreen(next)
       .catch((e) => console.error("Failed to set window fullscreen:", e));
   }, [audioFullscreen, canAudioFullscreen]);
+
+  // One fullscreen *intent*, dispatched by track kind — video to its own path
+  // (the container / mpv layer owns the element and it must not be re-parented),
+  // audio to the overlay. Cmd/Ctrl+F and the now-playing bar's button both call
+  // this rather than re-deriving the rule, so the key and the button can never
+  // disagree about which surface answers.
+  const canFullscreen = !!playback.currentTrack;
+  const toggleFullscreenForTrack = useCallback(() => {
+    const t = playback.currentTrack;
+    if (!t) return;
+    if (isVideoTrack(t)) playback.toggleFullscreen();
+    else toggleAudioFullscreen();
+  }, [playback.currentTrack, playback.toggleFullscreen, toggleAudioFullscreen]);
 
   // Leave fullscreen the moment it stops being valid — the track changed to a
   // video, the plugin was disabled, playback stopped. Otherwise the window stays
@@ -2794,8 +2808,8 @@ function App() {
     handleNext: () => handleNext(),
     handleToggleQueueCollapsed,
     handleToggleSidebar,
-    canAudioFullscreen,
-    toggleAudioFullscreen,
+    canFullscreen,
+    toggleFullscreenForTrack,
     adjustZoom,
     miniSearchOpen: miniSearch.isOpen,
     openMiniSearch: (initialChar) => miniSearch.open(initialChar),
@@ -3334,55 +3348,6 @@ function App() {
     return syncedLyricsFitMedia(lines, durationSecs) ? lines : null;
   }, [playback.currentTrack, playback.durationSecs, nowPlayingLyrics]);
 
-  // One prop set for the fullscreen control bar, rendered twice: once inside the
-  // video container and once inside the audio/visualizer overlay. Shared rather
-  // than duplicated because "the controls are consistent across fullscreens" is
-  // the requirement — two 40-prop call sites would drift the first time either
-  // was touched. Only `onToggleFullscreen` differs (each surface exits itself),
-  // so each call site overrides that one.
-  const fullscreenControlsProps = {
-    waveformPeaks,
-    storyboard,
-    currentTrack: playback.currentTrack,
-    playing: playback.playing,
-    durationSecs: playback.durationSecs,
-    scrobbled: playback.scrobbled,
-    volume: playback.volume,
-    muted: playback.muted,
-    queueMode: queueHook.queueMode,
-    autoContinueEnabled: autoContinue.enabled,
-    autoContinueSameFormat: autoContinue.sameFormat,
-    showAutoContinuePopover: autoContinue.showPopover,
-    autoContinueWeights: autoContinue.weights,
-    imagePath: playback.currentTrack?.image_url || null,
-    onPause: playback.handlePause,
-    onStop: playback.handleStop,
-    onNext: handleNext,
-    onPrevious: queueHook.playPrevious,
-    onSeek: playback.handleSeek,
-    onVolume: playback.handleVolume,
-    onMute: playback.toggleMute,
-    onToggleQueueMode: queueHook.toggleQueueMode,
-    onRandomize: queueHook.randomizeQueue,
-    queueLength: queueHook.queue.length,
-    onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
-    onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
-    onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
-    onAdjustAutoContinueWeight: autoContinue.adjustWeight,
-    onResetAutoContinueWeights: autoContinue.resetWeights,
-    onCloseAutoContinuePopover: () => autoContinue.setShowPopover(false),
-    onToggleLike: () => { if (playback.currentTrack) likeActions.handleToggleLike(playback.currentTrack); },
-    onToggleDislike: () => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); },
-    showQueue: !queueCollapsed,
-    onToggleQueue: handleToggleQueueCollapsed,
-    hasSubtitles: !!videoSyncedLyricLines,
-    subtitlesOn: videoSubtitlesOn,
-    onToggleSubtitles: handleToggleSubtitles,
-    onNavigateToArtistByName: library.navigateToArtistByName,
-    onNavigateToAlbumByName: (name: string, artistName?: string | null) =>
-      library.navigateToAlbumByName(name, artistName ?? undefined),
-  };
-
   // `PluginVisualizerActions.setPlaying`. Idempotent: the visualizer states what
   // it wants, and this compares against live state, so a request that already
   // matches is a no-op rather than a toggle that inverts. `handlePause` is the
@@ -3840,6 +3805,7 @@ function App() {
       if (playback.eqMode === "simple") setEqShowBarControlSimple(v);
       else setEqShowBarControlAdvanced(v);
     },
+    onToggleFullscreen: () => toggleFullscreenForTrack(),
     onToggleQueueMode: queueHook.toggleQueueMode,
     onRandomize: queueHook.randomizeQueue,
     onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
@@ -3918,6 +3884,87 @@ function App() {
     onMiniSearchKeyDown: miniSearch.handleKeyDown,
     onMiniSearchResultClick: miniSearch.handleResultClick,
   });
+
+  // The EQ button's whole contract, in one bundle, so the fullscreen bar can
+  // carry the same equalizer the windowed bar does. The now-playing bar still
+  // takes the flat props (they feed its inline EqBarControl too) and rebuilds
+  // this shape itself; both end up in the shared EqButton.
+  const eqControls: EqControls = {
+    enabled: playback.eqEnabled,
+    mode: playback.eqMode,
+    preset: playback.eqPreset,
+    gains: playback.eqGains,
+    preGainDb: playback.eqPreGainDb,
+    bassDb: playback.eqBassDb,
+    trebleDb: playback.eqTrebleDb,
+    customPresets: eqCustomPresets,
+    onEnabledChange: npBar.onEqEnabledChange,
+    onModeChange: npBar.onEqModeChange,
+    onPresetChange: npBar.onEqPresetChange,
+    onGainChange: npBar.onEqGainChange,
+    onPreGainChange: npBar.onEqPreGainChange,
+    onBassChange: npBar.onEqBassChange,
+    onTrebleChange: npBar.onEqTrebleChange,
+    onResetAll: npBar.onEqResetAll,
+    onSaveAs: npBar.onEqSaveAs,
+    showBarControl: playback.eqMode === "simple" ? eqShowBarControlSimple : eqShowBarControlAdvanced,
+    onShowBarControlChange: npBar.onEqShowBarControlChange,
+  };
+
+  // One prop set for the fullscreen control bar, rendered twice: once inside the
+  // video container and once inside the audio/visualizer overlay. Shared rather
+  // than duplicated because "the controls are consistent across fullscreens" is
+  // the requirement — two 40-prop call sites would drift the first time either
+  // was touched. Only `onToggleFullscreen` differs (each surface exits itself),
+  // so each call site overrides that one.
+  //
+  // Declared after `npBar` because the EQ bundle reuses its pinned handlers
+  // rather than re-deriving the preset/gain logic.
+  const fullscreenControlsProps = {
+    waveformPeaks,
+    storyboard,
+    currentTrack: playback.currentTrack,
+    playing: playback.playing,
+    durationSecs: playback.durationSecs,
+    scrobbled: playback.scrobbled,
+    volume: playback.volume,
+    muted: playback.muted,
+    queueMode: queueHook.queueMode,
+    autoContinueEnabled: autoContinue.enabled,
+    autoContinueSameFormat: autoContinue.sameFormat,
+    showAutoContinuePopover: autoContinue.showPopover,
+    autoContinueWeights: autoContinue.weights,
+    imagePath: playback.currentTrack?.image_url || null,
+    onPause: playback.handlePause,
+    onStop: playback.handleStop,
+    onNext: handleNext,
+    onPrevious: queueHook.playPrevious,
+    onSeek: playback.handleSeek,
+    onVolume: playback.handleVolume,
+    onMute: playback.toggleMute,
+    onToggleQueueMode: queueHook.toggleQueueMode,
+    onRandomize: queueHook.randomizeQueue,
+    queueLength: queueHook.queue.length,
+    onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
+    onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
+    onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
+    onAdjustAutoContinueWeight: autoContinue.adjustWeight,
+    onResetAutoContinueWeights: autoContinue.resetWeights,
+    onCloseAutoContinuePopover: () => autoContinue.setShowPopover(false),
+    onToggleLike: () => { if (playback.currentTrack) likeActions.handleToggleLike(playback.currentTrack); },
+    onToggleDislike: () => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); },
+    showQueue: !queueCollapsed,
+    onToggleQueue: handleToggleQueueCollapsed,
+    hasSubtitles: !!videoSyncedLyricLines,
+    subtitlesOn: videoSubtitlesOn,
+    onToggleSubtitles: handleToggleSubtitles,
+    onNavigateToArtistByName: library.navigateToArtistByName,
+    onNavigateToAlbumByName: (name: string, artistName?: string | null) =>
+      library.navigateToAlbumByName(name, artistName ?? undefined),
+    nativeVideoActive: playback.nativeVideoActive,
+    eq: eqControls,
+    resolvedSource,
+  };
 
   // Object prop for the bar's mini-search panel — memoized on its value
   // members (state, stable between changes) with pinned callback identities,
@@ -5368,6 +5415,8 @@ function App() {
         onEqSaveAs={npBar.onEqSaveAs}
         eqShowBarControl={playback.eqMode === "simple" ? eqShowBarControlSimple : eqShowBarControlAdvanced}
         onEqShowBarControlChange={npBar.onEqShowBarControlChange}
+        onToggleFullscreen={npBar.onToggleFullscreen}
+        canFullscreen={canFullscreen}
         onToggleQueueMode={npBar.onToggleQueueMode}
         onRandomize={npBar.onRandomize}
         queueLength={queueHook.queue.length}
@@ -5445,11 +5494,15 @@ function App() {
           controls={
             <FullscreenControls
               {...fullscreenControlsProps}
-              // Both dropped here, and only here — video fullscreen still gets
-              // them. The surface's own corner row already carries the fullscreen
-              // toggle, and the queue reveals itself at the right edge, so both
-              // buttons would be a second route to something already on screen.
-              onToggleFullscreen={undefined}
+              // Exit stays: the restore button belongs at the right end of the
+              // control bar in every fullscreen, so it is where the user last
+              // saw it in the windowed bar. (It duplicates the surface's corner
+              // row, which is fine — the corner row fades with the artwork and
+              // the bar is the transport.)
+              onToggleFullscreen={toggleAudioFullscreen}
+              // Still dropped: the queue reveals itself at the right edge here,
+              // so a Playlist button would be a second route to it. Video
+              // fullscreen has no such gesture and still passes one.
               onToggleQueue={undefined}
               active
             />

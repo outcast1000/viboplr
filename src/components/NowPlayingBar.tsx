@@ -3,27 +3,18 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { usePlaybackPosition } from "../playback/positionStore";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode, ResolvedSource } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
-import { isLocalTrack } from "../queueEntry";
-import { AutoContinuePopover } from "./AutoContinuePopover";
-import { EqPopover } from "./EqPopover";
-import { EqBarControl } from "./EqBarControl";
+import { EqControlGroup, type EqControls } from "./EqButton";
 import type { EqMode } from "../eqPresets";
-import { WaveformSeekBar } from "./WaveformSeekBar";
-import { SegmentedSeekBar } from "./SegmentedSeekBar";
+import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
+import { TransportButtons, QueueModeGroup, VolumeControl } from "./TransportControls";
 import { BufferingChip } from "./BufferingChip";
 import { bufferedFraction } from "../playback/bufferState";
 import { usePlaybackBuffer } from "../playback/bufferStore";
-import { FilmstripSeekBar } from "./FilmstripSeekBar";
-import { StoryboardTile } from "./StoryboardTile";
-import { tileIndexAt, type Storyboard } from "../utils/storyboard";
-// Bubble thumbnail width. Sheet tiles are larger (up to 400px) to serve the hero
-// art, so the bubble downscales — percentage-based positioning keeps it sharp.
-const SEEK_THUMB_WIDTH = 176;
+import type { Storyboard } from "../utils/storyboard";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { IconHeartFilled } from "./Icons";
 import { SpinningDisc } from "./SpinningDisc";
@@ -32,8 +23,7 @@ import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
 import { NowPlayingInfoCycler, MarqueeText, initialCycleState } from "./NowPlayingInfoCycler";
 import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
-import { resolutionShorthand } from "../hooks/useNowPlayingInfo";
-import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
+import { SourceIndicator } from "./SourceIndicator";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
 import "./NowPlayingBar.css";
 
@@ -58,23 +48,6 @@ function CrossfadeArt({ src, className }: { src: string | undefined; className: 
   }, [src, loaded]);
   if (!loaded) return null;
   return <img className={className} key={loaded} src={loaded} alt="" />;
-}
-
-// Decide whether the *effective* playback source is a local file, using the winning
-// resolver's classified EffectiveSource rather than the track's path scheme: a remote
-// track served from a local Library copy plays locally, while a local-path track that
-// fell through to a remote resolver plays remotely. Falls back to the path scheme when
-// no resolver has reported yet.
-function isEffectivelyLocal(track: { path?: string | null }, resolvedSource: ResolvedSource | null): boolean {
-  if (resolvedSource) return resolvedSource.effectiveSource.kind === "local";
-  return isLocalTrack(track);
-}
-
-function SourceIcon({ s = 11, isLocal }: { s?: number; isLocal: boolean }) {
-  if (isLocal) {
-    return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg>;
-  }
-  return <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>;
 }
 
 function SlideText({ text, className }: { text: string; className?: string }) {
@@ -135,6 +108,13 @@ interface NowPlayingBarProps {
   onSeek: (secs: number) => void;
   onVolume: (level: number) => void;
   onMute: () => void;
+  /** Enter fullscreen for whatever is playing. App dispatches by track kind
+      (video → its own path, audio → the overlay), the same callback Cmd/Ctrl+F
+      uses — the bar does not decide which surface answers. */
+  onToggleFullscreen: () => void;
+  /** False when nothing is playing; the button is disabled rather than hidden so
+      the right end of the bar doesn't reflow as the queue drains. */
+  canFullscreen: boolean;
   eqEnabled: boolean;
   eqMode: EqMode;
   eqPreset: string;
@@ -212,7 +192,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
-  onSeek, onVolume, onMute,
+  onSeek, onVolume, onMute, onToggleFullscreen, canFullscreen,
   eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqCustomPresets,
   onEqEnabledChange, onEqModeChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqBassChange, onEqTrebleChange, onEqResetAll, onEqSaveAs,
   eqShowBarControl, onEqShowBarControlChange,
@@ -239,33 +219,32 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   const bufferedPct = bufferedFraction(buffer?.bufferedToSecs ?? null, durationSecs);
   const miniDragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const miniVolumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [sourceTooltipOpen, setSourceTooltipOpen] = useState(false);
-  const [sourceAnchor, setSourceAnchor] = useState<{ x: number; y: number } | null>(null);
-  const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
-  // Live decode facts from the native mpv engine — the only source of quality
-  // info for remote/streamed audio and video (audioProps above is lofty, local
-  // files only). Null when the browser engine is active or nothing is playing.
-  const [mediaInfo, setMediaInfo] = useState<EngineMediaInfo | null>(null);
-  const sourceHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sourceTooltipRef = useRef<HTMLDivElement | null>(null);
   const [showMiniVolume, setShowMiniVolume] = useState(false);
   // Cycle phase for the mini info line, shared by the compact (ultra) and
   // expanded rows — each renders its own cycler instance, so the phase must
   // live here or hover-expanding would remount the cycler and replay the
   // preview pass on every mouse-over.
   const [miniCycleState, setMiniCycleState] = useState(initialCycleState);
-  const [eqOpen, setEqOpen] = useState(false);
-  const eqAnchorRef = useRef<HTMLButtonElement>(null);
-  const acAnchorRef = useRef<HTMLButtonElement>(null);
   // Scrub preview over the seek track: pct drives the waveform's ghost tint,
   // x positions the floating time bubble (px within .now-seek-wrap).
-  const [seekHover, setSeekHover] = useState<{ pct: number; x: number } | null>(null);
+  const [seekHover, setSeekHover] = useState<SeekHover | null>(null);
   const seekWrapRef = useRef<HTMLDivElement>(null);
   const isVideo = currentTrack ? isVideoTrack(currentTrack) : false;
   // EQ is available for audio always, and for video only on the native mpv
   // engine (lavfi graph on the deck). Browser-engine video can't be EQ'd —
   // its <video> element isn't wired into the Web Audio graph.
   const eqAvailable = !isVideo || nativeVideoActive;
+  // Bundled for EqButton, which the fullscreen bar renders from the same shape.
+  const eqControls: EqControls = {
+    enabled: eqEnabled, mode: eqMode, preset: eqPreset, gains: eqGains,
+    preGainDb: eqPreGainDb, bassDb: eqBassDb, trebleDb: eqTrebleDb,
+    customPresets: eqCustomPresets,
+    onEnabledChange: onEqEnabledChange, onModeChange: onEqModeChange,
+    onPresetChange: onEqPresetChange, onGainChange: onEqGainChange,
+    onPreGainChange: onEqPreGainChange, onBassChange: onEqBassChange,
+    onTrebleChange: onEqTrebleChange, onResetAll: onEqResetAll, onSaveAs: onEqSaveAs,
+    showBarControl: eqShowBarControl, onShowBarControlChange: onEqShowBarControlChange,
+  };
   // Tags for the current track, shown inline in the subtitle. The track is a
   // QueueTrack (no DB id), so resolve to a library row by metadata. The tag
   // popover edits keep this in sync via onTagsChange so the subtitle updates live.
@@ -275,22 +254,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   useEffect(() => {
     if (miniMode) (document.activeElement as HTMLElement)?.blur();
   }, [miniMode]);
-
-  // Fetch audio properties for the current track (local files only). Reset on track change.
-  useEffect(() => {
-    setAudioProps(null);
-    setMediaInfo(null); // engine facts are (re)fetched when the tooltip opens
-    if (!currentTrack?.path) return;
-    if (!isLocalTrack(currentTrack)) return;
-    let cancelled = false;
-    invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>(
-      "get_audio_properties_by_path",
-      { path: currentTrack.path }
-    )
-      .then(p => { if (!cancelled) setAudioProps(p); })
-      .catch(e => console.error("Failed to load audio properties:", e));
-    return () => { cancelled = true; };
-  }, [currentTrack?.path]);
 
   // Load tags for the current track (library tracks only). Reset on track change.
   useEffect(() => {
@@ -534,7 +497,12 @@ export const NowPlayingBar = memo(function NowPlayingBar({
 
   return (
     <footer className="now-playing">
-      <div className="now-seek-wrap" ref={seekWrapRef}>
+      {/* `has-filmstrip` lets the bar expand on hover (see the CSS) — only worth it
+          when the frames ARE the seek surface. */}
+      <div
+        className={`now-seek-wrap${hasFilmstrip(storyboard, durationSecs) ? " has-filmstrip" : ""}`}
+        ref={seekWrapRef}
+      >
         <div className="now-seek-bar">
           <span className="now-seek-time now-seek-elapsed">{formatDuration(positionSecs)}</span>
           {/* The waveform lives in its own middle track that flexes between the two
@@ -550,36 +518,21 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             }}
             onMouseMove={(e) => {
               if (!durationSecs) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-              const wrapLeft = seekWrapRef.current?.getBoundingClientRect().left ?? rect.left;
-              setSeekHover({ pct, x: e.clientX - wrapLeft });
+              setSeekHover(seekHoverAt(e, seekWrapRef.current));
             }}
             onMouseLeave={() => setSeekHover(null)}
           >
             {/* Video never has a waveform (useWaveform bails on it), so where a
-                storyboard exists the frames themselves are the seek surface. */}
-            {storyboard && durationSecs > 0 ? (
-              <FilmstripSeekBar
-                board={storyboard}
-                durationSecs={durationSecs}
-                progress={positionSecs / durationSecs}
-                hoverPct={seekHover?.pct ?? null}
-                bufferedPct={bufferedPct}
-              />
-            ) : waveformPeaks ? (
-              <WaveformSeekBar
-                peaks={waveformPeaks}
-                progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
-                hoverPct={seekHover?.pct ?? null}
-              />
-            ) : durationSecs > 0 ? (
-              <SegmentedSeekBar
-                progress={positionSecs / durationSecs}
-                durationSecs={durationSecs}
-                bufferedPct={bufferedPct}
-              />
-            ) : null}
+                storyboard exists the frames themselves are the seek surface.
+                Shared with the fullscreen bar — see SeekLadder. */}
+            <SeekLadder
+              storyboard={storyboard}
+              waveformPeaks={waveformPeaks}
+              positionSecs={positionSecs}
+              durationSecs={durationSecs}
+              hoverPct={seekHover?.pct ?? null}
+              bufferedPct={bufferedPct}
+            />
             <BufferingChip buffer={buffer} />
           </div>
           <span className="now-seek-time now-seek-total">
@@ -587,35 +540,14 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
           </span>
         </div>
-        {seekHover !== null && durationSecs > 0 && (() => {
-          const hoverSecs = seekHover.pct * durationSecs;
-          // Resolve the tile up front: the bubble only switches to the column layout
-          // when one actually exists, and a storyboard may not cover every moment.
-          const tile = storyboard ? tileIndexAt(storyboard, hoverSecs) : null;
-          return (
-            <div
-              className={`now-seek-bubble${tile !== null ? " has-thumb" : ""}`}
-              style={{ left: seekHover.x }}
-            >
-              {tile !== null && storyboard && (
-                <StoryboardTile
-                  board={storyboard}
-                  index={tile}
-                  className="seek-preview-thumb"
-                  width={SEEK_THUMB_WIDTH}
-                  height={Math.round(SEEK_THUMB_WIDTH * (storyboard.tileH / storyboard.tileW))}
-                />
-              )}
-              <span>
-                {formatDuration(hoverSecs)}
-                <span className="now-seek-bubble-delta">
-                  {(hoverSecs >= positionSecs ? "+" : "-") +
-                    formatDuration(Math.abs(hoverSecs - positionSecs))}
-                </span>
-              </span>
-            </div>
-          );
-        })()}
+        <SeekHoverBubble
+          hover={seekHover}
+          storyboard={storyboard}
+          positionSecs={positionSecs}
+          durationSecs={durationSecs}
+          className="now-seek-bubble"
+          deltaClassName="now-seek-bubble-delta"
+        />
       </div>
       <div className="now-main">
         <div className="now-info">
@@ -669,44 +601,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                   )}
                 </span>
                 <span className="now-subtitle">
-                  {(() => {
-                        const isLocal = isEffectivelyLocal(currentTrack, resolvedSource ?? null);
-                        const es = resolvedSource?.effectiveSource;
-                        // Prefer the effective source for the local/subsonic cases (so a
-                        // Library row that streams from Subsonic reads "Subsonic", not "Library").
-                        const sourceName = es?.kind === "local" ? "Local"
-                          : es?.kind === "subsonic" ? "Subsonic"
-                          : resolvedSource?.name && resolvedSource.name !== "Library" ? resolvedSource.name
-                          : isLocal ? "Local" : "Remote";
-                        const openTooltip = (rect: DOMRect) => {
-                          if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
-                          setSourceAnchor({ x: rect.left, y: rect.top - 8 });
-                          setSourceTooltipOpen(true);
-                          // Fetch the engine's live decode facts on hover — by now
-                          // decode has settled (resolution/bitrate are ready). Null
-                          // on the browser engine, which leaves the lofty fallback.
-                          nativeEngine.getMediaInfo()
-                            .then(setMediaInfo)
-                            .catch((e) => console.error("Failed to load engine media info:", e));
-                        };
-                        const scheduleClose = () => {
-                          if (sourceHoverTimerRef.current) clearTimeout(sourceHoverTimerRef.current);
-                          sourceHoverTimerRef.current = setTimeout(() => setSourceTooltipOpen(false), 150);
-                        };
-                        return <span
-                          className="now-source-icon"
-                          role="button"
-                          tabIndex={0}
-                          aria-label={`Playback source: ${sourceName}. Show details.`}
-                          onMouseEnter={(e) => openTooltip(e.currentTarget.getBoundingClientRect())}
-                          onMouseLeave={scheduleClose}
-                          onFocus={(e) => openTooltip(e.currentTarget.getBoundingClientRect())}
-                          onBlur={scheduleClose}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") setSourceTooltipOpen(false);
-                          }}
-                        ><SourceIcon isLocal={isLocal} /></span>;
-                  })()}
+                  <SourceIndicator track={currentTrack} resolvedSource={resolvedSource ?? null} />
                   {/* Static artist · album. The cycling Now Playing info section
                       (Quality, Source, Plays, Tags, …) lives only in the mini
                       player now — the full bar keeps a plain, always-visible line.
@@ -766,298 +661,71 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             )}
           </div>
         </div>
-        <div className="now-controls">
-          <button className="g-btn g-btn-md" onClick={onPrevious} title={`Previous (${mod}\u2190)`}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-          </button>
-          <button className="g-btn g-btn-play" onClick={onPause} title="Play / Pause (Space)">
-            <span className="now-play-icon" key={playing ? "pause" : "play"}>
-              {playing
-                ? <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-                : <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>}
-            </span>
-          </button>
-          <button className="g-btn g-btn-md" onClick={onNext} title={`Next (${mod}\u2192)`}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zm-2 6L6 18V6z"/></svg>
-          </button>
-          <button className="g-btn g-btn-xs" onClick={onStop} title="Stop">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-          </button>
-        </div>
+        <TransportButtons
+          playing={playing}
+          onPrevious={onPrevious}
+          onPause={onPause}
+          onNext={onNext}
+          onStop={onStop}
+          className="now-controls"
+        />
       <div className="now-right">
         {/* Playlist group: queue mode · randomize · auto-continue */}
         <div className="now-group now-group--playlist" role="group" aria-label="Playlist controls">
-          <button
-            className={`g-btn g-btn-sm${queueMode !== "normal" ? " active" : ""}`}
-            onClick={onToggleQueueMode}
-            title={queueMode === "normal" ? "Normal" : queueMode === "repeat-all" ? "Repeat All" : "Repeat One"}
-          >
-            {queueMode === "repeat-one"
-              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M11.5 9 13 8.3V16"/></svg>
-              : queueMode === "repeat-all"
-              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>}
-          </button>
-          <button
-            className="g-btn g-btn-sm"
-            onClick={onRandomize}
-            disabled={queueMode === "repeat-one" || queueLength < 2}
-            title="Randomize queue order"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg>
-          </button>
-          <div className="auto-continue-wrapper">
-            <button
-              ref={acAnchorRef}
-              className={`g-btn g-btn-sm${autoContinueEnabled && queueMode === "normal" ? " active" : ""}`}
-              onClick={onToggleAutoContinuePopover}
-              disabled={queueMode !== "normal"}
-              title={queueMode === "normal" ? "Auto Continue" : "Auto Continue (only in Normal mode)"}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4z"/></svg>
-            </button>
-            {showAutoContinuePopover && (
-              <AutoContinuePopover
-                enabled={autoContinueEnabled}
-                sameFormat={autoContinueSameFormat}
-                weights={autoContinueWeights}
-                onToggle={onToggleAutoContinue}
-                onToggleSameFormat={onToggleAutoContinueSameFormat}
-                onAdjust={onAdjustAutoContinueWeight}
-                onResetAll={onResetAutoContinueWeights}
-                onClose={onCloseAutoContinuePopover}
-                anchorRef={acAnchorRef}
-              />
-            )}
-          </div>
+          <QueueModeGroup
+            queueMode={queueMode}
+            onToggleQueueMode={onToggleQueueMode}
+            onRandomize={onRandomize}
+            queueLength={queueLength}
+            autoContinueEnabled={autoContinueEnabled}
+            autoContinueSameFormat={autoContinueSameFormat}
+            showAutoContinuePopover={showAutoContinuePopover}
+            autoContinueWeights={autoContinueWeights}
+            onToggleAutoContinue={onToggleAutoContinue}
+            onToggleAutoContinueSameFormat={onToggleAutoContinueSameFormat}
+            onToggleAutoContinuePopover={onToggleAutoContinuePopover}
+            onAdjustAutoContinueWeight={onAdjustAutoContinueWeight}
+            onResetAutoContinueWeights={onResetAutoContinueWeights}
+            onCloseAutoContinuePopover={onCloseAutoContinuePopover}
+          />
         </div>
 
         {/* Audio group: equalizer (+ inline knobs) · mute · volume */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">
-          {eqAvailable && eqShowBarControl && (
-            <EqBarControl
-              mode={eqMode}
-              enabled={eqEnabled}
-              bassDb={eqBassDb}
-              trebleDb={eqTrebleDb}
-              gains={eqGains}
-              preGainDb={eqPreGainDb}
-              onBassChange={onEqBassChange}
-              onTrebleChange={onEqTrebleChange}
-              onEnsureEnabled={() => { if (!eqEnabled) onEqEnabledChange(true); }}
-            />
-          )}
-          <div className="now-eq-wrapper" style={{ position: "relative" }}>
-            <button
-              ref={eqAnchorRef}
-              className={`g-btn g-btn-sm now-playing-eq-btn ${eqEnabled && (eqMode === "simple" ? (eqBassDb !== 0 || eqTrebleDb !== 0) : eqPreset !== "flat") ? "active" : ""}`}
-              onClick={() => eqAvailable && setEqOpen(o => !o)}
-              disabled={!eqAvailable}
-              title={eqAvailable ? "Equalizer" : "EQ unavailable for video on the browser engine"}
-              aria-label="Equalizer"
-            >
-              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                <rect x="2" y="6" width="2" height="8" />
-                <rect x="7" y="2" width="2" height="12" />
-                <rect x="12" y="9" width="2" height="5" />
-              </svg>
-            </button>
-            {eqOpen && eqAvailable && (
-              <EqPopover
-                enabled={eqEnabled}
-                mode={eqMode}
-                preset={eqPreset}
-                gains={eqGains}
-                preGainDb={eqPreGainDb}
-                bassDb={eqBassDb}
-                trebleDb={eqTrebleDb}
-                customPresets={eqCustomPresets}
-                onEnabledChange={onEqEnabledChange}
-                onModeChange={onEqModeChange}
-                onPresetChange={onEqPresetChange}
-                onGainChange={onEqGainChange}
-                onPreGainChange={onEqPreGainChange}
-                onBassChange={onEqBassChange}
-                onTrebleChange={onEqTrebleChange}
-                onResetAll={onEqResetAll}
-                onSaveAs={onEqSaveAs}
-                showBarControl={eqShowBarControl}
-                onShowBarControlChange={onEqShowBarControlChange}
-                onClose={() => setEqOpen(false)}
-                anchorRef={eqAnchorRef}
-              />
-            )}
-          </div>
-          <div className="now-volume">
-            <button className={`g-btn g-btn-sm${muted ? " is-muted" : ""}`} onClick={onMute} title={`Mute (${mod}M)`}>
-              {muted || volume === 0
-                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
-                : volume < 0.5
-                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>}
-            </button>
-            <input
-              type="range"
-              className={`volume-slider${muted ? " is-muted" : ""}`}
-              min="0"
-              max="1"
-              step="0.01"
-              value={volume}
-              style={{ background: `linear-gradient(to right, ${muted ? "var(--text-tertiary)" : "var(--accent)"} ${volume * 100}%, rgba(var(--overlay-base), 0.12) ${volume * 100}%)` }}
-              onChange={(e) => onVolume(parseFloat(e.target.value))}
-            />
-          </div>
+          <EqControlGroup eq={eqControls} available={eqAvailable} />
+          <VolumeControl
+            volume={volume}
+            muted={muted}
+            onVolume={onVolume}
+            onMute={onMute}
+            className="now-volume"
+          />
+        </div>
+
+        {/* View group: fullscreen. Last on the right so the control sits in the
+            same corner the fullscreen bar's Exit button occupies — one place to
+            look, whichever bar is on screen. Enter-only: while fullscreen is up
+            this bar is covered (the overlay and the video container both pin
+            themselves over the grid), so the restore half of the toggle lives on
+            FullscreenControls. */}
+        <div className="now-group now-group--view" role="group" aria-label="View controls">
+          <button
+            className="g-btn g-btn-sm"
+            onClick={onToggleFullscreen}
+            disabled={!canFullscreen}
+            title={canFullscreen ? `Fullscreen (${mod}F)` : "Fullscreen (nothing playing)"}
+            aria-label="Enter fullscreen"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 3 21 3 21 9" />
+              <polyline points="9 21 3 21 3 15" />
+              <line x1="21" y1="3" x2="14" y2="10" />
+              <line x1="3" y1="21" x2="10" y2="14" />
+            </svg>
+          </button>
         </div>
       </div>
       </div>
-      {sourceTooltipOpen && sourceAnchor && currentTrack && (() => {
-        const path = currentTrack.path ?? "";
-        const isSubsonic = path.startsWith("subsonic://");
-        const isLocal = isLocalTrack(currentTrack);
-        const resolverName = resolvedSource?.name;
-        const sourceUrl = resolvedSource?.sourceUrl ?? null;
-
-        let pluginProtocol: string | null = null;
-        if (!isLocal && !isSubsonic && path.includes("://") && !path.startsWith("external://") && !path.startsWith("http://") && !path.startsWith("https://")) {
-          pluginProtocol = path.substring(0, path.indexOf("://"));
-        }
-
-        // The resolver names itself (e.g. "YouTube", "TIDAL") — the host does not
-        // special-case individual plugin ids here. "Library" is internal: its
-        // effective source decides whether it reads "Local" or "Subsonic" (a Library
-        // row can stream from a Subsonic server), else it falls through to a
-        // path-derived label.
-        const es = resolvedSource?.effectiveSource;
-        const sourceLabel = es?.kind === "local" ? "Local"
-          : es?.kind === "subsonic" ? "Subsonic"
-          : resolverName && resolverName !== "Library" ? resolverName
-          : pluginProtocol ? pluginProtocol.charAt(0).toUpperCase() + pluginProtocol.slice(1)
-            : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
-
-        const localPath = isLocal ? path.replace(/^file:\/\//, "") : null;
-        // Library fallback: sourceUrl is the local file path
-        const libraryFallbackPath = resolverName === "Library" && sourceUrl ? sourceUrl : null;
-        const displayPath = localPath || libraryFallbackPath;
-
-        // External link for the "open URL" action. Derived generically from the
-        // resolver's reported sourceUrl — any plugin that returns an http(s) source
-        // (YouTube, TIDAL, …) gets an "Open on <resolver>" button for free.
-        let externalUrl: string | null = null;
-        let externalLabel: string | null = null;
-        if (sourceUrl && (sourceUrl.startsWith("http://") || sourceUrl.startsWith("https://"))) {
-          externalUrl = sourceUrl;
-          externalLabel = sourceLabel && sourceLabel !== "Unknown" ? `Open on ${sourceLabel}` : "Open link";
-        } else if (isSubsonic && resolvedSource) {
-          try {
-            const u = new URL(resolvedSource.url);
-            externalUrl = `${u.protocol}//${u.host}`;
-            externalLabel = "Open server";
-          } catch { /* ignore */ }
-        }
-
-        // Rows. Quality has two sources: lofty (audioProps, local files only,
-        // richest — bit depth + channels) and the mpv engine's live decode
-        // facts (mediaInfo — the ONLY source for remote/streamed audio + all
-        // video). Video rows come only from the engine; audio rows prefer the
-        // richer lofty props and fall back to the engine.
-        const rows: Array<[string, React.ReactNode]> = [];
-        const mi = mediaInfo;
-        const hasVideo = !!mi && (!!mi.videoCodec || (!!mi.width && !!mi.height));
-        if (hasVideo && mi) {
-          const vparts: string[] = [];
-          if (mi.videoCodec) vparts.push(mi.videoCodec.toUpperCase());
-          if (mi.width && mi.height) {
-            const sh = resolutionShorthand(mi.width, mi.height);
-            vparts.push(sh ? `${mi.width}×${mi.height} (${sh})` : `${mi.width}×${mi.height}`);
-          }
-          if (mi.fps) vparts.push(`${Math.round(mi.fps)} fps`);
-          if (vparts.length) rows.push(["video", vparts.join(" · ")]);
-          if (mi.videoBitrate) rows.push(["video rate", `${Math.round(mi.videoBitrate / 1000)} kbps`]);
-        }
-        const hasLoftyAudio = !!(audioProps?.bitrate || audioProps?.sample_rate || audioProps?.channels);
-        if (hasLoftyAudio) {
-          // Local file: the full lofty picture (label "audio" when video shares the tooltip).
-          if (currentTrack.format) rows.push([hasVideo ? "audio" : "format", currentTrack.format.toUpperCase()]);
-          if (audioProps?.bitrate) rows.push([hasVideo ? "audio rate" : "bitrate", `${audioProps.bitrate} kbps`]);
-          if (audioProps?.sample_rate) {
-            const depth = audioProps.bit_depth ? ` · ${audioProps.bit_depth}-bit` : "";
-            rows.push(["quality", `${(audioProps.sample_rate / 1000).toFixed(1)} kHz${depth}`]);
-          }
-          if (audioProps?.channels) {
-            const label = audioProps.channels === 1 ? "Mono" : audioProps.channels === 2 ? "Stereo" : `${audioProps.channels} ch`;
-            rows.push(["channels", label]);
-          }
-        } else if (mi && (mi.codec || mi.sampleRate || mi.bitrate)) {
-          // Remote/streamed audio: the engine's live facts.
-          const aparts: string[] = [];
-          if (mi.codec) aparts.push(mi.codec.toUpperCase());
-          if (mi.sampleRate) aparts.push(`${(mi.sampleRate / 1000).toFixed(1)} kHz`);
-          if (aparts.length) rows.push([hasVideo ? "audio" : "format", aparts.join(" · ")]);
-          if (mi.bitrate) rows.push([hasVideo ? "audio rate" : "bitrate", `${Math.round(mi.bitrate / 1000)} kbps`]);
-        } else if (currentTrack.format) {
-          // No decode facts yet — at least name the container format.
-          rows.push(["format", currentTrack.format.toUpperCase()]);
-        }
-        if (displayPath) rows.push(["path", <span className="now-source-path" title={displayPath}>{displayPath}</span>]);
-        if (sourceUrl && !displayPath && !sourceUrl.startsWith("file://")) {
-          rows.push(["source", <span className="now-source-path" title={sourceUrl}>{sourceUrl}</span>]);
-        } else if (!displayPath && !sourceUrl && !isLocal && resolvedSource) {
-          try {
-            const u = new URL(resolvedSource.url);
-            rows.push(["host", u.hostname]);
-          } catch { /* ignore */ }
-        }
-
-        return (
-          <div
-            ref={sourceTooltipRef}
-            className="ds-tooltip visible now-source-tooltip"
-            style={{ left: sourceAnchor.x, top: sourceAnchor.y, transform: "translateY(-100%)" }}
-            onMouseEnter={() => {
-              if (sourceHoverTimerRef.current) { clearTimeout(sourceHoverTimerRef.current); sourceHoverTimerRef.current = null; }
-            }}
-            onMouseLeave={() => setSourceTooltipOpen(false)}
-          >
-            <div className="ds-tooltip-title">{sourceLabel}</div>
-            {rows.length > 0 && (
-              <div className="ds-tooltip-rows">
-                {rows.map(([k, v]) => (
-                  <div key={k} className="ds-tooltip-row">
-                    <span className="ds-tooltip-key">{k}</span>
-                    <span className="ds-tooltip-val">{v}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {(displayPath || externalUrl) && (
-              <div className="now-source-actions">
-                {displayPath && (
-                  <button
-                    className="ds-btn ds-btn--ghost ds-btn--sm"
-                    onClick={() => {
-                      invoke("show_in_folder_path", { filePath: displayPath }).catch(e => console.error("Failed to show in folder:", e));
-                    }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                    Open folder
-                  </button>
-                )}
-                {externalUrl && (
-                  <button
-                    className="ds-btn ds-btn--ghost ds-btn--sm"
-                    onClick={() => {
-                      openUrl(externalUrl!).catch(e => console.error("Failed to open URL:", e));
-                    }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    {externalLabel}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })()}
     </footer>
   );
 });

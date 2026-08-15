@@ -1,6 +1,12 @@
 /* Equalizer (popover + response curve + inline bar control)
    Extracted from App.css. Consumed by: EqPopover.tsx, EqCurve.tsx, EqBarControl.tsx. */
 
+/* Positioning context for the popover, which anchors to the button's bottom
+   edge. Shared by both hosts (now-playing bar, fullscreen bar) via EqButton. */
+.eq-button-wrapper {
+  position: relative;
+}
+
 .eq-popover {
   position: absolute;
   bottom: calc(100% + 8px);

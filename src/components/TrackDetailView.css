@@ -144,6 +144,10 @@
 
 /* Fullscreen video controls overlay */
 .fs-controls {
+  /* Identity type for this bar, scaled to the display. One property, declared
+     here because both readers (.fs-title, .fs-subtitle) sit inside. Floored at
+     the old fixed 16px, so no screen loses size. */
+  --fsbar-title-size: clamp(var(--fs-base), 0.9vh + 0.5vw, 28px);
   position: absolute;
   bottom: 0;
   left: 0;
@@ -277,15 +281,26 @@
 }
 
 /* Bounds the absolutely-positioned scrub bubble, which can't live inside
-   .fs-seek-bar because that clips (overflow: hidden). */
+   .fs-seek-bar because that clips (overflow: hidden). Also the reserved slot for
+   the bar, which is out of flow so it can expand upward on hover — see
+   `.now-seek-wrap` for why the height is bought that way rather than for real. */
 .fs-seek-wrap {
   position: relative;
   width: 100%;
+  height: 28px;
+  --seek-h: 28px;
+}
+/* Same expansion as the docked bar, and to the same 72px so a scrub feels
+   identical in either place. Growing upward here only eats into `.fs-controls`'
+   40px gradient lead-in, which is transparent. */
+.fs-seek-wrap.has-filmstrip:hover {
+  --seek-h: 72px;
 }
 
 .fs-seek-bubble {
   position: absolute;
-  bottom: calc(100% + 8px);
+  /* The bar's top edge, not the wrapper's — they diverge once it expands. */
+  bottom: calc(var(--seek-h, 28px) + 8px);
   transform: translateX(-50%);
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -300,6 +315,13 @@
   z-index: 60;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
+/* Offset from the play position, so a scrub reads as "how far am I jumping"
+   rather than only "where would I land". Mirrors .now-seek-bubble-delta. */
+.fs-seek-bubble-delta {
+  color: var(--text-tertiary);
+  margin-left: 5px;
+}
+
 .fs-seek-bubble.has-thumb {
   display: flex;
   flex-direction: column;
@@ -309,45 +331,28 @@
 }
 
 .fs-seek-bar {
-  width: 100%;
-  height: 28px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--seek-h);
   background: rgba(var(--overlay-base), 0.12);
   cursor: pointer;
   border-radius: 6px;
-  position: relative;
   display: flex;
   align-items: center;
   overflow: hidden;
-  transition: filter 0.15s;
+  transition: filter 0.15s, height 0.18s var(--ease-out-quart);
 }
 .fs-seek-bar:hover {
   filter: brightness(1.15);
 }
 
-.fs-seek-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 6px;
-  opacity: 0.4;
-  pointer-events: none;
-}
-
-/* How far a network source has downloaded, as a band under .fs-seek-fill (which
-   follows it in the DOM and so paints on top). Only rendered when an engine
-   actually reported a buffer — a local source has none and the bar keeps its
-   plain two-tone look. */
-.fs-seek-buffered {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  background: rgba(var(--overlay-base), 0.14);
-  border-radius: 6px;
-  pointer-events: none;
-}
+/* .fs-seek-fill / .fs-seek-buffered are gone: the flat accent fill was the
+   fullscreen bar's fallback for a track with neither a storyboard nor a
+   waveform, which meant a streamed audio track got a plain fill in fullscreen
+   and a SegmentedSeekBar in the window. Fullscreen now runs the same three-way
+   ladder, and the segmented bar draws its own buffered edge. */
 
 .fs-seek-time {
   position: relative;
@@ -414,18 +419,32 @@
   min-width: 0;
 }
 
+/* In fullscreen this bar *is* the identity — the surface above it doesn't draw a
+   title block (NowPlayingView's `showIdentity`). So it scales with the display
+   the way the in-grid view's own title does, floored at the size it was fixed at
+   so nothing shrinks. `.fs-controls` only ever renders inside a fullscreen
+   ancestor (it is `display: none` otherwise), so `vh`/`vw` here are the screen. */
 .fs-title {
   color: var(--text-primary);
-  font-size: var(--fs-base);
+  font-size: var(--fsbar-title-size);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* The source icon's own rule paints it `--text-tertiary`, a skin grey that is
+   fine on the docked bar's solid surface and can vanish against a video frame.
+   Here it follows the line it sits on, which is already tuned for that backdrop. */
+.fs-subtitle .now-source-icon {
+  color: inherit;
+}
+
+/* Derived so the pair keeps its proportion as it grows — 0.78 is the ratio it
+   already had (13px under a 16px title). */
 .fs-subtitle {
   color: rgba(var(--overlay-base), 0.6);
-  font-size: var(--fs-sm);
+  font-size: calc(var(--fsbar-title-size) * 0.78);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
