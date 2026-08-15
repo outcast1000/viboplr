@@ -67,6 +67,23 @@ export function describeChainFailure(failures: ChainFailure[]): string {
  * "Spotify failed" points at the plugin that produced the row and did nothing
  * wrong; the missing piece is a plugin that can turn that link into a stream.
  */
+/**
+ * Build the `http` engine source for a direct URL, attaching request headers
+ * only when there are any to attach.
+ *
+ * The emptiness check is the point: a resolver that reports "no special headers"
+ * as `{}` must not put an empty `headers` on the source, because the mpv engine
+ * distinguishes absent from present — `play_with_headers(…, None, …)` leaves
+ * mpv's `http-header-fields` alone, while an empty map overwrites it. Only
+ * `StreamResolveResult.headers` reaches this; the candidate path carries its own
+ * per-stream headers through `selectStream`.
+ */
+export function httpEngineSource(url: string, headers?: Record<string, string>): EngineSource {
+  return headers && Object.keys(headers).length > 0
+    ? { kind: "http", url, headers }
+    : { kind: "http", url };
+}
+
 export function unownedSchemeLabel(scheme: string): string {
   return `No installed plugin can play ${scheme}:// links`;
 }
@@ -165,9 +182,18 @@ export function useStreamResolution({
     // here, at the branch points, because the final `src` alone can't be
     // classified — convertFileSrc yields `https://asset.localhost/…` on
     // Windows, which would look like a remote URL.
-    const resolveUrlDetailed = (url: string, videoTrack = false): Promise<{ src: string; engineSource: EngineSource | null }> => {
+    // `headers` applies to a DIRECT http(s) url only, and is deliberately not
+    // forwarded into the recursive branches below: a `plugin://` url resolves to
+    // its own candidates, each carrying the headers for the stream it names, and
+    // a `file://` path has none. Forwarding would attach one stream's signed
+    // headers to a different stream's request.
+    const resolveUrlDetailed = (
+      url: string,
+      videoTrack = false,
+      headers?: Record<string, string>,
+    ): Promise<{ src: string; engineSource: EngineSource | null }> => {
       if (url.startsWith("http://") || url.startsWith("https://")) {
-        return Promise.resolve({ src: url, engineSource: { kind: "http", url } });
+        return Promise.resolve({ src: url, engineSource: httpEngineSource(url, headers) });
       }
       const parsed = parseUrlScheme(url);
       if (parsed.scheme === "file") {
@@ -369,7 +395,7 @@ export function useStreamResolution({
             if (isBuiltinLibrary) entry.effectiveSource = classifyEffectiveSource(result.url, ownerRef.current);
             // In the prefer-video pass we've confirmed a video result, so resolve
             // the URL as video (drives split-stream selection for the native engine).
-            return resolveUrlDetailed(result.url, videoOnly ? true : isVideoTrack(track));
+            return resolveUrlDetailed(result.url, videoOnly ? true : isVideoTrack(track), result.headers);
           },
         };
         return entry;

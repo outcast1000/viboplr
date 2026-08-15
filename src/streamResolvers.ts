@@ -5,6 +5,14 @@ export function stripRemasterSuffix(s: string | null | undefined): string | null
   return s.replace(REMASTER_SUFFIX, "").trim() || s;
 }
 
+import type { StreamResolveResult } from "./types/plugin";
+
+/** A resolver's answer as the host sees it: the plugin-facing result plus
+ *  `format`, which only the built-in Library resolver sets (it names the real
+ *  container of the local copy it matched, so a video-track fallback to an audio
+ *  file can be reclassified). Plugins have no reason to send it. */
+type ChainResult = StreamResolveResult & { format?: string | null };
+
 export interface StreamResolver {
   id: string;
   name: string;
@@ -14,7 +22,7 @@ export interface StreamResolver {
     artistName: string | null,
     albumName: string | null,
     durationSecs: number | null,
-  ) => Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean; format?: string | null } | null>;
+  ) => Promise<ChainResult | null>;
 }
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -30,7 +38,7 @@ export async function resolveStreamChain(
   albumName: string | null,
   durationSecs: number | null = null,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean; format?: string | null } | null> {
+): Promise<ChainResult | null> {
   for (const resolver of resolvers) {
     try {
       const result = await Promise.race([

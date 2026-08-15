@@ -582,7 +582,7 @@ export interface PluginPlaybackAPI {
        *  and set `video: true` on its result (the host then plays it in the
        *  theater). Ignore it to keep returning audio. Optional for back-compat. */
       opts?: { preferVideo?: boolean },
-    ) => Promise<{ url: string; label: string; video?: boolean } | null>,
+    ) => Promise<StreamResolveResult | null>,
   ): () => void;
   onResolveStreamByUri(
     scheme: string,
@@ -643,6 +643,29 @@ export interface StreamCandidate {
    *  these only to native playback; browser elements manage their own headers. */
   headers?: Record<string, string>;
   label?: string;
+}
+
+/** What a metadata stream resolver (`onStreamResolve`) hands back: a single
+ *  playable URL plus how to play and attribute it. The by-URI resolver returns
+ *  `StreamCandidate[]` instead, because a source addressed by id can enumerate
+ *  its formats; a metadata resolver has already *chosen* one. */
+export interface StreamResolveResult {
+  url: string;
+  /** Display name for the resolver-chain entry that won ("yt-dlp", "Library"). */
+  label: string;
+  /** True when `url` is a video stream — the host reclassifies the track and
+   *  plays it in the theater. Set this only in answer to `opts.preferVideo`. */
+  video?: boolean;
+  /** The page/item the stream came from (e.g. the watch URL), for attribution
+   *  and for download providers that resolve by the same source. */
+  sourceUrl?: string;
+  /** Request headers `url` requires. Signed CDN links are commonly bound to the
+   *  User-Agent — and sometimes Referer/Origin — that minted them, so a bare GET
+   *  gets a 403; yt-dlp reports them per-format as `http_headers`. Passed to
+   *  **native playback only**, exactly like `StreamCandidate.headers`: a browser
+   *  media element manages its own headers and cannot be told otherwise. Omit
+   *  when the URL is fetchable with defaults. */
+  headers?: Record<string, string>;
 }
 
 export interface PluginTrack {

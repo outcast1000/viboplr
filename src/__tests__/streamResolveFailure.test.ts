@@ -11,6 +11,7 @@ import {
   entryFailureLabel,
   describeChainFailure,
   unownedSchemeLabel,
+  httpEngineSource,
 } from "../hooks/useStreamResolution";
 
 describe("entryFailureLabel", () => {
@@ -74,5 +75,32 @@ describe("describeChainFailure", () => {
         { name: "Ytdlp", label: "should not win" },
       ]),
     ).toBe("Subsonic failed");
+  });
+});
+
+describe("httpEngineSource", () => {
+  it("carries a metadata resolver's request headers through to the engine", () => {
+    // A metadata resolver (onStreamResolve) returns ONE url, not a candidate
+    // list, so this is its only route for the headers a signed CDN url needs.
+    const headers = { "User-Agent": "Mozilla/5.0", Referer: "https://example/" };
+    expect(httpEngineSource("https://cdn.example/a.m4a", headers)).toEqual({
+      kind: "http",
+      url: "https://cdn.example/a.m4a",
+      headers,
+    });
+  });
+
+  it("omits headers entirely when there are none", () => {
+    // Absent must stay absent, not become `headers: {}`: the mpv engine passes
+    // None through to leave its http-header-fields alone, and an empty map
+    // would overwrite it instead.
+    expect(httpEngineSource("https://cdn.example/a.m4a")).toEqual({
+      kind: "http",
+      url: "https://cdn.example/a.m4a",
+    });
+    expect(httpEngineSource("https://cdn.example/a.m4a", {})).toEqual({
+      kind: "http",
+      url: "https://cdn.example/a.m4a",
+    });
   });
 });

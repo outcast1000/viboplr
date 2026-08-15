@@ -52,6 +52,7 @@ import type {
   PluginSearchResult,
   InfoValueMatch,
   StreamCandidate,
+  StreamResolveResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
@@ -154,7 +155,7 @@ interface LoadedPlugin {
   interactiveSearchHandlers: Map<string, InteractiveSearchHandler>;
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
-  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean }) => Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null>>;
+  streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean }) => Promise<StreamResolveResult | null>>;
   streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>>;
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
   schedulerHandlers: Map<string, () => void>;
@@ -2368,7 +2369,7 @@ export function usePlugins(
       albumName: string | null,
       durationSecs: number | null,
       preferVideo = false,
-    ): Promise<{ url: string; label: string; sourceUrl?: string; video?: boolean } | null> => {
+    ): Promise<StreamResolveResult | null> => {
       const provider = `${pluginId}:${providerId}`;
       const input = { title, artistName, albumName, durationSecs };
       const loaded = loadedPluginsRef.current.get(pluginId);
