@@ -695,8 +695,31 @@ impl Engine {
         Ok(())
     }
 
+    /// The linear amplitude a deck should play at: the user's 0..1 volume, or
+    /// silence while muted. This — not mpv's property value — is the quantity
+    /// the crossfade ramps, so a fade is linear in amplitude exactly like the
+    /// browser engine's `el.volume = vol * progress`.
+    fn out_gain(volume: f64, muted: bool) -> f64 {
+        if muted { 0.0 } else { volume.clamp(0.0, 1.0) }
+    }
+
+    /// Linear gain (0..1) → mpv's `volume` property.
+    ///
+    /// mpv's `volume` is **not** a linear gain: it cubes it internally
+    /// (`gain = (volume/100)³`, inherited from mplayer's softvol curve), while
+    /// the browser engine's `HTMLMediaElement.volume` *is* linear amplitude.
+    /// Passing the slider straight through therefore made the two engines agree
+    /// only at 0 and 1 and put the slider's 30% at 0.3³ = 2.7% gain (-31 dB) —
+    /// audible as "everything below a third is silent". Sending the cube root
+    /// makes mpv's cube hand back the gain that was asked for.
+    fn mpv_volume(gain: f64) -> f64 {
+        // One decimal: an integer step near the top of the cube root is ~3% of
+        // gain, which is a coarse jump for a slider drag.
+        (gain.clamp(0.0, 1.0).cbrt() * 1000.0).round() / 10.0
+    }
+
     fn out_volume(volume: f64, muted: bool) -> f64 {
-        if muted { 0.0 } else { (volume.clamp(0.0, 1.0) * 100.0).round() }
+        Self::mpv_volume(Self::out_gain(volume, muted))
     }
 
     #[cfg(test)]
@@ -905,10 +928,10 @@ impl Engine {
                 let start = Instant::now();
                 loop {
                     std::thread::sleep(FADE_TICK);
-                    let (out, stale) = {
+                    let (gain, stale) = {
                         let st = engine.state.lock().unwrap();
                         (
-                            Self::out_volume(st.volume, st.muted),
+                            Self::out_gain(st.volume, st.muted),
                             !st.fading || st.fade_gen != fade_gen_captured,
                         )
                     };
@@ -916,8 +939,13 @@ impl Engine {
                         return; // snapped/superseded — cleanup already done
                     }
                     let t = (start.elapsed().as_millis() as f64 / fade_ms as f64).min(1.0);
-                    let _ = engine.decks[new].mpv.set_property("volume", out * t);
-                    let _ = engine.decks[old].mpv.set_property("volume", out * (1.0 - t));
+                    // Ramp the *gain*, then convert. Scaling the property value
+                    // instead would fade as t³ — the outgoing deck would drop
+                    // to a tenth of its level a fifth of the way in.
+                    let inc = Self::mpv_volume(gain * t);
+                    let dec = Self::mpv_volume(gain * (1.0 - t));
+                    let _ = engine.decks[new].mpv.set_property("volume", inc);
+                    let _ = engine.decks[old].mpv.set_property("volume", dec);
                     if t >= 1.0 {
                         break;
                     }
@@ -1484,6 +1512,55 @@ mod tests {
 
     fn buffer_snap(paused: bool, cache_end: Option<f64>, readahead: Option<f64>) -> BufferSnapshot {
         BufferSnapshot { paused_for_cache: paused, cache_end_secs: cache_end, readahead_secs: readahead }
+    }
+
+    /// What mpv actually plays at, given the property value we send it.
+    fn mpv_applied_gain(property: f64) -> f64 {
+        (property / 100.0).powi(3)
+    }
+
+    #[test]
+    fn test_the_volume_slider_maps_to_linear_gain() {
+        // mpv cubes its `volume` property. The slider must therefore arrive as
+        // a cube root, or half volume plays at 12.5% gain (-18 dB) and 30% at
+        // 2.7% (-31 dB) — the "anything under a third is inaudible" report.
+        for pct in [0.0, 0.1, 0.3, 0.5, 0.75, 1.0] {
+            let applied = mpv_applied_gain(Engine::out_volume(pct, false));
+            assert!(
+                (applied - pct).abs() < 0.005,
+                "slider {pct} played at gain {applied}, expected {pct}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_volume_endpoints_and_mute_are_exact() {
+        assert_eq!(Engine::out_volume(1.0, false), 100.0);
+        assert_eq!(Engine::out_volume(0.0, false), 0.0);
+        assert_eq!(Engine::out_volume(1.0, true), 0.0);
+        // Out-of-range input can't amplify past unity.
+        assert_eq!(Engine::out_volume(4.0, false), 100.0);
+    }
+
+    #[test]
+    fn test_crossfade_ramps_gain_not_the_property() {
+        // The ramp scales the gain and converts; scaling the property value
+        // would fade as t³, so the outgoing deck would already be down to a
+        // tenth of its level a fifth of the way through the fade.
+        let gain = Engine::out_gain(1.0, false);
+        for t in [0.25, 0.5, 0.75] {
+            let applied = mpv_applied_gain(Engine::mpv_volume(gain * t));
+            assert!(
+                (applied - t).abs() < 0.005,
+                "at t={t} the incoming deck played at {applied}",
+            );
+        }
+        // The two decks always sum to the full gain, so a fade holds its level.
+        for t in [0.0, 0.3, 0.6, 1.0] {
+            let sum = mpv_applied_gain(Engine::mpv_volume(gain * t))
+                + mpv_applied_gain(Engine::mpv_volume(gain * (1.0 - t)));
+            assert!((sum - 1.0).abs() < 0.01, "decks summed to {sum} at t={t}");
+        }
     }
 
     #[test]
