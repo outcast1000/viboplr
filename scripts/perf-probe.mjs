@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Measures the CPU / GPU / memory cost Viboplr imposes on a macOS host.
 //
 // Viboplr is not a single process: WKWebView spawns com.apple.WebKit.WebContent
