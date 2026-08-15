@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { consumeResolveStale, streamLadderStep } from "../playback/playbackRetry";
 import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
-import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, type EffectiveSource } from "../queueEntry";
+import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, nativeResolverName, type EffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
 import { selectStream } from "../playback/selectStream";
 import type { StreamCandidate } from "../types/plugin";
@@ -96,14 +96,18 @@ interface UseStreamResolutionDeps {
   /** Created in App and shared with `usePlayback` for seek/offset math + cleanup. */
   transcodeSessionRef: React.MutableRefObject<TranscodeSession | null>;
   /** Created in App; kept fresh here from `resolveStreamByUri`. */
-  resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[] }>>;
+  resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>>;
   /** Ordered, user-configured plugin stream resolvers (populated elsewhere in App). */
   streamResolversRef: React.MutableRefObject<StreamResolver[]>;
   /** Latest plugin stream-URI resolver (`plugins.resolveStreamByUri`). */
-  resolveStreamByUri: (scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[] }>;
+  resolveStreamByUri: (scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>;
   /** Maps a custom URL scheme to its owning plugin id (`plugins.streamUriResolverOwner`).
    *  Lets a native plugin scheme (e.g. `tidal://`) classify to `{ kind: "plugin", pluginId }`. */
   streamUriResolverOwner: (scheme: string) => string | null;
+  /** Plugin id → manifest name (`plugins.pluginNames`). Used only to name the
+   *  native entry for a plugin scheme, so the source panel says "yt-dlp" rather
+   *  than the capitalized protocol ("Ytdlp"). */
+  pluginNames: Map<string, string>;
   /** Surfaces the platform-aware dependency install modal (`dependencies.requireDep`). */
   requireDep: (name: string, feature: string) => Promise<boolean>;
   /** True when the native mpv engine will render video (macOS full build,
@@ -139,6 +143,7 @@ export function useStreamResolution({
   streamResolversRef,
   resolveStreamByUri,
   streamUriResolverOwner,
+  pluginNames,
   requireDep,
   useNativeVideoRef,
   preferVideoRef,
@@ -175,6 +180,16 @@ export function useStreamResolution({
   const ownerRef = useRef(streamUriResolverOwner);
   ownerRef.current = streamUriResolverOwner;
 
+  // Scheme → owning plugin's display name, for the same reason and read from the
+  // same build-once resolver. Null when nothing owns the scheme, which leaves
+  // `nativeResolverName` on its capitalized-protocol fallback.
+  const pluginNamesRef = useRef(pluginNames);
+  pluginNamesRef.current = pluginNames;
+  const schemeDisplayName = (protocol: string): string | null => {
+    const owner = ownerRef.current(protocol);
+    return owner ? pluginNamesRef.current.get(owner) ?? null : null;
+  };
+
   useEffect(() => {
     resolveStreamByUriRef.current = resolveStreamByUri;
   }, [resolveStreamByUri, resolveStreamByUriRef]);
@@ -198,7 +213,11 @@ export function useStreamResolution({
       headers?: Record<string, string>,
       fresh = false,
       ladderStep = 0,
-    ): Promise<{ src: string; engineSource: EngineSource | null }> => {
+      // `sourceUrl` rides back out because only the resolver knows it: a plugin
+      // scheme is an opaque id, so without this the chain can only attribute the
+      // track to its own URI. The caller lifts it onto the chain entry, exactly
+      // as the metadata path does with `StreamResolveResult.sourceUrl`.
+    ): Promise<{ src: string; engineSource: EngineSource | null; sourceUrl?: string }> => {
       if (url.startsWith("http://") || url.startsWith("https://")) {
         return Promise.resolve({ src: url, engineSource: httpEngineSource(url, headers) });
       }
@@ -219,10 +238,13 @@ export function useStreamResolution({
           if (r.candidates && r.candidates.length) {
             const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack, skipTopVideo: ladderStep });
             if (sel) {
-              return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers } };
+              return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers }, sourceUrl: r.sourceUrl };
             }
           }
-          return resolveUrlDetailed(r.url, videoTrack, undefined, fresh, ladderStep);
+          // Falling through to the self-contained URL must not drop the
+          // attribution the resolver just gave us — same track, same page.
+          return resolveUrlDetailed(r.url, videoTrack, undefined, fresh, ladderStep)
+            .then(inner => (r.sourceUrl ? { ...inner, sourceUrl: r.sourceUrl } : inner));
         });
       }
       if (parsed.scheme === "subsonic") {
@@ -230,15 +252,6 @@ export function useStreamResolution({
           .then(streamUrl => ({ src: streamUrl, engineSource: { kind: "http" as const, url: streamUrl } }));
       }
       return Promise.reject(new Error(`Unplayable URL scheme: ${url}`));
-    };
-
-    const nativeResolverName = (url: string): string => {
-      if (url.startsWith("http://") || url.startsWith("https://")) return "Direct URL";
-      const parsed = parseUrlScheme(url);
-      if (parsed.scheme === "file") return "Local";
-      if (parsed.scheme === "plugin") return parsed.protocol.charAt(0).toUpperCase() + parsed.protocol.slice(1);
-      if (parsed.scheme === "subsonic") return "Subsonic";
-      return "Unknown";
     };
 
     // Core resolution. `preload` runs it OFF the shared play-resolution
@@ -316,8 +329,14 @@ export function useStreamResolution({
         if (url.startsWith("http://") || url.startsWith("https://")) {
           chain.push({ name: "Direct URL", id: null, native: true, sourceUrl: url, effectiveSource: classifyEffectiveSource(url, ownerRef.current), resolve: () => Promise.resolve({ src: url, engineSource: { kind: "http" as const, url } }) });
         } else {
-          chain.push({
-            name: nativeResolverName(url),
+          // Held in a variable rather than pushed inline so `resolve` can lift a
+          // reported `sourceUrl` onto it — the same mutation the metadata-resolver
+          // entry does below. `sourceUrl` starts as the track's own URI, which is
+          // the honest answer for `file://` / `subsonic://` but only a placeholder
+          // for a plugin scheme: an id like `ytdlp://https%3A%2F%2F…` names no page
+          // a user can read or open, and only the resolver knows what it stands for.
+          const nativeEntry: ResolverEntry = {
+            name: nativeResolverName(url, schemeDisplayName),
             id: null,
             native: true,
             failureLabel: nativeFailureLabel,
@@ -348,9 +367,12 @@ export function useStreamResolution({
                   throw e;
                 }
               }
-              return resolveUrlDetailed(url, isVideoTrack(track), undefined, fresh, ladderStep);
+              const resolved = await resolveUrlDetailed(url, isVideoTrack(track), undefined, fresh, ladderStep);
+              if (resolved.sourceUrl) nativeEntry.sourceUrl = resolved.sourceUrl;
+              return resolved;
             },
-          });
+          };
+          chain.push(nativeEntry);
         }
       }
 

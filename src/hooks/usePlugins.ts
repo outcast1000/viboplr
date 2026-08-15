@@ -156,7 +156,7 @@ interface LoadedPlugin {
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean; externalAudio?: boolean; fresh?: boolean }) => Promise<StreamResolveResult | null>>;
-  streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>>;
+  streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>>;
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
   schedulerHandlers: Map<string, () => void>;
   visualizerFactories: Map<string, () => PluginVisualizer>;
@@ -715,7 +715,7 @@ export function usePlugins(
           },
           onResolveStreamByUri(
             scheme: string,
-            handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[] } | null>,
+            handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>,
           ): () => void {
             loaded.streamUriResolvers.set(scheme, handler);
             const unsub = () => {
@@ -2553,13 +2553,17 @@ export function usePlugins(
   // download detail); `candidates`, when present, carries the full menu for the
   // play path's selector. `opts.externalAudio` tells the resolver the host can
   // merge a separate audio track, so it should offer the split candidates.
+  // `sourceUrl` (optional) is the page the stream came from — the same
+  // attribution field the metadata resolver returns, passed straight through so
+  // a plugin-scheme track can be shown and opened as its real source rather than
+  // as its own opaque URI.
   const resolveStreamByUri = useCallback(
     async (
       scheme: string,
       id: string,
       quality?: string | null,
       opts?: { externalAudio?: boolean; fresh?: boolean },
-    ): Promise<{ url: string; candidates?: StreamCandidate[] }> => {
+    ): Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }> => {
       for (const [, lp] of loadedPluginsRef.current) {
         const handler = lp.streamUriResolvers.get(scheme);
         if (handler) {
@@ -2571,7 +2575,7 @@ export function usePlugins(
           // A self-contained URL for URL-only consumers: prefer a muxed stream,
           // else any candidate (the play path uses `candidates` directly).
           const selfContained = candidates.find((c) => c.kind === "muxed") ?? candidates[0];
-          return { url: selfContained.url, candidates };
+          return { url: selfContained.url, candidates, sourceUrl: result.sourceUrl };
         }
       }
       throw new Error(`No stream URI resolver for scheme: ${scheme}`);

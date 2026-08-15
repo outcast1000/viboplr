@@ -299,7 +299,7 @@ function App() {
   trackVideoHistoryRef.current = trackVideoHistory;
   preferVideoRef.current = preferVideoResolution;
   const advanceIndexRef = useRef<() => void>(() => {});
-  const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: import("./types/plugin").StreamCandidate[] }>>(
+  const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: import("./types/plugin").StreamCandidate[]; sourceUrl?: string }>>(
     async () => { throw new Error("Stream URI resolver not ready"); }
   );
   // Placeholder resolver: replaced by useStreamResolution's chain (which runs the
@@ -822,6 +822,7 @@ function App() {
     streamResolversRef,
     resolveStreamByUri: plugins.resolveStreamByUri,
     streamUriResolverOwner: plugins.streamUriResolverOwner,
+    pluginNames: plugins.pluginNames,
     requireDep: dependencies.requireDep,
     useNativeVideoRef,
     preferVideoRef,

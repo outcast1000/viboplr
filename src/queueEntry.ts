@@ -196,6 +196,33 @@ export function parseUrlScheme(url: string): ParsedUrl {
 }
 
 /**
+ * Display name for a track's OWN source — the label the resolver chain uses for
+ * the native entry, and what the source panel shows as its title.
+ *
+ * `pluginDisplayName(protocol)` resolves a plugin scheme to that plugin's
+ * manifest name. Without it (or when nothing owns the scheme) the protocol is
+ * capitalized, which is a fallback, not the intent: `ytdlp://` then reads
+ * "Ytdlp" where the plugin calls itself "yt-dlp", and that string is user-facing
+ * — it titles the source panel and fills in "Open on ___".
+ */
+export function nativeResolverName(
+  url: string,
+  pluginDisplayName?: (protocol: string) => string | null,
+): string {
+  if (url.startsWith("http://") || url.startsWith("https://")) return "Direct URL";
+  const parsed = parseUrlScheme(url);
+  if (parsed.scheme === "file") return "Local";
+  if (parsed.scheme === "subsonic") return "Subsonic";
+  if (parsed.scheme === "plugin") {
+    return (
+      pluginDisplayName?.(parsed.protocol) ||
+      parsed.protocol.charAt(0).toUpperCase() + parsed.protocol.slice(1)
+    );
+  }
+  return "Unknown";
+}
+
+/**
  * Returns true if the URL uses a remote app-specific scheme (subsonic://, plugin schemes).
  * Returns false for file://, http(s)://, and plain paths.
  */

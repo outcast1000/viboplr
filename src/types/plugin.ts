@@ -595,7 +595,13 @@ export interface PluginPlaybackAPI {
     /** Return a bare URL for a single self-contained stream, or a candidate
      *  list when the source offers multiple streams (e.g. YouTube's split
      *  video-only + audio-only formats) and the host should pick per its active
-     *  engine — see `StreamCandidate` / `opts.externalAudio`. `null` = no match. */
+     *  engine — see `StreamCandidate` / `opts.externalAudio`. `null` = no match.
+     *
+     *  Alongside `candidates` you may report `sourceUrl` — the page the stream
+     *  came from, the same field `onStreamResolve` returns. Do: a track played
+     *  from its own plugin scheme is otherwise attributed by its *URI*, and an
+     *  opaque or encoded one (`ytdlp://https%3A%2F%2F…`) is unreadable in the
+     *  source panel and offers the user no way out to the original page. */
     handler: (
       id: string,
       quality?: string | null,
@@ -608,7 +614,7 @@ export interface PluginPlaybackAPI {
        *  CDN URL that has been refused usually stays refused.)
        *  Optional for back-compat — older hosts don't send them. */
       opts?: { externalAudio?: boolean; fresh?: boolean },
-    ) => Promise<string | { candidates: StreamCandidate[] } | null>,
+    ) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>,
   ): () => void;
   /** Supply seek-preview thumbnails for a custom URL scheme. The host shows one
    *  tile in the seek bar's hover bubble.
