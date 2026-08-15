@@ -14,5 +14,14 @@ fn main() {
     // runtime (src/mpv_engine/ffi.rs), so no link-search path or rpaths are
     // emitted here. Dev/test builds resolve the vendored copy fetched by
     // `node scripts/fetch-libmpv.mjs` directly by path.
-    tauri_build::build()
+    tauri_build::build();
+
+    // Tauri links the Common Controls v6 manifest resource into application
+    // binaries. The lib-test crate requests this library itself (lib.rs), so
+    // expose the generated resource directory to rustc without duplicating the
+    // binary link argument that Tauri already emits.
+    #[cfg(windows)]
+    if let Ok(out_dir) = std::env::var("OUT_DIR") {
+        println!("cargo:rustc-link-search=native={out_dir}");
+    }
 }

@@ -36,6 +36,14 @@ mod transcode_server;
 mod cursor_tracker;
 #[cfg(target_os = "windows")]
 mod cursor_tracker_win;
+
+// Tauri's build script links this manifest resource into app binaries. The
+// lib-test harness needs it too: rfd imports TaskDialogIndirect, which exists
+// only when the Common Controls v6 activation context is available.
+#[cfg(all(test, windows))]
+#[link(name = "resource", kind = "static")]
+unsafe extern "C" {}
+
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
 use downloader::{DownloadManager, DownloadResolveRegistry};
