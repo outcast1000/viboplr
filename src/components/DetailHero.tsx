@@ -14,6 +14,14 @@ import {
 } from "../heroLooks";
 import "./DetailHero.css";
 
+export interface HeroButton {
+  id: string;
+  label: string;
+  variant?: "primary" | "secondary" | "danger";
+  disabled?: boolean;
+  onClick: () => void;
+}
+
 export interface DetailHeroChip {
   label: string;
   onClick?: () => void;
@@ -49,6 +57,15 @@ interface DetailHeroProps {
   enqueueDisabled?: boolean;
 
   overflowItems: HeroOverflowItem[];
+  // The hero's own action buttons, replacing the fixed Play/Enqueue pair. For a
+  // subject those two verbs don't fit — see the render.
+  buttons?: HeroButton[];
+
+  // Title + Back only: no artwork, no background, no motion look, no FX picker.
+  // For a hero whose subject HAS no image — the point of the hero there is the
+  // identity and the back button, and a 320px scrimmed panel wrapped around a
+  // placeholder disc is chrome standing in for content.
+  plain?: boolean;
 
   titleLine?: ReactNode;
 }
@@ -64,6 +81,8 @@ export function DetailHero({
   onPlay, onEnqueue, playDisabled, enqueueDisabled,
   overflowItems,
   titleLine,
+  buttons,
+  plain,
 }: DetailHeroProps) {
   const showLike = liked !== undefined && (onToggleLike || likeDisabled);
   const [effectMode, setEffectMode] = useHeroEffectMode();
@@ -74,16 +93,19 @@ export function DetailHero({
   const look = lookId ? getLook(lookId) : null;
   const heroClass = [
     "detail-hero",
-    look ? `hero-motion-${look.motion}` : "",
-    look?.layers.bw ? "hero-bw" : "",
+    plain ? "detail-hero--plain" : "",
+    // A motion look animates the background; with no background it would only
+    // add a class nothing reads.
+    !plain && look ? `hero-motion-${look.motion}` : "",
+    !plain && look?.layers.bw ? "hero-bw" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
     <div className={heroClass}>
-      <DetailHeroBackground images={bgImages} className={bgClassName ?? "detail-hero-bg"} />
-      <DetailHeroEffect look={look} />
+      {!plain && <DetailHeroBackground images={bgImages} className={bgClassName ?? "detail-hero-bg"} />}
+      {!plain && <DetailHeroEffect look={look} />}
       {onBack && (
         <button
           className="detail-hero-back"
@@ -94,23 +116,33 @@ export function DetailHero({
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
       )}
-      <select
-        className="detail-hero-fx-select"
-        value={effectMode}
-        onChange={(e) => setEffectMode(e.target.value as HeroEffectMode)}
-        aria-label="Hero background effect"
-        title="Hero background effect"
-      >
-        {EFFECT_MODE_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+      {/* The FX picker chooses a background effect; with no background it would
+          be a control over nothing. */}
+      {!plain && (
+        <select
+          className="detail-hero-fx-select"
+          value={effectMode}
+          onChange={(e) => setEffectMode(e.target.value as HeroEffectMode)}
+          aria-label="Hero background effect"
+          title="Hero background effect"
+        >
+          {EFFECT_MODE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )}
       <div className="detail-hero-row">
-        <div className={`detail-hero-art detail-hero-art--${artShape}`}>
-          {art}
-        </div>
+        {/* No art block at all when plain — not an empty one. A subject with no
+            image of its own (a torrent) would otherwise get a placeholder disc
+            in the most prominent part of the header, which is chrome standing
+            in for content. */}
+        {!plain && (
+          <div className={`detail-hero-art detail-hero-art--${artShape}`}>
+            {art}
+          </div>
+        )}
         <div className="detail-hero-info">
           {eyebrow && <div className="detail-hero-eyebrow">{eyebrow}</div>}
           <h2 className="detail-hero-title">
@@ -146,20 +178,40 @@ export function DetailHero({
           )}
           {description && <div className="detail-hero-description">{description}</div>}
           <div className="detail-hero-actions">
-            <button
-              className="ds-btn ds-btn--primary"
-              onClick={onPlay}
-              disabled={playDisabled || !onPlay}
-            >
-              <span aria-hidden>▶</span> Play
-            </button>
-            <button
-              className="ds-btn ds-btn--secondary"
-              onClick={onEnqueue}
-              disabled={enqueueDisabled || !onEnqueue}
-            >
-              <span aria-hidden>≡+</span> Enqueue
-            </button>
+            {/* `buttons` REPLACES the Play/Enqueue pair rather than joining it:
+                a subject those two verbs don't apply to (a torrent — you start
+                and stop it) would otherwise carry two permanently disabled
+                buttons next to its real ones. Its own actions then sit exactly
+                where every other detail page puts its primary controls. */}
+            {buttons ? (
+              buttons.map((b) => (
+                <button
+                  key={b.id}
+                  className={`ds-btn ds-btn--${b.variant ?? "secondary"}`}
+                  onClick={b.onClick}
+                  disabled={b.disabled}
+                >
+                  {b.label}
+                </button>
+              ))
+            ) : (
+              <>
+                <button
+                  className="ds-btn ds-btn--primary"
+                  onClick={onPlay}
+                  disabled={playDisabled || !onPlay}
+                >
+                  <span aria-hidden>▶</span> Play
+                </button>
+                <button
+                  className="ds-btn ds-btn--secondary"
+                  onClick={onEnqueue}
+                  disabled={enqueueDisabled || !onEnqueue}
+                >
+                  <span aria-hidden>≡+</span> Enqueue
+                </button>
+              </>
+            )}
             <HeroOverflowMenu items={overflowItems} />
           </div>
           {titleLine && <div className="detail-hero-titleline">{titleLine}</div>}

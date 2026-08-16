@@ -666,6 +666,33 @@
   transition: background 0.15s;
 }
 
+/* Open-on-click lists (see rowClickOpens): the row is a link to somewhere, so
+   it says so. Without this it keeps the library list's `cursor: default`, which
+   reads as "this row is inert". */
+.ptr-rows-open .ptr-row {
+  cursor: pointer;
+}
+
+/* Two lines for the name in plugin row lists, where a library track title is
+   the exception rather than the rule: these rows carry release names, video
+   titles and search results, which back-load the very part that distinguishes
+   two otherwise identical entries (year, format, edition, group). One clipped
+   line hides exactly that. Scoped to the selectable list so the library, queue
+   and history rows — where titles are short and a fixed row height is what
+   makes the list scannable — keep their single line.
+
+   `overflow-wrap: anywhere` because dot-separated release names have no spaces
+   to break at. The base rule's `text-overflow: ellipsis` is inert under
+   line-clamp; the clamp draws its own. */
+.ptr-rows-selectable .ptr-row .entity-list-name {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
 /* Keyboard cursor row (aria-activedescendant): the library's full inset accent
    ring (.track-row.active), not a left rail. */
 .ptr-row-active {
@@ -1112,3 +1139,47 @@
   white-space: nowrap;
 }
 
+
+/* Label/value lists and their section headings, for plugin views that present
+   a block of facts (a torrent's transfer + swarm figures, a file's properties).
+   Deliberately generic — a plugin gets these by putting the class on a `text`
+   or `layout` node, so the host CSS carries no plugin-specific selectors.
+
+   Before this the only tool was a `stats-grid` of tiles, which is right for a
+   handful of headline numbers and wrong for twenty rows of reference data, and
+   the fallback — one `text` node per "Label: value" — had no column to align
+   against and no way to make a heading look like one. */
+.plugin-text.plugin-heading {
+  margin: 18px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.plugin-layout.plugin-kv {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: var(--fs-sm);
+}
+
+/* A fixed-basis label column is what makes the values line up; `clamp` keeps it
+   from eating a narrow sidebar view or stranding the values on a wide one. */
+.plugin-kv .plugin-kv-key {
+  flex: 0 0 clamp(110px, 32%, 190px);
+  color: var(--text-secondary);
+}
+
+.plugin-kv .plugin-kv-value {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  /* Digits share a width, so a column of sizes and counts reads as a column. */
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

@@ -114,7 +114,10 @@ export function TrackRow({
         {leading}
         <Thumb thumb={thumb} className={thumbClassName} />
         <div className="entity-list-info">
-          <span className="entity-list-name">{title}</span>
+          {/* `title` doubles as the native tooltip: the name is clipped with an
+              ellipsis on every surface, and without this there was no way at all
+              to read the rest of a long one. Costs nothing when it fits. */}
+          <span className="entity-list-name" title={title}>{title}</span>
           {subtitle != null && <span className="entity-list-secondary">{subtitle}</span>}
           {belowSubtitle}
         </div>

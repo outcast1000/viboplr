@@ -98,13 +98,23 @@ describe("formatQuality", () => {
 });
 
 describe("formatEngineQuality", () => {
-  it("shows codec + sample rate + bit depth from mpv sample formats", () => {
+  it("shows codec + sample rate + bit depth for the unambiguous sample formats", () => {
     expect(formatEngineQuality({ codec: "flac", sampleRate: 44100, format: "s16", bitrate: null }))
       .toBe("FLAC · 44.1 kHz · 16-bit");
+  });
+
+  // `audio-params/format` is the decoder's output, not the file's depth: a
+  // 24-bit FLAC decodes to s32 (measured against real libmpv), and every lossy
+  // codec decodes to float. Claiming a depth from either is a wrong number in
+  // the one field a hi-res listener is reading — the sample rate must survive
+  // it, which is what the old rate-hangs-off-depth branch got wrong.
+  it("states no bit depth for the wide formats, and keeps the sample rate", () => {
+    expect(formatEngineQuality({ codec: "flac", sampleRate: 96000, format: "s32", bitrate: 4231000 }))
+      .toBe("FLAC · 96.0 kHz · 4231 kbps");
     expect(formatEngineQuality({ codec: "flac", sampleRate: 96000, format: "s32", bitrate: null }))
-      .toBe("FLAC · 96.0 kHz · 32-bit");
-    expect(formatEngineQuality({ codec: "aac", sampleRate: 48000, format: "floatp", bitrate: null }))
-      .toBe("AAC · 48.0 kHz · 32-bit float");
+      .toBe("FLAC · 96.0 kHz");
+    expect(formatEngineQuality({ codec: "aac", sampleRate: 48000, format: "floatp", bitrate: 128000 }))
+      .toBe("AAC · 48.0 kHz · 128 kbps");
   });
 
   it("falls back to bitrate when the sample format is unknown", () => {

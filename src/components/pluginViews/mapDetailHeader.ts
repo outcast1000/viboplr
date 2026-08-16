@@ -1,5 +1,5 @@
 import type { PluginViewData } from "../../types/plugin";
-import type { DetailHeroChip } from "../DetailHero";
+import type { DetailHeroChip, HeroButton } from "../DetailHero";
 import type { HeroOverflowItem } from "../../utils/heroOverflow";
 import { resolveImageUrl } from "../../utils/resolveImageUrl";
 
@@ -14,6 +14,7 @@ export interface MappedHeroProps {
   onPlay?: () => void;
   onEnqueue?: () => void;
   onBack?: () => void;
+  buttons?: HeroButton[];
 }
 
 // Maps a plugin `detail-header` node to the data-only props of <DetailHero>.
@@ -58,7 +59,18 @@ export function mapDetailHeaderToHeroProps(
     }
   }
 
+  // A hero button fires its action with no payload — the host has no per-item
+  // context to attach here, and a plugin that needs one can keep its own.
+  const buttons = node.buttons?.map((btn) => ({
+    id: btn.id,
+    label: btn.label,
+    variant: btn.variant,
+    disabled: btn.disabled,
+    onClick: () => onAction?.(btn.id),
+  }));
+
   return {
+    buttons,
     title: node.title,
     artShape: node.artShape ?? "square",
     meta,

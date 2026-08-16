@@ -83,6 +83,25 @@ function pickBest(
  * Choose the stream(s) to play from a resolver's candidate list.
  * Returns null when no candidate can satisfy the request.
  */
+/**
+ * Does this selected candidate still need classifying as a URL, rather than
+ * being turned straight into an http `EngineSource`?
+ *
+ * A candidate is only a URL, and not every plugin scheme resolves to the
+ * network: one may name a file already on this disk (the qBittorrent plugin's
+ * `qbt://` resolves to the downloaded file). Handing that to the caller as
+ * `{ kind: "http" }` gives the media element a raw `file://` src it cannot load
+ * — local files must go through `convertFileSrc` — and tells mpv a local file is
+ * a network stream.
+ *
+ * A split video pick is the exception: `audioUrl` and `headers` have nowhere to
+ * ride through the generic classifier, and a split pair is always http anyway.
+ */
+export function selectedNeedsClassifying(sel: SelectedStream): boolean {
+  if (sel.audioUrl) return false;
+  return !/^https?:\/\//.test(sel.url);
+}
+
 export function selectStream(
   candidates: StreamCandidate[],
   ctx: SelectStreamContext,

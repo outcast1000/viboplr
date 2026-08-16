@@ -199,20 +199,23 @@ function PluginViewNode({
           onPluginAction={onPluginAction}
         />
       );
-    case "track-row-list":
+    case "track-row-list": {
+      // Spread the node's own fields rather than listing them: every field
+      // enumerated here is one that can be forgotten, and `selectionPresets`
+      // was — the toolbar code, the `presetIds` helper and its tests all
+      // shipped, and the buttons never appeared because the prop was dropped in
+      // transit. The props interface is exactly this node minus `type` plus the
+      // host callbacks below, so a new field now reaches the list for free.
+      const { type: _type, ...rowListProps } = node;
       return (
         <PluginTrackRowList
-          items={node.items}
-          selectable={node.selectable}
-          actions={node.actions}
-          categories={node.categories}
-          numbered={node.numbered}
-          showHeader={node.showHeader}
+          {...rowListProps}
           onAction={onAction}
           onContextMenu={onTrackRowContextMenu}
           onRowsDragStart={onTrackRowsDragStart}
         />
       );
+    }
     case "text":
       return <PluginText content={node.content} className={node.className} />;
     case "stats-grid":
@@ -423,7 +426,9 @@ function PluginViewNode({
       );
     case "detail-header": {
       const hero = mapDetailHeaderToHeroProps(node, onAction);
-      const artSrc = resolveImageUrl(node.imageUrl);
+      // `plain` renders no art block, so don't build the placeholder disc that
+      // would otherwise be handed to a hero that will never draw it.
+      const artSrc = node.plain ? undefined : resolveImageUrl(node.imageUrl);
       const art = artSrc ? (
         <img
           src={artSrc}
@@ -443,6 +448,8 @@ function PluginViewNode({
           bgImages={hero.bgImages}
           art={art}
           artShape={hero.artShape}
+          plain={node.plain}
+          buttons={hero.buttons}
           title={hero.title}
           entityLabel="album"
           meta={hero.meta}

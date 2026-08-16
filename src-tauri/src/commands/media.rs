@@ -717,6 +717,72 @@ pub fn get_audio_properties_by_path(
     })
 }
 
+/// Read embedded tags for a batch of local files — one result per input path, in
+/// order, `None` for anything unreadable (missing file, or a container lofty
+/// can't parse).
+///
+/// **Batched** because the caller is typically queueing a whole release at once
+/// (a plugin turning a finished torrent into queue entries), and one invoke per
+/// file would be N IPC round trips for a single user action.
+///
+/// **`async` + `spawn_blocking`** because a non-async command runs inline on the
+/// main thread: probing forty files on a network mount would otherwise freeze the
+/// webview for the duration.
+///
+/// **No filename fallback, deliberately** — unlike `scanner::read_tags`, which
+/// falls through to its own regexes when a tag is missing. A caller reaching for
+/// this holds context those patterns don't (a torrent name, a release folder, its
+/// own parse), so an absent tag is reported as `None` and the caller's own guess
+/// stands. The one thing still worth returning from an untagged file is its
+/// duration: a queue entry with no length shows no seek bar and never scrobbles.
+#[tauri::command]
+pub async fn read_file_tags(paths: Vec<String>) -> Result<Vec<Option<FileTags>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths.iter().map(|p| read_one_file_tags(p)).collect()
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))
+}
+
+fn read_one_file_tags(path: &str) -> Option<FileTags> {
+    use lofty::prelude::*;
+
+    let bare_path = path.strip_prefix("file://").unwrap_or(path);
+    let tagged_file = lofty::probe::Probe::open(bare_path)
+        .and_then(|p| p.read())
+        .ok()?;
+
+    let duration = tagged_file.properties().duration();
+    let duration_secs = Some(duration.as_secs_f64()).filter(|&d| d > 0.0);
+
+    let Some(tag) = tagged_file.primary_tag().or_else(|| tagged_file.first_tag()) else {
+        return Some(FileTags { duration_secs, ..Default::default() });
+    };
+
+    // Same Latin-1 / codepage repair the scanner applies, for the same reason:
+    // ID3v1 and Latin-1-declared ID3v2 frames arrive garbled otherwise, and files
+    // carrying them are exactly the ones a caller reaches for tags to fix.
+    let text = |s: Option<std::borrow::Cow<'_, str>>| -> Option<String> {
+        s.map(|v| crate::scanner::fix_encoding(&v))
+            .filter(|v| !v.trim().is_empty())
+    };
+
+    Some(FileTags {
+        title: text(tag.title()),
+        artist: text(tag.artist()),
+        album_artist: tag
+            .get_string(lofty::tag::ItemKey::AlbumArtist)
+            .map(crate::scanner::fix_encoding)
+            .filter(|v| !v.trim().is_empty()),
+        album: text(tag.album()),
+        track_number: tag.track(),
+        disc_number: tag.disk(),
+        year: tag.date().map(|d| d.year as i32),
+        genre: text(tag.genre()),
+        duration_secs,
+    })
+}
+
 /// Cache-only storyboard lookup, keyed by the track's scheme-prefixed path. Never
 /// generates, so the seek bar can ask on every track change for free.
 #[tauri::command]
@@ -771,6 +837,93 @@ pub fn get_file_size(path: String) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A real, playable 1-second silent WAV. Written by hand because the repo
+    /// carries no audio fixtures, and lofty can only tag a file it can parse.
+    fn write_silent_wav(path: &std::path::Path) {
+        let sample_bytes: u32 = 44100 * 2; // 1s of 16-bit mono silence
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + sample_bytes).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes()); // PCM header size
+        wav.extend_from_slice(&1u16.to_le_bytes()); // format: PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // channels
+        wav.extend_from_slice(&44100u32.to_le_bytes()); // sample rate
+        wav.extend_from_slice(&88200u32.to_le_bytes()); // byte rate
+        wav.extend_from_slice(&2u16.to_le_bytes()); // block align
+        wav.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&sample_bytes.to_le_bytes());
+        wav.extend(std::iter::repeat(0u8).take(sample_bytes as usize));
+        std::fs::write(path, wav).unwrap();
+    }
+
+    #[test]
+    fn read_file_tags_reads_what_the_file_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("03 - whatever the filename says.wav");
+        write_silent_wav(&path);
+        crate::tag_writer::write_tags(
+            &path,
+            &crate::tag_writer::TagUpdates {
+                title: Some("Nude".into()),
+                track_number: crate::models::FieldUpdate::Set(3),
+                artist: crate::models::FieldUpdate::Set("Radiohead".into()),
+                album: crate::models::FieldUpdate::Set("In Rainbows".into()),
+                year: crate::models::FieldUpdate::Set(2007),
+                genre: Some("Alternative".into()),
+            },
+        )
+        .unwrap();
+
+        let tags = read_one_file_tags(path.to_str().unwrap()).expect("tagged file reads");
+        assert_eq!(tags.title.as_deref(), Some("Nude"));
+        assert_eq!(tags.artist.as_deref(), Some("Radiohead"));
+        assert_eq!(tags.album.as_deref(), Some("In Rainbows"));
+        assert_eq!(tags.track_number, Some(3));
+        assert_eq!(tags.year, Some(2007));
+        assert!(tags.duration_secs.unwrap() > 0.9);
+    }
+
+    // An untagged file must still report its duration: a queue entry with no
+    // length shows no seek bar and never scrobbles, and the caller's own
+    // filename parse can't supply one.
+    #[test]
+    fn read_file_tags_still_reports_duration_for_an_untagged_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("untagged.wav");
+        write_silent_wav(&path);
+
+        let tags = read_one_file_tags(path.to_str().unwrap()).expect("untagged file still reads");
+        assert!(tags.title.is_none(), "no title invented from the filename");
+        assert!(tags.artist.is_none());
+        assert!(tags.duration_secs.unwrap() > 0.9);
+    }
+
+    // Callers zip the results against the paths they sent, so a file that can't
+    // be read has to hold its place rather than shorten the list.
+    #[test]
+    fn read_file_tags_results_line_up_with_the_paths_sent() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.wav");
+        write_silent_wav(&good);
+        let missing = dir.path().join("gone.wav");
+        let junk = dir.path().join("notaudio.wav");
+        std::fs::write(&junk, b"this is not a wav").unwrap();
+
+        let out = tauri::async_runtime::block_on(read_file_tags(vec![
+            missing.to_string_lossy().into_owned(),
+            good.to_string_lossy().into_owned(),
+            junk.to_string_lossy().into_owned(),
+        ]))
+        .unwrap();
+
+        assert_eq!(out.len(), 3);
+        assert!(out[0].is_none(), "missing file");
+        assert!(out[1].is_some(), "real file keeps its slot");
+        assert!(out[2].is_none(), "unparseable file");
+    }
 
     fn lines_of(input: &[u8]) -> (Vec<String>, String) {
         let mut seen = Vec::new();

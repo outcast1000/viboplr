@@ -7,7 +7,7 @@ import { isLocalTrack, parseUrlScheme } from "../queueEntry";
 import { formatDuration } from "../utils";
 import { useLyrics } from "./useLyrics";
 import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio, lyricPosition } from "../utils/lyrics";
-import { nativeEngine } from "../playback/nativeEngine";
+import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
 import { subscribePlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
 
 // Stand-in subscription while no synced lyrics exist — keeps the
@@ -218,17 +218,27 @@ export function formatQuality(format: string | null | undefined, props: AudioPro
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-/** Bit depth for an mpv sample-format string ("s16" → "16-bit",
- *  "floatp" → "32-bit float"), or null for unknown formats. */
+/** Bit depth for an mpv sample-format string ("s16" → "16-bit"), or null when
+ *  the format doesn't identify the *source's* depth.
+ *
+ *  `audio-params/format` is the **decoder's output** format, not a property of
+ *  the recording, and for the wide formats the two part company: ffmpeg's FLAC
+ *  decoder emits **s32 for a 24-bit file** (`ffmpeg -i` prints it as
+ *  `flac, 96000 Hz, s32 (24 bit)`, and mpv duly reports `s32` — measured
+ *  against real libmpv by `probe_engine_audio_params` in `mpv_engine/mod.rs`),
+ *  and every lossy codec decodes to float regardless of what it stores. So s32
+ *  / float / double are reported as **unknown** rather than as a bit depth: a
+ *  24-bit master labelled "32-bit" is a wrong claim about the one number a
+ *  hi-res listener is checking, and "32-bit float" for an MP3 is noise. The
+ *  narrow formats are unambiguous — nothing decodes *up* to s16 — so they
+ *  stand. When a real depth is wanted for a file on disk, read it with lofty
+ *  (`get_audio_properties_by_path`), which reports what the file says. */
 function bitDepthFromMpvFormat(format: string | null | undefined): string | null {
   if (!format) return null;
   const f = format.toLowerCase().replace(/p$/, ""); // planar variants
   if (f === "u8" || f === "s8") return "8-bit";
   if (f === "s16") return "16-bit";
   if (f === "s24") return "24-bit";
-  if (f === "s32") return "32-bit";
-  if (f === "float" || f === "f32") return "32-bit float";
-  if (f === "double" || f === "f64") return "64-bit float";
   return null;
 }
 
@@ -244,14 +254,16 @@ export function formatEngineQuality(info: {
   if (!info) return null;
   const parts: string[] = [];
   if (info.codec) parts.push(info.codec.toUpperCase());
+  // Sample rate is unconditional when known. It used to hang off the bit depth
+  // ("rate · depth", else bitrate, else rate), so a file whose decode format
+  // says nothing about its depth — every 24-bit lossless one, see
+  // `bitDepthFromMpvFormat` — lost its sample rate to the bitrate branch.
+  if (info.sampleRate) parts.push(`${(info.sampleRate / 1000).toFixed(1)} kHz`);
   const depth = bitDepthFromMpvFormat(info.format);
-  if (info.sampleRate && depth) {
-    parts.push(`${(info.sampleRate / 1000).toFixed(1)} kHz · ${depth}`);
-  } else if (info.bitrate && info.bitrate > 0) {
-    parts.push(`${Math.round(info.bitrate / 1000)} kbps`);
-  } else if (info.sampleRate) {
-    parts.push(`${(info.sampleRate / 1000).toFixed(1)} kHz`);
-  }
+  if (depth) parts.push(depth);
+  // Bitrate stands in for the depth we can't state — and for a lossy stream it
+  // is the number that describes the quality anyway.
+  else if (info.bitrate && info.bitrate > 0) parts.push(`${Math.round(info.bitrate / 1000)} kbps`);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
@@ -521,16 +533,21 @@ export function useNowPlayingInfo({
         return track.duration_secs ? { id, segments: [{ text: formatDuration(track.duration_secs) }] } : null;
       }
       if (id === "builtin:quality") {
-        // Prefer the mpv engine's live decode facts — the only source that
-        // works for remote/streamed media. For video show its resolution line;
-        // else the audio line. Null when no native session plays.
+        let engineInfo: EngineMediaInfo | null = null;
         try {
-          const engineInfo = await withTimeout(nativeEngine.getMediaInfo(), null);
-          const engineText = formatEngineVideoQuality(engineInfo) ?? formatEngineQuality(engineInfo);
-          if (engineText) return { id, segments: [{ text: engineText }] };
+          engineInfo = await withTimeout(nativeEngine.getMediaInfo(), null);
         } catch (e) {
           console.error("Failed to resolve engine media quality:", e);
         }
+        // Video is the engine's alone — resolution is the answer there, and no
+        // tag reader supplies it.
+        const videoText = formatEngineVideoQuality(engineInfo);
+        if (videoText) return { id, segments: [{ text: videoText }] };
+        // For audio, a file on disk beats the engine: lofty reports the depth
+        // the FILE carries, while `audio-params/format` reports what the
+        // decoder is emitting — s32 for a 24-bit FLAC (see
+        // `bitDepthFromMpvFormat`). The engine stays the only source for
+        // anything streamed.
         let props: AudioProps | null = null;
         if (track.path && isLocalTrack(track)) {
           try {
@@ -542,7 +559,13 @@ export function useNowPlayingInfo({
             console.error("Failed to resolve audio quality for now-playing info:", e);
           }
         }
-        const text = formatQuality(track.format, props);
+        if (props) {
+          const text = formatQuality(track.format, props);
+          if (text) return { id, segments: [{ text }] };
+        }
+        const engineText = formatEngineQuality(engineInfo);
+        if (engineText) return { id, segments: [{ text: engineText }] };
+        const text = formatQuality(track.format, null);
         return text ? { id, segments: [{ text }] } : null;
       }
       if (id === "builtin:tags") {

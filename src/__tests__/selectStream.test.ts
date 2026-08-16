@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { selectStream } from "../playback/selectStream";
+import { selectStream, selectedNeedsClassifying } from "../playback/selectStream";
 import type { StreamCandidate } from "../types/plugin";
 
 // Mirror of a typical YouTube menu: one muxed 360p, video-only up to 1080p,
@@ -143,5 +143,29 @@ describe("selectStream — edge cases", () => {
   it("returns null for video request with only audio candidates", () => {
     const audioOnly: StreamCandidate[] = [{ url: "am4a", kind: "audio", container: "m4a", acodec: "mp4a" }];
     expect(selectStream(audioOnly, { engine: "native", video: true })).toBeNull();
+  });
+});
+
+// A candidate is only a URL, and not every plugin scheme resolves to the
+// network — the qBittorrent plugin's `qbt://` names a file already on disk.
+describe("selectedNeedsClassifying", () => {
+  it("sends a non-http pick back through the URL classifier", () => {
+    // Handing this to the http branch gives the media element a raw file:// src
+    // it cannot load (local files must go through convertFileSrc) and tells mpv
+    // a local file is a network stream.
+    expect(selectedNeedsClassifying({ url: "file:///music/a.flac", browserUrl: "file:///music/a.flac", video: false })).toBe(true);
+  });
+
+  it("leaves an ordinary http stream on the http path", () => {
+    expect(selectedNeedsClassifying({ url: "https://cdn/x.m4a", browserUrl: "https://cdn/x.m4a", video: false })).toBe(false);
+    expect(selectedNeedsClassifying({ url: "http://cdn/x.m4a", browserUrl: "http://cdn/x.m4a", video: false })).toBe(false);
+  });
+
+  it("never reroutes a split video pick", () => {
+    // `audioUrl` and `headers` have nowhere to ride through the classifier, and
+    // a split pair is always http anyway.
+    expect(selectedNeedsClassifying({
+      url: "https://cdn/v.mp4", audioUrl: "https://cdn/a.m4a", browserUrl: "https://cdn/muxed.mp4", video: true,
+    })).toBe(false);
   });
 });

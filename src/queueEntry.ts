@@ -45,6 +45,30 @@ export function isRemoteTrack(track: { path?: string | null }): boolean {
 }
 
 /**
+ * The real file on disk behind a track, or null when there isn't one.
+ *
+ * `isLocalTrack` only looks at the track's own scheme, which is the wrong
+ * question for a track that *plays* from a local file under some other scheme:
+ * a plugin resolver (qbt://, and any future one) reports its `sourceUrl` as
+ * `file://…`, and the Library fallback reports a bare local path. Those files
+ * are as readable as any library track — tag readers and the audio-property
+ * probe work on them — so a caller asking "can I inspect this file?" must ask
+ * this, not the scheme. Returns the bare OS path, `file://` stripped.
+ */
+export function effectiveLocalPath(
+  track: { path?: string | null },
+  resolvedSource: { name?: string; sourceUrl?: string | null } | null,
+): string | null {
+  if (isLocalTrack(track)) return track.path!.slice("file://".length) || null;
+  const sourceUrl = resolvedSource?.sourceUrl ?? null;
+  if (!sourceUrl) return null;
+  if (sourceUrl.startsWith("file://")) return sourceUrl.slice("file://".length) || null;
+  // Library fallback: sourceUrl is the local file path, unprefixed.
+  if (resolvedSource?.name === "Library" && !sourceUrl.includes("://")) return sourceUrl;
+  return null;
+}
+
+/**
  * True when a local track lives on a Windows network share (UNC path).
  * Mirrors the backend `is_network_path`: after stripping the `file://` prefix,
  * a network share begins with two separators (`\\server\share` or

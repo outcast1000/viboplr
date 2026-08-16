@@ -148,6 +148,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | API | Description | Used By |
 |-----|-------------|---------|
 | `exec(program, args?, opts?)` | Execute an allowlisted program (yt-dlp, ffmpeg), returns { exitCode, stdout, stderr } | **youtube** — yt-dlp version check, audio download, ffmpeg version check, audio conversion |
+| `readAudioTags(paths)` | Read embedded tags for a batch of local files (one result per path, null when unreadable; no filename fallback) | **qbittorrent** — real title/artist/album for a finished torrent's files |
 
 ---
 

@@ -4,7 +4,7 @@ import { consumeResolveStale, streamLadderStep } from "../playback/playbackRetry
 import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, nativeResolverName, type EffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
-import { selectStream } from "../playback/selectStream";
+import { selectStream, selectedNeedsClassifying } from "../playback/selectStream";
 import type { StreamCandidate } from "../types/plugin";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
@@ -136,6 +136,33 @@ interface UseStreamResolutionDeps {
  *
  * Returns the render-facing resolution state.
  */
+/**
+ * What a native-scheme resolution should be attributed to, or null to keep the
+ * entry's existing attribution (the track's own URI).
+ *
+ * A resolver's reported `sourceUrl` always wins — only it knows the page behind
+ * an opaque id. But when it reports nothing and the resolution landed on a
+ * **file**, the host already knows the answer: the engine source carries the
+ * path. Deriving it here is what makes a plugin scheme that plays a local file
+ * (qbt://…) show that path — with Open folder, and with the tag reader able to
+ * state the file's real bit depth — instead of echoing its own unreadable URI.
+ *
+ * That matters because the plugin's own reporting is version-gated (an object
+ * candidate breaks pre-1.0.28 hosts), so on any older build there is no
+ * `sourceUrl` to read and the panel had nothing but the URI. The host needs no
+ * gate: it is holding the resolved path either way.
+ *
+ * Pure + exported for tests.
+ */
+export function attributedSourceUrl(
+  reported: string | undefined,
+  engineSource: EngineSource | null,
+): string | null {
+  if (reported) return reported;
+  if (engineSource?.kind === "file" && engineSource.path) return `file://${engineSource.path}`;
+  return null;
+}
+
 export function useStreamResolution({
   resolveTrackSrcRef,
   transcodeSessionRef,
@@ -238,6 +265,18 @@ export function useStreamResolution({
           if (r.candidates && r.candidates.length) {
             const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack, skipTopVideo: ladderStep });
             if (sel) {
+              // A candidate is just a URL, and not every plugin scheme resolves
+              // to the network — one may name a file already on this disk (the
+              // qBittorrent plugin's `qbt://` does). Classify it like any other
+              // URL rather than assuming http: a raw `file://` handed to the
+              // element is unloadable (local files must go through
+              // convertFileSrc) and would tell mpv a local file is a stream.
+              // Only the split-stream case has to stay here, because `audioUrl`
+              // and `headers` have nowhere to ride through the recursion.
+              if (selectedNeedsClassifying(sel)) {
+                return resolveUrlDetailed(sel.url, videoTrack, sel.headers, fresh, ladderStep)
+                  .then(inner => (r.sourceUrl ? { ...inner, sourceUrl: r.sourceUrl } : inner));
+              }
               return { src: sel.browserUrl, engineSource: { kind: "http" as const, url: sel.url, audioUrl: sel.audioUrl, headers: sel.headers }, sourceUrl: r.sourceUrl };
             }
           }
@@ -368,7 +407,8 @@ export function useStreamResolution({
                 }
               }
               const resolved = await resolveUrlDetailed(url, isVideoTrack(track), undefined, fresh, ladderStep);
-              if (resolved.sourceUrl) nativeEntry.sourceUrl = resolved.sourceUrl;
+              const attributed = attributedSourceUrl(resolved.sourceUrl, resolved.engineSource);
+              if (attributed) nativeEntry.sourceUrl = attributed;
               return resolved;
             },
           };

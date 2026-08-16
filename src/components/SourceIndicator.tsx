@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { QueueTrack, ResolvedSource } from "../types";
-import { isLocalTrack } from "../queueEntry";
+import { effectiveLocalPath, isLocalTrack } from "../queueEntry";
 import { resolutionShorthand } from "../hooks/useNowPlayingInfo";
 import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
 
@@ -54,22 +54,29 @@ export function SourceIndicator({ track, resolvedSource }: SourceIndicatorProps)
   const [mediaInfo, setMediaInfo] = useState<EngineMediaInfo | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch audio properties for the current track (local files only). Reset on
-  // track change.
+  // The file on disk behind this track, whatever scheme the track itself uses.
+  // Gating on `isLocalTrack` alone read the *scheme*, so a qbt:// (or any
+  // plugin) track playing a file sitting right here got no lofty properties at
+  // all and fell through to the engine's decode facts — which know the sample
+  // rate but not the file's bit depth. A 24/96 FLAC therefore reported
+  // "FLAC · 96.0 kHz" and dropped the 24-bit.
+  const filePath = effectiveLocalPath(track, resolvedSource);
+
+  // Fetch audio properties for the current track (readable files only). Reset
+  // on track change.
   useEffect(() => {
     setAudioProps(null);
     setMediaInfo(null); // engine facts are (re)fetched when the panel opens
-    if (!track.path) return;
-    if (!isLocalTrack(track)) return;
+    if (!filePath) return;
     let cancelled = false;
     invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>(
       "get_audio_properties_by_path",
-      { path: track.path },
+      { path: filePath },
     )
       .then(p => { if (!cancelled) setAudioProps(p); })
       .catch(e => console.error("Failed to load audio properties:", e));
     return () => { cancelled = true; };
-  }, [track.path]);
+  }, [filePath]);
 
   useEffect(() => () => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); }, []);
 
@@ -164,10 +171,16 @@ function SourcePanel({ track, resolvedSource, audioProps, mediaInfo, anchor, onK
     : pluginProtocol ? pluginProtocol.charAt(0).toUpperCase() + pluginProtocol.slice(1)
       : isSubsonic ? "Subsonic" : isLocal ? "Local" : (resolverName || "Unknown");
 
-  const localPath = isLocal ? path.replace(/^file:\/\//, "") : null;
-  // Library fallback: sourceUrl is the local file path
-  const libraryFallbackPath = resolverName === "Library" && sourceUrl ? sourceUrl : null;
-  const displayPath = localPath || libraryFallbackPath;
+  // The file on disk, whatever scheme the track's own path uses: a resolver
+  // that reports a `file://` source is playing a real file. Generic on purpose
+  // — this was "Library"-only, so a plugin scheme that resolves to a local file
+  // (qbt://…, and any future one) showed its opaque URI here and offered no
+  // Open folder, even though the file was right there. Same rule as the
+  // `sourceUrl` http(s) branch below: the component reads what the resolver
+  // reported and knows nothing about individual plugins. Shared with the
+  // audio-property probe above, so the path row and the decode facts can never
+  // disagree about whether there is a file to read.
+  const displayPath = effectiveLocalPath(track, resolvedSource);
 
   // External link for the "open URL" action. Derived generically from the
   // resolver's reported sourceUrl — any plugin that returns an http(s) source
@@ -207,7 +220,13 @@ function SourcePanel({ track, resolvedSource, audioProps, mediaInfo, anchor, onK
   const hasLoftyAudio = !!(audioProps?.bitrate || audioProps?.sample_rate || audioProps?.channels);
   if (hasLoftyAudio) {
     // Local file: the full lofty picture (label "audio" when video shares the panel).
-    if (track.format) rows.push([hasVideo ? "audio" : "format", track.format.toUpperCase()]);
+    // The format name falls back to the engine's codec because `track.format`
+    // is a library/queue field and a plugin track has no way to set one — so a
+    // qbt:// FLAC would have lost the "FLAC" line at the very moment it gained
+    // the bit depth. The two sources complement each other: the engine names
+    // the codec, the file states its own depth.
+    const formatLabel = track.format ?? mi?.codec ?? null;
+    if (formatLabel) rows.push([hasVideo ? "audio" : "format", formatLabel.toUpperCase()]);
     if (audioProps?.bitrate) rows.push([hasVideo ? "audio rate" : "bitrate", `${audioProps.bitrate} kbps`]);
     if (audioProps?.sample_rate) {
       const depth = audioProps.bit_depth ? ` · ${audioProps.bit_depth}-bit` : "";

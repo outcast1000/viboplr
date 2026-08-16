@@ -70,7 +70,7 @@ struct ParsedTags {
 /// This function detects that case by checking if all characters are ≤ U+00FF
 /// with high-byte characters present, then tries UTF-8 and common Windows
 /// codepages. It picks the decoding that produces the most Unicode letters.
-fn fix_encoding(s: &str) -> String {
+pub(crate) fn fix_encoding(s: &str) -> String {
     // If the string is pure ASCII, or already contains characters > U+00FF
     // (i.e. real Unicode from a properly encoded tag), return as-is.
     let has_high = s.chars().any(|c| c as u32 > 0x7F);

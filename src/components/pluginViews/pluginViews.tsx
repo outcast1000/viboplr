@@ -409,6 +409,11 @@ export function PluginTabs({
 interface PluginTrackRowListProps {
   items: TrackRowItem[];
   selectable?: boolean;
+  // Plain click opens the row (fires its `action`) instead of selecting it.
+  // See rowClickOpens.
+  openOnClick?: boolean;
+  // Extra buttons in the All / None group that select a named subset of rows.
+  selectionPresets?: { id: string; label: string; ids: string[] }[];
   actions?: { id: string; label: string; icon?: string }[];
   categories?: string[];
   numbered?: boolean;
@@ -444,6 +449,72 @@ export function computeRowSelection(
   return computeSelectionGeneric(current, clickedIndex, items.map(it => it.id), lastIndex, meta, shift);
 }
 
+/**
+ * Does a plain click on a plugin row OPEN it, or extend the selection?
+ *
+ * A list of *tracks* wants the library's behaviour — click selects, double-click
+ * plays — because selecting several and acting on them is the common case. A
+ * list of *containers* (torrents, folders, albums you go into) wants the
+ * opposite: clicking a thing you can open should open it, and a click that only
+ * highlighted the row reads as nothing having happened.
+ *
+ * Opt-in per list via `openOnClick`, so no existing plugin view changes.
+ * Modifier clicks always select, in BOTH modes — otherwise an opt-in list would
+ * have no way to build the multi-selection its own toolbar acts on.
+ *
+ * Exported for unit testing.
+ */
+/**
+ * Which of a preset's ids are actually in the list right now.
+ *
+ * A plugin builds its presets from its own data, which can be a render behind
+ * the `items` it also supplied (a filter narrowing the list, a row removed
+ * between polls). Selecting an id that no longer has a row would put the list
+ * in a state where the count says "3 / 2" and an action fires at something the
+ * user cannot see — so the ids are intersected with what is on screen.
+ *
+ * Order follows the list, not the preset, so a later "select the range between"
+ * behaves predictably. Exported for unit testing.
+ */
+export function presetIds(preset: { ids: string[] }, items: { id: string }[]): string[] {
+  const wanted = new Set(preset.ids);
+  return items.filter(it => wanted.has(it.id)).map(it => it.id);
+}
+
+/**
+ * Which of the list's declared actions a given row shows.
+ *
+ * `actions` is declared once for the whole list — that's what makes the overlay
+ * buttons line up down the column — but a row's *applicable* actions can differ:
+ * a file already queued for download wants "Skip" where a skipped one wants
+ * "Download", and offering both on both is two buttons where one is always a
+ * no-op.
+ *
+ * So an item may name a subset. Order always follows the DECLARED list, never
+ * the item's, so the buttons that two rows share stay in the same slot rather
+ * than shuffling between rows. An absent `item.actions` means all of them, which
+ * is what every existing list does.
+ *
+ * Exported for unit testing.
+ */
+export function rowActions<T extends { id: string }>(
+  declared: T[] | undefined,
+  allowed: string[] | undefined,
+): T[] {
+  if (!declared || declared.length === 0) return [];
+  if (!allowed) return declared;
+  const want = new Set(allowed);
+  return declared.filter((a) => want.has(a.id));
+}
+
+export function rowClickOpens(
+  openOnClick: boolean | undefined,
+  mods: { meta?: boolean; ctrl?: boolean; shift?: boolean },
+): boolean {
+  if (!openOnClick) return false;
+  return !mods.meta && !mods.ctrl && !mods.shift;
+}
+
 // Dispatcher: the `selectable` row list (used by e.g. the YouTube search view)
 // renders the library-style listbox below; everything else (the `categories`
 // interactive-download flow, plain/`showHeader`/`numbered` lists) keeps the
@@ -465,6 +536,8 @@ function PluginTrackRowsSelectable({
   actions,
   numbered,
   showHeader,
+  openOnClick,
+  selectionPresets,
   onAction,
   onContextMenu,
   onRowsDragStart,
@@ -550,12 +623,23 @@ function PluginTrackRowsSelectable({
     if (!item) return;
     setSelected(new Set());
     if (item.action) onAction?.(item.action, { itemId: item.id });
-    else if (actions && actions.length > 0) onAction?.(actions[0].id, { selectedIds: [item.id], itemId: item.id });
+    else {
+      // The row own first action, not declared[0] — a row showing a subset must
+      // not fire something it does not display.
+      const mine = rowActions(actions, item.actions);
+      if (mine.length > 0) onAction?.(mine[0].id, { selectedIds: [item.id], itemId: item.id });
+    }
   }, [items, actions, onAction]);
 
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRef.current) return; // suppress the click that ends a drag
     if ((e.target as HTMLElement).closest(".row-hover-action")) return;
+    if (rowClickOpens(openOnClick, { meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey })) {
+      lastClickedIndexRef.current = index;
+      setActiveIndex(index);
+      playRow(index);
+      return;
+    }
     setSelected(computeRowSelection(selected, items, index, lastClickedIndexRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
     lastClickedIndexRef.current = index;
     setActiveIndex(index);
@@ -650,6 +734,23 @@ function PluginTrackRowsSelectable({
         <div className="ptr-toolbar-left">
           <button className="ptr-toolbar-btn" onClick={selectAll}>All</button>
           <button className="ptr-toolbar-btn" onClick={selectNone}>None</button>
+          {/* Extra selection presets, sitting with All/None because that is what
+              they are — a preset selects rows, it does not act on them. Only the
+              plugin can know which rows are "audio", so the preset carries its
+              own ids and the host just applies them. */}
+          {(selectionPresets ?? []).map(p => {
+            const ids = presetIds(p, items);
+            return (
+              <button
+                key={p.id}
+                className="ptr-toolbar-btn"
+                disabled={ids.length === 0}
+                onClick={() => { setSelected(new Set(ids)); setActiveIndex(-1); }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
           <span className="ptr-toolbar-count">{selected.size} / {items.length}</span>
         </div>
         {hasActions && (
@@ -678,7 +779,7 @@ function PluginTrackRowsSelectable({
         </div>
       )}
       <div
-        className={`ptr-rows ptr-rows-selectable${useCv ? " ptr-rows-cv" : ""}`}
+        className={`ptr-rows ptr-rows-selectable${openOnClick ? " ptr-rows-open" : ""}${useCv ? " ptr-rows-cv" : ""}`}
         role="listbox"
         aria-multiselectable="true"
         aria-label="Tracks"
@@ -711,17 +812,26 @@ function PluginTrackRowsSelectable({
               meta={item.duration ? <span className="ptr-duration">{item.duration}</span> : undefined}
               onMouseDown={(e) => handleRowMouseDown(e, i)}
               onClick={(e) => handleRowClick(e, i)}
-              onDoubleClick={() => playRow(i)}
+              // In open-on-click mode the first click already fired it; the
+              // second click of a double would run the action twice.
+              onDoubleClick={openOnClick ? undefined : () => playRow(i)}
               onContextMenu={onContextMenu ? (e) => handleRowContextMenu(e, i, item) : undefined}
-              actions={hasActions ? {
-                actions: actions!.map((a, ai) => ({
-                  id: a.id,
-                  label: a.label,
-                  icon: a.icon,
-                  isPlay: ai === 0,
-                  onClick: () => onAction?.(a.id, { selectedIds: [item.id], itemId: item.id }),
-                })),
-              } : undefined}
+              actions={(() => {
+                // Per-row subset, so a row only carries the actions that apply
+                // to it — see rowActions. The accent goes to the first VISIBLE
+                // one, not to declared[0], which a row may not be showing.
+                const mine = rowActions(actions, item.actions);
+                if (mine.length === 0) return undefined;
+                return {
+                  actions: mine.map((a, ai) => ({
+                    id: a.id,
+                    label: a.label,
+                    icon: a.icon,
+                    isPlay: ai === 0,
+                    onClick: () => onAction?.(a.id, { selectedIds: [item.id], itemId: item.id }),
+                  })),
+                };
+              })()}
             />
           );
         })}

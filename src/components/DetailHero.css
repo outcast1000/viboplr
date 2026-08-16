@@ -289,3 +289,70 @@
   color: var(--text-primary);
   background: var(--bg-surface);
 }
+
+/* Plain hero: title + Back, nothing else. Used where the subject has no image
+   of its own (a torrent), so the scrimmed 320px panel would be chrome standing
+   in for content.
+
+   The text colours have to be overridden, not inherited: the hero's normal
+   `--hero-text-*` tokens are the always-light set designed to sit on a scrim
+   over arbitrary artwork. With no background behind them they would be white
+   text on the page, which is illegible on a light skin and wrong on a dark one.
+   The shadows go for the same reason — there is nothing to lift the text off. */
+.detail-hero--plain {
+  min-height: 0;
+  padding: 14px 20px;
+  /* The full hero bottom-aligns a 240px art block against a title; with neither,
+     centring the back button against the title block is what reads level. */
+  align-items: center;
+  gap: 14px;
+}
+
+/* The back button is absolutely positioned at the hero's top-left, which works
+   over a 320px panel whose content sits at the BOTTOM. Plain mode has no such
+   panel — the title starts at the top, so the button landed on top of it.
+   In the flow it becomes what it looks like: the first item on the row. */
+.detail-hero--plain .detail-hero-back {
+  position: static;
+  flex: 0 0 auto;
+}
+
+/* `width: 100%` is right for the only child of a full hero; beside the back
+   button it overflows the row. */
+.detail-hero--plain .detail-hero-row {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-hero--plain::after {
+  display: none;
+}
+
+.detail-hero--plain .detail-hero-title,
+.detail-hero--plain .detail-hero-meta-row,
+.detail-hero--plain .detail-hero-eyebrow,
+.detail-hero--plain .detail-hero-titleline {
+  text-shadow: none;
+}
+
+.detail-hero--plain .detail-hero-title {
+  color: var(--text-primary);
+}
+
+.detail-hero--plain .detail-hero-eyebrow,
+.detail-hero--plain .detail-hero-meta-row,
+.detail-hero--plain .detail-hero-titleline {
+  color: var(--text-secondary);
+}
+
+/* The back button is glass-on-artwork by default; on the plain surface it needs
+   to read as an ordinary control. */
+.detail-hero--plain .detail-hero-back {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.detail-hero--plain .detail-hero-back:hover {
+  background: var(--bg-hover);
+}

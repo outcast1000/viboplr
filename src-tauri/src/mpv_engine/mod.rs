@@ -1776,6 +1776,34 @@ mod tests {
         watch("split", &rx, 20);
     }
 
+    /// What `media_info()` actually reports for a hi-res file — specifically
+    /// whether `audio-params/format` can stand in for the file's bit depth.
+    /// It cannot: ffmpeg's FLAC decoder outputs **s32 for a 24-bit file**
+    /// (`ffmpeg -i` says so in as many words: `flac, 96000 Hz, s32 (24 bit)`),
+    /// so anything deriving "32-bit" from it is describing the decoder, not the
+    /// recording. Ignored because it needs a file and ffmpeg to make one:
+    ///
+    ///   ffmpeg -f lavfi -i sine=frequency=440:duration=2:sample_rate=96000 \
+    ///     -sample_fmt s32 -c:a flac t24.flac
+    ///   VIBOPLR_PROBE_FILE=/path/t24.flac cargo test --lib \
+    ///     probe_engine_audio_params -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn probe_engine_audio_params() {
+        let file = std::env::var("VIBOPLR_PROBE_FILE").expect("set VIBOPLR_PROBE_FILE");
+        let (sink, _rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine
+            .play(&file, None, "trk:probe", None, 1.0, false, false)
+            .expect("play");
+        std::thread::sleep(Duration::from_millis(1200));
+        let info = engine.media_info().expect("media info");
+        eprintln!(
+            "[probe] codec={:?} samplerate={:?} format={:?} bitrate={:?}",
+            info.codec, info.sample_rate, info.format, info.bitrate
+        );
+    }
+
     #[test]
     fn test_local_file_emits_no_buffer_events() {
         // The network gate, against real mpv. mpv keeps a bounded demuxer

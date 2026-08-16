@@ -37,6 +37,7 @@ import type {
   DownloadResolveResult,
   DownloadResolveProgress,
   ExecResult,
+  PluginFileTags,
   InteractiveSearchHandler,
   InteractiveResolveHandler,
   InteractiveSearchResult,
@@ -1475,6 +1476,12 @@ export function usePlugins(
               origin: d.origin ?? null,
               latest: d.latestVersion ?? null,
             };
+          },
+          async readAudioTags(paths: string[]) {
+            // One invoke for the whole batch: a plugin queueing a finished
+            // release calls this once per user action, not once per file.
+            if (!paths.length) return [];
+            return invoke<Array<PluginFileTags | null>>("read_file_tags", { paths });
           },
         },
 

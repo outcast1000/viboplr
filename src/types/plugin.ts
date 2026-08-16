@@ -246,6 +246,12 @@ export interface LineSeries {
 export interface TrackRowItem {
   id: string;
   title: string;
+  // Which of the list level `actions` this row shows, by id. Absent = all of
+  // them. Order always follows the declared list, so shared buttons stay in the
+  // same slot down the column. For rows whose applicable actions differ — a
+  // file already queued wants "Skip" where a skipped one wants "Download", and
+  // offering both on both is one dead button per row.
+  actions?: string[];
   subtitle?: string;
   album?: string;
   imageUrl?: string;
@@ -270,6 +276,19 @@ export type PluginViewData =
       type: "track-row-list";
       items: TrackRowItem[];
       selectable?: boolean;
+      // Plain click opens the row (fires its `action`) instead of selecting it.
+      // For lists of *containers* — torrents, folders — where clicking a thing
+      // you can go into should go into it, and a click that only highlighted
+      // the row reads as nothing having happened. Modifier-clicks still select,
+      // so the toolbar's multi-selection stays reachable. Requires `selectable`.
+      openOnClick?: boolean;
+      // Extra buttons in the toolbar's All / None group that select a named
+      // subset of rows ("Audio", "Video"). A preset SELECTS rows; the list's
+      // `actions` are what act on a selection. Only the plugin can know which
+      // rows are "audio", so it carries its own ids and the host applies them
+      // (intersected with what is on screen — see `presetIds`). Requires
+      // `selectable`.
+      selectionPresets?: { id: string; label: string; ids: string[] }[];
       actions?: { id: string; label: string; icon?: string }[];
       categories?: string[];
       numbered?: boolean;
@@ -376,6 +395,15 @@ export type PluginViewData =
   | {
       type: "detail-header";
       title: string;
+      // Title + Back only — no artwork, background, motion look or FX picker.
+      // For a subject with no image of its own (a torrent), where the hero
+      // would otherwise wrap a placeholder disc in a 320px scrimmed panel.
+      plain?: boolean;
+      // The hero's own action buttons, replacing the fixed Play / Enqueue pair
+      // for a subject those verbs don't fit (a torrent is started and stopped).
+      // They then sit where every other detail page puts its primary controls,
+      // rather than in a separate bar underneath.
+      buttons?: { id: string; label: string; variant?: "primary" | "secondary" | "danger"; disabled?: boolean }[];
       subtitle?: string;
       meta?: string;
       imageUrl?: string;              // foreground art only
@@ -1257,6 +1285,29 @@ export interface PluginSystemAPI {
    *  never hits the network. `latest` is null until the host's background
    *  check populates it (~30s after startup, then daily, or via Settings). */
   getDependency(name: string): Promise<PluginDependencyStatus | null>;
+  /** Read embedded tags for local files — one result per input path, in order,
+   *  `null` for anything unreadable. Batch the whole set in one call: the host
+   *  probes on a worker thread, and per-file calls are per-file IPC round trips.
+   *  There is **no filename fallback** — a missing tag comes back as `null` so
+   *  your own parse (which knows the folder/context the file came from) stands.
+   *  Feature-detect it (`typeof api.system.readAudioTags === "function"`) rather
+   *  than raising `minAppVersion`, so older hosts just keep your parsed values. */
+  readAudioTags(paths: string[]): Promise<Array<PluginFileTags | null>>;
+}
+
+/** Embedded tags for one file. Every field is optional; a missing one means the
+ *  file didn't carry it. `duration_secs` is present even for an untagged file —
+ *  a queue entry with no length shows no seek bar and never scrobbles. */
+export interface PluginFileTags {
+  title: string | null;
+  artist: string | null;
+  album_artist: string | null;
+  album: string | null;
+  track_number: number | null;
+  disc_number: number | null;
+  year: number | null;
+  genre: string | null;
+  duration_secs: number | null;
 }
 
 export interface PluginEnvAPI {
