@@ -96,17 +96,36 @@ test('the corner exit button leaves fullscreen', async ({ page }) => {
   await expect(page.locator('.now-playing-view')).toBeVisible();
 });
 
-test('the fullscreen bar drops the exit and playlist buttons', async ({ page }) => {
+test('the fullscreen bar keeps exit and drops playlist', async ({ page }) => {
   await enterFullscreen(page);
   const bar = page.locator('.audio-fs .fs-controls');
 
-  // Both are reachable another way on this surface — the corner row toggles
-  // fullscreen, the right edge reveals the queue — so a button for either would
-  // be a second route to something already on screen.
-  await expect(bar.locator('button[title="Exit fullscreen"]')).toHaveCount(0);
+  // Exit stays. The restore control belongs at the right end of the control bar
+  // in EVERY fullscreen, which is where the windowed bar's fullscreen button
+  // just was — so there is one corner to look in either bar. It duplicating the
+  // surface's corner row is accepted: that row fades with the artwork and reads
+  // as part of the presentation, while the bar is the transport.
+  await expect(bar.locator('button[title="Exit fullscreen"]')).toHaveCount(1);
+  // Playlist is dropped, and only Playlist: the queue reveals itself at the
+  // right edge on this surface, so the button would be a second route to a
+  // gesture that already exists. Video fullscreen has no such gesture and still
+  // passes one.
   await expect(bar.locator('button[title="Playlist"]')).toHaveCount(0);
-  // The rest of the bar is untouched (and video fullscreen still gets both).
-  await expect(bar.locator('button[title="Play / Pause"]')).toHaveCount(1);
+  // The rest of the bar is untouched. Prefix match: the real title carries the
+  // shortcut hint ("Play / Pause (Space)"), so an exact `[title="Play / Pause"]`
+  // matches nothing — as this assertion silently did until the Exit expectation
+  // above stopped failing first and let execution reach it.
+  await expect(bar.locator('button[title^="Play / Pause"]')).toHaveCount(1);
+});
+
+test("the bar's exit button leaves fullscreen", async ({ page }) => {
+  // Distinct from 'the corner exit button leaves fullscreen' above: this surface
+  // has two ways out and they are wired to different callbacks, so a regression
+  // in either is invisible to the other's test.
+  await enterFullscreen(page);
+  await page.locator('.audio-fs .fs-controls button[title="Exit fullscreen"]').click();
+  await expect(page.locator('.audio-fs')).toHaveCount(0);
+  await expect(page.locator('.now-playing-view')).toBeVisible();
 });
 
 test('the queue reveals itself at the right edge and hides again', async ({ page }) => {

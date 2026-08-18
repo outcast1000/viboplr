@@ -39,3 +39,9 @@ Commands live in `package.json` scripts (`test`, `test:rust`, `test:e2e`, `test:
 **Config:** `tests/e2e/playwright.config.js`. **Test location:** `tests/e2e/specs/`.
 
 **Mocks:** `tests/e2e/tauri-mock.js` mocks the Tauri IPC layer so tests run in a browser without the Rust backend. E2E tests drive the dev server, not a built app — anything that only exists in a Tauri build (native menus, the mpv engine, file dialogs) cannot be asserted here.
+
+**Scope locators to a surface — several components are mounted more than once.** `FullscreenControls` is in the DOM alongside the docked `NowPlayingBar` (hidden by `.fs-controls { display: none }` until fullscreen), and it mounts its own copies of `SourceIndicator`, the seek ladder, the transport and the EQ cluster — deliberately, because inside DOM `:fullscreen` the browser paints only the fullscreened subtree, so these cannot be hoisted (see `ui.md`). A bare `page.locator('.now-source-icon')` therefore matches **two** nodes and fails Playwright's strict mode even when exactly one is visible — which is not a bug in the app and not something `toBeVisible()` can express. Anchor on the owning surface instead (`.now-playing …` for the docked bar, `.audio-fs .fs-controls …` for the fullscreen one). Reach for `.first()` only when either copy would genuinely do.
+
+**Port 1420 is shared and `reuseExistingServer` is on.** If another checkout's `npm run dev` holds it, Playwright silently attaches to *that* build and reports its results as yours. Check the port is free (or that the server it reused is this worktree's) before trusting a run — a pass and a failure are equally meaningless otherwise.
+
+**`test:e2e` writes into the repo.** `screenshots.test.js` drops raw `.png` intermediates into `docs/assets/screenshots/` (the tracked assets are the `.webp` that `scripts/convert-screenshots.mjs` produces). They're untracked byproducts; clean them up rather than committing them.

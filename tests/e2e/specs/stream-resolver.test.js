@@ -22,7 +22,14 @@ test('local file plays and shows in now playing bar', async ({ page }) => {
 test('source icon appears for playing track', async ({ page }) => {
   await page.locator('.entity-list-item').first().dblclick();
   await expect(page.locator('.now-title')).toContainText('First Song', { timeout: 10000 });
-  await expect(page.locator('.now-source-icon')).toBeVisible();
+  // Scoped to the docked bar deliberately. `SourceIndicator` is mounted by BOTH
+  // playback bars (see ui.md — it is self-contained on purpose, because inside
+  // DOM `:fullscreen` the browser paints only the fullscreened subtree, so a
+  // panel hoisted to the app root would never appear over fullscreen video). The
+  // fullscreen bar is in the DOM but `display: none` until fullscreen, so an
+  // unscoped `.now-source-icon` matches two nodes and trips Playwright's strict
+  // mode — even though exactly one is visible. Assert the one this test means.
+  await expect(page.locator('.now-playing .now-source-icon')).toBeVisible();
 });
 
 test('track list renders all mock tracks including tidal', async ({ page }) => {
