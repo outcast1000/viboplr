@@ -97,6 +97,24 @@ fn status_is_transient(status: u16) -> bool {
     status == 429 || (500..=599).contains(&status)
 }
 
+/// Whether attempt `attempt` (1-based) should be followed by another one.
+///
+/// Extracted from `fetch_update_info`'s loop so the "a deterministic failure is
+/// never retried" guarantee can be asserted directly. It used to be checked by
+/// timing `check_extension` against a 1s wall-clock bound, which measured the
+/// machine rather than the code and duly flaked on a loaded one.
+fn should_retry(transient: bool, attempt: u32) -> bool {
+    transient && attempt < FETCH_ATTEMPTS
+}
+
+/// Backoff before the attempt after `attempt`: 1s then 3s, matching the app
+/// updater's ladder — the spacing that was measured to recover from GitHub's
+/// refusal. Pure so the ladder's total cost (4s, the figure the retry rules are
+/// justified against) is pinned by a test rather than by a comment.
+fn retry_backoff(attempt: u32) -> std::time::Duration {
+    std::time::Duration::from_secs(attempt as u64 * 2 - 1)
+}
+
 fn fetch_update_info_once(url: &str) -> Result<UpdateInfo, FetchFailure> {
     // The client is built per attempt on purpose: a retry that reused a pooled
     // connection to a host that is shedding connections would be asking the same
@@ -136,18 +154,16 @@ pub fn fetch_update_info(url: &str) -> Result<UpdateInfo, String> {
         match fetch_update_info_once(url) {
             Ok(info) => return Ok(info),
             Err(failure) => {
-                if !failure.transient || attempt == FETCH_ATTEMPTS {
+                if !should_retry(failure.transient, attempt) {
                     return Err(failure.text);
                 }
                 log::warn!(
                     "update manifest attempt {attempt} failed for {url} ({}); retrying",
                     failure.text
                 );
-                // 1s then 3s, matching the app updater's ladder — the spacing
-                // that was measured to recover from this refusal. These run
-                // `CHECK_CONCURRENCY`-wide, so the cost is per chunk, not per
-                // extension.
-                std::thread::sleep(std::time::Duration::from_secs(attempt as u64 * 2 - 1));
+                // These run `CHECK_CONCURRENCY`-wide, so the cost is per chunk,
+                // not per extension.
+                std::thread::sleep(retry_backoff(attempt));
             }
         }
     }
@@ -426,18 +442,54 @@ mod tests {
             version: "1.0.0".into(),
             update_url: "not-a-valid-url".into(),
         };
-        let started = std::time::Instant::now();
         let result = check_extension(&ext, "1.0.0");
         assert!(result.is_err(), "a failed fetch must surface as Err, got {result:?}");
-        // And it must not have been retried: a malformed URL will never parse, so
-        // walking the `FETCH_ATTEMPTS` backoff ladder would spend 4s per
-        // extension to reach the same answer. Generous margin — the real path is
-        // microseconds, the ladder is seconds.
+        // That this failure isn't *retried* is asserted directly by
+        // `test_a_deterministic_failure_is_never_retried` +
+        // `test_a_malformed_url_is_not_a_transient_error`, not by timing this
+        // call. It was timed here once (elapsed < 1s) and that was a wall-clock
+        // proxy for a pure decision: it measured the machine, so it failed on a
+        // loaded one — reproducibly, on the first run after libmpv is vendored,
+        // when the freshly-signed dylib's Gatekeeper check lands on the same
+        // suite. Don't reintroduce a timing bound to stand in for a predicate.
+    }
+
+    /// The retry ladder must be spent only on answers that can change. A
+    /// malformed URL, a parse error or a 404 is the same answer every time, and
+    /// walking the ladder for one costs `retry_backoff` 1s + 3s = 4s per
+    /// extension to learn nothing.
+    #[test]
+    fn test_a_deterministic_failure_is_never_retried() {
+        for attempt in 1..=FETCH_ATTEMPTS {
+            assert!(
+                !should_retry(false, attempt),
+                "a non-transient failure must not be retried (attempt {attempt})"
+            );
+        }
+    }
+
+    /// ...and a transient one must be retried, but only up to the cap — an
+    /// off-by-one here either wastes an attempt or spends the ladder forever.
+    #[test]
+    fn test_a_transient_failure_is_retried_up_to_the_cap() {
+        for attempt in 1..FETCH_ATTEMPTS {
+            assert!(should_retry(true, attempt), "attempt {attempt} should retry");
+        }
         assert!(
-            started.elapsed() < std::time::Duration::from_secs(1),
-            "a deterministic failure must not be retried (took {:?})",
-            started.elapsed()
+            !should_retry(true, FETCH_ATTEMPTS),
+            "the last attempt must not schedule another"
         );
+    }
+
+    /// Pins the ladder's shape and its total cost, which is the figure every
+    /// "don't retry this" rule above is justified against.
+    #[test]
+    fn test_retry_backoff_ladder_is_one_then_three_seconds() {
+        assert_eq!(retry_backoff(1), std::time::Duration::from_secs(1));
+        assert_eq!(retry_backoff(2), std::time::Duration::from_secs(3));
+        let total: std::time::Duration =
+            (1..FETCH_ATTEMPTS).map(retry_backoff).sum();
+        assert_eq!(total, std::time::Duration::from_secs(4));
     }
 
     /// The retry exists for a host that refuses a connection it just accepted.
