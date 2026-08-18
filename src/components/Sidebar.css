@@ -137,7 +137,9 @@
   line-height: 1;
   padding: 1px 5px;
   border-radius: 8px;
-  color: white;
+  /* Every --plugin-badge-* variant fills with a semantic color (accent/error/
+     success/warning), so this is the --accent-text case by definition. */
+  color: var(--accent-text);
 }
 
 .plugin-badge--accent {

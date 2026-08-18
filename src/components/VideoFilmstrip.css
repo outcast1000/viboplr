@@ -71,7 +71,7 @@
   transition: opacity 0.15s, transform 0.15s;
   pointer-events: none;
   z-index: 1;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+  filter: drop-shadow(0 1px 3px rgba(var(--overlay-inverse), 0.5));
   color: var(--text-primary);
 }
 

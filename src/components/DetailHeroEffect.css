@@ -1,6 +1,35 @@
 /* Old-TV / VHS hero effect — "max snow" dial. GPU-only; sits at z-index 1
    inside .detail-hero (below the scrim). All layers are pointer-events:none. */
+
+/* FX palette. These are art direction, not skin chrome — the same rule
+   --video-bg and --video-subtitle-stroke follow in base.css. A "VHS chroma
+   bleed" IS magenta-and-cyan fringing and an "aurora" IS green-and-violet; a
+   skin repainting them in its accent would not restyle the look, it would
+   delete it. So they deliberately do not follow the skin's colors — but they
+   are named tokens rather than 20 inline literals so a skin CAN override a
+   specific look from customCSS, and so a color audit can see the intent.
+   Neutral overlays (scanlines, vignette, tracking band, flicker) are NOT here:
+   those are plain dark/light veils and ride the shared --scrim-rgb /
+   --on-image-rgb pair. Note they can NOT use --overlay-inverse/--overlay-base,
+   which flip per skin type — the scanline layer is mix-blend-mode: multiply, and
+   multiplying by white is a no-op, so on a light skin it would vanish. */
 .detail-hero-effect {
+  /* VHS chroma fringing (mix-blend-mode: screen) */
+  --tv-bleed-warm: 255, 0, 80;
+  --tv-bleed-cool: 0, 180, 255;
+  /* Aurora Drift blobs */
+  --tv-aurora-green: 80, 255, 180;
+  --tv-aurora-blue: 80, 160, 255;
+  --tv-aurora-violet: 200, 120, 255;
+  --tv-aurora-pink: 255, 120, 200;
+  /* Light Leak (warm film leak) */
+  --tv-leak-orange: 255, 90, 30;
+  --tv-leak-gold: 255, 200, 80;
+  --tv-leak-rose: 255, 60, 120;
+  /* Prism Bloom halation fringe */
+  --tv-fringe-magenta: 255, 0, 120;
+  --tv-fringe-cyan: 0, 200, 255;
+
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -17,12 +46,12 @@
 /* --- chroma bleed (VHS color fringing) --- */
 .tv-bleed {
   mix-blend-mode: screen;
-  background: linear-gradient(90deg, rgba(255, 0, 80, 0), rgba(255, 0, 80, 0.34));
+  background: linear-gradient(90deg, rgba(var(--tv-bleed-warm), 0), rgba(var(--tv-bleed-warm), 0.34));
   animation: tv-bleed-shift 3s ease-in-out infinite alternate;
 }
 .tv-bleed-2 {
   mix-blend-mode: screen;
-  background: linear-gradient(270deg, rgba(0, 180, 255, 0), rgba(0, 180, 255, 0.34));
+  background: linear-gradient(270deg, rgba(var(--tv-bleed-cool), 0), rgba(var(--tv-bleed-cool), 0.34));
   animation: tv-bleed-shift-2 3s ease-in-out infinite alternate;
 }
 @keyframes tv-bleed-shift {
@@ -39,8 +68,8 @@
   mix-blend-mode: multiply;
   background: repeating-linear-gradient(
     0deg,
-    rgba(0, 0, 0, 0.16) 0px,
-    rgba(0, 0, 0, 0.16) 1px,
+    rgba(var(--scrim-rgb), 0.16) 0px,
+    rgba(var(--scrim-rgb), 0.16) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -52,9 +81,9 @@
   inset: auto 0 auto 0;
   background: linear-gradient(
     0deg,
-    rgba(255, 255, 255, 0),
-    rgba(255, 255, 255, 0.22),
-    rgba(255, 255, 255, 0)
+    rgba(var(--on-image-rgb), 0),
+    rgba(var(--on-image-rgb), 0.22),
+    rgba(var(--on-image-rgb), 0)
   );
   filter: blur(1px);
   animation: tv-track-roll 6s linear infinite;
@@ -85,12 +114,12 @@
 
 /* --- vignette (phosphor edges) --- */
 .tv-vignette {
-  background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(var(--scrim-rgb), 0.55) 100%);
 }
 
 /* --- flicker (CRT brightness wobble) --- */
 .tv-flicker {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--on-image-rgb), 0.03);
   animation: tv-flicker 4s steps(30) infinite;
 }
 @keyframes tv-flicker {
@@ -106,15 +135,15 @@
 /* daydream: barely-there grain + soft vignette */
 .look-daydream .tv-noise { opacity: 0.14; mix-blend-mode: screen; }
 .look-daydream .tv-vignette {
-  background: radial-gradient(ellipse at center, transparent 62%, rgba(0, 0, 0, 0.4) 100%);
+  background: radial-gradient(ellipse at center, transparent 62%, rgba(var(--scrim-rgb), 0.4) 100%);
 }
 /* broadcast: lighter VHS dial */
 .look-broadcast .tv-noise { opacity: 0.45; }
 .look-broadcast .tv-bleed {
-  background: linear-gradient(90deg, rgba(255, 0, 80, 0), rgba(255, 0, 80, 0.2));
+  background: linear-gradient(90deg, rgba(var(--tv-bleed-warm), 0), rgba(var(--tv-bleed-warm), 0.2));
 }
 .look-broadcast .tv-bleed-2 {
-  background: linear-gradient(270deg, rgba(0, 180, 255, 0), rgba(0, 180, 255, 0.2));
+  background: linear-gradient(270deg, rgba(var(--tv-bleed-cool), 0), rgba(var(--tv-bleed-cool), 0.2));
 }
 
 /* ===== Aurora Drift — drifting colored light blobs ===== */
@@ -125,14 +154,14 @@
 }
 .tv-auroraA {
   background:
-    radial-gradient(40% 60% at 30% 40%, rgba(80, 255, 180, 0.7), transparent 70%),
-    radial-gradient(50% 50% at 70% 60%, rgba(80, 160, 255, 0.6), transparent 70%);
+    radial-gradient(40% 60% at 30% 40%, rgba(var(--tv-aurora-green), 0.7), transparent 70%),
+    radial-gradient(50% 50% at 70% 60%, rgba(var(--tv-aurora-blue), 0.6), transparent 70%);
   animation: tv-aurora-a 14s ease-in-out infinite alternate;
 }
 .tv-auroraB {
   background:
-    radial-gradient(45% 55% at 60% 30%, rgba(200, 120, 255, 0.55), transparent 70%),
-    radial-gradient(40% 50% at 25% 70%, rgba(255, 120, 200, 0.45), transparent 70%);
+    radial-gradient(45% 55% at 60% 30%, rgba(var(--tv-aurora-violet), 0.55), transparent 70%),
+    radial-gradient(40% 50% at 25% 70%, rgba(var(--tv-aurora-pink), 0.45), transparent 70%);
   animation: tv-aurora-b 18s ease-in-out infinite alternate;
 }
 @keyframes tv-aurora-a {
@@ -147,12 +176,12 @@
 /* ===== Light Leak — warm film leak from a corner ===== */
 .tv-leakWarm {
   mix-blend-mode: screen;
-  background: linear-gradient(115deg, transparent 40%, rgba(255, 90, 30, 0.65) 75%, rgba(255, 200, 80, 0.9) 92%);
+  background: linear-gradient(115deg, transparent 40%, rgba(var(--tv-leak-orange), 0.65) 75%, rgba(var(--tv-leak-gold), 0.9) 92%);
   animation: tv-leak-warm 9s ease-in-out infinite alternate;
 }
 .tv-leakCorner {
   mix-blend-mode: screen;
-  background: radial-gradient(60% 80% at 0% 0%, rgba(255, 60, 120, 0.55), transparent 60%);
+  background: radial-gradient(60% 80% at 0% 0%, rgba(var(--tv-leak-rose), 0.55), transparent 60%);
   animation: tv-leak-corner 7s ease-in-out infinite alternate;
 }
 @keyframes tv-leak-warm {
@@ -173,7 +202,7 @@
   animation: tv-bloom 6s ease-in-out infinite alternate;
 }
 .tv-fringe {
-  box-shadow: inset 0 0 60px rgba(255, 0, 120, 0.25), inset 0 0 120px rgba(0, 200, 255, 0.2);
+  box-shadow: inset 0 0 60px rgba(var(--tv-fringe-magenta), 0.25), inset 0 0 120px rgba(var(--tv-fringe-cyan), 0.2);
   animation: tv-fringe 5s ease-in-out infinite alternate;
 }
 @keyframes tv-bloom {
@@ -181,8 +210,8 @@
   100% { opacity: 0.6; }
 }
 @keyframes tv-fringe {
-  0%   { box-shadow: inset 8px 0 60px rgba(255, 0, 120, 0.3), inset -8px 0 60px rgba(0, 200, 255, 0.25); }
-  100% { box-shadow: inset -8px 0 60px rgba(255, 0, 120, 0.3), inset 8px 0 60px rgba(0, 200, 255, 0.25); }
+  0%   { box-shadow: inset 8px 0 60px rgba(var(--tv-fringe-magenta), 0.3), inset -8px 0 60px rgba(var(--tv-fringe-cyan), 0.25); }
+  100% { box-shadow: inset -8px 0 60px rgba(var(--tv-fringe-magenta), 0.3), inset 8px 0 60px rgba(var(--tv-fringe-cyan), 0.25); }
 }
 
 /* --- paused: hero off-screen or window hidden --- */

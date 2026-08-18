@@ -75,7 +75,8 @@ Every tile card follows a common pattern with three interactive zones:
 - Cards use `var(--bg-secondary)` background, `var(--bg-hover)` on hover, 8px border-radius
 - Overlay buttons use `opacity: 0` by default, `opacity: 1` on card hover, with 0.15s transitions
 - Like buttons: 24px circular, `rgba(var(--overlay-inverse), 0.5)` background, red on hover/active
-- Play button: absolute positioned over image, `rgba(0, 0, 0, 0.4)` backdrop, 40px play icon with drop shadow
+- Play button: `.ds-card-play` — a 52px circular `var(--accent)` FAB pinned bottom-right of the image, glyph in `var(--accent-text)` via `currentColor`. (It is not a centered dark-backdrop overlay; that was an earlier design.)
+- **No hardcoded colors anywhere in these overlays.** Chrome on a skin surface uses `rgba(var(--overlay-base|--overlay-inverse), α)`; anything painted **on artwork** uses `--scrim-rgb` / `--on-image-rgb` / `--hero-text-*` instead, because the `--overlay-*` pair *flips* under `[data-skin-type="light"]` and would turn a dark scrim white beneath always-light text. See `base.css` for the full rule.
 - Title uses `--fs-sm` weight 600, subtitle uses `--fs-xs` `var(--text-secondary)`, both with ellipsis overflow
 
 ## Layout

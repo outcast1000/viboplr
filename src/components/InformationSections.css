@@ -208,7 +208,7 @@
   text-transform: uppercase;
   letter-spacing: 1px;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(var(--overlay-inverse), 0.15);
 }
 
 /* ── Empty section state ── */

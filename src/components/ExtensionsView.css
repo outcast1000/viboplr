@@ -564,7 +564,7 @@
 }
 .ext-skin-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 14px 30px rgba(var(--overlay-inverse), 0.35);
   border-color: var(--accent);
 }
 .ext-skin-card:focus-visible {

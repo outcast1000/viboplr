@@ -624,7 +624,7 @@
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--accent);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 12px rgba(var(--overlay-inverse), 0.25);
   white-space: nowrap;
   animation: provider-ghost-in 0.1s ease-out;
 }

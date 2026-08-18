@@ -841,7 +841,7 @@
   border-radius: 12px;
   background: rgba(var(--bg-surface-rgb), 0.62);
   border: 1px solid var(--border);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 6px 20px rgba(var(--overlay-inverse), 0.45);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   opacity: 0;
@@ -899,7 +899,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(var(--overlay-inverse), 0.5);
   min-width: 280px;
 }
 
@@ -1379,7 +1379,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .playlist-shortcut--liked .playlist-shortcut-art {
@@ -1398,7 +1398,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--accent-text);
 }
 
 .playlist-hero-system-cover--liked {
@@ -1426,7 +1426,7 @@
   height: 36px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   border: none;
   cursor: pointer;
   display: flex;
@@ -1490,7 +1490,7 @@
   height: 24px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-text);
   box-shadow: 0 2px 8px rgba(var(--accent-rgb), 0.45);
 }
 
@@ -1735,7 +1735,7 @@
   border: 2px dashed rgba(var(--accent-rgb), 0.6);
   background: rgba(var(--bg-primary-rgb), 0.92);
   color: var(--accent);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 12px 40px rgba(var(--overlay-inverse), 0.35);
 }
 
 .file-drop-overlay-card span {

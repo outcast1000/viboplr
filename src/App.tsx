@@ -2154,6 +2154,8 @@ function App() {
   // contend with the initial paint or other startup IPCs).
   useEffect(() => {
     const t = setTimeout(() => {
+      // Fire-and-forget: startup housekeeping of temp files — a failed sweep
+      // just leaves them for the next launch, with no user-visible effect.
       invoke("cleanup_temp_mixtapes").catch(() => {});
     }, 3000);
     return () => clearTimeout(t);

@@ -114,7 +114,7 @@
   font-size: var(--fs-2xl);
   font-weight: 700;
   color: var(--text-secondary);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px rgba(var(--overlay-inverse), 0.5);
   position: relative;
   overflow: hidden;
 }

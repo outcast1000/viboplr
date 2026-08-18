@@ -73,6 +73,23 @@
   --video-subtitle-stroke: rgba(0, 0, 0, 0.85);
   --video-subtitle-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
 
+  /* Scrim painted over arbitrary artwork (album covers, station backdrops) to
+     hold always-light text readable. Always dark, never flipped by skin type —
+     the same rule --video-subtitle-stroke follows, and for the same reason it
+     had to be written down: --overlay-inverse resolves to WHITE on light skins
+     (see the [data-skin-type="light"] block below), so a scrim built from it
+     puts --hero-text-primary white text on a white wash. Use --overlay-inverse
+     for chrome sitting on a skin surface (shadows, hover veils, chips); use
+     this whenever --hero-text-* is what sits on top. Skinnable via customCSS. */
+  --scrim-rgb: 0, 0, 0;
+
+  /* The light half of the same pair: a bright mark painted ON artwork (carousel
+     dots, CRT highlights, on-image text at a custom alpha). --overlay-base is
+     the wrong token for these for the mirror reason — it flips to black on
+     light skins, turning a highlight into a smudge. Prefer the --hero-text-*
+     colors when a stock alpha fits; use this triple when one doesn't. */
+  --on-image-rgb: 255, 255, 255;
+
   /* Design tokens (skinnable) */
   --ds-radius: 6px;
   --ds-radius-pill: 20px;

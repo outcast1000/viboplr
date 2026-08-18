@@ -472,6 +472,8 @@ export function usePlugins(
       return {
         appVersion: appVersionRef.current,
         log: (level: string, message: string, section?: string) => {
+          // Fire-and-forget: this IS the logger (a plugin's api.log). Reporting its
+          // own failure would recurse, and a lost plugin log line has no user impact.
           invoke("write_frontend_log", { level, message, section: section ?? pluginId }).catch(() => {});
         },
         library: {

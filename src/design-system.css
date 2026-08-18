@@ -166,7 +166,7 @@
   max-width: 90vw;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(var(--overlay-inverse), 0.5);
   animation: scale-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -264,7 +264,9 @@
 .ds-card-play svg {
   width: 25px;
   height: 25px;
-  fill: white;
+  /* currentColor, not a literal: the FAB's color is already --accent-text, which
+     a pale-accent skin overrides to keep the glyph legible on the accent fill. */
+  fill: currentColor;
   margin-left: 2px;
 }
 

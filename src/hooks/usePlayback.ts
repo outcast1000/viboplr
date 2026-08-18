@@ -43,6 +43,8 @@ import {
 } from "../eqPresets";
 
 function logPlayback(message: string) {
+  // Fire-and-forget: this IS the logger. Reporting its own failure through
+  // console.error would recurse into the error log for no user-visible gain.
   invoke("write_frontend_log", { level: "info", message, section: "playback" }).catch(() => {});
 }
 

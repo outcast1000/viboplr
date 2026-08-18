@@ -74,7 +74,7 @@
   user-select: none;
   white-space: nowrap;
   z-index: 60;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 14px rgba(var(--overlay-inverse), 0.35);
 }
 .now-seek-bubble::after {
   content: "";
@@ -526,7 +526,7 @@
   grid-template-rows: 1fr;
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 32px rgba(var(--overlay-inverse), 0.45), 0 2px 8px rgba(var(--overlay-inverse), 0.3);
 }
 
 .app.mini-mode .sidebar,

@@ -254,7 +254,6 @@ export function useInformationTypes({
             }, EMPTY_DELAY_MS);
           }
         } catch {
-          // Fire-and-forget: persisting error status to cache — failure doesn't affect UI state
           // Fire-and-forget: persisting error status to cache — failure doesn't affect the UI state update below
           await invoke("info_upsert_value", {
             informationTypeId: usedIntegerId,

@@ -174,6 +174,8 @@ export function useWaveform(
         setPeaks(result);
 
         const waveform: WaveformCache = { name, duration, peaks: result };
+        // Fire-and-forget: the waveform is already rendered from memory; a failed
+        // cache write only costs a recompute next time this track plays.
         invoke("cache_waveform", { key: cacheKey, waveform }).catch(() => {});
       } catch (e) {
         if (!cancelled) {

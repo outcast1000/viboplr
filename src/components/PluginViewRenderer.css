@@ -399,7 +399,7 @@
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--ds-radius);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(var(--overlay-inverse), 0.25);
 }
 
 .autocomplete-row {

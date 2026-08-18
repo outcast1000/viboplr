@@ -313,7 +313,7 @@
   user-select: none;
   white-space: nowrap;
   z-index: 60;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 14px rgba(var(--overlay-inverse), 0.35);
 }
 /* Offset from the play position, so a scrub reads as "how far am I jumping"
    rather than only "where would I land". Mirrors .now-seek-bubble-delta. */
@@ -364,7 +364,7 @@
   user-select: none;
   padding: 0 10px;
   line-height: 28px;
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 0 4px rgba(var(--overlay-inverse), 0.8), 0 0 8px rgba(var(--overlay-inverse), 0.5);
 }
 .fs-seek-elapsed {
   flex-shrink: 0;

@@ -20,9 +20,20 @@
   opacity: 0.8;
 }
 
-.traffic-close { background: #ff5f57; }
-.traffic-minimize { background: #febc2e; }
-.traffic-maximize { background: #28c840; }
+/* The macOS system traffic-light hues. Deliberately NOT skin tokens, for the
+   same reason --video-bg isn't a skin surface: these three colors are an OS
+   affordance the user identifies by color alone, so a skin repainting them
+   would make the window buttons unreadable as close/minimize/zoom. Hoisted to
+   variables rather than left as literals so they stay overridable from a skin's
+   customCSS, and so a color audit can see the intent. */
+.traffic-lights {
+  --traffic-close: #ff5f57;
+  --traffic-minimize: #febc2e;
+  --traffic-maximize: #28c840;
+}
+.traffic-close { background: var(--traffic-close); }
+.traffic-minimize { background: var(--traffic-minimize); }
+.traffic-maximize { background: var(--traffic-maximize); }
 
 /* Custom window controls for Windows/Linux */
 .window-controls {

@@ -12,7 +12,7 @@
   border: 1px solid var(--border);
   border-radius: var(--ds-radius-modal, 10px);
   padding: 16px 18px 14px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 16px 40px rgba(var(--overlay-inverse), 0.45);
   z-index: 1100;
   display: flex;
   flex-direction: column;
@@ -100,7 +100,7 @@
   height: 16px;
   border-radius: 50%;
   background: var(--text-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 1px 3px rgba(var(--overlay-inverse), 0.3);
   transition: transform 0.18s;
 }
 

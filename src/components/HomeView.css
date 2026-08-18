@@ -64,11 +64,13 @@
 }
 .home-hero-bg-layer.active { opacity: 1; }
 
-/* Dark scrim over the background so the white hero text stays readable. */
+/* Dark scrim over the background so the white hero text stays readable.
+   --scrim-rgb, not --overlay-inverse: that token flips to white on light skins
+   and this scrim is what makes --hero-text-primary legible (see base.css). */
 .home-hero-scrim {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(var(--scrim-rgb), 0.55);
   pointer-events: none;
 }
 
@@ -102,7 +104,7 @@
   display: flex; align-items: center; justify-content: center;
   font-size: 96px; color: var(--text-secondary);
 }
-.home-hero-info { color: #fff; }
+.home-hero-info { color: var(--hero-text-primary); }
 .home-hero-eyebrow {
   font-size: var(--fs-xs);
   letter-spacing: 0.2em;
@@ -111,22 +113,22 @@
   margin-bottom: 8px;
 }
 .home-hero-title { font-size: var(--fs-2xl); margin: 0 0 4px 0; font-weight: 700; }
-.home-hero-artist { font-size: var(--fs-md); margin-bottom: 12px; color: rgba(255,255,255,0.85); }
+.home-hero-artist { font-size: var(--fs-md); margin-bottom: 12px; color: var(--hero-text-secondary); }
 .home-hero-actions { display: flex; gap: 12px; margin-bottom: 16px; }
 .home-hero-dots { display: flex; gap: 6px; }
 .home-hero-dot {
   width: 8px; height: 8px; border-radius: 50%;
   border: none; padding: 0;
-  background: rgba(255,255,255,0.35); cursor: pointer;
+  background: rgba(var(--on-image-rgb), 0.35); cursor: pointer;
 }
-.home-hero-dot.active { background: #fff; }
+.home-hero-dot.active { background: var(--hero-text-primary); }
 .home-hero-arrow {
   position: absolute; top: 50%; transform: translateY(-50%);
   z-index: 1;
   width: 36px; height: 36px;
   border-radius: 50%;
   border: none;
-  background: rgba(0,0,0,0.45); color: #fff;
+  background: rgba(var(--scrim-rgb), 0.45); color: var(--hero-text-primary);
   font-size: 22px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }
