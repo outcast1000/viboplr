@@ -304,12 +304,6 @@ function taskName(task) {
   return String(task?.name ?? task?.process_name ?? "");
 }
 
-function isOurs(task, pidSet) {
-  const pid = Number(task?.pid);
-  if (Number.isInteger(pid) && pidSet.has(pid)) return true;
-  return /viboplr/i.test(taskName(task));
-}
-
 // There is no top-level per-task array. `all_tasks` is a SYSTEM-WIDE summary dict
 // (it read 2179 ms/s on a quiet machine) — treating it as one of ours would report
 // the whole machine's load as the app's. Per-task data lives only under coalitions.

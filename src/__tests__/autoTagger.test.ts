@@ -1,3 +1,9 @@
+/* eslint-disable no-useless-escape --
+ * The regexes below are a verbatim mirror of the external `auto-tagger` plugin's
+ * source (that plugin lives in its own repo, so this file is the only executable
+ * spec for its filename parsing). Their few redundant escapes — `\-` outside a
+ * character class, `\[` inside one — are semantically no-ops, and normalising
+ * them here would make the copy drift textually from the code it pins. */
 import { describe, it, expect } from "vitest";
 
 const DEFAULT_STOPWORDS = new Set([

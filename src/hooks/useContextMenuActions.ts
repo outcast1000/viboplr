@@ -9,6 +9,7 @@ import { useDownloadActions } from "./useDownloadActions";
 import { trashLabel } from "../utils";
 import { emitTracksDeleted } from "../trackEvents";
 
+import { useAssignRef } from "./useLatestRef";
 interface UseContextMenuActionsDeps {
   library: {
     tracks: Track[];
@@ -63,7 +64,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   // Mirrored in a ref so the (async) delete handler reads the live preference,
   // not the value captured when its native-menu action closure was built.
   const confirmTrashDeleteRef = useRef(confirmTrashDelete);
-  confirmTrashDeleteRef.current = confirmTrashDelete;
+  useAssignRef(confirmTrashDeleteRef, confirmTrashDelete);
   const [bulkEditTracks, setBulkEditTracks] = useState<Track[] | null>(null);
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ trackIds: number[]; title: string; network?: boolean } | null>(null);

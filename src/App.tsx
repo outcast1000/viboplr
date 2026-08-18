@@ -170,10 +170,57 @@ import { recordAppError } from "./utils/errorLog";
 import { classifyErrorKind, errorText } from "./utils/errorKind";
 
 
+import { useAssignRef } from "./hooks/useLatestRef";
 function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
   const queue = useVideoFrameQueue();
   useEffect(() => { refOut.current = queue; }, [queue, refOut]);
   return null;
+}
+
+// Resolve a default cover from a track list when no playlist context / saved
+// image supplies one (mixtape share, Save as Playlist): the first track's
+// album image, then artist image, then any explicit per-track image_url.
+// Mirrors the queue thumbnail chain (album -> artist), all name-based via the
+// entity-image cache. Always returns a local filesystem path (or null) — the
+// mixtape and playlist backends read the cover from disk, so a remote
+// image_url is downloaded into playlist_images first.
+async function resolveFirstAlbumCover(
+  tracks: Array<{ album_title?: string | null; artist_name?: string | null; image_url?: string | null }>,
+): Promise<string | null> {
+  const first = tracks.find(t => t.album_title || t.artist_name || t.image_url);
+  if (!first) return null;
+  try {
+    if (first.album_title) {
+      const albumImg = await invoke<string | null>("get_entity_image", {
+        kind: "album",
+        name: first.album_title,
+        artistName: first.artist_name ?? null,
+      });
+      if (albumImg) return albumImg;
+    }
+    if (first.artist_name) {
+      const artistImg = await invoke<string | null>("get_entity_image", {
+        kind: "artist",
+        name: first.artist_name,
+        artistName: null,
+      });
+      if (artistImg) return artistImg;
+    }
+  } catch (err) {
+    console.error("Failed to resolve default cover:", err);
+  }
+  const raw = stripImageVersion(first.image_url ?? null);
+  if (!raw || raw.startsWith("data:")) return null;
+  const local = raw.startsWith("file://") ? raw.substring(7) : raw;
+  if (local.startsWith("http://") || local.startsWith("https://")) {
+    try {
+      return await invoke<string>("download_url_to_playlist_images", { url: local });
+    } catch (err) {
+      console.error("Failed to download first-track cover:", err);
+      return null;
+    }
+  }
+  return local;
 }
 
 function App() {
@@ -216,7 +263,7 @@ function App() {
   const prefetchNextRef = useRef<() => void>(() => {});
   const crossfadeSecsRef = useRef(3);
   const [crossfadeSecs, setCrossfadeSecs] = useState(3);
-  crossfadeSecsRef.current = crossfadeSecs;
+  useAssignRef(crossfadeSecsRef, crossfadeSecs);
   // Native (mpv) playback engine: capability is a build fact (probed once via
   // engine_capabilities), the choice is a persisted setting. usePlayback routes
   // per-track through the combined ref.
@@ -238,9 +285,9 @@ function App() {
   // Anonymous usage telemetry: default on (opt-out). See telemetry.ts.
   const [telemetryEnabled, setTelemetryEnabled] = usePersistedSetting("telemetryEnabled", true, restoredRef);
   const useNativeEngineRef = useRef(false);
-  useNativeEngineRef.current = mpvCapable && playbackEngine === "native";
+  useAssignRef(useNativeEngineRef, mpvCapable && playbackEngine === "native");
   const useNativeVideoRef = useRef(false);
-  useNativeVideoRef.current = mpvCapable && mpvVideoCapable && playbackEngine === "native";
+  useAssignRef(useNativeVideoRef, mpvCapable && mpvVideoCapable && playbackEngine === "native");
   // Assigned to `() => handleNext("auto")` once handleNext exists below.
   const nativeEndedRef = useRef<() => void>(() => {});
   // False only until the first probe answers. libmpv ships bundled in every
@@ -296,8 +343,8 @@ function App() {
   const [devPluginPath, setDevPluginPath] = usePersistedSetting<string | null>("devPluginPath", null, restoredRef);
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
-  trackVideoHistoryRef.current = trackVideoHistory;
-  preferVideoRef.current = preferVideoResolution;
+  useAssignRef(trackVideoHistoryRef, trackVideoHistory);
+  useAssignRef(preferVideoRef, preferVideoResolution);
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: import("./types/plugin").StreamCandidate[]; sourceUrl?: string }>>(
     async () => { throw new Error("Stream URI resolver not ready"); }
@@ -465,9 +512,9 @@ function App() {
 
   // Plugin system
   const pluginTrackRef = useRef<QueueTrack | null>(null);
-  pluginTrackRef.current = playback.currentTrack;
+  useAssignRef(pluginTrackRef, playback.currentTrack);
   const pluginPlayingRef = useRef(false);
-  pluginPlayingRef.current = playback.playing;
+  useAssignRef(pluginPlayingRef, playback.playing);
   const pluginPositionRef = useRef(0);
   // Position lives in the external positionStore (not React state), so the
   // plugin-facing ref is kept fresh by subscription instead of per-render.
@@ -479,7 +526,7 @@ function App() {
   // announced via one `queue:changed` event so a plugin can re-push its view
   // without polling.
   const pluginQueueRef = useRef<{ tracks: QueueTrack[]; index: number }>({ tracks: [], index: 0 });
-  pluginQueueRef.current = { tracks: queueHook.queue, index: queueHook.queueIndex };
+  useAssignRef(pluginQueueRef, { tracks: queueHook.queue, index: queueHook.queueIndex });
   const pluginTrackToQueueTrack = useCallback((info: PluginTrack): QueueTrack => {
     return {
       key: nextExternalKey(),
@@ -594,7 +641,7 @@ function App() {
   // plugins then load in the background without contending with startup on the
   // single IPC channel. debugMode/devPluginPath are restored before this flips,
   // so the deferred first load already sees their final values.
-  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef.current, debugMode, devPluginPath, !appRestoring);
+  const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef, debugMode, devPluginPath, !appRestoring);
 
   // The `nowplaying` visualizer slot. resolveSlot returns null when the chosen
   // visualizer isn't available, so a disabled plugin silently frees the slot
@@ -1164,8 +1211,8 @@ function App() {
     },
   });
 
-  peekNextRef.current = queueHook.peekNext;
-  advanceIndexRef.current = queueHook.advanceIndex;
+  useAssignRef(peekNextRef, queueHook.peekNext);
+  useAssignRef(advanceIndexRef, queueHook.advanceIndex);
 
   // UI state
   const [clearing, setClearing] = useState(false);
@@ -1424,7 +1471,7 @@ function App() {
     getTagImage: tagImageCache.getImage,
     notify,
   });
-  playWithBackfillRef.current = playActions.playWithBackfill;
+  useAssignRef(playWithBackfillRef, playActions.playWithBackfill);
 
   // Mini search drives both useMiniMode's window resize (via onOpen/ClosePanel)
   // and the keyboard trigger's "already open?" guard (via miniSearch.isOpen).
@@ -1535,7 +1582,7 @@ function App() {
 
   // playActions is constructed before contextMenuActions, so the enqueue-entity
   // actions reach the dedup-aware handleEnqueue through this ref (updated each render).
-  handleEnqueueRef.current = contextMenuActions.handleEnqueue;
+  useAssignRef(handleEnqueueRef, contextMenuActions.handleEnqueue);
 
   // Drag files/folders from the OS file manager into the app to enqueue them.
   const { isDragging: fileDragOver } = useFileDrop({
@@ -1611,10 +1658,10 @@ function App() {
     }
     showNativeMenu(cm.x, cm.y, specs);
   }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef]);
-  showNativeMenuRef.current = buildAndShowNativeMenu;
+  useAssignRef(showNativeMenuRef, buildAndShowNativeMenu);
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
-  pluginHostCallbacksRef.current = {
+  useAssignRef(pluginHostCallbacksRef, {
     navigateToPluginView: (pluginId, viewId) => {
       library.setView(`plugin:${pluginId}:${viewId}`);
       library.setSelectedArtist(null);
@@ -1719,7 +1766,7 @@ function App() {
       console.debug("[plugin]", message);
       notify(message);
     },
-  };
+  });
 
   // Event listeners
   useEventListeners({
@@ -1804,12 +1851,12 @@ function App() {
     const sc = getScrollEl();
     if (sc) sc.scrollTop = 0;
   }, [pushState, getScrollEl]);
-  beforeNavRef.current = pushAndScroll;
+  useAssignRef(beforeNavRef, pushAndScroll);
 
   const goBackRef = useRef(goBack);
-  goBackRef.current = goBack;
+  useAssignRef(goBackRef, goBack);
   const pushStateRef = useRef(pushAndScroll);
-  pushStateRef.current = pushAndScroll;
+  useAssignRef(pushStateRef, pushAndScroll);
 
   // Replay a "Latest play" tile. Re-resolves by source rather than replaying a
   // stored track list: library entities play fresh from the current library,
@@ -2021,13 +2068,13 @@ function App() {
   // viboplr://quiz deep link or Settings > Debug, never from the sidebar.
   // Ref-held so the deep-link effect below never sees a stale closure.
   const openQuizRef = useRef(() => {});
-  openQuizRef.current = () => {
+  useAssignRef(openQuizRef, () => {
     library.setView("quiz");
     library.setSelectedArtist(null);
     library.setSelectedAlbum(null);
     library.setSelectedTag(null);
     library.setSelectedTrack(null);
-  };
+  });
 
   // Listen for deep link events
   useEffect(() => {
@@ -2036,7 +2083,7 @@ function App() {
       for (const raw of urls) {
         if (handled.has(raw)) continue;
         handled.add(raw);
-        console.log("[deep-link] received:", raw);
+        console.debug("[deep-link] received:", raw);
         // Handle Subsonic deep links
         const parsed = parseSubsonicUrl(raw);
         if (parsed) {
@@ -2099,7 +2146,7 @@ function App() {
     // Check for URLs that arrived before listeners were registered
     getDeepLinkCurrent().then((urls) => {
       if (urls && urls.length > 0) handleDeepLink(urls);
-    }).catch(() => {}); // Fire-and-forget: deep link check on startup — no URLs is the common case
+    }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: deep link check on startup — no URLs is the common case
     return stopDeepLink;
   }, [plugins.forwardDeepLink]);
 
@@ -2156,7 +2203,7 @@ function App() {
     const t = setTimeout(() => {
       // Fire-and-forget: startup housekeeping of temp files — a failed sweep
       // just leaves them for the next launch, with no user-visible effect.
-      invoke("cleanup_temp_mixtapes").catch(() => {});
+      invoke("cleanup_temp_mixtapes").catch(() => {}); // eslint-disable-line no-restricted-syntax
     }, 3000);
     return () => clearTimeout(t);
   }, []);
@@ -2522,7 +2569,7 @@ function App() {
         console.error("Failed to ensure auto playlists:", e);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [appRestoring]);
 
   // Persist current track as QueueEntry (location + metadata, no DB IDs)
@@ -2610,12 +2657,12 @@ function App() {
       const message = `${e.message} at ${e.filename}:${e.lineno}`;
       recordAppError("window", message, e.error instanceof Error ? e.error.stack : undefined);
       reportError("window", e.error ?? e.message);
-      invoke("write_frontend_log", { level: "error", message, section: "fr-error" }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
+      invoke("write_frontend_log", { level: "error", message, section: "fr-error" }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     const onRejection = (e: PromiseRejectionEvent) => {
       recordAppError("unhandledrejection", errorText(e.reason), e.reason instanceof Error ? e.reason.stack : undefined);
       reportError("rejection", e.reason);
-      invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}`, section: "fr-error" }).catch(() => {}); // Fire-and-forget: avoid infinite loop if the error logger itself fails
+      invoke("write_frontend_log", { level: "error", message: `Unhandled rejection: ${e.reason}`, section: "fr-error" }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: avoid infinite loop if the error logger itself fails
     };
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);
@@ -2860,21 +2907,21 @@ function App() {
 
   // onEnded handler — uses refs to avoid stale closures from useCallback([])
   const autoContinueRef = useRef(autoContinue);
-  autoContinueRef.current = autoContinue;
+  useAssignRef(autoContinueRef, autoContinue);
   const queueModeRef = useRef(queueHook.queueMode);
-  queueModeRef.current = queueHook.queueMode;
+  useAssignRef(queueModeRef, queueHook.queueMode);
   const currentTrackRef = useRef(playback.currentTrack);
-  currentTrackRef.current = playback.currentTrack;
+  useAssignRef(currentTrackRef, playback.currentTrack);
   const handleStopRef = useRef(playback.handleStop);
-  handleStopRef.current = playback.handleStop;
+  useAssignRef(handleStopRef, playback.handleStop);
   const playNextRef = useRef(queueHook.playNext);
-  playNextRef.current = queueHook.playNext;
+  useAssignRef(playNextRef, queueHook.playNext);
   const addToQueueAndPlayRef = useRef(queueHook.addToQueueAndPlay);
-  addToQueueAndPlayRef.current = queueHook.addToQueueAndPlay;
+  useAssignRef(addToQueueAndPlayRef, queueHook.addToQueueAndPlay);
   const addToQueueRef = useRef(queueHook.addToQueue);
-  addToQueueRef.current = queueHook.addToQueue;
+  useAssignRef(addToQueueRef, queueHook.addToQueue);
   const queueRef = useRef(queueHook.queue);
-  queueRef.current = queueHook.queue;
+  useAssignRef(queueRef, queueHook.queue);
 
   // Keep the now-playing track's like state in sync with the durable
   // entity_likes store. currentTrack is seeded verbatim from the queue entry
@@ -2938,20 +2985,20 @@ function App() {
     });
   }, [playback.setCurrentTrack, queueHook.setQueue, library.loadLibrary, library.loadTracks]);
 
-  prefetchNextRef.current = () => {
+  useAssignRef(prefetchNextRef, () => {
     const ac = autoContinueRef.current;
     const track = currentTrackRef.current;
     if (!ac.enabled || !track) return;
-    console.log(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
+    console.debug(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
     ac.fetchTrack(track).then(next => {
       if (next) {
-        console.log(`[prefetch] Queued "${next.title}" by ${next.artist_name}`);
+        console.debug(`[prefetch] Queued "${next.title}" by ${next.artist_name}`);
         addToQueueRef.current(next);
       } else {
-        console.log("[prefetch] Auto-continue returned no track");
+        console.debug("[prefetch] Auto-continue returned no track");
       }
     });
-  };
+  });
 
   const handleNext = useCallback(async (source: "user" | "auto" = "user") => {
     if (!playNextRef.current(source)) {
@@ -2971,11 +3018,11 @@ function App() {
     }
   }, []);
 
-  mediaSessionNextRef.current = () => handleNext();
+  useAssignRef(mediaSessionNextRef, () => handleNext());
   // Engine-side "ended with nothing gapless-armed" — the native equivalent of
   // the media elements' `ended` (gapless is engine-internal, so no
   // handleGaplessNext check here).
-  nativeEndedRef.current = () => handleNext("auto");
+  useAssignRef(nativeEndedRef, () => handleNext("auto"));
 
   // Deleting the currently-playing track: advance to the nearest surviving track
   // after it, else (Normal mode) auto-continue, else the nearest surviving track
@@ -3000,7 +3047,7 @@ function App() {
     }
     playback.clearPlaybackError();
   }, [queueHook, playback]);
-  currentTrackDeletedRef.current = (indices) => { void handleCurrentTrackDeleted(indices); };
+  useAssignRef(currentTrackDeletedRef, (indices) => { void handleCurrentTrackDeleted(indices); });
 
   useGlobalShortcuts({
     togglePlayPause: playback.handlePause,
@@ -3562,52 +3609,6 @@ function App() {
     setPublishTarget({ trackIds: ids, trackCount: ids.length, defaultName: queueHook.playlistContext?.name || "" });
   }
 
-  // Resolve a default cover from a track list when no playlist context / saved
-  // image supplies one (mixtape share, Save as Playlist): the first track's
-  // album image, then artist image, then any explicit per-track image_url.
-  // Mirrors the queue thumbnail chain (album -> artist), all name-based via the
-  // entity-image cache. Always returns a local filesystem path (or null) — the
-  // mixtape and playlist backends read the cover from disk, so a remote
-  // image_url is downloaded into playlist_images first.
-  async function resolveFirstAlbumCover(
-    tracks: Array<{ album_title?: string | null; artist_name?: string | null; image_url?: string | null }>,
-  ): Promise<string | null> {
-    const first = tracks.find(t => t.album_title || t.artist_name || t.image_url);
-    if (!first) return null;
-    try {
-      if (first.album_title) {
-        const albumImg = await invoke<string | null>("get_entity_image", {
-          kind: "album",
-          name: first.album_title,
-          artistName: first.artist_name ?? null,
-        });
-        if (albumImg) return albumImg;
-      }
-      if (first.artist_name) {
-        const artistImg = await invoke<string | null>("get_entity_image", {
-          kind: "artist",
-          name: first.artist_name,
-          artistName: null,
-        });
-        if (artistImg) return artistImg;
-      }
-    } catch (err) {
-      console.error("Failed to resolve default cover:", err);
-    }
-    const raw = stripImageVersion(first.image_url ?? null);
-    if (!raw || raw.startsWith("data:")) return null;
-    const local = raw.startsWith("file://") ? raw.substring(7) : raw;
-    if (local.startsWith("http://") || local.startsWith("https://")) {
-      try {
-        return await invoke<string>("download_url_to_playlist_images", { url: local });
-      } catch (err) {
-        console.error("Failed to download first-track cover:", err);
-        return null;
-      }
-    }
-    return local;
-  }
-
   async function handleQueueExportAsMixtape() {
     const tracks = queueHook.queue;
     if (tracks.length === 0) return;
@@ -3728,10 +3729,10 @@ function App() {
   }, [queueHook.playTracks]);
 
   // Bridge for keyboard shortcuts
-  handleToggleLikeRef.current = likeActions.handleToggleLike;
-  handleExportAsMixtapeRef.current = handleExportAsMixtape;
-  openPublishMusicSourceRef.current = (ids) => setPublishTarget({ trackIds: ids, trackCount: ids.length });
-  openEditTrackInfoRef.current = (index) => {
+  useAssignRef(handleToggleLikeRef, likeActions.handleToggleLike);
+  useAssignRef(handleExportAsMixtapeRef, handleExportAsMixtape);
+  useAssignRef(openPublishMusicSourceRef, (ids) => setPublishTarget({ trackIds: ids, trackCount: ids.length }));
+  useAssignRef(openEditTrackInfoRef, (index) => {
     const t = queueHook.queue[index];
     if (!t) return;
     setEditQueueTrack({
@@ -3750,7 +3751,7 @@ function App() {
         liked: t.liked,
       }),
     });
-  };
+  });
 
   const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags,
     highlightedListIndex } = library;

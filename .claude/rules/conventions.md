@@ -2,6 +2,29 @@
 
 All new code must follow these conventions. When touching existing code that violates them, fix the violations as part of the current work.
 
+## Enforcement
+
+Some of these are now checked by **`npm run lint`** (ESLint flat config, `eslint.config.js`) rather than only by review. It gates on **errors**; warnings are a declared, counted backlog documented in that file. `npm run test:all` runs it first.
+
+| Rule | Enforced as | Convention |
+|---|---|---|
+| Empty `catch {}` / `.catch(() => {})` | error | "Error Logging" below. The documented fire-and-forget exception is taken with an `// eslint-disable-line no-restricted-syntax -- Fire-and-forget: <reason>` on the line, which makes the required justification machine-checked instead of optional. |
+| `someRef.current = x` in a component/hook render body | error | Use `useAssignRef` / `useLatestRef` — see `frontend.md` → **useLatestRef.ts**. |
+| Rules of hooks, unused vars, `no-var`, `prefer-const` | error | — |
+| Bare `console.log` in `src/**` | warning | Use `console.debug` for tracing and `console.error` for failures. Currently **0** — keep it there. |
+| `react-hooks/exhaustive-deps`, `set-state-in-effect`, `refs`, `immutability`, `purity`, `no-explicit-any` | warning | Known backlog (362); don't add to it. Per-rule counts and what each one's hits actually are live in `eslint.config.js`. |
+
+Rules deliberately **off**, each with its reasoning in `eslint.config.js`:
+
+- `no-useless-assignment` — fires only on defensive initializers, *and* inside `scripts/lib/loc.mjs`, which CLAUDE.md forbids "fixing".
+- `react-hooks/preserve-manual-memoization` + `react-hooks/use-memo` — these report that the **React Compiler** couldn't take over memoization it found. That's an adoption checklist for a migration this project hasn't started, not a defect report; every hit was inspected first. Turn them back on the day the compiler goes on.
+- `no-useless-escape` in `src/__tests__/autoTagger.test.ts` only — that file mirrors an external plugin's regexes verbatim.
+- `@typescript-eslint/no-explicit-any` in tests only.
+
+**Don't silence a rule without reading its hits.** `react-hooks/purity` had two, and one was a real bug: a "random" track sort calling `Math.random()` inside a `useMemo`, so it re-dealt the order on every recompute instead of only when the user asked (fixed by seeding from `shuffleKey` — see `useEntityDetail.seededRandom`). The cheapest-looking group can be the one carrying the defect.
+
+**`react-hooks/refs` cannot be an error here**, and the reason is worth knowing before trying: the React Compiler treats any property access on a hook-return object that *contains* a ref as a ref access, so all ~93 of its remaining reports are `playback.*` reads (`usePlayback` returns `audioRefA`/`videoRef` alongside plain state), plus ~20 "ref passed to a function" advisories — i.e. this app's core architecture. That is why the render-body *write* check is a separate, precise selector.
+
 ## Canonical Actions
 
 Each entry documents the gold standard implementation for a repeated user action. New code that implements the same action must replicate this flow exactly.

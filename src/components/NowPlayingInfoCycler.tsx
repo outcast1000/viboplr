@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { nextCycleIndex, nowPlayingSteadyOrder, nowPlayingStyleClass, type NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import { isReducedMotion, subscribeReducedMotion } from "../utils/reducedMotion";
 
+import { useAssignRef, useLatestRef } from "../hooks/useLatestRef";
 // === Marquee tuning ===
 // A line wider than its viewport (a long lyric line, especially at the narrow
 // mini-player widths) is otherwise ellipsis-truncated and unreadable. We gently
@@ -99,7 +100,7 @@ export function MarqueeText({ className, enabled, restartKey, onPlan, onClick, t
   const trackRef = useRef<HTMLSpanElement | null>(null);
   const roRef = useRef<ResizeObserver | null>(null);
   const onPlanRef = useRef(onPlan);
-  onPlanRef.current = onPlan;
+  useAssignRef(onPlanRef, onPlan);
 
   const measure = useCallback(() => {
     const vp = viewportRef.current;
@@ -267,14 +268,29 @@ export function NowPlayingInfoCycler({
   // array identity changes every position tick when synced lyrics are enabled,
   // and we must not restart a long dwell on each of those updates.
   const itemsRef = useRef(items);
-  itemsRef.current = items;
+  useAssignRef(itemsRef, items);
   const steadyRef = useRef(steady);
-  steadyRef.current = steady;
+  useAssignRef(steadyRef, steady);
+
+  // The list the current index points into depends on the phase. After the
+  // preview pass, if every item was "preview only" (steady is empty), fall back
+  // to the full list so the line freezes on an item rather than going blank.
+  // Computed here, above the effects, because the dwell timer needs to know
+  // whether a marquee is on screen (see `marqueeMountedRef`).
+  const activeList = previewing ? items : steady.length > 0 ? steady : items;
+  const active = activeList.length > 0 ? activeList[Math.min(index, activeList.length - 1)] : null;
 
   // Mirror of the active item's marquee `cycleMs` (set via MarqueeText's onPlan).
   // Read by the dwell timer WITHOUT being a dependency, so a synced-lyrics line
   // change (which re-measures) never resets the item's long dwell.
   const marqueeMsRef = useRef(0);
+  // Is a MarqueeText actually mounted? When it isn't, `onPlan` never fires and
+  // the last measured cycle would linger and stretch an unrelated item's dwell.
+  // The two render paths that skip the marquee used to zero `marqueeMsRef`
+  // inline, which is a ref write during render; gating at *read* time instead is
+  // both legal and stricter — it can't be wrong for a render that never happened.
+  const marqueeMountedRef = useLatestRef(!!marqueeEnabled && !!active);
+  const marqueeDwell = () => (marqueeMountedRef.current ? marqueeMsRef.current : 0);
 
   // New track → restart the cycle and re-run the preview pass. Compared against
   // the state's own key so only a real track change resets — a remount alone
@@ -309,7 +325,7 @@ export function NowPlayingInfoCycler({
             ? { ...s, index: 0, previewing: false } // preview complete → enter steady rotation
             : { ...s, index: next },
         );
-      }, Math.max(intervalMs, marqueeMsRef.current));
+      }, Math.max(intervalMs, marqueeDwell()));
       return () => clearTimeout(t);
     }
     const len = steadyRef.current.length;
@@ -318,18 +334,11 @@ export function NowPlayingInfoCycler({
     const mult = steadyRef.current[clamped]?.top ?? 1;
     const t = setTimeout(() => {
       onCycleState((s) => ({ ...s, index: nextCycleIndex(Math.min(s.index, len - 1), len) }));
-    }, Math.max(intervalMs * mult, marqueeMsRef.current));
+    }, Math.max(intervalMs * mult, marqueeDwell()));
     return () => clearTimeout(t);
   }, [previewing, index, items.length, steady.length, intervalMs, onCycleState]);
 
-  // The list the current index points into depends on the phase. After the
-  // preview pass, if every item was "preview only" (steady is empty), fall back
-  // to the full list so the line freezes on an item rather than going blank.
-  const activeList = previewing ? items : steady.length > 0 ? steady : items;
-  const active = activeList.length > 0 ? activeList[Math.min(index, activeList.length - 1)] : null;
-
   if (!active) {
-    marqueeMsRef.current = 0;
     return fallbackText ? <span className={className}>{fallbackText}</span> : null;
   }
 
@@ -378,7 +387,6 @@ export function NowPlayingInfoCycler({
   // Non-marquee callers (full bar, or the compact row where an outer MarqueeText
   // scrolls the whole line) keep the original two-span structure.
   if (!marqueeEnabled) {
-    marqueeMsRef.current = 0;
     return <span className={className}>{slide}</span>;
   }
 

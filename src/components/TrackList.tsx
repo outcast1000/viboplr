@@ -7,6 +7,7 @@ import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { RowHoverActions } from "./RowHoverActions";
 import { SpinningDisc } from "./SpinningDisc";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
+import { useAssignRef } from "../hooks/useLatestRef";
 import "./TrackList.css";
 
 function formatCount(n: number): string {
@@ -433,7 +434,7 @@ export function TrackList({
   // fresh closures every render, reached by rows through a ref whose identity
   // never changes \u2014 the same latestRef pattern as QueuePanel's QueueRow.
   const rowHandlersRef = useRef<TrackRowHandlers>(null!);
-  rowHandlersRef.current = {
+  useAssignRef(rowHandlersRef, {
     mouseDown: handleRowMouseDown,
     click: handleRowClick,
     doubleClick: (index: number) => { setSelectedIds(new Set()); onDoubleClick([tracks[index]], 0); },
@@ -454,7 +455,7 @@ export function TrackList({
     enqueue: onEnqueue,
     startRadio: onStartRadio,
     locate: onLocateTrack,
-  };
+  });
 
   // Which optional actions exist decides what the row renders (hover buttons,
   // the dislike half of the like control) \u2014 the ref above hides handler

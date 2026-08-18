@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { register, unregisterAll } from "@tauri-apps/plugin-global-shortcut";
 
+import { useAssignRef } from "./useLatestRef";
 interface GlobalShortcutActions {
   togglePlayPause: () => void;
   playNext: () => void;
@@ -10,7 +11,7 @@ interface GlobalShortcutActions {
 
 export function useGlobalShortcuts(actions: GlobalShortcutActions) {
   const actionsRef = useRef(actions);
-  actionsRef.current = actions;
+  useAssignRef(actionsRef, actions);
 
   useEffect(() => {
     let mounted = true;

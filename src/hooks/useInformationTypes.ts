@@ -226,7 +226,7 @@ export function useInformationTypes({
               await invoke("info_delete_value", {
                 informationTypeId: integerId,
                 entityKey,
-              }).catch(() => {});
+              }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: dropping a stale cache row; the refetch below is the real work
             }
           }
 
@@ -260,7 +260,7 @@ export function useInformationTypes({
             entityKey,
             value: "{}",
             status: "error",
-          }).catch(() => {});
+          }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: recording an error status; the error is already surfaced to the caller
           if (mountedRef.current && entityKeyRef.current === entityKey) {
             setTimeout(() => {
               if (mountedRef.current && entityKeyRef.current === entityKey) {

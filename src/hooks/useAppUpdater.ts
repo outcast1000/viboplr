@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { subscribe } from "../utils/tauriEvents";
 
+import { useAssignRef } from "./useLatestRef";
 export type UpdateChannel = "stable" | "beta";
 
 export type UpdateStage = "check" | "install";
@@ -126,7 +127,7 @@ export function useAppUpdater(
   });
   // The startup/daily timer's closure must see the live channel choice.
   const channelRef = useRef(channel);
-  channelRef.current = channel;
+  useAssignRef(channelRef, channel);
 
   async function checkNow(): Promise<AppUpdateMeta | null> {
     return invoke<AppUpdateMeta | null>("app_update_check", { channel: channelRef.current });

@@ -2,7 +2,7 @@
 // Run after Playwright captures screenshots as PNG files.
 
 import { execSync } from 'child_process';
-import { readdirSync, renameSync, unlinkSync } from 'fs';
+import { readdirSync, unlinkSync } from 'fs';
 import path from 'path';
 
 const dir = path.resolve('docs/assets/screenshots');

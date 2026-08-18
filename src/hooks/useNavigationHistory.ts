@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState } from "react";
 import type { View } from "../types";
 
+import { useAssignRef } from "./useLatestRef";
 export interface NavState {
   view: View;
   selectedArtist: number | null;
@@ -27,7 +28,7 @@ export function useNavigationHistory(
 } {
   const historyRef = useRef<NavState[]>([]);
   const currentRef = useRef<Omit<NavState, "scrollTop">>(current);
-  currentRef.current = current;
+  useAssignRef(currentRef, current);
   const [, rerender] = useState(0);
 
   const snap = useCallback((): NavState => ({

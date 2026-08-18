@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
 import { allocateSlotsTrackWeighted } from "../utils/searchSlots";
 
+import { useAssignRef } from "./useLatestRef";
 const DEBOUNCE_MS = 200;
 const PER_TYPE_LIMIT = 7;
 const EMPTY_RESULTS: SearchAllResults = { artists: [], albums: [], tracks: [] };
@@ -58,7 +59,7 @@ export function useMiniSearch(opts: UseMiniSearchOptions) {
 
   // Keep the latest opts in a ref so callbacks stay stable.
   const optsRef = useRef(opts);
-  optsRef.current = opts;
+  useAssignRef(optsRef, opts);
 
   // Flatten results tracks-first (vs. central search's artists-first) — in mini
   // mode, direct track picks are more common than artist/album drilldown.

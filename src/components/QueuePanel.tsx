@@ -15,6 +15,7 @@ import { TrackArtFallback } from "./TrackArtFallback";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { showNativeMenu } from "../nativeMenu";
 import { buildQueueHeaderMenuSpecs } from "../contextMenu/buildQueueHeaderMenuSpecs";
+import { useAssignRef } from "../hooks/useLatestRef";
 import "./QueuePanel.css";
 
 export interface PendingEnqueue {
@@ -452,7 +453,7 @@ export function QueuePanel({
   // State Access") — the handlers keep one identity across renders so the
   // memoized rows don't re-render whenever the panel does.
   const latestRef = useRef({ selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu });
-  latestRef.current = { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu };
+  useAssignRef(latestRef, { selectedIndices, onPlay, onTogglePlayPause, onStartRadio, onLocateTrack, onToggleLike, onToggleDislike, onMoveMultiple, onContextMenu });
 
   const rowPlay = useCallback((t: QueueTrack, i: number) => latestRef.current.onPlay(t, i), []);
   const rowTogglePlayPause = useCallback(() => latestRef.current.onTogglePlayPause(), []);

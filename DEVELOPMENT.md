@@ -83,6 +83,9 @@ cd src-tauri && cargo check --release
 
 # Verify frontend types
 npx tsc --noEmit
+
+# Lint (gates on errors; warnings are a declared backlog — see eslint.config.js)
+npm run lint
 ```
 
 ## Releasing

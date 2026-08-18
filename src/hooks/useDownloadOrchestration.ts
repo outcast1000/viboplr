@@ -11,6 +11,7 @@ import { withResolverLog } from "../utils/resolverLog";
 import { decideDownload, type DownloadPlan } from "../utils/downloadPlan";
 import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "./usePlugins";
 
+import { useAssignRef } from "./useLatestRef";
 export interface DownloadModalState {
   tracks: DownloadTrack[];
   providerId: string;
@@ -208,7 +209,7 @@ export function useDownloadOrchestration({
   }, [allDownloadProviders, disabledProviders, providerPriorities]);
 
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
-  downloadProvidersRef.current = downloadProviders;
+  useAssignRef(downloadProvidersRef, downloadProviders);
 
   // Respond to backend download-resolve-request events by walking the plugin
   // download-provider chain. (Inlined from the former useDownloads hook.)

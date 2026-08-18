@@ -36,6 +36,7 @@ Before submitting a PR, ensure all checks pass:
 
 ```bash
 npx tsc --noEmit              # TypeScript typecheck
+npm run lint                  # ESLint (must report 0 errors)
 cd src-tauri && cargo check   # Rust compilation check
 npm test                      # TypeScript tests
 npm run test:rust             # Rust tests

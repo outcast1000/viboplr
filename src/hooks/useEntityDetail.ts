@@ -4,8 +4,36 @@ import type { Artist, Album, Tag, Track, SortField, SortDir } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { stripAccents } from "../utils";
 import { subscribeTrackEvents } from "../trackEvents";
+import { useAssignRef } from "./useLatestRef";
 
 const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^\p{L}\p{N}]/gu, "");
+
+/**
+ * Deterministic PRNG (mulberry32), so the "random" track sort is a pure function
+ * of its seed.
+ *
+ * The shuffle used to call `Math.random()` directly inside the `sortedTracks`
+ * `useMemo`. A memo body runs **during render**, so an impure one isn't stable:
+ * React recomputes the memo whenever any dependency changes — a fresh `tracks`
+ * identity from a track event, a popularity refresh, a `sortDir` flip — and each
+ * recompute silently dealt a brand-new order, while StrictMode's double render
+ * committed a different order than the one it first computed. The list reshuffled
+ * under the user for reasons they didn't cause.
+ *
+ * `shuffleKey` (bumped only by `handleSort("random")`) was already the intended
+ * "re-roll now" signal and was already a memo dependency; seeding from it is what
+ * makes that intent actually hold. Same visible behaviour on a click, stable
+ * between clicks. Found by `react-hooks/purity`.
+ */
+export function seededRandom(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>];
 
@@ -123,7 +151,7 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
   // Read latest tracks inside the popularity effect without making the array
   // identity a dependency (so field-only patches don't re-run it).
   const tracksRef = useRef(tracks);
-  tracksRef.current = tracks;
+  useAssignRef(tracksRef, tracks);
 
   // Fetch track popularity from ranked_list info types (artist and album only)
   useEffect(() => {
@@ -170,7 +198,6 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
 
     return () => { cancelled = true; };
     // trackIdsKey (not `tracks`) so field-only patches like `liked` don't refetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entity, trackIdsKey, invokeInfoFetch, kind]);
 
   const handleSort = useCallback((field: SortField) => {
@@ -209,9 +236,11 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
   const sortedTracks = useMemo(() => {
     if (!sortField) return tracks;
     if (sortField === "random") {
+      // Seeded from `shuffleKey`, never `Math.random()`. See seededRandom below.
+      const rand = seededRandom(shuffleKey);
       const shuffled = [...tracks];
       for (let i = shuffled.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(rand() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
       return shuffled;
@@ -241,7 +270,9 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
       }
     });
     return sorted;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `shuffleKey` is a real dependency now that the shuffle is seeded from it.
+    // It used to be listed but never read — the disable comment that silenced
+    // that went away with the Math.random() it was covering for.
   }, [tracks, sortField, sortDir, shuffleKey, trackPopularity]);
 
   const handleToggleLike = useCallback(() => {

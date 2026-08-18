@@ -81,11 +81,11 @@ export function PluginViewRenderer({
     // before they navigate away. Re-insert (delete+set) to keep recently-used
     // keys newest for the size-bound eviction below.
     const onScroll = function () {
-      var m = scrollPosRef.current;
+      const m = scrollPosRef.current;
       if (m.has(scrollKey)) m.delete(scrollKey);
       m.set(scrollKey, el.scrollTop);
       while (m.size > 50) {
-        var oldest = m.keys().next().value;
+        const oldest = m.keys().next().value;
         if (oldest === undefined) break;
         m.delete(oldest);
       }

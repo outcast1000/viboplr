@@ -42,10 +42,11 @@ import {
   type EqMode,
 } from "../eqPresets";
 
+import { useAssignRef } from "./useLatestRef";
 function logPlayback(message: string) {
   // Fire-and-forget: this IS the logger. Reporting its own failure through
   // console.error would recurse into the error log for no user-visible gain.
-  invoke("write_frontend_log", { level: "info", message, section: "playback" }).catch(() => {});
+  invoke("write_frontend_log", { level: "info", message, section: "playback" }).catch(() => {}); // eslint-disable-line no-restricted-syntax
 }
 
 // Master-bus limiter ceiling (dBFS) engaged for a simple-mode bass/treble boost.
@@ -266,11 +267,11 @@ export function usePlayback(
   const audioRefB = useRef<HTMLAudioElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const activeSlotRef = useRef(activeSlot);
-  activeSlotRef.current = activeSlot;
+  useAssignRef(activeSlotRef, activeSlot);
   // Mirror for the once-mounted engine-event subscriptions, which would
   // otherwise close over the first render's currentTrack.
   const currentTrackRef = useRef<QueueTrack | null>(currentTrack);
-  currentTrackRef.current = currentTrack;
+  useAssignRef(currentTrackRef, currentTrack);
 
   // --- Native (mpv) engine session state ------------------------------------
   // Non-null while the mpv engine owns playback of `key` (the media elements
@@ -491,16 +492,16 @@ export function usePlayback(
   const rgModeRef = useRef(rgMode);
   const rgPreampDbRef = useRef(rgPreampDb);
   const rgPreventClipRef = useRef(rgPreventClip);
-  playbackRateRef.current = playbackRate;
-  eqEnabledRef.current = eqEnabled;
-  eqModeRef.current = eqMode;
-  eqGainsRef.current = eqGains;
-  eqPreGainDbRef.current = eqPreGainDb;
-  eqBassDbRef.current = eqBassDb;
-  eqTrebleDbRef.current = eqTrebleDb;
-  rgModeRef.current = rgMode;
-  rgPreampDbRef.current = rgPreampDb;
-  rgPreventClipRef.current = rgPreventClip;
+  useAssignRef(playbackRateRef, playbackRate);
+  useAssignRef(eqEnabledRef, eqEnabled);
+  useAssignRef(eqModeRef, eqMode);
+  useAssignRef(eqGainsRef, eqGains);
+  useAssignRef(eqPreGainDbRef, eqPreGainDb);
+  useAssignRef(eqBassDbRef, eqBassDb);
+  useAssignRef(eqTrebleDbRef, eqTrebleDb);
+  useAssignRef(rgModeRef, rgMode);
+  useAssignRef(rgPreampDbRef, rgPreampDb);
+  useAssignRef(rgPreventClipRef, rgPreventClip);
 
   function masterGainValue(): number {
     // Advanced mode: the user sets pre-gain manually. Simple mode does NOT
@@ -1653,7 +1654,7 @@ export function usePlayback(
   // Latest handlePlay for the once-mounted engine-event subscriptions (the
   // function is recreated every render; the effect's closure would go stale).
   const handlePlayRef = useRef(handlePlay);
-  handlePlayRef.current = handlePlay;
+  useAssignRef(handlePlayRef, handlePlay);
 
   function setPendingSeek(secs: number) {
     pendingSeekRef.current = secs;

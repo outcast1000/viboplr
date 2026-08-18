@@ -9,6 +9,7 @@ import { stripImageVersion } from "../utils/resolveImageUrl";
 import { track as trackTelemetry } from "../telemetry";
 import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
 
+import { useAssignRef } from "./useLatestRef";
 export interface PlaylistContext {
   name: string;
   imagePath?: string | null;
@@ -61,13 +62,13 @@ export function useQueue(
   }, []);
 
   const queueRef = useRef(queue);
-  queueRef.current = queue;
+  useAssignRef(queueRef, queue);
   const queueIndexRef = useRef(queueIndex);
-  queueIndexRef.current = queueIndex;
+  useAssignRef(queueIndexRef, queueIndex);
   const queueModeRef = useRef(queueMode);
-  queueModeRef.current = queueMode;
+  useAssignRef(queueModeRef, queueMode);
   const playlistContextRef = useRef(playlistContext);
-  playlistContextRef.current = playlistContext;
+  useAssignRef(playlistContextRef, playlistContext);
   const queuePanelRef = useRef<HTMLDivElement>(null);
   const dragIndexRef = useRef<number | null>(null);
 

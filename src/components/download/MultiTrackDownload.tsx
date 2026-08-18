@@ -15,6 +15,7 @@ import { ProviderChip } from "./ProviderChip";
 import { QualitySelect } from "./QualitySelect";
 import { DestField } from "./DestField";
 
+import { useAssignRef } from "../../hooks/useLatestRef";
 type BatchStep = "configure" | "resolve" | "review" | "downloading" | "done";
 
 export function MultiTrackDownload({
@@ -137,9 +138,9 @@ export function MultiTrackDownload({
 
   // Callback refs -- critical to prevent stale closures in resolve useEffect
   const onSearchRef = useRef(onSearch);
-  onSearchRef.current = onSearch;
+  useAssignRef(onSearchRef, onSearch);
   const onResolveRef = useRef(onResolve);
-  onResolveRef.current = onResolve;
+  useAssignRef(onResolveRef, onResolve);
 
   // Single resolve guard for strict mode
   const resolveGuard = useRef(false);

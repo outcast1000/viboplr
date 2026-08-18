@@ -165,7 +165,6 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
     if (tagMode !== "replace") {
       setTags([]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tagMode]);
 
   const hasDirtyFields = dirtyArtist || dirtyAlbum || dirtyYear || dirtyTags || dirtyTitle || dirtyTrackNumber;

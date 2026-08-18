@@ -5,6 +5,7 @@ import { safeUnlisten } from "../utils/tauriEvents";
 import type { QueueTrack } from "../types";
 import { nextExternalKey } from "../queueEntry";
 
+import { useAssignRef } from "./useLatestRef";
 /** One media file resolved from an OS file-manager drop (see the Rust
  * `resolve_dropped_paths` command / `DroppedTrack`). */
 interface DroppedTrack {
@@ -51,7 +52,7 @@ export function useFileDrop(deps: UseFileDropDeps) {
   // The listener installs once; keep the latest callbacks in a ref so it never
   // reads stale closures (mirrors useInAppKeyboardShortcuts' deps ref).
   const depsRef = useRef(deps);
-  depsRef.current = deps;
+  useAssignRef(depsRef, deps);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;

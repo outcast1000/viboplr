@@ -10,6 +10,7 @@ import {
   type ProviderRunState,
 } from "../utils/centralSearchPlugins";
 
+import { useAssignRef } from "./useLatestRef";
 const DEBOUNCE_MS = 200;
 const PER_TYPE_LIMIT = 7; // fetch up to this many per type, trim client-side
 /** Results to ask a plugin catalog for. Small: these rows sit under the library
@@ -62,9 +63,9 @@ export function useCentralSearch({
   // Keep the query and callbacks reachable from runProvider without making it
   // change identity on every keystroke.
   const queryRef = useRef(query);
-  queryRef.current = query;
+  useAssignRef(queryRef, query);
   const runProviderSearchRef = useRef(runProviderSearch);
-  runProviderSearchRef.current = runProviderSearch;
+  useAssignRef(runProviderSearchRef, runProviderSearch);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);

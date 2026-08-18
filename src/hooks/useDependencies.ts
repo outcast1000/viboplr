@@ -120,7 +120,7 @@ export function useDependencies(pluginStates: PluginState[]) {
           level: "info",
           message: `Auto-updated ${name} ${from} -> ${to}`,
           section: "dependencies",
-        }).catch(() => {}); // Fire-and-forget: log-trail only, no user impact on failure
+        }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: log-trail only, no user impact on failure
       },
     );
     return combineUnlisten(stopProgress, stopUpdated);

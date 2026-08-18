@@ -62,7 +62,7 @@ export function useImageResolver(invokeImageFetch: InvokeImageFetch) {
         await invoke("image_resolve_response", {
           requestId: request_id,
           result: { error: String(e) },
-        }).catch(() => {}); // Fire-and-forget: error already reported in the response payload
+        }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: error already reported in the response payload
       }
     });
   }, [invokeImageFetch]);

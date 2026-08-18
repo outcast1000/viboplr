@@ -24,7 +24,7 @@ export function safeUnlisten(fn: UnlistenFn | undefined | null): void {
   try {
     // unlisten is async under the hood; the stale-id bug rejects rather than
     // throwing synchronously, so guard the returned promise too.
-    void Promise.resolve(fn()).catch(() => {
+    void Promise.resolve(fn()).catch(() => { // eslint-disable-line no-restricted-syntax -- Fire-and-forget: stale-id no-op is the expected rejection, see safeUnlisten docs
       /* stale-id no-op — see safeUnlisten docs */
     });
   } catch {

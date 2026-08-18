@@ -22,7 +22,7 @@
 // so viboplr.com keeps advertising the current stable. Beta tags may be cut
 // from any branch; stable releases must be cut from main.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { execSync } from "child_process";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";

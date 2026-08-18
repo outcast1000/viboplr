@@ -14,7 +14,9 @@ node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv — REQUIRED before 
 cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
 node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
 npx tsc --noEmit                     # TypeScript type-check
-npm run test:all                     # All tests (Rust + TS + E2E)
+npm run lint                         # ESLint (gates on errors; see .claude/rules/conventions.md > Enforcement)
+npm run lint:fix                     # ESLint with autofix
+npm run test:all                     # All tests (lint + Rust + TS + E2E)
 npm test                             # TypeScript tests only
 npm run test:rust                    # Rust tests only
 npm run test:e2e                     # Playwright E2E tests

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { useAssignRef } from "./useLatestRef";
 /** A tag present on only some of an entity's tracks. */
 export interface PartialTag {
   name: string;
@@ -97,7 +98,7 @@ export function useEntityTags(
   const [refetchKey, setRefetchKey] = useState(0);
 
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useAssignRef(stateRef, state);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;

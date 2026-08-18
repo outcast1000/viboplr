@@ -15,6 +15,7 @@ import type { usePlayback } from "./usePlayback";
 import type { useQueue } from "./useQueue";
 import type { useMiniMode } from "./useMiniMode";
 
+import { useAssignRef } from "./useLatestRef";
 export interface KeyboardShortcutDeps {
   library: ReturnType<typeof useLibrary>;
   playback: ReturnType<typeof usePlayback>;
@@ -50,7 +51,7 @@ export interface KeyboardShortcutDeps {
 
 export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
   const ref = useRef(deps);
-  ref.current = deps;
+  useAssignRef(ref, deps);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {

@@ -16,6 +16,7 @@ import { SortButton, LoadMoreSentinel } from "./search/searchShared";
 import { SearchTagResults, SearchAlbumResults, SearchArtistResults } from "./search/SearchEntityResults";
 import { subscribeTrackEvents } from "../trackEvents";
 
+import { useAssignRef } from "../hooks/useLatestRef";
 function isLocalVideo(t: Track): boolean {
   if (!isVideoTrack(t)) return false;
   if (t.id == null) return false;
@@ -197,13 +198,13 @@ export function SearchView({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const queryRef = useRef("");
   const sortRef = useRef({ trackSortChain, mediaTypeFilter });
-  sortRef.current = { trackSortChain, mediaTypeFilter };
+  useAssignRef(sortRef, { trackSortChain, mediaTypeFilter });
   const artistSortRef = useRef({ artistSortChain });
-  artistSortRef.current = { artistSortChain };
+  useAssignRef(artistSortRef, { artistSortChain });
   const albumSortRef = useRef({ albumSortChain });
-  albumSortRef.current = { albumSortChain };
+  useAssignRef(albumSortRef, { albumSortChain });
   const tagSortRef = useRef({ tagSortChain });
-  tagSortRef.current = { tagSortChain };
+  useAssignRef(tagSortRef, { tagSortChain });
 
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [selectedArtistIds, setSelectedArtistIds] = useState<Set<number>>(new Set());

@@ -78,6 +78,7 @@ function parsePluginJson(value: unknown): unknown {
 }
 import { withResolverLog } from "../utils/resolverLog";
 
+import { useAssignRef } from "./useLatestRef";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -268,7 +269,13 @@ export function usePlugins(
   // A ref, like the three above, so reading it never re-runs the api builder.
   queueRef: React.RefObject<{ tracks: QueueTrack[]; index: number }>,
   playbackCallbacks?: PluginPlaybackCallbacks,
-  hostCallbacks?: PluginHostCallbacks,
+  // A ref for the same reason as the four above, plus one specific to this one:
+  // App.tsx can only build the host callbacks *after* the state and actions they
+  // close over exist, which is hundreds of lines below this call. Taking the
+  // value meant reading `.current` during App's render and getting the previous
+  // render's object — `undefined` on the very first one. Taking the ref lets the
+  // consumers below read it lazily, at call time, when it is always populated.
+  hostCallbacksRef?: React.RefObject<PluginHostCallbacks | undefined>,
   debugMode?: boolean,
   devPluginPath?: string | null,
   // Gate the initial plugin load until the app's cold-start critical path
@@ -315,10 +322,7 @@ export function usePlugins(
   const [pluginsLoaded, setPluginsLoaded] = useState(false);
 
   const playbackCallbacksRef = useRef(playbackCallbacks);
-  playbackCallbacksRef.current = playbackCallbacks;
-
-  const hostCallbacksRef = useRef(hostCallbacks);
-  hostCallbacksRef.current = hostCallbacks;
+  useAssignRef(playbackCallbacksRef, playbackCallbacks);
 
   const fetchUrlCallbackRef = useRef<((url: string) => void) | null>(null);
   const loadedPluginsRef = useRef<Map<string, LoadedPlugin>>(new Map());
@@ -474,7 +478,7 @@ export function usePlugins(
         log: (level: string, message: string, section?: string) => {
           // Fire-and-forget: this IS the logger (a plugin's api.log). Reporting its
           // own failure would recurse, and a lost plugin log line has no user impact.
-          invoke("write_frontend_log", { level, message, section: section ?? pluginId }).catch(() => {});
+          invoke("write_frontend_log", { level, message, section: section ?? pluginId }).catch(() => {}); // eslint-disable-line no-restricted-syntax
         },
         library: {
           async getTrackCount() {
@@ -784,14 +788,19 @@ export function usePlugins(
             setViewData(new Map(viewDataRef.current));
           },
           showNotification: (message) => {
-            hostCallbacksRef.current?.showNotification(message)
-              ?? console.log(`[plugin:${pluginId}]`, message);
+            // Was `showNotification(message) ?? console.log(...)`, which always
+            // logged: showNotification returns void, so the `??` right-hand side
+            // ran whether or not a host was attached. The console line is the
+            // fallback for a host that has none (tests, an early activate).
+            const notify = hostCallbacksRef?.current?.showNotification;
+            if (notify) notify(message);
+            else console.info(`[plugin:${pluginId}]`, message);
           },
           navigateToView: (viewId) => {
-            hostCallbacksRef.current?.navigateToPluginView(pluginId, viewId);
+            hostCallbacksRef?.current?.navigateToPluginView(pluginId, viewId);
           },
           requestAction: (action, payload) => {
-            hostCallbacksRef.current?.requestAction(pluginId, action, payload);
+            hostCallbacksRef?.current?.requestAction(pluginId, action, payload);
           },
           onAction: (actionId, handler) => {
             loaded.uiActionHandlers.set(actionId, handler);
@@ -1710,6 +1719,12 @@ export function usePlugins(
         pluginSandbox.clearTimeout = window.clearTimeout.bind(window);
         pluginSandbox.setInterval = window.setInterval.bind(window);
         pluginSandbox.clearInterval = window.clearInterval.bind(window);
+        // This IS the plugin sandbox's `console`: a plugin calling console.log
+        // must reach the real one. Not a stray trace of ours (conventions.md >
+        // Error Logging). The directive must sit on the line directly above the
+        // code — `eslint-disable-next-line` covers exactly the next line, so a
+        // comment continuing beneath it swallows the exemption.
+        // eslint-disable-next-line no-console
         pluginSandbox.console = { log: console.log, warn: console.warn, error: console.error, info: console.info, debug: console.debug };
         pluginSandbox.Math = Math;
         pluginSandbox.JSON = JSON;
@@ -2036,7 +2051,7 @@ export function usePlugins(
         const lines = [...timings]
           .sort((a, b) => b.totalMs - a.totalMs)
           .map((t) => cols.map((c, i) => pad(c.v(t), c.w, i === 0)).join("  "));
-        console.log(
+        console.debug(
           `[plugin-timing] activated ${timings.length} plugins sequentially in ${r1(wallMs)}ms (sum of activations ${r1(sumMs)}ms)\n` +
             [header, ...lines].join("\n"),
         );
@@ -2333,7 +2348,7 @@ export function usePlugins(
     const pluginCount = loadedPluginsRef.current.size;
     let handlerCount = 0;
     for (const [, l] of loadedPluginsRef.current) handlerCount += l.deepLinkHandlers.length;
-    console.log(`[forwardDeepLink] url=${url}, plugins=${pluginCount}, handlers=${handlerCount}`);
+    console.debug(`[forwardDeepLink] url=${url}, plugins=${pluginCount}, handlers=${handlerCount}`);
     for (const [, loaded] of loadedPluginsRef.current) {
       for (const handler of loaded.deepLinkHandlers) {
         try {

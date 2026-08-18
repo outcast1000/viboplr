@@ -4,6 +4,7 @@ import type { InfoEntity, InfoFetchResult, DisplayKind } from "../types/informat
 import { buildEntityKey } from "../types/informationTypes";
 import type { ImageFetchResult } from "../types/plugin";
 
+import { useAssignRef } from "./useLatestRef";
 // Centered, cancelable "Retrieve" modal for user-triggered image & info fetches.
 //
 // Model (matches how the background chain already works, but visible + pausable):
@@ -127,7 +128,7 @@ export function useRetrieveModal(
 ): UseRetrieveModalReturn {
   const [modal, setModal] = useState<RetrieveModalData | null>(null);
   const modalRef = useRef<RetrieveModalData | null>(null);
-  modalRef.current = modal;
+  useAssignRef(modalRef, modal);
 
   const genRef = useRef(0);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -153,7 +154,7 @@ export function useRetrieveModal(
     clearAppliedTimer();
     setModal(null);
   }, [clearTick, clearAppliedTimer]);
-  closeRef.current = close;
+  useAssignRef(closeRef, close);
 
   const startCountdown = useCallback((seconds: number, mode: "apply" | "close") => {
     clearTick();
@@ -352,7 +353,7 @@ export function useRetrieveModal(
       }
     })();
   }, [clearTick]);
-  applyNowRef.current = applyNow;
+  useAssignRef(applyNowRef, applyNow);
 
   const setKeepOpen = useCallback((keep: boolean) => {
     setModal((m) => {

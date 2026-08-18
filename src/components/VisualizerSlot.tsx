@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useInsertionEffect, useRef } from "react";
 import type {
   PluginVisualizer,
   PluginVisualizerHost,
@@ -13,6 +13,7 @@ import { getPlaybackPosition } from "../playback/positionStore";
 import { invoke } from "@tauri-apps/api/core";
 import { waveformKey } from "../hooks/useWaveform";
 import dsCss from "../design-system.css?raw";
+import { useAssignRef } from "../hooks/useLatestRef";
 import "./VisualizerSlot.css";
 
 /**
@@ -403,10 +404,10 @@ export function VisualizerSlot({
   // outside React's render cycle on purpose: a 60fps setState would re-render
   // the whole Now Playing view.
   const liveRef = useRef({ queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate });
-  liveRef.current = { queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate };
+  useAssignRef(liveRef, { queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate });
 
   const actionsRef = useRef({ onSeek, onPlayQueueIndex, onLoadQueueIndex, onSetPlaying, onSetRate });
-  actionsRef.current = { onSeek, onPlayQueueIndex, onLoadQueueIndex, onSetPlaying, onSetRate };
+  useAssignRef(actionsRef, { onSeek, onPlayQueueIndex, onLoadQueueIndex, onSetPlaying, onSetRate });
 
   /**
    * `queueRevision` lets a visualizer decide in O(1) whether to redo per-queue
@@ -415,10 +416,17 @@ export function VisualizerSlot({
    */
   const revisionRef = useRef(0);
   const lastQueueRef = useRef<QueueTrack[] | null>(null);
-  if (lastQueueRef.current !== queue) {
-    lastQueueRef.current = queue;
-    revisionRef.current += 1;
-  }
+  // Bumped in an insertion effect rather than inline in the render body: the only
+  // reader is the rAF frame loop below (plus the cached-peaks effect, which
+  // already bumps it from an effect), and both run after commit — so a committed
+  // write is observationally identical here, while a render-body write is one
+  // React forbids (see hooks/useLatestRef.ts).
+  useInsertionEffect(() => {
+    if (lastQueueRef.current !== queue) {
+      lastQueueRef.current = queue;
+      revisionRef.current += 1;
+    }
+  });
 
   // Mapped tracks are memoised against the same identity so we're not
   // rebuilding the whole queue every frame.

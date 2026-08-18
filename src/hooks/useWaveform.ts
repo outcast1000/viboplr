@@ -91,7 +91,7 @@ export function useWaveform(
         const cached = await invoke<WaveformCache | null>("get_cached_waveform", { key: cacheKey });
         if (cancelled) return;
         if (cached && cached.peaks && cached.peaks.length > 0) {
-          console.log(`[waveform] loaded cached: "${cached.name}" (${cached.duration}s, ${cached.peaks.length} buckets)`);
+          console.debug(`[waveform] loaded cached: "${cached.name}" (${cached.duration}s, ${cached.peaks.length} buckets)`);
           setPeaks(cached.peaks);
           return;
         }
@@ -113,7 +113,7 @@ export function useWaveform(
       }
       if (cancelled) return;
       if (!isWaveformSizeAllowed(fileSize)) {
-        console.log(`[waveform] skipped "${title}": size ${fileSize ?? "unknown"} not under the ${WAVEFORM_MAX_FILE_SIZE}-byte limit`);
+        console.debug(`[waveform] skipped "${title}": size ${fileSize ?? "unknown"} not under the ${WAVEFORM_MAX_FILE_SIZE}-byte limit`);
         return;
       }
 
@@ -170,16 +170,16 @@ export function useWaveform(
 
         const name = title;
         const duration = trackDuration || Math.round(audioBuffer.duration);
-        console.log(`[waveform] created new: "${name}" (${duration}s, ${result.length} buckets)`);
+        console.debug(`[waveform] created new: "${name}" (${duration}s, ${result.length} buckets)`);
         setPeaks(result);
 
         const waveform: WaveformCache = { name, duration, peaks: result };
         // Fire-and-forget: the waveform is already rendered from memory; a failed
         // cache write only costs a recompute next time this track plays.
-        invoke("cache_waveform", { key: cacheKey, waveform }).catch(() => {});
+        invoke("cache_waveform", { key: cacheKey, waveform }).catch(() => {}); // eslint-disable-line no-restricted-syntax
       } catch (e) {
         if (!cancelled) {
-          console.log("Waveform analysis failed:", e);
+          console.error("Waveform analysis failed:", e);
         }
       }
     })();

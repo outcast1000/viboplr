@@ -94,7 +94,6 @@ export async function withResolverLog<T>(
     const ms = Math.round(now() - t0);
     const error = e instanceof Error ? e.message : String(e);
     record({ seq: ++seq, ts: new Date().toISOString(), kind: meta.kind, provider: meta.provider, input: meta.input, outcome: "error", ms, error });
-    // eslint-disable-next-line no-console
     console.error(`[resolver] ${ICON.error} ${meta.kind} · ${meta.provider} (${ms}ms)`, meta.input, e);
     throw e;
   }

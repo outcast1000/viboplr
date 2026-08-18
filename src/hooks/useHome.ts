@@ -12,6 +12,7 @@ import { store } from "../store";
 import { isVideoTrack } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 
+import { useAssignRef } from "./useLatestRef";
 const STALE_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
 // Coalesce a burst of library changes (e.g. several collections finishing a resync
@@ -385,7 +386,7 @@ export function useHome(opts: UseHomeOptions) {
   // Read the latest active-plugin set inside effects without adding it to their
   // dependency arrays (the Set identity changes each render).
   const activePluginIdsRef = useRef<Set<string>>(activePluginIds);
-  activePluginIdsRef.current = activePluginIds;
+  useAssignRef(activePluginIdsRef, activePluginIds);
 
   const [radioStations, setRadioStations] = useState<RadioStation[]>([]);
   const [shelves, setShelves] = useState<ResolvedShelf[]>([]);
@@ -393,12 +394,12 @@ export function useHome(opts: UseHomeOptions) {
   const [hydrated, setHydrated] = useState(false);
   const refreshGenRef = useRef(0);
   const radioStationsRef = useRef<RadioStation[]>([]);
-  radioStationsRef.current = radioStations;
+  useAssignRef(radioStationsRef, radioStations);
   // Mirror of `shelves` so a refresh can seed itself from what's currently on
   // screen and update shelves in place (rather than collapsing the list and
   // rebuilding it one shelf at a time) — see refresh() below.
   const shelvesRef = useRef<ResolvedShelf[]>(shelves);
-  shelvesRef.current = shelves;
+  useAssignRef(shelvesRef, shelves);
   const savedAtRef = useRef<number>(0);
   // Resolver ids attempted in the last completed refresh — used to detect
   // freshly-installed plugin shelves that have never been fetched.
@@ -407,7 +408,7 @@ export function useHome(opts: UseHomeOptions) {
   // the revision the last refresh accounted for. A mismatch means a collection
   // resync landed new tracks that the shelves haven't picked up yet.
   const libRevRef = useRef(libraryRevision);
-  libRevRef.current = libraryRevision;
+  useAssignRef(libRevRef, libraryRevision);
   const refreshedRevRef = useRef(libraryRevision);
 
   // Pick the radio-station seeds for the hero carousel and resolve a cover image

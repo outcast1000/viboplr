@@ -16,6 +16,8 @@ jobs:
 
       - run: npm install
       - run: npx tsc --noEmit
+      # Gates on errors only; warnings are a declared backlog (see eslint.config.js).
+      - run: npm run lint
 
   rust-check-and-test:
     runs-on: ubuntu-latest

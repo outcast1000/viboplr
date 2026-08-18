@@ -10,6 +10,7 @@ import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
 import { classifyErrorKind } from "../utils/errorKind";
 
+import { useAssignRef } from "./useLatestRef";
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 
 /** Reuse a just-resolved src for the SAME track within this window instead of
@@ -200,18 +201,18 @@ export function useStreamResolution({
   // `requireDep` is read inside the build-once resolver below; keep it in a ref so
   // the resolver always calls the latest one without re-building the chain.
   const requireDepRef = useRef(requireDep);
-  requireDepRef.current = requireDep;
+  useAssignRef(requireDepRef, requireDep);
 
   // Scheme→owner lookup, read inside the build-once resolver. Kept fresh in a ref
   // so the chain always sees the current plugin set without rebuilding.
   const ownerRef = useRef(streamUriResolverOwner);
-  ownerRef.current = streamUriResolverOwner;
+  useAssignRef(ownerRef, streamUriResolverOwner);
 
   // Scheme → owning plugin's display name, for the same reason and read from the
   // same build-once resolver. Null when nothing owns the scheme, which leaves
   // `nativeResolverName` on its capitalized-protocol fallback.
   const pluginNamesRef = useRef(pluginNames);
-  pluginNamesRef.current = pluginNames;
+  useAssignRef(pluginNamesRef, pluginNames);
   const schemeDisplayName = (protocol: string): string | null => {
     const owner = ownerRef.current(protocol);
     return owner ? pluginNamesRef.current.get(owner) ?? null : null;

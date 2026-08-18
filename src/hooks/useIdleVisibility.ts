@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useAssignRef } from "./useLatestRef";
 /** Matches the fullscreen bar and the video theater overlay — every auto-hiding
  *  surface in the app fades on the same beat. */
 const DEFAULT_IDLE_MS = 3000;
@@ -49,7 +50,7 @@ export function useIdleVisibility({
   const timerRef = useRef<number>(0);
   const pinsRef = useRef<Set<string>>(new Set());
   const getTargetRef = useRef(getTarget);
-  getTargetRef.current = getTarget;
+  useAssignRef(getTargetRef, getTarget);
 
   /** Would an idle expiry be allowed to hide the surface right now? */
   const canHide = useCallback(

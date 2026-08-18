@@ -329,9 +329,14 @@ export function PluginTextInput({
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
   const [text, setText] = useState(value ?? "");
-  const prevValue = useRef(value);
-  if (value !== prevValue.current) {
-    prevValue.current = value;
+  // Resync the field when the plugin pushes a new `value`. This is React's
+  // documented "adjusting state when a prop changes" pattern, which keeps the
+  // previous prop in STATE rather than in a ref — a ref written during render is
+  // what `react-hooks/refs` forbids (see hooks/useLatestRef.ts), and an effect
+  // would show one frame of the stale text before correcting it.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setText(value ?? "");
   }
   // A textarea has no masked mode, so `password` takes precedence over

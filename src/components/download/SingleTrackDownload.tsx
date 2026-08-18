@@ -19,6 +19,7 @@ import { IconDownload } from "../Icons";
 import { TrackArtFallback } from "../TrackArtFallback";
 import { resolveImageUrl, resolveImageSrc } from "../../utils/resolveImageUrl";
 
+import { useAssignRef } from "../../hooks/useLatestRef";
 type SingleStep = "search" | "configure" | "conflict" | "downloading" | "result";
 
 /** mm:ss for a live counter. Unlike `formatDuration`, zero is a real value here
@@ -199,9 +200,9 @@ export function SingleTrackDownload({
 
   // Callback refs to avoid stale closures
   const onSearchRef = useRef(onSearch);
-  onSearchRef.current = onSearch;
+  useAssignRef(onSearchRef, onSearch);
   const onResolveRef = useRef(onResolve);
-  onResolveRef.current = onResolve;
+  useAssignRef(onResolveRef, onResolve);
 
   // Adaptive column detection
   const hasArt = results.some(r => r.coverUrl);

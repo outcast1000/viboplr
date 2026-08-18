@@ -14,6 +14,7 @@ import {
   type QuizMode,
   type QuizQuestion,
 } from "../utils/quiz";
+import { useAssignRef } from "../hooks/useLatestRef";
 import "./MusicQuizView.css";
 
 type Phase = "start" | "loading" | "question" | "locked" | "reveal" | "over";
@@ -77,10 +78,10 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
   const timeLeftRef = useRef(0);
   const scoreRef = useRef(0);
   const bestsRef = useRef<QuizBestScores>({});
-  modeRef.current = mode;
-  timeLeftRef.current = timeLeft;
-  scoreRef.current = score;
-  bestsRef.current = bests;
+  useAssignRef(modeRef, mode);
+  useAssignRef(timeLeftRef, timeLeft);
+  useAssignRef(scoreRef, score);
+  useAssignRef(bestsRef, bests);
 
   const schedule = useCallback((fn: () => void, ms: number) => {
     timersRef.current.push(window.setTimeout(fn, ms));
