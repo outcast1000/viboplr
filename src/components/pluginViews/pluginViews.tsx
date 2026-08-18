@@ -419,6 +419,9 @@ interface PluginTrackRowListProps {
   openOnClick?: boolean;
   // Extra buttons in the All / None group that select a named subset of rows.
   selectionPresets?: { id: string; label: string; ids: string[] }[];
+  // "single" drops the selection toolbar and keeps one row current. See
+  // isSingleSelect.
+  selectionMode?: "single" | "multi";
   actions?: { id: string; label: string; icon?: string }[];
   categories?: string[];
   numbered?: boolean;
@@ -515,9 +518,29 @@ export function rowActions<T extends { id: string }>(
 export function rowClickOpens(
   openOnClick: boolean | undefined,
   mods: { meta?: boolean; ctrl?: boolean; shift?: boolean },
+  selectionMode?: "single" | "multi",
 ): boolean {
   if (!openOnClick) return false;
+  // The modifier exception exists to keep a multi-selection reachable in a list
+  // that opens on click. A single-select list has no multi-selection and no
+  // toolbar to act on one, so there is nothing for the exception to preserve —
+  // and a Cmd-click that mysteriously didn't open the row would just read as a
+  // dead click.
+  if (isSingleSelect(selectionMode)) return true;
   return !mods.meta && !mods.ctrl && !mods.shift;
+}
+
+/**
+ * Is this list single-select?
+ *
+ * Absent means multi — the library-style listbox every existing plugin view
+ * gets, so an older plugin (and an older host reading a newer plugin's view,
+ * which simply ignores the field) is unaffected.
+ *
+ * Exported for unit testing.
+ */
+export function isSingleSelect(mode: "single" | "multi" | undefined): boolean {
+  return mode === "single";
 }
 
 // Dispatcher: the `selectable` row list (used by e.g. the YouTube search view)
@@ -543,10 +566,12 @@ function PluginTrackRowsSelectable({
   showHeader,
   openOnClick,
   selectionPresets,
+  selectionMode,
   onAction,
   onContextMenu,
   onRowsDragStart,
 }: PluginTrackRowListProps) {
+  const single = isSingleSelect(selectionMode);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeIndex, setActiveIndex] = useState(-1);
   const lastClickedIndexRef = useRef<number | null>(null);
@@ -602,6 +627,8 @@ function PluginTrackRowsSelectable({
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         if (selected.size > 0) setSelected(new Set());
+      } else if (single) {
+        // Nothing to select all of.
       } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && items.length > 0) {
         if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
         e.preventDefault();
@@ -610,7 +637,7 @@ function PluginTrackRowsSelectable({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, items]);
+  }, [selected, items, single]);
 
   // Keep the keyboard cursor's row scrolled into view as it moves.
   useEffect(() => {
@@ -636,16 +663,24 @@ function PluginTrackRowsSelectable({
     }
   }, [items, actions, onAction]);
 
+  // The one place the two selection modes differ: single-select ignores the
+  // modifiers entirely and makes the touched row the whole selection, so no
+  // gesture anywhere in the list can produce a second selected row.
+  function selectRow(index: number, meta: boolean, shift: boolean): Set<string> {
+    if (single) return new Set([items[index].id]);
+    return computeRowSelection(selected, items, index, lastClickedIndexRef.current, meta, shift);
+  }
+
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRef.current) return; // suppress the click that ends a drag
     if ((e.target as HTMLElement).closest(".row-hover-action")) return;
-    if (rowClickOpens(openOnClick, { meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey })) {
+    if (rowClickOpens(openOnClick, { meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey }, selectionMode)) {
       lastClickedIndexRef.current = index;
       setActiveIndex(index);
       playRow(index);
       return;
     }
-    setSelected(computeRowSelection(selected, items, index, lastClickedIndexRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
+    setSelected(selectRow(index, e.metaKey || e.ctrlKey, e.shiftKey));
     lastClickedIndexRef.current = index;
     setActiveIndex(index);
   }
@@ -700,7 +735,7 @@ function PluginTrackRowsSelectable({
     if (items.length === 0) return;
     const clamped = Math.max(0, Math.min(next, items.length - 1));
     setActiveIndex(clamped);
-    if (extend) {
+    if (extend && !single) {
       setSelected(computeRowSelection(selected, items, clamped, lastClickedIndexRef.current, false, true));
     } else {
       setSelected(new Set([items[clamped].id]));
@@ -719,7 +754,7 @@ function PluginTrackRowsSelectable({
       case " ":
         if (activeIndex >= 0) {
           e.preventDefault();
-          setSelected(computeRowSelection(selected, items, activeIndex, lastClickedIndexRef.current, true, false));
+          setSelected(selectRow(activeIndex, true, false));
           lastClickedIndexRef.current = activeIndex;
         }
         break;
@@ -735,6 +770,12 @@ function PluginTrackRowsSelectable({
 
   return (
     <div className="ptr-list">
+      {/* Every control in this bar acts on a multi-selection — All / None and
+          the presets build one, the action buttons consume one — so in
+          single-select mode the whole bar is furniture with nothing to do. The
+          same actions are still on each row's hover tray, which is where a
+          single-select list does its work. */}
+      {!single && (
       <div className="ptr-toolbar">
         <div className="ptr-toolbar-left">
           <button className="ptr-toolbar-btn" onClick={selectAll}>All</button>
@@ -774,6 +815,7 @@ function PluginTrackRowsSelectable({
           </div>
         )}
       </div>
+      )}
       {showHeader && (
         <div className="ptr-header">
           {numbered && <span className="ptr-num">#</span>}
@@ -786,7 +828,7 @@ function PluginTrackRowsSelectable({
       <div
         className={`ptr-rows ptr-rows-selectable${openOnClick ? " ptr-rows-open" : ""}${useCv ? " ptr-rows-cv" : ""}`}
         role="listbox"
-        aria-multiselectable="true"
+        aria-multiselectable={single ? undefined : "true"}
         aria-label="Tracks"
         aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
         tabIndex={0}

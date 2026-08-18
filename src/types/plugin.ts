@@ -289,6 +289,14 @@ export type PluginViewData =
       // (intersected with what is on screen — see `presetIds`). Requires
       // `selectable`.
       selectionPresets?: { id: string; label: string; ids: string[] }[];
+      // How many rows can be selected at once. `"multi"` (the default) is the
+      // library-style listbox with the All / None selection toolbar above it.
+      // `"single"` drops that toolbar entirely and lets one row be current at a
+      // time — for a list whose actions are per-row (each row's hover buttons)
+      // rather than per-selection, where a bulk toolbar is a control with
+      // nothing to act on. `selectionPresets` are ignored in single mode, since
+      // a preset's whole job is selecting several rows. Requires `selectable`.
+      selectionMode?: "single" | "multi";
       actions?: { id: string; label: string; icon?: string }[];
       categories?: string[];
       numbered?: boolean;

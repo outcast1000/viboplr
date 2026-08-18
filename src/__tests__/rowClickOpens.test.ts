@@ -28,6 +28,22 @@ describe("rowClickOpens", () => {
     expect(rowClickOpens(true, { meta: true, shift: true })).toBe(false);
   });
 
+  it("opens on a modifier click when the list is single-select", () => {
+    // The exception above exists to keep a multi-selection reachable. A
+    // single-select list has none, and no toolbar to act on one, so a
+    // Cmd-click that refused to open the row would just be a dead click.
+    expect(rowClickOpens(true, { meta: true }, "single")).toBe(true);
+    expect(rowClickOpens(true, { shift: true }, "single")).toBe(true);
+    expect(rowClickOpens(true, { meta: true }, "multi")).toBe(false);
+    // And an absent mode is still multi, so nothing that shipped changes.
+    expect(rowClickOpens(true, { meta: true }, undefined)).toBe(false);
+  });
+
+  it("does not turn a non-opted-in list into an opening one", () => {
+    expect(rowClickOpens(false, plain, "single")).toBe(false);
+    expect(rowClickOpens(undefined, { meta: true }, "single")).toBe(false);
+  });
+
   it("never opens on a modifier click in an opted-out list either", () => {
     expect(rowClickOpens(false, { meta: true })).toBe(false);
     expect(rowClickOpens(undefined, { shift: true })).toBe(false);
