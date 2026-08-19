@@ -217,7 +217,8 @@ pub fn version_lt(installed: &str, latest: &str) -> bool {
 }
 
 /// Latest-version lookups are cached for 24h; failures are cached too so a
-/// flaky network can't hammer the GitHub API (60 req/h unauthenticated).
+/// flaky network can't hammer github.com. See `latest_version` for why the
+/// lookup is a redirect probe and not the (per-IP rate-limited) GitHub API.
 const LATEST_VERSION_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub struct DepCache {
@@ -636,8 +637,50 @@ fn http_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| format!("HTTP client error: {}", e))
 }
 
-/// Latest release tag for a managed dependency, via the GitHub API.
-/// Results (including failures) are cached for 24h in `cache`.
+/// Client for the `releases/latest` version probe. Deliberately **not**
+/// `http_client()`: that one follows redirects, which is required for asset
+/// downloads (github.com -> objects.githubusercontent.com) and is exactly what
+/// must not happen here — the answer we want *is* the redirect.
+fn redirect_probe_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .user_agent("Viboplr")
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("HTTP client error: {}", e))
+}
+
+/// Tag out of a `.../releases/tag/<tag>` redirect target. Trims a leading `v`
+/// the same way the release tag itself is read, so the comparison feeds
+/// `version_lt` in the same shape as before.
+pub fn parse_latest_tag_from_location(location: &str) -> Option<String> {
+    let tag = location.rsplit_once("/releases/tag/")?.1;
+    let tag = tag.split(['?', '#']).next()?.trim_end_matches('/');
+    let tag = tag.trim_start_matches('v');
+    (!tag.is_empty()).then(|| tag.to_string())
+}
+
+/// Latest release tag for a managed dependency, read from the 302 that
+/// `github.com/{repo}/releases/latest` answers with. Results (including
+/// failures) are cached for 24h in `cache`.
+///
+/// **Not the GitHub API, deliberately.** `api.github.com` carries a 60 req/h
+/// unauthenticated budget *per IP*, which on a shared NAT egress is exhausted by
+/// everyone else behind it — measured on a corporate link where every lookup
+/// came back `403 Forbidden` (`rate limit exceeded for <egress ip>`) while
+/// `github.com` itself stayed fine. That failure is silent by design (the
+/// auto-updater logs a warn and skips) *and* it hid the manual escape hatch,
+/// since the Settings Update button is gated on `outdated`, which needs this
+/// answer. `github.com` has no such budget and is the host
+/// `install_managed` already talks to.
+///
+/// It also removes an asymmetry: `install_managed` downloads from
+/// `releases/latest/download/{asset}`, which is the *same* redirect resolution,
+/// so the version reported here and the bytes installed there now come from one
+/// resolution of "latest" instead of two independent ones.
+///
+/// `HEAD` because the 302's body is empty anyway — this costs one round trip
+/// and no payload.
 pub fn latest_version(name: &str, cache: &DepCache) -> Result<String, String> {
     if let Some(cached) = cache.get_latest(name) {
         return cached.ok_or_else(|| format!("Latest version lookup for {} failed recently", name));
@@ -649,20 +692,24 @@ pub fn latest_version(name: &str, cache: &DepCache) -> Result<String, String> {
         .as_ref()
         .ok_or_else(|| format!("{} is not a managed dependency", name))?;
 
-    let url = format!("https://api.github.com/repos/{}/releases/latest", managed.repo);
+    let url = format!("https://github.com/{}/releases/latest", managed.repo);
     let result: Result<String, String> = (|| {
-        let resp = http_client()?
-            .get(&url)
+        let resp = redirect_probe_client()?
+            .head(&url)
             .send()
-            .map_err(|e| format!("HTTP error: {}", e))?;
-        if !resp.status().is_success() {
+            .map_err(|e| format!("HTTP error: {}", crate::error_chain::err_chain(&e)))?;
+        if !resp.status().is_redirection() {
+            // A 404 here means the repo has no non-prerelease release — the same
+            // condition that would make the download alias fail.
             return Err(format!("HTTP {}", resp.status()));
         }
-        let json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
-        json["tag_name"]
-            .as_str()
-            .map(|s| s.trim_start_matches('v').to_string())
-            .ok_or_else(|| "No tag_name in release".to_string())
+        let location = resp
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| "Redirect carried no Location header".to_string())?;
+        parse_latest_tag_from_location(location)
+            .ok_or_else(|| format!("No release tag in redirect target: {}", location))
     })();
 
     cache.set_latest(name, result.as_ref().ok().cloned());
@@ -1268,6 +1315,59 @@ mod tests {
         // '*' binary-mode prefix is stripped
         assert_eq!(parse_checksum_line(sums, "yt-dlp.exe"), Some("789ghi".to_string()));
         assert_eq!(parse_checksum_line(sums, "missing"), None);
+    }
+
+    #[test]
+    fn test_parse_latest_tag_from_location() {
+        // The real shape, as answered by github.com for the nightly repo.
+        assert_eq!(
+            parse_latest_tag_from_location(
+                "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/tag/2026.08.18.122307"
+            ),
+            Some("2026.08.18.122307".to_string())
+        );
+        // A leading `v` is trimmed, matching how the tag was read before.
+        assert_eq!(
+            parse_latest_tag_from_location("https://github.com/o/r/releases/tag/v7.1"),
+            Some("7.1".to_string())
+        );
+        // Tolerates a trailing slash and a query/fragment tail.
+        assert_eq!(
+            parse_latest_tag_from_location("https://github.com/o/r/releases/tag/1.2.3/"),
+            Some("1.2.3".to_string())
+        );
+        assert_eq!(
+            parse_latest_tag_from_location("https://github.com/o/r/releases/tag/1.2.3?x=1"),
+            Some("1.2.3".to_string())
+        );
+    }
+
+    /// Real network, hence `#[ignore]`d. Run with
+    /// `cargo test --lib probe_latest_version_redirect -- --ignored --nocapture`
+    /// after touching the lookup, to confirm github.com still answers the probe
+    /// with a 302 whose Location carries a parseable tag.
+    #[test]
+    #[ignore]
+    fn probe_latest_version_redirect() {
+        let cache = DepCache::new();
+        let version = latest_version("yt-dlp", &cache).expect("lookup failed");
+        println!("latest yt-dlp (nightly channel): {}", version);
+        assert!(version.starts_with("20"), "expected a date-shaped tag, got {}", version);
+        // Second call must be served from the TTL cache, not the network.
+        assert_eq!(latest_version("yt-dlp", &cache).unwrap(), version);
+    }
+
+    #[test]
+    fn test_parse_latest_tag_rejects_a_non_release_redirect() {
+        // Anything that isn't a release-tag URL must be an error, not a version:
+        // a login interstitial or a bare repo redirect would otherwise be fed to
+        // `version_lt` as a version string.
+        assert_eq!(parse_latest_tag_from_location("https://github.com/o/r/releases"), None);
+        assert_eq!(parse_latest_tag_from_location("https://github.com/login"), None);
+        assert_eq!(parse_latest_tag_from_location(""), None);
+        // Present but empty tag segment.
+        assert_eq!(parse_latest_tag_from_location("https://github.com/o/r/releases/tag/"), None);
+        assert_eq!(parse_latest_tag_from_location("https://github.com/o/r/releases/tag/v"), None);
     }
 
     #[test]

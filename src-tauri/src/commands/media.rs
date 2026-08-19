@@ -421,8 +421,9 @@ pub async fn dependency_uninstall_managed(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
-/// Latest-vs-installed comparison for every managed dependency. Hits the
-/// GitHub API at most once per dep per 24h (TTL-cached, failures included).
+/// Latest-vs-installed comparison for every managed dependency. One
+/// `releases/latest` redirect probe per dep per 24h (TTL-cached, failures
+/// included) — never the rate-limited GitHub API; see `latest_version`.
 #[tauri::command]
 pub async fn dependency_check_updates(
     state: State<'_, AppState>,
