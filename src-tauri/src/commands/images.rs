@@ -67,38 +67,78 @@ pub fn remove_entity_image(state: State<'_, AppState>, kind: String, name: Strin
 }
 
 // --- Artist/album image fetch commands ---
+//
+// `force` separates the two callers, and conflating them was a real bug. A user
+// asking to re-fetch an image (`useImageCache.requestFetch`) means "throw away
+// what you know and try again": drop the file and the recorded failure. A
+// surface merely needing a thumbnail it hasn't got (`useImageCache.getImage`)
+// means "fetch this if you can" — and must NOT clear the failure record, or the
+// 24h suppression in `is_image_failed` can never engage. Every call used to be
+// `force: true`, which made that suppression — and so the whole
+// `image_fetch_failures` table — unreachable: an entity no provider has art for
+// was re-resolved on a loop, each pass costing an iTunes + Deezer + MusicBrainz
+// (+ CoverArtArchive) round trip for an answer already known to be "no".
+
+/// Queue an image fetch, dropping any cached negative result only when the
+/// caller explicitly asked for a refresh.
+fn queue_image_fetch(
+    state: &State<'_, AppState>,
+    kind: &str,
+    slug: &str,
+    label: &str,
+    force: bool,
+    request: ImageDownloadRequest,
+) {
+    if force {
+        crate::entity_image::remove_image(&state.app_dir, kind, slug);
+        let _ = state.db.clear_image_failure(kind, slug);
+    }
+    let mut queue = state.download_queue.queue.lock().unwrap();
+    // The queue is drained one entity at a time with a 1100ms courtesy delay, so
+    // a duplicate is not merely redundant work — it is a second full pass over
+    // every provider for an answer already in flight. Several surfaces ask for
+    // the same thumbnail in the same tick (observed: four entities queued twice
+    // within 21ms), so dedupe on the way in.
+    if queue.contains(&request) {
+        return;
+    }
+    log::info!(
+        "Queued {} image download: {}{}",
+        kind,
+        label,
+        if force { " (forced)" } else { "" }
+    );
+    queue.push(request);
+    state.download_queue.condvar.notify_one();
+}
 
 #[tauri::command]
-pub fn fetch_artist_image(state: State<'_, AppState>, artist_name: String) {
+pub fn fetch_artist_image(state: State<'_, AppState>, artist_name: String, force: Option<bool>) {
     let slug = crate::entity_image::entity_image_slug("artist", &artist_name, None);
-    crate::entity_image::remove_image(&state.app_dir, "artist", &slug);
-    let _ = state.db.clear_image_failure("artist", &slug);
-    log::info!("Queued artist image download: {}", artist_name);
-    let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Artist { name: artist_name, force: true });
-    state.download_queue.condvar.notify_one();
+    let force = force.unwrap_or(false);
+    let request = ImageDownloadRequest::Artist { name: artist_name.clone(), force };
+    queue_image_fetch(&state, "artist", &slug, &artist_name, force, request);
 }
 
 #[tauri::command]
-pub fn fetch_album_image(state: State<'_, AppState>, album_title: String, artist_name: Option<String>) {
+pub fn fetch_album_image(
+    state: State<'_, AppState>,
+    album_title: String,
+    artist_name: Option<String>,
+    force: Option<bool>,
+) {
     let slug = crate::entity_image::entity_image_slug("album", &album_title, artist_name.as_deref());
-    crate::entity_image::remove_image(&state.app_dir, "album", &slug);
-    let _ = state.db.clear_image_failure("album", &slug);
-    log::info!("Queued album image download: {}", album_title);
-    let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Album { title: album_title, artist_name, force: true });
-    state.download_queue.condvar.notify_one();
+    let force = force.unwrap_or(false);
+    let request = ImageDownloadRequest::Album { title: album_title.clone(), artist_name, force };
+    queue_image_fetch(&state, "album", &slug, &album_title, force, request);
 }
 
 #[tauri::command]
-pub fn fetch_tag_image(state: State<'_, AppState>, tag_name: String) {
+pub fn fetch_tag_image(state: State<'_, AppState>, tag_name: String, force: Option<bool>) {
     let slug = crate::entity_image::entity_image_slug("tag", &tag_name, None);
-    crate::entity_image::remove_image(&state.app_dir, "tag", &slug);
-    let _ = state.db.clear_image_failure("tag", &slug);
-    log::info!("Queued tag image download: {}", tag_name);
-    let mut queue = state.download_queue.queue.lock().unwrap();
-    queue.push(ImageDownloadRequest::Tag { name: tag_name, force: true });
-    state.download_queue.condvar.notify_one();
+    let force = force.unwrap_or(false);
+    let request = ImageDownloadRequest::Tag { name: tag_name.clone(), force };
+    queue_image_fetch(&state, "tag", &slug, &tag_name, force, request);
 }
 
 #[tauri::command]

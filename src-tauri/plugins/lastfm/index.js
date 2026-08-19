@@ -407,25 +407,45 @@ function activate(api) {
       .trim();
   };
 
-  function fetchArtistInfo(artistName) {
-    var cacheKey = "artist_info:" + artistName.toLowerCase();
-    return cacheGet(cacheKey).then(function (cached) {
+  // Read-through cache with single-flight.
+  //
+  // The cache alone is not enough, and the gap was visible on every track
+  // change: several information types and Now Playing items ask for the same
+  // `*.getInfo` at once, all miss (nothing is written yet), and all fetch. One
+  // track change produced three byte-identical `track.getInfo` requests. Keying
+  // the in-flight promise by the same cache key collapses them into one call
+  // whose result every caller shares.
+  var inFlightInfo = Object.create(null);
+
+  function cachedInfo(cacheKey, fetcher) {
+    var pending = inFlightInfo[cacheKey];
+    if (pending) return pending;
+    var run = cacheGet(cacheKey).then(function (cached) {
       if (cached) return cached;
-      return lastfmGet("artist.getInfo", [["artist", artistName], ["autocorrect", "1"]]).then(function (data) {
+      return fetcher().then(function (data) {
         cacheSet(cacheKey, data);
         return data;
       });
+    });
+    inFlightInfo[cacheKey] = run;
+    // Clear on settle either way: a cached rejection would make one transient
+    // network failure permanent for the rest of the session.
+    var forget = function () { delete inFlightInfo[cacheKey]; };
+    run.then(forget, forget);
+    return run;
+  }
+
+  function fetchArtistInfo(artistName) {
+    var cacheKey = "artist_info:" + artistName.toLowerCase();
+    return cachedInfo(cacheKey, function () {
+      return lastfmGet("artist.getInfo", [["artist", artistName], ["autocorrect", "1"]]);
     });
   }
 
   function fetchAlbumInfo(artistName, albumName) {
     var cacheKey = "album_info:" + artistName.toLowerCase() + ":" + albumName.toLowerCase();
-    return cacheGet(cacheKey).then(function (cached) {
-      if (cached) return cached;
-      return lastfmGet("album.getInfo", [["artist", artistName], ["album", albumName], ["autocorrect", "1"]]).then(function (data) {
-        cacheSet(cacheKey, data);
-        return data;
-      });
+    return cachedInfo(cacheKey, function () {
+      return lastfmGet("album.getInfo", [["artist", artistName], ["album", albumName], ["autocorrect", "1"]]);
     });
   }
 
@@ -434,12 +454,8 @@ function activate(api) {
   // items read the same cached response (and report the same numbers).
   function fetchTrackInfo(artistName, title) {
     var cacheKey = "track_info:" + artistName.toLowerCase() + ":" + title.toLowerCase();
-    return cacheGet(cacheKey).then(function (cached) {
-      if (cached) return cached;
-      return lastfmGet("track.getInfo", [["artist", artistName], ["track", title], ["autocorrect", "1"]]).then(function (data) {
-        cacheSet(cacheKey, data);
-        return data;
-      });
+    return cachedInfo(cacheKey, function () {
+      return lastfmGet("track.getInfo", [["artist", artistName], ["track", title], ["autocorrect", "1"]]);
     });
   }
 

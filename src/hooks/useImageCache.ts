@@ -31,6 +31,30 @@ export function imageUrlWithVersion(path: string | null, version: number): strin
   return `${path}#v=${version}`;
 }
 
+/**
+ * Ask the backend worker to fetch an entity image.
+ *
+ * `force` is the whole reason this is one helper rather than two inlined
+ * `invoke` blocks: the automatic ("I need a thumbnail") and explicit ("fetch
+ * this again") paths must send different values, and when they were separate
+ * copies both sent the forcing one. That cleared the backend's recorded failure
+ * on every cache miss, so its 24h retry suppression never engaged.
+ */
+function requestBackendFetch(
+  kind: "artist" | "album" | "tag",
+  name: string,
+  artistName: string | null | undefined,
+  force: boolean,
+): void {
+  if (kind === "artist") {
+    invoke("fetch_artist_image", { artistName: name, force }).catch(console.error);
+  } else if (kind === "album") {
+    invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null, force }).catch(console.error);
+  } else {
+    invoke("fetch_tag_image", { tagName: name, force }).catch(console.error);
+  }
+}
+
 export interface UseImageCacheReturn {
   getImage: (name: string, artistName?: string | null) => string | null;
   /**
@@ -84,14 +108,12 @@ export function useImageCache(
       .then((path) => {
         setCache((prev) => ({ ...prev, [key]: path }));
         if (path === null) {
-          // No image on disk — trigger a fetch
-          if (kind === "artist") {
-            invoke("fetch_artist_image", { artistName: name }).catch(console.error);
-          } else if (kind === "album") {
-            invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null }).catch(console.error);
-          } else if (kind === "tag") {
-            invoke("fetch_tag_image", { tagName: name }).catch(console.error);
-          }
+          // No image on disk — trigger a fetch. NOT forced: this is a surface
+          // that wants a thumbnail, not a user asking to try again, so the
+          // backend's 24h failure suppression must stay in effect. Forcing here
+          // cleared the failure record on every miss, so an entity no provider
+          // has art for was re-resolved forever.
+          requestBackendFetch(kind, name, artistName, false);
         }
       })
       .catch((err) => {
@@ -129,13 +151,9 @@ export function useImageCache(
       delete next[key];
       return next;
     });
-    if (kind === "artist") {
-      invoke("fetch_artist_image", { artistName: name }).catch(console.error);
-    } else if (kind === "album") {
-      invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null }).catch(console.error);
-    } else if (kind === "tag") {
-      invoke("fetch_tag_image", { tagName: name }).catch(console.error);
-    }
+    // Forced: an explicit "fetch this again" discards the cached file and any
+    // recorded failure, which is exactly what the automatic path must not do.
+    requestBackendFetch(kind, name, artistName, true);
   }, [kind, bumpVersion]);
 
   const clearAllFailures = useCallback(() => {

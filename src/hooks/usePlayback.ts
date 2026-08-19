@@ -939,8 +939,18 @@ export function usePlayback(
   // positionSecs persisted by its own sampled subscription below; currentTrack
   // persisted by App.tsx as QueueEntry.
   const lastPositionPersistRef = useRef(0);
+  // Log on an actual track change, not on every replacement of the object.
+  // `currentTrack` is re-created whenever anything patches it (the durable-like
+  // reconcile, a metadata edit, an image landing), so keying the log on object
+  // identity printed "Track changed" three times in 22ms for one play.
+  const lastLoggedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (currentTrack) logPlayback(`Track changed: ${currentTrack.artist_name ?? "?"} — ${currentTrack.title} (key=${currentTrack.key})`);
+    if (currentTrack && currentTrack.key !== lastLoggedKeyRef.current) {
+      lastLoggedKeyRef.current = currentTrack.key;
+      logPlayback(`Track changed: ${currentTrack.artist_name ?? "?"} — ${currentTrack.title} (key=${currentTrack.key})`);
+    } else if (!currentTrack) {
+      lastLoggedKeyRef.current = null;
+    }
     // Flush the new track's position immediately: every track-change entry
     // point (play, cue-restore, engine hand-off, stop) sets the position store
     // synchronously before this effect runs, so a quit right after a track

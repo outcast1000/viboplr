@@ -65,6 +65,9 @@ macro_rules! env_or_empty {
 pub const LASTFM_API_KEY: &str = env_or_empty!("LASTFM_API_KEY");
 pub const LASTFM_API_SECRET: &str = env_or_empty!("LASTFM_API_SECRET");
 
+/// `PartialEq` so the queue can reject a duplicate on the way in — see
+/// `images::queue_image_fetch`.
+#[derive(PartialEq)]
 pub enum ImageDownloadRequest {
     Artist { name: String, force: bool },
     Album { title: String, artist_name: Option<String>, force: bool },

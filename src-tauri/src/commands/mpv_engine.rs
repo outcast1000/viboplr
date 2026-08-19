@@ -170,7 +170,7 @@ pub fn engine_preload(
     crossfade: bool,
 ) -> Result<(), String> {
     match state.mpv_engine.get() {
-        Some(engine) => engine.preload(source.as_mpv_target(), &track_key, crossfade),
+        Some(engine) => engine.preload(source.as_mpv_target(), source.headers(), &track_key, crossfade),
         None => Err("mpv engine is not running".into()),
     }
 }

@@ -791,16 +791,8 @@ impl Engine {
             .map_err(|e| format!("mpv volume failed: {e}"))?;
         deck.set_property("pause", false)
             .map_err(|e| format!("mpv unpause failed: {e}"))?;
-        // One `change-list` op per header, never a delimited property write —
-        // see http_headers.rs for the malformed requests that produced. `clr`
-        // first because appends accumulate: without it the previous track's
-        // signed User-Agent would ride along on this one's request.
-        deck.command("change-list", &["http-header-fields", "clr", ""])
-            .map_err(|e| format!("mpv request-header reset failed: {e}"))?;
-        for line in mpv_http_header_lines(headers) {
-            deck.command("change-list", &["http-header-fields", "append", &line])
-                .map_err(|e| format!("mpv request-header setup failed: {e}"))?;
-        }
+        Self::apply_http_headers(deck, headers)
+            .map_err(|e| format!("mpv request-header setup failed: {e}"))?;
         // Hi-res sources (e.g. YouTube ≥720p) only offer split video-only +
         // audio-only streams; attach the audio via mpv's per-file `audio-file`
         // option so mpv muxes them at playback. loadfile's options field is the
@@ -820,10 +812,39 @@ impl Engine {
         Ok(())
     }
 
+    /// Set a deck's request headers for the file it is about to open.
+    ///
+    /// One `change-list` op per header, never a delimited property write — see
+    /// http_headers.rs for the malformed requests that produced. `clr` first
+    /// because appends accumulate: without it the previous track's signed
+    /// User-Agent would ride along on this one's request.
+    fn apply_http_headers(
+        deck: &api::Mpv,
+        headers: Option<&HashMap<String, String>>,
+    ) -> api::Result<()> {
+        deck.command("change-list", &["http-header-fields", "clr", ""])?;
+        for line in mpv_http_header_lines(headers) {
+            deck.command("change-list", &["http-header-fields", "append", &line])?;
+        }
+        Ok(())
+    }
+
     /// Arm the next track. `crossfade` picks the transition machinery: standby
     /// deck (fade / hard-cut safety net) vs. active-deck playlist (gapless).
     /// Exclusive mode forces gapless — the standby deck can't open the device.
-    pub fn preload(&self, url: &str, track_key: &str, crossfade: bool) -> Result<(), String> {
+    ///
+    /// `headers` must be applied here for the same reason `play` applies them:
+    /// a signed CDN URL is bound to the User-Agent that minted it, so arming one
+    /// without its headers loads it under the *previous* track's headers and the
+    /// host sees a 403 (see http_headers.rs). Preload used to drop them, which
+    /// made every armed yt-dlp track refuse and fall back to a re-resolve.
+    pub fn preload(
+        &self,
+        url: &str,
+        headers: Option<&HashMap<String, String>>,
+        track_key: &str,
+        crossfade: bool,
+    ) -> Result<(), String> {
         let crossfade = crossfade && !self.state.lock().unwrap().exclusive;
         self.clear_preload()?;
         if crossfade {
@@ -835,8 +856,8 @@ impl Engine {
                 standby
             };
             let deck = &self.decks[standby].mpv;
-            let armed = deck
-                .set_property("pause", true)
+            let armed = Self::apply_http_headers(deck, headers)
+                .and_then(|_| deck.set_property("pause", true))
                 .and_then(|_| deck.set_property("volume", 0.0))
                 .and_then(|_| deck.command("loadfile", &[url, "replace"]));
             if let Err(e) = armed {
@@ -851,7 +872,13 @@ impl Engine {
                 st.gapless_key = Some(track_key.to_string());
                 st.active
             };
-            if let Err(e) = self.decks[active].mpv.command("loadfile", &[url, "append"]) {
+            // Gapless appends to the deck that is already playing. Its current
+            // file is open, so re-setting the header list here only affects the
+            // entry being armed — which is the one that needs these headers.
+            let deck = &self.decks[active].mpv;
+            let armed = Self::apply_http_headers(deck, headers)
+                .and_then(|_| deck.command("loadfile", &[url, "append"]));
+            if let Err(e) = armed {
                 self.state.lock().unwrap().gapless_key = None;
                 return Err(format!("mpv preload failed: {e}"));
             }
@@ -1688,7 +1715,7 @@ mod tests {
             .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
             .expect("play");
         engine
-            .preload(wav_b.to_str().unwrap(), "trk:b", false)
+            .preload(wav_b.to_str().unwrap(), None, "trk:b", false)
             .expect("preload");
 
         // Track A finishes -> gapless promotion of B (no `engine-ended`).
@@ -1851,7 +1878,7 @@ mod tests {
             .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
             .expect("play");
         engine
-            .preload(wav_b.to_str().unwrap(), "trk:b", true)
+            .preload(wav_b.to_str().unwrap(), None, "trk:b", true)
             .expect("crossfade preload");
         // The arm must leave the standby deck paused at the start of B.
         std::thread::sleep(Duration::from_millis(400));
@@ -1882,7 +1909,7 @@ mod tests {
             .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
             .expect("play");
         engine
-            .preload(wav_b.to_str().unwrap(), "trk:b", true)
+            .preload(wav_b.to_str().unwrap(), None, "trk:b", true)
             .expect("crossfade preload");
         // Never trigger the fade — A reaches EOF and the safety net cuts to B.
         let changed = wait_for(&rx, "engine-track-changed", Duration::from_secs(10));
@@ -1954,7 +1981,7 @@ mod tests {
         // Crossfade requested, but exclusive mode must arm same-deck gapless
         // (the standby deck can't open an exclusively-held device).
         engine
-            .preload(wav_b.to_str().unwrap(), "trk:b", true)
+            .preload(wav_b.to_str().unwrap(), None, "trk:b", true)
             .expect("preload");
         {
             let st = engine.state.lock().unwrap();
@@ -2071,6 +2098,53 @@ mod tests {
             assert!(line.contains(':'), "every header line needs a colon; {line:?} is malformed");
             assert!(!line.starts_with('%'), "length-prefix escaping leaked onto the wire: {line:?}");
         }
+    }
+
+    /// The same guarantee for the **preload** path. It had none: `engine_preload`
+    /// received the resolver's headers and passed only the URL, so an armed
+    /// track was fetched under whatever headers the deck still held from the
+    /// previous one — a signed CDN URL bound to a different User-Agent, i.e. a
+    /// 403 that surfaced as "the arm was refused" and cost a full re-resolve on
+    /// every gapless hand-off.
+    #[test]
+    fn test_preload_headers_reach_the_server_verbatim() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().unwrap().port();
+
+        let seen = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut lines = Vec::new();
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 { break; }
+                let line = line.trim_end_matches(['\r', '\n']).to_string();
+                if line.is_empty() { break; }
+                lines.push(line);
+            }
+            let mut s = stream;
+            let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            lines
+        });
+
+        let (sink, _rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        let mut headers = HashMap::new();
+        headers.insert("User-Agent".to_string(), "UA/1.0 (KHTML, like Gecko)".to_string());
+        headers.insert("Accept".to_string(), "text/html,application/xml;q=0.9".to_string());
+        // Crossfade arming loads on the standby deck straight away, so the
+        // request goes out without needing a play in front of it.
+        engine
+            .preload(&format!("http://127.0.0.1:{port}/armed.m4a"), Some(&headers), "trk:arm", true)
+            .expect("preload accepted");
+
+        let lines = seen.join().expect("server thread");
+        eprintln!("[preload-header-test] request lines: {lines:#?}");
+        assert!(lines.contains(&"User-Agent: UA/1.0 (KHTML, like Gecko)".to_string()),
+            "an armed track must carry its own resolver's User-Agent — got {lines:#?}");
+        assert!(lines.contains(&"Accept: text/html,application/xml;q=0.9".to_string()),
+            "a comma-bearing value must arrive as ONE header — got {lines:#?}");
     }
 
     /// Diagnostic probe for the yt-dlp / YouTube split-stream playback failure:
