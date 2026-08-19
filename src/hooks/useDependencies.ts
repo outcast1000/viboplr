@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { type PluginState } from "../types/plugin";
+import { useAssignRef, useLatestRef } from "./useLatestRef";
 import { track as trackTelemetry } from "../telemetry";
 
 export interface InstallInstructions {
@@ -98,6 +99,14 @@ export function useDependencies(pluginStates: PluginState[]) {
   // Plugin-declaration signature the current `deps` were built from; null until
   // the first successful `checkAll`. See the re-probe effect below.
   const checkedSignatureRef = useRef<string | null>(null);
+  // Forward declarations for the `dependency-updated` listener below, which is
+  // installed once and must re-probe the dep the background updater replaced.
+  // Both are defined further down, hence the assign-later ref pattern.
+  const checkDepRef = useRef<(name: string) => Promise<DependencyInfo | null>>(async () => null);
+  const checkUpdatesRef = useRef<() => Promise<DepUpdateInfo[]>>(async () => []);
+  // Read by that listener to tell "the list is on screen, refresh this row"
+  // from "nothing has ever run a check" — see the guard there.
+  const depsRef = useLatestRef(deps);
 
   useEffect(() => {
     const stopProgress = subscribe<{ name: string; downloaded: number; total: number | null }>(
@@ -107,15 +116,28 @@ export function useDependencies(pluginStates: PluginState[]) {
         setInstalling((prev) => ({ ...prev, [name]: { downloaded, total } }));
       },
     );
-    // Background auto-updater replaced a managed copy — drop the stale
-    // cached check so the next look re-probes, and leave a log trail.
+    // Background auto-updater replaced a managed copy — re-probe it so the row
+    // shows the new version, and leave a log trail. It must be a re-probe, not
+    // a removal: dropping the row was the whole state change here, and nothing
+    // ever performed the "next look" it assumed, so a silently updated dep
+    // vanished from Settings until the user hit Refresh (SettingsPanel's mount
+    // effect is gated on `deps.length === 0`, and ffmpeg keeps it non-empty).
     const stopUpdated = subscribe<{ name: string; from: string; to: string }>(
       "dependency-updated",
       (event) => {
         const { name, from, to } = event.payload;
+        // Force a real probe: the binary changed under us.
         checkedRef.current.delete(name);
-        setDeps((prev) => prev.filter((d) => d.name !== name));
-        setUpdates((prev) => prev.filter((u) => u.name !== name));
+        // Only refresh a row that is already in the list. The updater fires 30s
+        // after launch, typically before anything has run a check — probing here
+        // would then *create* a one-row `deps`, and SettingsPanel's mount effect
+        // (gated on `deps.length === 0`) would skip its full `checkAll`, leaving
+        // Settings showing yt-dlp and no ffmpeg.
+        if (depsRef.current.some((d) => d.name === name)) {
+          checkDepRef.current(name).catch(console.error);
+          // Clears the now-stale "Update available" line for this dep.
+          checkUpdatesRef.current().catch(console.error);
+        }
         invoke("write_frontend_log", {
           level: "info",
           message: `Auto-updated ${name} ${from} -> ${to}`,
@@ -124,7 +146,8 @@ export function useDependencies(pluginStates: PluginState[]) {
       },
     );
     return combineUnlisten(stopProgress, stopUpdated);
-  }, []);
+    // depsRef is a stable ref object; listed only to satisfy exhaustive-deps.
+  }, [depsRef]);
 
   const getPluginDeps = useCallback((): PluginDepDeclaration[] => {
     const result: PluginDepDeclaration[] = [];
@@ -228,6 +251,10 @@ export function useDependencies(pluginStates: PluginState[]) {
       return [];
     }
   }, []);
+
+  // Fill the forward declarations the `dependency-updated` listener reads.
+  useAssignRef(checkDepRef, checkDep);
+  useAssignRef(checkUpdatesRef, checkUpdates);
 
   // Install (or update — same backend path) the app-managed copy of a
   // dependency. Returns the installed version, or null on failure.
