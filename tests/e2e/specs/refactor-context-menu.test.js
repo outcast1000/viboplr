@@ -38,10 +38,8 @@ async function buildSpecTexts(page, target, dataOverrides = {}) {
         handleLocateTrack: noop, handleTrackClick: noop, setView: noop,
         setSelectedArtist: noop, setSelectedAlbum: noop, setSelectedTag: noop,
       },
-      downloadProviderEntries: dataOverrides.downloadProviderEntries ?? [],
       plugins: { menuItems: dataOverrides.menuItems ?? [], dispatchContextMenuAction: noop },
       searchProviders: dataOverrides.searchProviders ?? [],
-      handleDownloadFromProvider: noop,
       // Null = no provider owns this target's source, so the native "Download…"
       // item is omitted. Override via dataOverrides to exercise the item.
       resolveNativeDownload: () => dataOverrides.nativeDownload ?? null,
@@ -111,36 +109,36 @@ test('artist target offers Play All / Retrieve Image', async ({ page }) => {
   expect(texts).toContain('Retrieve Image');
 });
 
-// Two providers used by the Upgrade/Download tests: one interactive (opens the
-// download modal — the only path that can upgrade a local file in place), one
-// non-interactive (background fresh enqueue only).
-const PROVIDERS = [
-  { id: 'qbittorrent:qbt-download', name: 'qBittorrent', interactive: true },
-  { id: 'ytdlp:youtube-download', name: 'yt-dlp', interactive: false },
-];
+// There are deliberately NO host-generated per-provider download entries
+// ("Download from {X}…" / "Upgrade from {X}…") — providers contribute their own
+// context-menu items instead (plugin-first). These tests pin the removal: the
+// host offers only the source-owned "Download…" and the batch item.
 
-test('local library track offers Upgrade from interactive providers only', async ({ page }) => {
+test('local library track gets no host download or upgrade entries', async ({ page }) => {
   const texts = await buildSpecTexts(page, {
     kind: 'track', trackId: 5, isLocal: true, title: 'Song', artistName: 'Artist',
-  }, { downloadProviderEntries: PROVIDERS });
-  // Interactive provider → upgrade entry (opens the modal in upgrade mode).
-  expect(texts).toContain('Upgrade from qBittorrent…');
-  // Non-interactive provider can't replace in place → not offered on local.
-  expect(texts).not.toContain('Upgrade from yt-dlp…');
-  // Local tracks still get no plain Download entries.
+  });
   expect(texts.some(t => t.startsWith('Download'))).toBe(false);
-});
-
-test('non-local track keeps Download-from entries and gets no Upgrade', async ({ page }) => {
-  const texts = await buildSpecTexts(page, {
-    kind: 'track', trackId: 5, isLocal: false, title: 'Song', artistName: 'Artist',
-  }, { downloadProviderEntries: PROVIDERS });
-  expect(texts).toContain('Download from qBittorrent…');
-  expect(texts).toContain('Download from yt-dlp');
   expect(texts.some(t => t.startsWith('Upgrade'))).toBe(false);
 });
 
-test('single local queue selection with a lib: key offers Upgrade; ext: key does not', async ({ page }) => {
+test('non-local track offers only the source-owned Download…', async ({ page }) => {
+  // With a native provider (the track's own source), the single entry shows.
+  const texts = await buildSpecTexts(page, {
+    kind: 'track', trackId: 5, isLocal: false, title: 'Song', artistName: 'Artist',
+  }, { nativeDownload: { providerId: '__builtin:subsonic', providerName: 'Subsonic' } });
+  expect(texts).toContain('Download…');
+  expect(texts.some(t => t.startsWith('Download from'))).toBe(false);
+  expect(texts.some(t => t.startsWith('Upgrade'))).toBe(false);
+
+  // Without one, no download entry at all — per-provider fallbacks are gone.
+  const bare = await buildSpecTexts(page, {
+    kind: 'track', trackId: 5, isLocal: false, title: 'Song', artistName: 'Artist',
+  });
+  expect(bare.some(t => t.startsWith('Download'))).toBe(false);
+});
+
+test('single local queue selection gets no Upgrade entries', async ({ page }) => {
   const queueTrack = {
     key: 'lib:5', path: 'file:///music/a.mp3', title: 'Song',
     artist_name: 'Artist', album_title: null, duration_secs: 100, format: null, liked: 0,
@@ -149,18 +147,9 @@ test('single local queue selection with a lib: key offers Upgrade; ext: key does
     kind: 'queue-multi', indices: [0], trackIds: [5],
     firstTrack: { title: 'Song', artistName: 'Artist', isLocal: true },
   };
-  const texts = await buildSpecTexts(page, target, {
-    queue: [queueTrack], downloadProviderEntries: PROVIDERS,
-  });
-  expect(texts).toContain('Upgrade from qBittorrent…');
-  expect(texts).not.toContain('Upgrade from yt-dlp…');
-
-  // An ID-less local entry (ext: key) can't reach the upgrade flow — the modal
-  // needs the library row's file:// uri — so no Upgrade entry is offered.
-  const extTexts = await buildSpecTexts(page, { ...target, trackIds: [] }, {
-    queue: [{ ...queueTrack, key: 'ext:1' }], downloadProviderEntries: PROVIDERS,
-  });
-  expect(extTexts.some(t => t.startsWith('Upgrade'))).toBe(false);
+  const texts = await buildSpecTexts(page, target, { queue: [queueTrack] });
+  expect(texts.some(t => t.startsWith('Upgrade'))).toBe(false);
+  expect(texts.some(t => t.startsWith('Download'))).toBe(false);
 });
 
 test('track with no id omits Play/Enqueue/Trash but keeps metadata-only actions', async ({ page }) => {

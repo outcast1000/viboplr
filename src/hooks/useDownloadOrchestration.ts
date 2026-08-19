@@ -5,7 +5,7 @@ import type { Track, QueueTrack } from "../types";
 import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
 import type { ContextMenuState } from "../types/contextMenu";
-import { parseLibraryId, classifyEffectiveSource, trackToQueueTrack } from "../queueEntry";
+import { parseLibraryId, classifyEffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
 import { withResolverLog } from "../utils/resolverLog";
 import { decideDownload, type DownloadPlan } from "../utils/downloadPlan";
@@ -16,6 +16,8 @@ export interface DownloadModalState {
   tracks: DownloadTrack[];
   providerId: string;
   providerName: string;
+  /** Batch flow only (plugin requestAction("download-tracks"/"download-album")):
+   *  skip the per-track resolve/search step and resolve each uri directly. */
   confirmed?: boolean;
   resolveByUri?: (
     uri: string,
@@ -117,30 +119,24 @@ export async function resolveTrackDownload(
 interface UseDownloadOrchestrationDeps {
   plugins: Pick<
     ReturnType<typeof usePlugins>,
-    "pluginStates" | "invokeDownloadResolveByUri" | "invokeDownloadResolveByMetadata" | "hasInteractiveDownload" | "streamUriResolverOwner"
+    "pluginStates" | "invokeDownloadResolveByUri" | "invokeDownloadResolveByMetadata" | "streamUriResolverOwner"
   >;
-  /** The active context-menu target — drives `handleDownloadFromProvider`. */
-  contextMenu: ContextMenuState | null;
   libraryTracks: Track[];
   queue: QueueTrack[];
-  /** Single-track background enqueue gated by the shared "already downloaded"
-   * confirm modal (useDownloadActions.handleDownloadTrack). */
-  downloadTrackWithConfirm: (track: QueueTrack, provider?: string | null) => void;
 }
 
 /**
  * Download-orchestration engine, extracted out of App.tsx. Owns the ordered
  * plugin download-provider list, the backend `download-resolve-request` bridge,
- * provider priorities, the `downloadModal` state, and every download *trigger*
- * (context-menu provider pick, now-playing download) — collapsing the previously
- * duplicated provider-id parsing + priority-refetch into one place.
+ * provider priorities, the `downloadModal` state, and the source-owned download
+ * triggers (context-menu "Download…", now-playing download). There are no
+ * per-provider triggers: providers surface their own context-menu items
+ * (plugin-first), and batch downloads go through the background chain.
  */
 export function useDownloadOrchestration({
   plugins,
-  contextMenu,
   libraryTracks,
   queue,
-  downloadTrackWithConfirm,
 }: UseDownloadOrchestrationDeps) {
   const [downloadModal, setDownloadModal] = useState<DownloadModalState | null>(null);
   const [providerPriorities, setProviderPriorities] = useState<Map<string, number>>(new Map());
@@ -250,23 +246,6 @@ export function useDownloadOrchestration({
     }
   }, []);
 
-  const downloadProviderEntries = useMemo(() => {
-    return downloadProviders
-      .filter(p => p.source !== "__builtin")
-      .map(p => {
-        const parts = p.id.split(":");
-        const pluginId = parts[0];
-        const providerId = parts.slice(1).join(":");
-        return {
-          id: p.id,
-          name: p.name,
-          priority: providerPriorities.get(p.id) ?? Number.MAX_SAFE_INTEGER,
-          interactive: plugins.hasInteractiveDownload(pluginId, providerId),
-        };
-      })
-      .sort((a, b) => a.priority - b.priority);
-  }, [downloadProviders, providerPriorities, plugins.hasInteractiveDownload]);
-
   // Sync download providers to DB for backend ordering
   useEffect(() => {
     const providerData: [string, string, string, number][] = [];
@@ -287,90 +266,6 @@ export function useDownloadOrchestration({
       refreshProviderConfig();
     }
   }, [plugins.pluginStates, refreshProviderConfig]);
-
-  const handleDownloadFromProvider = useCallback((providerId: string, interactive: boolean) => {
-    if (!contextMenu) return;
-    const target = contextMenu.target;
-
-    // Collect tracks for batch downloads
-    let batchTracks: QueueTrack[] | null = null;
-    if (target.kind === "multi-track") {
-      const idSet = new Set(target.trackIds);
-      batchTracks = libraryTracks.filter(t => t.id != null && idSet.has(t.id));
-    } else if (target.kind === "queue-multi" && target.indices.length > 1) {
-      batchTracks = target.indices.map(i => queue[i]).filter(Boolean);
-    }
-
-    if (batchTracks && batchTracks.length > 0) {
-      const providerEntry = downloadProviderEntries.find(e => e.id === providerId);
-      setDownloadModal({
-        tracks: batchTracks.map(t => ({
-          title: t.title,
-          artistName: t.artist_name ?? null,
-          albumTitle: t.album_title ?? null,
-          uri: t.path ?? null,
-          durationSecs: t.duration_secs ?? null,
-          trackId: parseLibraryId(t.key),
-          isVideo: isVideoTrack(t),
-        })),
-        providerId,
-        providerName: providerEntry?.name ?? providerId,
-        confirmed: !interactive,
-      });
-      return;
-    }
-
-    // Single track
-    let trackId: number | null = null;
-    let title = "";
-    let artistName: string | null = null;
-    let sourceIsVideo: boolean | undefined;
-    let sourceQueueTrack: QueueTrack | null = null;
-
-    if (target.kind === "track") {
-      trackId = target.trackId ?? null;
-      title = target.title ?? "";
-      artistName = target.artistName ?? null;
-    } else if (target.kind === "queue-multi" && target.indices.length === 1) {
-      const queueTrack = queue[target.indices[0]];
-      if (queueTrack) {
-        trackId = parseLibraryId(queueTrack.key);
-        title = queueTrack.title;
-        artistName = queueTrack.artist_name ?? null;
-        sourceIsVideo = isVideoTrack(queueTrack);
-        sourceQueueTrack = queueTrack;
-      }
-    } else {
-      return;
-    }
-
-    if (interactive) {
-      const track = trackId != null ? libraryTracks.find(t => t.id === trackId) : null;
-      setDownloadModal({
-        tracks: [{
-          title: track?.title ?? title,
-          artistName: track?.artist_name ?? artistName,
-          albumTitle: track?.album_title ?? null,
-          uri: track?.path ?? null,
-          durationSecs: track?.duration_secs ?? null,
-          trackId,
-          isVideo: track ? isVideoTrack(track) : sourceIsVideo,
-        }],
-        providerId,
-        providerName: downloadProviderEntries.find(e => e.id === providerId)?.name ?? providerId,
-      });
-    } else {
-      // Non-interactive: single background enqueue (no modal), gated by the
-      // shared "already downloaded" confirm and built through the canonical
-      // buildDownloadRequest payload helper.
-      const track = trackId != null ? libraryTracks.find(t => t.id === trackId) : null;
-      const queueTrack: QueueTrack = sourceQueueTrack
-        ?? (track
-          ? trackToQueueTrack(track)
-          : { key: "", path: null, title, artist_name: artistName, album_title: null, duration_secs: null, format: null, liked: 0 });
-      downloadTrackWithConfirm(queueTrack, providerId);
-    }
-  }, [contextMenu, downloadProviderEntries, libraryTracks, queue, downloadTrackWithConfirm]);
 
   // --- Unified per-track download (context menu ⟷ now-playing) --------------
   // The now-playing button and the context-menu "Download…" both resolve which
@@ -469,9 +364,7 @@ export function useDownloadOrchestration({
     downloadModal,
     setDownloadModal,
     downloadProviders,
-    downloadProviderEntries,
     refreshDownloadProviderConfig: refreshProviderConfig,
-    handleDownloadFromProvider,
     openDownloadForCurrentTrack,
     resolveNativeDownload,
     openNativeDownload,

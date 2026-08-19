@@ -121,7 +121,6 @@ import {
   DeleteTagsModal,
   DeleteErrorModal,
   FolderErrorModal,
-  DownloadAgainModal,
   RemoveCollectionModal,
   NavErrorModal,
   PluginLoadingModal,
@@ -1600,23 +1599,22 @@ function App() {
   });
 
   // Download-orchestration engine: ordered provider list, priorities, the backend
-  // resolve-request bridge, the download modal, and every download trigger.
+  // resolve-request bridge, the download modal, and the source-owned download
+  // triggers. There are no host-generated per-provider menu entries — a provider
+  // that wants a menu presence contributes its own context-menu item, and plugin
+  // views open the modal themselves via requestAction("download-tracks").
   const {
     downloadModal,
     setDownloadModal,
     downloadProviders,
-    downloadProviderEntries,
     refreshDownloadProviderConfig,
-    handleDownloadFromProvider,
     openDownloadForCurrentTrack,
     resolveNativeDownload,
     openNativeDownload,
   } = useDownloadOrchestration({
     plugins,
-    contextMenu: contextMenuActions.contextMenu,
     libraryTracks: library.tracks,
     queue: queueHook.queue,
-    downloadTrackWithConfirm: contextMenuActions.handleDownloadTrack,
   });
 
   // The single decision for the now-playing download button: whether it shows
@@ -1651,8 +1649,8 @@ function App() {
   const buildAndShowNativeMenu = useCallback((cm: { x: number; y: number; target: import("./types/contextMenu").ContextMenuTarget }) => {
     contextMenuActions.setContextMenu(cm);
     const specs = buildContextMenuSpecs(cm.target, {
-      contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries,
-      plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache,
+      contextMenuActions, videoLayout, queueHook, library,
+      plugins, resolveNativeDownload, openNativeDownload, artistImageCache,
       albumImageCache, tagImageCache, beginRetrieveImage,
       setSearchInitialQuery, setSearchQueryKey,
       setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef,
@@ -1662,7 +1660,7 @@ function App() {
       return;
     }
     showNativeMenu(cm.x, cm.y, specs);
-  }, [contextMenuActions, videoLayout, queueHook, library, downloadProviderEntries, plugins, handleDownloadFromProvider, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef]);
+  }, [contextMenuActions, videoLayout, queueHook, library, plugins, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef]);
   useAssignRef(showNativeMenuRef, buildAndShowNativeMenu);
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
@@ -5241,18 +5239,6 @@ function App() {
         <FolderErrorModal
           message={contextMenuActions.folderError}
           onDismiss={() => contextMenuActions.setFolderError(null)}
-        />
-      )}
-
-      {contextMenuActions.downloadConfirm && (
-        <DownloadAgainModal
-          localTitle={contextMenuActions.downloadConfirm.localTitle}
-          onCancel={contextMenuActions.handleDownloadConfirmDismiss}
-          onShowInFolder={() => {
-            invoke("show_in_folder", { trackId: contextMenuActions.downloadConfirm!.localTrackId }).catch(console.error);
-            contextMenuActions.handleDownloadConfirmDismiss();
-          }}
-          onDownload={contextMenuActions.handleDownloadConfirm}
         />
       )}
 

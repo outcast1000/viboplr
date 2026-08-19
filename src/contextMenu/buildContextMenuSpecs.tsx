@@ -19,9 +19,7 @@ export interface ContextMenuDeps {
   videoLayout: ReturnType<typeof useVideoLayout>;
   queueHook: ReturnType<typeof useQueue>;
   library: ReturnType<typeof useLibrary>;
-  downloadProviderEntries: { id: string; name: string; interactive: boolean }[];
   plugins: ReturnType<typeof usePlugins>;
-  handleDownloadFromProvider: (providerId: string, interactive: boolean) => void;
   /** The native downloader (if any) for a single-track target's own source
    *  (subsonic:// → built-in Subsonic, plugin scheme → that plugin). Null when
    *  nothing owns the source (local / direct-url / metadata-only). */
@@ -42,23 +40,15 @@ export interface ContextMenuDeps {
   openEditTrackInfoRef: React.MutableRefObject<((queueIndex: number) => void) | null>;
 }
 
-/** "Upgrade from {X}…" entries for a single LOCAL library track. Only
- *  interactive plugin providers qualify: they open the download modal, which
- *  enters upgrade mode on the track's file:// uri (download_preview → compare →
- *  confirm_track_upgrade, with a switch to a fresh destination instead). A
- *  non-interactive provider's path is a background fresh enqueue, which cannot
- *  replace a file in place, so those are not offered on local tracks. */
-function buildUpgradeSpecs(d: ContextMenuDeps): MenuItemSpec[] {
-  const upgrades = d.downloadProviderEntries.filter(e => e.interactive);
-  if (upgrades.length === 0) return [];
-  const items: MenuItemSpec[] = upgrades.map(entry => ({
-    kind: "item",
-    text: `Upgrade from ${entry.name}…`,
-    action: () => d.handleDownloadFromProvider(entry.id, true),
-  }));
-  if (items.length === 1) return [{ kind: "separator" }, items[0]];
-  return [{ kind: "separator" }, { kind: "submenu", text: "Upgrade", items }];
-}
+// There are deliberately NO host-generated per-provider download entries
+// ("Download from {X}…" / "Upgrade from {X}…"). Download flows differ too much
+// between providers to share one host surface (a torrent hunt is nothing like a
+// YouTube search), so a provider that wants a menu presence contributes its own
+// context-menu item (plugin-first — e.g. qBittorrent's "Upgrade with
+// qBittorrent…" opening its Music Search tab). What the host still owns:
+// "Download…" for a track's OWN source (decideDownload) and the background
+// batch queue ("Download N tracks" / "Download Album"), which walks the
+// by-metadata provider chain without any per-provider UI.
 
 /** Build the native context-menu specs for a target. Returns null if empty. */
 export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuDeps): MenuItemSpec[] | null {
@@ -181,41 +171,21 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       // now-playing button uses (its native provider, incl. built-in Subsonic
       // "Source original"); a multi-selection uses the background batch queue (the
       // modal has no per-track by-URI resolver, so Subsonic batch can't run through
-      // it). Plugin providers are offered as alternatives on top. Ungated so a
-      // Subsonic track is downloadable even when no download plugin is installed.
+      // it). Ungated so a Subsonic track is downloadable even when no download
+      // plugin is installed. No per-provider entries — see the note above
+      // buildContextMenuSpecs.
       {
         const downloadable = selectedTracks.filter(t => !isLocalTrack(t));
         if (downloadable.length > 0) {
           const singleNative = downloadable.length === 1 ? d.resolveNativeDownload(target) : null;
-          const dlItems: MenuItemSpec[] = [];
           if (singleNative) {
-            dlItems.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
-          } else if (downloadable.length > 1) {
-            dlItems.push({ kind: "item", text: "Download (auto)", action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
-          }
-          d.downloadProviderEntries
-            .filter(entry => entry.id !== singleNative?.providerId)
-            .forEach(entry => {
-              dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "…" : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
-            });
-          if (dlItems.length > 0) {
             specs.push({ kind: "separator" });
-            if (dlItems.length === 1 && singleNative) {
-              specs.push(dlItems[0]);
-            } else {
-              const dlLabel = downloadable.length === 1 ? "Download" : `Download ${downloadable.length} tracks`;
-              specs.push({ kind: "submenu", text: dlLabel, items: dlItems });
-            }
+            specs.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
+          } else if (downloadable.length > 1) {
+            specs.push({ kind: "separator" });
+            specs.push({ kind: "item", text: `Download ${downloadable.length} tracks`, action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
           }
         }
-      }
-
-      // Upgrade — a single selected LOCAL library entry gets the same
-      // "Upgrade from {X}…" entries as the library track menu. Gated on a lib:
-      // key because handleDownloadFromProvider resolves the modal's file:// uri
-      // from the library row — without one the modal can only fresh-download.
-      if (selectedTracks.length === 1 && isLocalTrack(selectedTracks[0]) && parseLibraryId(selectedTracks[0].key) != null) {
-        specs.push(...buildUpgradeSpecs(d));
       }
 
       // Plugin actions
@@ -299,33 +269,16 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         }
       }
       if (target.kind === "track" && !target.isLocal) {
-        // Single track: primary "Download…" opens the modal with the track's own
-        // native provider (Subsonic → "Source original", plugin → that plugin),
-        // exactly like the now-playing button. Ungated so Subsonic is downloadable
-        // with no plugins installed. Other plugin providers are alternatives.
+        // Single track: "Download…" opens the modal with the track's own native
+        // provider (Subsonic → "Source original", plugin → that plugin), exactly
+        // like the now-playing button. Ungated so Subsonic is downloadable with
+        // no plugins installed. No per-provider entries — see the note above
+        // buildContextMenuSpecs.
         const native = d.resolveNativeDownload(target);
-        const alts = d.downloadProviderEntries.filter(entry => entry.id !== native?.providerId);
-        if (native || alts.length > 0) {
-          const dlItems: MenuItemSpec[] = [];
-          if (native) {
-            dlItems.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
-          }
-          alts.forEach(entry => {
-            dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "…" : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
-          });
+        if (native) {
           specs.push({ kind: "separator" });
-          if (dlItems.length === 1 && native) {
-            specs.push(dlItems[0]);
-          } else {
-            specs.push({ kind: "submenu", text: "Download", items: dlItems });
-          }
+          specs.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
         }
-      }
-      if (target.kind === "track" && target.isLocal && target.trackId != null) {
-        // A local library track gets no "Download…" (nothing owns a file://
-        // source), but interactive plugin providers can UPGRADE it: the modal
-        // enters upgrade mode on the file:// uri. See buildUpgradeSpecs.
-        specs.push(...buildUpgradeSpecs(d));
       }
       if (target.kind === "album" && target.albumId) {
         // Only offer for albums that actually have remote tracks to fetch; the
@@ -340,13 +293,8 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         const idSet = new Set(target.trackIds);
         const downloadable = d.library.tracks.filter(tr => tr.id != null && idSet.has(tr.id) && !isLocalTrack(tr));
         if (downloadable.length > 0) {
-          const dlItems: MenuItemSpec[] = [];
-          dlItems.push({ kind: "item", text: "Download (auto)", action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
-          d.downloadProviderEntries.forEach(entry => {
-            dlItems.push({ kind: "item", text: `Download from ${entry.name}${entry.interactive ? "…" : ""}`, action: () => d.handleDownloadFromProvider(entry.id, entry.interactive) });
-          });
           specs.push({ kind: "separator" });
-          specs.push({ kind: "submenu", text: `Download ${downloadable.length} tracks`, items: dlItems });
+          specs.push({ kind: "item", text: `Download ${downloadable.length} tracks`, action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
         }
       }
       const targetKind = target.kind as string;

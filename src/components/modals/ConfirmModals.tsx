@@ -114,31 +114,6 @@ export function FolderErrorModal({ message, onDismiss }: FolderErrorModalProps) 
   );
 }
 
-interface DownloadAgainModalProps {
-  localTitle: string;
-  onCancel: () => void;
-  onShowInFolder: () => void;
-  onDownload: () => void;
-}
-
-export function DownloadAgainModal({ localTitle, onCancel, onShowInFolder, onDownload }: DownloadAgainModalProps) {
-  return (
-    <div className="ds-modal-overlay">
-      <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Already Downloaded</h2>
-        <p className="delete-confirm-warning">
-          "{localTitle}" already exists in your local library. Download again?
-        </p>
-        <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--ghost" onClick={onCancel}>Cancel</button>
-          <button className="ds-btn ds-btn--secondary" onClick={onShowInFolder}>Show in Folder</button>
-          <button className="ds-btn ds-btn--primary" onClick={onDownload} autoFocus>Download</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface RemoveCollectionModalProps {
   name: string;
   onCancel: () => void;

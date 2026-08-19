@@ -78,13 +78,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const { externalDropTarget, handleTrackDragStart } = useQueueDragToInsert({
     queueHook, queueCollapsed, setQueueCollapsed, setPendingEnqueue,
   });
-  const {
-    downloadConfirm,
-    handleDownloadTrack,
-    handleDownloadConfirm,
-    handleDownloadConfirmDismiss,
-    handleDownloadMulti,
-  } = useDownloadActions();
+  const { handleDownloadMulti } = useDownloadActions();
 
   function setContextMenu(state: ContextMenuState | null) {
     contextMenuRef.current = state;
@@ -495,10 +489,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleTrackDragStart,
     handleInfoTrackContextMenu,
     handleEntityContextMenu,
-    handleDownloadTrack,
     handleDownloadMulti,
-    downloadConfirm,
-    handleDownloadConfirm,
-    handleDownloadConfirmDismiss,
   };
 }

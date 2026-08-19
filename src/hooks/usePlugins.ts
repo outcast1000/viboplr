@@ -2573,15 +2573,6 @@ export function usePlugins(
     [withResolveScope],
   );
 
-  const hasInteractiveDownload = useCallback(
-    (pluginId: string, providerId: string): boolean => {
-      const loaded = loadedPluginsRef.current.get(pluginId);
-      if (!loaded) return false;
-      return loaded.interactiveSearchHandlers.has(providerId) && loaded.interactiveResolveHandlers.has(providerId);
-    },
-    [],
-  );
-
   const invokeGetQualities = useCallback(
     (pluginId: string, providerId: string): DownloadQualityOption[] | null => {
       const loaded = loadedPluginsRef.current.get(pluginId);
@@ -2929,7 +2920,6 @@ export function usePlugins(
     cancelDownloadResolve,
     invokeInteractiveSearch,
     invokeInteractiveResolve,
-    hasInteractiveDownload,
     invokeGetQualities,
     resolveStreamByUri,
     streamUriResolverOwner,
