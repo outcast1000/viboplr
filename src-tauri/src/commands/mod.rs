@@ -117,6 +117,7 @@ pub struct AppState {
     pub cursor_tracker_active: Arc<AtomicBool>,
     pub transcode_port: u16,
     pub transcode_sessions: transcode_server::Sessions,
+    pub stream_relays: crate::stream_relay::Relays,
     pub dep_cache: Arc<crate::dependencies::DepCache>,
     /// Update found by the last `app_update_check`, consumed by install.
     pub pending_app_update: tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>,
@@ -1074,6 +1075,7 @@ pub(crate) fn test_app_state() -> AppState {
         cursor_tracker_active: Arc::new(AtomicBool::new(false)),
         transcode_port: 0,
         transcode_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        stream_relays: Default::default(),
         dep_cache: Arc::new(crate::dependencies::DepCache::new()),
         pending_app_update: tokio::sync::Mutex::new(None),
         mpv_engine: Default::default(),

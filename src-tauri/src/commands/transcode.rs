@@ -25,6 +25,20 @@ pub async fn start_transcode(
     Ok(TranscodeInfo { url, session_id, duration_secs })
 }
 
+/// Register a chunk-relayed stream (see `stream_relay.rs`) and return the
+/// local URL both engines can play. Sessions are capped and self-evicting, so
+/// there is no matching "stop" command.
+#[tauri::command]
+pub fn register_stream_relay(
+    state: State<'_, AppState>,
+    url: String,
+    headers: Option<std::collections::HashMap<String, String>>,
+) -> String {
+    let headers = headers.map(|h| h.into_iter().collect()).unwrap_or_default();
+    let id = crate::stream_relay::register(&state.stream_relays, url, headers);
+    format!("http://127.0.0.1:{}/relay/{}", state.transcode_port, id)
+}
+
 #[tauri::command]
 pub async fn stop_transcode(
     state: State<'_, AppState>,

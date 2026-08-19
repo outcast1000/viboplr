@@ -31,6 +31,7 @@ mod downloader;
 mod update_checker;
 mod video_frames;
 mod storyboard;
+mod stream_relay;
 mod transcode_server;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
@@ -308,6 +309,7 @@ macro_rules! invoke_handler {
             browse_window::browse_window_send,
             commands::start_transcode,
             commands::stop_transcode,
+            commands::register_stream_relay,
             commands::engine_capabilities,
             commands::engine_component_status,
             commands::engine_component_install,
@@ -1387,8 +1389,9 @@ pub fn run() {
 
             let transcode_sessions: transcode_server::Sessions =
                 Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
+            let stream_relays: stream_relay::Relays = Default::default();
             let transcode_port = timer.time("start_transcode_server", || {
-                transcode_server::start_sync(transcode_sessions.clone())
+                transcode_server::start_sync(transcode_sessions.clone(), stream_relays.clone())
             });
 
             // Clone values before moving into AppState, for use in update checker
@@ -1419,6 +1422,7 @@ pub fn run() {
                     cursor_tracker_active: Arc::clone(&cursor_tracker_active),
                     transcode_port,
                     transcode_sessions,
+                    stream_relays,
                     dep_cache,
                     pending_app_update: tokio::sync::Mutex::new(None),
                     mpv_engine: Default::default(),

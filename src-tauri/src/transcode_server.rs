@@ -120,7 +120,7 @@ async fn handle_stream(
 /// Synchronous, non-blocking startup. Binds a port via std and hands the
 /// listener over to a spawned tokio task — avoids `block_on` in the Tauri
 /// setup path so window paint isn't gated on TCP bind latency.
-pub fn start_sync(sessions: Sessions) -> u16 {
+pub fn start_sync(sessions: Sessions, relays: crate::stream_relay::Relays) -> u16 {
     let std_listener = std::net::TcpListener::bind("127.0.0.1:0")
         .expect("Failed to bind transcode server");
     std_listener.set_nonblocking(true).ok();
@@ -130,7 +130,8 @@ pub fn start_sync(sessions: Sessions) -> u16 {
     let state = ServerState { sessions };
     let app = Router::new()
         .route("/stream/{session_id}", get(handle_stream))
-        .with_state(state);
+        .with_state(state)
+        .merge(crate::stream_relay::router(relays));
 
     tauri::async_runtime::spawn(async move {
         let listener = TcpListener::from_std(std_listener)
