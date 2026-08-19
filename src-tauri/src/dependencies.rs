@@ -156,7 +156,14 @@ pub static REGISTRY: &[DependencyDef] = &[
         },
         internal_consumers: &[],
         managed: Some(ManagedSource {
-            repo: "yt-dlp/yt-dlp",
+            // The NIGHTLY channel, deliberately. YouTube enforcement changes
+            // land between stable releases and brick playback until the next
+            // one — Aug 2026: googlevideo began 403ing every request shape
+            // stable 2026.07.04's client produced (streams AND downloads dead),
+            // while that week's nightly had already switched player client.
+            // Nightly is also upstream's recommended channel. Same asset
+            // names + SHA2-256SUMS layout as the stable repo.
+            repo: "yt-dlp/yt-dlp-nightly-builds",
             asset_macos: Some("yt-dlp_macos"),
             asset_windows: Some("yt-dlp.exe"),
             asset_linux_x64: Some("yt-dlp_linux"),
