@@ -1087,7 +1087,12 @@ export function usePlayback(
       // normalized when this track becomes active.
       applyReplayGain(activeSlotRef.current === "A" ? "B" : "A", nextTrack);
 
-      preloadedTrackRef.current = nextTrack;
+      // `enriched`, not `nextTrack`: the gapless swap publishes this object via
+      // setCurrentTrack, so storing the unpatched one drops whatever resolution
+      // discovered about the track (its real container, or the local file a
+      // path-less entry matched). The native preload path already keeps the
+      // enriched track for the same reason.
+      preloadedTrackRef.current = enriched;
       preloadReadyRef.current = false;
 
       const onCanPlay = () => {

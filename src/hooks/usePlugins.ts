@@ -1494,6 +1494,16 @@ export function usePlugins(
             if (!paths.length) return [];
             return invoke<Array<PluginFileTags | null>>("read_file_tags", { paths });
           },
+          // Both go through Rust commands rather than the frontend's `openUrl`:
+          // the opener plugin's JS scope permits only http/https/mailto/tel, so a
+          // `file://` URL from JS is refused outright — which is why a plugin's
+          // "Open" button silently did nothing.
+          async openPath(path: string) {
+            await invoke("open_path_with_default_app", { filePath: path });
+          },
+          async revealPath(path: string) {
+            await invoke("show_in_folder_path", { filePath: path });
+          },
         },
 
         env: {

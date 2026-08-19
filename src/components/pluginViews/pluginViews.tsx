@@ -426,6 +426,10 @@ interface PluginTrackRowListProps {
   categories?: string[];
   numbered?: boolean;
   showHeader?: boolean;
+  // Opt out of the universal track right-click menu. See the node type in
+  // types/plugin.ts; honored here rather than in PluginViewRenderer so both the
+  // selectable and legacy bodies obey one check.
+  contextMenu?: boolean;
   onAction?: (actionId: string, data?: unknown) => void;
   // Right-click on a row. Passes the full selection (the right-clicked row plus
   // any other selected rows) so the host can build a single- or multi-track menu.
@@ -549,9 +553,12 @@ export function isSingleSelect(mode: "single" | "multi" | undefined): boolean {
 // original checkbox/read-only body untouched.
 export function PluginTrackRowList(props: PluginTrackRowListProps) {
   const libraryMode = !!props.selectable && !props.categories;
+  // Dropped here, once, so neither body has to remember the flag: an absent
+  // handler is already how both of them mean "no menu on a row".
+  const p = props.contextMenu === false ? { ...props, onContextMenu: undefined } : props;
   return libraryMode
-    ? <PluginTrackRowsSelectable {...props} />
-    : <PluginTrackRowsLegacy {...props} />;
+    ? <PluginTrackRowsSelectable {...p} />
+    : <PluginTrackRowsLegacy {...p} />;
 }
 
 // Library-parity list: click/Cmd/Shift multi-select (no checkboxes), keyboard

@@ -301,6 +301,13 @@ export type PluginViewData =
       categories?: string[];
       numbered?: boolean;
       showHeader?: boolean;
+      // Right-click a row for the universal track menu (Play / Enqueue / Play
+      // Next + plugin actions). Default `true`. Set `false` for a list whose
+      // rows are not tracks — a torrent's *contents*, where most rows are cover
+      // art and .nfo files and every real action is already a row button, so the
+      // menu offers Play/Enqueue on things that cannot be played. Drag-to-queue
+      // is unaffected; it is gated on the row's own `path`.
+      contextMenu?: boolean;
     }
   | { type: "text"; content: string; className?: string }
   | { type: "stats-grid"; items: StatItem[] }
@@ -1301,6 +1308,21 @@ export interface PluginSystemAPI {
    *  Feature-detect it (`typeof api.system.readAudioTags === "function"`) rather
    *  than raising `minAppVersion`, so older hosts just keep your parsed values. */
   readAudioTags(paths: string[]): Promise<Array<PluginFileTags | null>>;
+  /** Open a local file (or folder) with the application the OS associates with
+   *  it — the "let me just look at this" action for something the app itself
+   *  can't render: a `.nfo`, a PDF booklet, a folder of scans.
+   *
+   *  Use this rather than `api.network.openUrl("file://…")`: the opener plugin's
+   *  JS scope allows only `http`/`https`/`mailto`/`tel`, so a `file://` URL from
+   *  JS is *refused* — the button appeared to do nothing. `path` may be bare or
+   *  `file://`-prefixed; a missing path rejects rather than failing silently.
+   *  Feature-detect for older hosts. */
+  openPath(path: string): Promise<void>;
+  /** Reveal a local file in the OS file manager, selecting it in its folder
+   *  (falling back to opening the containing folder on network shares, where the
+   *  shell's select APIs reject UNC paths). Same host command the app's own
+   *  "Show in folder" uses. Feature-detect for older hosts. */
+  revealPath(path: string): Promise<void>;
 }
 
 /** Embedded tags for one file. Every field is optional; a missing one means the

@@ -22,6 +22,27 @@ export function isVideoTrack(track: { format: string | null; path?: string | nul
   return track.path ? VIDEO_FORMATS.includes(extensionFromPath(track.path)) : false;
 }
 
+/**
+ * The video container a resolved URL or path names, or null.
+ *
+ * Answers one question: "did this track's *resolution* turn out to be a video
+ * file?" — for a track whose own URI could not say. A plugin scheme carries no
+ * extension (`qbt://<hash>/3`), so such a track reaches the play path classified
+ * as audio and a downloaded `.mkv` plays through the `<audio>` element: sound, no
+ * picture. The resolver chain patches `format` from this instead (see
+ * `useStreamResolution`'s by-URI entry).
+ *
+ * Deliberately **video containers only**. It exists to add a classification the
+ * URI couldn't express, never to restate or overturn one that is already right —
+ * returning audio extensions too would start writing `format` on tracks that
+ * play correctly today, for no gain.
+ */
+export function videoContainerFromPath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const ext = extensionFromPath(path);
+  return VIDEO_FORMATS.includes(ext) ? ext : null;
+}
+
 export function getInitials(name: string): string {
   return name.split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
 }

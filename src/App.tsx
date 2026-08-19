@@ -535,6 +535,11 @@ function App() {
       artist_name: info.artist_name ?? null,
       album_title: info.album_title ?? null,
       duration_secs: info.duration_secs ?? null,
+      // Unknown here, and deliberately not a plugin-declared field: a plugin URI
+      // (`qbt://<hash>/3`) has no extension for isVideoTrack to fall back on, so
+      // the container is learned at RESOLVE time from the file the scheme
+      // resolves to, and patched onto the track before any element is chosen —
+      // see useStreamResolution's by-URI chain entry.
       format: null,
       liked: 0,
       image_url: info.image_url ?? undefined,

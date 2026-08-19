@@ -707,6 +707,26 @@ pub fn show_in_folder_path(file_path: String) -> Result<(), String> {
     reveal_path_in_folder(bare)
 }
 
+/// Open a file (or folder) with whatever application the OS has associated with
+/// it — the "just show me this thing" action for a file the app itself can't
+/// render: a `.nfo`, a PDF booklet, a folder of scans.
+///
+/// It exists as a Rust command rather than the frontend's `openUrl` because the
+/// opener plugin's JS `open_url` is scope-checked and `opener:default` allows
+/// only `http`/`https`/`mailto`/`tel` — a `file://` URL from JS is refused. The
+/// Rust-side `open_path` has no such scope, which is also why the existence
+/// check below is ours to make: passing a missing path to the shell fails
+/// silently on some platforms, and a button that does nothing is worse than one
+/// that says why.
+#[tauri::command]
+pub fn open_path_with_default_app(file_path: String) -> Result<(), String> {
+    let bare = file_path.strip_prefix("file://").unwrap_or(&file_path);
+    if !std::path::Path::new(bare).exists() {
+        return Err(format!("File not found: {}", bare));
+    }
+    tauri_plugin_opener::open_path(bare.to_string(), None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn delete_tracks(
     app: tauri::AppHandle,

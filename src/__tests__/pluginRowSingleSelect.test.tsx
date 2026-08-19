@@ -112,3 +112,50 @@ describe("track-row-list single selection", () => {
     expect(onAction).toHaveBeenCalledWith("qbt:play-torrent", { selectedIds: ["bbb"], itemId: "bbb" });
   });
 });
+
+// Same pass-through concern as above: `contextMenu` is a list-level field, and a
+// field the renderer drops in transit is exactly how `selectionPresets` shipped
+// dead once. Asserted through the renderer for that reason.
+describe("track-row-list contextMenu", () => {
+  function withMenu(node: Partial<PluginViewData>) {
+    const onTrackRowContextMenu = vi.fn();
+    const data = {
+      type: "track-row-list",
+      selectable: true,
+      items: ITEMS,
+      actions: ACTIONS,
+      ...node,
+    } as PluginViewData;
+    const { container } = render(
+      <PluginViewRenderer
+        pluginName="qBittorrent"
+        data={data}
+        currentTrack={null}
+        onTrackRowContextMenu={onTrackRowContextMenu}
+      />,
+    );
+    return { container, onTrackRowContextMenu };
+  }
+
+  it("fires the universal track menu by default", () => {
+    const { container, onTrackRowContextMenu } = withMenu({});
+    fireEvent.contextMenu(container.querySelectorAll(".ptr-row")[0]);
+    expect(onTrackRowContextMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it("fires nothing when the list opts out", () => {
+    // A torrent's contents are mostly not tracks, so Play / Enqueue / Play Next
+    // on cover.jpg is a menu of things that cannot happen.
+    const { container, onTrackRowContextMenu } = withMenu({ contextMenu: false } as Partial<PluginViewData>);
+    fireEvent.contextMenu(container.querySelectorAll(".ptr-row")[0]);
+    expect(onTrackRowContextMenu).not.toHaveBeenCalled();
+  });
+
+  it("leaves the per-row actions alone", () => {
+    // The buttons are where a file row's work lives; opting out of the menu must
+    // not take them with it.
+    const { container } = withMenu({ contextMenu: false } as Partial<PluginViewData>);
+    const tray = container.querySelectorAll(".ptr-row")[0].querySelectorAll(".row-hover-action");
+    expect(tray.length).toBe(ACTIONS.length);
+  });
+});

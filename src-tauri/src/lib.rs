@@ -113,6 +113,7 @@ macro_rules! invoke_handler {
             commands::rebuild_search_index,
             commands::show_in_folder,
             commands::show_in_folder_path,
+            commands::open_path_with_default_app,
             commands::open_folder,
             commands::delete_tracks,
             commands::bulk_update_tracks,

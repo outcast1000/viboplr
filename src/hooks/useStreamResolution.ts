@@ -3,7 +3,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { consumeResolveStale, streamLadderStep } from "../playback/playbackRetry";
 import type { Track, QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
 import { parseUrlScheme, isRemoteScheme, classifyEffectiveSource, nativeResolverName, type EffectiveSource } from "../queueEntry";
-import { isVideoTrack } from "../utils";
+import { isVideoTrack, videoContainerFromPath } from "../utils";
 import { selectStream, selectedNeedsClassifying } from "../playback/selectStream";
 import type { StreamCandidate } from "../types/plugin";
 import { type StreamResolver, stripRemasterSuffix } from "../streamResolvers";
@@ -390,7 +390,13 @@ export function useStreamResolution({
           ? unownedSchemeLabel(nativeScheme.protocol)
           : undefined;
 
-      // Pre-resolution: check if a local copy exists for remote OR path-less tracks
+      // Does a local copy of this track exist, for a remote OR path-less track?
+      //
+      // Held rather than pushed: this entry goes in BEHIND the track's own source
+      // (see where it is appended below). It used to be pushed here, first in the
+      // chain, which made a fuzzy title+artist match outrank the exact thing the
+      // user clicked — playing a different recording of the same song, silently.
+      let libraryEntry: ResolverEntry | null = null;
       if (!url || isRemoteScheme(url)) {
         try {
           const localMatch = await invoke<Track | null>("find_track_by_metadata", {
@@ -404,17 +410,40 @@ export function useStreamResolution({
           // reuse a local copy when its media kind matches what was requested.
           if (localMatch && localMatch.path?.startsWith("file://") && isVideoTrack(track) === isVideoTrack(localMatch)) {
             const localPath = localMatch.path.substring(7);
-            chain.push({
+            libraryEntry = {
               name: "Library",
               id: null,
               sourceUrl: localPath,
               // Matched a local file copy → bytes are on disk → nothing to download.
               effectiveSource: { kind: "local" },
+              // Not "Not in library" (entryFailureLabel's default for this name):
+              // this entry only exists because a row WAS matched, so its one
+              // failure mode is the row outliving its file.
+              failureLabel: "The library copy is missing",
               // Carry the matched file's path + format so the play path can
               // re-classify a path-less track (e.g. a Home track-row) as video.
               patch: { path: localMatch.path, format: localMatch.format },
-              resolve: () => Promise.resolve({ src: convertFileSrc(localPath), engineSource: { kind: "file" as const, path: localPath } }),
-            });
+              resolve: async () => {
+                // A library row is not proof the bytes are still there — a moved
+                // or deleted file leaves the row behind.
+                //
+                // The chain only advances when an entry throws *here*. A source
+                // that resolves "successfully" and then won't load fails at
+                // *playback*, which does not advance it: the retry re-resolves the
+                // same entry and gives up. So a stale row used to kill playback
+                // outright — three native attempts against one dead path, with the
+                // track's real copy never tried. (It was also first in the chain
+                // then, so it shadowed every other source; it is a fallback now,
+                // but the check still matters in that position.)
+                //
+                // `file_exists` is the same command the playback error path uses
+                // to tell a missing file apart from an undecodable one.
+                if (!(await invoke<boolean>("file_exists", { path: localPath }))) {
+                  throw new Error(`The library copy is no longer on disk: ${localPath}`);
+                }
+                return { src: convertFileSrc(localPath), engineSource: { kind: "file" as const, path: localPath } };
+              },
+            };
           }
         } catch (e) {
           console.error("Pre-resolution local copy check failed:", e);
@@ -467,12 +496,55 @@ export function useStreamResolution({
               const resolved = await resolveUrlDetailed(url, isVideoTrack(track), undefined, fresh, ladderStep);
               const attributed = attributedSourceUrl(resolved.sourceUrl, resolved.engineSource);
               if (attributed) nativeEntry.sourceUrl = attributed;
+              // The resolution named a real file — let IT decide the surface, not
+              // the opaque URI. A plugin scheme carries no extension, so a
+              // downloaded video reached playWithSrc classified as audio and
+              // played through the <audio> element: sound, no picture. Same
+              // channel the prefer-video pass uses below (`patch: { format }`),
+              // and `format` is authoritative in isVideoTrack, so this flips the
+              // track before any element or engine is chosen (handlePlay merges
+              // the patch, then playWithSrc routes).
+              //
+              // Deliberately only ADDS a classification: gated on the track not
+              // already being video, and videoContainerFromPath ignores audio
+              // containers, so a track whose format is already known keeps it.
+              // That preserves "a known format is authoritative" — a real audio
+              // file must not be reclassified by a misleading name.
+              //
+              // Needs no cooperation from the plugin: attributedSourceUrl derives
+              // `file://<engineSource.path>` when the resolver reported no
+              // sourceUrl, so this works on plugins that shipped before any of it.
+              if (!isVideoTrack(track)) {
+                const container = videoContainerFromPath(attributed);
+                if (container) nativeEntry.patch = { ...nativeEntry.patch, format: container };
+              }
               return resolved;
             },
           };
           chain.push(nativeEntry);
         }
       }
+
+      // The matched local copy sits BEHIND the track's own source and AHEAD of
+      // the plugin resolvers: play the exact thing that was asked for; failing
+      // that, your own copy of it; failing that, go and find one.
+      //
+      // It used to be first, from a time when every "remote" scheme was a genuine
+      // network stream (subsonic://, tidal://) and substituting a local file for
+      // a stream was a plain win. `isRemoteScheme` is just "not file://", so a
+      // plugin scheme that resolves to a file on this very disk — qbt:// — got
+      // caught by the same rule, and there the shortcut has nothing to win: it
+      // outranked the specific file the user clicked with a title+artist match,
+      // which is fuzzy about WHICH copy. Clicking "05. Nothingman.mp3" inside a
+      // Vitalogy torrent played "Pearl Jam - Nothingman.mp3" out of an unrelated
+      // compilation folder — a different recording, silently, whenever that file
+      // happened to exist.
+      //
+      // The cost of the swap, worth knowing: a track whose own source is dead or
+      // slow (a taken-down video, an unreachable server) now waits for that to
+      // fail before the local copy plays, where it used to be instant.
+      // A path-less track has no native entry, so this is still first for one.
+      if (libraryEntry) chain.push(libraryEntry);
 
       // `nativeSchemeOwner` (computed above) is also why a track that already
       // carries a plugin's native scheme (e.g. youtube://{id}) does NOT get that
