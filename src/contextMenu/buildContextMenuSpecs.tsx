@@ -42,6 +42,24 @@ export interface ContextMenuDeps {
   openEditTrackInfoRef: React.MutableRefObject<((queueIndex: number) => void) | null>;
 }
 
+/** "Upgrade from {X}…" entries for a single LOCAL library track. Only
+ *  interactive plugin providers qualify: they open the download modal, which
+ *  enters upgrade mode on the track's file:// uri (download_preview → compare →
+ *  confirm_track_upgrade, with a switch to a fresh destination instead). A
+ *  non-interactive provider's path is a background fresh enqueue, which cannot
+ *  replace a file in place, so those are not offered on local tracks. */
+function buildUpgradeSpecs(d: ContextMenuDeps): MenuItemSpec[] {
+  const upgrades = d.downloadProviderEntries.filter(e => e.interactive);
+  if (upgrades.length === 0) return [];
+  const items: MenuItemSpec[] = upgrades.map(entry => ({
+    kind: "item",
+    text: `Upgrade from ${entry.name}…`,
+    action: () => d.handleDownloadFromProvider(entry.id, true),
+  }));
+  if (items.length === 1) return [{ kind: "separator" }, items[0]];
+  return [{ kind: "separator" }, { kind: "submenu", text: "Upgrade", items }];
+}
+
 /** Build the native context-menu specs for a target. Returns null if empty. */
 export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuDeps): MenuItemSpec[] | null {
     const specs: MenuItemSpec[] = [];
@@ -192,6 +210,14 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         }
       }
 
+      // Upgrade — a single selected LOCAL library entry gets the same
+      // "Upgrade from {X}…" entries as the library track menu. Gated on a lib:
+      // key because handleDownloadFromProvider resolves the modal's file:// uri
+      // from the library row — without one the modal can only fresh-download.
+      if (selectedTracks.length === 1 && isLocalTrack(selectedTracks[0]) && parseLibraryId(selectedTracks[0].key) != null) {
+        specs.push(...buildUpgradeSpecs(d));
+      }
+
       // Plugin actions
       const pluginTargetKind = count === 1 ? "track" : "multi-track";
       const matching = d.plugins.menuItems.filter(item => item.targets.includes(pluginTargetKind as "track" | "multi-track"));
@@ -294,6 +320,12 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
             specs.push({ kind: "submenu", text: "Download", items: dlItems });
           }
         }
+      }
+      if (target.kind === "track" && target.isLocal && target.trackId != null) {
+        // A local library track gets no "Download…" (nothing owns a file://
+        // source), but interactive plugin providers can UPGRADE it: the modal
+        // enters upgrade mode on the file:// uri. See buildUpgradeSpecs.
+        specs.push(...buildUpgradeSpecs(d));
       }
       if (target.kind === "album" && target.albumId) {
         // Only offer for albums that actually have remote tracks to fetch; the
