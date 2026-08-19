@@ -73,12 +73,13 @@ export function describeChainFailure(failures: ChainFailure[]): string {
  * Build the `http` engine source for a direct URL, attaching request headers
  * only when there are any to attach.
  *
- * The emptiness check is the point: a resolver that reports "no special headers"
- * as `{}` must not put an empty `headers` on the source, because the mpv engine
- * distinguishes absent from present — `play_with_headers(…, None, …)` leaves
- * mpv's `http-header-fields` alone, while an empty map overwrites it. Only
- * `StreamResolveResult.headers` reaches this; the candidate path carries its own
- * per-stream headers through `selectStream`.
+ * The emptiness check keeps the source honest: `{ headers: {} }` would claim
+ * this stream carries request headers when the resolver reported none. The
+ * engine treats both the same these days (`apply_http_headers` clears the
+ * deck's `http-header-fields` before applying whatever is passed, absent or
+ * empty), so this is about the `EngineSource` reading truthfully, not about
+ * engine behavior. Only `StreamResolveResult.headers` reaches this; the
+ * candidate path carries its own per-stream headers through `selectStream`.
  */
 export function httpEngineSource(url: string, headers?: Record<string, string>): EngineSource {
   return headers && Object.keys(headers).length > 0
