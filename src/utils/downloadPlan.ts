@@ -5,6 +5,20 @@ import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress }
 /** The built-in Subsonic download provider id (see `useDownloadOrchestration`). */
 export const BUILTIN_SUBSONIC_PROVIDER_ID = "__builtin:subsonic";
 
+/** The self-contained direct-URL plan id. Not a registered provider — a raw
+ *  http(s) source needs no resolver, the bytes ARE the URL. */
+export const BUILTIN_DIRECT_PROVIDER_ID = "__builtin:direct";
+
+/** File extension named by a direct URL's own path (query/fragment stripped,
+ *  host excluded so a bare domain's TLD can't read as one), or null when the
+ *  path names none — the modal then falls back per its own rules. Pure;
+ *  exported for tests. */
+export function extFromDirectUrl(uri: string): string | null {
+  const path = uri.replace(/^https?:\/\/[^/]*/i, "").split(/[?#]/)[0];
+  const m = /\.([a-z0-9]{2,4})$/i.exec(path);
+  return m ? m[1].toLowerCase() : null;
+}
+
 /**
  * A resolved decision about how (and whether) the currently-playing track can be
  * downloaded. `null` means "no downloader owns this source" → hide the button.
@@ -33,7 +47,9 @@ export interface DownloadPlan {
  * provider the download modal opens with. Pure + exhaustively unit-tested.
  *
  * Rules (see the matrix in the plugins/download review):
- * - `local` / `direct-url`            → null (nothing/no-one to download from)
+ * - `local`                           → null (already a file on disk)
+ * - `direct-url`                      → self-contained plan ("Source"): the URL
+ *                                        itself is the download, no provider
  * - `subsonic`                        → built-in Subsonic provider, by URI
  * - `plugin` with a matching provider → that plugin's provider; by URI if a native
  *                                        URI is known, else by metadata
@@ -45,7 +61,21 @@ export function decideDownload(
   providers: DownloadProvider[],
 ): DownloadPlan | null {
   if (!source) return null;
-  if (source.kind === "local" || source.kind === "direct-url") return null;
+  if (source.kind === "local") return null;
+
+  if (source.kind === "direct-url") {
+    // Download exactly what is streaming: no resolver, no provider — the plan
+    // hands the URL straight to the modal's direct path. The container comes
+    // from the URL's own extension when it names one (a manifest track's
+    // `tracks/song.flac`); a bare streaming endpoint falls back in the modal.
+    const ext = extFromDirectUrl(source.uri);
+    return {
+      providerId: BUILTIN_DIRECT_PROVIDER_ID,
+      providerName: "Source",
+      uri: source.uri,
+      resolveByUri: async (uri) => ({ url: uri, headers: null, metadata: null, ext }),
+    };
+  }
 
   if (source.kind === "subsonic") {
     const p = providers.find((pr) => pr.id === BUILTIN_SUBSONIC_PROVIDER_ID);

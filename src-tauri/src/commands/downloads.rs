@@ -2,64 +2,11 @@
 use super::*;
 
 // --- Download commands ---
-
-#[tauri::command]
-pub fn get_download_status(
-    state: State<'_, AppState>,
-) -> Result<crate::downloader::DownloadQueueInfo, String> {
-    Ok(state.track_download_manager.get_status())
-}
-
-#[tauri::command]
-pub fn cancel_download(state: State<'_, AppState>, download_id: u64) -> Result<bool, String> {
-    Ok(state.track_download_manager.cancel(download_id))
-}
-
-// --- Generic download commands ---
-
-#[tauri::command]
-pub fn enqueue_download(
-    state: State<'_, AppState>,
-    title: String,
-    artist_name: Option<String>,
-    album_title: Option<String>,
-    uri: Option<String>,
-    duration_secs: Option<f64>,
-    dest_collection_id: Option<i64>,
-    dest_collection_path: Option<String>,
-    format: Option<String>,
-    path_pattern: Option<String>,
-    is_batch_last: Option<bool>,
-    provider: Option<String>,
-) -> Result<u64, String> {
-    let (dest_cid, dest_path) = resolve_dest_collection(&state, dest_collection_id, dest_collection_path)?;
-
-    // The format is a raw quality value. The host interprets flac/original/aac/mp3;
-    // anything else is a provider-specific quality (e.g. "video" from a plugin's
-    // onGetQualities) that must reach the resolving provider verbatim — never
-    // coerce it. Omitted means source quality.
-    let fmt = format
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "original".to_string());
-
-    let id = state.track_download_manager.next_id();
-    let request = crate::downloader::DownloadRequest {
-        id,
-        title,
-        artist_name,
-        album_title,
-        dest_collection_id: dest_cid,
-        dest_collection_path: dest_path,
-        format: fmt,
-        path_pattern,
-        is_batch_last: is_batch_last.unwrap_or(true),
-        uri,
-        duration_secs,
-        provider,
-    };
-    state.track_download_manager.enqueue(request);
-    Ok(id)
-}
+// The background download queue (`enqueue_download` + its worker) was removed:
+// batch/auto downloads are gone, and downloads happen through the DownloadModal's
+// direct path (`download_to_path` / `download_preview`). The resolve registry
+// below stays — mixtape export still round-trips `download-resolve-request`
+// through the frontend provider chain.
 
 #[tauri::command]
 pub fn download_resolve_response(
@@ -131,59 +78,9 @@ pub fn resolve_subsonic_download_url(
     }
 }
 
-// --- Download provider CRUD commands ---
-
-#[tauri::command]
-pub fn sync_download_providers(
-    state: State<'_, AppState>,
-    providers: Vec<(String, String, String, i64)>,
-) -> Result<(), String> {
-    state.db.sync_download_providers(&providers).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_download_providers(
-    state: State<'_, AppState>,
-) -> Result<Vec<(String, String, String, i64, bool)>, String> {
-    state.db.get_download_providers().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_active_download_providers(
-    state: State<'_, AppState>,
-) -> Result<Vec<(String, String, String, i64)>, String> {
-    state.db.get_active_download_providers().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn update_download_provider_priority(
-    state: State<'_, AppState>,
-    plugin_id: String,
-    provider_id: String,
-    priority: i64,
-) -> Result<(), String> {
-    state.db.update_download_provider_priority(&plugin_id, &provider_id, priority)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn update_download_provider_active(
-    state: State<'_, AppState>,
-    plugin_id: String,
-    provider_id: String,
-    active: bool,
-) -> Result<(), String> {
-    state.db.update_download_provider_active(&plugin_id, &provider_id, active)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn reset_download_provider_priorities(
-    state: State<'_, AppState>,
-    defaults: Vec<(String, String, String, i64)>,
-) -> Result<(), String> {
-    state.db.reset_download_provider_priorities(&defaults).map_err(|e| e.to_string())
-}
+// (The download-provider CRUD commands — sync/get/update priority/active/reset —
+// were removed with the Settings → Providers download group: download providers
+// carry no user priority/enable any more.)
 
 #[tauri::command]
 pub async fn check_dest_conflict(

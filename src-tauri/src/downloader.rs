@@ -1,13 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Condvar, Mutex};
-use tauri::AppHandle;
-
-use crate::db::Database;
+use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum DownloadFormat {
@@ -65,30 +60,6 @@ pub fn subsonic_download_target(
     }
 }
 
-/// Best-effort detection of an audio container from its leading bytes.
-/// Used when downloading an original file whose extension we don't already know.
-/// Returns `None` for unrecognized data.
-pub fn sniff_audio_extension(bytes: &[u8]) -> Option<&'static str> {
-    if bytes.len() >= 4 {
-        match &bytes[0..4] {
-            b"fLaC" => return Some("flac"),
-            b"ID3\x03" | b"ID3\x04" | b"ID3\x02" => return Some("mp3"),
-            b"OggS" => return Some("ogg"),
-            b"RIFF" if bytes.len() >= 12 && &bytes[8..12] == b"WAVE" => return Some("wav"),
-            _ => {}
-        }
-        // MP3 frame sync (no ID3 header): 0xFF Ex/Fx
-        if bytes[0] == 0xFF && (bytes[1] & 0xE0) == 0xE0 {
-            return Some("mp3");
-        }
-    }
-    // MP4/M4A: "ftyp" box at offset 4
-    if bytes.len() >= 8 && &bytes[4..8] == b"ftyp" {
-        return Some("m4a");
-    }
-    None
-}
-
 /// Fallback extension for a requested format value when neither the resolver
 /// nor the downloaded bytes pin one: host-known formats map to their container
 /// ("original" keeps its legacy "flac" naming), while provider-specific quality
@@ -100,41 +71,6 @@ pub fn format_fallback_extension(format: &str) -> &'static str {
         .unwrap_or("bin")
 }
 
-/// Decide the saved file's extension for a completed download.
-///
-/// Priority: a concrete resolver-provided `ext` → the container pinned by a
-/// host-known format (flac/aac/mp3, unless the resolver asked to sniff via
-/// `"auto"`) → sniffing the downloaded bytes ("original" and provider-specific
-/// quality values don't pin a container up front) → `format_fallback_extension`.
-///
-/// The resolver ext is normalized and restricted to plain alphanumeric so a
-/// buggy or malicious resolver can't smuggle path components into the filename.
-pub fn resolve_download_extension(format: &str, resolver_ext: Option<&str>, head: &[u8]) -> String {
-    let explicit = resolver_ext
-        .map(|e| e.trim().trim_start_matches('.').to_ascii_lowercase())
-        .filter(|e| !e.is_empty() && e != "auto" && e.chars().all(|c| c.is_ascii_alphanumeric()));
-    if let Some(e) = explicit {
-        return e;
-    }
-
-    let pinned = match format {
-        "flac" => Some("flac"),
-        "aac" => Some("m4a"),
-        "mp3" => Some("mp3"),
-        // "original" and provider-specific values: container unknown up front.
-        _ => None,
-    };
-    let wants_sniff = resolver_ext.map(str::trim) == Some("auto");
-    if !wants_sniff {
-        if let Some(p) = pinned {
-            return p.to_string();
-        }
-    }
-
-    sniff_audio_extension(head)
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format_fallback_extension(format).to_string())
-}
 
 impl std::fmt::Display for DownloadFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -146,61 +82,14 @@ impl std::fmt::Display for DownloadFormat {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct DownloadRequest {
-    pub id: u64,
-    pub title: String,
-    pub artist_name: Option<String>,
-    pub album_title: Option<String>,
-    pub dest_collection_id: i64,
-    pub dest_collection_path: String,
-    /// Raw requested format/quality value. The host interprets
-    /// "flac"/"original"/"aac"/"mp3"; any other value is a provider-specific
-    /// quality (e.g. "video") passed to the resolving provider verbatim — the
-    /// saved extension then comes from the resolver's `ext` or byte-sniffing.
-    pub format: String,
-    pub path_pattern: Option<String>,
-    /// If true, this is the last track in a batch (album download). FTS rebuild happens after this one.
-    pub is_batch_last: bool,
-    /// Raw track URI (e.g., "custom://123", "subsonic://5/abc", null for metadata-only)
-    pub uri: Option<String>,
-    /// Track duration in seconds (used for metadata-based resolution)
-    pub duration_secs: Option<f64>,
-    /// Target a specific download provider (e.g., "my-plugin:my-provider"). When set, only this provider is tried.
-    pub provider: Option<String>,
-}
-
+/// The answer to a `download-resolve-request` round-trip. The frontend sends
+/// the provider's full `DownloadResolveResult` (src/types/plugin.ts); serde
+/// ignores the fields the remaining backend consumer — mixtape export — does
+/// not read (`metadata`, `ext`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct DownloadResolveResponse {
     pub url: String,
     pub headers: Option<HashMap<String, String>>,
-    pub metadata: Option<DownloadMetadata>,
-    /// File extension the resolver wants the saved file to use, overriding the
-    /// requested format's default extension. Used when the real container is
-    /// known only at resolve time (e.g. a Subsonic original file).
-    /// - `Some("mp3")` etc. — save with this exact extension.
-    /// - `Some("auto")` — the resolver knows it returns the original file but not
-    ///   its container; sniff the extension from the downloaded bytes.
-    /// - `None` — resolver doesn't care; use `request.format.extension()`
-    ///   (unchanged behavior for plugin providers, which never set this).
-    #[serde(default)]
-    pub ext: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DownloadMetadata {
-    pub title: Option<String>,
-    pub artist: Option<String>,
-    pub album: Option<String>,
-    /// Plugins send the documented camelCase shape (`trackNumber`/`coverUrl`,
-    /// see `DownloadResolveResult` in src/types/plugin.ts) — accept both so the
-    /// queue path doesn't silently drop them.
-    #[serde(alias = "trackNumber")]
-    pub track_number: Option<u32>,
-    pub year: Option<u32>,
-    pub genre: Option<String>,
-    #[serde(alias = "coverUrl")]
-    pub cover_url: Option<String>,
 }
 
 pub struct DownloadResolveRegistry {
@@ -227,106 +116,6 @@ impl DownloadResolveRegistry {
     }
     pub fn cancel(&self, id: u64) {
         self.pending.lock().unwrap().remove(&id);
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DownloadStatus {
-    pub id: u64,
-    pub track_title: String,
-    pub artist_name: String,
-    pub status: String,
-    pub progress_pct: u8,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DownloadQueueInfo {
-    pub active: Option<DownloadStatus>,
-    pub queued: Vec<DownloadStatus>,
-    pub completed: Vec<DownloadStatus>,
-}
-
-pub struct DownloadManager {
-    pub queue: Mutex<VecDeque<DownloadRequest>>,
-    pub condvar: Condvar,
-    pub active: Mutex<Option<DownloadStatus>>,
-    pub next_id: AtomicU64,
-    pub completed: Mutex<VecDeque<DownloadStatus>>,
-}
-
-impl DownloadManager {
-    pub fn new() -> Self {
-        Self {
-            queue: Mutex::new(VecDeque::new()),
-            condvar: Condvar::new(),
-            active: Mutex::new(None),
-            next_id: AtomicU64::new(1),
-            completed: Mutex::new(VecDeque::new()),
-        }
-    }
-
-    pub fn enqueue(&self, request: DownloadRequest) {
-        let mut queue = self.queue.lock().unwrap();
-        queue.push_back(request);
-        self.condvar.notify_one();
-    }
-
-    pub fn next_id(&self) -> u64 {
-        self.next_id.fetch_add(1, Ordering::Relaxed)
-    }
-
-    pub fn cancel(&self, download_id: u64) -> bool {
-        let mut queue = self.queue.lock().unwrap();
-        let len_before = queue.len();
-        queue.retain(|r| r.id != download_id);
-        queue.len() < len_before
-    }
-
-    pub fn get_status(&self) -> DownloadQueueInfo {
-        let active = self.active.lock().unwrap().clone();
-        let queued: Vec<DownloadStatus> = self
-            .queue
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|r| DownloadStatus {
-                id: r.id,
-                track_title: r.title.clone(),
-                artist_name: r.artist_name.clone().unwrap_or_default(),
-                status: "queued".to_string(),
-                progress_pct: 0,
-                error: None,
-            })
-            .collect();
-        let completed: Vec<DownloadStatus> =
-            self.completed.lock().unwrap().iter().cloned().collect();
-        DownloadQueueInfo {
-            active,
-            queued,
-            completed,
-        }
-    }
-
-    pub fn set_active(&self, status: Option<DownloadStatus>) {
-        *self.active.lock().unwrap() = status;
-    }
-
-    pub fn push_completed(&self, status: DownloadStatus) {
-        let mut completed = self.completed.lock().unwrap();
-        completed.push_back(status);
-        while completed.len() > 10 {
-            completed.pop_front();
-        }
-    }
-
-    /// Wait for next request from the queue (blocks until available)
-    pub fn wait_for_next(&self) -> DownloadRequest {
-        let mut queue = self.queue.lock().unwrap();
-        while queue.is_empty() {
-            queue = self.condvar.wait(queue).unwrap();
-        }
-        queue.pop_front().unwrap()
     }
 }
 
@@ -358,49 +147,6 @@ pub fn download_filename(artist: &str, title: &str, ext: &str) -> String {
         sanitize_filename(title),
         ext
     )
-}
-
-/// Build the destination path from a pattern or default `{Artist}/{Album}/{TrackNum} - {Title}.{ext}`.
-/// Pattern tokens: `[artist]`, `[album]`, `[track_number]`, `[title]`.
-/// Use `/` or `\` in the pattern to create subdirectories.
-pub fn build_dest_path(
-    collection_path: &str,
-    title: &str,
-    artist: &str,
-    album: &str,
-    track_number: Option<u32>,
-    ext: &str,
-    path_pattern: Option<&str>,
-) -> PathBuf {
-    let track_num = track_number.map(|n| format!("{:02}", n)).unwrap_or_default();
-
-    if let Some(pattern) = path_pattern {
-        let expanded = pattern
-            .replace("[artist]", &sanitize_filename(artist))
-            .replace("[album]", &sanitize_filename(album))
-            .replace("[track_number]", &track_num)
-            .replace("[title]", &sanitize_filename(title));
-        let full = format!("{}.{}", expanded, ext);
-        let mut path = PathBuf::from(collection_path);
-        for component in full.split(['/', '\\']) {
-            if !component.is_empty() {
-                path.push(component);
-            }
-        }
-        return path;
-    }
-
-    let artist_dir = sanitize_filename(artist);
-    let album_dir = sanitize_filename(album);
-    let filename = if track_num.is_empty() {
-        format!("{}.{}", sanitize_filename(title), ext)
-    } else {
-        format!("{} - {}.{}", track_num, sanitize_filename(title), ext)
-    };
-    Path::new(collection_path)
-        .join(artist_dir)
-        .join(album_dir)
-        .join(filename)
 }
 
 // --- Download pipeline ---
@@ -528,224 +274,6 @@ pub fn replace_file_safely(src: &Path, dest: &Path) -> Result<(), String> {
     }
 }
 
-pub fn process_download(
-    request: &DownloadRequest,
-    resolved: &DownloadResolveResponse,
-    db: &Arc<Database>,
-    app: &AppHandle,
-    manager: &Arc<DownloadManager>,
-) -> Result<PathBuf, String> {
-    use tauri::Emitter;
-
-    // Merge metadata: resolved overrides request
-    let metadata = resolved.metadata.as_ref();
-    let title = metadata
-        .and_then(|m| m.title.as_deref())
-        .unwrap_or(&request.title);
-    let artist = metadata
-        .and_then(|m| m.artist.as_deref())
-        .or(request.artist_name.as_deref())
-        .unwrap_or("");
-    let album = metadata
-        .and_then(|m| m.album.as_deref())
-        .or(request.album_title.as_deref())
-        .unwrap_or("");
-    let track_number = metadata.and_then(|m| m.track_number);
-    let year = metadata.and_then(|m| m.year).map(|y| y as i32);
-    let genre = metadata.and_then(|m| m.genre.as_deref());
-    let cover_url = metadata.and_then(|m| m.cover_url.as_deref());
-
-    // Download to a neutral temp file first. The final extension may depend on
-    // the downloaded bytes (sniff case), so the destination path is built after
-    // the download completes.
-    let temp_path = Path::new(&request.dest_collection_path)
-        .join(format!(".viboplr-download-{}.part", request.id));
-    if let Some(parent) = temp_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directories: {}", e))?;
-    }
-
-    download_file(
-        &resolved.url,
-        resolved.headers.as_ref(),
-        &temp_path,
-        None,
-        Some(&|pct| {
-            let progress_status = DownloadStatus {
-                id: request.id,
-                track_title: request.title.clone(),
-                artist_name: request.artist_name.clone().unwrap_or_default(),
-                status: "downloading".to_string(),
-                progress_pct: pct,
-                error: None,
-            };
-            manager.set_active(Some(progress_status.clone()));
-            let _ = app.emit("download-progress", &progress_status);
-        }),
-    )?;
-
-    // Resolve the final extension: explicit from resolver -> pinned by a
-    // host-known format -> sniffed from bytes -> format fallback.
-    let mut head = [0u8; 16];
-    let head_len = std::fs::File::open(&temp_path)
-        .and_then(|mut f| {
-            use std::io::Read;
-            f.read(&mut head)
-        })
-        .unwrap_or(0);
-    let ext = resolve_download_extension(&request.format, resolved.ext.as_deref(), &head[..head_len]);
-
-    // Build destination path now that the extension is known.
-    let dest_path = build_dest_path(
-        &request.dest_collection_path,
-        title,
-        artist,
-        album,
-        track_number,
-        &ext,
-        request.path_pattern.as_deref(),
-    );
-    if let Some(parent) = dest_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create directories: {}", e))?;
-    }
-
-    // Detect WebM content by EBML magic bytes
-    let is_webm = std::fs::File::open(&temp_path)
-        .and_then(|mut f| {
-            let mut magic = [0u8; 4];
-            std::io::Read::read_exact(&mut f, &mut magic)?;
-            Ok(magic == [0x1a, 0x45, 0xdf, 0xa3])
-        })
-        .unwrap_or(false);
-
-    if is_webm {
-        return process_webm_download(
-            &temp_path, request, db, title, artist, album, track_number, year, genre,
-        );
-    }
-
-    // Write tags to the downloaded file
-    if let Err(e) = write_tags(
-        &temp_path,
-        title,
-        artist,
-        album,
-        track_number,
-        year,
-        genre,
-        cover_url,
-    ) {
-        log::warn!("Failed to write tags for {}: {}", title, e);
-        // Continue even if tagging fails — the file is still valid
-    }
-
-    // Rename temp to final path
-    std::fs::rename(&temp_path, &dest_path).map_err(|e| {
-        // Clean up temp file on rename failure
-        let _ = std::fs::remove_file(&temp_path);
-        format!("Failed to rename temp file: {}", e)
-    })?;
-
-    // Index the new file in the library
-    crate::scanner::process_media_file(
-        db,
-        &dest_path,
-        Some(request.dest_collection_id),
-        Some(&request.dest_collection_path),
-    );
-
-    Ok(dest_path)
-}
-
-fn process_webm_download(
-    temp_path: &Path,
-    request: &DownloadRequest,
-    db: &Arc<Database>,
-    title: &str,
-    artist: &str,
-    album: &str,
-    track_number: Option<u32>,
-    year: Option<i32>,
-    genre: Option<&str>,
-) -> Result<PathBuf, String> {
-    if crate::video_frames::is_ffmpeg_available() {
-        let m4a_temp = temp_path.with_extension("m4a");
-        let m4a_temp_str = m4a_temp.to_string_lossy().to_string();
-        let temp_str = temp_path.to_string_lossy().to_string();
-        log::info!("Converting WebM to m4a: {} -> {}", temp_str, m4a_temp_str);
-
-        let mut cmd = crate::dependencies::command_with_path("ffmpeg");
-        cmd.args(["-i", &temp_str, "-vn", "-c:a", "aac", "-b:a", "192k", "-y", &m4a_temp_str]);
-        let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-
-        if output.status.success() {
-            let _ = std::fs::remove_file(temp_path);
-            let dest_path = build_dest_path(
-                &request.dest_collection_path, title, artist, album,
-                track_number, "m4a", request.path_pattern.as_deref(),
-            );
-            if let Some(parent) = dest_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if let Err(e) = write_tags(&m4a_temp, title, artist, album, track_number, year, genre, None) {
-                log::warn!("Failed to write tags for converted {}: {}", title, e);
-            }
-            std::fs::rename(&m4a_temp, &dest_path).map_err(|e| {
-                let _ = std::fs::remove_file(&m4a_temp);
-                format!("Failed to rename converted file: {}", e)
-            })?;
-            crate::scanner::process_media_file(db, &dest_path, Some(request.dest_collection_id), Some(&request.dest_collection_path));
-            return Ok(dest_path);
-        }
-
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        log::warn!("ffmpeg conversion failed, saving as .webm: {}", stderr);
-        let _ = std::fs::remove_file(&m4a_temp);
-        // Fall through to save as .webm
-    }
-
-    // No ffmpeg: save as .webm, write metadata directly to DB
-    let dest_path = build_dest_path(
-        &request.dest_collection_path, title, artist, album,
-        track_number, "webm", request.path_pattern.as_deref(),
-    );
-    if let Some(parent) = dest_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    std::fs::rename(temp_path, &dest_path).map_err(|e| {
-        let _ = std::fs::remove_file(temp_path);
-        format!("Failed to rename webm file: {}", e)
-    })?;
-
-    let relative_path = dest_path
-        .strip_prefix(&request.dest_collection_path)
-        .unwrap_or(&dest_path)
-        .to_string_lossy()
-        .to_string();
-    let file_size = std::fs::metadata(&dest_path).ok().map(|m| m.len() as i64);
-    let modified_at = std::fs::metadata(&dest_path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64);
-    let artist_id = if !artist.is_empty() { db.get_or_create_artist(artist).ok() } else { None };
-    let album_id = if !album.is_empty() { db.get_or_create_album(album, artist_id, year).ok() } else { None };
-    if let Ok(track_id) = db.upsert_track(
-        &relative_path, title, artist_id, album_id, track_number.map(|n| n as i32),
-        None, Some("webm"), file_size, modified_at,
-        Some(request.dest_collection_id), year,
-    ) {
-        if let Some(genre) = genre {
-            if let Ok(tag_id) = db.get_or_create_tag(genre) {
-                let _ = db.add_track_tag(track_id, tag_id);
-            }
-        }
-    }
-
-    Ok(dest_path)
-}
-
 pub fn write_tags(
     path: &Path,
     title: &str,
@@ -833,23 +361,6 @@ pub fn write_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn test_request() -> DownloadRequest {
-        DownloadRequest {
-            id: 1,
-            title: "Test Song".to_string(),
-            artist_name: Some("Test Artist".to_string()),
-            album_title: Some("Test Album".to_string()),
-            dest_collection_id: 1,
-            dest_collection_path: "/music".to_string(),
-            format: "flac".to_string(),
-            is_batch_last: false,
-            path_pattern: None,
-            uri: Some("tidal://123".to_string()),
-            duration_secs: None,
-            provider: None,
-        }
-    }
 
     // --- sanitize_filename tests ---
 
@@ -999,48 +510,6 @@ mod tests {
         assert_eq!(ext.as_deref(), Some("mp3"));
     }
 
-    // --- sniff_audio_extension tests ---
-
-    #[test]
-    fn test_sniff_flac() {
-        assert_eq!(sniff_audio_extension(b"fLaC\x00\x00\x00\x22"), Some("flac"));
-    }
-
-    #[test]
-    fn test_sniff_mp3_id3() {
-        assert_eq!(sniff_audio_extension(b"ID3\x03\x00\x00\x00\x00"), Some("mp3"));
-    }
-
-    #[test]
-    fn test_sniff_mp3_frame_sync() {
-        assert_eq!(sniff_audio_extension(&[0xFF, 0xFB, 0x90, 0x00]), Some("mp3"));
-    }
-
-    #[test]
-    fn test_sniff_m4a_ftyp() {
-        // size box + "ftyp" + brand
-        assert_eq!(
-            sniff_audio_extension(b"\x00\x00\x00\x20ftypM4A "),
-            Some("m4a")
-        );
-    }
-
-    #[test]
-    fn test_sniff_ogg() {
-        assert_eq!(sniff_audio_extension(b"OggS\x00\x02\x00\x00"), Some("ogg"));
-    }
-
-    #[test]
-    fn test_sniff_wav() {
-        assert_eq!(sniff_audio_extension(b"RIFF\x00\x00\x00\x00WAVE"), Some("wav"));
-    }
-
-    #[test]
-    fn test_sniff_unknown_returns_none() {
-        assert_eq!(sniff_audio_extension(b"\x00\x01\x02\x03"), None);
-        assert_eq!(sniff_audio_extension(b""), None);
-    }
-
     // --- resolve_download_extension / format_fallback_extension tests ---
 
     #[test]
@@ -1055,233 +524,6 @@ mod tests {
         assert_eq!(format_fallback_extension(""), "bin");
     }
 
-    #[test]
-    fn test_resolve_ext_explicit_wins() {
-        assert_eq!(resolve_download_extension("flac", Some("mp4"), b"fLaC"), "mp4");
-        assert_eq!(resolve_download_extension("video", Some("webm"), b""), "webm");
-    }
-
-    #[test]
-    fn test_resolve_ext_normalizes_explicit() {
-        assert_eq!(resolve_download_extension("video", Some(" .MP4 "), b""), "mp4");
-    }
-
-    #[test]
-    fn test_resolve_ext_rejects_unsafe_explicit() {
-        // Path components in a resolver ext must never reach the filename.
-        assert_eq!(resolve_download_extension("video", Some("../evil"), b"fLaC"), "flac");
-        assert_eq!(resolve_download_extension("video", Some("a/b"), b"\x00\x01"), "bin");
-    }
-
-    #[test]
-    fn test_resolve_ext_pinned_formats_skip_sniff() {
-        // fLaC bytes must not override a host-known format the server produced.
-        assert_eq!(resolve_download_extension("aac", None, b"fLaC"), "m4a");
-        assert_eq!(resolve_download_extension("mp3", None, b"fLaC"), "mp3");
-        assert_eq!(resolve_download_extension("flac", None, b"\x00\x01"), "flac");
-    }
-
-    #[test]
-    fn test_resolve_ext_auto_sniffs_with_format_fallback() {
-        assert_eq!(resolve_download_extension("flac", Some("auto"), b"ID3\x04rest"), "mp3");
-        assert_eq!(resolve_download_extension("flac", Some("auto"), b"\x00\x01\x02\x03"), "flac");
-    }
-
-    #[test]
-    fn test_resolve_ext_unknown_format_sniffs() {
-        // Provider-specific qualities don't pin a container: sniff, else neutral.
-        assert_eq!(resolve_download_extension("video", None, b"fLaC"), "flac");
-        assert_eq!(resolve_download_extension("video", None, b"\x00\x01\x02\x03"), "bin");
-        // "original" is container-indefinite too — sniff, legacy flac fallback.
-        assert_eq!(resolve_download_extension("original", None, b"OggSrest"), "ogg");
-        assert_eq!(resolve_download_extension("original", None, b"\x00\x01\x02\x03"), "flac");
-    }
-
-    // --- build_dest_path tests ---
-
-    #[test]
-    fn test_build_dest_path_default_with_track_number() {
-        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "flac", None);
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.flac")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_default_without_track_number() {
-        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", None, "flac", None);
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Test Artist/Test Album/Test Song.flac")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_custom_pattern_all_tokens() {
-        let path = build_dest_path(
-            "/music", "Test Song", "Test Artist", "Test Album", Some(3), "flac",
-            Some("[artist]/[album]/[track_number] - [title]"),
-        );
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.flac")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_custom_pattern_subdirectories() {
-        let path = build_dest_path(
-            "/music", "Test Song", "Test Artist", "Test Album", Some(3), "flac",
-            Some("Artists/[artist]/Albums/[album]/[track_number]-[title]"),
-        );
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Artists/Test Artist/Albums/Test Album/03-Test Song.flac")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_extension_override() {
-        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "m4a", None);
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.m4a")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_sanitizes_filenames() {
-        let path = build_dest_path("/music", "Track?Name", "Artist/Name", "Album:Title", Some(3), "flac", None);
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Artist_Name/Album_Title/03 - Track_Name.flac")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_custom_pattern_no_track_number() {
-        let path = build_dest_path(
-            "/music", "Test Song", "Test Artist", "Test Album", None, "flac",
-            Some("[artist] - [title]"),
-        );
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Test Artist - Test Song.flac")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_mp3_format() {
-        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "mp3", None);
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.mp3")
-        );
-    }
-
-    #[test]
-    fn test_build_dest_path_aac_format() {
-        let path = build_dest_path("/music", "Test Song", "Test Artist", "Test Album", Some(3), "m4a", None);
-        assert_eq!(
-            path,
-            PathBuf::from("/music/Test Artist/Test Album/03 - Test Song.m4a")
-        );
-    }
-
-    // --- DownloadManager tests ---
-
-    #[test]
-    fn test_download_manager_next_id_increments() {
-        let manager = DownloadManager::new();
-        assert_eq!(manager.next_id(), 1);
-        assert_eq!(manager.next_id(), 2);
-        assert_eq!(manager.next_id(), 3);
-    }
-
-    #[test]
-    fn test_download_manager_enqueue_and_cancel() {
-        let manager = DownloadManager::new();
-        let request = test_request();
-
-        manager.enqueue(request.clone());
-        assert_eq!(manager.queue.lock().unwrap().len(), 1);
-
-        let cancelled = manager.cancel(1);
-        assert!(cancelled);
-        assert_eq!(manager.queue.lock().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn test_download_manager_cancel_nonexistent() {
-        let manager = DownloadManager::new();
-        let request = test_request();
-
-        manager.enqueue(request.clone());
-        let cancelled = manager.cancel(999);
-        assert!(!cancelled);
-        assert_eq!(manager.queue.lock().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn test_download_manager_get_status_queued() {
-        let manager = DownloadManager::new();
-        let request = test_request();
-
-        manager.enqueue(request.clone());
-        let status = manager.get_status();
-
-        assert_eq!(status.queued.len(), 1);
-        assert_eq!(status.queued[0].track_title, "Test Song");
-        assert_eq!(status.queued[0].status, "queued");
-        assert!(status.active.is_none());
-    }
-
-    #[test]
-    fn test_download_manager_push_completed_respects_limit() {
-        let manager = DownloadManager::new();
-
-        for i in 1..=15 {
-            let status = DownloadStatus {
-                id: i,
-                track_title: format!("Track {}", i),
-                artist_name: "Artist".to_string(),
-                status: "completed".to_string(),
-                progress_pct: 100,
-                error: None,
-            };
-            manager.push_completed(status);
-        }
-
-        let completed = manager.completed.lock().unwrap();
-        assert_eq!(completed.len(), 10);
-        // First 5 should be removed, so we should have items 6-15
-        assert_eq!(completed[0].id, 6);
-        assert_eq!(completed[9].id, 15);
-    }
-
-    #[test]
-    fn test_download_manager_set_active() {
-        let manager = DownloadManager::new();
-
-        assert!(manager.active.lock().unwrap().is_none());
-
-        let status = DownloadStatus {
-            id: 1,
-            track_title: "Active Track".to_string(),
-            artist_name: "Artist".to_string(),
-            status: "downloading".to_string(),
-            progress_pct: 50,
-            error: None,
-        };
-
-        manager.set_active(Some(status.clone()));
-        let active = manager.active.lock().unwrap();
-        assert!(active.is_some());
-        assert_eq!(active.as_ref().unwrap().track_title, "Active Track");
-        assert_eq!(active.as_ref().unwrap().progress_pct, 50);
-    }
-
     // --- DownloadResolveRegistry tests ---
 
     #[test]
@@ -1292,8 +534,6 @@ mod tests {
         let response = DownloadResolveResponse {
             url: "https://example.com/stream".to_string(),
             headers: None,
-            metadata: None,
-            ext: None,
         };
         assert!(registry.respond(42, Some(response)));
 
@@ -1331,22 +571,14 @@ mod tests {
     // --- DownloadResolveResponse deserialization tests ---
 
     #[test]
-    fn test_resolve_response_accepts_camel_case_metadata() {
-        // The documented plugin shape (DownloadResolveResult in plugin.ts).
-        let json = r#"{"url":"https://x/y.mp3","metadata":{"title":"T","artist":"A","album":"B","trackNumber":7,"coverUrl":"https://img"},"ext":"mp3"}"#;
+    fn test_resolve_response_tolerates_the_full_plugin_result_shape() {
+        // The frontend answers with the provider's whole DownloadResolveResult
+        // (plugin.ts) — fields the backend doesn't read must be ignored, not
+        // rejected, or every resolve with metadata would fail to deserialize.
+        let json = r#"{"url":"https://x/y.mp3","metadata":{"title":"T","artist":"A","trackNumber":7,"coverUrl":"https://img"},"ext":"mp3"}"#;
         let resp: DownloadResolveResponse = serde_json::from_str(json).unwrap();
-        let m = resp.metadata.unwrap();
-        assert_eq!(m.track_number, Some(7));
-        assert_eq!(m.cover_url.as_deref(), Some("https://img"));
-    }
-
-    #[test]
-    fn test_resolve_response_accepts_snake_case_metadata() {
-        let json = r#"{"url":"https://x/y.mp3","metadata":{"track_number":3,"cover_url":"https://img2"}}"#;
-        let resp: DownloadResolveResponse = serde_json::from_str(json).unwrap();
-        let m = resp.metadata.unwrap();
-        assert_eq!(m.track_number, Some(3));
-        assert_eq!(m.cover_url.as_deref(), Some("https://img2"));
+        assert_eq!(resp.url, "https://x/y.mp3");
+        assert!(resp.headers.is_none());
     }
 
     // --- replace_file_safely tests ---

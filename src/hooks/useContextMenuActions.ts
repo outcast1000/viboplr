@@ -5,7 +5,6 @@ import { parseLibraryId, isLocalTrack, isNetworkSharePath } from "../queueEntry"
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { useQueueDragToInsert, type PendingEnqueue } from "./useQueueDragToInsert";
-import { useDownloadActions } from "./useDownloadActions";
 import { trashLabel } from "../utils";
 import { emitTracksDeleted } from "../trackEvents";
 
@@ -78,7 +77,6 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
   const { externalDropTarget, handleTrackDragStart } = useQueueDragToInsert({
     queueHook, queueCollapsed, setQueueCollapsed, setPendingEnqueue,
   });
-  const { handleDownloadMulti } = useDownloadActions();
 
   function setContextMenu(state: ContextMenuState | null) {
     contextMenuRef.current = state;
@@ -489,6 +487,5 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleTrackDragStart,
     handleInfoTrackContextMenu,
     handleEntityContextMenu,
-    handleDownloadMulti,
   };
 }

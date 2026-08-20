@@ -269,7 +269,9 @@ export function isRemoteScheme(url: string): boolean {
  *                  or a plugin-collection library row). Downloads via that plugin's
  *                  download provider, if it contributes one. `uri` is set when a
  *                  native scheme URL is available (prefer by-uri resolution over metadata).
- * - `direct-url` — a raw http(s) URL with no owning plugin. Nothing to download.
+ * - `direct-url` — a raw http(s) URL with no owning plugin (e.g. a manifest
+ *                  collection track, an internet stream). Downloads as itself:
+ *                  the URL is the download ("Source" plan in `decideDownload`).
  */
 export type EffectiveSource =
   | { kind: "local" }

@@ -9,7 +9,7 @@ import { parseLibraryId, classifyEffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
 import { withResolverLog } from "../utils/resolverLog";
 import { decideDownload, type DownloadPlan } from "../utils/downloadPlan";
-import { usePlugins, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "./usePlugins";
+import { usePlugins } from "./usePlugins";
 
 import { useAssignRef } from "./useLatestRef";
 export interface DownloadModalState {
@@ -64,7 +64,10 @@ async function resolveWithIdleTimeout(
  * return the first successful resolution. Each provider call is bounded by
  * `RESOLVE_IDLE_TIMEOUT_MS` (see above). The backend's resolve wait must stay
  * comfortably above whatever this chain can take.
- * Exported for unit testing of the provider-id matching. */
+ * Sole caller is the `download-resolve-request` bridge below, whose only
+ * backend emitter is now MIXTAPE EXPORT — the background download queue that
+ * also used it was removed. Exported for unit testing of the provider-id
+ * matching. */
 export async function resolveTrackDownload(
   providers: DownloadProvider[],
   uri: string | null,
@@ -126,12 +129,13 @@ interface UseDownloadOrchestrationDeps {
 }
 
 /**
- * Download-orchestration engine, extracted out of App.tsx. Owns the ordered
- * plugin download-provider list, the backend `download-resolve-request` bridge,
- * provider priorities, the `downloadModal` state, and the source-owned download
- * triggers (context-menu "Download…", now-playing download). There are no
- * per-provider triggers: providers surface their own context-menu items
- * (plugin-first), and batch downloads go through the background chain.
+ * Download-orchestration engine, extracted out of App.tsx. Owns the plugin
+ * download-provider list, the backend `download-resolve-request` bridge
+ * (mixtape export's resolve round-trip), the `downloadModal` state, and the
+ * source-owned download triggers (context-menu "Download…", now-playing
+ * download). There are no per-provider triggers and no provider priorities:
+ * a track's own source decides its downloader (`decideDownload`), and
+ * providers surface their own context-menu items (plugin-first).
  */
 export function useDownloadOrchestration({
   plugins,
@@ -139,11 +143,12 @@ export function useDownloadOrchestration({
   queue,
 }: UseDownloadOrchestrationDeps) {
   const [downloadModal, setDownloadModal] = useState<DownloadModalState | null>(null);
-  const [providerPriorities, setProviderPriorities] = useState<Map<string, number>>(new Map());
-  const [disabledProviders, setDisabledProviders] = useState<Set<string>>(new Set());
 
-  // Build the raw download provider list from active plugins (registration order)
-  const allDownloadProviders = useMemo(() => {
+  // The download provider list: built-in Subsonic first, then active plugins'
+  // providers in registration order. No user-configurable priority/enable — the
+  // Settings → Providers download group was removed with the auto-download
+  // chain; the only order-sensitive consumer left is mixtape export's resolve.
+  const downloadProviders = useMemo(() => {
     const providers: DownloadProvider[] = [];
 
     // Built-in subsonic provider
@@ -192,18 +197,6 @@ export function useDownloadOrchestration({
     return providers;
   }, [plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata]);
 
-  // The user-facing provider list: the Settings > Providers enable toggle and
-  // priority order apply to actual resolution (the resolve bridge, decideDownload,
-  // the menus), not just display. Built-in Subsonic is always enabled and first.
-  // Until the DB config loads, everything counts as enabled in registration order.
-  const downloadProviders = useMemo(() => {
-    const rank = (p: DownloadProvider) =>
-      p.source === "__builtin" ? -1 : providerPriorities.get(p.id) ?? Number.MAX_SAFE_INTEGER;
-    return allDownloadProviders
-      .filter(p => p.source === "__builtin" || !disabledProviders.has(p.id))
-      .sort((a, b) => rank(a) - rank(b));
-  }, [allDownloadProviders, disabledProviders, providerPriorities]);
-
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
   useAssignRef(downloadProvidersRef, downloadProviders);
 
@@ -228,44 +221,6 @@ export function useDownloadOrchestration({
       await invoke("download_resolve_response", { id, result: result ?? null });
     });
   }, []);
-
-  const refreshProviderConfig = useCallback(async () => {
-    try {
-      const rows = await invoke<[string, string, string, number, boolean][]>("get_download_providers");
-      const map = new Map<string, number>();
-      const off = new Set<string>();
-      for (const [pluginId, providerId, , priority, active] of rows) {
-        const key = `${pluginId}:${providerId}`;
-        map.set(key, priority);
-        if (!active) off.add(key);
-      }
-      setProviderPriorities(map);
-      setDisabledProviders(off);
-    } catch (e) {
-      console.error("Failed to load download provider config:", e);
-    }
-  }, []);
-
-  // Sync download providers to DB for backend ordering
-  useEffect(() => {
-    const providerData: [string, string, string, number][] = [];
-    for (const ps of plugins.pluginStates) {
-      if (ps.status !== "active") continue;
-      const dps = ps.manifest.contributes?.downloadProviders;
-      if (!dps) continue;
-      for (const dp of dps) {
-        const dlPriority = DEFAULT_DOWNLOAD_PROVIDER_PRIORITY[`${ps.id}:${dp.id}`] ?? 999;
-        providerData.push([ps.id, dp.id, dp.name, dlPriority]);
-      }
-    }
-    if (providerData.length > 0) {
-      invoke("sync_download_providers", { providers: providerData })
-        .then(() => refreshProviderConfig())
-        .catch(console.error);
-    } else {
-      refreshProviderConfig();
-    }
-  }, [plugins.pluginStates, refreshProviderConfig]);
 
   // --- Unified per-track download (context menu ⟷ now-playing) --------------
   // The now-playing button and the context-menu "Download…" both resolve which
@@ -364,7 +319,6 @@ export function useDownloadOrchestration({
     downloadModal,
     setDownloadModal,
     downloadProviders,
-    refreshDownloadProviderConfig: refreshProviderConfig,
     openDownloadForCurrentTrack,
     resolveNativeDownload,
     openNativeDownload,

@@ -19,7 +19,7 @@ import { HelpLink } from "./HelpLink";
 import { getPlatform } from "./DependencyModal";
 import { NowPlayingInfoSettings, type NowPlayingInfoSettingsProps } from "./NowPlayingInfoSettings";
 import { startRowDrag } from "../utils/rowDrag";
-import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY, DEFAULT_DOWNLOAD_PROVIDER_PRIORITY } from "../hooks/usePlugins";
+import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
 
 // Modifier-key glyph for shortcut hints (⌘ on macOS, Ctrl elsewhere).
@@ -50,15 +50,14 @@ interface ImageProviderRow {
 
 interface ProviderPillData {
   pluginId: string;
-  providerId?: string;
   priority: number;
   active: boolean;
   displayName: string;
 }
 
 interface ProviderRow {
-  kind: "images" | "info" | "download";
-  typeId: string;  // "images" for image rows, "download" for download rows, or the info type_id
+  kind: "images" | "info";
+  typeId: string;  // "images" for image rows, or the info type_id
   label: string;
   entity: string;
   sortOrder: number;
@@ -69,7 +68,6 @@ interface ProviderRow {
 function parseProviderConfig(
   infoTypes: [string, string, string, string, number, string, number, boolean][],
   imageProviders: [string, string, number, boolean, number][],
-  downloadProviders: [string, string, string, number, boolean][],
   pluginStates?: PluginState[],
 ): Map<string, ProviderRow[]> {
   const entityMap = new Map<string, ProviderRow[]>();
@@ -169,39 +167,18 @@ function parseProviderConfig(
     entityMap.set(entity, rows);
   }
 
-  // Download providers as a separate "download" entity group
-  const installedDownloads = downloadProviders.filter(([pluginId]) => isInstalled(pluginId));
-  if (installedDownloads.length > 0) {
-    const sorted = [...installedDownloads].sort((a, b) => a[3] - b[3]);
-    const dlRow: ProviderRow = {
-      kind: "download",
-      typeId: "download",
-      label: "Source priority",
-      entity: "download",
-      sortOrder: 0,
-      providers: sorted.map(([pluginId, providerId, name, priority, active]) => ({
-        pluginId,
-        providerId,
-        priority,
-        active,
-        displayName: name,
-      })),
-      hasLockedFirst: false,
-    };
-    entityMap.set("download", [dlRow]);
-  }
-
+  // No download group: download providers have no user priority/enable any
+  // more — a track's own source picks its downloader (decideDownload), and
+  // per-provider entry points are plugin-contributed.
   return entityMap;
 }
 
 function ProviderPrioritySection({
   pluginStates,
   onStreamResolverOrderChanged,
-  onDownloadProvidersChanged,
 }: {
   pluginStates?: PluginState[];
   onStreamResolverOrderChanged?: () => void;
-  onDownloadProvidersChanged?: () => void;
 }) {
   const [entityData, setEntityData] = useState<Map<string, ProviderRow[]>>(new Map());
   const [collapsedEntities, setCollapsedEntities] = useState<Set<string>>(new Set());
@@ -210,12 +187,11 @@ function ProviderPrioritySection({
 
   const fetchConfig = useCallback(async () => {
     try {
-      const [infoTypes, imageProviders, downloadProviders] = await invoke<[
+      const [infoTypes, imageProviders] = await invoke<[
         [string, string, string, string, number, string, number, boolean][],
         [string, string, number, boolean, number][],
-        [string, string, string, number, boolean][],
       ]>("get_all_provider_config");
-      setEntityData(parseProviderConfig(infoTypes, imageProviders, downloadProviders, pluginStates));
+      setEntityData(parseProviderConfig(infoTypes, imageProviders, pluginStates));
     } catch (e) {
       console.error("Failed to fetch provider config:", e);
     } finally {
@@ -288,12 +264,6 @@ function ProviderPrioritySection({
           entity: row.entity,
           active: newActive,
         });
-      } else if (row.kind === "download") {
-        await invoke("update_download_provider_active", {
-          pluginId: provider.pluginId,
-          providerId: provider.providerId,
-          active: newActive,
-        });
       } else {
         await invoke("update_info_type_active", {
           typeId: row.typeId,
@@ -302,7 +272,6 @@ function ProviderPrioritySection({
         });
       }
       await fetchConfig();
-      if (row.kind === "download") onDownloadProvidersChanged?.();
     } catch (e) {
       console.error("Failed to toggle active:", e);
     }
@@ -326,14 +295,6 @@ function ProviderPrioritySection({
               priority: newPriority,
             }) as Promise<void>,
           );
-        } else if (row.kind === "download") {
-          updates.push(
-            invoke("update_download_provider_priority", {
-              pluginId: providers[i].pluginId,
-              providerId: providers[i].providerId,
-              priority: newPriority,
-            }) as Promise<void>,
-          );
         } else {
           updates.push(
             invoke("update_info_type_priority", {
@@ -349,7 +310,6 @@ function ProviderPrioritySection({
     try {
       await Promise.all(updates);
       await fetchConfig();
-      if (row.kind === "download") onDownloadProvidersChanged?.();
     } catch (e) {
       console.error("Failed to update priorities:", e);
     }
@@ -383,7 +343,6 @@ function ProviderPrioritySection({
     // Build defaults from plugin manifests
     const imageDefaults: [string, string, number][] = [];
     const infoDefaults: [string, string, number, number][] = [];
-    const downloadDefaults: [string, string, string, number][] = [];
 
     if (pluginStates) {
       for (const plugin of pluginStates) {
@@ -402,12 +361,6 @@ function ProviderPrioritySection({
             infoDefaults.push([it.id, plugin.id, priority, order]);
           }
         }
-        if (contributes.downloadProviders) {
-          for (const dp of contributes.downloadProviders) {
-            const dlPriority = DEFAULT_DOWNLOAD_PROVIDER_PRIORITY[`${plugin.id}:${dp.id}`] ?? 999;
-            downloadDefaults.push([plugin.id, dp.id, dp.name, dlPriority]);
-          }
-        }
       }
     }
 
@@ -416,13 +369,7 @@ function ProviderPrioritySection({
         imageDefaults,
         infoDefaults,
       });
-      if (downloadDefaults.length > 0) {
-        await invoke("reset_download_provider_priorities", {
-          defaults: downloadDefaults,
-        });
-      }
       await fetchConfig();
-      if (downloadDefaults.length > 0) onDownloadProvidersChanged?.();
     } catch (e) {
       console.error("Failed to reset priorities:", e);
     }
@@ -437,7 +384,6 @@ function ProviderPrioritySection({
 
   const infoEntities = ["artist", "album", "track", "tag"];
   const infoEntries = [...entityData.entries()].filter(([entity]) => infoEntities.includes(entity));
-  const downloadRow = entityData.get("download")?.[0] ?? null;
 
   // Shared renderer for one priority list (label + vertical, draggable providers).
   const renderProviderRow = (row: ProviderRow) => {
@@ -455,7 +401,7 @@ function ProviderPrioritySection({
           )}
           {row.providers.map((provider, i) => (
             <div
-              key={provider.pluginId + (provider.providerId ?? "")}
+              key={provider.pluginId}
               className={`provider-vrow${!provider.active ? " provider-vrow-off" : ""}`}
               data-row-index={i}
             >
@@ -560,19 +506,6 @@ function ProviderPrioritySection({
                     })}
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {downloadRow && (
-        <div className="settings-group">
-          <div className="settings-group-title">Downloads<HelpLink anchor="providers" topic="provider priority" /></div>
-          <div className="provider-priority-container">
-            <div className="provider-entity-group">
-              <div className="provider-entity-rows">
-                {renderProviderRow(downloadRow)}
               </div>
             </div>
           </div>
@@ -1172,8 +1105,6 @@ interface SettingsPanelProps {
   onNotify: (message: string) => void;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
-  // Download provider toggle/reorder — re-syncs the live resolve chain
-  onDownloadProvidersChanged?: () => void;
   dependencies?: {
     deps: Array<{
       name: string;
@@ -1289,7 +1220,6 @@ export function SettingsPanel({
   onSwitchProfile,
   onNotify,
   onStreamResolverOrderChanged,
-  onDownloadProvidersChanged,
   dependencies,
   autoUpdateManagedDeps,
   onAutoUpdateManagedDepsChange,
@@ -1868,7 +1798,7 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "providers" && (
-                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} onDownloadProvidersChanged={onDownloadProvidersChanged} />
+                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
             )}
 
             {settingsTab === "debug" && (

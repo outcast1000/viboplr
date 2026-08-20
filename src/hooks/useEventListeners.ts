@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { track as trackTelemetry, bucketCount } from "../telemetry";
-import { classifyErrorKind } from "../utils/errorKind";
 
 interface ResyncProgress {
   collectionId: number;
@@ -32,9 +31,6 @@ interface EventListenerOptions {
   // does not refresh it — this nudges it to re-run its current query.
   onLibraryChanged?: () => void;
   dispatchPluginEvent?: (event: string, ...args: unknown[]) => void;
-  // Toast channel for queue-based download outcomes (api.downloads.enqueue has
-  // no per-download progress UI of its own). Surfaces complete/error feedback.
-  notify?: (message: string) => void;
 }
 
 export type { ResyncProgress, ResyncComplete };
@@ -179,30 +175,6 @@ export function useEventListeners(opts: EventListenerOptions) {
     // onBulkEditComplete called via closure (stable functional setter) — kept out
     // of deps to match the other optional callbacks and avoid re-subscribing.
   }, [loadLibrary, loadTracks]);
-
-  // Download complete/error — toast the outcome (queue-based downloads, e.g.
-  // plugin api.downloads.enqueue, have no progress UI). No library refresh
-  // here: the download worker emits one scan-complete per batch (after its
-  // FTS/count rebuild) and the scan-complete listener above owns the refresh —
-  // refreshing per download-complete cost an N-track batch N whole-library
-  // refetches on top of the batch one.
-  useEffect(() => {
-    const notify = opts.notify;
-    const stopComplete = subscribe<{ trackTitle?: string }>("download-complete", (e) => {
-      const title = e.payload?.trackTitle;
-      notify?.(title ? `Downloaded “${title}”` : "Download complete");
-    });
-    const stopError = subscribe<{ trackTitle?: string; error?: string }>("download-error", (e) => {
-      const title = e.payload?.trackTitle ?? "track";
-      const reason = e.payload?.error ? ` — ${e.payload.error}` : "";
-      notify?.(`Download failed: “${title}”${reason}`);
-      // Was a bare count, which told us downloads broke but never why. The
-      // bucketed kind is the whole diagnosis without sending the message.
-      trackTelemetry("download_failed", { error_kind: classifyErrorKind(e.payload?.error) });
-    });
-
-    return combineUnlisten(stopComplete, stopError);
-  }, [opts.notify]);
 
   // Library change events — bridged to plugin event system
   useEffect(() => {

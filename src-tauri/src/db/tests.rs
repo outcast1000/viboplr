@@ -2372,62 +2372,6 @@ fn test_plugin_scheduler_unregister_all() {
     assert_eq!(all[0].1, "check-updates");
 }
 
-#[test]
-fn test_download_providers_crud() {
-    let db = test_db();
-    db.sync_download_providers(&[
-        ("tidal-browse".to_string(), "tidal-download".to_string(), "TIDAL".to_string(), 100),
-    ]).unwrap();
-
-    let providers = db.get_download_providers().unwrap();
-    assert_eq!(providers.len(), 1);
-    assert_eq!(providers[0].0, "tidal-browse");
-    assert_eq!(providers[0].1, "tidal-download");
-    assert_eq!(providers[0].2, "TIDAL");
-    assert_eq!(providers[0].3, 100);
-    assert_eq!(providers[0].4, true);
-
-    db.update_download_provider_priority("tidal-browse", "tidal-download", 200).unwrap();
-    let providers = db.get_download_providers().unwrap();
-    assert_eq!(providers[0].3, 200);
-
-    db.update_download_provider_active("tidal-browse", "tidal-download", false).unwrap();
-    let active = db.get_active_download_providers().unwrap();
-    assert_eq!(active.len(), 0);
-
-    db.reset_download_provider_priorities(&[
-        ("tidal-browse".to_string(), "tidal-download".to_string(), "TIDAL".to_string(), 100),
-    ]).unwrap();
-    let providers = db.get_download_providers().unwrap();
-    assert_eq!(providers[0].3, 100);
-    assert_eq!(providers[0].4, true);
-}
-
-#[test]
-fn test_sync_download_providers_preserves_user_toggle() {
-    let db = test_db();
-    let manifest = vec![
-        ("ytdlp".to_string(), "ytdlp-download".to_string(), "yt-dlp".to_string(), 100),
-    ];
-    db.sync_download_providers(&manifest).unwrap();
-
-    // User disables the provider, then the app relaunches (re-sync).
-    db.update_download_provider_active("ytdlp", "ytdlp-download", false).unwrap();
-    db.sync_download_providers(&manifest).unwrap();
-
-    let providers = db.get_download_providers().unwrap();
-    assert_eq!(providers.len(), 1);
-    assert_eq!(providers[0].4, false, "re-sync must not reset the user's enable toggle");
-
-    // A renamed provider still gets its display name refreshed without touching active.
-    let renamed = vec![
-        ("ytdlp".to_string(), "ytdlp-download".to_string(), "yt-dlp (video)".to_string(), 100),
-    ];
-    db.sync_download_providers(&renamed).unwrap();
-    let providers = db.get_download_providers().unwrap();
-    assert_eq!(providers[0].2, "yt-dlp (video)");
-    assert_eq!(providers[0].4, false);
-}
 
 #[test]
 fn test_find_track_in_collection() {

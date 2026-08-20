@@ -197,14 +197,14 @@ impl Database {
     }
 
     /// Get all provider configuration for the Settings UI.
-    /// Returns (info_types, image_providers, download_providers) where:
+    /// Returns (info_types, image_providers) where:
     /// - info_types: vec of (type_id, name, entity, display_kind, sort_order, plugin_id, priority, active)
     /// - image_providers: vec of (plugin_id, entity, priority, active, id)
-    /// - download_providers: vec of (plugin_id, provider_id, name, priority, active)
+    /// (Download providers carry no user priority/enable any more — a track's
+    /// own source picks its downloader; see the frontend's `decideDownload`.)
     pub fn get_all_provider_config(&self) -> SqlResult<(
         Vec<(String, String, String, String, i64, String, i64, bool)>,
         Vec<(String, String, i64, bool, i64)>,
-        Vec<(String, String, String, i64, bool)>,
     )> {
         let conn = self.conn.lock().unwrap();
 
@@ -243,22 +243,7 @@ impl Database {
             ))
         })?.collect::<SqlResult<Vec<_>>>()?;
 
-        // All download providers
-        let mut dl_stmt = conn.prepare(
-            "SELECT plugin_id, provider_id, name, priority, active
-             FROM download_providers ORDER BY priority ASC"
-        )?;
-        let download_providers = dl_stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, bool>(4)?,
-            ))
-        })?.collect::<SqlResult<Vec<_>>>()?;
-
-        Ok((info_types, image_providers, download_providers))
+        Ok((info_types, image_providers))
     }
 
     /// Update the priority of an image provider.
@@ -327,127 +312,4 @@ impl Database {
         Ok(())
     }
 
-    // ── Download Providers ──────────────────────────────────────
-
-    /// Sync the download_providers table from plugin manifests.
-    /// Takes vec of (plugin_id, provider_id, name, priority).
-    /// Upserts current providers (preserving user-customized priorities AND the
-    /// user's enable toggle), then deletes orphaned rows.
-    pub fn sync_download_providers(&self, providers: &[(String, String, String, i64)]) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute_batch("BEGIN")?;
-        // Insert new providers (OR IGNORE preserves existing rows with
-        // user-customized priorities and enable state; new rows default active=1)
-        {
-            let mut insert_stmt = conn.prepare(
-                "INSERT OR IGNORE INTO download_providers (plugin_id, provider_id, name, priority) VALUES (?1, ?2, ?3, ?4)"
-            )?;
-            for p in providers {
-                insert_stmt.execute(rusqlite::params![p.0, p.1, p.2, p.3])?;
-            }
-        }
-        // Update name for existing rows (in case the plugin renamed the provider).
-        // Never touch `active` here: that column is the user's Settings toggle,
-        // and force-reactivating on every launch made the toggle cosmetic.
-        {
-            let mut update_stmt = conn.prepare(
-                "UPDATE download_providers SET name = ?1 WHERE plugin_id = ?2 AND provider_id = ?3"
-            )?;
-            for p in providers {
-                update_stmt.execute(rusqlite::params![p.2, p.0, p.1])?;
-            }
-        }
-        // Delete orphaned rows (plugin_id not in the provided set)
-        if providers.is_empty() {
-            conn.execute("DELETE FROM download_providers", [])?;
-        } else {
-            let placeholders: Vec<String> = providers.iter().map(|_| "?".to_string()).collect();
-            let sql = format!(
-                "DELETE FROM download_providers WHERE plugin_id NOT IN ({})",
-                placeholders.join(", ")
-            );
-            let params: Vec<&dyn rusqlite::types::ToSql> = providers.iter().map(|p| &p.0 as &dyn rusqlite::types::ToSql).collect();
-            conn.execute(&sql, params.as_slice())?;
-        }
-        conn.execute_batch("COMMIT")?;
-        Ok(())
-    }
-
-    /// Get all download providers ordered by priority ASC.
-    /// Returns vec of (plugin_id, provider_id, name, priority, active).
-    pub fn get_download_providers(&self) -> SqlResult<Vec<(String, String, String, i64, bool)>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT plugin_id, provider_id, name, priority, active FROM download_providers
-             ORDER BY priority ASC"
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, bool>(4)?,
-            ))
-        })?.collect::<SqlResult<Vec<_>>>()?;
-        Ok(rows)
-    }
-
-    /// Get active download providers ordered by priority ASC.
-    /// Returns vec of (plugin_id, provider_id, name, priority).
-    pub fn get_active_download_providers(&self) -> SqlResult<Vec<(String, String, String, i64)>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT plugin_id, provider_id, name, priority FROM download_providers
-             WHERE active = 1
-             ORDER BY priority ASC"
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        })?.collect::<SqlResult<Vec<_>>>()?;
-        Ok(rows)
-    }
-
-    /// Update the priority of a download provider.
-    pub fn update_download_provider_priority(&self, plugin_id: &str, provider_id: &str, priority: i64) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE download_providers SET priority = ?1 WHERE plugin_id = ?2 AND provider_id = ?3",
-            rusqlite::params![priority, plugin_id, provider_id],
-        )?;
-        Ok(())
-    }
-
-    /// Update the active state of a download provider.
-    pub fn update_download_provider_active(&self, plugin_id: &str, provider_id: &str, active: bool) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE download_providers SET active = ?1 WHERE plugin_id = ?2 AND provider_id = ?3",
-            rusqlite::params![active, plugin_id, provider_id],
-        )?;
-        Ok(())
-    }
-
-    /// Reset download provider priorities to defaults.
-    /// Takes vec of (plugin_id, provider_id, name, priority). Deletes all existing rows and reinserts with active=1.
-    pub fn reset_download_provider_priorities(&self, defaults: &[(String, String, String, i64)]) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute_batch("BEGIN")?;
-        conn.execute("DELETE FROM download_providers", [])?;
-        {
-            let mut stmt = conn.prepare(
-                "INSERT INTO download_providers (plugin_id, provider_id, name, priority, active) VALUES (?1, ?2, ?3, ?4, 1)"
-            )?;
-            for d in defaults {
-                stmt.execute(rusqlite::params![d.0, d.1, d.2, d.3])?;
-            }
-        }
-        conn.execute_batch("COMMIT")?;
-        Ok(())
-    }
 }

@@ -6,7 +6,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::Database;
-use crate::downloader::{DownloadFormat, DownloadManager, DownloadResolveRegistry};
+use crate::downloader::{DownloadFormat, DownloadResolveRegistry};
 use crate::models::*;
 use crate::scanner;
 use crate::skins;
@@ -98,7 +98,6 @@ pub struct AppState {
     pub app_dir: std::path::PathBuf,
     pub profile_name: String,
     pub download_queue: Arc<DownloadQueue>,
-    pub track_download_manager: Arc<DownloadManager>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
     pub download_resolve_registry: Arc<DownloadResolveRegistry>,
@@ -458,30 +457,6 @@ pub struct EntityLikePayload {
 
 
 
-
-/// Resolve destination collection: use provided values or find first enabled local collection.
-fn resolve_dest_collection(
-    state: &AppState,
-    dest_collection_id: Option<i64>,
-    custom_dest_path: Option<String>,
-) -> Result<(i64, String), String> {
-    if let (Some(cid), Some(path)) = (dest_collection_id, custom_dest_path.as_ref()) {
-        return Ok((cid, path.clone()));
-    }
-    let collections = state.db.get_collections().map_err(|e| e.to_string())?;
-    // Look up by ID if provided
-    if let Some(cid) = dest_collection_id {
-        if let Some(c) = collections.iter().find(|c| c.id == cid && c.path.is_some()) {
-            return Ok((c.id, c.path.clone().unwrap()));
-        }
-    }
-    // Fall back to first enabled local collection
-    let local = collections
-        .iter()
-        .find(|c| c.kind == "local" && c.enabled && c.path.is_some())
-        .ok_or("No enabled local collection found for download destination")?;
-    Ok((local.id, local.path.clone().unwrap()))
-}
 
 /// Resolves a `subsonic://{host}/{track_id}` location to its owning collection
 /// id and the remote track id, matching the host against each subsonic
@@ -1060,7 +1035,6 @@ pub(crate) fn test_app_state() -> AppState {
             queue: Mutex::new(Vec::new()),
             condvar: Condvar::new(),
         }),
-        track_download_manager: Arc::new(DownloadManager::new()),
         native_plugins_dir: None,
         image_resolve_registry: Arc::new(ImageResolveRegistry {
             pending: Mutex::new(std::collections::HashMap::new()),

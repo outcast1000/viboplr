@@ -1607,7 +1607,6 @@ function App() {
     downloadModal,
     setDownloadModal,
     downloadProviders,
-    refreshDownloadProviderConfig,
     openDownloadForCurrentTrack,
     resolveNativeDownload,
     openNativeDownload,
@@ -1782,7 +1781,6 @@ function App() {
     onBulkEditComplete: () => setSearchBulkEditKey(k => k + 1),
     onLibraryChanged: notifyLibraryChanged,
     dispatchPluginEvent: plugins.dispatchEvent as (event: string, ...args: unknown[]) => void,
-    notify,
   });
 
   useEffect(() => {
@@ -4789,7 +4787,6 @@ function App() {
               onSwitchProfile={(name) => profileSwitch.switchToProfile(name)}
               onNotify={notify}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
-              onDownloadProvidersChanged={refreshDownloadProviderConfig}
               dependencies={dependencies}
               autoUpdateManagedDeps={autoUpdateManagedDeps}
               onAutoUpdateManagedDepsChange={handleAutoUpdateManagedDepsChange}

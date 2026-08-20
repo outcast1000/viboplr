@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { decideDownload, BUILTIN_SUBSONIC_PROVIDER_ID } from "../utils/downloadPlan";
+import { decideDownload, extFromDirectUrl, BUILTIN_SUBSONIC_PROVIDER_ID, BUILTIN_DIRECT_PROVIDER_ID } from "../utils/downloadPlan";
 import type { DownloadProvider } from "../types/plugin";
 
 const track = { title: "Song", artist_name: "Artist", album_title: "Album", duration_secs: 200 };
@@ -23,8 +23,22 @@ describe("decideDownload", () => {
     expect(decideDownload({ kind: "local" }, track, ALL)).toBeNull();
   });
 
-  it("returns null for a raw direct-url (no owning downloader)", () => {
-    expect(decideDownload({ kind: "direct-url", uri: "https://x/a.mp3" }, track, ALL)).toBeNull();
+  it("maps a raw direct-url to a self-contained Source plan (the URL is the download)", async () => {
+    const plan = decideDownload({ kind: "direct-url", uri: "https://x/tracks/a.mp3?sig=1" }, track, ALL);
+    expect(plan).toMatchObject({ providerId: BUILTIN_DIRECT_PROVIDER_ID, providerName: "Source", uri: "https://x/tracks/a.mp3?sig=1" });
+    // Identity resolve: no provider involved, ext read off the URL path.
+    const resolved = await plan!.resolveByUri("https://x/tracks/a.mp3?sig=1", "original");
+    expect(resolved).toMatchObject({ url: "https://x/tracks/a.mp3?sig=1", ext: "mp3" });
+    // A direct-url plan needs no providers at all.
+    expect(decideDownload({ kind: "direct-url", uri: "https://x/a.flac" }, track, [])).not.toBeNull();
+  });
+
+  it("extFromDirectUrl reads the path's extension, never the host's TLD", () => {
+    expect(extFromDirectUrl("https://x.example/tracks/a.flac")).toBe("flac");
+    expect(extFromDirectUrl("https://x.example/a.mp3?sig=abc#t=1")).toBe("mp3");
+    // A bare domain (or an extension-less streaming endpoint) names no container.
+    expect(extFromDirectUrl("https://x.example.com")).toBeNull();
+    expect(extFromDirectUrl("https://x.example.com/stream")).toBeNull();
   });
 
   it("maps subsonic to the built-in Subsonic provider, by uri", () => {

@@ -1152,18 +1152,6 @@ export interface DownloadQualityOption {
 
 export type GetQualitiesHandler = () => DownloadQualityOption[];
 
-export interface DownloadRequest {
-  title: string;
-  artistName?: string | null;
-  albumTitle?: string | null;
-  uri?: string | null;
-  durationSecs?: number | null;
-  destCollectionId?: number | null;
-  destCollectionPath?: string | null;
-  format?: string | null;
-  provider?: string | null;
-}
-
 /** A progress report from a provider that is doing real work inside a resolve
  *  (see `PluginDownloadsAPI.reportProgress`). Every field is optional — a
  *  provider that only knows "merging now" sends a `label` and no `percent`. */
@@ -1180,7 +1168,8 @@ export interface DownloadResolveProgress {
 }
 
 export interface PluginDownloadsAPI {
-  enqueue(request: DownloadRequest): Promise<number>;
+  // `enqueue` was removed with the background download queue — a plugin that
+  // wants a download UI opens the host modal via requestAction("download-tracks").
   /** Report progress for the resolve currently being awaited by the host.
    *  Only meaningful while one of this plugin's download-resolve handlers is
    *  running — outside that window it is a no-op, so it is always safe to call.

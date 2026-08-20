@@ -26,7 +26,6 @@ async function buildSpecTexts(page, target, dataOverrides = {}) {
         handleQueueRemove: noop, handleQueueKeepOnly: noop,
         handleQueueMoveToTop: noop, handleQueueMoveToBottom: noop,
         handleShowInFolder: noop, handleDeleteRequest: noop,
-        handleDownloadTrack: noop, handleDownloadMulti: noop,
         handleBulkEdit: noop, handleWatchOnYoutube: noop,
         watchOnYoutube: noop, startRadio: noop,
       },

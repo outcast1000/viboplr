@@ -47,7 +47,7 @@ unsafe extern "C" {}
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
-use downloader::{DownloadManager, DownloadResolveRegistry};
+use downloader::DownloadResolveRegistry;
 use image_provider::AlbumImageProvider;
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{Emitter, Manager};
@@ -198,17 +198,8 @@ macro_rules! invoke_handler {
             commands::get_replaygain_by_path,
             commands::get_track_extra_tags,
             commands::replace_track_tags,
-            commands::get_download_status,
-            commands::cancel_download,
-            commands::enqueue_download,
             commands::download_resolve_response,
             commands::resolve_subsonic_download_url,
-            commands::sync_download_providers,
-            commands::get_download_providers,
-            commands::get_active_download_providers,
-            commands::update_download_provider_priority,
-            commands::update_download_provider_active,
-            commands::reset_download_provider_priorities,
             commands::download_preview,
             commands::confirm_track_upgrade,
             commands::cancel_track_upgrade,
@@ -896,192 +887,11 @@ pub fn run() {
                 }
             }); });
 
-            // Spawn the track download worker thread
-            let dl_manager = Arc::new(DownloadManager::new());
-            let dl_worker_manager = dl_manager.clone();
-            let dl_worker_db = db.clone();
-            let dl_app_handle = app.handle().clone();
-            let dl_resolve_registry = Arc::new(DownloadResolveRegistry::new());
-            let dl_resolve_registry_for_state = dl_resolve_registry.clone();
-            timer.time("spawn_download_worker", || { std::thread::spawn(move || {
-                // Tracks whether any track in the current batch downloaded successfully,
-                // so the post-batch bookkeeping below still runs when the *final* track of
-                // a batch fails — while a wholly-failed batch (incl. a lone failed single
-                // download, which defaults is_batch_last=true) skips the needless rebuild.
-                let mut batch_had_success = false;
-                loop {
-                    let request = dl_worker_manager.wait_for_next();
-                    let track_title = request.title.clone();
-                    let artist_name = request.artist_name.clone().unwrap_or_default();
-
-                    // Set active status to "resolving"
-                    let status = crate::downloader::DownloadStatus {
-                        id: request.id,
-                        track_title: track_title.clone(),
-                        artist_name: artist_name.clone(),
-                        status: "resolving".to_string(),
-                        progress_pct: 0,
-                        error: None,
-                    };
-                    dl_worker_manager.set_active(Some(status.clone()));
-                    let _ = dl_app_handle.emit("download-progress", &status);
-
-                    // Register a channel and emit resolve request to the frontend
-                    let rx = dl_resolve_registry.register(request.id);
-                    let _ = dl_app_handle.emit("download-resolve-request", serde_json::json!({
-                        "id": request.id,
-                        "title": request.title,
-                        "artist_name": request.artist_name,
-                        "album_title": request.album_title,
-                        "duration_secs": request.duration_secs,
-                        "uri": request.uri,
-                        "provider": request.provider,
-                        "format": request.format.to_string(),
-                    }));
-
-                    // Wait for the frontend to resolve the stream URL. Download
-                    // resolvers may fetch the whole file before answering (yt-dlp
-                    // downloading a video and merging it), so this is not a
-                    // "should have finished by now" bound — the frontend owns
-                    // liveness, giving up on a provider only after 60s of
-                    // SILENCE (RESOLVE_IDLE_TIMEOUT_MS). All this cap does is
-                    // stop the worker waiting forever on a webview that died,
-                    // so it has to sit above any real download rather than
-                    // above an expected duration: at 300s it was cutting off
-                    // ordinary video downloads (a 22 MB video takes ~4 minutes
-                    // on a normal line) and reporting them as resolve failures.
-                    // A stalled worker costs nothing when the webview is gone —
-                    // the webview IS the app, so there is no UI left to serve.
-                    // On failure we record the error but leave `resolved` None and fall
-                    // through, so the loop still reaches the post-batch bookkeeping below.
-                    let resolved = match rx.recv_timeout(std::time::Duration::from_secs(3600)) {
-                        Ok(Some(response)) => Some(response),
-                        Ok(None) => {
-                            // Frontend responded with None (provider could not resolve)
-                            log::error!("Download resolve failed for {}: provider returned no URL", track_title);
-                            let error_status = crate::downloader::DownloadStatus {
-                                id: request.id,
-                                track_title: track_title.clone(),
-                                artist_name: artist_name.clone(),
-                                status: "error".to_string(),
-                                progress_pct: 0,
-                                error: Some("No download provider could resolve this track".to_string()),
-                            };
-                            dl_worker_manager.set_active(None);
-                            dl_worker_manager.push_completed(error_status);
-                            let _ = dl_app_handle.emit("download-error", serde_json::json!({
-                                "id": request.id,
-                                "trackTitle": track_title,
-                                "error": "No download provider could resolve this track",
-                            }));
-                            None
-                        }
-                        Err(_) => {
-                            // Timeout or channel closed
-                            dl_resolve_registry.cancel(request.id);
-                            log::error!("Download resolve timeout for {}", track_title);
-                            let error_status = crate::downloader::DownloadStatus {
-                                id: request.id,
-                                track_title: track_title.clone(),
-                                artist_name: artist_name.clone(),
-                                status: "error".to_string(),
-                                progress_pct: 0,
-                                error: Some("Download resolve timed out".to_string()),
-                            };
-                            dl_worker_manager.set_active(None);
-                            dl_worker_manager.push_completed(error_status);
-                            let _ = dl_app_handle.emit("download-error", serde_json::json!({
-                                "id": request.id,
-                                "trackTitle": track_title,
-                                "error": "Download resolve timed out",
-                            }));
-                            None
-                        }
-                    };
-
-                    if let Some(resolved) = resolved {
-                        // Update status to "downloading"
-                        let downloading_status = crate::downloader::DownloadStatus {
-                            id: request.id,
-                            track_title: track_title.clone(),
-                            artist_name: artist_name.clone(),
-                            status: "downloading".to_string(),
-                            progress_pct: 0,
-                            error: None,
-                        };
-                        dl_worker_manager.set_active(Some(downloading_status.clone()));
-                        let _ = dl_app_handle.emit("download-progress", &downloading_status);
-
-                        match crate::downloader::process_download(&request, &resolved, &dl_worker_db, &dl_app_handle, &dl_worker_manager) {
-                            Ok(dest_path) => {
-                                batch_had_success = true;
-                                let complete = crate::downloader::DownloadStatus {
-                                    id: request.id,
-                                    track_title: track_title.clone(),
-                                    artist_name: artist_name.clone(),
-                                    status: "complete".to_string(),
-                                    progress_pct: 100,
-                                    error: None,
-                                };
-                                dl_worker_manager.set_active(None);
-                                dl_worker_manager.push_completed(complete.clone());
-                                let _ = dl_app_handle.emit("download-complete", serde_json::json!({
-                                    "id": request.id,
-                                    "trackTitle": track_title,
-                                    "destPath": dest_path.to_string_lossy(),
-                                }));
-                            }
-                            Err(e) => {
-                                log::error!("Download failed for {}: {}", track_title, e);
-                                let error_status = crate::downloader::DownloadStatus {
-                                    id: request.id,
-                                    track_title: track_title.clone(),
-                                    artist_name: artist_name.clone(),
-                                    status: "error".to_string(),
-                                    progress_pct: 0,
-                                    error: Some(e.clone()),
-                                };
-                                dl_worker_manager.set_active(None);
-                                dl_worker_manager.push_completed(error_status);
-                                let _ = dl_app_handle.emit("download-error", serde_json::json!({
-                                    "id": request.id,
-                                    "trackTitle": track_title,
-                                    "error": e,
-                                }));
-                            }
-                        }
-                    }
-
-                    // Post-batch bookkeeping: rebuild FTS / recompute counts / reconcile
-                    // track likes once per batch, on the last request — regardless of
-                    // whether that final track succeeded — as long as at least one track
-                    // in the batch actually downloaded. This ensures earlier successes in
-                    // the batch get indexed even when the last track fails to resolve or
-                    // download, while a wholly-failed batch skips the needless rebuild.
-                    if request.is_batch_last {
-                        if batch_had_success {
-                            if let Err(e) = dl_worker_db.rebuild_fts() {
-                                log::error!("Failed to rebuild FTS after batch download: {}", e);
-                            }
-                            if let Err(e) = dl_worker_db.recompute_counts() {
-                                log::error!("Failed to recompute counts after batch download: {}", e);
-                            }
-                            if let Err(e) = dl_worker_db.reconcile_track_likes_from_entity_likes() {
-                                log::error!("Failed to reconcile track likes after batch download: {}", e);
-                            }
-                            // One scan-complete per batch, after the bookkeeping, so the
-                            // frontend's whole-library refresh runs once against rebuilt
-                            // FTS/counts. This used to fire per downloaded track, which
-                            // cost an N-track batch N full library refetches and N Home
-                            // rebuilds — all against pre-rebuild data.
-                            let _ = dl_app_handle.emit("scan-complete", serde_json::json!({
-                                "folder": request.dest_collection_path,
-                            }));
-                        }
-                        batch_had_success = false;
-                    }
-                }
-            }); });
+            // Download-resolve round-trip registry. The background download queue
+            // and its worker thread were removed; this stays because mixtape export
+            // still resolves remote tracks by emitting `download-resolve-request`
+            // and waiting for the frontend's `download_resolve_response`.
+            let dl_resolve_registry_for_state = Arc::new(DownloadResolveRegistry::new());
 
             let resyncing_collections: Arc<Mutex<std::collections::HashSet<i64>>> =
                 Arc::new(Mutex::new(std::collections::HashSet::new()));
@@ -1408,7 +1218,6 @@ pub fn run() {
                     app_dir,
                     profile_name,
                     download_queue,
-                    track_download_manager: dl_manager,
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
                     download_resolve_registry: dl_resolve_registry_for_state,

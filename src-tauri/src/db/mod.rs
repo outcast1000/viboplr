@@ -492,15 +492,6 @@ impl Database {
                 UNIQUE (plugin_id, entity)
             );
 
-            CREATE TABLE IF NOT EXISTS download_providers (
-                plugin_id   TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
-                name        TEXT NOT NULL,
-                priority    INTEGER NOT NULL DEFAULT 500,
-                active      INTEGER NOT NULL DEFAULT 1,
-                PRIMARY KEY (plugin_id, provider_id)
-            );
-
             CREATE TABLE IF NOT EXISTS playlists (
                 id          INTEGER PRIMARY KEY,
                 name        TEXT NOT NULL,

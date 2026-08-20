@@ -120,13 +120,6 @@ export const DEFAULT_IMAGE_PROVIDER_PRIORITY: Record<string, number> = {
   "google:tag": 900,
 };
 
-// Internal priority for download providers (keyed by "pluginId:providerId")
-export const DEFAULT_DOWNLOAD_PROVIDER_PRIORITY: Record<string, number> = {
-  "tidal-browse:tidal-download": 100,
-  "youtube:youtube-download": 300,
-  "mock-download:mock-dl": 900,
-};
-
 // Simple semver comparison: returns true if current >= required
 function semverSatisfies(current: string, required: string): boolean {
   const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
@@ -1353,19 +1346,10 @@ export function usePlugins(
         },
 
         downloads: {
-          async enqueue(request) {
-            return invoke<number>("enqueue_download", {
-              title: request.title,
-              artistName: request.artistName ?? null,
-              albumTitle: request.albumTitle ?? null,
-              uri: request.uri ?? null,
-              durationSecs: request.durationSecs ?? null,
-              destCollectionId: request.destCollectionId ?? null,
-              destCollectionPath: request.destCollectionPath ?? null,
-              format: request.format ?? null,
-              provider: request.provider ?? null,
-            });
-          },
+          // There is no `enqueue` any more — the background download queue
+          // (`enqueue_download`) was removed with the batch menu entries. A
+          // plugin that wants a download UI opens the host modal via
+          // requestAction("download-tracks"), or downloads itself.
           reportProgress(progress: DownloadResolveProgress): void {
             // Only the resolve the host is currently awaiting has a listener;
             // outside that window this is deliberately a no-op, so a provider

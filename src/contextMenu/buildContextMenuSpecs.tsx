@@ -41,14 +41,14 @@ export interface ContextMenuDeps {
 }
 
 // There are deliberately NO host-generated per-provider download entries
-// ("Download from {X}…" / "Upgrade from {X}…"). Download flows differ too much
-// between providers to share one host surface (a torrent hunt is nothing like a
-// YouTube search), so a provider that wants a menu presence contributes its own
-// context-menu item (plugin-first — e.g. qBittorrent's "Upgrade with
-// qBittorrent…" opening its Music Search tab). What the host still owns:
-// "Download…" for a track's OWN source (decideDownload) and the background
-// batch queue ("Download N tracks" / "Download Album"), which walks the
-// by-metadata provider chain without any per-provider UI.
+// ("Download from {X}…" / "Upgrade from {X}…") and NO batch download entries
+// ("Download N tracks" / "Download Album" rode the removed background download
+// queue). Download flows differ too much between providers to share one host
+// surface (a torrent hunt is nothing like a YouTube search), so a provider that
+// wants a menu presence contributes its own context-menu item (plugin-first —
+// e.g. qBittorrent's "Upgrade with qBittorrent…" opening its Music Search tab,
+// yt-dlp's "Download with yt-dlp…"). The one download entry the host owns is
+// "Download…" for a single track's OWN source (decideDownload → DownloadModal).
 
 /** Build the native context-menu specs for a target. Returns null if empty. */
 export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuDeps): MenuItemSpec[] | null {
@@ -167,24 +167,17 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         }
       }
 
-      // Download — non-local tracks only. A single track opens the same modal the
-      // now-playing button uses (its native provider, incl. built-in Subsonic
-      // "Source original"); a multi-selection uses the background batch queue (the
-      // modal has no per-track by-URI resolver, so Subsonic batch can't run through
-      // it). Ungated so a Subsonic track is downloadable even when no download
-      // plugin is installed. No per-provider entries — see the note above
-      // buildContextMenuSpecs.
+      // Download — a single non-local track opens the same modal the now-playing
+      // button uses (its native provider, incl. built-in Subsonic "Source
+      // original"). Ungated so a Subsonic track is downloadable even when no
+      // download plugin is installed. No per-provider entries and no batch
+      // download — see the note above buildContextMenuSpecs.
       {
         const downloadable = selectedTracks.filter(t => !isLocalTrack(t));
-        if (downloadable.length > 0) {
-          const singleNative = downloadable.length === 1 ? d.resolveNativeDownload(target) : null;
-          if (singleNative) {
-            specs.push({ kind: "separator" });
-            specs.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
-          } else if (downloadable.length > 1) {
-            specs.push({ kind: "separator" });
-            specs.push({ kind: "item", text: `Download ${downloadable.length} tracks`, action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
-          }
+        const singleNative = downloadable.length === 1 ? d.resolveNativeDownload(target) : null;
+        if (singleNative) {
+          specs.push({ kind: "separator" });
+          specs.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
         }
       }
 
@@ -278,23 +271,6 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         if (native) {
           specs.push({ kind: "separator" });
           specs.push({ kind: "item", text: "Download…", action: () => d.openNativeDownload(target) });
-        }
-      }
-      if (target.kind === "album" && target.albumId) {
-        // Only offer for albums that actually have remote tracks to fetch; the
-        // background batch queue handles the resolve (incl. Subsonic).
-        const remote = d.library.tracks.filter(tr => tr.album_id === target.albumId && !isLocalTrack(tr));
-        if (remote.length > 0) {
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: "Download Album", action: () => d.contextMenuActions.handleDownloadMulti(remote) });
-        }
-      }
-      if (isMulti) {
-        const idSet = new Set(target.trackIds);
-        const downloadable = d.library.tracks.filter(tr => tr.id != null && idSet.has(tr.id) && !isLocalTrack(tr));
-        if (downloadable.length > 0) {
-          specs.push({ kind: "separator" });
-          specs.push({ kind: "item", text: `Download ${downloadable.length} tracks`, action: () => d.contextMenuActions.handleDownloadMulti(downloadable) });
         }
       }
       const targetKind = target.kind as string;
