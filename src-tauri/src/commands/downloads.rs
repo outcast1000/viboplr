@@ -2,21 +2,12 @@
 use super::*;
 
 // --- Download commands ---
-// The background download queue (`enqueue_download` + its worker) was removed:
-// batch/auto downloads are gone, and downloads happen through the DownloadModal's
-// direct path (`download_to_path` / `download_preview`). The resolve registry
-// below stays — mixtape export still round-trips `download-resolve-request`
-// through the frontend provider chain.
-
-#[tauri::command]
-pub fn download_resolve_response(
-    state: State<'_, AppState>,
-    id: u64,
-    result: Option<crate::downloader::DownloadResolveResponse>,
-) -> Result<(), String> {
-    state.download_resolve_registry.respond(id, result);
-    Ok(())
-}
+// The background download queue (`enqueue_download` + its worker) and the
+// `download-resolve-request` round-trip are both gone: downloads happen through
+// the DownloadModal's direct path (`download_to_path` / `download_preview`),
+// and mixtape export downloads its sources itself (file/subsonic/http only —
+// see `commands/mixtapes.rs`; anything else is flagged and skipped, never
+// auto-resolved through a provider).
 
 /// Resolved Subsonic download target: the URL to fetch plus the file extension
 /// to save as. `ext` may be `"auto"` when the original file's container must be
@@ -33,12 +24,23 @@ pub fn resolve_subsonic_download_url(
     location: String,
     format: Option<String>,
 ) -> Result<SubsonicDownloadTarget, String> {
+    resolve_subsonic_download_target(&state.db, &location, format.as_deref())
+}
+
+/// Resolve a `subsonic://{host}/{id}` location to its download URL + extension.
+/// Shared by the `resolve_subsonic_download_url` command (the download modal's
+/// built-in provider) and mixtape export's source-faithful download path.
+pub(crate) fn resolve_subsonic_download_target(
+    db: &crate::db::Database,
+    location: &str,
+    format: Option<&str>,
+) -> Result<SubsonicDownloadTarget, String> {
     // Subsonic track paths are host-based (`subsonic://{host}/{id}`), so resolve
     // the collection by host here — same parse the streaming path uses.
     let (collection_id, remote_track_id) =
-        resolve_subsonic_location_parts(&state.db, &location)?;
+        resolve_subsonic_location_parts(db, location)?;
 
-    let creds = state.db.get_collection_credentials(collection_id)
+    let creds = db.get_collection_credentials(collection_id)
         .map_err(|e| format!("Failed to get collection credentials: {}", e))?;
     let client = SubsonicClient::from_stored(
         &creds.url,
@@ -49,14 +51,12 @@ pub fn resolve_subsonic_download_url(
     );
 
     let dl_format = format
-        .as_deref()
         .and_then(|f| DownloadFormat::from_str(f).ok())
         .unwrap_or(DownloadFormat::Flac);
 
     // The track's stored source suffix (e.g. "mp3"/"flac") lets us name an
     // original download correctly without re-downloading to probe it.
-    let source_suffix = state
-        .db
+    let source_suffix = db
         .get_track_format_by_remote(collection_id, &remote_track_id)
         .unwrap_or(None);
 

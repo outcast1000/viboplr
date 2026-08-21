@@ -38,10 +38,16 @@ interface MixtapeExportProgress {
   trackTitle: string;
 }
 
-function trackStatus(t: ExportTrack): "local" | "remote" | "unknown" {
-  if (!t.path) return "unknown";
+/** What a full export can do with this track. Source-faithful only: a file is
+ *  packed, Subsonic and direct http(s) sources are downloaded AS THEMSELVES,
+ *  and anything else (a plugin scheme, a metadata-only entry) is not available
+ *  offline — flagged here and skipped by the backend, never auto-downloaded
+ *  through a provider. */
+function trackStatus(t: ExportTrack): "local" | "downloadable" | "unavailable" {
+  if (!t.path) return "unavailable";
   if (t.path.startsWith("file://")) return "local";
-  return "remote";
+  if (t.path.startsWith("subsonic://") || t.path.startsWith("http://") || t.path.startsWith("https://")) return "downloadable";
+  return "unavailable";
 }
 
 
@@ -59,6 +65,7 @@ const RECOMMENDED_METADATA_KEYS = [
 
 const SOURCE_LABELS: Record<string, string> = {
   subsonic: "Subsonic",
+  web: "the web",
 };
 
 function formatPhase(phase: string): string {
@@ -327,14 +334,17 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
                       <button className={`mixtape-mode-btn${exportMode === "full" ? " active" : ""}`} onClick={() => setExportMode("full")}>Full (with audio)</button>
                       <button className={`mixtape-mode-btn${exportMode === "playlist" ? " active" : ""}`} onClick={() => setExportMode("playlist")}>Playlist only</button>
                     </div>
-                    {exportMode === "full" && trackList.some(t => trackStatus(t) !== "local") && (
-                      <p className="mixtape-export-hint">{trackList.filter(t => trackStatus(t) !== "local").length} remote track{trackList.filter(t => trackStatus(t) !== "local").length > 1 ? "s" : ""} will be downloaded during export</p>
+                    {exportMode === "full" && trackList.some(t => trackStatus(t) === "downloadable") && (
+                      <p className="mixtape-export-hint">{trackList.filter(t => trackStatus(t) === "downloadable").length} remote track{trackList.filter(t => trackStatus(t) === "downloadable").length > 1 ? "s" : ""} will be downloaded from their own source (Subsonic / direct link)</p>
+                    )}
+                    {exportMode === "full" && trackList.some(t => trackStatus(t) === "unavailable") && (
+                      <p className="mixtape-export-hint mixtape-export-hint--warn">{trackList.filter(t => trackStatus(t) === "unavailable").length} track{trackList.filter(t => trackStatus(t) === "unavailable").length > 1 ? "s aren't" : " isn't"} available offline and will be skipped — see the Tracks tab</p>
                     )}
                     {exportMode === "playlist" && (
                       <p className="mixtape-export-hint">Track list and cover only — no audio files</p>
                     )}
                   </div>
-                  {exportMode === "full" && trackList.some(t => trackStatus(t) !== "local") && (
+                  {exportMode === "full" && trackList.some(t => trackStatus(t) === "downloadable") && (
                     <div className="mixtape-export-row">
                       <label>
                         Max preferred format
@@ -441,6 +451,9 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
                         {track.artistName}{track.albumTitle ? ` · ${track.albumTitle}` : ""}
                       </span>
                     </div>
+                    {exportMode === "full" && trackStatus(track) === "unavailable" && (
+                      <span className="mixtape-track-flag" title="This track's source can't be exported (not a file, Subsonic, or direct link) — it will be skipped">not available</span>
+                    )}
                     <span className="mixtape-track-duration">{formatDuration(track.durationSecs)}</span>
                   </div>
                 ))}

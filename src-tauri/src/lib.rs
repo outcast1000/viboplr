@@ -47,7 +47,6 @@ unsafe extern "C" {}
 
 use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
 use db::Database;
-use downloader::DownloadResolveRegistry;
 use image_provider::AlbumImageProvider;
 use std::sync::{Arc, Condvar, Mutex};
 use tauri::{Emitter, Manager};
@@ -198,7 +197,6 @@ macro_rules! invoke_handler {
             commands::get_replaygain_by_path,
             commands::get_track_extra_tags,
             commands::replace_track_tags,
-            commands::download_resolve_response,
             commands::resolve_subsonic_download_url,
             commands::download_preview,
             commands::confirm_track_upgrade,
@@ -275,7 +273,6 @@ macro_rules! invoke_handler {
             commands::write_frontend_log,
             commands::collect_diagnostics,
             commands::preview_mixtape,
-            commands::export_mixtape,
             commands::export_mixtape_playlist_only,
             commands::export_mixtape_full,
             commands::import_mixtape,
@@ -887,12 +884,6 @@ pub fn run() {
                 }
             }); });
 
-            // Download-resolve round-trip registry. The background download queue
-            // and its worker thread were removed; this stays because mixtape export
-            // still resolves remote tracks by emitting `download-resolve-request`
-            // and waiting for the frontend's `download_resolve_response`.
-            let dl_resolve_registry_for_state = Arc::new(DownloadResolveRegistry::new());
-
             let resyncing_collections: Arc<Mutex<std::collections::HashSet<i64>>> =
                 Arc::new(Mutex::new(std::collections::HashSet::new()));
 
@@ -1220,7 +1211,6 @@ pub fn run() {
                     download_queue,
                     native_plugins_dir,
                     image_resolve_registry: worker_registry_for_state,
-                    download_resolve_registry: dl_resolve_registry_for_state,
                     plugin_execs: Arc::new(commands::PluginExecRegistry::new()),
                     direct_download_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                     mixtape_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),

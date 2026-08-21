@@ -520,18 +520,6 @@ pub struct MixtapePreview {
     pub total_duration_secs: f64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MixtapeExportOptions {
-    pub title: String,
-    pub mixtape_type: MixtapeType,
-    pub metadata: HashMap<String, String>,
-    pub created_by: Option<String>,
-    pub cover_image_path: Option<String>,
-    pub include_thumbs: bool,
-    pub track_ids: Vec<i64>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MixtapeExportProgress {

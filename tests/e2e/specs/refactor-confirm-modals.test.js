@@ -91,15 +91,8 @@ test('DeleteErrorModal lists failures', async ({ page }) => {
   expect(r.errors, r.errors.join('; ')).toHaveLength(0);
 });
 
-test('DownloadAgainModal shows three actions and fires onShowInFolder', async ({ page }) => {
-  const r = await mountModal(page, CONFIRM, 'DownloadAgainModal',
-    { localTitle: 'Existing Track' },
-    ['onCancel', 'onShowInFolder', 'onDownload'], 'Show in Folder');
-  expect(r.html).toContain('Existing Track');
-  expect(r.html).toContain('Already Downloaded');
-  expect(r.calls).toContain('onShowInFolder');
-  expect(r.errors, r.errors.join('; ')).toHaveLength(0);
-});
+// (DownloadAgainModal was removed with the single-track background-enqueue
+// confirm flow — nothing raises an "already downloaded" prompt any more.)
 
 test('RemoveCollectionModal renders name and fires onConfirm', async ({ page }) => {
   const r = await mountModal(page, CONFIRM, 'RemoveCollectionModal',

@@ -423,6 +423,22 @@
   margin: 6px 0 0;
 }
 
+.mixtape-export-hint--warn {
+  color: var(--warning);
+}
+
+/* "not available" flag on a Tracks-tab row whose source a full export can't
+   fetch (not a file / Subsonic / direct link) — the backend skips it. */
+.mixtape-track-flag {
+  flex-shrink: 0;
+  font-size: var(--fs-2xs);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: var(--ds-radius);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
 .mixtape-export-modal h2 {
   padding: 16px 16px 0;
   margin: 0;

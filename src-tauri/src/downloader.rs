@@ -1,8 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::sync::Mutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub enum DownloadFormat {
@@ -79,43 +77,6 @@ impl std::fmt::Display for DownloadFormat {
             DownloadFormat::Aac => write!(f, "aac"),
             DownloadFormat::Mp3 => write!(f, "mp3"),
         }
-    }
-}
-
-/// The answer to a `download-resolve-request` round-trip. The frontend sends
-/// the provider's full `DownloadResolveResult` (src/types/plugin.ts); serde
-/// ignores the fields the remaining backend consumer — mixtape export — does
-/// not read (`metadata`, `ext`).
-#[derive(Debug, Clone, Deserialize)]
-pub struct DownloadResolveResponse {
-    pub url: String,
-    pub headers: Option<HashMap<String, String>>,
-}
-
-pub struct DownloadResolveRegistry {
-    pub pending: Mutex<HashMap<u64, mpsc::Sender<Option<DownloadResolveResponse>>>>,
-}
-
-impl DownloadResolveRegistry {
-    pub fn new() -> Self {
-        Self {
-            pending: Mutex::new(HashMap::new()),
-        }
-    }
-    pub fn register(&self, id: u64) -> mpsc::Receiver<Option<DownloadResolveResponse>> {
-        let (tx, rx) = mpsc::channel();
-        self.pending.lock().unwrap().insert(id, tx);
-        rx
-    }
-    pub fn respond(&self, id: u64, response: Option<DownloadResolveResponse>) -> bool {
-        if let Some(tx) = self.pending.lock().unwrap().remove(&id) {
-            tx.send(response).is_ok()
-        } else {
-            false
-        }
-    }
-    pub fn cancel(&self, id: u64) {
-        self.pending.lock().unwrap().remove(&id);
     }
 }
 
@@ -522,63 +483,6 @@ mod tests {
         assert_eq!(format_fallback_extension("video"), "bin");
         assert_eq!(format_fallback_extension("opus"), "bin");
         assert_eq!(format_fallback_extension(""), "bin");
-    }
-
-    // --- DownloadResolveRegistry tests ---
-
-    #[test]
-    fn test_resolve_registry_respond() {
-        let registry = DownloadResolveRegistry::new();
-        let rx = registry.register(42);
-
-        let response = DownloadResolveResponse {
-            url: "https://example.com/stream".to_string(),
-            headers: None,
-        };
-        assert!(registry.respond(42, Some(response)));
-
-        let received = rx.recv().unwrap();
-        assert!(received.is_some());
-        assert_eq!(received.unwrap().url, "https://example.com/stream");
-    }
-
-    #[test]
-    fn test_resolve_registry_respond_none() {
-        let registry = DownloadResolveRegistry::new();
-        let rx = registry.register(42);
-
-        assert!(registry.respond(42, None));
-
-        let received = rx.recv().unwrap();
-        assert!(received.is_none());
-    }
-
-    #[test]
-    fn test_resolve_registry_respond_unknown_id() {
-        let registry = DownloadResolveRegistry::new();
-        assert!(!registry.respond(999, None));
-    }
-
-    #[test]
-    fn test_resolve_registry_cancel() {
-        let registry = DownloadResolveRegistry::new();
-        let _rx = registry.register(42);
-
-        registry.cancel(42);
-        assert!(registry.pending.lock().unwrap().is_empty());
-    }
-
-    // --- DownloadResolveResponse deserialization tests ---
-
-    #[test]
-    fn test_resolve_response_tolerates_the_full_plugin_result_shape() {
-        // The frontend answers with the provider's whole DownloadResolveResult
-        // (plugin.ts) — fields the backend doesn't read must be ignored, not
-        // rejected, or every resolve with metadata would fail to deserialize.
-        let json = r#"{"url":"https://x/y.mp3","metadata":{"title":"T","artist":"A","trackNumber":7,"coverUrl":"https://img"},"ext":"mp3"}"#;
-        let resp: DownloadResolveResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.url, "https://x/y.mp3");
-        assert!(resp.headers.is_none());
     }
 
     // --- replace_file_safely tests ---

@@ -6,7 +6,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::Database;
-use crate::downloader::{DownloadFormat, DownloadResolveRegistry};
+use crate::downloader::DownloadFormat;
 use crate::models::*;
 use crate::scanner;
 use crate::skins;
@@ -100,7 +100,6 @@ pub struct AppState {
     pub download_queue: Arc<DownloadQueue>,
     pub native_plugins_dir: Option<std::path::PathBuf>,
     pub image_resolve_registry: Arc<ImageResolveRegistry>,
-    pub download_resolve_registry: Arc<DownloadResolveRegistry>,
     /// Live cancellable `plugin_exec` runs (see `commands/media.rs`).
     pub plugin_execs: Arc<PluginExecRegistry>,
     pub direct_download_cancel: Arc<AtomicBool>,
@@ -895,88 +894,6 @@ fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::
 
 
 
-fn resolve_and_download_track(
-    resolve_registry: &Arc<crate::downloader::DownloadResolveRegistry>,
-    app: &tauri::AppHandle,
-    temp_dir: &std::path::Path,
-    i: usize,
-    total: usize,
-    track: &crate::models::MixtapeExportTrackInput,
-    source: &str,
-    cancel: &std::sync::atomic::AtomicBool,
-    format: &str,
-) -> Option<String> {
-    use tauri::Emitter;
-
-    let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
-        current_track: (i + 1) as u32,
-        total_tracks: total as u32,
-        phase: format!("resolving:{}", source),
-        track_title: track.title.clone(),
-    });
-
-    let resolve_id = (i as u64) + 10000;
-    log::info!("[mixtape-export] resolve #{}: \"{}\" by {:?}, path={:?}",
-        resolve_id, track.title, track.artist, track.path);
-    let rx = resolve_registry.register(resolve_id);
-    let uri = track.path.clone();
-    let _ = app.emit("download-resolve-request", serde_json::json!({
-        "id": resolve_id,
-        "title": track.title,
-        "artist_name": track.artist,
-        "album_title": track.album,
-        "duration_secs": track.duration_secs,
-        "uri": uri,
-        "format": format,
-    }));
-
-    // Same budget as the download worker: resolvers may download the whole file
-    // before answering (yt-dlp), and the frontend allows 60s per provider.
-    match rx.recv_timeout(std::time::Duration::from_secs(300)) {
-        Ok(Some(response)) => {
-            log::info!("[mixtape-export] resolve #{}: got URL {} ({})",
-                resolve_id, &response.url[..response.url.len().min(80)],
-                if response.headers.is_some() { "with headers" } else { "no headers" });
-            let ext = if response.url.contains(".flac") { "flac" }
-                else if response.url.contains(".m4a") { "m4a" }
-                else { "mp3" };
-            let temp_file = temp_dir.join(
-                format!("{:03}-{}.{}", i + 1,
-                    crate::entity_image::canonical_slug(&track.title), ext));
-
-            let _ = app.emit("mixtape-export-progress", crate::models::MixtapeExportProgress {
-                current_track: (i + 1) as u32,
-                total_tracks: total as u32,
-                phase: format!("downloading:{}", source),
-                track_title: track.title.clone(),
-            });
-
-            log::info!("[mixtape-export] downloading to {}", temp_file.display());
-            match crate::downloader::download_file(
-                &response.url, response.headers.as_ref(), &temp_file, Some(cancel), None,
-            ) {
-                Ok(_) => {
-                    let size = std::fs::metadata(&temp_file).map(|m| m.len()).unwrap_or(0);
-                    log::info!("[mixtape-export] download complete: {} ({} bytes)", temp_file.display(), size);
-                    Some(temp_file.to_string_lossy().to_string())
-                }
-                Err(e) => {
-                    log::error!("[mixtape-export] download failed for \"{}\": {}", track.title, e);
-                    None
-                }
-            }
-        }
-        Ok(None) => {
-            log::warn!("[mixtape-export] resolve #{}: provider returned None for \"{}\"", resolve_id, track.title);
-            None
-        }
-        Err(e) => {
-            log::warn!("[mixtape-export] resolve #{}: timeout/error for \"{}\": {}", resolve_id, track.title, e);
-            resolve_registry.cancel(resolve_id);
-            None
-        }
-    }
-}
 
 
 
@@ -1039,7 +956,6 @@ pub(crate) fn test_app_state() -> AppState {
         image_resolve_registry: Arc::new(ImageResolveRegistry {
             pending: Mutex::new(std::collections::HashMap::new()),
         }),
-        download_resolve_registry: Arc::new(DownloadResolveRegistry::new()),
         plugin_execs: Arc::new(PluginExecRegistry::new()),
         direct_download_cancel: Arc::new(AtomicBool::new(false)),
         mixtape_cancel: Arc::new(AtomicBool::new(false)),

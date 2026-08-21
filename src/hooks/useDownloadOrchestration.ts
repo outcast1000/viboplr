@@ -1,6 +1,5 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { subscribe } from "../utils/tauriEvents";
 import type { Track, QueueTrack } from "../types";
 import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
@@ -26,99 +25,6 @@ export interface DownloadModalState {
   ) => Promise<DownloadResolveResult | null>;
 }
 
-/** Per-provider budget for the background download chain. It is an **idle**
- * timeout, not a deadline, and the distinction is the whole point: a provider
- * that mints a URL answers in seconds, but one that downloads the file itself
- * (yt-dlp fetching a video and merging it through ffmpeg) legitimately runs for
- * many minutes — a 22 MB video measured about four of them on an ordinary line.
- * The old fixed deadlines (60s by URI, 10s by metadata) failed every such
- * download and reported it as "no download provider could resolve this track",
- * which blamed the provider for being slow at work it was asked to do.
- * Progress reports are the liveness signal, so what expires is silence, not
- * elapsed time; a provider that reports nothing still gets the full budget. */
-const RESOLVE_IDLE_TIMEOUT_MS = 60000;
-
-/** Run one provider resolve, giving up only after `idleMs` with no progress.
- * The timeout stops us waiting — it cannot stop the provider, which keeps
- * running exactly as it did under the previous fixed race. */
-async function resolveWithIdleTimeout(
-  idleMs: number,
-  start: (onProgress: () => void) => Promise<DownloadResolveResult | null>,
-): Promise<DownloadResolveResult | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let expire: (v: null) => void = () => {};
-  const idle = new Promise<null>((resolve) => { expire = resolve; });
-  const arm = () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => expire(null), idleMs);
-  };
-  arm();
-  try {
-    return await Promise.race([start(arm), idle]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-/** Walk the plugin download-provider chain (by-uri first, then by-metadata) and
- * return the first successful resolution. Each provider call is bounded by
- * `RESOLVE_IDLE_TIMEOUT_MS` (see above). The backend's resolve wait must stay
- * comfortably above whatever this chain can take.
- * Sole caller is the `download-resolve-request` bridge below, whose only
- * backend emitter is now MIXTAPE EXPORT — the background download queue that
- * also used it was removed. Exported for unit testing of the provider-id
- * matching. */
-export async function resolveTrackDownload(
-  providers: DownloadProvider[],
-  uri: string | null,
-  title: string,
-  artistName: string | null,
-  albumName: string | null,
-  durationSecs: number | null,
-  format: string,
-  provider?: string | null,
-): Promise<DownloadResolveResult | null> {
-  // `provider` may arrive as the host's fully-qualified id ("pluginId:providerId")
-  // or as the bare providerId a plugin passed to api.downloads.enqueue — which is
-  // all a plugin knows of itself (its manifest's downloadProviders[].id). Accept
-  // either, reconstructing the full id from each provider's source so a bare id
-  // can't false-match a same-named provider under a different plugin.
-  const targetProviders = provider
-    ? providers.filter(p => p.id === provider || p.id === `${p.source}:${provider}`)
-    : providers;
-
-  if (uri) {
-    for (const p of targetProviders) {
-      try {
-        const result = await resolveWithIdleTimeout(RESOLVE_IDLE_TIMEOUT_MS,
-          (onProgress) => p.resolveByUri(uri, format, onProgress));
-        if (result) return result;
-      } catch (e) {
-        // A throwing provider falls through to the next in the chain, but the
-        // reason still has to surface — otherwise a broken provider is silent.
-        console.error(`Download provider "${p.id}" failed to resolve by URI:`, e);
-        continue;
-      }
-    }
-  }
-
-  for (const p of targetProviders) {
-    try {
-      // Same budget as the by-URI leg. This one used to be 10s, which no
-      // download-the-file provider could ever meet — a yt-dlp metadata resolve
-      // searches AND downloads before it answers.
-      const result = await resolveWithIdleTimeout(RESOLVE_IDLE_TIMEOUT_MS,
-        (onProgress) => p.resolveByMetadata(title, artistName, albumName, durationSecs, format, onProgress));
-      if (result) return result;
-    } catch (e) {
-      console.error(`Download provider "${p.id}" failed to resolve by metadata:`, e);
-      continue;
-    }
-  }
-
-  return null;
-}
-
 interface UseDownloadOrchestrationDeps {
   plugins: Pick<
     ReturnType<typeof usePlugins>,
@@ -130,10 +36,9 @@ interface UseDownloadOrchestrationDeps {
 
 /**
  * Download-orchestration engine, extracted out of App.tsx. Owns the plugin
- * download-provider list, the backend `download-resolve-request` bridge
- * (mixtape export's resolve round-trip), the `downloadModal` state, and the
- * source-owned download triggers (context-menu "Download…", now-playing
- * download). There are no per-provider triggers and no provider priorities:
+ * download-provider list, the `downloadModal` state, and the source-owned
+ * download triggers (context-menu "Download…", now-playing download). There
+ * are no per-provider triggers, no provider priorities, and no resolve chain:
  * a track's own source decides its downloader (`decideDownload`), and
  * providers surface their own context-menu items (plugin-first).
  */
@@ -197,30 +102,11 @@ export function useDownloadOrchestration({
     return providers;
   }, [plugins.pluginStates, plugins.invokeDownloadResolveByUri, plugins.invokeDownloadResolveByMetadata]);
 
+  // Kept in a ref so nativePlanForTrack (a stable callback) always reads the
+  // live provider list. There is no download-resolve bridge any more — mixtape
+  // export downloads its sources backend-side, so nothing subscribes here.
   const downloadProvidersRef = useRef<DownloadProvider[]>([]);
   useAssignRef(downloadProvidersRef, downloadProviders);
-
-  // Respond to backend download-resolve-request events by walking the plugin
-  // download-provider chain. (Inlined from the former useDownloads hook.)
-  useEffect(() => {
-    return subscribe<{
-      id: number;
-      title: string;
-      artist_name: string | null;
-      album_title: string | null;
-      duration_secs: number | null;
-      uri: string | null;
-      format: string;
-      provider: string | null;
-    }>("download-resolve-request", async (event) => {
-      const { id, title, artist_name, album_title, duration_secs, uri, format, provider } = event.payload;
-      const result = await resolveTrackDownload(
-        downloadProvidersRef.current,
-        uri, title, artist_name, album_title, duration_secs, format, provider,
-      );
-      await invoke("download_resolve_response", { id, result: result ?? null });
-    });
-  }, []);
 
   // --- Unified per-track download (context menu ⟷ now-playing) --------------
   // The now-playing button and the context-menu "Download…" both resolve which
