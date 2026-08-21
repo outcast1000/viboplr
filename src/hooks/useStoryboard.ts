@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { QueueTrack } from "../types";
 import { isVideoTrack } from "../utils";
 import { schemeOf, type Storyboard } from "../utils/storyboard";
@@ -9,11 +10,29 @@ interface StoryboardResult {
   storyboard: Storyboard | null;
 }
 
+/** Mirrors the Rust `StoryboardPartial` event payload (camelCase over IPC). */
+interface StoryboardPartialEvent {
+  path: string;
+  framePaths: string[];
+  intervalSecs: number;
+  count: number;
+}
+
+/** Frames extracted so far while the storyboard generates — `frames[i]` is an
+ *  image URL depicting `i * intervalSecs`; `count` is how many the finished
+ *  board will carry. Only ever non-null while `status` is "loading". */
+export interface PartialStoryboard {
+  frames: string[];
+  intervalSecs: number;
+  count: number;
+}
+
 export interface StoryboardState {
   board: Storyboard | null;
   /** `unavailable` = ffmpeg missing (the filmstrip prompts to install it);
    *  `unsupported` = nothing can produce one for this source; `idle` = not a video. */
   status: "idle" | "loading" | "ready" | "unavailable" | "unsupported";
+  partial: PartialStoryboard | null;
 }
 
 /**
@@ -34,17 +53,18 @@ export function useStoryboard(
   track: QueueTrack | null,
   resolveByUri?: (scheme: string, id: string) => Promise<Storyboard | null>,
 ): StoryboardState {
-  const [state, setState] = useState<StoryboardState>({ board: null, status: "idle" });
+  const [state, setState] = useState<StoryboardState>({ board: null, status: "idle", partial: null });
 
   const path = track?.path ?? null;
   const isVideo = track ? isVideoTrack(track) : false;
 
   useEffect(() => {
-    setState({ board: null, status: "idle" });
+    setState({ board: null, status: "idle", partial: null });
     if (!path || !isVideo) return;
-    setState({ board: null, status: "loading" });
+    setState({ board: null, status: "loading", partial: null });
 
     let cancelled = false;
+    let unlistenPartial: (() => void) | null = null;
 
     // Local sheets need the asset protocol; plugin sheets may already be http/data
     // URLs, or local paths under the plugin's own storage.
@@ -60,18 +80,18 @@ export function useStoryboard(
       // touch the local path at all.
       if (parsed && parsed.scheme !== "file") {
         if (!resolveByUri) {
-          setState({ board: null, status: "unsupported" });
+          setState({ board: null, status: "unsupported", partial: null });
           return;
         }
         try {
           const fromPlugin = await resolveByUri(parsed.scheme, parsed.id);
           if (cancelled) return;
           setState(fromPlugin
-            ? { board: withAssetUrls(fromPlugin), status: "ready" }
-            : { board: null, status: "unsupported" });
+            ? { board: withAssetUrls(fromPlugin), status: "ready", partial: null }
+            : { board: null, status: "unsupported", partial: null });
         } catch (e) {
           console.error("Plugin storyboard resolve failed:", e);
-          if (!cancelled) setState({ board: null, status: "unsupported" });
+          if (!cancelled) setState({ board: null, status: "unsupported", partial: null });
         }
         return;
       }
@@ -80,7 +100,7 @@ export function useStoryboard(
         const cached = await invoke<Storyboard | null>("get_storyboard", { path });
         if (cancelled) return;
         if (cached) {
-          setState({ board: withAssetUrls(cached), status: "ready" });
+          setState({ board: withAssetUrls(cached), status: "ready", partial: null });
           return;
         }
       } catch (e) {
@@ -89,23 +109,55 @@ export function useStoryboard(
       }
 
       if (cancelled) return;
+      // Generation streams the frames it has extracted so far, so the filmstrip can
+      // fill in progressively. Subscribed before the extract invoke so no early
+      // frame is missed; terminal setStates below clear `partial` (the frame files
+      // are scratch — the backend deletes them once the sheet exists).
+      try {
+        const un = await listen<StoryboardPartialEvent>("storyboard-partial", ev => {
+          if (ev.payload.path !== path) return;
+          const partial: PartialStoryboard = {
+            frames: ev.payload.framePaths.map(p => convertFileSrc(p)),
+            intervalSecs: ev.payload.intervalSecs,
+            count: ev.payload.count,
+          };
+          setState(prev => (prev.status === "loading" ? { ...prev, partial } : prev));
+        });
+        if (cancelled) un();
+        else unlistenPartial = un;
+      } catch (e) {
+        console.error("Failed to subscribe to storyboard progress:", e);
+        // Progress is a nicety — generation still runs without it.
+      }
+
+      if (cancelled) return;
       try {
         const result = await invoke<StoryboardResult>("extract_storyboard", { path });
         if (cancelled) return;
         if (result.status === "ok" && result.storyboard) {
-          setState({ board: withAssetUrls(result.storyboard), status: "ready" });
+          setState({ board: withAssetUrls(result.storyboard), status: "ready", partial: null });
         } else {
           // "unavailable" (no ffmpeg) / "unsupported" (not a local file) are expected.
           // The seek bar just shows no thumbnail; the filmstrip prompts for ffmpeg.
-          setState({ board: null, status: result.status === "unavailable" ? "unavailable" : "unsupported" });
+          setState({
+            board: null,
+            status: result.status === "unavailable" ? "unavailable" : "unsupported",
+            partial: null,
+          });
         }
       } catch (e) {
         console.error("Failed to generate storyboard:", e);
-        if (!cancelled) setState({ board: null, status: "unsupported" });
+        if (!cancelled) setState({ board: null, status: "unsupported", partial: null });
+      } finally {
+        unlistenPartial?.();
+        unlistenPartial = null;
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      unlistenPartial?.();
+    };
   }, [path, isVideo, resolveByUri]);
 
   return state;

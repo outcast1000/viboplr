@@ -42,6 +42,18 @@
   line-height: 1.4;
 }
 
+/* A frame shown while the storyboard still generates. Pinned to 16:9 + cover-crop —
+   the source aspect isn't known until the finished sheet is read, and the row must
+   not jiggle against the 16:9 placeholders beside it. */
+.video-filmstrip-partial-img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background-color: var(--video-bg, #000);
+  animation: fade-in 0.25s ease-out;
+}
+
 .video-filmstrip-placeholder {
   flex: 1;
   aspect-ratio: 16 / 9;

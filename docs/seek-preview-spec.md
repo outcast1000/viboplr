@@ -264,12 +264,20 @@ One invocation, added alongside the existing frame pass (which is reduced to a s
 frame once this ships — see "Reducing `FRAME_COUNT` to 1"):
 
 ```
-ffmpeg -hide_banner -loglevel error -skip_frame nokey -i <file> -an \
-  -vf "fps=1/<interval>,scale=<tileW>:-2,tile=<cols>x<rows>" \
-  -frames:v 1 -c:v mjpeg -q:v 5 -pix_fmt yuvj420p -y <sheet>
+ffmpeg -hide_banner -loglevel error -y -skip_frame nokey -i <file> -an \
+  -filter_complex "fps=1/<interval>,scale=<tileW>:-2,split=2[strip][grid];[grid]tile=<cols>x<rows>[sheet]" \
+  -map "[strip]" -c:v mjpeg -q:v 5 -pix_fmt yuvj420p <framesDir>/%03d.jpg \
+  -map "[sheet]" -frames:v 1 -c:v mjpeg -q:v 5 -pix_fmt yuvj420p <sheet>
 ```
 
 - `-skip_frame nokey` is what makes this cheap (83 MB / 0.36 s vs 161 MB / 3.2 s).
+- The `[strip]` side output is **progress, not cache**: while ffmpeg runs, the backend
+  polls the frames dir and streams the completed frames to the frontend as
+  `storyboard-partial` events (cumulative, in time order), so the detail-page
+  filmstrip fills in as moments land instead of sitting on placeholders. The frame
+  files are scratch — deleted the moment the sheet exists, by which point the
+  frontend has the real storyboard to switch to. The `[sheet]` output is byte-for-byte
+  what the old single-output `-vf` pass produced.
 - `fps=1/<interval>` puts tiles on a fixed grid so timestamps are computable without
   a second probe. This matters because **`ffprobe` is not available** — the
   `dependencies.rs` `REGISTRY` (which is also the exec allow-list) has only `ffmpeg`

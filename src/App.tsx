@@ -69,6 +69,7 @@ import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
 import { useStoryboard } from "./hooks/useStoryboard";
+import { partialStoryboard } from "./utils/storyboard";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
 import { useInAppKeyboardShortcuts } from "./hooks/useInAppKeyboardShortcuts";
 import { useSkins } from "./hooks/useSkins";
@@ -769,7 +770,16 @@ function App() {
     playback.playbackError ? null : playback.currentTrack,
     plugins.resolveStoryboardByUri,
   );
-  const storyboard = storyboardState.board;
+  // What the seek surfaces get: the finished board, or — while it still generates —
+  // a board synthesized from the frames extracted so far, so the filmstrip replaces
+  // the segmented bar progressively instead of popping in whole at the end. The
+  // synthetic board carries the final tile count, so the layout never reflows as
+  // frames land; unextracted moments just have no tile yet.
+  const storyboard = useMemo(() => {
+    if (storyboardState.board) return storyboardState.board;
+    const p = storyboardState.partial;
+    return p ? partialStoryboard(p.frames, p.intervalSecs, p.count) : null;
+  }, [storyboardState.board, storyboardState.partial]);
   const dependencies = useDependencies(plugins.pluginStates);
 
   // "Report a problem" — null when closed. The entry point supplies the issue

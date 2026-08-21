@@ -95,6 +95,13 @@ fn sheet_path(app_dir: &Path, k: &str) -> PathBuf {
     dir(app_dir).join(format!("{}.jpg", k))
 }
 
+/// Scratch dir for the per-frame side output emitted while the sheet generates
+/// (see `generate`). Removed when generation finishes either way; a leftover from
+/// a crash is cleared at the start of the next generation for the same track.
+fn frames_dir(app_dir: &Path, k: &str) -> PathBuf {
+    dir(app_dir).join(format!("{}.frames", k))
+}
+
 fn meta_path(app_dir: &Path, k: &str) -> PathBuf {
     dir(app_dir).join(format!("{}.json", k))
 }
@@ -121,17 +128,88 @@ fn ffmpeg_command() -> std::process::Command {
     dependencies::command_with_path("ffmpeg")
 }
 
+/// Track paths with a generation in flight, plus the condvar waiters sleep on.
+/// Generation must be single-flight per track: two frontend surfaces (the
+/// now-playing bar and the track detail page) both extract on a cache miss, and
+/// two concurrent runs sabotage each other — the second's scratch-dir reset kills
+/// the first's ffmpeg mid-write, whose failure cleanup then deletes the sheet the
+/// winner just cached, leaving a descriptor with no sheet (= "caching stopped
+/// working"). The loser now waits and serves the winner's cache instead.
+fn inflight() -> &'static (std::sync::Mutex<std::collections::HashSet<String>>, std::sync::Condvar) {
+    static INFLIGHT: std::sync::OnceLock<(
+        std::sync::Mutex<std::collections::HashSet<String>>,
+        std::sync::Condvar,
+    )> = std::sync::OnceLock::new();
+    INFLIGHT.get_or_init(|| (std::sync::Mutex::new(std::collections::HashSet::new()), std::sync::Condvar::new()))
+}
+
+/// Removes the in-flight entry and wakes waiters even if generation unwinds.
+struct InflightGuard(String);
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        let (lock, cv) = inflight();
+        lock.lock().unwrap().remove(&self.0);
+        cv.notify_all();
+    }
+}
+
+/// Frames in `dir` that are safely complete. The image2 muxer writes files in
+/// sequence and only opens frame N+1 after closing frame N, so while ffmpeg is
+/// still running the highest-numbered file may be mid-write and is held back;
+/// once it has exited (`finished`) everything on disk is complete.
+fn completed_frames(dir: &Path, finished: bool) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            (p.extension().and_then(|x| x.to_str()) == Some("jpg"))
+                .then(|| p.to_string_lossy().to_string())
+        })
+        .collect();
+    // %03d names sort lexicographically in frame order.
+    names.sort();
+    if !finished {
+        names.pop();
+    }
+    names
+}
+
 /// Generate the sheet for `video_path` and cache it. `duration_secs` comes from the
 /// caller (see `video_frames::get_video_duration`) so we don't probe twice.
-pub fn generate(
+///
+/// Progress: `on_partial` is called with the cumulative list of individual frame
+/// files extracted so far (time order, one per tile), so a consumer can show the
+/// moments as they land instead of a blank strip. The frame files are scratch —
+/// they are deleted once the sheet exists, by which point the caller has the real
+/// storyboard to switch to. Pass `|_| {}` when progress isn't wanted.
+pub fn generate_with_progress(
     app_dir: &Path,
     track_path: &str,
     video_path: &Path,
     duration_secs: f64,
+    mut on_partial: impl FnMut(&[String]),
 ) -> Result<Storyboard, String> {
     if duration_secs <= 0.0 {
         return Err("Video has zero duration".to_string());
     }
+
+    // Single-flight per track (see `inflight`). A waiter that wakes to a cache hit
+    // is the loser of the race — the winner generated while it slept.
+    let _guard = {
+        let (lock, cv) = inflight();
+        let mut running = lock.lock().unwrap();
+        while running.contains(track_path) {
+            running = cv.wait(running).unwrap();
+        }
+        if let Some(cached) = get_cached(app_dir, track_path) {
+            return Ok(cached);
+        }
+        running.insert(track_path.to_string());
+        InflightGuard(track_path.to_string())
+    };
+
     let g = geometry(duration_secs);
     let d = dir(app_dir);
     std::fs::create_dir_all(&d).map_err(|e| format!("Failed to create storyboard dir: {}", e))?;
@@ -139,35 +217,97 @@ pub fn generate(
     let k = key(track_path);
     let out = sheet_path(app_dir, &k);
     let out_str = out.to_string_lossy().to_string();
+    let fdir = frames_dir(app_dir, &k);
+    // Clear a leftover from a crashed run so stale frames can't be reported as live.
+    let _ = std::fs::remove_dir_all(&fdir);
+    std::fs::create_dir_all(&fdir).map_err(|e| format!("Failed to create frames dir: {}", e))?;
+    let frame_pattern = fdir.join("%03d.jpg").to_string_lossy().to_string();
 
     let mut cmd = ffmpeg_command();
     cmd.args([
         "-hide_banner",
         "-loglevel", "error",
+        "-y",
         // Keyframes only — this is what makes one pass cheap. Must precede -i.
         "-skip_frame", "nokey",
         "-i", &video_path.to_string_lossy(),
         "-an",
-        "-vf", &format!(
-            "fps=1/{:.4},scale={}:-2,tile={}x{}",
+        // One decode pass, two outputs: the individual frames (progress, scratch)
+        // and the tiled sheet (the cached artifact, identical to what the old
+        // single-output `-vf` produced).
+        "-filter_complex", &format!(
+            "fps=1/{:.4},scale={}:-2,split=2[strip][grid];[grid]tile={}x{}[sheet]",
             g.interval_secs, g.tile_w, g.cols, g.rows
         ),
-        "-frames:v", "1",
         // MJPEG unconditionally: `webp_supported()` is false on stock homebrew
         // ffmpeg, so the WebP path already falls back in practice. Sheets are small.
-        "-c:v", "mjpeg",
-        "-q:v", "5",
-        "-pix_fmt", "yuvj420p",
-        "-y", &out_str,
+        "-map", "[strip]",
+        "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+        &frame_pattern,
+        "-map", "[sheet]",
+        "-frames:v", "1",
+        "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+        &out_str,
     ]);
-    let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-    if !output.status.success() || !out.exists() {
-        let _ = std::fs::remove_file(&out);
-        return Err(format!(
-            "ffmpeg storyboard generation failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let cleanup = |ok: bool| {
+        let _ = std::fs::remove_dir_all(&fdir);
+        if !ok {
+            let _ = std::fs::remove_file(&out);
+        }
+    };
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            cleanup(false);
+            return Err(format!("Failed to run ffmpeg: {}", e));
+        }
+    };
+    // Drained on a thread so a chatty stderr can't fill the pipe and block ffmpeg.
+    let stderr_pipe = child.stderr.take();
+    let stderr_handle = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(mut pipe) = stderr_pipe {
+            use std::io::Read;
+            let _ = pipe.read_to_string(&mut s);
+        }
+        s
+    });
+
+    let mut reported = 0usize;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                let done = completed_frames(&fdir, false);
+                if done.len() > reported {
+                    reported = done.len();
+                    on_partial(&done);
+                }
+                // 80ms, not something lazier: a typical music video's keyframe pass
+                // finishes in ~0.3-0.5s, so a slow poll would collapse the whole
+                // progression into one late event.
+                std::thread::sleep(std::time::Duration::from_millis(80));
+            }
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                cleanup(false);
+                return Err(format!("Failed to wait for ffmpeg: {}", e));
+            }
+        }
+    };
+    let stderr_text = stderr_handle.join().unwrap_or_default();
+
+    if !status.success() || !out.exists() {
+        cleanup(false);
+        return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
     }
+    cleanup(true);
 
     // Tile height follows the source aspect (`scale=W:-2`), so it is only knowable
     // from the result — a 4:3 source yields 200x150, not 200x112. Read it from the
@@ -344,6 +484,30 @@ mod tests {
     }
 
     #[test]
+    fn test_completed_frames_holds_back_the_file_still_being_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        for n in ["001.jpg", "002.jpg", "003.jpg"] {
+            std::fs::write(d.join(n), b"x").unwrap();
+        }
+        std::fs::write(d.join("notes.txt"), b"x").unwrap(); // non-jpg is ignored
+        // While ffmpeg runs, the highest-numbered frame may be mid-write.
+        let running = completed_frames(d, false);
+        assert_eq!(running.len(), 2);
+        assert!(running[0].ends_with("001.jpg"));
+        assert!(running[1].ends_with("002.jpg"));
+        // Once it exited, everything on disk is complete.
+        assert_eq!(completed_frames(d, true).len(), 3);
+    }
+
+    #[test]
+    fn test_completed_frames_empty_and_missing_dirs_are_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(completed_frames(dir.path(), false).is_empty());
+        assert!(completed_frames(&dir.path().join("nope"), true).is_empty());
+    }
+
+    #[test]
     fn test_get_cached_is_none_without_files() {
         let dir = tempfile::tempdir().unwrap();
         assert!(get_cached(dir.path(), "file:///nope.mp4").is_none());
@@ -437,7 +601,34 @@ mod tests {
             assert!(ok, "failed to encode test clip {name}");
 
             let track_path = format!("file://{}", f.to_string_lossy());
-            let b = generate(dir.path(), &track_path, &f, dur as f64).expect("generate");
+            // Through the progress path, so partial reporting is exercised too. The
+            // clip decodes fast, so zero callbacks is legal — but any that fire must
+            // report cumulative, in-bounds frame lists.
+            let mut partial_lens: Vec<usize> = Vec::new();
+            let started = std::time::Instant::now();
+            let b = generate_with_progress(dir.path(), &track_path, &f, dur as f64, |frames| {
+                assert!(frames.len() <= 22, "partial reported more frames than tiles");
+                assert!(
+                    partial_lens.last().map_or(true, |&prev| frames.len() >= prev),
+                    "partial frame count went backwards"
+                );
+                eprintln!(
+                    "[storyboard-test] {name}: partial {} frames at {:?}",
+                    frames.len(),
+                    started.elapsed()
+                );
+                partial_lens.push(frames.len());
+            })
+            .expect("generate");
+            eprintln!(
+                "[storyboard-test] {name}: done in {:?}, {} partial callback(s)",
+                started.elapsed(),
+                partial_lens.len()
+            );
+            assert!(
+                !frames_dir(dir.path(), &key(&track_path)).exists(),
+                "scratch frames dir must be cleaned up after generation"
+            );
             assert_eq!(b.count, 22, "213s at a 10s floor is 22 tiles");
             assert_eq!((b.cols, b.rows), (5, 5));
             assert_eq!(b.interval_secs, MIN_INTERVAL_SECS);
@@ -456,6 +647,55 @@ mod tests {
             assert_eq!(cached.tile_h, b.tile_h);
             assert_eq!(cached.interval_secs, b.interval_secs);
         }
+    }
+
+    /// Two surfaces (now-playing bar + detail page) both extract on a cache miss.
+    /// Without single-flight the loser's scratch reset killed the winner's ffmpeg,
+    /// whose failure cleanup then deleted the cached sheet — one thread errored and
+    /// `get_cached` stayed None forever after. Both must succeed and the cache must
+    /// survive. `#[ignore]`d: encodes a clip; self-skips without ffmpeg.
+    #[test]
+    #[ignore]
+    fn test_concurrent_generation_is_single_flight_and_keeps_the_cache() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("race.mp4");
+        let ok = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                "testsrc2=size=1280x720:rate=30:duration=213",
+                "-c:v", "libx264", "-preset", "ultrafast", "-g", "250",
+                "-pix_fmt", "yuv420p", "-y",
+            ])
+            .arg(&f)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(ok, "failed to encode test clip");
+
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let results: Vec<Result<Storyboard, String>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    scope.spawn(|| {
+                        generate_with_progress(dir.path(), &track_path, &f, 213.0, |_| {})
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        for r in &results {
+            let b = r.as_ref().expect("both concurrent generations must succeed");
+            assert_eq!(b.count, 22);
+        }
+        let cached = get_cached(dir.path(), &track_path)
+            .expect("the cache must survive concurrent generation");
+        assert!(std::fs::metadata(&cached.sheets[0]).unwrap().len() > 0);
+        assert!(!frames_dir(dir.path(), &key(&track_path)).exists());
     }
 
     #[test]

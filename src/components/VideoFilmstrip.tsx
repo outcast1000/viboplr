@@ -1,5 +1,5 @@
-import type { StoryboardState } from "../hooks/useStoryboard";
-import { spreadTileIndices, tileStartSecs } from "../utils/storyboard";
+import type { PartialStoryboard, StoryboardState } from "../hooks/useStoryboard";
+import { spreadIndices, spreadTileIndices, tileStartSecs } from "../utils/storyboard";
 import { StoryboardTile } from "./StoryboardTile";
 import "./VideoFilmstrip.css";
 
@@ -23,6 +23,52 @@ interface VideoFilmstripProps {
 }
 
 /**
+ * The strip while the storyboard generates: frames fill in as ffmpeg extracts them
+ * (`storyboard.partial`, cumulative from t=0), the rest stay pulsing placeholders.
+ * Slots use the same spread the finished strip will, so a frame that appears here
+ * stays put when the sheet lands. Partial frames are pinned to 16:9 (cover-cropped)
+ * because the source aspect isn't known until the sheet is read — a row that mixes
+ * measured frames with 16:9 placeholders would jiggle otherwise.
+ */
+function LoadingStrip({
+  partial,
+  onFrameClick,
+}: {
+  partial: PartialStoryboard | null;
+  onFrameClick?: (timestampSecs: number) => void;
+}) {
+  const total = partial?.count ?? 0;
+  const indices = total > 0 ? spreadIndices(total, STRIP_TILES) : [];
+  const slots = indices.length > 0 ? indices.length : STRIP_TILES;
+
+  return (
+    <div className="video-filmstrip">
+      {Array.from({ length: slots }, (_, k) => {
+        const i = indices[k];
+        const src = partial && i != null && i < partial.frames.length ? partial.frames[i] : null;
+        if (!src) return <div key={k} className="video-filmstrip-placeholder" />;
+        const secs = i * partial!.intervalSecs;
+        return (
+          <div
+            key={k}
+            className={`video-filmstrip-frame${onFrameClick ? " clickable" : ""}`}
+            onClick={onFrameClick ? () => onFrameClick(secs) : undefined}
+          >
+            <img className="video-filmstrip-partial-img" src={src} alt="" />
+            {onFrameClick && (
+              <svg className="video-filmstrip-play" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/>
+              </svg>
+            )}
+            <span className="video-filmstrip-ts">{formatTimestamp(secs)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * A row of clickable moments from the track's storyboard, for jumping into a video.
  *
  * Reads tiles out of the sprite sheet the seek bar already uses rather than keeping
@@ -41,13 +87,7 @@ export function VideoFilmstrip({ storyboard, onFrameClick }: VideoFilmstripProps
   }
 
   if (status === "loading") {
-    return (
-      <div className="video-filmstrip">
-        {Array.from({ length: STRIP_TILES }, (_, i) => (
-          <div key={i} className="video-filmstrip-placeholder" />
-        ))}
-      </div>
-    );
+    return <LoadingStrip partial={storyboard.partial} onFrameClick={onFrameClick} />;
   }
 
   if (!board) return null;

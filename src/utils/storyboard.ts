@@ -39,6 +39,35 @@ export function schemeOf(path: string): { scheme: string; id: string } | null {
   return { scheme: path.slice(0, i), id: path.slice(i + 3) };
 }
 
+/**
+ * A usable `Storyboard` from the frames extracted *so far* while the real sheet
+ * still generates (see `useStoryboard`'s `partial`). Each frame file becomes its
+ * own 1x1 sheet, and `count` is the FINISHED board's tile count — so the layout
+ * (cell plan, spread, timestamps) is final from the first frame, moments the
+ * extraction hasn't reached yet resolve to no tile (the sheet-bounds check in
+ * `tileIndexAt` / the style helpers), and frames fill in place as they land
+ * instead of reflowing. Tile dims are nominal 16:9 — the real aspect is only
+ * knowable from the finished sheet, and these only drive slot shape and bubble
+ * sizing until it arrives.
+ */
+export function partialStoryboard(
+  frames: string[],
+  intervalSecs: number,
+  count: number,
+): Storyboard | null {
+  if (frames.length === 0 || count <= 0 || !(intervalSecs > 0)) return null;
+  return {
+    sheets: frames,
+    cols: 1,
+    rows: 1,
+    count,
+    tileW: 400,
+    tileH: 225,
+    startSecs: 0,
+    intervalSecs,
+  };
+}
+
 /** Descriptor sanity, checked once so the style helpers can't divide by zero. */
 function isUsable(board: Storyboard): boolean {
   return (
@@ -147,9 +176,15 @@ function round(v: number): number {
  * aren't that many tiles.
  */
 export function spreadTileIndices(board: Storyboard, n: number): number[] {
-  if (n <= 0 || board.count <= 0) return [];
-  if (n >= board.count) return Array.from({ length: board.count }, (_, i) => i);
-  const step = (board.count - 1) / (n - 1 || 1);
+  return spreadIndices(board.count, n);
+}
+
+/** Count-based core of `spreadTileIndices`, for callers that don't hold a full
+ *  descriptor yet — e.g. the filmstrip spreading a partially-extracted frame set. */
+export function spreadIndices(count: number, n: number): number[] {
+  if (n <= 0 || count <= 0) return [];
+  if (n >= count) return Array.from({ length: count }, (_, i) => i);
+  const step = (count - 1) / (n - 1 || 1);
   const out: number[] = [];
   for (let k = 0; k < n; k++) {
     const i = Math.round(k * step);

@@ -794,11 +794,26 @@ pub fn get_storyboard(
     crate::storyboard::get_cached(&state.app_dir, &path)
 }
 
+/// Frames extracted so far while a storyboard generates, so the filmstrip can fill
+/// in progressively instead of sitting on placeholders. `path` is the track's
+/// scheme-prefixed path — the same key the requesting frontend holds — and
+/// `frame_paths` is cumulative, in time order (frame i covers `i * interval_secs`).
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoryboardPartial {
+    pub path: String,
+    pub frame_paths: Vec<String>,
+    pub interval_secs: f64,
+    pub count: usize,
+}
+
 /// Generate the storyboard for a local video if it isn't cached yet. One ffmpeg pass;
 /// see `storyboard.rs`. Returns a status rather than erroring for the two expected
-/// "can't do this" cases, so the frontend can stay quiet about them.
+/// "can't do this" cases, so the frontend can stay quiet about them. While ffmpeg
+/// runs, `storyboard-partial` events stream the frames extracted so far.
 #[tauri::command]
 pub async fn extract_storyboard(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<StoryboardResult, String> {
@@ -818,7 +833,21 @@ pub async fn extract_storyboard(
         }
         let video_path = std::path::Path::new(bare);
         let duration = crate::video_frames::get_video_duration(video_path)?;
-        let board = crate::storyboard::generate(&app_dir, &path, video_path, duration)?;
+        let g = crate::storyboard::geometry(duration);
+        let board = crate::storyboard::generate_with_progress(
+            &app_dir,
+            &path,
+            video_path,
+            duration,
+            |frames| {
+                let _ = app.emit("storyboard-partial", StoryboardPartial {
+                    path: path.clone(),
+                    frame_paths: frames.to_vec(),
+                    interval_secs: g.interval_secs,
+                    count: g.count,
+                });
+            },
+        )?;
         Ok(StoryboardResult { status: "ok".to_string(), storyboard: Some(board) })
     })
     .await

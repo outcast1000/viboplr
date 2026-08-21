@@ -5,6 +5,8 @@ import {
   tileFitStyle,
   tileCoverStyle,
   spreadTileIndices,
+  spreadIndices,
+  partialStoryboard,
   schemeOf,
   type Storyboard,
 } from "../utils/storyboard";
@@ -205,6 +207,51 @@ describe("spreadTileIndices", () => {
     expect(spreadTileIndices(board(), 0)).toEqual([]);
     expect(spreadTileIndices(board({ count: 0 }), 4)).toEqual([]);
     expect(spreadTileIndices(board(), 1)).toEqual([0]);
+  });
+
+  // The count-based core is what the loading filmstrip spreads partial frames with;
+  // it must place them exactly where the finished strip will, or frames jump when
+  // the sheet lands.
+  it("spreadIndices agrees with the board-based wrapper", () => {
+    for (const count of [1, 2, 3, 7, 22, 100]) {
+      expect(spreadIndices(count, 8)).toEqual(spreadTileIndices(board({ count }), 8));
+    }
+  });
+});
+
+describe("partialStoryboard (frames extracted so far as a usable board)", () => {
+  // 3 of an eventual 100 frames, one every 48s (an ~80-minute video).
+  const p = () => partialStoryboard(["f0.jpg", "f1.jpg", "f2.jpg"], 48, 100)!;
+
+  it("serves the extracted moments and declines the rest", () => {
+    const b = p();
+    expect(tileIndexAt(b, 0)).toBe(0);
+    expect(tileIndexAt(b, 100)).toBe(2); // 100s / 48s -> frame 2, extracted
+    expect(tileIndexAt(b, 200)).toBeNull(); // frame 4 — not extracted yet
+    expect(tileIndexAt(b, 4790)).toBeNull(); // near the end — not extracted yet
+  });
+
+  it("keeps the finished layout from the first frame, so nothing reflows", () => {
+    // Spread over the FINAL count, not the frames on hand — a slot that shows a
+    // frame now must be the same slot that shows it when the sheet lands.
+    const b = p();
+    expect(b.count).toBe(100);
+    expect(spreadTileIndices(b, 8)).toEqual(spreadIndices(100, 8));
+    expect(tileStartSecs(b, 99)).toBe(99 * 48);
+  });
+
+  it("styles resolve for extracted frames only", () => {
+    const b = p();
+    expect(tileFitStyle(b, 1)?.backgroundImage).toBe('url("f1.jpg")');
+    expect(tileCoverStyle(b, 2, 60, 34)).not.toBeNull();
+    expect(tileFitStyle(b, 3)).toBeNull();
+    expect(tileCoverStyle(b, 50, 60, 34)).toBeNull();
+  });
+
+  it("is null when there is nothing to show or the descriptor is degenerate", () => {
+    expect(partialStoryboard([], 48, 100)).toBeNull();
+    expect(partialStoryboard(["f0.jpg"], 0, 100)).toBeNull();
+    expect(partialStoryboard(["f0.jpg"], 48, 0)).toBeNull();
   });
 });
 
