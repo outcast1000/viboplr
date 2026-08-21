@@ -4,6 +4,7 @@ import type { ResolvedShelf } from "../hooks/useHome";
 import type { HomeShelfItem, PluginTrack } from "../types/plugin";
 import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
+import { shouldPauseEffect } from "./DetailHeroEffect";
 
 const ROTATE_MS = 8_000;
 
@@ -87,18 +88,64 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
   const videoFrames = useShelfVideoFrames(shelf);
   const [idx, setIdx] = useState(0);
   const hoverRef = useRef(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Track the slide the carousel just left, so only two background layers are
+  // ever mounted: the active one plus the one fading out. Keeping one
+  // cover-sized layer per item handed the compositor up to 7 hero-sized
+  // images when at most 2 can be visible. Previous-value-in-state form.
+  const [prevIdx, setPrevIdx] = useState<number | null>(null);
+  const [lastIdx, setLastIdx] = useState(idx);
+  if (idx !== lastIdx) {
+    setLastIdx(idx);
+    setPrevIdx(lastIdx);
+  }
 
   // Reset to the first slide when the shelf changes or shrinks.
-  useEffect(() => { setIdx(0); }, [shelf.id, items.length]);
+  useEffect(() => { setIdx(0); setPrevIdx(null); }, [shelf.id, items.length]);
+
+  // Stop rotating while nobody can see it: Home is display-toggled (kept
+  // mounted behind other views — see FreezeWhileHidden) and the window can be
+  // minimized/occluded, and each rotation animates a hero-sized crossfade the
+  // compositor bills wall-clock GPU for. Same gate as DetailHeroEffect.
+  const [suspended, setSuspended] = useState(false);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    let onScreen = true;
+    let pageVisible = !document.hidden;
+    const apply = () => setSuspended(shouldPauseEffect(onScreen, pageVisible));
+    const io =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(
+            (entries) => {
+              onScreen = entries[0]?.isIntersecting ?? true;
+              apply();
+            },
+            { threshold: 0 },
+          )
+        : null;
+    io?.observe(el);
+    const onVisibility = () => {
+      pageVisible = !document.hidden;
+      apply();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    apply();
+    return () => {
+      io?.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   useEffect(() => {
-    if (items.length < 2) return;
+    if (items.length < 2 || suspended) return;
     const id = setInterval(() => {
       if (hoverRef.current) return;
       setIdx((i) => (i + 1) % items.length);
     }, ROTATE_MS);
     return () => clearInterval(id);
-  }, [items.length]);
+  }, [items.length, suspended]);
 
   if (items.length === 0) return null;
 
@@ -108,15 +155,24 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
   const hasPlay = resolveShelfPlayAction(shelf.displayKind, item).kind !== "none";
   const advance = (delta: number) => setIdx((i) => (i + delta + items.length) % items.length);
 
+  // Active layer first (bottom), outgoing layer second (top): the incoming
+  // layer mounts already opaque underneath while the outgoing one — kept
+  // mounted via its stable key — loses `.active` and transitions out over it,
+  // which reads as the same dissolve the mount-them-all version had.
+  const bgIdxs = prevIdx !== null && prevIdx !== safeIdx ? [safeIdx, prevIdx] : [safeIdx];
+
   return (
     <div
+      ref={rootRef}
       className="home-hero"
       onMouseEnter={() => { hoverRef.current = true; }}
       onMouseLeave={() => { hoverRef.current = false; }}
     >
-      {/* Cross-fading background layers — one per item, only the active one opaque. */}
+      {/* Cross-fading background layers — only the active + outgoing slides. */}
       <div className="home-hero-bg" aria-hidden="true">
-        {items.map((it, i) => {
+        {bgIdxs.map((i) => {
+          const it = items[i];
+          if (!it) return null;
           const src = slideFor(shelf, it, albumImageFor, artistImageFor, videoFrames).coverSrc;
           if (!src) return null;
           return (

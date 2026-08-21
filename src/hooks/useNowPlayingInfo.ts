@@ -8,7 +8,7 @@ import { formatDuration } from "../utils";
 import { useLyrics } from "./useLyrics";
 import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio, lyricPosition } from "../utils/lyrics";
 import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
-import { subscribePlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
+import { subscribeVisiblePlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
 
 // Stand-in subscription while no synced lyrics exist — keeps the
 // useSyncExternalStore call unconditional without ticking on position.
@@ -439,7 +439,7 @@ export function useNowPlayingInfo({
   // nothing while the mini-only cycler isn't rendered.
   const syncedLive = Boolean(syncedLines) && cyclerVisible;
   const syncedText = useSyncExternalStore(
-    syncedLive ? subscribePlaybackPosition : noopSubscribe,
+    syncedLive ? subscribeVisiblePlaybackPosition : noopSubscribe,
     () => (syncedLive && syncedLines
       ? activeSyncedLine(syncedLines, lyricPosition(getPlaybackPosition(), lyricsOffsetSecs))
       : null),
