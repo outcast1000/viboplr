@@ -692,12 +692,26 @@ impl Database {
         self.get_track_paths_for_collection(collection_id)
     }
 
-    /// Every track path in the library, regardless of collection or enabled state.
+    /// Every track's full playable URI, regardless of collection or enabled state.
     /// Used as the liveness set for cache sweeps (see `storyboard::gc`) — a disabled
     /// collection's tracks are still live, so filtering here would delete their caches.
-    pub fn get_all_track_paths(&self) -> SqlResult<Vec<String>> {
+    ///
+    /// This must be the COMPUTED URI (the same CASE expression every track SELECT
+    /// uses), never the raw `tracks.path` column: for local collections that column
+    /// is a bare filename relative to the collection root, and a liveness set built
+    /// from it matches no cache key — path-keyed caches hash the URI the frontend
+    /// plays, so the sweep silently deleted every entry at every launch.
+    pub fn get_all_track_uris(&self) -> SqlResult<Vec<String>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT path FROM tracks")?;
+        let sql = "SELECT CASE \
+              WHEN co.kind = 'local' AND co.path IS NOT NULL \
+                THEN 'file://' || co.path || '/' || t.path \
+              WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
+                THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
+              ELSE t.path \
+            END \
+            FROM tracks t LEFT JOIN collections co ON t.collection_id = co.id";
+        let mut stmt = conn.prepare(sql)?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         rows.collect()
     }
@@ -1020,6 +1034,43 @@ mod tests {
             nulls.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
         let rows = stmt.query_map(refs.as_slice(), |r| r.get::<_, String>(3)).unwrap();
         rows.collect::<SqlResult<Vec<_>>>().unwrap()
+    }
+
+    /// The gc liveness set must be the COMPUTED playable URI. `tracks.path` for a
+    /// local collection is a bare filename ("Song.mp4"), while path-keyed caches
+    /// (storyboards) hash the full `file://{collection}/{name}` string — a liveness
+    /// set built from the raw column matched nothing, so the startup sweep deleted
+    /// every video's cached storyboard on every launch.
+    #[test]
+    fn test_all_track_uris_are_computed_not_raw_column_values() {
+        let db = Database::new_in_memory().unwrap();
+        let col = db
+            .add_collection("local", "vids", Some(r"\\NAS\video\Children"), None, None, None, None, None)
+            .unwrap();
+        db.upsert_track(
+            "Three Robbers and a Lion.mp4",
+            "Three Robbers and a Lion",
+            None, None, None, Some(4589.0), Some("mp4"), None, None, Some(col.id), None,
+        )
+        .unwrap();
+        // An external/uncollected row keeps whatever path it carries.
+        db.upsert_track(
+            "custom://abc123",
+            "Plugin track",
+            None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
+
+        let uris = db.get_all_track_uris().unwrap();
+        assert!(
+            uris.contains(&r"file://\\NAS\video\Children/Three Robbers and a Lion.mp4".to_string()),
+            "local track must come back as its full playable URI, got: {uris:?}"
+        );
+        assert!(uris.contains(&"custom://abc123".to_string()));
+        assert!(
+            !uris.contains(&"Three Robbers and a Lion.mp4".to_string()),
+            "the raw filename column must never appear in the liveness set"
+        );
     }
 
     #[test]

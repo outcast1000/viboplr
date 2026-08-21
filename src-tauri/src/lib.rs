@@ -1172,8 +1172,14 @@ pub fn run() {
                 let sb_dir = app_dir.clone();
                 let sb_db = db.clone();
                 std::thread::spawn(move || {
-                    match sb_db.get_all_track_paths() {
-                        Ok(live) => {
+                    match sb_db.get_all_track_uris() {
+                        Ok(mut live) => {
+                            // The persisted queue is a liveness source too: external
+                            // tracks (a video played off a share, a plugin result)
+                            // have no library row, and sweeping their storyboards
+                            // meant every restart regenerated exactly the tracks
+                            // that auto-resume at startup.
+                            live.extend(crate::main_playlist::track_paths(&sb_dir));
                             if let Err(e) = crate::storyboard::gc(&sb_dir, &live) {
                                 log::warn!("Storyboard gc failed: {}", e);
                             }

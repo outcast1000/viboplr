@@ -349,6 +349,19 @@ pub fn gc(app_dir: &Path, live_paths: &[String]) -> Result<usize, String> {
     let mut removed = 0;
     for entry in std::fs::read_dir(&d).map_err(|e| e.to_string())?.flatten() {
         let path = entry.path();
+        // A `.frames` scratch dir at gc time is a leftover from a generation the app
+        // didn't live to finish (gc runs at startup, before anything can be playing —
+        // an in-flight generation cannot exist yet). Liveness doesn't apply: the dir
+        // is garbage even when its track is still in the library, and `remove_file`
+        // below can't take a directory.
+        if path.is_dir() {
+            if path.extension().and_then(|x| x.to_str()) == Some("frames")
+                && std::fs::remove_dir_all(&path).is_ok()
+            {
+                removed += 1;
+            }
+            continue;
+        }
         // Both `<hash>.jpg` and `<hash>.json` share the stem.
         let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
         if !live.contains(stem) {
@@ -554,11 +567,18 @@ mod tests {
             std::fs::write(sheet_path(app, &k), b"jpeg").unwrap();
             std::fs::write(meta_path(app, &k), b"{}").unwrap();
         }
+        // A scratch dir left by an interrupted generation — garbage even though its
+        // track is live (the app died mid-run; nothing will ever finish it).
+        let stale_frames = frames_dir(app, &key(live));
+        std::fs::create_dir_all(&stale_frames).unwrap();
+        std::fs::write(stale_frames.join("001.jpg"), b"jpeg").unwrap();
+
         let removed = gc(app, &[live.to_string()]).unwrap();
-        assert_eq!(removed, 2, "both files of the dead entry should go");
+        assert_eq!(removed, 3, "both files of the dead entry + the scratch dir should go");
         assert!(sheet_path(app, &key(live)).exists());
         assert!(meta_path(app, &key(live)).exists());
         assert!(!sheet_path(app, &key(dead)).exists());
+        assert!(!stale_frames.exists());
     }
 
     #[test]

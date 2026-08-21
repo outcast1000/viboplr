@@ -84,6 +84,19 @@ pub fn read(profile_dir: &Path) -> Result<MainPlaylistReadResult, String> {
     Ok(MainPlaylistReadResult { manifest, state, thumbs })
 }
 
+/// Track URIs of the persisted live queue, exactly as the manifest stores them.
+/// Used as an extra liveness source for cache sweeps (see `storyboard::gc`'s call
+/// site in lib.rs): queued tracks need not be library rows — an external video's
+/// path exists nowhere in the DB — and the queue is precisely what auto-resumes
+/// at startup, so its caches are the ones a sweep must not eat. Verbatim strings,
+/// no normalization: the cache key is the md5 of the same string the frontend
+/// plays, which for a restored queue is this manifest's `file` field.
+pub fn track_paths(profile_dir: &Path) -> Vec<String> {
+    read_json::<BundleManifest>(&folder(profile_dir).join(MANIFEST_FILE))
+        .map(|m| m.tracks.into_iter().filter_map(|t| t.file).collect())
+        .unwrap_or_default()
+}
+
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
     match std::fs::read_to_string(path) {
         Ok(s) => match serde_json::from_str::<T>(&s) {
@@ -344,6 +357,43 @@ mod tests {
         let s = r.state.unwrap();
         assert_eq!(s.queue_index, 2);
         assert_eq!(s.queue_mode, "repeat-all");
+    }
+
+    #[test]
+    fn track_paths_returns_manifest_uris_verbatim() {
+        let t = tmp();
+        ensure_dirs(t.path()).unwrap();
+        let mut m = sample_manifest();
+        m.tracks = vec![
+            crate::models::BundleTrack {
+                title: "A".into(),
+                artist: "".into(),
+                album: None,
+                duration_secs: None,
+                // Verbatim matters: this mixed-slash UNC form is what a restored
+                // queue actually plays, and the storyboard cache key is its md5.
+                file: Some(r"file://\\NAS\video/A.mp4".into()),
+                thumb: None,
+                format: None,
+            },
+            crate::models::BundleTrack {
+                title: "No file".into(),
+                artist: "".into(),
+                album: None,
+                duration_secs: None,
+                file: None,
+                thumb: None,
+                format: None,
+            },
+        ];
+        write(t.path(), Some(&m), None).unwrap();
+        assert_eq!(track_paths(t.path()), vec![r"file://\\NAS\video/A.mp4".to_string()]);
+    }
+
+    #[test]
+    fn track_paths_is_empty_without_a_manifest() {
+        let t = tmp();
+        assert!(track_paths(t.path()).is_empty());
     }
 
     #[test]

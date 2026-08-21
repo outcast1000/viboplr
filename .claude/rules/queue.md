@@ -160,7 +160,7 @@ How the queue survives app restarts.
 - On startup, App.tsx calls `invoke("main_playlist_read")` to read the manifest and state from the backend's main-playlist folder (NOT from `tauri-plugin-store`).
 - Tracks are reconstructed via `tracksFromManifest()` (producing `id: null` tracks with fresh `ext:N` keys). Playlist context is reconstructed via `contextFromManifest()`.
 - Queue mode is restored from the state object. Legacy persisted modes are normalized on read: `"loop"` → `"repeat-all"`, `"shuffle"` → `"normal"` (App.tsx restore path) so older stored state stays valid.
-- The queue and index are NOT set directly during restore — they are deferred via `pendingRestoreQueueRef` / `pendingRestoreTrackRef` and applied after initial library load (so library tracks can be matched and upgraded to full `id`-bearing tracks).
+- The queue and index are NOT set directly during restore — they are deferred via `pendingRestoreQueueRef` / `pendingRestoreTrackRef` and applied once `appRestoring` flips false, so the restored state can't race (or be clobbered by) the rest of startup. Restored tracks stay `ext:N` `QueueTrack`s permanently — there is **no** "upgrade to `lib:` " step, by design: the key is in-memory identity only, and everything that needs a library row resolves on demand (`find_track_by_metadata`, `find_track_id_by_path`). What IS reconciled after restore is per-track like state, via `get_track_like_states`.
 - Cached thumbnails are seeded synchronously into `thumbInfo` from the `thumbs` field of the `main_playlist_read` result (the backend existence-checks each queued track's thumb and returns its `canonical_slug`-derived filename), so restored queue rows paint their cached art on the first render — no separate async reconcile round-trip. Rust stays the sole namer of the on-disk file.
 - `restoredRef` is set to `true` only after all restore operations complete.
 - `invoke("main_playlist_gc")` runs fire-and-forget after restore to clean up orphaned cover/thumb files in the main-playlist folder.
@@ -169,7 +169,7 @@ How the queue survives app restarts.
 - The `restoredRef` guard must be checked in every persistence effect. New persistence effects must follow this pattern.
 - Debounce must remain at 500ms — lower values thrash disk I/O, higher values risk data loss on crash.
 - `clearQueue()` must invoke `main_playlist_clear` on the backend in addition to resetting React state — the debounced write alone is not sufficient because the backend call also cleans up cover/thumb files.
-- The deferred restore pattern (`pendingRestoreQueueRef` / `pendingRestoreTrackRef`) must not be bypassed — applying the queue before library load produces tracks with `id: null` that cannot be liked, deleted, or matched.
+- The deferred restore pattern (`pendingRestoreQueueRef` / `pendingRestoreTrackRef`) must not be bypassed — applying the queue while `appRestoring` is still true lets the startup sequence overwrite the restored state (and skips the like-state reconciliation that runs with it).
 
 ## Duplicate Detection
 
