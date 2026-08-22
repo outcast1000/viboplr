@@ -290,11 +290,11 @@
   height: 28px;
   --seek-h: 28px;
 }
-/* Same expansion as the docked bar, and to the same 72px so a scrub feels
+/* Same expansion as the docked bar, and to the same 75px so a scrub feels
    identical in either place. Growing upward here only eats into `.fs-controls`'
    40px gradient lead-in, which is transparent. */
 .fs-seek-wrap.has-filmstrip:hover {
-  --seek-h: 72px;
+  --seek-h: 75px;
 }
 
 .fs-seek-bubble {

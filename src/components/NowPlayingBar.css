@@ -39,12 +39,12 @@
    crossed from an audio track to a video one, and reserving the height always
    would cost every audio track ~40px of chrome for a video-only feature.
 
-   At 72px the frame area is 62px, so the aspect calculation asks for a 110px slot
+   At 75px the frame area is 65px, so the aspect calculation asks for a 116px slot
    and MIN_SLOT_PX stops binding — roughly four times the picture area. Gated on
    the filmstrip because a waveform or segmented bar gains nothing from height it
    doesn't use, and a bar that jumped on hover for no visible reason is noise. */
 .now-seek-wrap.has-filmstrip:hover {
-  --seek-h: 72px;
+  --seek-h: 75px;
 }
 
 .now-seek-bar {
