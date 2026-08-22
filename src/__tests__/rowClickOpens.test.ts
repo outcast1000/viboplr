@@ -48,6 +48,37 @@ describe("rowClickOpens", () => {
     expect(rowClickOpens(false, { meta: true })).toBe(false);
     expect(rowClickOpens(undefined, { shift: true })).toBe(false);
   });
+
+  // openOnClick: "title" splits the row instead of splitting on modifiers —
+  // the name opens, the rest of the row selects (qBittorrent's torrent list).
+  describe("title mode", () => {
+    it("opens only when the click landed on the title", () => {
+      expect(rowClickOpens("title", plain, "single", true)).toBe(true);
+      expect(rowClickOpens("title", plain, "single", false)).toBe(false);
+      expect(rowClickOpens("title", plain, "single", undefined)).toBe(false);
+    });
+
+    it("selects on a modifier click even on the title, in both selection modes", () => {
+      // Selection is reachable with a plain body click here, so unlike plain
+      // open-on-click there is no single-select carve-out: a modifier click
+      // always selects, same as the body click it stands in for.
+      expect(rowClickOpens("title", { meta: true }, "single", true)).toBe(false);
+      expect(rowClickOpens("title", { shift: true }, "multi", true)).toBe(false);
+      expect(rowClickOpens("title", { ctrl: true }, undefined, true)).toBe(false);
+    });
+
+    it("works the same in multi-select lists", () => {
+      expect(rowClickOpens("title", plain, "multi", true)).toBe(true);
+      expect(rowClickOpens("title", plain, "multi", false)).toBe(false);
+    });
+  });
+
+  it("ignores the title flag outside title mode", () => {
+    // A plain open-on-click list opens wherever the click landed; the hotspot
+    // argument must not narrow it retroactively.
+    expect(rowClickOpens(true, plain, "multi", false)).toBe(true);
+    expect(rowClickOpens(false, plain, "multi", true)).toBe(false);
+  });
 });
 
 // Selection presets: extra buttons in the All / None group ("Audio", "Video").

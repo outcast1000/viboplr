@@ -673,6 +673,22 @@
   cursor: pointer;
 }
 
+/* Title-hotspot lists (openOnClick: "title"): only the name is the link — the
+   rest of the row selects — so only the name takes the pointer, and it
+   underlines on hover, because nothing else marks where the row's two gestures
+   split. */
+.ptr-rows-open-title .ptr-row .entity-list-name {
+  cursor: pointer;
+  /* Shrink the hotspot to the text: the info column is stretch-aligned, so
+     without this the "link" extends into the blank space after a short name
+     and a click there opens instead of selecting. */
+  align-self: flex-start;
+  max-width: 100%;
+}
+.ptr-rows-open-title .ptr-row .entity-list-name:hover {
+  text-decoration: underline;
+}
+
 /* Two lines for the name in plugin row lists, where a library track title is
    the exception rather than the rule: these rows carry release names, video
    titles and search results, which back-load the very part that distinguishes

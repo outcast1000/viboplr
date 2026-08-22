@@ -414,9 +414,9 @@ export function PluginTabs({
 interface PluginTrackRowListProps {
   items: TrackRowItem[];
   selectable?: boolean;
-  // Plain click opens the row (fires its `action`) instead of selecting it.
-  // See rowClickOpens.
-  openOnClick?: boolean;
+  // Plain click opens the row (fires its `action`) instead of selecting it;
+  // `"title"` narrows the open hotspot to the row's title. See rowClickOpens.
+  openOnClick?: boolean | "title";
   // Extra buttons in the All / None group that select a named subset of rows.
   selectionPresets?: { id: string; label: string; ids: string[] }[];
   // "single" drops the selection toolbar and keeps one row current. See
@@ -520,11 +520,18 @@ export function rowActions<T extends { id: string }>(
 }
 
 export function rowClickOpens(
-  openOnClick: boolean | undefined,
+  openOnClick: boolean | "title" | undefined,
   mods: { meta?: boolean; ctrl?: boolean; shift?: boolean },
   selectionMode?: "single" | "multi",
+  onTitle?: boolean,
 ): boolean {
   if (!openOnClick) return false;
+  // "title" splits the row instead of splitting on modifiers: the name is the
+  // open hotspot, everything else selects. Selection is therefore reachable
+  // with a plain click in BOTH selection modes, so no modifier exception is
+  // needed — and a modifier click on the title selects too, same as the body
+  // click it stands in for.
+  if (openOnClick === "title") return !!onTitle && !mods.meta && !mods.ctrl && !mods.shift;
   // The modifier exception exists to keep a multi-selection reachable in a list
   // that opens on click. A single-select list has no multi-selection and no
   // toolbar to act on one, so there is nothing for the exception to preserve —
@@ -681,7 +688,8 @@ function PluginTrackRowsSelectable({
   function handleRowClick(e: React.MouseEvent, index: number) {
     if (didDragRef.current) return; // suppress the click that ends a drag
     if ((e.target as HTMLElement).closest(".row-hover-action")) return;
-    if (rowClickOpens(openOnClick, { meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey }, selectionMode)) {
+    const onTitle = !!(e.target as HTMLElement).closest(".entity-list-name");
+    if (rowClickOpens(openOnClick, { meta: e.metaKey, ctrl: e.ctrlKey, shift: e.shiftKey }, selectionMode, onTitle)) {
       lastClickedIndexRef.current = index;
       setActiveIndex(index);
       playRow(index);
@@ -833,7 +841,7 @@ function PluginTrackRowsSelectable({
         </div>
       )}
       <div
-        className={`ptr-rows ptr-rows-selectable${openOnClick ? " ptr-rows-open" : ""}${useCv ? " ptr-rows-cv" : ""}`}
+        className={`ptr-rows ptr-rows-selectable${openOnClick === "title" ? " ptr-rows-open-title" : openOnClick ? " ptr-rows-open" : ""}${useCv ? " ptr-rows-cv" : ""}`}
         role="listbox"
         aria-multiselectable={single ? undefined : "true"}
         aria-label="Tracks"
@@ -867,8 +875,13 @@ function PluginTrackRowsSelectable({
               onMouseDown={(e) => handleRowMouseDown(e, i)}
               onClick={(e) => handleRowClick(e, i)}
               // In open-on-click mode the first click already fired it; the
-              // second click of a double would run the action twice.
-              onDoubleClick={openOnClick ? undefined : () => playRow(i)}
+              // second click of a double would run the action twice. In title
+              // mode only a double on the title has already fired — a double on
+              // the row body still opens, the container list's oldest gesture.
+              onDoubleClick={openOnClick === true ? undefined : (e) => {
+                if (openOnClick === "title" && (e.target as HTMLElement).closest(".entity-list-name")) return;
+                playRow(i);
+              }}
               onContextMenu={onContextMenu ? (e) => handleRowContextMenu(e, i, item) : undefined}
               actions={(() => {
                 // Per-row subset, so a row only carries the actions that apply

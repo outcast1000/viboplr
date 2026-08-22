@@ -281,7 +281,11 @@ export type PluginViewData =
       // you can go into should go into it, and a click that only highlighted
       // the row reads as nothing having happened. Modifier-clicks still select,
       // so the toolbar's multi-selection stays reachable. Requires `selectable`.
-      openOnClick?: boolean;
+      // `"title"` narrows the hotspot to the row's title: clicking the name
+      // opens, clicking anywhere else selects — for lists where both gestures
+      // matter enough that neither may cost a modifier. Older hosts treat the
+      // string as truthy and open on any click, so it degrades to `true`.
+      openOnClick?: boolean | "title";
       // Extra buttons in the toolbar's All / None group that select a named
       // subset of rows ("Audio", "Video"). A preset SELECTS rows; the list's
       // `actions` are what act on a selection. Only the plugin can know which
