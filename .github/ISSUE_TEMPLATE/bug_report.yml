@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in Viboplr isn't working right
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. If the problem happened while
+        the app was running, the best report comes from the app itself:
+        **Settings → Debug → Problems → Report a problem** builds a diagnostic
+        bundle you can paste below.
+  - type: input
+    id: version
+    attributes:
+      label: Viboplr version
+      description: Shown in Settings → About.
+      placeholder: e.g. 1.0.32
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        1. Open the queue panel
+        2. Right-click a track and choose …
+        3. Expected …, but instead …
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostic
+    attributes:
+      label: Diagnostic report
+      description: >
+        Paste the report from Settings → Debug → Problems → Report a problem, if
+        you have one. It is scrubbed of usernames but review it before posting.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, the track/source involved, plugins installed — anything that helps reproduce it.
+    validations:
+      required: false

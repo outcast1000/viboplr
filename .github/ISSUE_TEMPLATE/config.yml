@@ -1,0 +1,9 @@
+# blank_issues_enabled must stay true: the in-app "Report a Problem" flow opens
+# /issues/new?title=…&body=… with no template param (src/utils/diagnosticReport.ts
+# issueUrl), and older shipped builds link that URL forever. Disabling blank
+# issues would redirect those links to the chooser and drop the prefill.
+blank_issues_enabled: true
+contact_links:
+  - name: Help & documentation
+    url: https://viboplr.com/help.html
+    about: Usage questions are often answered in the help pages.
