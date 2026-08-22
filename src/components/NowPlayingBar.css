@@ -23,6 +23,12 @@
   flex-shrink: 0;
   height: 34px;
   --seek-h: 34px;
+  /* Above the video surfaces that pin directly against the bar's top edge —
+     the queue placement (.video-container--in-queue, z-index 6, resize grip 7)
+     and theater (z-index 5). The hover expansion grows upward into their
+     bottom rows, and with no z-index here the expanded frames paint UNDER the
+     video and vanish — precisely on the video track being scrubbed. */
+  z-index: 20;
 }
 
 /* A filmstrip's frames ARE the seek surface, and 34px leaves them a 24px picture
