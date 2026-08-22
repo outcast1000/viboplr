@@ -53,6 +53,13 @@
 .plugin-layout-horizontal > .view-search-bar {
   flex: 1;
   min-width: 120px;
+  /* Standalone, .view-search-bar is a full-width strip (its own background,
+     bottom rule and padding). Inside a control row those read as a coloured
+     slab next to bare buttons — here the pill input alone is the control, so
+     the strip chrome goes. */
+  background: transparent;
+  border-bottom: none;
+  padding: 0;
 }
 
 .plugin-view-empty {
