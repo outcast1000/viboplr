@@ -75,6 +75,11 @@ const SCENARIOS = [
     isolates: "Shelf artwork, image cache, transparent-window compositing at rest.",
   },
   {
+    label: "idle-static",
+    setup: "Still idle, nothing playing. Open Settings (no carousel, nothing animating) and leave it alone.",
+    isolates: "The app truly at rest — idle-home minus this is the hero carousel's cost.",
+  },
+  {
     label: "playing-minimized",
     setup: "Play a LOCAL audio file, then minimize the window (Cmd-M).",
     isolates: "libmpv decode with the renderer parked — the true cost of audio.",
@@ -88,6 +93,11 @@ const SCENARIOS = [
     label: "playing-nowplaying",
     setup: "Same track still playing. Open the fullscreen Now Playing view (artwork + lyrics).",
     isolates: "GPU compositing worst case.",
+  },
+  {
+    label: "playing-mini",
+    setup: "Same track still playing. Switch to the mini player (Cmd+Shift+M) and leave the pointer off it.",
+    isolates: "Mini player window: compact bar render + the cycling Now Playing info line.",
   },
   {
     label: "playing-video",
