@@ -52,6 +52,12 @@ export interface StoryboardState {
 export function useStoryboard(
   track: QueueTrack | null,
   resolveByUri?: (scheme: string, id: string) => Promise<Storyboard | null>,
+  /** Where the track's resolution actually landed on THIS disk
+   *  (`effectiveLocalPath`), or null. Lets a plugin scheme whose file is local
+   *  (qbt://…) fall back to the ordinary local ffmpeg pass when its plugin has
+   *  no storyboard answer — same attribution rule as the source panel. Arrives
+   *  async (a resolve must finish first), so the effect re-runs when it lands. */
+  localPath?: string | null,
 ): StoryboardState {
   const [state, setState] = useState<StoryboardState>({ board: null, status: "idle", partial: null });
 
@@ -73,31 +79,12 @@ export function useStoryboard(
       sheets: b.sheets.map(s => (/^(https?|data):/.test(s) ? s : convertFileSrc(s))),
     });
 
-    (async () => {
-      const parsed = schemeOf(path);
-
-      // Plugin-owned scheme: the plugin is the only thing that can answer, so don't
-      // touch the local path at all.
-      if (parsed && parsed.scheme !== "file") {
-        if (!resolveByUri) {
-          setState({ board: null, status: "unsupported", partial: null });
-          return;
-        }
-        try {
-          const fromPlugin = await resolveByUri(parsed.scheme, parsed.id);
-          if (cancelled) return;
-          setState(fromPlugin
-            ? { board: withAssetUrls(fromPlugin), status: "ready", partial: null }
-            : { board: null, status: "unsupported", partial: null });
-        } catch (e) {
-          console.error("Plugin storyboard resolve failed:", e);
-          if (!cancelled) setState({ board: null, status: "unsupported", partial: null });
-        }
-        return;
-      }
-
+    // The one local ffmpeg pass: cache-read first, then generate on a miss.
+    // `target` is a file:// URI — the track's own path, or (for a plugin scheme
+    // whose file is on this disk) the resolved local path.
+    const runLocal = async (target: string) => {
       try {
-        const cached = await invoke<Storyboard | null>("get_storyboard", { path });
+        const cached = await invoke<Storyboard | null>("get_storyboard", { path: target });
         if (cancelled) return;
         if (cached) {
           setState({ board: withAssetUrls(cached), status: "ready", partial: null });
@@ -115,7 +102,7 @@ export function useStoryboard(
       // are scratch — the backend deletes them once the sheet exists).
       try {
         const un = await listen<StoryboardPartialEvent>("storyboard-partial", ev => {
-          if (ev.payload.path !== path) return;
+          if (ev.payload.path !== target) return;
           const partial: PartialStoryboard = {
             frames: ev.payload.framePaths.map(p => convertFileSrc(p)),
             intervalSecs: ev.payload.intervalSecs,
@@ -132,7 +119,7 @@ export function useStoryboard(
 
       if (cancelled) return;
       try {
-        const result = await invoke<StoryboardResult>("extract_storyboard", { path });
+        const result = await invoke<StoryboardResult>("extract_storyboard", { path: target });
         if (cancelled) return;
         if (result.status === "ok" && result.storyboard) {
           setState({ board: withAssetUrls(result.storyboard), status: "ready", partial: null });
@@ -152,13 +139,48 @@ export function useStoryboard(
         unlistenPartial?.();
         unlistenPartial = null;
       }
+    };
+
+    (async () => {
+      const parsed = schemeOf(path);
+
+      // Plugin-owned scheme: the plugin answers first — a source's own published
+      // storyboard (sprite sheets) costs nothing to fetch, where a local pass
+      // decodes the file.
+      if (parsed && parsed.scheme !== "file") {
+        if (resolveByUri) {
+          try {
+            const fromPlugin = await resolveByUri(parsed.scheme, parsed.id);
+            if (cancelled) return;
+            if (fromPlugin) {
+              setState({ board: withAssetUrls(fromPlugin), status: "ready", partial: null });
+              return;
+            }
+          } catch (e) {
+            console.error("Plugin storyboard resolve failed:", e);
+            if (cancelled) return;
+          }
+        }
+        // No plugin answer, but the resolution landed on a file on this disk
+        // (qbt://… and friends): run the ordinary local pass on it. Until the
+        // resolve completes localPath is null and this reports unsupported —
+        // the effect re-runs when the path lands.
+        if (localPath) {
+          await runLocal("file://" + localPath);
+          return;
+        }
+        setState({ board: null, status: "unsupported", partial: null });
+        return;
+      }
+
+      await runLocal(path);
     })();
 
     return () => {
       cancelled = true;
       unlistenPartial?.();
     };
-  }, [path, isVideo, resolveByUri]);
+  }, [path, isVideo, resolveByUri, localPath]);
 
   return state;
 }

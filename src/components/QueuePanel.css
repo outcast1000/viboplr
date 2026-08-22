@@ -148,7 +148,13 @@
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   overflow: hidden;
-  /* background applied inline */
+  /* Gradient applied inline (backgroundImage). The color underneath lives
+     here: the gradient fades to transparent, and while a native video sits in
+     the queue placement the panel behind this banner is a see-through hole
+     (.mpv-video-hole.video-in-queue makes .queue-panel transparent and each
+     child self-paints) — without this backing the banner text sat on the
+     desktop. */
+  background-color: var(--bg-secondary);
 }
 
 .queue-context-banner::after {

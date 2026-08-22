@@ -16,7 +16,7 @@ import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, effectiveLocalPath } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { subscribeTrackEvents } from "./trackEvents";
@@ -763,23 +763,6 @@ function App() {
     plugins.dispatchEvent("queue:changed");
   }, [queueHook.queue, queueHook.queueIndex, plugins.dispatchEvent]);
 
-  // Seek-bar hover previews for video. Complements the waveform, which is audio-only:
-  // at most one of the two is non-null for a given track. Declared after `plugins`
-  // because plugin-scheme tracks resolve their storyboard through the owning plugin.
-  const storyboardState = useStoryboard(
-    playback.playbackError ? null : playback.currentTrack,
-    plugins.resolveStoryboardByUri,
-  );
-  // What the seek surfaces get: the finished board, or — while it still generates —
-  // a board synthesized from the frames extracted so far, so the filmstrip replaces
-  // the segmented bar progressively instead of popping in whole at the end. The
-  // synthetic board carries the final tile count, so the layout never reflows as
-  // frames land; unextracted moments just have no tile yet.
-  const storyboard = useMemo(() => {
-    if (storyboardState.board) return storyboardState.board;
-    const p = storyboardState.partial;
-    return p ? partialStoryboard(p.frames, p.intervalSecs, p.count) : null;
-  }, [storyboardState.board, storyboardState.partial]);
   const dependencies = useDependencies(plugins.pluginStates);
 
   // "Report a problem" — null when closed. The entry point supplies the issue
@@ -928,7 +911,30 @@ function App() {
     queue: queueHook.queue,
     currentTrack: playback.currentTrack,
     notify,
+    onTrackFormatResolved: queueHook.patchTrackFormat,
   });
+
+  // Seek-bar hover previews for video. Complements the waveform, which is audio-only:
+  // at most one of the two is non-null for a given track. Declared after `plugins`
+  // (plugin-scheme tracks ask their owning plugin first) and after
+  // `useStreamResolution`: when the plugin has no storyboard but its scheme
+  // resolved to a file on this disk (qbt://…), the resolved local path lets the
+  // ordinary local ffmpeg pass run — same attribution the source panel uses.
+  const storyboardState = useStoryboard(
+    playback.playbackError ? null : playback.currentTrack,
+    plugins.resolveStoryboardByUri,
+    playback.currentTrack ? effectiveLocalPath(playback.currentTrack, resolvedSource) : null,
+  );
+  // What the seek surfaces get: the finished board, or — while it still generates —
+  // a board synthesized from the frames extracted so far, so the filmstrip replaces
+  // the segmented bar progressively instead of popping in whole at the end. The
+  // synthetic board carries the final tile count, so the layout never reflows as
+  // frames land; unextracted moments just have no tile yet.
+  const storyboard = useMemo(() => {
+    if (storyboardState.board) return storyboardState.board;
+    const p = storyboardState.partial;
+    return p ? partialStoryboard(p.frames, p.intervalSecs, p.count) : null;
+  }, [storyboardState.board, storyboardState.partial]);
 
   // Native (mpv) video session: punch the CSS hole (see App.css
   // `.mpv-video-hole`) and keep the native layer aligned with the video

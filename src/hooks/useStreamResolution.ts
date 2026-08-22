@@ -183,6 +183,14 @@ interface UseStreamResolutionDeps {
   currentTrack: QueueTrack | null;
   /** Transient toast — surfaces silent fallbacks (video → library audio copy). */
   notify: (message: string) => void;
+  /** A resolve revealed the track's real container (`patch.format`) — e.g. a
+   * plugin-scheme URI with no extension (`qbt://<hash>/<n>`) that landed on a
+   * video file. The patch otherwise only enriches `currentTrack`, so the queue
+   * entry never learns it is a video and its row keeps the audio-disc icon.
+   * Format ONLY — a resolve patch can also carry `path` (a local-copy
+   * fallback), and rewriting an entry's source would change what
+   * delete/download/export act on. */
+  onTrackFormatResolved?: (key: string, format: string) => void;
 }
 
 /**
@@ -235,6 +243,7 @@ export function useStreamResolution({
   queue,
   currentTrack,
   notify,
+  onTrackFormatResolved,
 }: UseStreamResolutionDeps) {
   const [resolvingStatus, setResolvingStatus] = useState<{ key: string; error: string | null; trying: string | null } | null>(null);
   // Persistent per-track resolve failures, keyed by QueueTrack.key. Survives track
@@ -270,6 +279,10 @@ export function useStreamResolution({
   // `nativeResolverName` on its capitalized-protocol fallback.
   const pluginNamesRef = useRef(pluginNames);
   useAssignRef(pluginNamesRef, pluginNames);
+
+  // Read inside the build-once resolver, like the refs above.
+  const onTrackFormatResolvedRef = useRef(onTrackFormatResolved);
+  useAssignRef(onTrackFormatResolvedRef, onTrackFormatResolved);
   const schemeDisplayName = (protocol: string): string | null => {
     const owner = ownerRef.current(protocol);
     return owner ? pluginNamesRef.current.get(owner) ?? null : null;
@@ -764,6 +777,10 @@ export function useStreamResolution({
 
       const promise = (async () => {
         const out = await doResolve(track, preload, fresh);
+        // Tell the queue entry its real container (see onTrackFormatResolved).
+        // Preloads count too — the next row learning it is a video early is
+        // exactly the point.
+        if (out.patch?.format) onTrackFormatResolvedRef.current?.(key, out.patch.format);
         if (out.src) {
           if (resolveCacheRef.current.size >= RESOLVE_CACHE_MAX) resolveCacheRef.current.clear();
           resolveCacheRef.current.set(key, {

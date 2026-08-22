@@ -212,6 +212,13 @@
 .app.mpv-video-hole.video-in-queue .queue-info-bar {
   background: var(--bg-secondary);
 }
+/* The duplicate banner's warning wash is translucent — back it with the panel
+   color it normally sits on, or it reads over the hole. (The context banner
+   self-paints unconditionally in QueuePanel.css — its gradient + backing are
+   split across inline style and the class, so it isn't re-declared here.) */
+.app.mpv-video-hole.video-in-queue .queue-duplicate-banner {
+  background: linear-gradient(rgba(var(--warning-rgb), 0.12), rgba(var(--warning-rgb), 0.12)), var(--bg-secondary);
+}
 
 /* Resize grip along the top edge of the queue-placed video. */
 .video-queue-resize {

@@ -659,8 +659,14 @@ export function QueuePanel({
   const gradientStop = coverColor
     ? `${coverColor.r}, ${coverColor.g}, ${coverColor.b}`
     : "var(--accent-rgb)";
-  const bannerStyle: { background: string } = {
-    background: `linear-gradient(90deg, rgba(${gradientStop}, 0.45) 0%, rgba(${gradientStop}, 0.08) 60%, transparent 100%)`,
+  // backgroundImage, NOT the background shorthand: the shorthand resets
+  // background-color, and the banner must keep the opaque backing the CSS gives
+  // it (.queue-context-banner) — the gradient fades to transparent, and during
+  // a native-video queue placement the panel behind it is a see-through hole
+  // (see TrackDetailView.css .mpv-video-hole.video-in-queue), so without its
+  // own backing the banner text sat on the desktop.
+  const bannerStyle: { backgroundImage: string } = {
+    backgroundImage: `linear-gradient(90deg, rgba(${gradientStop}, 0.45) 0%, rgba(${gradientStop}, 0.08) 60%, transparent 100%)`,
   };
   const hasInfoContent = !!(
     playlistContext?.source ||

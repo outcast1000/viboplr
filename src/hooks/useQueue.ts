@@ -315,6 +315,21 @@ export function useQueue(
     setQueue(prev => prev.map((t, i) => i === index ? { ...t, ...fields } : t));
   }
 
+  // A resolve revealed the entry's real container — e.g. a plugin-scheme URI
+  // with no extension (qbt://<hash>/<n>) that landed on a video file. Without
+  // this the enrichment stops at currentTrack, so the queue row's video-vs-audio
+  // icon (and anything else reading the entry) keeps calling it audio. Keyed,
+  // not indexed: resolves are async and the row may have moved. Same-format
+  // writes return the previous array so nothing re-renders. Persistence rides
+  // the debounced main_playlist write, which already carries `format`.
+  function patchTrackFormat(key: string, format: string) {
+    setQueue(prev => {
+      const i = prev.findIndex(t => t.key === key);
+      if (i < 0 || prev[i].format === format) return prev;
+      return prev.map((t, idx) => (idx === i ? { ...t, format } : t));
+    });
+  }
+
   function removeFromQueue(index: number) {
     setQueue(prev => {
       const next = [...prev];
@@ -622,7 +637,7 @@ export function useQueue(
     playTracks, enqueueTracks, findDuplicates, appendToPlaySession,
     backfillPending: pendingBackfillGen !== null, markBackfillPending, settleBackfill,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
+    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
