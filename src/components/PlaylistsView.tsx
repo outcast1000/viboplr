@@ -634,7 +634,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                   if (matching.length > 0) {
                     specs.push({ kind: "separator" });
                     matching.forEach(item => {
-                      specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined }) });
+                      specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined, albumTitle: t.album_name ?? undefined }) });
                     });
                   }
                 }

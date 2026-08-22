@@ -4611,7 +4611,7 @@ function App() {
                   plugins.dispatchUIAction(pluginId, actionId, actionData);
                 }}
                 onTrackContextMenu={(e, track) => {
-                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name } });
+                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
                 }}
                 onTrackRowContextMenu={(e, items) => {
                   // Metadata-only rows (no DB id) → act directly on synthesized
@@ -4636,7 +4636,7 @@ function App() {
                   // selection has no DB ids so only the queue actions above apply.
                   if (n === 1) {
                     const first = items[0];
-                    const target = { kind: "track" as const, title: first.title, artistName: first.artistName ?? null, isLocal: isLocalTrack(qts[0]) };
+                    const target = { kind: "track" as const, title: first.title, artistName: first.artistName ?? null, albumTitle: first.albumTitle ?? null, isLocal: isLocalTrack(qts[0]) };
                     const matching = plugins.menuItems.filter((mi) => mi.targets.includes("track"));
                     const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), plugins.dispatchContextMenuAction);
                     if (pluginSpecs.length > 0) { specs.push({ kind: "separator" }, ...pluginSpecs); }
@@ -4858,6 +4858,7 @@ function App() {
                 path: ct.path,
                 title: ct.title,
                 artistName: ct.artist_name,
+                albumTitle: ct.album_title ?? null,
                 durationSecs: ct.duration_secs,
                 isLocal: isLocalTrack(ct),
               } : undefined,
@@ -5032,7 +5033,7 @@ function App() {
             buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
               trackIds: tracks.map(t => parseLibraryId(t.key)).filter((id): id is number => id != null),
-              firstTrack: first ? { title: first.title, artistName: first.artist_name, isLocal: isLocalTrack(first) } : { title: "", artistName: null, isLocal: false },
+              firstTrack: first ? { title: first.title, artistName: first.artist_name, albumTitle: first.album_title ?? null, isLocal: isLocalTrack(first) } : { title: "", artistName: null, albumTitle: null, isLocal: false },
             } });
           }}
           onToggleLike={likeActions.handleToggleLike}

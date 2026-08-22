@@ -94,7 +94,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       const trackIds = [...selectedTrackKeys].map(k => parseLibraryId(k)).filter((id): id is number => id != null);
       showMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds } });
     } else {
-      showMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name } });
+      showMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
     }
   }
 
@@ -434,19 +434,19 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
-  function handleInfoTrackContextMenu(e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null }) {
+  function handleInfoTrackContextMenu(e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null; albumTitle?: string | null }) {
     showMenu({ x: e.clientX, y: e.clientY, target: {
-      kind: "track", trackId: info.trackId, isLocal: false, title: info.title, artistName: info.artistName,
+      kind: "track", trackId: info.trackId, isLocal: false, title: info.title, artistName: info.artistName, albumTitle: info.albumTitle ?? null,
     } });
   }
 
-  function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) {
+  function handleEntityContextMenu(e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null; albumTitle?: string | null }) {
     e.preventDefault();
     const target: ContextMenuTarget = info.kind === "artist"
       ? { kind: "artist", artistId: info.id, name: info.name }
       : info.kind === "album"
       ? { kind: "album", albumId: info.id, title: info.name, artistName: info.artistName ?? null }
-      : { kind: "track", trackId: info.id, isLocal: false, title: info.name, artistName: info.artistName ?? null };
+      : { kind: "track", trackId: info.id, isLocal: false, title: info.name, artistName: info.artistName ?? null, albumTitle: info.albumTitle ?? null };
     showMenu({ x: e.clientX, y: e.clientY, target });
   }
 

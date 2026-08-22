@@ -300,8 +300,8 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
       onShowContextMenu(x, y, { kind: "artist", artistId: artistId ?? undefined, name: meta.title });
     } else {
       const track = await reconnectTrackById(meta.histId);
-      if (track) onShowContextMenu(x, y, { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name });
-      else onShowContextMenu(x, y, { kind: "track", title: meta.title, artistName: meta.artist });
+      if (track) onShowContextMenu(x, y, { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null });
+      else onShowContextMenu(x, y, { kind: "track", title: meta.title, artistName: meta.artist, albumTitle: null });
     }
   }, [rowMetaByKey, onShowContextMenu, reconnectArtistById, reconnectTrackById]);
 

@@ -13,13 +13,14 @@ describe("toPluginTarget", () => {
       kind: "queue-multi",
       indices: [3],
       trackIds: [],
-      firstTrack: { title: "Song", artistName: "Artist", isLocal: false },
+      firstTrack: { title: "Song", artistName: "Artist", albumTitle: "Album", isLocal: false },
     };
     expect(toPluginTarget(target)).toEqual({
       kind: "track",
       trackId: undefined,
       title: "Song",
       artistName: "Artist",
+      albumTitle: "Album",
       isLocal: false,
     });
   });
@@ -29,13 +30,14 @@ describe("toPluginTarget", () => {
       kind: "queue-multi",
       indices: [0],
       trackIds: [42],
-      firstTrack: { title: "Song", artistName: "Artist", isLocal: true },
+      firstTrack: { title: "Song", artistName: "Artist", albumTitle: "Album", isLocal: true },
     };
     expect(toPluginTarget(target)).toEqual({
       kind: "track",
       trackId: 42,
       title: "Song",
       artistName: "Artist",
+      albumTitle: "Album",
       isLocal: true,
     });
   });
@@ -45,18 +47,40 @@ describe("toPluginTarget", () => {
       kind: "queue-multi",
       indices: [0, 1, 2],
       trackIds: [1, 2],
-      firstTrack: { title: "Song", artistName: "Artist", isLocal: false },
+      firstTrack: { title: "Song", artistName: "Artist", albumTitle: null, isLocal: false },
     };
     expect(toPluginTarget(target)).toEqual({ kind: "multi-track", trackIds: [1, 2] });
   });
 
-  it("normalizes a null artistName to undefined", () => {
+  it("normalizes null artistName/albumTitle to undefined", () => {
     const target: ContextMenuTarget = {
       kind: "queue-multi",
       indices: [1],
       trackIds: [],
-      firstTrack: { title: "Song", artistName: null, isLocal: false },
+      firstTrack: { title: "Song", artistName: null, albumTitle: null, isLocal: false },
     };
-    expect(toPluginTarget(target)).toMatchObject({ kind: "track", artistName: undefined });
+    expect(toPluginTarget(target)).toMatchObject({ kind: "track", artistName: undefined, albumTitle: undefined });
+  });
+
+  it("carries albumTitle on a plain track target", () => {
+    // Regression: plugin actions build metadata queries (e.g. an
+    // "artist album" torrent hunt) from albumTitle; the host used to drop
+    // the album on every track-shaped target, so it was always empty.
+    const target: ContextMenuTarget = {
+      kind: "track",
+      trackId: 7,
+      isLocal: true,
+      title: "Song",
+      artistName: "Artist",
+      albumTitle: "Album",
+    };
+    expect(toPluginTarget(target)).toEqual({
+      kind: "track",
+      trackId: 7,
+      title: "Song",
+      artistName: "Artist",
+      albumTitle: "Album",
+      isLocal: true,
+    });
   });
 });
