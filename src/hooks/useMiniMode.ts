@@ -566,6 +566,16 @@ export function useMiniMode(
     });
   }, [miniMode, toggleMiniMode]);
 
+  // Windows taskbar click on the normal window with "minimize to mini player"
+  // on (see `taskbar_win.rs`). Same destination as the caption-bar minimize
+  // button, so it goes through the same toggle.
+  useEffect(() => {
+    if (miniMode) return;
+    return subscribe("minimize-to-mini", () => {
+      if (!miniModeRef.current) toggleMiniMode();
+    });
+  }, [miniMode, toggleMiniMode]);
+
   useEffect(() => {
     if (!miniMode) {
       invoke("set_cursor_tracker", { active: false }).catch(console.error);

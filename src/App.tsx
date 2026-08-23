@@ -1511,6 +1511,16 @@ function App() {
     if (!mini.miniMode && miniSearch.isOpen) miniSearch.close();
   }, [mini.miniMode, miniSearch.isOpen, miniSearch.close]);
 
+  // Windows answers taskbar-button clicks inside the window proc, before it can
+  // ask the webview anything — so it needs these two flags up front. See
+  // `taskbar_win.rs`; a no-op on macOS/Linux.
+  useEffect(() => {
+    invoke("set_window_behavior", {
+      miniMode: mini.miniMode,
+      minimizeToMini: minimizeToMiniPlayer,
+    }).catch(console.error);
+  }, [mini.miniMode, minimizeToMiniPlayer]);
+
   useEffect(() => {
     if (!("mediaSession" in navigator)) return;
     const track = playback.currentTrack;

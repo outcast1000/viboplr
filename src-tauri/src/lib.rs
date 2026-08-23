@@ -37,6 +37,8 @@ mod transcode_server;
 mod cursor_tracker;
 #[cfg(target_os = "windows")]
 mod cursor_tracker_win;
+#[cfg(target_os = "windows")]
+mod taskbar_win;
 
 // Tauri's build script links this manifest resource into app binaries. The
 // lib-test harness needs it too: rfd imports TaskDialogIndirect, which exists
@@ -292,6 +294,7 @@ macro_rules! invoke_handler {
             commands::download_and_install_skin_update,
             commands::install_plugin_from_url,
             commands::set_cursor_tracker,
+            commands::set_window_behavior,
             browse_window::open_browse_window,
             browse_window::browse_window_eval,
             browse_window::close_browse_window,
@@ -1001,6 +1004,15 @@ pub fn run() {
                     }
                 });
 
+                // Taskbar-button clicks are an OS gesture with no Tauri event —
+                // subclass the window proc so the mini player can answer them.
+                #[cfg(target_os = "windows")]
+                {
+                    if let Ok(hwnd) = window.hwnd() {
+                        taskbar_win::install(hwnd.0 as isize, app.handle().clone());
+                    }
+                }
+
                 // Make window background transparent for rounded mini player corners
                 #[cfg(target_os = "macos")]
                 {
@@ -1050,6 +1062,11 @@ pub fn run() {
                         };
 
                         let is_mini = json.get("miniMode").and_then(|v| v.as_bool()).unwrap_or(false);
+                        #[cfg(target_os = "windows")]
+                        taskbar_win::set_state(
+                            is_mini,
+                            json.get("minimizeToMiniPlayer").and_then(|v| v.as_bool()).unwrap_or(false),
+                        );
                         if is_mini {
                             let raw_resting = json.get("miniRestingSize").and_then(|v| v.as_str()).unwrap_or("normal");
                             let size_migrated = json.get("miniSizeMigrated").and_then(|v| v.as_bool()).unwrap_or(false);

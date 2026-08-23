@@ -389,3 +389,17 @@ pub fn record_frontend_startup_timings(entries: Vec<crate::timing::TimingEntry>)
 pub fn set_cursor_tracker(state: State<'_, AppState>, active: bool) {
     state.cursor_tracker_active.store(active, Ordering::Relaxed);
 }
+
+/// Mirror the frontend's mini-mode + "minimize to mini player" state into the
+/// native layer. Windows decides the taskbar-button gesture inside the window
+/// proc, synchronously, so it cannot ask the webview at the time of the click —
+/// see `taskbar_win`. A no-op on every other platform.
+#[tauri::command]
+pub fn set_window_behavior(mini_mode: bool, minimize_to_mini: bool) {
+    #[cfg(target_os = "windows")]
+    crate::taskbar_win::set_state(mini_mode, minimize_to_mini);
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (mini_mode, minimize_to_mini);
+    }
+}
