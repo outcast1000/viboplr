@@ -73,6 +73,32 @@ pub async fn main_playlist_set_thumb(
     Ok(())
 }
 
+/// `set_thumb` from a local video file: one ffmpeg frame → the ordinary thumb
+/// pipeline (same slug naming, same ready event). Quietly a no-op when ffmpeg
+/// is missing. Used for plugin-scheme videos, whose queue entries carry no art.
+#[tauri::command]
+pub async fn main_playlist_set_thumb_from_video(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    key: String,
+    video_path: String,
+) -> Result<(), String> {
+    let dir = state.app_dir.clone();
+    let key_clone = key.clone();
+    let video = std::path::PathBuf::from(video_path);
+    let filename =
+        tauri::async_runtime::spawn_blocking(move || crate::main_playlist::set_thumb_from_video(&dir, &key_clone, &video))
+            .await
+            .map_err(|e| e.to_string())??;
+    if let Some(filename) = filename {
+        let _ = app.emit(
+            "main-playlist-thumb-ready",
+            serde_json::json!({ "key": key, "filename": filename }),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn main_playlist_remove_thumb(
     state: State<'_, AppState>,

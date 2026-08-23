@@ -287,6 +287,55 @@ pub fn set_thumb(profile_dir: &Path, key: &str, src: &ImageSource) -> Result<Str
     Ok(filename)
 }
 
+/// The video-file counterpart of `set_thumb`: extract ONE frame from a local
+/// video and write it as the queue thumb for `key`. For entries that carry no
+/// art of their own — a plugin-scheme video (qbt://…) has no `image_url` and no
+/// library row, so its queue row otherwise falls to the film-reel icon.
+/// Seeks to 25% of the duration so the frame lands past intros and black
+/// leaders. Returns `None` (not an error) when ffmpeg is missing — the caller
+/// stays quiet, exactly like the storyboard path.
+pub fn set_thumb_from_video(profile_dir: &Path, key: &str, video_path: &Path) -> Result<Option<String>, String> {
+    ensure_dirs(profile_dir)?;
+    let filename = thumb_filename(key);
+    let dest = thumb_file(profile_dir, key);
+    if dest.exists() {
+        return Ok(Some(filename));
+    }
+    if !crate::video_frames::is_ffmpeg_available() {
+        return Ok(None);
+    }
+    let duration = crate::video_frames::get_video_duration(video_path)?;
+    if duration <= 0.0 {
+        return Err("Video has zero duration".to_string());
+    }
+    let ts = format!("{:.2}", duration * 0.25);
+    // Extract to a scratch file beside the destination, then push it through the
+    // same resize/JPEG path every other thumb takes, so sizing stays uniform.
+    let scratch = dest.with_extension("frame.jpg");
+    let mut cmd = crate::video_frames::ffmpeg_command();
+    cmd.args([
+        "-hide_banner",
+        "-loglevel", "error",
+        "-ss", &ts,
+        "-i", &video_path.to_string_lossy(),
+        "-frames:v", "1",
+        "-an",
+        "-y", &scratch.to_string_lossy(),
+    ]);
+    let out = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+    if !out.status.success() || !scratch.exists() {
+        let _ = std::fs::remove_file(&scratch);
+        return Err(format!(
+            "ffmpeg could not extract a frame: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let bytes = resize_path_to_jpeg(&scratch, THUMB_MAX_DIM);
+    let _ = std::fs::remove_file(&scratch);
+    atomic_write(&dest, &bytes?)?;
+    Ok(Some(filename))
+}
+
 pub fn remove_thumb(profile_dir: &Path, key: &str) -> Result<(), String> {
     let _ = std::fs::remove_file(thumb_file(profile_dir, key));
     Ok(())

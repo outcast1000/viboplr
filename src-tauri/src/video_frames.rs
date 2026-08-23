@@ -22,7 +22,7 @@ const WINDOW_SECS: f64 = 2.0;
 // negligible disk cost vs. native resolution.
 const SCALE_FILTER: &str = "thumbnail=50,scale=-2:720";
 
-fn ffmpeg_command() -> std::process::Command {
+pub(crate) fn ffmpeg_command() -> std::process::Command {
     dependencies::command_with_path("ffmpeg")
 }
 
