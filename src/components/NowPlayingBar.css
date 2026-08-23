@@ -714,7 +714,10 @@
   border-radius: 1px;
   background: var(--accent);
   opacity: 0.5;
-  transition: transform 0.3s linear;
+  /* No transition: the transform is retargeted on every ~250ms position tick,
+     so a 300ms transition never completes — a compositor animation permanently
+     in flight, re-blurring the mini bar's backdrop-filter every frame. The
+     per-tick step is sub-pixel at these widths; smoothing buys nothing. */
   transform-origin: left;
   pointer-events: none;
 }
@@ -749,7 +752,9 @@
   height: 100%;
   background: var(--accent);
   border-radius: 2px;
-  transition: width 0.3s linear;
+  /* No transition — same reason as .mini-progress, and worse: width is a
+     layout property, so a permanently-retargeted transition here forced
+     layout + paint inside the blurred footer every frame. */
 }
 
 .mini-seek-time {
