@@ -888,7 +888,7 @@ export function usePlugins(
         network: {
           async fetch(url, init) {
             fetchUrlCallbackRef.current?.(url);
-            const resp = await invoke<{ status: number; body: string; headers?: PluginHeaderPairs }>(
+            const resp = await invoke<{ status: number; body: string; headers?: PluginHeaderPairs; url?: string }>(
               "plugin_fetch",
               {
                 url,
@@ -907,6 +907,10 @@ export function usePlugins(
               status: resp.status,
               headers: foldHeaderPairs(headerPairs),
               getSetCookie: () => setCookieValues(headerPairs),
+              // The final URL after redirects (absent on older backends). What
+              // lets a plugin spot an ISP block page: HTTP 200 from a host it
+              // never asked.
+              url: resp.url,
               text: async () => bodyText,
               json: async () => JSON.parse(bodyText),
             };

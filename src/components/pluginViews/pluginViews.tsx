@@ -411,6 +411,98 @@ export function PluginTabs({
 
 // -- Track Row List --
 
+export interface PluginRowColumn {
+  id: string;
+  label: string;
+  width?: number;
+  align?: "left" | "right";
+  sortable?: boolean;
+}
+
+const DEFAULT_COLUMN_WIDTH = 84;
+
+// Header cell and row cell are laid out by the SAME function, which is the only
+// reason the two line up: they live in different DOM subtrees (a `.ptr-header`
+// sibling and the row's `column` slot), both flex with the same gap, so nothing
+// but identical widths keeps a column straight down the list.
+function columnStyle(col: PluginRowColumn): React.CSSProperties {
+  return {
+    flex: `0 0 ${col.width ?? DEFAULT_COLUMN_WIDTH}px`,
+    width: col.width ?? DEFAULT_COLUMN_WIDTH,
+    textAlign: col.align ?? "left",
+  };
+}
+
+// Clicking the sorted column flips it; clicking a fresh one starts at "desc",
+// which is the useful end for every number a list like this carries (most
+// seeders, biggest file). The plugin is free to override — it owns the order.
+function nextSortDir(col: PluginRowColumn, sortBy?: string, sortDir?: "asc" | "desc"): "asc" | "desc" {
+  if (sortBy !== col.id) return "desc";
+  return sortDir === "desc" ? "asc" : "desc";
+}
+
+function ColumnHeaderCells({
+  columns,
+  sortBy,
+  sortDir,
+  sortAction,
+  onAction,
+}: {
+  columns: PluginRowColumn[];
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+  sortAction?: string;
+  onAction?: (actionId: string, data?: unknown) => void;
+}) {
+  return (
+    <>
+      {columns.map((col) => {
+        const active = sortBy === col.id;
+        const arrow = active ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+        if (!col.sortable || !sortAction) {
+          return (
+            <span key={col.id} className="ptr-col" style={columnStyle(col)}>
+              {col.label}
+            </span>
+          );
+        }
+        return (
+          <button
+            key={col.id}
+            type="button"
+            className={`ptr-col ptr-col-sort${active ? " ptr-col-sorted" : ""}`}
+            style={columnStyle(col)}
+            aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+            onClick={() =>
+              onAction?.(sortAction, { column: col.id, direction: nextSortDir(col, sortBy, sortDir) })
+            }
+          >
+            {col.label}
+            {arrow}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+function ColumnCells({ columns, item }: { columns: PluginRowColumn[]; item: TrackRowItem }) {
+  return (
+    <>
+      {columns.map((col) => {
+        // An em dash, not "": a column the source never reported must read as
+        // unknown. Blank next to a neighbouring "0" reads as zero.
+        const text = item.cells?.[col.id];
+        return (
+          <span key={col.id} className="ptr-col" style={columnStyle(col)} title={text || undefined}>
+            {text || "—"}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 interface PluginTrackRowListProps {
   items: TrackRowItem[];
   selectable?: boolean;
@@ -426,6 +518,13 @@ interface PluginTrackRowListProps {
   categories?: string[];
   numbered?: boolean;
   showHeader?: boolean;
+  // Custom trailing columns in place of Album / Duration, with click-to-sort
+  // headers. The host renders and reports; the PLUGIN owns the order — see the
+  // node type in types/plugin.ts for why.
+  columns?: PluginRowColumn[];
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+  sortAction?: string;
   // Opt out of the universal track right-click menu. See the node type in
   // types/plugin.ts; honored here rather than in PluginViewRenderer so both the
   // selectable and legacy bodies obey one check.
@@ -578,6 +677,10 @@ function PluginTrackRowsSelectable({
   actions,
   numbered,
   showHeader,
+  columns,
+  sortBy,
+  sortDir,
+  sortAction,
   openOnClick,
   selectionPresets,
   selectionMode,
@@ -835,9 +938,21 @@ function PluginTrackRowsSelectable({
         <div className="ptr-header">
           {numbered && <span className="ptr-num">#</span>}
           <span className="ptr-art" />
-          <span className="ptr-info ptr-header-title">Title</span>
-          <span className="ptr-album">Album</span>
-          <span className="ptr-duration">Duration</span>
+          <span className="ptr-info ptr-header-title">{columns?.length ? "Name" : "Title"}</span>
+          {columns?.length ? (
+            <ColumnHeaderCells
+              columns={columns}
+              sortBy={sortBy}
+              sortDir={sortDir}
+              sortAction={sortAction}
+              onAction={onAction}
+            />
+          ) : (
+            <>
+              <span className="ptr-album">Album</span>
+              <span className="ptr-duration">Duration</span>
+            </>
+          )}
         </div>
       )}
       <div
@@ -870,8 +985,14 @@ function PluginTrackRowsSelectable({
               thumb={art ? { kind: "image", url: art } : { kind: "initials", text: getInitials(item.title) }}
               title={item.title}
               subtitle={item.subtitle}
-              column={showHeader ? <span className="ptr-album">{item.album ?? ""}</span> : undefined}
-              meta={item.duration ? <span className="ptr-duration">{item.duration}</span> : undefined}
+              column={
+                columns?.length ? <ColumnCells columns={columns} item={item} />
+                : showHeader ? <span className="ptr-album">{item.album ?? ""}</span>
+                : undefined
+              }
+              // With columns, size/duration is one of THEM — a trailing meta
+              // slot as well would print the same number twice, in two places.
+              meta={!columns?.length && item.duration ? <span className="ptr-duration">{item.duration}</span> : undefined}
               onMouseDown={(e) => handleRowMouseDown(e, i)}
               onClick={(e) => handleRowClick(e, i)}
               // In open-on-click mode the first click already fired it; the
@@ -1150,6 +1271,8 @@ export function PluginConfirm({
   confirmVariant,
   confirmAction,
   cancelAction,
+  checkboxLabel,
+  checkboxDefault,
   data,
   onAction,
 }: {
@@ -1160,17 +1283,35 @@ export function PluginConfirm({
   confirmVariant?: "accent" | "secondary" | "danger";
   confirmAction: string;
   cancelAction: string;
+  checkboxLabel?: string;
+  checkboxDefault?: boolean;
   data?: unknown;
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
+  const [checked, setChecked] = useState(!!checkboxDefault);
+
+  // The tick is part of the answer, so it rides back on the action payload
+  // rather than as a separate event the plugin would have to correlate. Only
+  // an object payload can carry it; anything else (a bare id, a number) is
+  // passed through untouched, since rewriting it would break the plugin's own
+  // read of `data`.
+  const payload = useCallback(() => {
+    if (!checkboxLabel) return data;
+    if (data === undefined || data === null) return { checkboxChecked: checked };
+    if (typeof data === "object" && !Array.isArray(data)) {
+      return { ...(data as Record<string, unknown>), checkboxChecked: checked };
+    }
+    return data;
+  }, [checkboxLabel, checked, data]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onAction?.(cancelAction, data);
-      else if (e.key === "Enter") onAction?.(confirmAction, data);
+      if (e.key === "Escape") onAction?.(cancelAction, payload());
+      else if (e.key === "Enter") onAction?.(confirmAction, payload());
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmAction, cancelAction, data, onAction]);
+  }, [confirmAction, cancelAction, payload, onAction]);
 
   const confirmClass =
     confirmVariant === "danger" ? "ds-btn ds-btn--danger"
@@ -1182,11 +1323,17 @@ export function PluginConfirm({
       <div className="ds-modal" onClick={(e) => e.stopPropagation()}>
         {title && <div className="ds-modal-title">{title}</div>}
         <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{message}</div>
+        {checkboxLabel && (
+          <label className="modal-checkbox-label">
+            <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+            {checkboxLabel}
+          </label>
+        )}
         <div className="ds-modal-actions">
-          <button className="ds-btn ds-btn--secondary" onClick={() => onAction?.(cancelAction, data)}>
+          <button className="ds-btn ds-btn--secondary" onClick={() => onAction?.(cancelAction, payload())}>
             {cancelLabel || "Cancel"}
           </button>
-          <button className={confirmClass} onClick={() => onAction?.(confirmAction, data)} autoFocus>
+          <button className={confirmClass} onClick={() => onAction?.(confirmAction, payload())} autoFocus>
             {confirmLabel || "Confirm"}
           </button>
         </div>

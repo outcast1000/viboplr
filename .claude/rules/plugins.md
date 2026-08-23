@@ -310,6 +310,7 @@ Nested file I/O rooted inside the plugin's data directory. `path` is a string ar
 ### api.network
 - `fetch(url, init?)` — HTTP requests proxied through Rust (bypasses CORS). `init` is `{ method?, headers?, body?, insecure?, timeoutMs? }`. Returns `{ status, headers, getSetCookie(), text(), json() }`.
   - **`headers`** is the response's headers, names lowercased, repeats joined with `", "` exactly as `Headers.get()` does. **`getSetCookie()`** returns every `Set-Cookie` value separately, in send order — needed because that join is not reversible (a cookie's `Expires` attribute contains a comma of its own), and because a session API may set several cookies at once. This is what makes cookie-authenticated APIs reachable at all: the backend sends ordered `[name, value]` pairs rather than a map precisely so a repeated `Set-Cookie` can't be collapsed to the last one. A header whose value isn't valid UTF-8 is **dropped**, not emitted as `""` — an unreadable header is one a plugin can't use, and an empty string reads like a real value.
+  - **`url`** (on the response) is the final URL after reqwest followed any redirects — absent on older backends, so feature-detect. It exists because an ISP block page is invisible without it: national blocking (e.g. Greece's edppi.gr) 302s a request to a notice page that answers HTTP 200 from a *different host*, which otherwise reads exactly like the target site answering with no content. The qBittorrent plugin's web-indexer sweep uses it to report "redirected to <host> — the site looks blocked on your network" instead of "no results".
   - **`timeoutMs`** aborts the request after N ms. There is **no default**, deliberately: reqwest imposes none, so an unreachable host hangs the promise until the OS gives up — set one on anything that polls, and leave it off for a call that may legitimately run for minutes. A plugin can't cancel an in-flight fetch, so racing a `setTimeout` is not a substitute: the abandoned request keeps running and a poll loop leaks them.
 - `openUrl(url)` — open in system browser
 - `onDeepLink(handler)` — subscribe to deep links delivered to the app
@@ -548,7 +549,7 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 |---|---|
 | `track-list` | Full track list with library-style rendering |
 | `card-grid` | Grid of image cards (playlists, albums, artists). Items can carry `contextMenuActions` + `tracks` for pass-through context menus. |
-| `track-row-list` | Compact row list (selectable, per-row actions). Items: `{ id, title, subtitle?, album?, imageUrl?, duration?, action?, actions?, path?, artistName?, albumTitle?, durationSecs? }` (`actions` names which of the list's declared actions *that* row shows). Node flags: `numbered?` (leading `#` index), `showHeader?` (column-header row + Album column), `openOnClick?` (a plain click opens the row instead of selecting it — for lists of containers. `"title"` narrows the hotspot to the row's title: the name opens, the rest of the row selects, with no modifier needed for either — qBittorrent's torrent list. Older hosts treat the string as truthy and open on any click, so it degrades to `true`), `selectionPresets?` (`{ id, label, ids }[]`: extra buttons in the toolbar's **All / None** group that select a named subset — e.g. qBittorrent's Audio / Video over a torrent's files. A preset *selects*; `actions` are what act on a selection. Ids are intersected with the rows on screen, and a preset matching none is rendered disabled. Requires `selectable`), `selectionMode?: "single" \| "multi"` (default `"multi"`. `"single"` keeps one row current and **removes the All / None / actions toolbar entirely** — for a list whose actions are per-row, where a bulk toolbar restates the row's own hover buttons and is fed by a selection that exists only to feed it. `selectionPresets` are ignored, modifier-clicks stop diverting to selection (so with `openOnClick` every click opens), and Cmd+A / Shift+arrow no longer extend. Older hosts ignore the field and render the multi list, so it needs no `minAppVersion` bump. qBittorrent's torrent list is single; the files inside a torrent stay multi), `contextMenu?: boolean` (default `true`. `false` removes the host's **universal track right-click menu** from every row — for a list whose rows are not tracks. qBittorrent's file lists set it: a torrent's contents are mostly cover art, `.nfo` files and things that haven't downloaded, so the menu offered Play / Enqueue / Play Next on rows where none of them can happen, while every action a file row really has is already a button on the row. **Drag-to-queue is unaffected** — that is gated on the row's own `path`, so a finished media file can still be dragged. Older hosts ignore the field and keep showing the menu). |
+| `track-row-list` | Compact row list (selectable, per-row actions). Items: `{ id, title, subtitle?, album?, imageUrl?, duration?, action?, actions?, path?, artistName?, albumTitle?, durationSecs? }` (`actions` names which of the list's declared actions *that* row shows). Node flags: `numbered?` (leading `#` index), `showHeader?` (column-header row + Album column), `openOnClick?` (a plain click opens the row instead of selecting it — for lists of containers. `"title"` narrows the hotspot to the row's title: the name opens, the rest of the row selects, with no modifier needed for either — qBittorrent's torrent list. Older hosts treat the string as truthy and open on any click, so it degrades to `true`), `selectionPresets?` (`{ id, label, ids }[]`: extra buttons in the toolbar's **All / None** group that select a named subset — e.g. qBittorrent's Audio / Video over a torrent's files. A preset *selects*; `actions` are what act on a selection. Ids are intersected with the rows on screen, and a preset matching none is rendered disabled. Requires `selectable`), `selectionMode?: "single" \| "multi"` (default `"multi"`. `"single"` keeps one row current and **removes the All / None / actions toolbar entirely** — for a list whose actions are per-row, where a bulk toolbar restates the row's own hover buttons and is fed by a selection that exists only to feed it. `selectionPresets` are ignored, modifier-clicks stop diverting to selection (so with `openOnClick` every click opens), and Cmd+A / Shift+arrow no longer extend. Older hosts ignore the field and render the multi list, so it needs no `minAppVersion` bump. qBittorrent's torrent list is single; the files inside a torrent stay multi), `contextMenu?: boolean` (default `true`. `false` removes the host's **universal track right-click menu** from every row — for a list whose rows are not tracks. qBittorrent's file lists set it: a torrent's contents are mostly cover art, `.nfo` files and things that haven't downloaded, so the menu offered Play / Enqueue / Play Next on rows where none of them can happen, while every action a file row really has is already a button on the row. **Drag-to-queue is unaffected** — that is gated on the row's own `path`, so a finished media file can still be dragged. Older hosts ignore the field and keep showing the menu), `columns?` + `sortBy?` / `sortDir?` / `sortAction?` (**table mode** — see below). |
 | `text` | Plain / class-styled text |
 | `stats-grid` | Label/value stat tiles |
 | `button` | Action button (`accent` / `secondary`, disabled, custom data payload) |
@@ -566,8 +567,37 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 | `toolbar` | Titled button bar with optional status text |
 | `settings-row` | Label + description + right-side control or child view |
 | `section` | Titled grouping wrapper |
-| `confirm` | Modal-style confirm with `confirmAction` / `cancelAction` and optional `data` payload |
+| `confirm` | Modal-style confirm with `confirmAction` / `cancelAction` and optional `data` payload. `checkboxLabel` (+ `checkboxDefault`) adds one opt-in tick **inside** the dialog for a second, more destructive reading of the same action — qBittorrent's "Also delete the downloaded files from disk" on Remove. Its state rides back merged into the action payload as **`checkboxChecked`**, on *both* actions (read it off cancel to remember the tick). Only an object payload can carry it: `undefined`/`null` becomes `{ checkboxChecked }`, an object gains the key, anything else (a bare id) passes through untouched. Prefer this over a second menu entry, which puts the dangerous variant one mis-click from the ordinary one. Older hosts render no checkbox and send nothing, which reads as `false` — so declare the *safe* behaviour as the unticked one |
 | `detail-header` | Renders the **native** detail hero (`DetailHero`): multi-image crossfade background (`bgImages[]`, 0-4), effect looks + FX selector (inherits the global hero effect preference), square/`circle` art (`artShape`), `title`, `subtitle`+`meta` as chips, foreground art from `imageUrl`, Play (`playAction`) / Enqueue (`enqueueAction`) buttons, and an overflow (⋯) menu built from `actions[]` then `contextMenuActions[]`. Like/dislike, eyebrow, and titleLine are not exposed to plugins. |
+
+### Table mode (`track-row-list` + `columns`)
+
+For a list whose rows are compared on several numbers at once — a torrent search
+weighing size against seeders against file count. Declare
+`columns: { id, label, width?, align?, sortable? }[]` alongside `showHeader: true`,
+and give each item a `cells: Record<columnId, string>`. The columns replace the
+fixed Album / Duration pair; the row's `title` keeps the one flexing column and
+its header reads **Name**. Requires `selectable` (the library-style list), like
+`selectionPresets` and `openOnClick`.
+
+Three rules, each of which was a decision rather than an accident:
+
+- **The plugin sorts, the host doesn't.** `sortAction` fires with
+  `{ column, direction }` on a header click and the plugin re-renders `items` in
+  the new order; `sortBy` / `sortDir` are only what draws the ▲/▼. The host sees
+  `"400 MB"` and `"1.2 GB"`, which sort backwards as strings — the plugin holds
+  the raw numbers. `direction` is the flip of the current one for the sorted
+  column and `"desc"` otherwise; treat it as a suggestion (a fresh *text* column
+  wants `"asc"`).
+- **An empty cell renders as an em dash.** A column the source never reported
+  must not read as zero, so pass `""` for unknown and let the host draw the dash
+  once, rather than inventing a placeholder per field.
+- **Don't also set `duration`.** In table mode the trailing meta slot is
+  dropped, because the figure that used to live there now has a column.
+
+Older hosts ignore `columns` entirely and render the ordinary Album / Duration
+list, so no `minAppVersion` bump is needed — but they will show the *old* fields,
+so keep whatever `subtitle` still makes sense on its own.
 
 ## Visualizers
 

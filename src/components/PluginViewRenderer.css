@@ -843,6 +843,45 @@
   font-size: var(--fs-xs);
 }
 
+/* Custom trailing columns (a plugin list's `columns`). Width comes from the
+   node, inline, because the header cell and the row cell live in different
+   subtrees and only identical widths keep a column straight down the list. */
+.ptr-col {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ptr-header .ptr-col {
+  font-size: var(--fs-xs);
+}
+/* A sortable header is a real <button> for the keyboard and the screen reader;
+   everything here is undoing the button chrome so it reads as a column label. */
+.ptr-col-sort {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.ptr-col-sort:hover {
+  color: var(--text-primary);
+}
+.ptr-col-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+.ptr-col-sorted {
+  color: var(--text-primary);
+}
+
 .ptr-category-header {
   display: flex;
   align-items: center;

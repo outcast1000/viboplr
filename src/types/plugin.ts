@@ -256,6 +256,9 @@ export interface TrackRowItem {
   album?: string;
   imageUrl?: string;
   duration?: string;
+  // Text per column id, for a list rendering `columns`. Already formatted by
+  // the plugin — the host neither parses nor sorts these (see `sortAction`).
+  cells?: Record<string, string>;
   action?: string;
   checked?: string[];
   // Playable / resolvable metadata (all optional). When present, the host can
@@ -308,6 +311,32 @@ export type PluginViewData =
       categories?: string[];
       numbered?: boolean;
       showHeader?: boolean;
+      // Extra trailing columns, in place of the fixed Album / Duration pair —
+      // for a list whose rows are compared on several numbers at once (a
+      // torrent search: size, files, seeders, leechers, where it came from).
+      // Each row supplies its own text per column id in `cells`; a missing cell
+      // renders as an em dash rather than a blank, so a column nobody reports
+      // reads as "unknown" instead of "zero". Requires `showHeader` — columns
+      // no header names are unreadable numbers.
+      //
+      // Widths are explicit (px) and the header uses the SAME ones, which is
+      // what keeps the two aligned: both are flex rows with the same gap, not a
+      // shared grid.
+      columns?: { id: string; label: string; width?: number; align?: "left" | "right"; sortable?: boolean }[];
+      // Which column the rows are currently ordered by, for the ▲/▼ indicator.
+      sortBy?: string;
+      sortDir?: "asc" | "desc";
+      // Fired when a `sortable` header is clicked, with
+      // `{ column, direction }` — `direction` being the flip of the current one
+      // when the same column is clicked again, else `"desc"`.
+      //
+      // **The host does not reorder anything.** It renders `items` in the order
+      // given and reports the click; the plugin re-sorts and re-renders. That
+      // is deliberate: sorting needs the raw values (400 MB vs 1.2 GB, "—" vs
+      // 0) and the host only ever sees the formatted strings, so a host-side
+      // sort would be sorting the display text. The plugin already holds the
+      // numbers.
+      sortAction?: string;
       // Right-click a row for the universal track menu (Play / Enqueue / Play
       // Next + plugin actions). Default `true`. Set `false` for a list whose
       // rows are not tracks — a torrent's *contents*, where most rows are cover
@@ -413,6 +442,17 @@ export type PluginViewData =
       confirmAction: string;
       cancelAction: string;
       data?: unknown;
+      // An optional opt-in the user decides ALONGSIDE the confirmation, for a
+      // second, more destructive reading of the same action (remove a torrent
+      // vs. also delete its files). Two menu entries would make the dangerous
+      // one a mis-click away; here it is a deliberate tick inside the dialog
+      // that already has the user's attention.
+      //
+      // The state rides back to the plugin merged into the action payload as
+      // `checkboxChecked`, on BOTH actions — a plugin that reads it off the
+      // cancel event can remember the tick for next time.
+      checkboxLabel?: string;
+      checkboxDefault?: boolean;
     }
   | {
       type: "detail-header";
@@ -885,6 +925,12 @@ export interface PluginNetworkAPI {
     headers: Record<string, string>;
     /** Every `Set-Cookie` value, in the order the server sent them. */
     getSetCookie(): string[];
+    /**
+     * The URL the response actually came from, after redirects (absent on
+     * older backends — feature-detect). A 200 from a host the plugin never
+     * asked is how an ISP block page masquerades as an empty answer.
+     */
+    url?: string;
     text(): Promise<string>;
     json(): Promise<unknown>;
   }>;

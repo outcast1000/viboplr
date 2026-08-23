@@ -475,6 +475,12 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
     let resp = req.send().await.map_err(|e| e.to_string())?;
     let status = resp.status().as_u16();
     log::info!("HTTP {} plugin_fetch {} -> {} ({:.0}ms)", method_str, url, status, start.elapsed().as_secs_f64() * 1000.0);
+    // The URL the response actually came from, after reqwest followed any
+    // redirects. Without it a plugin cannot tell a real answer from an ISP
+    // block page: national blocking (e.g. Greece's edppi.gr) 302s the request
+    // to a notice page that returns HTTP 200 on a different host, which reads
+    // exactly like the target site answering with no content.
+    let final_url = resp.url().to_string();
     // Before `text()`, which consumes the response.
     let resp_headers = flatten_response_headers(resp.headers());
     let text = resp.text().await.map_err(|e| e.to_string())?;
@@ -482,6 +488,7 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
         "status": status,
         "body": text,
         "headers": resp_headers,
+        "url": final_url,
     }))
 }
 

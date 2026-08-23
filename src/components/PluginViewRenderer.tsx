@@ -420,6 +420,8 @@ function PluginViewNode({
           confirmVariant={node.confirmVariant}
           confirmAction={node.confirmAction}
           cancelAction={node.cancelAction}
+          checkboxLabel={node.checkboxLabel}
+          checkboxDefault={node.checkboxDefault}
           data={node.data}
           onAction={onAction}
         />
