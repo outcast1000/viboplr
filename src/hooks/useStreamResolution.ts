@@ -154,11 +154,11 @@ interface UseStreamResolutionDeps {
   /** Created in App and shared with `usePlayback` for seek/offset math + cleanup. */
   transcodeSessionRef: React.MutableRefObject<TranscodeSession | null>;
   /** Created in App; kept fresh here from `resolveStreamByUri`. */
-  resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>>;
+  resolveStreamByUriRef: React.MutableRefObject<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>>;
   /** Ordered, user-configured plugin stream resolvers (populated elsewhere in App). */
   streamResolversRef: React.MutableRefObject<StreamResolver[]>;
   /** Latest plugin stream-URI resolver (`plugins.resolveStreamByUri`). */
-  resolveStreamByUri: (scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>;
+  resolveStreamByUri: (scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }>;
   /** Maps a custom URL scheme to its owning plugin id (`plugins.streamUriResolverOwner`).
    *  Lets a native plugin scheme (e.g. `tidal://`) classify to `{ kind: "plugin", pluginId }`. */
   streamUriResolverOwner: (scheme: string) => string | null;
@@ -189,8 +189,10 @@ interface UseStreamResolutionDeps {
    * entry never learns it is a video and its row keeps the audio-disc icon.
    * Format ONLY — a resolve patch can also carry `path` (a local-copy
    * fallback), and rewriting an entry's source would change what
-   * delete/download/export act on. */
-  onTrackFormatResolved?: (key: string, format: string) => void;
+   * delete/download/export act on. `localPath` is where the resolution landed
+   * on THIS disk (from the attributed file:// sourceUrl), or null — it lets the
+   * caller grab a video frame for the queue row's thumb. */
+  onTrackFormatResolved?: (key: string, format: string, localPath: string | null) => void;
 }
 
 /**
@@ -331,7 +333,11 @@ export function useStreamResolution({
         // selectStream's `browserUrl` (always self-contained) is used as the
         // element src, which is also the safe fallback if the native play errors.
         const externalAudio = videoTrack && useNativeVideoRef.current;
-        const opts = externalAudio || fresh ? { externalAudio, fresh } : undefined;
+        // `video` carries the request's intent now that a plugin ref no longer
+        // encodes it in the URI (the ytdlp ".mp4" suffix is legacy): the track
+        // classified as video — via PluginTrack.kind or a persisted format — so
+        // the resolver must serve video, muxed when the engine can't merge.
+        const opts = externalAudio || fresh || videoTrack ? { externalAudio, fresh, video: videoTrack } : undefined;
         return resolveStreamByUriRef.current(parsed.protocol, parsed.id, null, opts).then(r => {
           if (r.candidates && r.candidates.length) {
             const sel = selectStream(r.candidates, { engine: externalAudio ? "native" : "browser", video: videoTrack, skipTopVideo: ladderStep });
@@ -780,7 +786,11 @@ export function useStreamResolution({
         // Tell the queue entry its real container (see onTrackFormatResolved).
         // Preloads count too — the next row learning it is a video early is
         // exactly the point.
-        if (out.patch?.format) onTrackFormatResolvedRef.current?.(key, out.patch.format);
+        if (out.patch?.format) {
+          const su = out.meta?.sourceUrl ?? null;
+          const localPath = su && su.startsWith("file://") ? su.slice("file://".length) || null : null;
+          onTrackFormatResolvedRef.current?.(key, out.patch.format, localPath);
+        }
         if (out.src) {
           if (resolveCacheRef.current.size >= RESOLVE_CACHE_MAX) resolveCacheRef.current.clear();
           resolveCacheRef.current.set(key, {

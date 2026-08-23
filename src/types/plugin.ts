@@ -267,6 +267,9 @@ export interface TrackRowItem {
   albumTitle?: string | null;
   path?: string | null;
   durationSecs?: number | null;
+  // Audio-or-video, when the plugin knows — same advisory claim as
+  // PluginTrack.kind, so a row dragged into the queue classifies pre-play.
+  kind?: "audio" | "video";
 }
 
 export type PluginViewData =
@@ -662,8 +665,12 @@ export interface PluginPlaybackAPI {
        *  `fresh`: the answer you gave for this id last time did not play, so do
        *  not serve it again from a cache of your own — mint a new one. (A signed
        *  CDN URL that has been refused usually stays refused.)
+       *  `video`: the track being resolved is classified as video (via
+       *  PluginTrack.kind or its persisted format), so serve video — muxed when
+       *  `externalAudio` is not also set. This replaces encoding the intent in
+       *  the URI itself (ytdlp's legacy ".mp4" suffix).
        *  Optional for back-compat — older hosts don't send them. */
-      opts?: { externalAudio?: boolean; fresh?: boolean },
+      opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean },
     ) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>,
   ): () => void;
   /** Supply seek-preview thumbnails for a custom URL scheme. The host shows one
@@ -750,6 +757,16 @@ export interface PluginTrack {
   duration_secs?: number | null;
   track_number?: number | null;
   image_url?: string | null;
+  /** What the track IS — audio or video — when the plugin knows (a filename it
+   * read, a source that only serves video). Advisory and provisional: it drives
+   * pre-play presentation and routing (queue row icon, theater vs audio
+   * element), and whatever a resolve later reads off the real file wins. This
+   * is deliberately a KIND, not a container: a `format` claim ("mkv") is
+   * something a plugin usually can't know and has teeth the claimant shouldn't
+   * pull (`needsTranscode`). Same trust level as `onStreamResolve`'s
+   * `video: true`. Replaces the URI-extension side channel (a literal `.mp4`
+   * appended to an encoded ref) for new code; older hosts ignore it. */
+  kind?: "audio" | "video";
 }
 
 export interface PluginCollectionsAPI {

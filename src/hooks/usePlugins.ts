@@ -152,7 +152,7 @@ interface LoadedPlugin {
   interactiveResolveHandlers: Map<string, InteractiveResolveHandler>;
   getQualitiesHandlers: Map<string, GetQualitiesHandler>;
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean; externalAudio?: boolean; fresh?: boolean }) => Promise<StreamResolveResult | null>>;
-  streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>>;
+  streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>>;
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
   schedulerHandlers: Map<string, () => void>;
   visualizerFactories: Map<string, () => PluginVisualizer>;
@@ -716,7 +716,7 @@ export function usePlugins(
           },
           onResolveStreamByUri(
             scheme: string,
-            handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>,
+            handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>,
           ): () => void {
             loaded.streamUriResolvers.set(scheme, handler);
             const unsub = () => {
@@ -2585,7 +2585,7 @@ export function usePlugins(
       scheme: string,
       id: string,
       quality?: string | null,
-      opts?: { externalAudio?: boolean; fresh?: boolean },
+      opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean },
     ): Promise<{ url: string; candidates?: StreamCandidate[]; sourceUrl?: string }> => {
       for (const [, lp] of loadedPluginsRef.current) {
         const handler = lp.streamUriResolvers.get(scheme);

@@ -1,4 +1,5 @@
 import type { Track, QueueTrack } from "./types";
+import type { PluginTrack } from "./types/plugin";
 
 export interface QueueEntry {
   url: string;
@@ -24,6 +25,34 @@ let externalKeyCounter = 1;
 
 export function nextExternalKey(): string {
   return `ext:${externalKeyCounter++}`;
+}
+
+/**
+ * A plugin-supplied track becomes a queue entry. Pure (bar the key counter) so
+ * the kind→format stamp is testable; every plugin entry point in App routes
+ * through it.
+ *
+ * The CONTAINER is deliberately not a plugin-declared field — it is learned at
+ * RESOLVE time from the file the scheme resolves to and patched onto the track
+ * before any element is chosen (see useStreamResolution's by-URI chain entry).
+ * But the KIND may be declared: a plugin that read a filename (qbt) or serves
+ * only video can say `kind: "video"`, and the host stamps the same provisional
+ * "mp4" the prefer-video resolver pass uses, so the queue row classifies
+ * (icon, frame thumb, routing) before anything plays. The resolve-time patch
+ * overwrites it with the real container.
+ */
+export function pluginTrackToQueueTrack(info: PluginTrack): QueueTrack {
+  return {
+    key: nextExternalKey(),
+    path: info.path ?? null,
+    title: info.title,
+    artist_name: info.artist_name ?? null,
+    album_title: info.album_title ?? null,
+    duration_secs: info.duration_secs ?? null,
+    format: info.kind === "video" ? "mp4" : null,
+    liked: 0,
+    image_url: info.image_url ?? undefined,
+  };
 }
 
 export function parseLibraryId(key: string | null | undefined): number | null {

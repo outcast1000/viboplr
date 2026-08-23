@@ -16,7 +16,7 @@ import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, effectiveLocalPath } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { subscribeTrackEvents } from "./trackEvents";
@@ -527,24 +527,6 @@ function App() {
   // without polling.
   const pluginQueueRef = useRef<{ tracks: QueueTrack[]; index: number }>({ tracks: [], index: 0 });
   useAssignRef(pluginQueueRef, { tracks: queueHook.queue, index: queueHook.queueIndex });
-  const pluginTrackToQueueTrack = useCallback((info: PluginTrack): QueueTrack => {
-    return {
-      key: nextExternalKey(),
-      path: info.path ?? null,
-      title: info.title,
-      artist_name: info.artist_name ?? null,
-      album_title: info.album_title ?? null,
-      duration_secs: info.duration_secs ?? null,
-      // Unknown here, and deliberately not a plugin-declared field: a plugin URI
-      // (`qbt://<hash>/3`) has no extension for isVideoTrack to fall back on, so
-      // the container is learned at RESOLVE time from the file the scheme
-      // resolves to, and patched onto the track before any element is chosen —
-      // see useStreamResolution's by-URI chain entry.
-      format: null,
-      liked: 0,
-      image_url: info.image_url ?? undefined,
-    };
-  }, []);
   // Plugin/external tracks enter the queue with liked hardcoded 0 (they carry no
   // DB row). Reconcile the just-added ones against the durable, metadata-keyed
   // entity_likes store so a song liked in a previous session shows its heart on
@@ -639,7 +621,7 @@ function App() {
       }
       reconcileAddedLikeStates(converted);
     },
-  }), [queueHook, pluginTrackToQueueTrack, reconcileAddedLikeStates, pluginPlaylistContext]);
+  }), [queueHook, reconcileAddedLikeStates, pluginPlaylistContext]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   // Defer plugin loading until the cold-start critical path has settled
   // (window shown + state restored). `!appRestoring` flips true at that point;
@@ -911,7 +893,23 @@ function App() {
     queue: queueHook.queue,
     currentTrack: playback.currentTrack,
     notify,
-    onTrackFormatResolved: queueHook.patchTrackFormat,
+    onTrackFormatResolved: (key, format, localPath) => {
+      queueHook.patchTrackFormat(key, format);
+      // A plugin-scheme video (qbt://…) carries no art of its own — no
+      // image_url, no library row — so its queue row falls to the film-reel
+      // icon. With the resolved file on this disk in hand, grab one frame off
+      // it through the ordinary main-playlist thumb pipeline; the thumb-ready
+      // event updates the row (and the manifest restore keeps it across
+      // restarts). set_thumb_from_video no-ops when the thumb already exists
+      // and when ffmpeg is missing.
+      if (localPath && isVideoTrack({ format, path: null })) {
+        const entry = queueHook.queue.find(t => t.key === key);
+        if (entry?.path && !entry.image_url) {
+          invoke("main_playlist_set_thumb_from_video", { key: entry.path, videoPath: localPath })
+            .catch(e => console.error("Failed to grab a video frame for the queue thumb:", e));
+        }
+      }
+    },
   });
 
   // Seek-bar hover previews for video. Complements the waveform, which is audio-only:
@@ -2006,7 +2004,7 @@ function App() {
       case "none":
         return;
     }
-  }, [playActions, contextMenuActions, pluginTrackToQueueTrack, queueHook, plugins, handleReplayLatestPlay]);
+  }, [playActions, contextMenuActions, queueHook, plugins, handleReplayLatestPlay]);
 
   const handleHomeShelfItemClick = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
     // The "Latest play" shelf re-resolves each tile to a fresh play (see
@@ -4629,6 +4627,7 @@ function App() {
                     album_title: it.albumTitle ?? null,
                     duration_secs: it.durationSecs ?? null,
                     image_url: it.imageUrl,
+                    kind: it.kind,
                   }));
                   if (qts.length === 0) return;
                   const n = qts.length;
@@ -4657,6 +4656,7 @@ function App() {
                     album_title: it.albumTitle ?? null,
                     duration_secs: it.durationSecs ?? null,
                     image_url: it.imageUrl,
+                    kind: it.kind,
                   }));
                   if (qts.length > 0) contextMenuActions.handleTrackDragStart(qts as unknown as Track[]);
                 }}

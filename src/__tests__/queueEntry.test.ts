@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   trackToQueueEntry,
   trackToQueueTrack,
+  pluginTrackToQueueTrack,
   queueEntryToTrack,
   parseUrlScheme,
   isLocalTrack,
@@ -535,5 +536,20 @@ describe("effectiveLocalPath", () => {
     expect(effectiveLocalPath({ path: "ext:7" }, { name: "Library", sourceUrl: "https://cdn/x.mp3" }))
       .toBeNull();
     expect(effectiveLocalPath({ path: null }, null)).toBeNull();
+  });
+});
+
+// Plugin tracks entering the queue: the kind→format stamp.
+describe("pluginTrackToQueueTrack", () => {
+  it("stamps a provisional mp4 for a declared video, so the row classifies pre-play", () => {
+    const qt = pluginTrackToQueueTrack({ path: "qbt://aaa/3", title: "Clip", kind: "video" });
+    expect(qt.format).toBe("mp4");
+    expect(qt.path).toBe("qbt://aaa/3");
+    expect(qt.key).toMatch(/^ext:/);
+  });
+
+  it("declares nothing when the plugin declared nothing — the resolve decides", () => {
+    expect(pluginTrackToQueueTrack({ path: "qbt://aaa/3", title: "Song" }).format).toBeNull();
+    expect(pluginTrackToQueueTrack({ path: "qbt://aaa/3", title: "Song", kind: "audio" }).format).toBeNull();
   });
 });
