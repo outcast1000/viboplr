@@ -253,6 +253,27 @@ describe("partialStoryboard (frames extracted so far as a usable board)", () => 
     expect(partialStoryboard(["f0.jpg"], 0, 100)).toBeNull();
     expect(partialStoryboard(["f0.jpg"], 48, 0)).toBeNull();
   });
+
+  // A resumed pass (the backend picking up a cancelled one) extracts the tail of the
+  // video first, so its frames start mid-way. Read positionally they would land on
+  // the wrong timestamps — the whole point of `startIndex`.
+  it("places resumed frames at the tile they actually depict", () => {
+    const b = partialStoryboard(["f40.jpg", "f41.jpg"], 48, 100, 40)!;
+    expect(tileIndexAt(b, 40 * 48)).toBe(40);
+    expect(tileIndexAt(b, 41 * 48)).toBe(41);
+    expect(tileStartSecs(b, 40)).toBe(1920);
+    // The head of the video hasn't been extracted in THIS pass, so it has no tile.
+    expect(tileFitStyle(b, 0)).toBeNull();
+    expect(tileFitStyle(b, 39)).toBeNull();
+    expect(tileFitStyle(b, 40)?.backgroundImage).toBe('url("f40.jpg")');
+    // Past the frames on hand — still nothing, as for a fresh pass.
+    expect(tileFitStyle(b, 42)).toBeNull();
+  });
+
+  it("rejects an offset that falls outside the finished board", () => {
+    expect(partialStoryboard(["f0.jpg"], 48, 100, -1)).toBeNull();
+    expect(partialStoryboard(["f0.jpg"], 48, 100, 100)).toBeNull();
+  });
 });
 
 describe("schemeOf (storyboard producer routing)", () => {

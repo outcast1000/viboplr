@@ -192,6 +192,7 @@ macro_rules! invoke_handler {
             commands::extract_video_frames,
             commands::get_storyboard,
             commands::extract_storyboard,
+            commands::cancel_storyboard,
             commands::get_track_audio_properties,
             commands::get_audio_properties_by_path,
             commands::read_file_tags,

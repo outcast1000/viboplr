@@ -37,6 +37,7 @@ export interface PersistedSettings {
   mediaTypeFilter: string | undefined;
   trackLikedFirst: boolean | undefined;
   confirmTrashDelete: boolean | undefined;
+  videoStoryboards: boolean | undefined;
   lastDownloadDest: string | null | undefined;
   searchViewModes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null | undefined;
   pluginViewMode: string | null | undefined;
@@ -122,6 +123,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     mediaTypeFilter: read<string>("mediaTypeFilter"),
     trackLikedFirst: read<boolean>("trackLikedFirst"),
     confirmTrashDelete: read<boolean>("confirmTrashDelete"),
+    videoStoryboards: read<boolean>("videoStoryboards"),
     lastDownloadDest: read<string | null>("lastDownloadDest"),
     searchViewModes: read<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
     pluginViewMode: read<string | null>("pluginViewMode"),

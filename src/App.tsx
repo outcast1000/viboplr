@@ -324,6 +324,11 @@ function App() {
   // Playing theater, and fullscreen. The store key stays the legacy
   // `videoLyricsOverlay` so existing saved preferences carry over.
   const [videoSubtitlesOn, setVideoSubtitlesOn] = usePersistedSetting("videoLyricsOverlay", true, restoredRef);
+  // Generate seek-preview storyboards for local videos (persisted; default on). Off
+  // stops the ffmpeg pass — including one already running — and leaves already-cached
+  // sheets and source-published ones (YouTube et al.) working, since neither costs
+  // anything to produce. See docs/seek-preview-spec.md.
+  const [videoStoryboards, setVideoStoryboards] = usePersistedSetting("videoStoryboards", true, restoredRef);
   const handleToggleSubtitles = useCallback(() => {
     setVideoSubtitlesOn((on) => !on); // persistence: usePersistedSetting
   }, []);
@@ -922,6 +927,7 @@ function App() {
     playback.playbackError ? null : playback.currentTrack,
     plugins.resolveStoryboardByUri,
     playback.currentTrack ? effectiveLocalPath(playback.currentTrack, resolvedSource) : null,
+    videoStoryboards,
   );
   // What the seek surfaces get: the finished board, or — while it still generates —
   // a board synthesized from the frames extracted so far, so the filmstrip replaces
@@ -931,7 +937,7 @@ function App() {
   const storyboard = useMemo(() => {
     if (storyboardState.board) return storyboardState.board;
     const p = storyboardState.partial;
-    return p ? partialStoryboard(p.frames, p.intervalSecs, p.count) : null;
+    return p ? partialStoryboard(p.frames, p.intervalSecs, p.count, p.startIndex) : null;
   }, [storyboardState.board, storyboardState.partial]);
 
   // Native (mpv) video session: punch the CSS hole (see App.css
@@ -2260,7 +2266,7 @@ function App() {
           lastDownloadDest: savedLastDownloadDest, searchViewModes: savedSearchViewModes,
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
-          confirmTrashDelete: savedConfirmTrashDelete,
+          confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
           reduceMotion: savedReduceMotion,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
           eqEnabled: savedEqEnabled, eqMode: savedEqMode, eqPreset: savedEqPreset, eqGains: savedEqGains,
@@ -2342,6 +2348,7 @@ function App() {
         if (savedVideoSubtitles === false) setVideoSubtitlesOn(false);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
+        if (savedVideoStoryboards === false) setVideoStoryboards(false);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
 
         // EQ / RG / Now Playing info / debug values all arrive from the one
@@ -3232,6 +3239,12 @@ function App() {
 
   function handlePreferVideoResolutionChange(enabled: boolean) {
     setPreferVideoResolution(enabled); // persistence: usePersistedSetting
+  }
+
+  function handleVideoStoryboardsChange(enabled: boolean) {
+    // No teardown needed here: useStoryboard re-runs on the flag and its cleanup
+    // cancels whatever pass was in flight.
+    setVideoStoryboards(enabled); // persistence: usePersistedSetting
   }
 
   function handleMinimizeToMiniPlayerChange(enabled: boolean) {
@@ -4322,6 +4335,7 @@ function App() {
                     || track.image_url || null}
                 artistImagePath={track.artist_name ? artistImageCache.getImage(track.artist_name) : null}
                 isCurrentTrack={isCurrentTrack}
+                storyboardsEnabled={videoStoryboards}
                 onPlay={() => queueHook.playTracks([track], 0)}
                 onPlayAt={(secs: number) => {
                   if (isCurrentTrack) {
@@ -4374,6 +4388,7 @@ function App() {
                 albumImagePath={albumImg}
                 artistImagePath={artistImg}
                 isCurrentTrack={false}
+                storyboardsEnabled={videoStoryboards}
                 onPlay={() => queueHook.playTracks([syntheticTrack], 0)}
                 onPlayAt={() => {}}
                 onStartRadio={syntheticTrack.artist_name ? () => contextMenuActions.startRadio({ title: syntheticTrack.title, artistName: syntheticTrack.artist_name, coverPath: albumImg ?? artistImg ?? null }) : undefined}
@@ -4772,6 +4787,8 @@ function App() {
               nowPlayingVisualizer={nowPlayingVisualizer}
               onNowPlayingVisualizerChange={(key) => setVisualizerSlots(prev => ({ ...prev, nowplaying: key }))}
               onPreferVideoResolutionChange={handlePreferVideoResolutionChange}
+              videoStoryboards={videoStoryboards}
+              onVideoStoryboardsChange={handleVideoStoryboardsChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
               confirmTrashDelete={confirmTrashDelete}

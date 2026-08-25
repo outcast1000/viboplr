@@ -56,6 +56,8 @@ interface TrackDetailViewProps {
   albumImagePath: string | null;
   artistImagePath: string | null;
   isCurrentTrack: boolean;
+  /** Settings > Playback > "Video seek previews" — see `useStoryboard`. */
+  storyboardsEnabled: boolean;
   onPlay: () => void;
   onPlayAt: (secs: number) => void;
   onShowInFolder: () => void;
@@ -84,7 +86,7 @@ function prettifyTagKey(key: string): string {
 
 export function TrackDetailView({
   trackId, track, albumImagePath, artistImagePath,
-  isCurrentTrack,
+  isCurrentTrack, storyboardsEnabled,
   onPlay, onPlayAt, onShowInFolder, onStartRadio,
   onToggleLike, onToggleDislike,
 }: TrackDetailViewProps) {
@@ -101,7 +103,9 @@ export function TrackDetailView({
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
   // Storyboard tiles back the filmstrip and the hero art's hover cycling; the single
   // large frame from `videoFrames` still supplies each surface's sharp resting image.
-  const trackStoryboard = useStoryboard(isVideoTrack(track) ? track : null);
+  const trackStoryboard = useStoryboard(
+    isVideoTrack(track) ? track : null, undefined, null, storyboardsEnabled,
+  );
 
   const requestArtistImage = useCallback(
     (n: string) => actions.autoFetchImage("artist", n),

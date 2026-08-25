@@ -87,8 +87,15 @@ fn dir(app_dir: &Path) -> PathBuf {
 /// metadata. Two different videos can share a title+artist+duration (a studio cut and
 /// a live take) and would then swap frames; `shelfVideoKey` in the frontend already
 /// keys by path for exactly this reason.
+///
+/// The `v2::` prefix is a recipe stamp, the same device the waveform cache uses:
+/// **bump it whenever the tiles themselves change**, and every entry cut by the old
+/// recipe becomes an orphan that the startup `gc` sweeps, rather than a wrong sheet
+/// that outlives the fix. `v2` is the display-aspect scaling — `v1` sheets were cut
+/// with `scale=W:-2`, which stretched anamorphic sources, and there is no way to tell
+/// from a cached sheet whether its source was anamorphic.
 fn key(track_path: &str) -> String {
-    format!("{:x}", md5::compute(track_path))
+    format!("{:x}", md5::compute(format!("v2::{}", track_path)))
 }
 
 fn sheet_path(app_dir: &Path, k: &str) -> PathBuf {
@@ -122,10 +129,354 @@ pub fn delete_cached(app_dir: &Path, track_path: &str) {
     let k = key(track_path);
     let _ = std::fs::remove_file(sheet_path(app_dir, &k));
     let _ = std::fs::remove_file(meta_path(app_dir, &k));
+    discard_partial(app_dir, &k);
+}
+
+/// Cache-entry key for a file in the storyboard dir. `<hash>.jpg`, `<hash>.json`,
+/// `<hash>.part.jpg` and `<hash>.part.json` all describe the same track, so both
+/// sweeps have to group them together — and `file_stem` alone reports `<hash>.part`
+/// for a partial, which matches no live track, so the startup `gc` would delete
+/// every resumable partial on the next launch.
+fn entry_key(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    Some(stem.strip_suffix(".part").unwrap_or(stem).to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Resumable partials
+//
+// A cancelled pass used to be thrown away whole. For a long source (a concert film,
+// a two-hour upload) that is many seconds of decoding discarded because the user
+// skipped the track, and the next play paid it again from zero. So a cancelled pass
+// now leaves what it had: the frames it did extract, stitched into a SHORT sheet
+// (`cols` wide, only as many rows as are full) plus a sidecar recording how far it
+// got. The next pass seeks to that point, decodes only the remainder, and composes
+// the two into the final sheet.
+//
+// The short sheet is deliberately the same shape as the finished one — same tile
+// size, same column count — because that is what makes "resume" a paste rather than
+// a re-layout. Two things follow from it and both are checked before a partial is
+// trusted: the recipe that cut it must match the recipe now (`RESUME_RECIPE`), and
+// its pixel dimensions must be exactly what `tiles_done` implies.
+// ---------------------------------------------------------------------------
+
+/// Bump when anything about the tiles themselves changes — the interval/grid maths,
+/// the scale filter, the encoder. A partial cut by an older recipe cannot be extended
+/// by a newer one, and the seam would be the only symptom.
+const RESUME_RECIPE: u32 = 1;
+
+/// Only keep a partial when the pass had already been running this long. What a
+/// resume saves is roughly the time already spent, and a typical music video's whole
+/// pass is ~0.3-0.5s — persisting a sheet to save that is churn, not a saving. This
+/// is what confines partials to the sources where a skip actually throws work away.
+const RESUME_MIN_ELAPSED: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// JPEG quality for a sheet we compose ourselves, above ffmpeg's `-q:v 5` (~80) on
+/// purpose: the tiles carried over from a partial are re-encoded on every
+/// cancel/resume cycle, so the loss compounds. Higher quality makes that decay slow
+/// enough not to matter over the handful of cycles a real user produces.
+const COMPOSE_QUALITY: u8 = 92;
+
+/// How far a cancelled pass got, and the sheet holding it. Sidecar to
+/// `<hash>.part.jpg`; never read by the frontend.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PartialSheet {
+    recipe: u32,
+    /// Tiles the sheet actually carries, from tile 0. Always < `count`.
+    tiles_done: usize,
+    count: usize,
+    cols: usize,
+    rows: usize,
+    tile_w: u32,
+    tile_h: u32,
+    interval_secs: f64,
+    duration_secs: f64,
+    sheet: String,
+}
+
+fn part_sheet_path(app_dir: &Path, k: &str) -> PathBuf {
+    dir(app_dir).join(format!("{}.part.jpg", k))
+}
+
+fn part_meta_path(app_dir: &Path, k: &str) -> PathBuf {
+    dir(app_dir).join(format!("{}.part.json", k))
+}
+
+pub fn discard_partial(app_dir: &Path, k: &str) {
+    let _ = std::fs::remove_file(part_sheet_path(app_dir, k));
+    let _ = std::fs::remove_file(part_meta_path(app_dir, k));
+}
+
+/// Rows a sheet needs to hold `tiles` tiles at `cols` per row.
+fn rows_for(tiles: usize, cols: usize) -> usize {
+    tiles.div_ceil(cols.max(1))
+}
+
+/// The partial for this track, if there is one this pass can actually extend.
+///
+/// Everything that could make the seam wrong is a rejection, and a rejected partial
+/// is deleted rather than left to be re-examined every play: a stale recipe, a
+/// geometry that no longer matches (the file was re-encoded to a different length),
+/// or a sheet whose pixels disagree with the tile count it claims (a torn write).
+fn read_partial(app_dir: &Path, k: &str, g: &Geometry, duration_secs: f64) -> Option<PartialSheet> {
+    let reject = |why: &str| {
+        log::debug!("Storyboard partial for {} discarded: {}", k, why);
+        discard_partial(app_dir, k);
+        None
+    };
+    let data = std::fs::read_to_string(part_meta_path(app_dir, k)).ok()?;
+    let Ok(p) = serde_json::from_str::<PartialSheet>(&data) else {
+        return reject("unreadable sidecar");
+    };
+    if p.recipe != RESUME_RECIPE {
+        return reject("cut by an older tile recipe");
+    }
+    if p.cols != g.cols
+        || p.rows != g.rows
+        || p.count != g.count
+        || p.tile_w != g.tile_w
+        || (p.interval_secs - g.interval_secs).abs() > 1e-6
+        || (p.duration_secs - duration_secs).abs() > 0.5
+    {
+        return reject("geometry no longer matches the source");
+    }
+    if p.tiles_done == 0 || p.tiles_done >= p.count || p.tile_h == 0 {
+        return reject("claims no usable tiles");
+    }
+    let sheet = part_sheet_path(app_dir, k);
+    let Ok((w, h)) = image::image_dimensions(&sheet) else {
+        return reject("sheet missing or unreadable");
+    };
+    let expect_w = p.tile_w * p.cols as u32;
+    let expect_h = p.tile_h * rows_for(p.tiles_done, p.cols) as u32;
+    if (w, h) != (expect_w, expect_h) {
+        return reject("sheet size disagrees with the tiles it claims");
+    }
+    Some(p)
+}
+
+/// Keep the work a cancelled pass had already done. `base` is the partial it was
+/// itself resuming from (so a repeatedly-interrupted video still makes progress),
+/// and `frames` are the newly extracted frame files paired with their tile index.
+fn write_partial(
+    app_dir: &Path,
+    k: &str,
+    g: &Geometry,
+    duration_secs: f64,
+    base: Option<&PartialSheet>,
+    frames: &[(usize, PathBuf)],
+) -> Result<(), String> {
+    let Some(&(_, ref first)) = frames.first() else {
+        return Err("no frames to keep".to_string());
+    };
+    // Tile size comes from the frames themselves, not from a computation: the scale
+    // filter derives the height from the source's display aspect, so the pixels on
+    // disk are the only thing that knows it.
+    let (tile_w, tile_h) = match base {
+        Some(b) => (b.tile_w, b.tile_h),
+        None => image::image_dimensions(first)
+            .map_err(|e| format!("Failed to read frame dimensions: {}", e))?,
+    };
+    let tiles_done = (base.map_or(0, |b| b.tiles_done) + frames.len()).min(g.count);
+    if tiles_done >= g.count {
+        // The pass was killed after the last frame landed but before the sheet was
+        // written. Nothing to resume from, and a "partial" holding every tile would
+        // fail its own `tiles_done < count` check on the way back in.
+        return Err("nothing left to resume".to_string());
+    }
+    let rows_out = rows_for(tiles_done, g.cols);
+    // Composed into a temp file first: the base sheet is one of the inputs, so
+    // writing straight to its own path would destroy what we are reading.
+    let tmp = dir(app_dir).join(format!("{}.part.tmp.jpg", k));
+    compose_sheet(
+        &tmp,
+        g.cols,
+        tile_w,
+        tile_h,
+        rows_out,
+        base.map(|b| PathBuf::from(&b.sheet)).as_deref(),
+        frames,
+    )?;
+    let sheet = part_sheet_path(app_dir, k);
+    std::fs::rename(&tmp, &sheet).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to store partial sheet: {}", e)
+    })?;
+    let meta = PartialSheet {
+        recipe: RESUME_RECIPE,
+        tiles_done,
+        count: g.count,
+        cols: g.cols,
+        rows: g.rows,
+        tile_w,
+        tile_h,
+        interval_secs: g.interval_secs,
+        duration_secs,
+        sheet: sheet.to_string_lossy().to_string(),
+    };
+    let json = serde_json::to_string(&meta).map_err(|e| e.to_string())?;
+    std::fs::write(part_meta_path(app_dir, k), json)
+        .map_err(|e| format!("Failed to write partial sidecar: {}", e))?;
+    Ok(())
+}
+
+/// Paste tiles into a sheet: an optional base sheet at the top-left (its rows are
+/// already laid out correctly, so it needs no per-tile work) plus individual frames
+/// at the slot their tile index names. Slots nothing supplies stay black, matching
+/// ffmpeg's own `tile` padding.
+fn compose_sheet(
+    dest: &Path,
+    cols: usize,
+    tile_w: u32,
+    tile_h: u32,
+    rows_out: usize,
+    base: Option<&Path>,
+    frames: &[(usize, PathBuf)],
+) -> Result<(), String> {
+    if cols == 0 || rows_out == 0 || tile_w == 0 || tile_h == 0 {
+        return Err("cannot compose a zero-sized sheet".to_string());
+    }
+    let w = tile_w * cols as u32;
+    let h = tile_h * rows_out as u32;
+    let mut canvas: image::RgbImage = image::ImageBuffer::from_pixel(w, h, image::Rgb([0, 0, 0]));
+    if let Some(base) = base {
+        let img = image::open(base)
+            .map_err(|e| format!("Failed to read partial sheet: {}", e))?
+            .to_rgb8();
+        if img.width() != w || img.height() > h {
+            return Err(format!(
+                "Partial sheet is {}x{}, which does not fit a {}x{} sheet",
+                img.width(), img.height(), w, h
+            ));
+        }
+        image::imageops::replace(&mut canvas, &img, 0, 0);
+    }
+    for (idx, path) in frames {
+        if *idx >= cols * rows_out {
+            continue;
+        }
+        let img = image::open(path)
+            .map_err(|e| format!("Failed to read frame {}: {}", path.display(), e))?
+            .to_rgb8();
+        let img = if img.width() == tile_w && img.height() == tile_h {
+            img
+        } else {
+            // Defensive: the pass scales every frame to the tile size, so this can
+            // only fire if a recipe change slipped past `read_partial`.
+            image::imageops::resize(&img, tile_w, tile_h, image::imageops::FilterType::Triangle)
+        };
+        let x = (*idx % cols) as i64 * tile_w as i64;
+        let y = (*idx / cols) as i64 * tile_h as i64;
+        image::imageops::replace(&mut canvas, &img, x, y);
+    }
+    let file = std::fs::File::create(dest)
+        .map_err(|e| format!("Failed to create sheet {}: {}", dest.display(), e))?;
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
+        std::io::BufWriter::new(file),
+        COMPOSE_QUALITY,
+    );
+    encoder
+        .encode_image(&canvas)
+        .map_err(|e| format!("Failed to encode sheet: {}", e))
 }
 
 fn ffmpeg_command() -> std::process::Command {
     dependencies::command_with_path("ffmpeg")
+}
+
+/// The error `generate_with_progress` returns when its ffmpeg pass was killed
+/// because nobody is waiting for it any more. Not a failure — callers report it as
+/// its own status and stay quiet (see `commands::extract_storyboard`).
+pub const CANCELLED: &str = "storyboard generation cancelled";
+
+/// Live interest in a generation, and the running child it can kill.
+///
+/// A storyboard pass is worth stopping: it is a full ffmpeg keyframe decode, and a
+/// user who skips the video — or turns the feature off mid-pass — has no use for the
+/// sheet. It may only be stopped once the LAST interested caller has walked away,
+/// though: generation is single-flight (see `inflight`) but two surfaces (the
+/// now-playing bar and the track detail page) routinely want the same sheet, so a
+/// bare "cancel this path" would let one surface's teardown kill the other's still
+/// wanted pass. Hence the ref count: every `extract_storyboard` carries its own
+/// request id, `cancel` drops one, and the pass dies only when a path's set empties.
+struct Runs {
+    /// track path -> request ids that still want it
+    interest: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    /// track path -> the ffmpeg child of the pass currently running for it
+    children: std::collections::HashMap<String, std::sync::Arc<std::sync::Mutex<std::process::Child>>>,
+    /// Requests cancelled before their `begin` landed. The cancel IPC can overtake
+    /// the invoke it cancels (the invoke registers from a blocking thread), and
+    /// without this the pass would start anyway and run to completion unwatched.
+    /// Each entry is consumed by the matching `begin`.
+    stillborn: std::collections::HashSet<String>,
+}
+
+fn runs() -> &'static std::sync::Mutex<Runs> {
+    static RUNS: std::sync::OnceLock<std::sync::Mutex<Runs>> = std::sync::OnceLock::new();
+    RUNS.get_or_init(|| {
+        std::sync::Mutex::new(Runs {
+            interest: std::collections::HashMap::new(),
+            children: std::collections::HashMap::new(),
+            stillborn: std::collections::HashSet::new(),
+        })
+    })
+}
+
+/// Register a caller's interest in `track_path`'s storyboard. Returns false when this
+/// request was cancelled before it got here, in which case the caller must not start.
+pub fn begin_request(track_path: &str, request_id: &str) -> bool {
+    let mut r = runs().lock().unwrap();
+    if r.stillborn.remove(request_id) {
+        return false;
+    }
+    r.interest.entry(track_path.to_string()).or_default().insert(request_id.to_string());
+    true
+}
+
+/// Drop a caller's interest. Once a path has none left, the poll loop in
+/// `generate_with_progress` kills its ffmpeg within one tick.
+pub fn end_request(track_path: &str, request_id: &str) {
+    let mut r = runs().lock().unwrap();
+    if let Some(set) = r.interest.get_mut(track_path) {
+        set.remove(request_id);
+        if set.is_empty() {
+            r.interest.remove(track_path);
+        }
+    }
+}
+
+/// `end_request` plus the pre-registration race: an id that was never registered is
+/// remembered so the invoke it belongs to bails the moment it starts.
+pub fn cancel_request(track_path: &str, request_id: &str) {
+    let mut r = runs().lock().unwrap();
+    let known = r.interest.get(track_path).is_some_and(|s| s.contains(request_id));
+    if known {
+        drop(r);
+        end_request(track_path, request_id);
+        return;
+    }
+    // Bounded: entries are consumed by `begin`, and the cap covers the pathological
+    // case of a cancel whose invoke never arrives at all.
+    if r.stillborn.len() >= 256 {
+        r.stillborn.clear();
+    }
+    r.stillborn.insert(request_id.to_string());
+}
+
+/// True once every caller that asked for this path has gone away.
+fn abandoned(track_path: &str) -> bool {
+    !runs().lock().unwrap().interest.contains_key(track_path)
+}
+
+/// Publishes the running child so a cancel can reach it, and unpublishes on any exit
+/// path (including an unwind).
+struct ChildGuard(String);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        runs().lock().unwrap().children.remove(&self.0);
+    }
 }
 
 /// Track paths with a generation in flight, plus the condvar waiters sleep on.
@@ -176,20 +527,82 @@ fn completed_frames(dir: &Path, finished: bool) -> Vec<String> {
     names
 }
 
+/// `completed_frames` paired with the tile index each file depicts. The pattern
+/// numbers from 1 within a run, so on a resumed run file N is tile `start_tile + N-1`.
+fn tile_frames(dir: &Path, finished: bool, start_tile: usize) -> Vec<(usize, PathBuf)> {
+    completed_frames(dir, finished)
+        .into_iter()
+        .enumerate()
+        .map(|(i, f)| (start_tile + i, PathBuf::from(f)))
+        .collect()
+}
+
+/// Store what a cancelled pass had extracted, or throw it away when it isn't worth
+/// keeping. Never fails the caller: this is a saving, and a video that can't be
+/// resumed simply starts over next time.
+fn keep_or_discard(
+    app_dir: &Path,
+    k: &str,
+    g: &Geometry,
+    duration_secs: f64,
+    base: Option<&PartialSheet>,
+    frames: &[(usize, PathBuf)],
+    elapsed: std::time::Duration,
+    video_path: &Path,
+) {
+    if frames.is_empty() || elapsed < RESUME_MIN_ELAPSED {
+        // Nothing extracted, or the pass was short enough that re-running it costs
+        // less than storing a sheet would. An existing partial is left alone — it is
+        // still the best resume point anyone has, and `read_partial` has already
+        // deleted any partial it wouldn't accept.
+        return;
+    }
+    match write_partial(app_dir, k, g, duration_secs, base, frames) {
+        Ok(()) => log::info!(
+            "Storyboard for {}: kept {} of {} tiles to resume from",
+            video_path.display(),
+            base.map_or(0, |b| b.tiles_done) + frames.len(),
+            g.count
+        ),
+        Err(e) => {
+            log::debug!("Storyboard partial for {} not kept: {}", video_path.display(), e);
+            // Leave any existing partial alone — a failed *extension* doesn't make
+            // the base it was extending invalid.
+            if base.is_none() {
+                discard_partial(app_dir, k);
+            }
+        }
+    }
+}
+
 /// Generate the sheet for `video_path` and cache it. `duration_secs` comes from the
 /// caller (see `video_frames::get_video_duration`) so we don't probe twice.
 ///
-/// Progress: `on_partial` is called with the cumulative list of individual frame
-/// files extracted so far (time order, one per tile), so a consumer can show the
-/// moments as they land instead of a blank strip. The frame files are scratch —
-/// they are deleted once the sheet exists, by which point the caller has the real
-/// storyboard to switch to. Pass `|_| {}` when progress isn't wanted.
+/// Progress: `on_partial` is called with `(start_tile, frames)` — the cumulative list
+/// of individual frame files extracted so far (time order) and the tile index the
+/// first of them depicts, so a consumer can show the moments as they land instead of
+/// a blank strip. `start_tile` is 0 for a fresh pass and non-zero when resuming a
+/// cancelled one, where the frames on disk begin part-way into the video; a consumer
+/// that ignored it would caption them with the wrong timestamps. The frame files are
+/// scratch — deleted once the sheet exists, by which point the caller has the real
+/// storyboard to switch to. Pass `|_, _| {}` when progress isn't wanted.
+///
+/// Resume: a pass cancelled part-way leaves a partial sheet behind (see
+/// `write_partial`), and this picks it up — seeking to where it stopped and decoding
+/// only the remainder. So an interrupted video makes progress across plays instead of
+/// restarting from zero each time.
+///
+/// Cancellation: pass `Some(request_id)` for a request already registered with
+/// `begin_request`, and the pass stops (returning `CANCELLED`) as soon as that path
+/// has no interested caller left — see `Runs`. `None` opts out entirely, for callers
+/// that are not driven by a UI surface and so can never be abandoned.
 pub fn generate_with_progress(
     app_dir: &Path,
     track_path: &str,
     video_path: &Path,
     duration_secs: f64,
-    mut on_partial: impl FnMut(&[String]),
+    request_id: Option<&str>,
+    mut on_partial: impl FnMut(usize, &[String]),
 ) -> Result<Storyboard, String> {
     if duration_secs <= 0.0 {
         return Err("Video has zero duration".to_string());
@@ -210,6 +623,13 @@ pub fn generate_with_progress(
         InflightGuard(track_path.to_string())
     };
 
+    // A waiter can be abandoned while it sleeps — and if the winner it was waiting on
+    // was itself cancelled there is no cache to serve, so without this check the
+    // loser would start the very pass the user just walked away from.
+    if request_id.is_some() && abandoned(track_path) {
+        return Err(CANCELLED.to_string());
+    }
+
     let g = geometry(duration_secs);
     let d = dir(app_dir);
     std::fs::create_dir_all(&d).map_err(|e| format!("Failed to create storyboard dir: {}", e))?;
@@ -223,32 +643,65 @@ pub fn generate_with_progress(
     std::fs::create_dir_all(&fdir).map_err(|e| format!("Failed to create frames dir: {}", e))?;
     let frame_pattern = fdir.join("%03d.jpg").to_string_lossy().to_string();
 
+    // Pick up where a cancelled pass stopped, if it left anything usable.
+    let resume = read_partial(app_dir, &k, &g, duration_secs);
+    let start_tile = resume.as_ref().map_or(0, |p| p.tiles_done);
+    let remaining = g.count.saturating_sub(start_tile);
+
+    // Tile geometry follows the source's DISPLAY aspect (`dar`), not its stored
+    // width/height. An anamorphic source — a DVD rip, a DVB capture, some phone
+    // video — stores non-square pixels, so scaling by the stored ratio faithfully
+    // reproduces the squeeze and every tile came out stretched against the video the
+    // player was showing (mpv scales to `dar`). `trunc(w/dar/2)*2` is the height that
+    // undoes it, rounded to even for yuvj420p; `setsar=1` then stops the encoder
+    // recording a non-square ratio that nothing downstream reads anyway.
+    let scale = format!("scale={w}:trunc({w}/dar/2)*2,setsar=1", w = g.tile_w);
     let mut cmd = ffmpeg_command();
+    cmd.args(["-hide_banner", "-loglevel", "error", "-y"]);
+    let seek = format!("{:.4}", start_tile as f64 * g.interval_secs);
+    if start_tile > 0 {
+        // Input seek, so the skipped span is never decoded — that saving is the whole
+        // point of resuming. Output timestamps restart at the seek point, so
+        // `fps=1/interval` lands the remaining tiles on the same grid as a
+        // straight-through pass.
+        cmd.args(["-ss", &seek]);
+    }
     cmd.args([
-        "-hide_banner",
-        "-loglevel", "error",
-        "-y",
         // Keyframes only — this is what makes one pass cheap. Must precede -i.
         "-skip_frame", "nokey",
         "-i", &video_path.to_string_lossy(),
         "-an",
-        // One decode pass, two outputs: the individual frames (progress, scratch)
-        // and the tiled sheet (the cached artifact, identical to what the old
-        // single-output `-vf` produced).
-        "-filter_complex", &format!(
-            "fps=1/{:.4},scale={}:-2,split=2[strip][grid];[grid]tile={}x{}[sheet]",
-            g.interval_secs, g.tile_w, g.cols, g.rows
-        ),
-        // MJPEG unconditionally: `webp_supported()` is false on stock homebrew
-        // ffmpeg, so the WebP path already falls back in practice. Sheets are small.
-        "-map", "[strip]",
-        "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-        &frame_pattern,
-        "-map", "[sheet]",
-        "-frames:v", "1",
-        "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
-        &out_str,
     ]);
+    if start_tile > 0 {
+        // Resuming: frames only. A `tile` filter here would build a grid of just the
+        // remainder, so the finished sheet is composed from the partial plus these.
+        cmd.args([
+            "-filter_complex", &format!("fps=1/{:.4},{}[strip]", g.interval_secs, scale),
+            "-map", "[strip]",
+            // Stops the decode at the last tile we still need instead of running to EOF.
+            "-frames:v", &remaining.to_string(),
+            "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+            &frame_pattern,
+        ]);
+    } else {
+        cmd.args([
+            // One decode pass, two outputs: the individual frames (progress, scratch)
+            // and the tiled sheet (the cached artifact).
+            "-filter_complex", &format!(
+                "fps=1/{:.4},{},split=2[strip][grid];[grid]tile={}x{}[sheet]",
+                g.interval_secs, scale, g.cols, g.rows
+            ),
+            // MJPEG unconditionally: `webp_supported()` is false on stock homebrew
+            // ffmpeg, so the WebP path already falls back in practice. Sheets are small.
+            "-map", "[strip]",
+            "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+            &frame_pattern,
+            "-map", "[sheet]",
+            "-frames:v", "1",
+            "-c:v", "mjpeg", "-q:v", "5", "-pix_fmt", "yuvj420p",
+            &out_str,
+        ]);
+    }
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
@@ -278,15 +731,49 @@ pub fn generate_with_progress(
         s
     });
 
+    // Published so `cancel_request` can reach this pass; unpublished on every exit.
+    let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+    let _child_guard = {
+        runs().lock().unwrap().children.insert(track_path.to_string(), child.clone());
+        ChildGuard(track_path.to_string())
+    };
+
+    let started = std::time::Instant::now();
     let mut reported = 0usize;
+    // `kill_child` and the poll below must each take the lock and give it back: a
+    // guard created in a `match` scrutinee lives until the end of the whole `match`,
+    // so locking again inside an arm deadlocks this thread against itself (it did —
+    // the cancel path hung forever while ffmpeg ran to completion regardless).
+    let kill_child = || {
+        let mut c = child.lock().unwrap();
+        let _ = c.kill();
+        let _ = c.wait();
+    };
     let status = loop {
-        match child.try_wait() {
+        let polled = child.lock().unwrap().try_wait();
+        match polled {
             Ok(Some(status)) => break status,
             Ok(None) => {
+                // Nobody is waiting for this sheet any more (track skipped, view
+                // closed, feature switched off): stop decoding rather than finish a
+                // pass no one asked for. Checked before reporting progress so a
+                // cancelled pass emits no further partials.
+                if request_id.is_some() && abandoned(track_path) {
+                    kill_child();
+                    // The child is gone, so every frame on disk is complete.
+                    let done = tile_frames(&fdir, true, start_tile);
+                    keep_or_discard(
+                        app_dir, &k, &g, duration_secs, resume.as_ref(), &done,
+                        started.elapsed(), video_path,
+                    );
+                    cleanup(false);
+                    log::debug!("Storyboard for {} cancelled", video_path.display());
+                    return Err(CANCELLED.to_string());
+                }
                 let done = completed_frames(&fdir, false);
                 if done.len() > reported {
                     reported = done.len();
-                    on_partial(&done);
+                    on_partial(start_tile, &done);
                 }
                 // 80ms, not something lazier: a typical music video's keyframe pass
                 // finishes in ~0.3-0.5s, so a slow poll would collapse the whole
@@ -294,8 +781,7 @@ pub fn generate_with_progress(
                 std::thread::sleep(std::time::Duration::from_millis(80));
             }
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                kill_child();
                 cleanup(false);
                 return Err(format!("Failed to wait for ffmpeg: {}", e));
             }
@@ -303,15 +789,43 @@ pub fn generate_with_progress(
     };
     let stderr_text = stderr_handle.join().unwrap_or_default();
 
-    if !status.success() || !out.exists() {
+    if !status.success() {
+        cleanup(false);
+        return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
+    }
+    if let Some(base) = resume.as_ref() {
+        // Resumed run: ffmpeg produced only the remaining frames, so the finished
+        // sheet is the partial with those pasted after it. A short tail is not an
+        // error — `count` can over-claim the last tile by one, which the grid has
+        // always padded with black.
+        let tail = tile_frames(&fdir, true, start_tile);
+        let composed = compose_sheet(
+            &out, g.cols, base.tile_w, base.tile_h, g.rows,
+            Some(Path::new(&base.sheet)), &tail,
+        );
+        if let Err(e) = composed {
+            // The partial is the suspect (a torn or mismatched sheet), so drop it —
+            // the next pass then starts clean rather than failing the same way.
+            discard_partial(app_dir, &k);
+            cleanup(false);
+            return Err(format!("Failed to compose resumed storyboard: {}", e));
+        }
+        log::info!(
+            "Storyboard for {}: resumed at tile {}/{}, {} new frame(s)",
+            video_path.display(), start_tile, g.count, tail.len()
+        );
+    }
+    if !out.exists() {
         cleanup(false);
         return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
     }
     cleanup(true);
+    // The sheet supersedes the partial it was built from.
+    discard_partial(app_dir, &k);
 
-    // Tile height follows the source aspect (`scale=W:-2`), so it is only knowable
-    // from the result — a 4:3 source yields 200x150, not 200x112. Read it from the
-    // sheet header rather than assuming 16:9.
+    // Tile height follows the source's display aspect (see `scale` above), so it is
+    // only knowable from the result — a 4:3 source yields 200x150, not 200x112. Read
+    // it from the sheet header rather than assuming 16:9.
     let (sheet_w, sheet_h) = image::image_dimensions(&out)
         .map_err(|e| format!("Failed to read storyboard dimensions: {}", e))?;
     let board = Storyboard {
@@ -362,9 +876,10 @@ pub fn gc(app_dir: &Path, live_paths: &[String]) -> Result<usize, String> {
             }
             continue;
         }
-        // Both `<hash>.jpg` and `<hash>.json` share the stem.
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-        if !live.contains(stem) {
+        // `<hash>.jpg`, `<hash>.json` and the `<hash>.part.*` pair all key off the
+        // same hash — see `entry_key`.
+        let Some(stem) = entry_key(&path) else { continue };
+        if !live.contains(&stem) {
             if std::fs::remove_file(&path).is_ok() {
                 removed += 1;
             }
@@ -395,7 +910,7 @@ pub fn enforce_cap(app_dir: &Path, max_bytes: u64) -> Result<u64, String> {
     let mut total: u64 = 0;
     for entry in std::fs::read_dir(&d).map_err(|e| e.to_string())?.flatten() {
         let path = entry.path();
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+        let Some(stem) = entry_key(&path) else { continue };
         let Ok(meta) = entry.metadata() else { continue };
         let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
         total += meta.len();
@@ -417,6 +932,7 @@ pub fn enforce_cap(app_dir: &Path, max_bytes: u64) -> Result<u64, String> {
         }
         let _ = std::fs::remove_file(d.join(format!("{}.jpg", stem)));
         let _ = std::fs::remove_file(d.join(format!("{}.json", stem)));
+        discard_partial(app_dir, &stem);
         freed += bytes;
     }
     if freed > 0 {
@@ -626,7 +1142,7 @@ mod tests {
             // report cumulative, in-bounds frame lists.
             let mut partial_lens: Vec<usize> = Vec::new();
             let started = std::time::Instant::now();
-            let b = generate_with_progress(dir.path(), &track_path, &f, dur as f64, |frames| {
+            let b = generate_with_progress(dir.path(), &track_path, &f, dur as f64, None, |_, frames| {
                 assert!(frames.len() <= 22, "partial reported more frames than tiles");
                 assert!(
                     partial_lens.last().map_or(true, |&prev| frames.len() >= prev),
@@ -701,7 +1217,7 @@ mod tests {
             let handles: Vec<_> = (0..2)
                 .map(|_| {
                     scope.spawn(|| {
-                        generate_with_progress(dir.path(), &track_path, &f, 213.0, |_| {})
+                        generate_with_progress(dir.path(), &track_path, &f, 213.0, None, |_, _| {})
                     })
                 })
                 .collect();
@@ -716,6 +1232,493 @@ mod tests {
             .expect("the cache must survive concurrent generation");
         assert!(std::fs::metadata(&cached.sheets[0]).unwrap().len() > 0);
         assert!(!frames_dir(dir.path(), &key(&track_path)).exists());
+    }
+
+    /// Cancellation is ref counted: the now-playing bar and the detail page ask for
+    /// the same sheet, so one surface's teardown must not kill the other's pass.
+    #[test]
+    fn test_interest_is_ref_counted_per_path() {
+        let path = "file:///test/refcount.mp4";
+        assert!(begin_request(path, "bar"));
+        assert!(begin_request(path, "detail"));
+        assert!(!abandoned(path));
+        end_request(path, "bar");
+        assert!(!abandoned(path), "the detail page still wants this sheet");
+        end_request(path, "detail");
+        assert!(abandoned(path), "nobody left => the pass may be killed");
+    }
+
+    /// The cancel IPC can overtake the invoke it cancels (the invoke registers from a
+    /// blocking thread), which would otherwise leave a pass running unwatched.
+    #[test]
+    fn test_cancel_that_arrives_first_stops_the_request() {
+        let path = "file:///test/stillborn.mp4";
+        cancel_request(path, "early");
+        assert!(!begin_request(path, "early"), "a pre-cancelled request must not start");
+        // The tombstone is consumed, so the same id is usable again afterwards.
+        assert!(begin_request(path, "early"));
+        end_request(path, "early");
+    }
+
+    /// An abandoned request bails before ffmpeg is ever spawned, and leaves no cache
+    /// entry behind. Needs no ffmpeg: the check precedes the spawn.
+    #[test]
+    fn test_generate_bails_before_spawning_when_abandoned() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = "file:///test/abandoned.mp4";
+        let err = generate_with_progress(
+            dir.path(), track, Path::new("/test/abandoned.mp4"), 213.0, Some("gone"), |_, _| {},
+        )
+        .expect_err("an abandoned request must not generate");
+        assert_eq!(err, CANCELLED);
+        assert!(get_cached(dir.path(), track).is_none());
+    }
+
+    /// `None` opts out of cancellation entirely (non-UI callers can't be abandoned),
+    /// so the same unregistered call proceeds to ffmpeg and fails on its own terms.
+    #[test]
+    fn test_generate_without_a_request_id_is_not_cancellable() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = "file:///test/no-request-id.mp4";
+        let err = generate_with_progress(
+            dir.path(), track, Path::new("/test/no-request-id.mp4"), 213.0, None, |_, _| {},
+        )
+        .expect_err("a missing file cannot produce a sheet");
+        assert_ne!(err, CANCELLED, "opted out of cancellation, so it must have tried");
+    }
+
+    /// Mid-pass cancellation against real ffmpeg: withdraw the only interest while
+    /// frames are landing and the child must die, leaving no sheet and no scratch dir.
+    /// A 20-minute clip guarantees the pass is long enough to catch in the act.
+    /// `#[ignore]`d because it encodes a clip; self-skips when ffmpeg is absent.
+    #[test]
+    #[ignore]
+    fn test_cancel_kills_ffmpeg_mid_pass() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("long.mp4");
+        let ok = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                "testsrc2=size=320x240:rate=10:duration=1200",
+                "-c:v", "libx264", "-preset", "ultrafast", "-g", "30",
+                "-pix_fmt", "yuv420p", "-y",
+            ])
+            .arg(&f)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(ok, "failed to encode test clip");
+
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let k = key(&track_path);
+        assert!(begin_request(&track_path, "req"));
+        // Cancelled from the progress callback, so the pass is provably still running
+        // when the interest is withdrawn; the poll loop notices on its next tick.
+        let mut partials = 0usize;
+        let started = std::time::Instant::now();
+        let mut cancelled_at = std::time::Duration::ZERO;
+        let res = generate_with_progress(
+            dir.path(), &track_path, &f, 1200.0, Some("req"),
+            |_, _| {
+                partials += 1;
+                if partials == 1 {
+                    cancelled_at = started.elapsed();
+                    cancel_request(&track_path, "req");
+                }
+            },
+        );
+        assert!(partials > 0, "no progress fired, so nothing was cancelled mid-pass");
+        assert_eq!(res.unwrap_err(), CANCELLED);
+
+        // Whether the work is worth keeping depends on how long the pass had run (see
+        // RESUME_MIN_ELAPSED), which depends on the machine — so this asserts only
+        // where the answer is unambiguous, rather than assuming a speed.
+        let kept = part_meta_path(dir.path(), &k).exists();
+        if cancelled_at < RESUME_MIN_ELAPSED.mul_f64(0.8) {
+            assert!(!kept, "a pass this cheap ({cancelled_at:?}) must leave no partial");
+        } else if cancelled_at > RESUME_MIN_ELAPSED.mul_f64(1.5) {
+            assert!(kept, "a pass this expensive ({cancelled_at:?}) must be resumable");
+        }
+        assert!(
+            get_cached(dir.path(), &track_path).is_none(),
+            "a cancelled pass must not leave a half-written sheet cached"
+        );
+        assert!(
+            !frames_dir(dir.path(), &k).exists(),
+            "scratch frames dir must be cleaned up after cancellation"
+        );
+    }
+
+    /// Tile size for the synthetic geometry below. Deliberately tiny: these tests are
+    /// about where a tile lands in the sheet, not about picture quality, and a real
+    /// 400px grid would make every canvas 2 megapixels.
+    const T_W: u32 = 8;
+    const T_H: u32 = 6;
+
+    /// A 22-tile 5x5 board — the shape a 213s video produces — at test tile size.
+    fn tiny_geometry() -> Geometry {
+        Geometry { interval_secs: 10.0, count: 22, cols: 5, rows: 5, tile_w: T_W }
+    }
+
+    fn write_frame(path: &Path, rgb: [u8; 3]) {
+        let img: image::RgbImage = image::ImageBuffer::from_pixel(T_W, T_H, image::Rgb(rgb));
+        let file = std::fs::File::create(path).unwrap();
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(
+            std::io::BufWriter::new(file), 100,
+        );
+        enc.encode_image(&img).unwrap();
+    }
+
+    /// `n` frames for tiles `from..from+n`, each a distinguishable shade so a paste at
+    /// the wrong slot is visible rather than merely plausible.
+    fn frames_in(dir: &Path, from: usize, n: usize) -> Vec<(usize, PathBuf)> {
+        std::fs::create_dir_all(dir).unwrap();
+        (0..n)
+            .map(|i| {
+                let idx = from + i;
+                let p = dir.join(format!("{:03}.jpg", idx));
+                write_frame(&p, [(10 + idx * 10) as u8, 40, 200]);
+                (idx, p)
+            })
+            .collect()
+    }
+
+    /// Colour at the centre of tile `idx` in a composed sheet. JPEG is lossy, so
+    /// callers compare with a tolerance rather than for equality.
+    fn tile_pixel(sheet: &Path, cols: usize, idx: usize) -> [u8; 3] {
+        let img = image::open(sheet).unwrap().to_rgb8();
+        let x = (idx % cols) as u32 * T_W + T_W / 2;
+        let y = (idx / cols) as u32 * T_H + T_H / 2;
+        img.get_pixel(x, y).0
+    }
+
+    fn close(a: [u8; 3], b: [u8; 3]) -> bool {
+        a.iter().zip(b.iter()).all(|(x, y)| (*x as i32 - *y as i32).abs() <= 8)
+    }
+
+    /// The round trip a resume depends on: what a cancelled pass wrote must come back
+    /// describing the same tiles, in a sheet exactly as tall as those tiles need.
+    #[test]
+    fn test_partial_round_trips_with_the_rows_it_filled() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(super::dir(dir.path())).unwrap();
+        let g = tiny_geometry();
+        let frames = frames_in(&dir.path().join("scratch"), 0, 7);
+
+        write_partial(dir.path(), "k", &g, 213.0, None, &frames).unwrap();
+        let p = read_partial(dir.path(), "k", &g, 213.0).expect("partial must be accepted");
+        assert_eq!(p.tiles_done, 7);
+        assert_eq!((p.tile_w, p.tile_h), (T_W, T_H));
+        // 7 tiles at 5 columns is two rows — the sheet is short, not a padded full grid.
+        let (w, h) = image::image_dimensions(&p.sheet).unwrap();
+        assert_eq!((w, h), (T_W * 5, T_H * 2));
+    }
+
+    /// Every tile has to land in the slot its index names, or the seek bar shows the
+    /// wrong moment. Checked by colour, per tile, across a row boundary.
+    #[test]
+    fn test_composed_tiles_land_in_their_own_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(super::dir(dir.path())).unwrap();
+        let g = tiny_geometry();
+        let frames = frames_in(&dir.path().join("scratch"), 0, 7);
+        write_partial(dir.path(), "k", &g, 213.0, None, &frames).unwrap();
+        let sheet = part_sheet_path(dir.path(), "k");
+        for (idx, _) in &frames {
+            let want = [(10 + idx * 10) as u8, 40, 200];
+            let got = tile_pixel(&sheet, g.cols, *idx);
+            assert!(close(got, want), "tile {idx} shows {got:?}, expected {want:?}");
+        }
+    }
+
+    /// A video interrupted twice must make progress both times: the second cancel
+    /// extends the first partial rather than replacing it, and the tiles already in it
+    /// stay where they were.
+    #[test]
+    fn test_a_partial_extends_the_one_it_resumed_from() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(super::dir(dir.path())).unwrap();
+        let g = tiny_geometry();
+        let scratch = dir.path().join("scratch");
+        write_partial(dir.path(), "k", &g, 213.0, None, &frames_in(&scratch, 0, 7)).unwrap();
+        let first = read_partial(dir.path(), "k", &g, 213.0).unwrap();
+
+        let more = frames_in(&scratch, 7, 4);
+        write_partial(dir.path(), "k", &g, 213.0, Some(&first), &more).unwrap();
+        let second = read_partial(dir.path(), "k", &g, 213.0).expect("extension must be accepted");
+        assert_eq!(second.tiles_done, 11);
+        let (_, h) = image::image_dimensions(&second.sheet).unwrap();
+        assert_eq!(h, T_H * 3, "11 tiles at 5 columns needs three rows");
+        let sheet = part_sheet_path(dir.path(), "k");
+        // One carried-over tile and one new one, to prove the paste didn't shift.
+        assert!(close(tile_pixel(&sheet, g.cols, 3), [40, 40, 200]));
+        assert!(close(tile_pixel(&sheet, g.cols, 9), [100, 40, 200]));
+    }
+
+    /// Anything that could put the seam in the wrong place is a rejection, and a
+    /// rejected partial is deleted rather than re-examined on every play.
+    #[test]
+    fn test_partial_is_rejected_when_it_cannot_be_trusted() {
+        let g = tiny_geometry();
+        let cases: Vec<(&str, Box<dyn Fn(&mut PartialSheet)>)> = vec![
+            ("older recipe", Box::new(|p: &mut PartialSheet| p.recipe += 1)),
+            ("different grid", Box::new(|p: &mut PartialSheet| p.cols += 1)),
+            ("different tile size", Box::new(|p: &mut PartialSheet| p.tile_w += 2)),
+            ("different interval", Box::new(|p: &mut PartialSheet| p.interval_secs += 1.0)),
+            ("different source length", Box::new(|p: &mut PartialSheet| p.duration_secs += 30.0)),
+            ("no usable tiles", Box::new(|p: &mut PartialSheet| p.tiles_done = 0)),
+            ("every tile, so nothing to resume", Box::new(|p: &mut PartialSheet| p.tiles_done = p.count)),
+            ("more tiles than the sheet holds", Box::new(|p: &mut PartialSheet| p.tiles_done = 20)),
+        ];
+        for (why, mutate) in cases {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir_all(super::dir(dir.path())).unwrap();
+            write_partial(
+                dir.path(), "k", &g, 213.0, None, &frames_in(&dir.path().join("scratch"), 0, 7),
+            ).unwrap();
+            let mut p = read_partial(dir.path(), "k", &g, 213.0).unwrap();
+            mutate(&mut p);
+            std::fs::write(
+                part_meta_path(dir.path(), "k"), serde_json::to_string(&p).unwrap(),
+            ).unwrap();
+
+            assert!(
+                read_partial(dir.path(), "k", &g, 213.0).is_none(),
+                "a partial with a {why} must be rejected"
+            );
+            assert!(
+                !part_meta_path(dir.path(), "k").exists() && !part_sheet_path(dir.path(), "k").exists(),
+                "a rejected partial ({why}) must be deleted, not left to be re-read"
+            );
+        }
+    }
+
+    /// The saving from resuming is roughly the time already spent, so a pass that was
+    /// about to finish anyway leaves nothing behind.
+    #[test]
+    fn test_a_cheap_pass_is_not_worth_keeping() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(super::dir(dir.path())).unwrap();
+        let g = tiny_geometry();
+        let frames = frames_in(&dir.path().join("scratch"), 0, 7);
+        let quick = std::time::Duration::from_millis(120);
+        keep_or_discard(dir.path(), "k", &g, 213.0, None, &frames, quick, Path::new("x.mp4"));
+        assert!(!part_meta_path(dir.path(), "k").exists());
+
+        keep_or_discard(
+            dir.path(), "k", &g, 213.0, None, &frames, RESUME_MIN_ELAPSED, Path::new("x.mp4"),
+        );
+        assert!(part_meta_path(dir.path(), "k").exists(), "an expensive pass must be kept");
+    }
+
+    /// `file_stem` reports `<hash>.part` for a partial, which matches no live track —
+    /// so without `entry_key` the startup sweep deleted every resumable partial.
+    #[test]
+    fn test_gc_keeps_a_live_partial_and_sweeps_a_dead_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = super::dir(dir.path());
+        std::fs::create_dir_all(&d).unwrap();
+        let live = "file:///music/live.mp4";
+        let dead = "file:///music/dead.mp4";
+        let g = tiny_geometry();
+        for track in [live, dead] {
+            write_partial(
+                dir.path(), &key(track), &g, 213.0, None,
+                &frames_in(&dir.path().join(format!("s{}", key(track))), 0, 7),
+            ).unwrap();
+        }
+
+        gc(dir.path(), &[live.to_string()]).unwrap();
+        assert!(part_sheet_path(dir.path(), &key(live)).exists(), "a live partial must survive gc");
+        assert!(part_meta_path(dir.path(), &key(live)).exists());
+        assert!(!part_sheet_path(dir.path(), &key(dead)).exists(), "an orphaned partial must be swept");
+        assert!(!part_meta_path(dir.path(), &key(dead)).exists());
+    }
+
+    /// A clip whose brightness rises with the moment it is at: each `BLOCK_SECS` of
+    /// video is a flat grey, one step lighter than the last. That makes a tile
+    /// self-verifying — its centre pixel says which stretch of the source it came from
+    /// — which is what a resume has to get right at the seam. Keyframes land on the
+    /// block boundaries (`-g` = one GOP per block), so the frame a tile samples carries
+    /// that block's own value rather than the tail of the previous one. The greys stay
+    /// inside 16..235: the source is limited-range YUV and anything outside that clips
+    /// on the way to RGB, which would flatten the very differences being measured.
+    const BLOCK_SECS: u32 = 10;
+
+    fn encode_block_clip(path: &Path, secs: u32, extra: &[&str]) -> bool {
+        let src = format!(
+            "color=c=black:s=64x48:r=5:d={},format=yuv420p,geq=lum='24+7*floor(T/{})':cb='128':cr='128'",
+            secs, BLOCK_SECS
+        );
+        let mut cmd = std::process::Command::new("ffmpeg");
+        cmd.args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", &src]);
+        cmd.args(extra);
+        cmd.args([
+            "-c:v", "libx264", "-preset", "ultrafast",
+            // One GOP per block, so every tile's sample is that block's first frame.
+            "-g", &(5 * BLOCK_SECS).to_string(),
+            "-pix_fmt", "yuv420p", "-y",
+        ]);
+        cmd.arg(path).status().map(|s| s.success()).unwrap_or(false)
+    }
+
+    /// Grey level at the centre of tile `idx`, as a rough integer.
+    fn tile_luma(sheet: &Path, b: &Storyboard, idx: usize) -> i32 {
+        let img = image::open(sheet).unwrap().to_rgb8();
+        let x = (idx % b.cols) as u32 * b.tile_w + b.tile_w / 2;
+        let y = (idx / b.cols) as u32 * b.tile_h + b.tile_h / 2;
+        let p = img.get_pixel(x, y).0;
+        ((p[0] as i32) + (p[1] as i32) + (p[2] as i32)) / 3
+    }
+
+    /// Tiles must be shaped like the video the PLAYER shows, not like the way the
+    /// frame happens to be stored. This clip is stored 4:3 but flagged 16:9 (an
+    /// anamorphic source — a DVD rip, a DVB capture, some phone video), which is
+    /// exactly the case `scale=W:-2` got wrong: it reproduced the horizontal squeeze
+    /// faithfully, so every tile came out stretched against the video beside it.
+    /// `#[ignore]`d: encodes a clip; self-skips without ffmpeg.
+    #[test]
+    #[ignore]
+    fn test_anamorphic_tiles_follow_the_display_aspect() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("anamorphic.mp4");
+        // 4:3 pixels, tagged for 16:9 display => SAR 4:3, DAR 16:9.
+        assert!(encode_block_clip(&f, 60, &["-aspect", "16:9"]), "failed to encode test clip");
+
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let b = generate_with_progress(dir.path(), &track_path, &f, 60.0, None, |_, _| {})
+            .expect("generate");
+        let want = (b.tile_w as f64 * 9.0 / 16.0).round();
+        assert!(
+            (b.tile_h as f64 - want).abs() <= 2.0,
+            "tile is {}x{}; a 16:9 DISPLAY aspect wants a height near {} (the stored 4:3 \
+             ratio would give {})",
+            b.tile_w, b.tile_h, want, (b.tile_w as f64 * 3.0 / 4.0).round()
+        );
+    }
+
+    /// End-to-end resume: a partial left by a cancelled pass is extended rather than
+    /// re-decoded, and the tiles either side of the seam still depict their own moment.
+    ///
+    /// Two things make this airtight rather than merely plausible. The carried-over
+    /// region is **marked** (tile 0 painted magenta), so a run that quietly started
+    /// over instead of resuming fails — a full re-decode would put grey there. And the
+    /// clip's brightness encodes its own timeline, so a seam that is off by even one
+    /// tile shows up as the wrong grey. `#[ignore]`d: encodes a clip; self-skips
+    /// without ffmpeg.
+    #[test]
+    #[ignore]
+    fn test_resume_extends_a_partial_and_lands_the_seam() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("blocks.mp4");
+        let secs = 300u32;
+        assert!(encode_block_clip(&f, secs, &[]), "failed to encode test clip");
+        let track_path = format!("file://{}", f.to_string_lossy());
+        let k = key(&track_path);
+        let g = geometry(secs as f64);
+
+        // 1. A straight-through pass — the baseline the resumed one must reproduce.
+        //    Its own correctness is pinned by the greys rising tile by tile: that only
+        //    holds if each tile sampled its own block, in order.
+        let full = generate_with_progress(dir.path(), &track_path, &f, secs as f64, None, |_, _| {})
+            .expect("straight-through generate");
+        assert_eq!(full.count, g.count);
+        let baseline: Vec<i32> = (0..full.count)
+            .map(|i| tile_luma(&sheet_path(dir.path(), &k), &full, i))
+            .collect();
+        // `count` can over-claim the final tile by one — `fps=1/N` has no input frame
+        // left to fill the last slot — and the grid pads it black. That is pre-existing
+        // behaviour, so the ordering check covers the tiles that carry a frame.
+        let filled = baseline.iter().take_while(|v| **v > 4).count();
+        assert!(
+            filled + 1 >= full.count,
+            "only {filled} of {} tiles carry a frame; at most the last may be padding",
+            full.count
+        );
+        for i in 1..filled {
+            assert!(
+                baseline[i] - baseline[i - 1] >= 4,
+                "tile {i} ({}) should be a step lighter than tile {} ({}) — the clip \
+                 encodes its own timeline, so this means the tiles are not in time order",
+                baseline[i], i - 1, baseline[i - 1]
+            );
+        }
+
+        // 2. Stand in for a pass cancelled after three rows: crop those rows out of the
+        //    finished sheet (which is pixel-for-pixel what such a pass would have left),
+        //    mark tile 0, and write the sidecar. Then remove the finished sheet, so the
+        //    only way to a complete board is through the partial.
+        let rows_keep = 3usize;
+        let tiles_done = rows_keep * full.cols;
+        let mut cropped = image::imageops::crop_imm(
+            &image::open(sheet_path(dir.path(), &k)).unwrap().to_rgb8(),
+            0, 0, full.tile_w * full.cols as u32, full.tile_h * rows_keep as u32,
+        ).to_image();
+        for y in 0..full.tile_h {
+            for x in 0..full.tile_w {
+                cropped.put_pixel(x, y, image::Rgb([255, 0, 255]));
+            }
+        }
+        cropped.save(part_sheet_path(dir.path(), &k)).unwrap();
+        let meta = PartialSheet {
+            recipe: RESUME_RECIPE,
+            tiles_done,
+            count: g.count,
+            cols: g.cols,
+            rows: g.rows,
+            tile_w: full.tile_w,
+            tile_h: full.tile_h,
+            interval_secs: g.interval_secs,
+            duration_secs: secs as f64,
+            sheet: part_sheet_path(dir.path(), &k).to_string_lossy().to_string(),
+        };
+        std::fs::write(part_meta_path(dir.path(), &k), serde_json::to_string(&meta).unwrap()).unwrap();
+        std::fs::remove_file(sheet_path(dir.path(), &k)).unwrap();
+        std::fs::remove_file(meta_path(dir.path(), &k)).unwrap();
+
+        // 3. The resumed pass.
+        let resumed = generate_with_progress(dir.path(), &track_path, &f, secs as f64, None, |_, _| {})
+            .expect("resumed generate");
+        let sheet = sheet_path(dir.path(), &k);
+        assert_eq!((resumed.count, resumed.cols, resumed.rows), (full.count, full.cols, full.rows));
+        assert_eq!(
+            image::image_dimensions(&sheet).unwrap(),
+            (full.tile_w * full.cols as u32, full.tile_h * full.rows as u32),
+            "a resumed sheet must be the full grid, not the partial's height"
+        );
+        assert!(
+            tile_luma(&sheet, &resumed, 0) > 150,
+            "tile 0 lost the marker, so the pass re-decoded from zero instead of resuming"
+        );
+        // Every tile after the marker, on both sides of the seam, shows what the
+        // straight-through pass put there. One tile of drift at the seam would read as
+        // a whole step of grey.
+        for i in 1..resumed.count {
+            let got = tile_luma(&sheet, &resumed, i);
+            let side = if i < tiles_done { "carried over" } else { "newly decoded" };
+            assert!(
+                (got - baseline[i]).abs() <= 5,
+                "{side} tile {i} reads {got}, but a straight-through pass puts {} there \
+                 (seam at {tiles_done})",
+                baseline[i]
+            );
+        }
+        assert!(
+            !part_sheet_path(dir.path(), &k).exists() && !part_meta_path(dir.path(), &k).exists(),
+            "the finished sheet supersedes the partial, which must not be left behind"
+        );
     }
 
     #[test]

@@ -45,9 +45,12 @@ function LoadingStrip({
     <div className="video-filmstrip">
       {Array.from({ length: slots }, (_, k) => {
         const i = indices[k];
-        const src = partial && i != null && i < partial.frames.length ? partial.frames[i] : null;
+        // Frames are indexed from `startIndex`, not from tile 0 — a resumed pass
+        // extracts the tail of the video first, so the head stays a placeholder.
+        const at = partial && i != null ? i - partial.startIndex : -1;
+        const src = partial && at >= 0 && at < partial.frames.length ? partial.frames[at] : null;
         if (!src) return <div key={k} className="video-filmstrip-placeholder" />;
-        const secs = i * partial!.intervalSecs;
+        const secs = i! * partial!.intervalSecs;
         return (
           <div
             key={k}

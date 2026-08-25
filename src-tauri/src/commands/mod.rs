@@ -554,7 +554,8 @@ pub struct VideoFrameResult {
 }
 
 /// `status`: "ok" (storyboard present) | "unavailable" (no ffmpeg) |
-/// "unsupported" (not a local file — nothing to extract from).
+/// "unsupported" (not a local file — nothing to extract from) |
+/// "cancelled" (every caller withdrew before the pass finished — not an error).
 #[derive(serde::Serialize)]
 pub struct StoryboardResult {
     pub status: String,

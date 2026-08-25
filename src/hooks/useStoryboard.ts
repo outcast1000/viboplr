@@ -6,7 +6,7 @@ import { isVideoTrack } from "../utils";
 import { schemeOf, type Storyboard } from "../utils/storyboard";
 
 interface StoryboardResult {
-  status: string; // "ok" | "unavailable" | "unsupported"
+  status: string; // "ok" | "unavailable" | "unsupported" | "cancelled"
   storyboard: Storyboard | null;
 }
 
@@ -14,15 +14,19 @@ interface StoryboardResult {
 interface StoryboardPartialEvent {
   path: string;
   framePaths: string[];
+  startIndex: number;
   intervalSecs: number;
   count: number;
 }
 
 /** Frames extracted so far while the storyboard generates — `frames[i]` is an
- *  image URL depicting `i * intervalSecs`; `count` is how many the finished
- *  board will carry. Only ever non-null while `status` is "loading". */
+ *  image URL depicting `(startIndex + i) * intervalSecs`; `count` is how many the
+ *  finished board will carry. `startIndex` is 0 for a fresh pass and non-zero while
+ *  the backend resumes one that was cancelled part-way (its frames start mid-video).
+ *  Only ever non-null while `status` is "loading". */
 export interface PartialStoryboard {
   frames: string[];
+  startIndex: number;
   intervalSecs: number;
   count: number;
 }
@@ -30,10 +34,17 @@ export interface PartialStoryboard {
 export interface StoryboardState {
   board: Storyboard | null;
   /** `unavailable` = ffmpeg missing (the filmstrip prompts to install it);
-   *  `unsupported` = nothing can produce one for this source; `idle` = not a video. */
-  status: "idle" | "loading" | "ready" | "unavailable" | "unsupported";
+   *  `unsupported` = nothing can produce one for this source; `off` = generation is
+   *  switched off in Settings and this video has no sheet cached; `idle` = not a
+   *  video. */
+  status: "idle" | "loading" | "ready" | "unavailable" | "unsupported" | "off";
   partial: PartialStoryboard | null;
 }
+
+/** Unique per generation attempt, so `cancel_storyboard` withdraws exactly this
+ *  surface's interest and leaves any other surface's alive (see the Rust
+ *  `storyboard::Runs`). */
+let nextRequestId = 0;
 
 /**
  * Resolves the seek-preview storyboard for the currently playing video track.
@@ -48,6 +59,12 @@ export interface StoryboardState {
  *
  * Returns null for audio, for sources with no storyboard, and when ffmpeg is missing.
  * Callers treat null as "no preview" and keep the plain time bubble.
+ *
+ * A pass in flight is abandoned as soon as it is no longer wanted — the track
+ * changed, the view closed, or generation was switched off — which kills the ffmpeg
+ * child rather than letting a full keyframe decode run for a video nobody is on any
+ * more. Interest is ref counted in the backend, so the now-playing bar and the detail
+ * page can want the same sheet without either one's teardown killing it.
  */
 export function useStoryboard(
   track: QueueTrack | null,
@@ -58,6 +75,11 @@ export function useStoryboard(
    *  no storyboard answer — same attribution rule as the source panel. Arrives
    *  async (a resolve must finish first), so the effect re-runs when it lands. */
   localPath?: string | null,
+  /** Settings > Playback > "Generate video seek previews". False stops the local
+   *  ffmpeg pass from ever starting (and cancels one in flight); sheets already
+   *  cached, and sheets published by the source itself, cost nothing and are still
+   *  served. */
+  enabled: boolean = true,
 ): StoryboardState {
   const [state, setState] = useState<StoryboardState>({ board: null, status: "idle", partial: null });
 
@@ -71,6 +93,8 @@ export function useStoryboard(
 
     let cancelled = false;
     let unlistenPartial: (() => void) | null = null;
+    // The pass currently running on our behalf, so teardown can withdraw from it.
+    let pending: { path: string; requestId: string } | null = null;
 
     // Local sheets need the asset protocol; plugin sheets may already be http/data
     // URLs, or local paths under the plugin's own storage.
@@ -96,6 +120,11 @@ export function useStoryboard(
       }
 
       if (cancelled) return;
+      // Nothing cached and generation is switched off: report it and decode nothing.
+      if (!enabled) {
+        setState({ board: null, status: "off", partial: null });
+        return;
+      }
       // Generation streams the frames it has extracted so far, so the filmstrip can
       // fill in progressively. Subscribed before the extract invoke so no early
       // frame is missed; terminal setStates below clear `partial` (the frame files
@@ -105,6 +134,7 @@ export function useStoryboard(
           if (ev.payload.path !== target) return;
           const partial: PartialStoryboard = {
             frames: ev.payload.framePaths.map(p => convertFileSrc(p)),
+            startIndex: ev.payload.startIndex ?? 0,
             intervalSecs: ev.payload.intervalSecs,
             count: ev.payload.count,
           };
@@ -118,11 +148,16 @@ export function useStoryboard(
       }
 
       if (cancelled) return;
+      const requestId = `sb${++nextRequestId}`;
+      pending = { path: target, requestId };
       try {
-        const result = await invoke<StoryboardResult>("extract_storyboard", { path: target });
+        const result = await invoke<StoryboardResult>("extract_storyboard", { path: target, requestId });
         if (cancelled) return;
         if (result.status === "ok" && result.storyboard) {
           setState({ board: withAssetUrls(result.storyboard), status: "ready", partial: null });
+        } else if (result.status === "cancelled") {
+          // Another surface withdrew and the pass was killed while we were still
+          // waiting on it; leave the state alone rather than claim "no preview".
         } else {
           // "unavailable" (no ffmpeg) / "unsupported" (not a local file) are expected.
           // The seek bar just shows no thumbnail; the filmstrip prompts for ffmpeg.
@@ -136,6 +171,7 @@ export function useStoryboard(
         console.error("Failed to generate storyboard:", e);
         if (!cancelled) setState({ board: null, status: "unsupported", partial: null });
       } finally {
+        pending = null;
         unlistenPartial?.();
         unlistenPartial = null;
       }
@@ -179,8 +215,13 @@ export function useStoryboard(
     return () => {
       cancelled = true;
       unlistenPartial?.();
+      if (pending) {
+        invoke("cancel_storyboard", pending).catch(e =>
+          console.error("Failed to cancel storyboard generation:", e));
+        pending = null;
+      }
     };
-  }, [path, isVideo, resolveByUri, localPath]);
+  }, [path, isVideo, resolveByUri, localPath, enabled]);
 
   return state;
 }

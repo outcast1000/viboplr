@@ -32,7 +32,9 @@ Backend (`src-tauri/`):
 - `storyboard.rs` — `geometry()`, `tile_width()`, generation, path-keyed cache, `gc()`,
   `enforce_cap()`. 14 unit tests plus an `#[ignore]`d real-ffmpeg test covering 16:9
   *and* 4:3 (the latter is why `tileH` is read from the produced sheet).
-- `commands::get_storyboard` (cache-only) / `commands::extract_storyboard` (generates).
+- `commands::get_storyboard` (cache-only) / `commands::extract_storyboard` (generates)
+  / `commands::cancel_storyboard` (withdraws one caller's interest — see
+  "Switching it off, and stopping a pass" below).
 - `db::get_all_track_paths()` — the liveness set for `gc`.
 - Startup sweep (`gc` then `enforce_cap`) on a background thread; cache entries also
   dropped on track delete beside `delete_cached_frames`.
@@ -62,6 +64,108 @@ ytdlp plugin (`outcast1000/viboplr-ytdlp`, unreleased):
   1.0.3: on an older host the plugin omits this feature rather than being blocked.
 
 Still open (product calls, not blockers): see "Open questions".
+
+## Switching it off, and stopping a pass
+
+Generation is a setting: **Settings → Playback → "Video seek previews"** (store key
+`videoStoryboards`, default on). It gates **tier 2 only** — the local ffmpeg pass.
+A sheet already on disk, and a sheet the source published itself (tier 1), cost
+nothing to produce, so both are still served with the setting off; `useStoryboard`
+reports `status: "off"` when a video has neither and nothing was decoded for it.
+Gating the *renderers* instead would have thrown away previews that are free.
+
+A pass in flight is **stopped**, not left to finish. The trigger is
+`useStoryboard`'s effect cleanup — the track changed, the view closed, the setting
+went off — which invokes `cancel_storyboard`; the poll loop in
+`generate_with_progress` kills the ffmpeg child on its next 80 ms tick, cleans up the
+scratch dir, and returns `CANCELLED` (a *status*, not an error to log). A full
+keyframe decode for a video the user has already left is the exact cost this feature
+was designed to keep small.
+
+Cancellation is **ref counted per track path**, and has to be: generation is
+single-flight but two surfaces routinely want the same sheet (the now-playing bar and
+the track detail page), so a bare "cancel this path" would let one surface's teardown
+kill the other's still-wanted pass. Each `extract_storyboard` carries its own request
+id, registered by `storyboard::begin_request`; the pass dies only once a path's set of
+ids empties. Two consequences worth knowing:
+
+- A cancel can **overtake** the invoke it cancels (the invoke registers from a
+  blocking thread), so `cancel_request` leaves a tombstone that makes the matching
+  `begin_request` return false and bail before ffmpeg is spawned.
+- A waiter that was sleeping on the single-flight condvar re-checks abandonment when
+  it wakes: if the winner it waited on was killed there is no cache to serve, and
+  without that check the loser would start the very pass the user just walked away
+  from.
+
+## Resuming a cancelled pass
+
+A cancelled pass **keeps what it extracted**. It stitches the frames it had into a
+short sheet — `cols` wide, only as many rows as are full — writes a `<hash>.part.jpg`
+plus a `<hash>.part.json` sidecar recording how far it got, and the next pass seeks
+straight to that point (`-ss`), decodes only the remainder (`-frames:v`), and composes
+the two into the finished sheet. So a long source that is interrupted repeatedly makes
+progress across plays instead of restarting from zero each time.
+
+The short sheet is deliberately **the same shape as the finished one** — same tile
+size, same column count — because that is what makes a resume a paste rather than a
+re-layout, and it means `utils/storyboard.ts` needs no notion of a partial at all
+(`locate()` assumes every sheet in a descriptor shares one `cols × rows`, so a
+remainder appended as "sheet 1" would have broken every consumer).
+
+Rules worth knowing before touching this:
+
+- **`RESUME_MIN_ELAPSED` (1 s) is the whole gate on whether a partial is written.**
+  What a resume saves is roughly the time already spent, and a typical music video's
+  entire pass is 0.3–0.5 s — persisting a sheet to save that is churn. This is what
+  confines partials to the sources where a skip actually throws work away.
+- **`RESUME_RECIPE` must be bumped** whenever the tiles themselves change — the
+  interval/grid maths, the scale filter, the encoder. A partial cut by an older recipe
+  cannot be extended by a newer one and the seam would be the only symptom.
+- **A partial that can't be trusted is deleted, not re-examined.** `read_partial`
+  rejects a stale recipe, a geometry that no longer matches the source, and a sheet
+  whose pixel dimensions disagree with the tile count it claims (a torn write) — each
+  time removing both files, so a bad partial can't cost a validation on every play.
+- **`gc` / `enforce_cap` group by `entry_key`, not `file_stem`.** `file_stem` reports
+  `<hash>.part` for a partial, which matches no live track, so the startup sweep would
+  delete every resumable partial on the next launch. That was a real bug in the first
+  cut of this and it is what the `.part` strip exists for.
+- **Composing re-encodes the carried-over tiles**, so a repeatedly interrupted video
+  loses a little quality per cycle. `COMPOSE_QUALITY` (92, above ffmpeg's `-q:v 5`)
+  makes the decay slow enough not to matter over the handful of cycles a real user
+  produces. Don't lower it to save disk.
+- **`start_index` on the progress event exists for this.** A resumed pass extracts the
+  *tail* of the video, so its frame files start mid-way; a consumer reading them
+  positionally would caption every one with the wrong timestamp. `partialStoryboard`
+  pads the slots before it, which the existing "no sheet for this tile" guards already
+  render as no tile.
+
+`test_resume_extends_a_partial_and_lands_the_seam` (`#[ignore]`d, real ffmpeg) is what
+pins the risky half — the `-ss` alignment. It builds a clip whose brightness rises with
+time, so a tile's own pixels say which stretch of the source it came from, and it
+**marks** the carried-over region (tile 0 painted magenta) so a run that quietly
+re-decoded from zero instead of resuming fails rather than passing on a plausible-
+looking sheet.
+
+## Tiles follow the display aspect, not the stored one
+
+The scale step is `scale={tile_w}:trunc({tile_w}/dar/2)*2,setsar=1` — height from the
+source's **display** aspect ratio. It was `scale={tile_w}:-2`, which derives the height
+from the stored width/height and therefore ignores the sample aspect ratio: an
+anamorphic source (a DVD rip, a DVB capture, some phone video) stores non-square
+pixels, so that faithfully reproduced the squeeze and every tile came out stretched
+against the video the player was showing — mpv scales to `dar`. `setsar=1` then stops
+the encoder recording a non-square ratio that nothing downstream reads (JPEG carries
+no usable SAR, and neither the WebView nor the `image` crate would honour one).
+
+`video_frames.rs` carries the same correction for the single large frame
+(`thumbnail=50,scale=trunc(720*dar/2)*2:720,setsar=1`), so the queue art, the hero and
+the strip all agree about a video's shape.
+
+`tile_h` is still **read from the produced sheet** rather than computed here: the
+expression rounds, and the sheet is the only thing that knows what actually came out.
+Pinned by `test_anamorphic_tiles_follow_the_display_aspect` (`#[ignore]`d, real
+ffmpeg), which encodes a 4:3 frame tagged for 16:9 display and asserts the tile follows
+the 16:9.
 
 ## Decisions (settled during design)
 
@@ -348,17 +452,30 @@ install it), so this tier is simply absent for users without it. Reuse the exist
 (`{app_dir}/waveforms/{md5(key)}.json`):
 
 ```
-storyboards/{md5(key)}.json     # the Storyboard descriptor
-storyboards/{md5(key)}.0.jpg    # sheet 0
-storyboards/{md5(key)}.1.jpg    # sheet 1 …
+storyboards/{md5(key)}.json          # the Storyboard descriptor
+storyboards/{md5(key)}.0.jpg         # sheet 0
+storyboards/{md5(key)}.1.jpg         # sheet 1 …
+storyboards/{md5(key)}.part.jpg      # a cancelled pass's short sheet (resume point)
+storyboards/{md5(key)}.part.json     # …and how far it got
+storyboards/{md5(key)}.frames/       # scratch frames, only while a pass is running
 ```
 
-**Key = the track's scheme-prefixed path/URI**, not metadata. The waveform cache
+**Key = `md5("v2::" + the track's scheme-prefixed path/URI)`**, not metadata. The waveform cache
 keys on `v3::artist::title::duration`, which is safe there because a song's waveform
 is ~identical across encodings. Frames are not: two videos with equal title and
 duration (a studio video and a live take) would collide and show the wrong footage.
 The codebase already learned this — `shelfVideoKey`'s comment says keying by path
 "stops two same-titled videos from sharing — and swapping — one frame."
+
+The `v2::` prefix is a **recipe stamp**, the one the waveform cache's `v3::` already
+demonstrated: bump it whenever the tiles change and every entry cut by the old recipe
+becomes an orphan the startup `gc` sweeps. `v2` is the display-aspect scaling — a
+cached sheet doesn't record whether its source was anamorphic, so there is no way to
+invalidate only the wrong ones, and without the bump the fix would never reach anyone
+who already had a cache. The cost is one re-decode per video, lazily, once.
+`video_frames.rs` needed the same and got `FRAME_RECIPE` + a `recipe.json` marker
+beside its frames (its cache is a directory per track, so a key change would have
+leaked the old dirs instead of orphaning files a sweep already collects).
 
 Local files key on `file://…`; plugin tracks key on their URI (`ytdlp://<id>` is a
 stable, perfect identity).

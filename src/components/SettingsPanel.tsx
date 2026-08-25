@@ -1064,6 +1064,8 @@ interface SettingsPanelProps {
   nowPlayingVisualizer: string | null;
   onNowPlayingVisualizerChange: (key: string | null) => void;
   onPreferVideoResolutionChange: (enabled: boolean) => void;
+  videoStoryboards: boolean;
+  onVideoStoryboardsChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
   confirmTrashDelete: boolean;
@@ -1186,6 +1188,8 @@ export function SettingsPanel({
   nowPlayingVisualizer,
   onNowPlayingVisualizerChange,
   onPreferVideoResolutionChange,
+  videoStoryboards,
+  onVideoStoryboardsChange,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
   confirmTrashDelete,
@@ -1736,6 +1740,13 @@ export function SettingsPanel({
                         <span className="settings-description">For any track that isn't already a video — queued songs and auto-continue picks alike — try the stream resolvers (e.g. YouTube) for a music video and play it in the theater before falling back to the track's own audio source. Plays normal audio when no video is found.</span>
                       </div>
                       <ToggleSwitch checked={preferVideoResolution} onChange={onPreferVideoResolutionChange} />
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Video seek previews</span>
+                        <span className="settings-description">Scan each video you play once, so hovering the seek bar shows the frame at that moment and the track page can offer a filmstrip of moments to jump to. The scan needs ffmpeg, takes about a second, and is kept on disk. Turn it off to spend nothing on it — previews a source publishes itself (YouTube and the like) and videos already scanned keep working.</span>
+                      </div>
+                      <ToggleSwitch checked={videoStoryboards} onChange={onVideoStoryboardsChange} />
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">

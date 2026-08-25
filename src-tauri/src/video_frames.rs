@@ -9,18 +9,30 @@ use crate::dependencies;
 // See docs/seek-preview-spec.md "Reducing FRAME_COUNT to 1".
 const FRAME_COUNT: usize = 1;
 // Pulled off the very head so we dodge fade-ins and title cards; the thumbnail filter
-// (below) does the fine selection within the window. Kept at 0.10 deliberately —
-// every already-cached frame_0 stays valid, and this module has no recipe versioning
-// that would invalidate them.
+// (below) does the fine selection within the window.
 const FRAME_POSITIONS: [f64; FRAME_COUNT] = [0.10];
+// Recipe stamp for what is on disk. **Bump it whenever the extraction changes** —
+// positions, filters, encoder — and every cached frame cut by the old recipe is
+// re-extracted on next use instead of living on. Without it a fix to the pixels can't
+// reach anyone who already has a cache, which is the whole library.
+// v2 = the display-aspect scaling below; v1 frames were cut with `scale=-2:720`, which
+// stretched anamorphic sources.
+const FRAME_RECIPE: u32 = 2;
 // Around each position we decode a short window and let ffmpeg's `thumbnail`
 // filter pick the most representative (non-black, non-blurry) frame in it.
 const WINDOW_SECS: f64 = 2.0;
 // `thumbnail=50` analyzes ~50 frames per window and emits the most
-// representative one; `scale=-2:720` targets the short edge at ~720px so the
+// representative one; the scale targets the short edge at ~720px so the
 // 220px square hero crop stays sharp on retina (up to ~660 device px), at
 // negligible disk cost vs. native resolution.
-const SCALE_FILTER: &str = "thumbnail=50,scale=-2:720";
+//
+// The width comes from `dar` — the source's DISPLAY aspect — not from its stored
+// width/height. An anamorphic source (a DVD rip, a DVB capture, some phone video)
+// stores non-square pixels, so the plain `scale=-2:720` this replaced reproduced that
+// squeeze faithfully and the frame came out stretched against the video the player
+// showed. `trunc(.../2)*2` keeps the width even for yuvj420p; `setsar=1` stops the
+// encoder recording a non-square ratio that nothing downstream reads.
+const SCALE_FILTER: &str = "thumbnail=50,scale=trunc(720*dar/2)*2:720,setsar=1";
 
 pub(crate) fn ffmpeg_command() -> std::process::Command {
     dependencies::command_with_path("ffmpeg")
@@ -97,8 +109,24 @@ pub struct CachedFrames {
     pub timestamps: Vec<f64>,
 }
 
+fn recipe_path(dir: &Path) -> PathBuf {
+    dir.join("recipe.json")
+}
+
+/// Whether what's cached was cut by the recipe in force now. An unstamped dir is v1
+/// (the marker postdates it), so it re-extracts once.
+fn recipe_matches(dir: &Path) -> bool {
+    std::fs::read_to_string(recipe_path(dir))
+        .ok()
+        .and_then(|d| d.trim().parse::<u32>().ok())
+        == Some(FRAME_RECIPE)
+}
+
 pub fn get_cached_frames(app_dir: &Path, track_id: i64) -> Option<CachedFrames> {
     let dir = frames_dir(app_dir, track_id);
+    if !recipe_matches(&dir) {
+        return None;
+    }
     let mut paths = Vec::with_capacity(FRAME_COUNT);
     for i in 0..FRAME_COUNT {
         let frame_path = frame_file(&dir, i)?;
@@ -174,6 +202,8 @@ pub fn extract_frames(app_dir: &Path, track_id: i64, video_path: &Path) -> Resul
 
     let timestamps: Vec<f64> = FRAME_POSITIONS.iter().map(|p| duration * p).collect();
     write_timestamps(&dir, &timestamps);
+    // Last, so a run that died part-way isn't mistaken for a complete one.
+    let _ = std::fs::write(recipe_path(&dir), FRAME_RECIPE.to_string());
 
     log::info!("Extracted {} video frames for track {} from {}", FRAME_COUNT, track_id, video_path.display());
     Ok((paths, timestamps))
@@ -189,6 +219,29 @@ pub fn delete_cached_frames(app_dir: &Path, track_id: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A cache with no stamp is v1 — cut before the marker existed, and by the scale
+    /// filter that stretched anamorphic sources — so it must not be served.
+    #[test]
+    fn test_frames_cut_by_an_older_recipe_are_not_served() {
+        let dir = tempfile::tempdir().unwrap();
+        let fdir = frames_dir(dir.path(), 7);
+        std::fs::create_dir_all(&fdir).unwrap();
+        std::fs::write(fdir.join("frame_0.jpg"), b"not really a jpeg").unwrap();
+        assert!(
+            get_cached_frames(dir.path(), 7).is_none(),
+            "an unstamped cache is v1 and must be re-extracted"
+        );
+
+        std::fs::write(recipe_path(&fdir), FRAME_RECIPE.to_string()).unwrap();
+        assert!(get_cached_frames(dir.path(), 7).is_some(), "a current cache must be served");
+
+        std::fs::write(recipe_path(&fdir), (FRAME_RECIPE + 1).to_string()).unwrap();
+        assert!(
+            get_cached_frames(dir.path(), 7).is_none(),
+            "a stamp from a recipe this build doesn't know is not ours to serve either"
+        );
+    }
 
     #[test]
     fn test_parse_duration_standard() {

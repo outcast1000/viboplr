@@ -797,29 +797,46 @@ pub fn get_storyboard(
 /// Frames extracted so far while a storyboard generates, so the filmstrip can fill
 /// in progressively instead of sitting on placeholders. `path` is the track's
 /// scheme-prefixed path — the same key the requesting frontend holds — and
-/// `frame_paths` is cumulative, in time order (frame i covers `i * interval_secs`).
+/// `frame_paths` is cumulative, in time order.
+///
+/// `start_index` is the tile the FIRST frame depicts, so frame i covers
+/// `(start_index + i) * interval_secs`. It is 0 for a fresh pass and non-zero when
+/// resuming one that was cancelled part-way, where the frames on disk begin
+/// mid-video — read positionally they would be captioned with the wrong timestamps.
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoryboardPartial {
     pub path: String,
     pub frame_paths: Vec<String>,
+    pub start_index: usize,
     pub interval_secs: f64,
     pub count: usize,
 }
 
 /// Generate the storyboard for a local video if it isn't cached yet. One ffmpeg pass;
-/// see `storyboard.rs`. Returns a status rather than erroring for the two expected
+/// see `storyboard.rs`. Returns a status rather than erroring for the expected
 /// "can't do this" cases, so the frontend can stay quiet about them. While ffmpeg
 /// runs, `storyboard-partial` events stream the frames extracted so far.
+///
+/// `request_id` is the caller's own token: it registers this surface's interest in
+/// the sheet (generation is single-flight but several surfaces want the same one),
+/// and passing it to `cancel_storyboard` withdraws that interest. The pass is killed
+/// once every interested caller has withdrawn — see `storyboard::Runs`.
 #[tauri::command]
 pub async fn extract_storyboard(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     path: String,
+    request_id: String,
 ) -> Result<StoryboardResult, String> {
     let app_dir = state.app_dir.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
+        // False = the cancel raced ahead of this invoke; don't start at all.
+        if !crate::storyboard::begin_request(&path, &request_id) {
+            return Ok(StoryboardResult { status: "cancelled".to_string(), storyboard: None });
+        }
+        let _interest = InterestGuard(path.clone(), request_id.clone());
         if let Some(cached) = crate::storyboard::get_cached(&app_dir, &path) {
             return Ok(StoryboardResult { status: "ok".to_string(), storyboard: Some(cached) });
         }
@@ -834,24 +851,53 @@ pub async fn extract_storyboard(
         let video_path = std::path::Path::new(bare);
         let duration = crate::video_frames::get_video_duration(video_path)?;
         let g = crate::storyboard::geometry(duration);
-        let board = crate::storyboard::generate_with_progress(
+        let board = match crate::storyboard::generate_with_progress(
             &app_dir,
             &path,
             video_path,
             duration,
-            |frames| {
+            Some(&request_id),
+            |start_index, frames| {
                 let _ = app.emit("storyboard-partial", StoryboardPartial {
                     path: path.clone(),
                     frame_paths: frames.to_vec(),
+                    start_index,
                     interval_secs: g.interval_secs,
                     count: g.count,
                 });
             },
-        )?;
+        ) {
+            Ok(board) => board,
+            // A cancelled pass is not a failure: the caller already stopped caring,
+            // so it gets a status instead of an error to log.
+            Err(e) if e == crate::storyboard::CANCELLED => {
+                return Ok(StoryboardResult { status: "cancelled".to_string(), storyboard: None });
+            }
+            Err(e) => return Err(e),
+        };
         Ok(StoryboardResult { status: "ok".to_string(), storyboard: Some(board) })
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Drops the caller's interest however `extract_storyboard` returns, so a request
+/// can never leak and pin a pass alive.
+struct InterestGuard(String, String);
+
+impl Drop for InterestGuard {
+    fn drop(&mut self) {
+        crate::storyboard::end_request(&self.0, &self.1);
+    }
+}
+
+/// Withdraw a surface's interest in a storyboard it asked for (`request_id` is the
+/// one it passed to `extract_storyboard`). The ffmpeg pass stops within ~80 ms once
+/// nobody is left waiting for it; a still-interested surface keeps it running.
+/// Idempotent, and safe to call before the extract invoke has even landed.
+#[tauri::command]
+pub fn cancel_storyboard(path: String, request_id: String) {
+    crate::storyboard::cancel_request(&path, &request_id);
 }
 
 /// Byte size of a local file. A plain `stat` — much cheaper than

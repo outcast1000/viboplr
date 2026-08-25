@@ -49,15 +49,23 @@ export function schemeOf(path: string): { scheme: string; id: string } | null {
  * instead of reflowing. Tile dims are nominal 16:9 — the real aspect is only
  * knowable from the finished sheet, and these only drive slot shape and bubble
  * sizing until it arrives.
+ *
+ * `startIndex` is the tile `frames[0]` depicts. It is 0 for a fresh pass, and
+ * non-zero when the backend is RESUMING a pass that was cancelled part-way: those
+ * frames begin mid-video, so placing them at 0 would caption every one of them with
+ * the wrong timestamp. Earlier slots are padded with an empty sheet, which the
+ * existing "no sheet for this tile" guards already render as no tile.
  */
 export function partialStoryboard(
   frames: string[],
   intervalSecs: number,
   count: number,
+  startIndex = 0,
 ): Storyboard | null {
   if (frames.length === 0 || count <= 0 || !(intervalSecs > 0)) return null;
+  if (startIndex < 0 || startIndex >= count) return null;
   return {
-    sheets: frames,
+    sheets: [...Array<string>(startIndex).fill(""), ...frames],
     cols: 1,
     rows: 1,
     count,
