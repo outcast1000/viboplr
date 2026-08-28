@@ -54,6 +54,17 @@ export function bufferedEndAt(
   return null;
 }
 
+/** How close (secs) the buffered edge may sit to the duration and still count
+ *  as fully buffered. A fully cached stream never reports its edge *at* the
+ *  duration: mpv's `demuxer-cache-time` tops out at the last packet's
+ *  timestamp (measured 59.98s for a 60.0s file — see the engine's
+ *  `probe_buffered_edge_vs_duration`), and a metadata duration (subsonic
+ *  stores whole seconds) can sit up to a second past the real timeline. The
+ *  seek bars deliberately keep the unbuffered fade on-or-before the edge, so
+ *  without this snap the final block of every fully-downloaded remote track
+ *  stayed dim forever. */
+const FULL_SLACK_SECS = 2;
+
 /** Buffered extent as a 0..1 fraction of the track, or null when unknown. */
 export function bufferedFraction(
   bufferedToSecs: number | null,
@@ -61,6 +72,7 @@ export function bufferedFraction(
 ): number | null {
   if (bufferedToSecs == null || !isFinite(bufferedToSecs)) return null;
   if (!isFinite(durationSecs) || durationSecs <= 0) return null;
+  if (durationSecs - bufferedToSecs <= FULL_SLACK_SECS) return 1;
   return Math.min(1, Math.max(0, bufferedToSecs / durationSecs));
 }
 

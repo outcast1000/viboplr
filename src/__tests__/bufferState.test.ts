@@ -54,6 +54,19 @@ describe("bufferedFraction", () => {
     expect(bufferedFraction(250, 240)).toBe(1);
   });
 
+  it("snaps to 1 when the edge sits a hair short of the duration", () => {
+    // A fully cached stream never reports its edge AT the duration — mpv's
+    // demuxer-cache-time tops out at the last packet's timestamp (measured
+    // 59.98 for a 60.0s file). Without the snap, the seek bar's final block
+    // (which counts a straddling block as unbuffered) stayed dim forever.
+    expect(bufferedFraction(59.98, 60)).toBe(1);
+    expect(bufferedFraction(239, 240)).toBe(1);
+  });
+
+  it("does not snap an edge that is genuinely mid-track", () => {
+    expect(bufferedFraction(230, 240)).toBeCloseTo(230 / 240);
+  });
+
   it("is null when either side is unknown", () => {
     // Unknown must never collapse to 0: a seek bar told "0% buffered" dims the
     // whole track, which is exactly wrong for a local file that reports nothing.

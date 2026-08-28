@@ -2048,6 +2048,58 @@ mod tests {
         assert_eq!(ended["trackKey"], "trk:https");
     }
 
+    /// Where does `demuxer-cache-time` end up once an HTTP source is fully
+    /// cached? **Measured: a hair short of the duration, never at it** — the
+    /// property is the last cached packet's timestamp, so a fully-downloaded
+    /// 60.0s file reports a final cacheEnd of ~59.98 (mp3 and flac alike, with
+    /// and without Content-Length). The frontend's `bufferedFraction` snaps
+    /// that shortfall to 1 (`FULL_SLACK_SECS`); without the snap the seek
+    /// bar's final block — which counts a block straddling the buffered edge
+    /// as unbuffered — stayed dim forever on every remote track.
+    ///
+    /// Harness: serve an audio file from any Range-honoring static server
+    /// (throttle it to watch the edge climb) and run
+    ///   VIBOPLR_PROBE_URL=http://127.0.0.1:8731/probe.mp3 \
+    ///     cargo test --lib probe_buffered_edge_vs_duration -- --ignored --nocapture
+    /// `#[ignore]`d because of the server dependency.
+    #[test]
+    #[ignore]
+    fn probe_buffered_edge_vs_duration() {
+        let url = std::env::var("VIBOPLR_PROBE_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8731/probe.mp3".into());
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine
+            .play(&url, None, "trk:edge", None, 0.2, false, false)
+            .expect("play throttled http");
+        let deadline = Instant::now() + Duration::from_secs(45);
+        let mut duration = 0.0f64;
+        let mut pos = 0.0f64;
+        let mut last_cache: Option<f64> = None;
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(remaining) {
+                Ok((n, p)) if n == "engine-duration" => {
+                    duration = p["durationSecs"].as_f64().unwrap_or(0.0);
+                    eprintln!("[edge] duration={duration:.3}");
+                }
+                Ok((n, p)) if n == "engine-position" => {
+                    pos = p["positionSecs"].as_f64().unwrap_or(0.0);
+                }
+                Ok((n, p)) if n == "engine-buffer" => {
+                    last_cache = p["cacheEndSecs"].as_f64();
+                    eprintln!(
+                        "[edge] pos={pos:6.2} stalled={} readahead={} cacheEnd={}",
+                        p["pausedForCache"], p["readaheadSecs"], p["cacheEndSecs"],
+                    );
+                }
+                Ok((n, _)) if n == "engine-ended" => break,
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        eprintln!("[edge] FINAL duration={duration:.3} lastCacheEnd={last_cache:?} pos={pos:.2}");
+    }
+
     /// The headers a resolver supplies must reach the server **verbatim** — one
     /// line per header, values intact. Asserted against a real socket rather than
     /// by reading the property back, because mpv echoes whatever string it was
