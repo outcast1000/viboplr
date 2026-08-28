@@ -68,8 +68,9 @@ export const NOW_PLAYING_TOP_PRESETS = [0, 1, 2, 5, 10] as const;
 
 /** ToP sentinel for "On request" mode: the item never sits in the steady
  *  rotation — instead it *preempts* whatever is on the line whenever its
- *  resolved content changes or (re)appears, holds for one base interval, and
- *  yields early to a newer request or to its content vanishing. Built for
+ *  resolved content changes or (re)appears, holds for up to ~10s (two base
+ *  intervals — REQUEST_HOLD_MULTIPLIER in NowPlayingInfoCycler), and yields
+ *  early to a newer request or to its content vanishing. Built for
  *  time-critical content: synced lyrics show exactly while lines are sung and
  *  the ordinary rotation plays through the instrumental gaps, instead of a
  *  dwell timer guessing when the words matter. See `trackOnRequestItems` in

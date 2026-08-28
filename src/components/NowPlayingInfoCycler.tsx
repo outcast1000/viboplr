@@ -203,6 +203,11 @@ export function initialCycleState(): NowPlayingCycleState {
   return { key: undefined, index: 0, previewing: true, reqSeen: null, request: null };
 }
 
+/** How long a request holds the line before releasing it back to the rotation,
+ *  in base intervals (2 × ~5s = ~10s). A newer request or the content
+ *  vanishing still releases it earlier. */
+export const REQUEST_HOLD_MULTIPLIER = 2;
+
 /** Content signature for an "on request" item — a change means a new request. */
 export function nowPlayingRequestSig(it: NowPlayingInfoResolved): string {
   return it.segments.map((s) => s.text).join("|");
@@ -277,6 +282,12 @@ interface NowPlayingInfoCyclerProps {
    *  surface (full bar) or an enclosing `MarqueeText` scrolls the whole line (the
    *  compact/ultra row). */
   marquee?: boolean;
+  /** Notified (pre-paint) whenever the displayed content changes: its
+   *  signature plus whether it is an on-request preemption. Lets a host that
+   *  shares the line with other content decide to yield width to a request —
+   *  the compact mini row hides the track title when a preempting lyric line
+   *  doesn't fit beside it (see NowPlayingBar). */
+  onDisplay?: (display: { sig: string; request: boolean }) => void;
 }
 
 /**
@@ -294,9 +305,10 @@ interface NowPlayingInfoCyclerProps {
  *
  * "On request" items (`top === NOW_PLAYING_TOP_REQUEST`) sit outside both
  * phases: whenever their content changes or (re)appears they preempt whatever
- * is on the line for up to one base interval — less when a newer request
- * arrives or the content vanishes (see `trackOnRequestItems`). The rotation
- * keeps ticking underneath and shows through again when the request ends.
+ * is on the line for up to REQUEST_HOLD_MULTIPLIER base intervals (~10s) —
+ * less when a newer request arrives or the content vanishes (see
+ * `trackOnRequestItems`). The rotation keeps ticking underneath and shows
+ * through again when the request ends.
  *
  * The phase lives in the parent (`cycleState`/`onCycleState`) and resets only
  * when `cycleResetKey` actually changes (i.e. a new track) — not when this
@@ -319,6 +331,7 @@ export function NowPlayingInfoCycler({
   cycleState,
   onCycleState,
   marquee: marqueeEnabled,
+  onDisplay,
 }: NowPlayingInfoCyclerProps) {
   // `index` is the position in the active list; `previewing` is true during the
   // opening preview pass and flips to false once it completes. Both live in the
@@ -382,10 +395,11 @@ export function NowPlayingInfoCycler({
     onCycleState((s) => trackOnRequestItems(items, s, Date.now()));
   }, [items, onCycleState]);
 
-  // A live request holds for one base interval; a newer request or the item
-  // vanishing ends it earlier (both via trackOnRequestItems). Deliberately NOT
-  // stretched by a marquee glide — requests are time-critical, so the next one
-  // may cut a scroll mid-glide rather than queue behind it.
+  // A live request holds for REQUEST_HOLD_MULTIPLIER base intervals; a newer
+  // request or the item vanishing ends it earlier (both via
+  // trackOnRequestItems). Deliberately NOT stretched by a marquee glide —
+  // requests are time-critical, so the next one may cut a scroll mid-glide
+  // rather than queue behind it.
   useEffect(() => {
     const req = cycleState.request;
     if (!req) return;
@@ -395,7 +409,7 @@ export function NowPlayingInfoCycler({
           ? { ...s, request: null }
           : s,
       );
-    }, Math.max(0, req.at + intervalMs - Date.now()));
+    }, Math.max(0, req.at + intervalMs * REQUEST_HOLD_MULTIPLIER - Date.now()));
     return () => clearTimeout(t);
   }, [cycleState.request, intervalMs, onCycleState]);
 
@@ -437,16 +451,27 @@ export function NowPlayingInfoCycler({
     return () => clearTimeout(t);
   }, [previewing, index, items.length, steady.length, intervalMs, onCycleState]);
 
-  if (!displayed) {
-    return fallbackText ? <span className={className}>{fallbackText}</span> : null;
-  }
-
   // Re-key on index + content so a cycle change AND a track change both animate.
   // A preempting request keys on its own identity (`req:`) so entering/leaving
   // preemption always crossfades, even when the same rotation index resumes.
-  const animKey = requestedItem
-    ? `req:${requestedItem.id}:${nowPlayingRequestSig(requestedItem)}`
-    : `${index}:${displayed.id}:${displayed.segments.map((s) => s.text).join("|")}`;
+  const requestActive = requestedItem !== null;
+  const animKey = !displayed
+    ? ""
+    : requestActive
+      ? `req:${requestedItem!.id}:${nowPlayingRequestSig(requestedItem!)}`
+      : `${index}:${displayed.id}:${displayed.segments.map((s) => s.text).join("|")}`;
+
+  // Tell the host what's on the line. A layout effect so the notification (and
+  // any layout the host derives from it, like the compact row's yielding title)
+  // lands before paint rather than a frame behind the content swap.
+  const onDisplayRef = useLatestRef(onDisplay);
+  useLayoutEffect(() => {
+    onDisplayRef.current?.({ sig: animKey, request: requestActive });
+  }, [animKey, requestActive, onDisplayRef]);
+
+  if (!displayed) {
+    return fallbackText ? <span className={className}>{fallbackText}</span> : null;
+  }
   // Marquee-track identity keys on the item only (NOT its text). A synced-lyrics
   // line change swaps the inner text (which re-runs the crossfade) but must NOT
   // remount the scrolling track — otherwise the glide jumps back to the left on

@@ -1,4 +1,4 @@
-import { memo, useRef, useState, useEffect } from "react";
+import { memo, useCallback, useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
@@ -21,7 +21,7 @@ import { SpinningDisc } from "./SpinningDisc";
 import { TrackArtFallback } from "./TrackArtFallback";
 import { MiniSearchPanel } from "./MiniSearchPanel";
 import TagPopover from "./TagPopover";
-import { NowPlayingInfoCycler, MarqueeText, initialCycleState } from "./NowPlayingInfoCycler";
+import { NowPlayingInfoCycler, MarqueeText, initialCycleState, type MarqueePlan } from "./NowPlayingInfoCycler";
 import type { NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import { SourceIndicator } from "./SourceIndicator";
 import type { InvokeInfoFetch } from "../hooks/useCommunityTags";
@@ -225,6 +225,25 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   // live here or hover-expanding would remount the cycler and replay the
   // preview pass on every mouse-over.
   const [miniCycleState, setMiniCycleState] = useState(initialCycleState);
+
+  // Compact (ultra) row: when a preempting on-request item (a sung lyric line)
+  // is too wide to share the line with the track title, the title yields for
+  // that line. `onDisplay` (from the cycler) records what's up and brings the
+  // title back the moment the content changes; `onPlan` (from the line's
+  // MarqueeText) hides it when the full line overflows while a request is
+  // showing. One-way per content instance, so it can't oscillate: hiding
+  // shrinks the line, and the next measure (no overflow) takes no action.
+  const [ultraTitleYieldedFor, setUltraTitleYieldedFor] = useState<string | null>(null);
+  const ultraDisplayRef = useRef({ sig: "", request: false });
+  const handleUltraDisplay = useCallback((d: { sig: string; request: boolean }) => {
+    ultraDisplayRef.current = d;
+    setUltraTitleYieldedFor((prev) => (prev !== null && prev !== d.sig ? null : prev));
+  }, []);
+  const handleUltraPlan = useCallback((plan: MarqueePlan | null) => {
+    if (plan && ultraDisplayRef.current.request) {
+      setUltraTitleYieldedFor((prev) => prev ?? ultraDisplayRef.current.sig);
+    }
+  }, []);
   // Scrub preview over the seek track: pct drives the waveform's ghost tint,
   // x positions the floating time bubble (px within .now-seek-wrap).
   const [seekHover, setSeekHover] = useState<SeekHover | null>(null);
@@ -356,7 +375,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                     <span className="now-title">
                       {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                       {currentTrack.title}
-                      {trackRank != null && trackRank <= 100 && <span className="now-rank-badge" title={`Track rank #${trackRank}`}>#{trackRank}</span>}
                     </span>
                     {showMiniVolume ? (
                       <div className={`mini-volume-row${muted ? " is-muted" : ""}`}>
@@ -417,10 +435,14 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             {playbackError ? (
               <span className="mini-ultra-title">Playback failed</span>
             ) : currentTrack ? (
-              <MarqueeText className="mini-ultra-title" enabled restartKey={currentTrack.key}>
-                <span className="mini-ultra-track">{currentTrack.title}</span>
-                <span className="mini-ultra-sep"> — </span>
-                <NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} cycleState={miniCycleState} onCycleState={setMiniCycleState} />
+              <MarqueeText className="mini-ultra-title" enabled restartKey={currentTrack.key} onPlan={handleUltraPlan}>
+                {ultraTitleYieldedFor === null && (
+                  <>
+                    <span className="mini-ultra-track">{currentTrack.title}</span>
+                    <span className="mini-ultra-sep"> — </span>
+                  </>
+                )}
+                <NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} cycleState={miniCycleState} onCycleState={setMiniCycleState} onDisplay={handleUltraDisplay} />
               </MarqueeText>
             ) : loadingTrack ? (
               <span className="mini-ultra-title">{`Loading ${loadingTrack.title}…`}</span>
