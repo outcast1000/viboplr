@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type MouseEventHandler, type ReactNode, type SetStateAction } from "react";
-import { nextCycleIndex, nowPlayingSteadyOrder, nowPlayingStyleClass, type NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
+import { nextCycleIndex, nowPlayingSteadyOrder, nowPlayingStyleClass, NOW_PLAYING_TOP_REQUEST, type NowPlayingInfoResolved } from "../hooks/useNowPlayingInfo";
 import { isReducedMotion, subscribeReducedMotion } from "../utils/reducedMotion";
 
 import { useAssignRef, useLatestRef } from "../hooks/useLatestRef";
@@ -189,10 +189,69 @@ export interface NowPlayingCycleState {
   key: string | undefined;
   index: number;
   previewing: boolean;
+  /** Last-seen content signature per "on request" item (id → sig). `null` means
+   *  "not seeded yet for this track": the first item list after a track change
+   *  records what is already showing WITHOUT treating it as a request, so only
+   *  subsequent changes preempt. */
+  reqSeen: Record<string, string> | null;
+  /** The request currently preempting the line, if any. `at` (epoch ms) drives
+   *  the one-base-interval expiry. */
+  request: { id: string; sig: string; at: number } | null;
 }
 
 export function initialCycleState(): NowPlayingCycleState {
-  return { key: undefined, index: 0, previewing: true };
+  return { key: undefined, index: 0, previewing: true, reqSeen: null, request: null };
+}
+
+/** Content signature for an "on request" item — a change means a new request. */
+export function nowPlayingRequestSig(it: NowPlayingInfoResolved): string {
+  return it.segments.map((s) => s.text).join("|");
+}
+
+/**
+ * Pure: fold the current item list into the request half of the cycle state.
+ * An "on request" item (top === NOW_PLAYING_TOP_REQUEST) never sits in the
+ * steady rotation; instead it preempts the line whenever its content changes
+ * or it (re)appears — for synced lyrics that is every newly sung line. Rules:
+ *
+ *  - First list after a track change (`reqSeen === null`): seed the signatures
+ *    without raising a request, so content that merely carried over from before
+ *    the reset doesn't preempt the new track's preview pass.
+ *  - A changed/new signature raises a request stamped `now`; when several
+ *    change in one pass the last in display (priority) order wins.
+ *  - A live request whose item vanished from the list (the sung line ended)
+ *    is dropped immediately — the content is gone, so holding it would show
+ *    a stale line.
+ *
+ * Returns the same state object when nothing changed (React bail-out).
+ */
+export function trackOnRequestItems(
+  items: NowPlayingInfoResolved[],
+  state: NowPlayingCycleState,
+  now: number,
+): NowPlayingCycleState {
+  const reqItems = items.filter((it) => it.top === NOW_PLAYING_TOP_REQUEST);
+  if (state.reqSeen === null) {
+    if (reqItems.length === 0 && state.request === null) {
+      return { ...state, reqSeen: {} };
+    }
+    const seen: Record<string, string> = {};
+    for (const it of reqItems) seen[it.id] = nowPlayingRequestSig(it);
+    return { ...state, reqSeen: seen, request: null };
+  }
+  let seen = state.reqSeen;
+  let request = state.request;
+  for (const it of reqItems) {
+    const sig = nowPlayingRequestSig(it);
+    if (seen[it.id] !== sig) {
+      if (seen === state.reqSeen) seen = { ...seen };
+      seen[it.id] = sig;
+      request = { id: it.id, sig, at: now };
+    }
+  }
+  if (request && !reqItems.some((it) => it.id === request!.id)) request = null;
+  if (seen === state.reqSeen && request === state.request) return state;
+  return { ...state, reqSeen: seen, request };
 }
 
 interface NowPlayingInfoCyclerProps {
@@ -232,6 +291,12 @@ interface NowPlayingInfoCyclerProps {
  *  2. Steady rotation — only items with `top > 0` remain in the loop, in the same
  *     (user priority) order, each dwelling for `intervalMs × top`. Items with
  *     `top === 0` ("preview only") are dropped after the preview pass.
+ *
+ * "On request" items (`top === NOW_PLAYING_TOP_REQUEST`) sit outside both
+ * phases: whenever their content changes or (re)appears they preempt whatever
+ * is on the line for up to one base interval — less when a newer request
+ * arrives or the content vanishes (see `trackOnRequestItems`). The rotation
+ * keeps ticking underneath and shows through again when the request ends.
  *
  * The phase lives in the parent (`cycleState`/`onCycleState`) and resets only
  * when `cycleResetKey` actually changes (i.e. a new track) — not when this
@@ -280,6 +345,15 @@ export function NowPlayingInfoCycler({
   const activeList = previewing ? items : steady.length > 0 ? steady : items;
   const active = activeList.length > 0 ? activeList[Math.min(index, activeList.length - 1)] : null;
 
+  // "On request" preemption: while a request is live (and its item still
+  // present), it is displayed INSTEAD of the rotation item — the rotation keeps
+  // ticking underneath and simply shows through again when the request ends.
+  const request = cycleState.request;
+  const requestedItem = request
+    ? items.find((it) => it.id === request.id && it.top === NOW_PLAYING_TOP_REQUEST) ?? null
+    : null;
+  const displayed = requestedItem ?? active;
+
   // Mirror of the active item's marquee `cycleMs` (set via MarqueeText's onPlan).
   // Read by the dwell timer WITHOUT being a dependency, so a synced-lyrics line
   // change (which re-measures) never resets the item's long dwell.
@@ -289,7 +363,7 @@ export function NowPlayingInfoCycler({
   // The two render paths that skip the marquee used to zero `marqueeMsRef`
   // inline, which is a ref write during render; gating at *read* time instead is
   // both legal and stricter — it can't be wrong for a render that never happened.
-  const marqueeMountedRef = useLatestRef(!!marqueeEnabled && !!active);
+  const marqueeMountedRef = useLatestRef(!!marqueeEnabled && !!displayed);
   const marqueeDwell = () => (marqueeMountedRef.current ? marqueeMsRef.current : 0);
 
   // New track → restart the cycle and re-run the preview pass. Compared against
@@ -297,8 +371,33 @@ export function NowPlayingInfoCycler({
   // (the mini player swaps cycler instances when hover-expanding the compact
   // row) resumes the phase instead of replaying the preview.
   useEffect(() => {
-    onCycleState((s) => (s.key === cycleResetKey ? s : { key: cycleResetKey, index: 0, previewing: true }));
+    onCycleState((s) => (s.key === cycleResetKey ? s : { key: cycleResetKey, index: 0, previewing: true, reqSeen: null, request: null }));
   }, [cycleResetKey, onCycleState]);
+
+  // Watch the "on request" items for content changes and preempt — see
+  // trackOnRequestItems. `items` identity changes on every position tick while
+  // synced lyrics are enabled; the fold returns the same state object when
+  // nothing actually changed, so React bails out of those updates.
+  useEffect(() => {
+    onCycleState((s) => trackOnRequestItems(items, s, Date.now()));
+  }, [items, onCycleState]);
+
+  // A live request holds for one base interval; a newer request or the item
+  // vanishing ends it earlier (both via trackOnRequestItems). Deliberately NOT
+  // stretched by a marquee glide — requests are time-critical, so the next one
+  // may cut a scroll mid-glide rather than queue behind it.
+  useEffect(() => {
+    const req = cycleState.request;
+    if (!req) return;
+    const t = setTimeout(() => {
+      onCycleState((s) =>
+        s.request && s.request.id === req.id && s.request.sig === req.sig && s.request.at === req.at
+          ? { ...s, request: null }
+          : s,
+      );
+    }, Math.max(0, req.at + intervalMs - Date.now()));
+    return () => clearTimeout(t);
+  }, [cycleState.request, intervalMs, onCycleState]);
 
   // Clamp the index when the active list shrinks (e.g. user toggles an item off).
   useEffect(() => {
@@ -338,19 +437,23 @@ export function NowPlayingInfoCycler({
     return () => clearTimeout(t);
   }, [previewing, index, items.length, steady.length, intervalMs, onCycleState]);
 
-  if (!active) {
+  if (!displayed) {
     return fallbackText ? <span className={className}>{fallbackText}</span> : null;
   }
 
   // Re-key on index + content so a cycle change AND a track change both animate.
-  const animKey = `${index}:${active.id}:${active.segments.map((s) => s.text).join("|")}`;
+  // A preempting request keys on its own identity (`req:`) so entering/leaving
+  // preemption always crossfades, even when the same rotation index resumes.
+  const animKey = requestedItem
+    ? `req:${requestedItem.id}:${nowPlayingRequestSig(requestedItem)}`
+    : `${index}:${displayed.id}:${displayed.segments.map((s) => s.text).join("|")}`;
   // Marquee-track identity keys on the item only (NOT its text). A synced-lyrics
   // line change swaps the inner text (which re-runs the crossfade) but must NOT
   // remount the scrolling track — otherwise the glide jumps back to the left on
   // every lyric line. Only cycling to a different item (or a new track) restarts.
-  const itemKey = `${index}:${active.id}`;
-  const styleClass = nowPlayingStyleClass(active.style);
-  const content = active.segments.map((seg, i) => {
+  const itemKey = requestedItem ? `req:${requestedItem.id}` : `${index}:${displayed.id}`;
+  const styleClass = nowPlayingStyleClass(displayed.style);
+  const content = displayed.segments.map((seg, i) => {
     const navable = !plain && !!seg.nav;
     return (
       <span key={i}>

@@ -14,11 +14,20 @@ import {
   nowPlayingItemStyle,
   nowPlayingStyleClass,
   nowPlayingOrderedItems,
+  isValidNowPlayingTop,
   NOW_PLAYING_TOP_PRESETS,
+  NOW_PLAYING_TOP_REQUEST,
   NOW_PLAYING_SCROBBLES_ID,
   type NowPlayingInfoDescriptor,
+  type NowPlayingInfoResolved,
 } from "../hooks/useNowPlayingInfo";
 import { NOW_PLAYING_DWELL_OPTIONS, parseDwellValue } from "../components/NowPlayingInfoSettings";
+import {
+  initialCycleState,
+  nowPlayingRequestSig,
+  trackOnRequestItems,
+  type NowPlayingCycleState,
+} from "../components/NowPlayingInfoCycler";
 
 const ITEMS: NowPlayingInfoDescriptor[] = [
   { id: "builtin:artist-album", label: "Artist · Album", defaultEnabled: true },
@@ -214,7 +223,7 @@ describe("nowPlayingItemTop", () => {
   });
 
   it("uses each item's built-in default when there's no stored value", () => {
-    expect(nowPlayingItemTop("builtin:lyrics-synced", {})).toBe(5);
+    expect(nowPlayingItemTop("builtin:lyrics-synced", {})).toBe(NOW_PLAYING_TOP_REQUEST);
     expect(nowPlayingItemTop(NOW_PLAYING_SCROBBLES_ID, {})).toBe(0);
   });
 
@@ -229,11 +238,16 @@ describe("nowPlayingItemTop", () => {
     }
   });
 
+  it("accepts the on-request sentinel as a stored override", () => {
+    expect(nowPlayingItemTop("x", { x: NOW_PLAYING_TOP_REQUEST })).toBe(NOW_PLAYING_TOP_REQUEST);
+    expect(isValidNowPlayingTop(NOW_PLAYING_TOP_REQUEST)).toBe(true);
+  });
+
   it("falls back to the built-in default (or 1) for values that aren't allowed presets", () => {
     expect(nowPlayingItemTop("x", { x: 3 })).toBe(1);
     expect(nowPlayingItemTop("x", { x: 7 })).toBe(1);
-    expect(nowPlayingItemTop("x", { x: -1 })).toBe(1);
-    expect(nowPlayingItemTop("builtin:lyrics-synced", { "builtin:lyrics-synced": 3 })).toBe(5);
+    expect(nowPlayingItemTop("x", { x: -2 })).toBe(1);
+    expect(nowPlayingItemTop("builtin:lyrics-synced", { "builtin:lyrics-synced": 3 })).toBe(NOW_PLAYING_TOP_REQUEST);
   });
 
   it("includes 0 as a valid preset (preview-only)", () => {
@@ -307,6 +321,14 @@ describe("nowPlayingSteadyOrder", () => {
     ]);
     expect(out.map((i) => i.id)).toEqual(["a", "b"]);
   });
+
+  it("drops on-request items — they appear only by preempting", () => {
+    const out = nowPlayingSteadyOrder([
+      { id: "a", top: NOW_PLAYING_TOP_REQUEST },
+      { id: "b", top: 1 },
+    ]);
+    expect(out.map((i) => i.id)).toEqual(["b"]);
+  });
 });
 
 describe("nowPlayingOrderedItems", () => {
@@ -332,9 +354,9 @@ describe("nowPlayingOrderedItems", () => {
 
 describe("dwell select (Off folded into the presets)", () => {
   it("offers Off first, then every ToP preset", () => {
-    expect(NOW_PLAYING_DWELL_OPTIONS.map((o) => o.value)).toEqual(["off", "0", "1", "2", "5", "10"]);
+    expect(NOW_PLAYING_DWELL_OPTIONS.map((o) => o.value)).toEqual(["off", "0", "-1", "1", "2", "5", "10"]);
     expect(NOW_PLAYING_DWELL_OPTIONS.map((o) => o.label)).toEqual([
-      "Off", "Preview only", "1×", "2×", "5×", "10×",
+      "Off", "Preview only", "On request", "1×", "2×", "5×", "10×",
     ]);
   });
 
@@ -343,6 +365,7 @@ describe("dwell select (Off folded into the presets)", () => {
     expect(parseDwellValue("0")).toBe(0);
     expect(parseDwellValue("1")).toBe(1);
     expect(parseDwellValue("10")).toBe(10);
+    expect(parseDwellValue("-1")).toBe(NOW_PLAYING_TOP_REQUEST);
   });
 
   it("treats an unknown value as off rather than an invalid dwell", () => {
@@ -355,5 +378,72 @@ describe("dwell select (Off folded into the presets)", () => {
       const parsed = parseDwellValue(o.value);
       expect(o.value === "off" ? parsed === null : String(parsed) === o.value).toBe(true);
     }
+  });
+});
+
+describe("trackOnRequestItems", () => {
+  const item = (id: string, text: string, top: number = NOW_PLAYING_TOP_REQUEST): NowPlayingInfoResolved =>
+    ({ id, segments: [{ text }], top });
+  const seeded = (seen: Record<string, string>): NowPlayingCycleState =>
+    ({ ...initialCycleState(), reqSeen: seen });
+
+  it("seeds the first list after a track change without raising a request", () => {
+    const s0 = initialCycleState();
+    const out = trackOnRequestItems([item("lyr", "line one")], s0, 1000);
+    expect(out.request).toBeNull();
+    expect(out.reqSeen).toEqual({ lyr: "line one" });
+  });
+
+  it("raises a request when a seeded item's content changes", () => {
+    const s = seeded({ lyr: "line one" });
+    const out = trackOnRequestItems([item("lyr", "line two")], s, 2000);
+    expect(out.request).toEqual({ id: "lyr", sig: "line two", at: 2000 });
+    expect(out.reqSeen).toEqual({ lyr: "line two" });
+  });
+
+  it("raises a request when an item appears after being absent (intro ends)", () => {
+    const s = seeded({});
+    const out = trackOnRequestItems([item("lyr", "first line")], s, 3000);
+    expect(out.request).toEqual({ id: "lyr", sig: "first line", at: 3000 });
+  });
+
+  it("drops a live request when its item vanishes (the sung line ended)", () => {
+    const s: NowPlayingCycleState = {
+      ...seeded({ lyr: "line one" }),
+      request: { id: "lyr", sig: "line one", at: 1000 },
+    };
+    const out = trackOnRequestItems([], s, 2000);
+    expect(out.request).toBeNull();
+  });
+
+  it("lets the last changed item win when several change in one pass", () => {
+    const s = seeded({ a: "old a", b: "old b" });
+    const out = trackOnRequestItems([item("a", "new a"), item("b", "new b")], s, 5000);
+    expect(out.request).toEqual({ id: "b", sig: "new b", at: 5000 });
+    expect(out.reqSeen).toEqual({ a: "new a", b: "new b" });
+  });
+
+  it("ignores rotation items — only top === NOW_PLAYING_TOP_REQUEST participates", () => {
+    const s = seeded({});
+    const out = trackOnRequestItems([item("rot", "changed", 5)], s, 4000);
+    expect(out.request).toBeNull();
+    expect(out.reqSeen).toEqual({});
+  });
+
+  it("returns the same state object when nothing changed (React bail-out)", () => {
+    const s = seeded({ lyr: "line one" });
+    expect(trackOnRequestItems([item("lyr", "line one")], s, 9000)).toBe(s);
+  });
+
+  it("keeps an unexpired request alive while its item's content holds still", () => {
+    const s: NowPlayingCycleState = {
+      ...seeded({ lyr: "line one" }),
+      request: { id: "lyr", sig: "line one", at: 1000 },
+    };
+    expect(trackOnRequestItems([item("lyr", "line one")], s, 2000)).toBe(s);
+  });
+
+  it("joins multi-segment content into one signature", () => {
+    expect(nowPlayingRequestSig({ id: "x", segments: [{ text: "a" }, { text: "b" }] })).toBe("a|b");
   });
 });

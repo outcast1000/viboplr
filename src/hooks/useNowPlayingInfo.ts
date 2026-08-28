@@ -66,6 +66,22 @@ export interface NowPlayingInfoResolved {
  *  the per-item submenu. */
 export const NOW_PLAYING_TOP_PRESETS = [0, 1, 2, 5, 10] as const;
 
+/** ToP sentinel for "On request" mode: the item never sits in the steady
+ *  rotation — instead it *preempts* whatever is on the line whenever its
+ *  resolved content changes or (re)appears, holds for one base interval, and
+ *  yields early to a newer request or to its content vanishing. Built for
+ *  time-critical content: synced lyrics show exactly while lines are sung and
+ *  the ordinary rotation plays through the instrumental gaps, instead of a
+ *  dwell timer guessing when the words matter. See `trackOnRequestItems` in
+ *  NowPlayingInfoCycler. */
+export const NOW_PLAYING_TOP_REQUEST = -1;
+
+/** Whether a stored ToP value is one we honor (a preset or the on-request
+ *  sentinel). Pure + exported for tests. */
+export function isValidNowPlayingTop(v: number): boolean {
+  return v === NOW_PLAYING_TOP_REQUEST || (NOW_PLAYING_TOP_PRESETS as readonly number[]).includes(v);
+}
+
 /** The Last.fm plugin's Now Playing info item, keyed `${pluginId}:${itemId}`.
  *  Named here so the host can ship a sensible default ToP + style for it (the
  *  app already hardcodes per-plugin defaults elsewhere, e.g. provider priority). */
@@ -74,15 +90,18 @@ export const NOW_PLAYING_SCROBBLES_ID = "lastfm:scrobbles";
 /** Built-in default time-of-persistence per item (before any user override).
  *  Items not listed default to 1 (the base interval). */
 const NOW_PLAYING_DEFAULT_TOP: Record<string, number> = {
-  [NOW_PLAYING_LYRICS_SYNCED_ID]: 5, // lyrics linger and advance line-by-line
+  // On request: each sung line preempts the rotation as it happens (karaoke),
+  // and the rotation plays through intros/instrumental gaps.
+  [NOW_PLAYING_LYRICS_SYNCED_ID]: NOW_PLAYING_TOP_REQUEST,
   [NOW_PLAYING_SCROBBLES_ID]: 0, // preview-only: a quick stat at each track change
 };
 
 /** Time-of-persistence multiplier for an item — the user's override if it's a
- *  valid preset, else the item's built-in default, else 1. Pure + for tests. */
+ *  valid preset (or the on-request sentinel), else the item's built-in
+ *  default, else 1. Pure + for tests. */
 export function nowPlayingItemTop(id: string, persistence: Record<string, number>): number {
   const v = persistence[id];
-  if (v != null && (NOW_PLAYING_TOP_PRESETS as readonly number[]).includes(v)) return v;
+  if (v != null && isValidNowPlayingTop(v)) return v;
   return NOW_PLAYING_DEFAULT_TOP[id] ?? 1;
 }
 
@@ -120,8 +139,10 @@ export function nowPlayingStyleClass(style: NowPlayingInfoStyle | undefined): st
 }
 
 /** The steady-rotation list: the display order with "preview only" (top === 0)
- *  items dropped. Order is the user's priority order (see nowPlayingOrderedItems)
- *  — ToP controls only how long an item dwells, never where it sits in the cycle.
+ *  and "on request" (top === NOW_PLAYING_TOP_REQUEST) items dropped — the
+ *  former show once in the preview pass, the latter appear only by preempting.
+ *  Order is the user's priority order (see nowPlayingOrderedItems) — ToP
+ *  controls only how long an item dwells, never where it sits in the cycle.
  *  Pure + exported for tests. */
 export function nowPlayingSteadyOrder<T extends { top?: number }>(items: T[]): T[] {
   return items.filter((it) => (it.top ?? 1) > 0);
@@ -161,7 +182,7 @@ const BUILTIN_DESCRIPTORS: NowPlayingInfoDescriptor[] = [
   { id: "builtin:quality", label: "Quality", defaultEnabled: false },
   { id: "builtin:duration", label: "Duration", defaultEnabled: false },
   { id: "builtin:tags", label: "Tags", defaultEnabled: false },
-  // Synced Lyrics is on by default (at 5× ToP, italic — see NOW_PLAYING_DEFAULT_TOP
+  // Synced Lyrics is on by default (On request, italic — see NOW_PLAYING_DEFAULT_TOP
   // / NOW_PLAYING_STYLES). Lyrics only fetch when a lyrics item is enabled, so this
   // makes the default experience fetch lyrics for each track.
   { id: NOW_PLAYING_LYRICS_SYNCED_ID, label: "Synced Lyrics", defaultEnabled: true },

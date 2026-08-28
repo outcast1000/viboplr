@@ -1798,7 +1798,8 @@ export function SettingsPanel({
                           <span className="settings-label">Now playing info<HelpLink anchor="now-playing-info" topic="the now playing info line" /></span>
                           <span className="settings-description">
                             The cycling line under the title in the mini player. Drag to set the order items appear in;
-                            each one can be off, shown once per track (preview only), or dwell 1–10× the ~5s base interval.
+                            each one can be off, shown once per track (preview only), shown the moment its content
+                            changes (on request — how synced lyrics follow the song), or dwell 1–10× the ~5s base interval.
                           </span>
                         </div>
                         <NowPlayingInfoSettings {...nowPlayingInfo} />

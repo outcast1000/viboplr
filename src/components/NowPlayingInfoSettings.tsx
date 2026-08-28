@@ -1,29 +1,34 @@
 import {
   isNowPlayingItemSelected,
+  isValidNowPlayingTop,
   nowPlayingItemTop,
   NOW_PLAYING_TOP_PRESETS,
+  NOW_PLAYING_TOP_REQUEST,
   type NowPlayingInfoDescriptor,
 } from "../hooks/useNowPlayingInfo";
 import { startRowDrag, reorderList } from "../utils/rowDrag";
 
-/** The single per-item control: "Off" plus every time-of-persistence preset.
- *  Picking a dwell enables the item; picking "Off" hides it. */
+/** The single per-item control: "Off", the two out-of-rotation modes ("Preview
+ *  only", "On request"), then the time-of-persistence presets. Picking any
+ *  non-Off value enables the item; picking "Off" hides it. */
 export const NOW_PLAYING_DWELL_OPTIONS: { value: string; label: string }[] = [
   { value: "off", label: "Off" },
-  ...NOW_PLAYING_TOP_PRESETS.map((p) => ({
+  { value: "0", label: "Preview only" },
+  { value: String(NOW_PLAYING_TOP_REQUEST), label: "On request" },
+  ...NOW_PLAYING_TOP_PRESETS.filter((p) => p > 0).map((p) => ({
     value: String(p),
-    label: p === 0 ? "Preview only" : `${p}×`,
+    label: `${p}×`,
   })),
 ];
 
-/** Read a dwell `<select>` value: `null` = off, else the ToP multiplier.
- *  Pure + exported for tests. */
+/** Read a dwell `<select>` value: `null` = off, else the ToP multiplier (or
+ *  the on-request sentinel). Pure + exported for tests. */
 export function parseDwellValue(value: string): number | null {
   // Guard the empty string explicitly — Number("") is 0, which would otherwise
   // read as the valid "Preview only" preset.
   if (value === "off" || value.trim() === "") return null;
   const n = Number(value);
-  return (NOW_PLAYING_TOP_PRESETS as readonly number[]).includes(n) ? n : null;
+  return isValidNowPlayingTop(n) ? n : null;
 }
 
 export interface NowPlayingInfoSettingsProps {
@@ -86,7 +91,7 @@ export function NowPlayingInfoSettings({
                 className="ds-select npi-settings-dwell"
                 value={enabled ? String(top) : "off"}
                 aria-label={d.label}
-                title="Off, shown once per track, or how long it stays on screen (× the ~5s base interval)"
+                title="Off, shown once per track, shown when its content changes (On request), or how long it stays on screen (× the ~5s base interval)"
                 onChange={(e) => onSetDwell(d.id, parseDwellValue(e.target.value))}
               >
                 {NOW_PLAYING_DWELL_OPTIONS.map((o) => (
