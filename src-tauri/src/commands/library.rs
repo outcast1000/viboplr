@@ -752,16 +752,37 @@ pub async fn delete_tracks(
             }
             let fs_path = track.filesystem_path().unwrap_or(&track.path);
             let path = std::path::Path::new(fs_path);
+            let is_video = path.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| crate::scanner::VIDEO_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+                .unwrap_or(false);
             if path.exists() {
+                // A video may have an ffmpeg pass reading it right now (storyboard
+                // generation, frame extraction), and on Windows that open read handle
+                // makes the delete fail. Deleting outranks any surface's interest in
+                // those artifacts — kill the passes and wait for the handle to drop.
+                if is_video {
+                    crate::storyboard::abort_for_path(&track.path);
+                    crate::video_frames::abort_extraction(track.id);
+                }
                 // Windows has no Recycle Bin for network shares, so `trash::delete`
                 // can't move the file there — it fails (or would delete it without
                 // any undo). Permanently delete network-share files instead; the UI
                 // warns the user this is irreversible before reaching this command.
-                let result = if crate::models::is_network_path(fs_path) {
+                let attempt = || if crate::models::is_network_path(fs_path) {
                     std::fs::remove_file(path).map_err(|e| e.to_string())
                 } else {
                     trash::delete(path).map_err(|e| e.to_string())
                 };
+                let mut result = attempt();
+                // The OS can need a beat to release a just-killed ffmpeg's handle.
+                for _ in 0..2 {
+                    if result.is_ok() || !is_video {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    result = attempt();
+                }
                 if let Err(e) = result {
                     log::warn!("Failed to delete file {}: {}", track.path, e);
                     failures.push(DeleteFailure {

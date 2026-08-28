@@ -149,7 +149,91 @@ fn write_timestamps(dir: &Path, timestamps: &[f64]) {
     }
 }
 
+/// The error `extract_frames` returns when its ffmpeg was killed by
+/// `abort_extraction` (the track is being deleted). Not a failure — the frames of a
+/// file that is going away are garbage anyway.
+pub const CANCELLED: &str = "video frame extraction cancelled";
+
+/// One live extraction per track: the running ffmpeg child (so an abort can kill it)
+/// and whether an abort already landed (so the per-frame loop stops instead of
+/// spawning the next child against a file mid-delete).
+struct Extraction {
+    child: Option<std::sync::Arc<std::sync::Mutex<std::process::Child>>>,
+    aborted: bool,
+}
+
+fn extractions() -> &'static (
+    std::sync::Mutex<std::collections::HashMap<i64, Extraction>>,
+    std::sync::Condvar,
+) {
+    static EXTRACTIONS: std::sync::OnceLock<(
+        std::sync::Mutex<std::collections::HashMap<i64, Extraction>>,
+        std::sync::Condvar,
+    )> = std::sync::OnceLock::new();
+    EXTRACTIONS.get_or_init(|| {
+        (std::sync::Mutex::new(std::collections::HashMap::new()), std::sync::Condvar::new())
+    })
+}
+
+/// Removes the extraction entry and wakes abort waiters even if extraction unwinds.
+struct ExtractionGuard(i64);
+
+impl Drop for ExtractionGuard {
+    fn drop(&mut self) {
+        let (lock, cv) = extractions();
+        lock.lock().unwrap().remove(&self.0);
+        cv.notify_all();
+    }
+}
+
+/// Whether an abort landed for this extraction while it was running.
+fn is_aborted(track_id: i64) -> bool {
+    extractions().0.lock().unwrap().get(&track_id).is_some_and(|e| e.aborted)
+}
+
+/// Forcibly stop a running frame extraction for `track_id` and wait for it to
+/// release the source file. For `delete_tracks`: on Windows the delete fails while
+/// ffmpeg holds a read handle on the video. Kills the current child, marks the run
+/// aborted so its loop spawns no further children, and returns once the extraction
+/// has fully exited (bounded — the wait also covers the un-killable duration probe,
+/// which is a quick header read). A no-op when nothing is running for the track.
+pub fn abort_extraction(track_id: i64) {
+    let (lock, cv) = extractions();
+    let child = {
+        let mut map = lock.lock().unwrap();
+        match map.get_mut(&track_id) {
+            Some(e) => {
+                e.aborted = true;
+                e.child.clone()
+            }
+            None => return,
+        }
+    };
+    if let Some(child) = child {
+        let mut c = child.lock().unwrap();
+        let _ = c.kill();
+        let _ = c.wait();
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut map = lock.lock().unwrap();
+    while map.contains_key(&track_id) {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            log::warn!("Frame extraction for track {} did not exit within the abort deadline", track_id);
+            break;
+        }
+        map = cv.wait_timeout(map, deadline - now).unwrap().0;
+    }
+}
+
 pub fn extract_frames(app_dir: &Path, track_id: i64, video_path: &Path) -> Result<(Vec<String>, Vec<f64>), String> {
+    // Registered before the duration probe so an abort covers the whole run,
+    // including the probe's own (brief) read handle on the file.
+    let _guard = {
+        extractions().0.lock().unwrap().insert(track_id, Extraction { child: None, aborted: false });
+        ExtractionGuard(track_id)
+    };
+
     let duration = get_video_duration(video_path)?;
     if duration <= 0.0 {
         return Err("Video has zero duration".to_string());
@@ -163,6 +247,10 @@ pub fn extract_frames(app_dir: &Path, track_id: i64, video_path: &Path) -> Resul
     let ext = frame_ext();
     let mut paths = Vec::with_capacity(FRAME_COUNT);
     for (i, &position) in FRAME_POSITIONS.iter().enumerate() {
+        if is_aborted(track_id) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(CANCELLED.to_string());
+        }
         let timestamp = duration * position;
         let output_path = dir.join(format!("frame_{}.{}", i, ext));
         let output_str = output_path.to_string_lossy().to_string();
@@ -189,11 +277,53 @@ pub fn extract_frames(app_dir: &Path, track_id: i64, video_path: &Path) -> Resul
             cmd.args(["-c:v", "mjpeg", "-q:v", "2", "-pix_fmt", "yuvj420p"]);
         }
         cmd.args(["-y", &output_str]);
-        let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg for frame {}: {}", i, e))?;
-
-        if !output.status.success() || !output_path.exists() {
+        // Spawned rather than `output()` so `abort_extraction` can kill it: a delete
+        // of the source file must not have to wait out (or lose to) this decode.
+        cmd.stdin(std::process::Stdio::null());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::piped());
+        let mut child = cmd.spawn().map_err(|e| format!("Failed to run ffmpeg for frame {}: {}", i, e))?;
+        // Drained on a thread so a chatty stderr can't fill the pipe and block ffmpeg.
+        let stderr_pipe = child.stderr.take();
+        let stderr_handle = std::thread::spawn(move || {
+            let mut s = String::new();
+            if let Some(mut pipe) = stderr_pipe {
+                use std::io::Read;
+                let _ = pipe.read_to_string(&mut s);
+            }
+            s
+        });
+        let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+        if let Some(e) = extractions().0.lock().unwrap().get_mut(&track_id) {
+            e.child = Some(child.clone());
+        }
+        // Poll rather than a blocking `wait()`: waiting would hold the child mutex
+        // for the whole decode, and the abort needs it to deliver the kill.
+        let status = loop {
+            let polled = child.lock().unwrap().try_wait();
+            match polled {
+                Ok(Some(status)) => break status,
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(80)),
+                Err(e) => {
+                    let mut c = child.lock().unwrap();
+                    let _ = c.kill();
+                    let _ = c.wait();
+                    drop(c);
+                    let _ = std::fs::remove_dir_all(&dir);
+                    return Err(format!("Failed to wait for ffmpeg for frame {}: {}", i, e));
+                }
+            }
+        };
+        let stderr = stderr_handle.join().unwrap_or_default();
+        if let Some(e) = extractions().0.lock().unwrap().get_mut(&track_id) {
+            e.child = None;
+        }
+        if is_aborted(track_id) {
             let _ = std::fs::remove_dir_all(&dir);
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(CANCELLED.to_string());
+        }
+        if !status.success() || !output_path.exists() {
+            let _ = std::fs::remove_dir_all(&dir);
             return Err(format!("ffmpeg frame extraction failed for frame {}: {}", i, stderr));
         }
 
@@ -241,6 +371,19 @@ mod tests {
             get_cached_frames(dir.path(), 7).is_none(),
             "a stamp from a recipe this build doesn't know is not ours to serve either"
         );
+    }
+
+    /// Deleting a track that has no extraction running must not block or leave a
+    /// tombstone behind — the abort is a statement about a live run only.
+    #[test]
+    fn test_abort_of_an_idle_track_is_a_no_op() {
+        let started = std::time::Instant::now();
+        abort_extraction(424242);
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(500),
+            "an idle abort must return immediately, not wait out the deadline"
+        );
+        assert!(!is_aborted(424242), "no entry means no aborted flag");
     }
 
     #[test]

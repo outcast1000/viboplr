@@ -469,6 +469,40 @@ fn abandoned(track_path: &str) -> bool {
     !runs().lock().unwrap().interest.contains_key(track_path)
 }
 
+/// Forcibly stop any pass over `track_path`'s source file and wait for it to let go.
+///
+/// For deleting the file itself (`delete_tracks`): on Windows the delete fails for as
+/// long as ffmpeg holds a read handle on the source, and a storyboard pass can hold
+/// one for minutes. Deletion is a stronger claim than any surface's interest, so this
+/// bypasses the ref count — every registered requester is dropped (a sleeping
+/// single-flight loser then wakes to `CANCELLED` instead of restarting the pass) and
+/// the running child is killed directly, which also stops a pass whose caller opted
+/// out of cancellation with `request_id: None`. Returns once the in-flight entry has
+/// cleared (bounded), i.e. once the pass has actually exited and released the handle.
+pub fn abort_for_path(track_path: &str) {
+    let child = {
+        let mut r = runs().lock().unwrap();
+        r.interest.remove(track_path);
+        r.children.get(track_path).cloned()
+    };
+    if let Some(child) = child {
+        let mut c = child.lock().unwrap();
+        let _ = c.kill();
+        let _ = c.wait();
+    }
+    let (lock, cv) = inflight();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut running = lock.lock().unwrap();
+    while running.contains(track_path) {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            log::warn!("Storyboard pass for {} did not exit within the abort deadline", track_path);
+            break;
+        }
+        running = cv.wait_timeout(running, deadline - now).unwrap().0;
+    }
+}
+
 /// Publishes the running child so a cancel can reach it, and unpublishes on any exit
 /// path (including an unwind).
 struct ChildGuard(String);
@@ -1248,6 +1282,22 @@ mod tests {
         assert!(abandoned(path), "nobody left => the pass may be killed");
     }
 
+    /// Deleting the file outranks every surface's interest: one abort drops all
+    /// registered requesters at once, so the pass is abandoned no matter how many
+    /// callers still wanted the sheet.
+    #[test]
+    fn test_abort_for_path_drops_every_requester() {
+        let path = "file:///test/abort-all.mp4";
+        assert!(begin_request(path, "bar"));
+        assert!(begin_request(path, "detail"));
+        abort_for_path(path);
+        assert!(abandoned(path), "an abort must clear the whole interest set");
+        // The abort is not a tombstone: a later request for the same path (e.g. the
+        // delete failed and the user replays the video) starts normally.
+        assert!(begin_request(path, "bar"));
+        end_request(path, "bar");
+    }
+
     /// The cancel IPC can overtake the invoke it cancels (the invoke registers from a
     /// blocking thread), which would otherwise leave a pass running unwatched.
     #[test]
@@ -1285,6 +1335,60 @@ mod tests {
         )
         .expect_err("a missing file cannot produce a sheet");
         assert_ne!(err, CANCELLED, "opted out of cancellation, so it must have tried");
+    }
+
+    /// `abort_for_path` against real ffmpeg: called mid-pass from another thread (as
+    /// `delete_tracks` does), it must kill the child and not return until the pass
+    /// has fully exited — that return is what tells the delete the read handle on the
+    /// source is gone. `#[ignore]`d because it encodes a clip; self-skips w/o ffmpeg.
+    #[test]
+    #[ignore]
+    fn test_abort_for_path_returns_only_after_the_pass_has_exited() {
+        if !crate::video_frames::is_ffmpeg_available() {
+            eprintln!("[storyboard-test] SKIPPED — ffmpeg not available");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("doomed.mp4");
+        let ok = std::process::Command::new("ffmpeg")
+            .args([
+                "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+                "testsrc2=size=320x240:rate=10:duration=1200",
+                "-c:v", "libx264", "-preset", "ultrafast", "-g", "30",
+                "-pix_fmt", "yuv420p", "-y",
+            ])
+            .arg(&f)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        assert!(ok, "failed to encode test clip");
+
+        let track_path = format!("file://{}", f.to_string_lossy());
+        assert!(begin_request(&track_path, "req"));
+        let res = std::thread::scope(|scope| {
+            let gen = scope.spawn(|| {
+                generate_with_progress(dir.path(), &track_path, &f, 1200.0, Some("req"), |_, _| {})
+            });
+            // Wait until the pass has published its child, so the abort provably
+            // lands mid-decode rather than before the spawn.
+            let started = std::time::Instant::now();
+            while !runs().lock().unwrap().children.contains_key(&track_path) {
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(20),
+                    "ffmpeg never started"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            abort_for_path(&track_path);
+            assert!(
+                !inflight().0.lock().unwrap().contains(&track_path),
+                "abort_for_path returned while the pass was still in flight"
+            );
+            gen.join().unwrap()
+        });
+        assert!(res.is_err(), "an aborted pass must not report a sheet");
+        // The whole point: with the pass gone, the source file is deletable.
+        std::fs::remove_file(&f).expect("the source must be deletable after an abort");
     }
 
     /// Mid-pass cancellation against real ffmpeg: withdraw the only interest while

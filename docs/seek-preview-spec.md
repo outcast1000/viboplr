@@ -97,6 +97,14 @@ ids empties. Two consequences worth knowing:
   without that check the loser would start the very pass the user just walked away
   from.
 
+One caller outranks the ref count: **deleting the track**. On Windows the delete
+fails for as long as ffmpeg holds a read handle on the source, so `delete_tracks`
+calls `storyboard::abort_for_path` before touching the file — it drops the path's
+whole interest set, kills the running child directly (which also stops a pass that
+opted out of cancellation with `request_id: None`), and returns only once the pass
+has exited and released the handle. `video_frames::abort_extraction` gives the frame
+extractor the same contract.
+
 ## Resuming a cancelled pass
 
 A cancelled pass **keeps what it extracted**. It stitches the frames it had into a
