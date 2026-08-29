@@ -22,7 +22,9 @@ npm run test:rust                    # Rust tests only
 npm run test:e2e                     # Playwright E2E tests
 cd src-tauri && cargo test bench_search_performance -- --ignored --nocapture  # DB benchmarks
 npm run perf:probe -- run                 # macOS CPU/GPU/memory cost per scenario (needs sudo; see below)
+npm run perf:probe -- run --auto          # same, unattended — drives the app itself (perf profile; see below)
 npm run perf:probe -- save --note "..."   # append the last probe run to benchmarks/resource-usage.json
+npm run app:smoke -- --expect-version 1.0.38 --save  # smoke-test the INSTALLED build + record startup (see below)
 npm run loc                               # code size now vs the last release (see below); `npm run bump` runs this
 npm run loc -- save --ref v1.0.21         # back-fill one past release into benchmarks/loc-history.json
 ```
@@ -71,8 +73,131 @@ Scenarios are ordered so each isolates one extra cost. The `playing-minimized` v
 `playing-visible` pair is the load-bearing one: it splits libmpv decode cost from render cost,
 and only the second is ours to optimize. Both tools need root; sudo is primed once per run.
 
+`run --auto` walks the six non-optional scenarios unattended. It drives the app through the
+**`viboplr://probe` deep link** (`src/utils/probeControl.ts`), never through scripted keystrokes:
+`osascript` keystrokes need the terminal granted Accessibility, they land on whatever app is
+frontmost, and **Cmd-M in this app is *mute*** (`useInAppKeyboardShortcuts.ts`, `case "m"`) — so
+scripting the obvious "minimize" chord would silently mute the audio whose decode cost
+`playing-minimized` exists to measure. Minimize/restore therefore go through the Tauri window API
+inside that route. Playback of a *specific* file goes through `open=<absolute path>`, which routes
+to **`resolve_dropped_paths`** — the same command the Finder drag-and-drop path uses — so folder
+walking, tag reading and the media filter behave exactly as they do for a real drop, and video needs
+no separate handling. `playing-video` and `waveform` are therefore automatable, but only against
+media this machine actually has: pass `--video <path>` / `--waveform <path>` and they run, omit them
+and they're skipped with a note. **`collection-sync` has no `drive` and should not get one** — a
+rescan is a library mutation, which is what the probe route is deliberately not allowed to trigger.
+
+`open` takes a path from the URL while `dump` refuses to, and the asymmetry is the point: `dump`
+*writes*, so a caller-named destination would be a write-anywhere primitive; `open` only *reads* a
+file the user already has and plays it. Behind the same profile gate the worst case is a perf
+profile making a sound. Relative paths are rejected — the app's cwd is wherever launchd started it.
+
+Detail pages are reached with `artist=` / `album=` (+ optional `albumArtist=`) / `tag=`, not
+`view=`: `artists`/`albums`/`tags` are detail views that mean nothing without a selected entity, and
+the `view` handler clears the selection. They route through `useLibrary`'s `navigateTo*ByName`, so
+an entity not yet in the loaded list still resolves via its `find_*_by_name` fallback. This is what
+makes the **`detail-hero`** scenario possible, and that scenario is the point: `DetailHeroEffect`
+stacks ~9 infinite animations (including `tv-noise` repainting a tiled layer ~3× a second) and is
+the most animation-heavy surface in the app — it was simply unmeasurable before.
+
+`fullscreen=on|off` dispatches through App's `toggleFullscreenForTrack`, so audio gets the
+`AudioFullscreen` overlay and video gets its own path — the probe does not re-derive that branch.
+"Am I fullscreen?" is one read covering all three surfaces (`audioFullscreen ||
+playback.nativeFullscreen || document.fullscreenElement`), because native mpv video uses *window*
+fullscreen and never sets a DOM `:fullscreen` element. It is also reported in the dump, so a test
+can assert the state actually landed.
+
+`quit=on` flushes the store and exits. `quitApp()` in `appControl.mjs` prefers it over
+`osascript -e 'quit app'` for two reasons that both bit: an open modal can swallow Cmd-Q, and store
+writes are debounced 500ms, so a quit landing inside that window drops the very persisted queue the
+next run replays. It still falls back to osascript, then SIGTERM.
+
+The route is **gated on the profile** — only `perf` / `perf-*` honours it, so a page that opens
+`viboplr://probe?...` against a real user's default profile gets nothing. `--auto` launches the app
+with `--profile perf` (`open` cannot set env vars, but `lib.rs` also reads `--profile` from argv,
+and unlike `VIBOPLR_PROFILE` that leaves a trace in `ps`) and **asserts the profile before every
+sample**. Without that assert a default-profile app would ignore every link and the run would
+produce a full set of plausible, identical, wrong numbers. Set the profile up once by hand — add a
+local collection and queue one track; it persists its own queue, so `play=on` replays the *same*
+track every run, which is what makes the series comparable across releases.
+
+`--settle` (default 10s) is the pause between reaching a state and starting to sample. It is not
+padding: without it the launch, view switch or window animation lands inside the sampled window and
+`idle-home` absorbs the cost of starting the app. The guided mode gets this for free because the
+human only presses Enter once things look calm.
+
+Note that `--auto` needs a **release build carrying the probe route installed where LaunchServices
+resolves `Viboplr`** — the run prints the bundle it resolved and warns when it is not under
+`/Applications`, since the process name cannot tell the builds apart.
+
 Instruments/`xctrace` is unavailable unless full Xcode is installed (Command Line Tools alone
 ships a stub that errors out).
+
+### Built-app smoke test + startup series
+
+`scripts/app-smoke.mjs` (`npm run app:smoke`) is the only check that touches **the artifact we
+ship**. The Playwright suite drives the Vite dev server with `tests/e2e/tauri-mock.js` faking the
+IPC layer and `cargo test --lib` never renders anything, so an entire class of bug ships green
+today: libmpv missing from the bundle, a `viboplr://` scheme that didn't register, codesigning that
+broke the webview, frontend assets left out, a migration that crashes on a real profile.
+
+It launches the installed app under the `perf` profile and asks it to describe itself via
+`viboplr://probe?dump=on`. **That the answer arrives at all is most of the test** — it means the
+bundle launched, the webview mounted, React ran, the database opened and the URL scheme resolves to
+this build. `checkDump` (`scripts/lib/appSmoke.mjs`, unit-tested in `src/__tests__/appSmoke.test.ts`)
+then asserts version / profile / track count / view / both timing sets, returning *every* failure
+rather than throwing on the first — "wrong version" and "the database never opened" are independent
+facts and both should be visible without re-running a build.
+
+The dump is written by `write_probe_dump` (`commands/app.rs`) to a **fixed filename in the profile
+dir**; the URL carries no path, deliberately, because a URL that names its own destination is a
+write-anywhere primitive. The profile gate is re-checked in Rust rather than trusted from the
+frontend — any JS in the webview, including a plugin's, can invoke that command. `probeDumpPath`
+(`scripts/lib/appControl.mjs`) recomputes the same location independently. The runner **deletes a
+stale dump before launching**: the path is fixed, so last run's file is indistinguishable from this
+run's, and an app that failed to start would otherwise be "verified" against the last good launch.
+
+**It is not a `bump.mjs` step, and must not become one.** The release build happens in the GitHub
+workflow (`tauri-action`, per-platform matrix) *after* the tag is pushed, so at bump time there is
+no new bundle on the machine — a step there would launch whatever stale app is in `/Applications`
+and pass. `bump.mjs` prints the command to run once CI publishes instead, and `--expect-version` is
+what makes that safe to follow late: run it against the old build and it fails loudly.
+
+`--save` appends to `benchmarks/startup-history.json`. **The backend and frontend spans stay
+separate all the way through** — `timing.rs`'s origin is process start, `startupTiming.ts`'s is
+script evaluation (which happens *inside* the backend span), so they are two clocks with no shared
+zero and a combined "total startup" would read as authoritative and mean nothing. Per-phase
+breakdowns ride along so a regression can be attributed without re-running; `startupDelta` reports
+movers past 20ms in absolute milliseconds, not percentages, because startup phases are often
+sub-millisecond where a percentage turns noise into a headline.
+
+**One-time setup:** `npm run perf:setup -- --music /path/to/music` (then `-- --check` to verify).
+Four things must be true or the run silently measures the wrong thing, and the script does all four:
+onboarding dismissed (a fresh profile shows the wizard over everything), a collection added (no
+collection → no artists → `detail-hero` has nothing to open), the queue seeded (`play=on` against an
+empty queue is a no-op, so every `playing-*` scenario samples an idle app), and **`heroEffectMode`
+pinned to a specific look** — `resolveHeroLook` reads a persisted mode where `disabled` renders no
+effect at all and `random` picks a different look per run, so `detail-hero` would respectively report
+the animation stack as free or produce a series that can't be compared.
+
+Setup goes through the app's own probe verbs, not by editing its files: the app rewrites
+`app-state.json` from memory on a debounce so anything written underneath it can be clobbered, and
+the collection lives in the **database**, which a file edit cannot reach. `heroEffectMode` is the one
+exception (a plain store key with no command behind it) and is written with the app stopped. Note
+that the **queue is not a store key** — it lives in `main_playlist`, behind `main_playlist_read` — so
+readiness is checked by asking the app for a dump, never by scraping its files.
+
+**The run is self-configuring.** The dump carries `library.artistNames` and `queueLength`, so
+`--auto` discovers an artist for `detail-hero` instead of needing one typed; an explicit `--artist`
+still wins. `--video` / `--waveform` remain explicit, since which file to use is a real choice.
+
+**Every scenario is verified before it is sampled.** `cmdRunAuto` dumps after the drive and compares
+against the scenario's declared `expect` (view / playing / miniMode / fullscreen, plus "is anything
+actually loaded"), skipping the sample on a mismatch. This is what stops the whole class of silent
+wrong-state results — an empty queue, a scenario inheriting fullscreen from the one before it — from
+looking like real numbers. Drives are therefore **fully declarative** (`stateQuery` sends every axis,
+not just what changed): three scenarios are skippable, so a delta-style drive inherits whatever the
+last one that *ran* left behind.
 
 ### Code size tracking
 

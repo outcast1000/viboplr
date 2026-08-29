@@ -33,6 +33,7 @@ import { resolveShelfPlayAction } from "./utils/homeShelfPlay";
 import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
 import { buildPluginOverflowItems } from "./utils/heroOverflow";
 import { applyReduceMotionAttr } from "./utils/reducedMotion";
+import { parseProbeCommand, isProbeProfile, buildProbeDump, type ProbeCommand } from "./utils/probeControl";
 import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -2107,6 +2108,196 @@ function App() {
     library.setSelectedTrack(null);
   });
 
+  // Applies a viboplr://probe command — the remote control that lets
+  // scripts/perf-probe.mjs walk every measured scenario unattended. Inert
+  // unless the app is running under a `perf` profile (see probeControl.ts for
+  // why this is a deep link and not scripted keystrokes). Ref-held for the same
+  // reason as openQuizRef: the deep-link effect must not capture a stale one.
+  const runProbeCommandRef = useRef(async (_cmd: ProbeCommand) => {});
+  useAssignRef(runProbeCommandRef, async (cmd: ProbeCommand) => {
+    // Order is load-bearing: restore before switching view (a miniaturized
+    // window's webview is throttled, so a view switch issued first lands late),
+    // and set transport after the mini-mode resize rather than before it.
+    // Setup verbs first: a wizard covering the window makes every later step
+    // meaningless, and a collection has to exist before anything can navigate
+    // to an artist in it.
+    if (cmd.dismissOnboarding) dismissProbeOnboardingRef.current();
+    if (cmd.addCollection) await addProbeCollectionRef.current(cmd.addCollection);
+    if (cmd.window === "restore") {
+      await getCurrentWindow().unminimize();
+      await getCurrentWindow().setFocus();
+    }
+    // *Leaving* fullscreen happens early and *entering* it happens last (below).
+    // A fullscreen window makes everything after it behave oddly — toggling mini
+    // mode out of one especially — so a scenario that wants a plain window must
+    // get one before anything else is set.
+    if (cmd.fullscreen === false) setProbeFullscreenRef.current(false);
+    if (cmd.mini !== undefined && cmd.mini !== mini.miniMode) {
+      await mini.toggleMiniMode();
+    }
+    if (cmd.view) {
+      library.setView(cmd.view);
+      library.setSelectedArtist(null);
+      library.setSelectedAlbum(null);
+      library.setSelectedTag(null);
+      library.setSelectedTrack(null);
+    }
+    // After `view`, so `view=X&artist=Y` lands on the detail page rather than
+    // being clobbered by the plain view switch above.
+    if (cmd.entity) {
+      const { kind, name, artistName } = cmd.entity;
+      if (kind === "artist") await library.navigateToArtistByName(name);
+      else if (kind === "album") await library.navigateToAlbumByName(name, artistName);
+      else await library.navigateToTagByName(name);
+    }
+    // Before `play`, so `open=<path>&play=off` means "load it, paused" rather
+    // than racing its own playback.
+    if (cmd.open) await openProbePathRef.current(cmd.open);
+    if (cmd.play !== undefined && cmd.play !== playback.playing) {
+      playback.handlePause(); // toggle
+    }
+    // After `play` — entering fullscreen needs a current track (canFullscreen),
+    // so a link that starts playback and goes fullscreen must do them in order.
+    if (cmd.fullscreen === true) setProbeFullscreenRef.current(true);
+    // Dump after the state changes above, so a link that both navigates and
+    // dumps reports where it landed rather than where it started.
+    if (cmd.dump) await writeProbeDumpRef.current();
+    // Minimizing last: the webview throttles once miniaturized, so anything
+    // queued after this would not run until the window comes back.
+    if (cmd.window === "minimize") {
+      await getCurrentWindow().minimize();
+    }
+    // Absolutely last — nothing runs after the process is gone.
+    if (cmd.quit) {
+      // Flush before exiting: store writes are debounced 500ms, and the perf
+      // profile's persisted queue is what the next run replays.
+      await store.save().catch((e) => console.error("Probe quit: store flush failed:", e));
+      await exit(0);
+    }
+  });
+
+  // Dismiss the first-run wizard, persisting exactly what its own close handler
+  // does — reusing that path rather than setting the flags here, so the two
+  // can't drift.
+  const dismissProbeOnboardingRef = useRef(() => {});
+  useAssignRef(dismissProbeOnboardingRef, () => {
+    if (showOnboarding) handleOnboardingClose(onboardingProfile ?? "normal");
+  });
+
+  // Add a local folder as a collection (see probeControl.ts for why the one
+  // mutating verb is allowed). `add_collection` auto-starts the scan.
+  const addProbeCollectionRef = useRef(async (_path: string) => {});
+  useAssignRef(addProbeCollectionRef, async (path: string) => {
+    const name = path.split("/").filter(Boolean).pop() || "Perf";
+    try {
+      await invoke("add_collection", { kind: "local", name, path });
+      console.debug(`[probe] added collection "${name}" at ${path}`);
+    } catch (e) {
+      // Already-added is the common case on a re-run and must not abort the
+      // rest of the link — the collection being there is the desired end state.
+      console.error("Probe: add_collection failed (already present?):", e);
+    }
+  });
+
+  // Declarative fullscreen for the probe. "Am I fullscreen?" needs all three
+  // reads OR'd: the audio overlay, native mpv video (which uses *window*
+  // fullscreen and never sets a DOM :fullscreen element) and browser video.
+  // Checking only `document.fullscreenElement` would silently no-op on the
+  // default engine.
+  const setProbeFullscreenRef = useRef((_on: boolean) => {});
+  useAssignRef(setProbeFullscreenRef, (on: boolean) => {
+    const now = audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null;
+    if (on === now) return;
+    // Entering needs a track; leaving must work regardless of what's playing.
+    if (on && !canFullscreen) return;
+    toggleFullscreenForTrack();
+  });
+
+  // Resolves an arbitrary path (file or folder) and plays it. Routed through
+  // `resolve_dropped_paths` — the same command the Finder drag-and-drop path
+  // uses — so folder walking, tag reading and the media filter behave exactly
+  // as they do for a real drop, and video is picked up like any other media.
+  const openProbePathRef = useRef(async (_path: string) => {});
+  useAssignRef(openProbePathRef, async (path: string) => {
+    const resolved = await invoke<Array<{
+      path: string; title: string; artist_name: string | null;
+      album_title: string | null; duration_secs: number | null; format: string | null;
+    }>>("resolve_dropped_paths", { paths: [path] });
+    if (resolved.length === 0) {
+      console.error(`[probe] no playable media at ${path}`);
+      return;
+    }
+    queueHook.playTracks(
+      resolved.map((d) => ({
+        key: nextExternalKey(),
+        path: d.path,
+        title: d.title,
+        artist_name: d.artist_name,
+        album_title: d.album_title,
+        duration_secs: d.duration_secs,
+        format: d.format,
+        image_url: undefined,
+        liked: 0,
+      })),
+      0,
+    );
+  });
+
+  // Gathers the probe state dump and hands it to the backend to write (see
+  // write_probe_dump: the caller never names a path). Every source is an
+  // existing command — this assembles, it does not instrument.
+  const writeProbeDumpRef = useRef(async () => {});
+  useAssignRef(writeProbeDumpRef, async () => {
+    const [facts, trackCount, backendTimings, artists] = await Promise.all([
+      invoke<{ appVersion?: string; profile?: string; os?: string; arch?: string }>("collect_diagnostics"),
+      invoke<number>("get_track_count").catch((e) => {
+        console.error("Probe dump: failed to read track count:", e);
+        return null;
+      }),
+      invoke<TimingEntry[]>("get_startup_timings").catch((e) => {
+        console.error("Probe dump: failed to read backend timings:", e);
+        return [] as TimingEntry[];
+      }),
+      // What this profile has, so the harness can configure itself rather than
+      // being handed names a human had to look up.
+      invoke<Array<{ name: string }>>("get_artists").catch((e) => {
+        console.error("Probe dump: failed to read artists:", e);
+        return [] as Array<{ name: string }>;
+      }),
+    ]);
+    const track = playback.currentTrack;
+    const dump = buildProbeDump({
+      appVersion: facts?.appVersion ?? "unknown",
+      profile: facts?.profile ?? "unknown",
+      os: facts?.os ?? "unknown",
+      arch: facts?.arch ?? "unknown",
+      trackCount,
+      artistNames: artists.map((a) => a.name),
+      queueLength: queueHook.queue.length,
+      view: library.view,
+      playing: playback.playing,
+      miniMode: mini.miniMode,
+      fullscreen: audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null,
+      currentTrack: track ? `${track.artist_name ?? "?"} — ${track.title}` : null,
+      backendTimings,
+      frontendTimings: getTimingEntries(),
+      capturedAt: new Date().toISOString(),
+    });
+    const path = await invoke<string>("write_probe_dump", {
+      contents: JSON.stringify(dump, null, 2),
+    });
+    console.debug("[probe] wrote state dump:", path);
+  });
+
+  // Whether this profile honours viboplr://probe. Resolved once; null until then
+  // so a link arriving during startup is ignored rather than run ungated.
+  const probeEnabledRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    invoke<{ profileName?: string }>("get_profile_info")
+      .then(({ profileName }) => { probeEnabledRef.current = isProbeProfile(profileName); })
+      .catch((e) => console.error("Failed to read profile info for probe gate:", e));
+  }, []);
+
   // Listen for deep link events
   useEffect(() => {
     const handled = new Set<string>();
@@ -2163,6 +2354,19 @@ function App() {
         // website's support page (plus a row at the end of Settings > Debug).
         if (raw === "viboplr://quiz" || raw.startsWith("viboplr://quiz?") || raw.startsWith("viboplr://quiz/")) {
           openQuizRef.current();
+          break;
+        }
+        // Perf-probe remote control. Checked before the plugin forward so a
+        // probe link is never handed to plugins, and no-ops (rather than
+        // forwarding) when the profile gate is closed.
+        const probeCmd = parseProbeCommand(raw);
+        if (probeCmd) {
+          if (probeEnabledRef.current) {
+            runProbeCommandRef.current(probeCmd)
+              .catch((e) => console.error("Probe command failed:", e));
+          } else {
+            console.debug("[deep-link] probe link ignored — not a perf profile");
+          }
           break;
         }
         // Forward other viboplr:// deep links to plugins

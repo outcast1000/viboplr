@@ -445,6 +445,7 @@ if (autocommit) {
   run("Tagging release...", `git tag v${version}`);
   run("Pushing to origin...", pushCmd);
   console.log(`Done! Released v${version}${isBeta ? " (beta prerelease)" : ""}.`);
+  printSmokeReminder(version);
 } else {
   console.log(`\nFiles updated. To commit and tag manually:\n`);
   console.log(`  git add -A`);
@@ -452,4 +453,22 @@ if (autocommit) {
   console.log(`  git tag v${version}`);
   console.log(`  ${pushCmd}`);
   console.log(`\nOr re-run with --autocommit to do this automatically.`);
+  printSmokeReminder(version);
+}
+
+// ---------------------------------------------------------------------------
+// Post-release — smoke-test the artifact CI is about to build
+//
+// Deliberately a printed reminder rather than a step above: the release build
+// happens in the GitHub workflow (tauri-action, per-platform matrix) *after*
+// this tag is pushed, so at this point there is no new bundle on this machine.
+// Running the smoke test here would launch whatever stale app is in
+// /Applications and pass — the precise flavour of meaningless green the smoke
+// test exists to prevent. `--expect-version` is what makes the reminder safe to
+// follow late: run it against the old build and it fails loudly.
+// ---------------------------------------------------------------------------
+function printSmokeReminder(v) {
+  if (process.platform !== "darwin") return;
+  console.log(`\nOnce CI publishes and you've installed v${v}, smoke-test the real bundle:`);
+  console.log(`  npm run app:smoke -- --expect-version ${v}${v.includes("-") ? "" : " --save"}`);
 }

@@ -20,6 +20,19 @@ pub fn same_profile_name(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
 }
 
+/// Whether this profile may drive the app through the `viboplr://probe` deep
+/// link and write a state dump. Mirrors `isProbeProfile` in
+/// `src/utils/probeControl.ts` — the frontend gates the route, this gates the
+/// file write, and neither may rely on the other having checked.
+///
+/// Case-insensitive to match `same_profile_name`: `canonical_profile_name` can
+/// hand startup an existing directory's casing, so a `Perf` profile is the same
+/// profile and must not silently fall out of the gate.
+pub fn is_probe_profile(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower == "perf" || lower.starts_with("perf-")
+}
+
 /// Resolve a launch-time profile name to the casing of an existing profile
 /// directory, if one matches case-insensitively. Keeps the startup path from
 /// creating a case-variant duplicate on case-sensitive filesystems (which
@@ -182,6 +195,26 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    // Mirrors src/__tests__/probeControl.test.ts — the two gates gate different
+    // things (the deep-link route vs. the dump file write) and must agree.
+    #[test]
+    fn test_is_probe_profile_accepts_perf_and_variants() {
+        assert!(is_probe_profile("perf"));
+        assert!(is_probe_profile("perf-release"));
+        // canonical_profile_name can hand startup an existing dir's casing.
+        assert!(is_probe_profile("Perf"));
+        assert!(is_probe_profile("PERF-Release"));
+    }
+
+    #[test]
+    fn test_is_probe_profile_rejects_everything_else() {
+        assert!(!is_probe_profile("default"));
+        assert!(!is_probe_profile("dev-1"));
+        // The prefix must be `perf-`, not merely start with the four letters.
+        assert!(!is_probe_profile("performance"));
+        assert!(!is_probe_profile(""));
     }
 
     #[test]

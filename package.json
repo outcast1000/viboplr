@@ -13,6 +13,8 @@
     "bump": "node scripts/bump.mjs",
     "loc": "node scripts/loc.mjs",
     "perf:probe": "node scripts/perf-probe.mjs",
+    "app:smoke": "node scripts/app-smoke.mjs",
+    "perf:setup": "node scripts/setup-perf-profile.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",

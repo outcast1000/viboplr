@@ -336,6 +336,35 @@ mod log_tail_tests {
     }
 }
 
+/// Fixed name of the probe state dump, written into the profile directory.
+/// `scripts/lib/appSmoke.mjs` computes the same path — keep them in step.
+pub const PROBE_DUMP_FILE: &str = "probe-dump.json";
+
+/// Write the frontend's probe state dump into the profile directory.
+///
+/// Test-harness support for `scripts/app-smoke.mjs`, which cannot read a
+/// command's return value (it drives the app through a `viboplr://` link, which
+/// is fire-and-forget) and so needs the state on disk.
+///
+/// Two deliberate constraints, because this writes a file at the request of a
+/// URL: the destination is a **fixed filename in a directory the backend
+/// already owns** — the caller never names a path — and the profile gate is
+/// re-checked here rather than trusted from the frontend. Any JS in the webview,
+/// including a plugin's, can invoke this.
+#[tauri::command]
+pub fn write_probe_dump(state: State<'_, AppState>, contents: String) -> Result<String, String> {
+    if !crate::profiles::is_probe_profile(&state.profile_name) {
+        return Err(format!(
+            "probe dump refused: profile \"{}\" is not a probe profile",
+            state.profile_name
+        ));
+    }
+    let path = state.app_dir.join(PROBE_DUMP_FILE);
+    std::fs::write(&path, contents)
+        .map_err(|e| format!("Failed to write probe dump to {}: {}", path.display(), e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
     crate::timing::timer().get_entries()
