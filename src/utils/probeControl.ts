@@ -70,6 +70,16 @@ export interface ProbeCommand {
    */
   open?: string;
   /**
+   * Restrict what `open` plays to one media kind.
+   *
+   * Exists because a folder is the only practical way to seed a queue, and
+   * `resolve_dropped_paths` accepts every supported media type — so a single
+   * stray video sorts to the front and every "playing audio" measurement
+   * silently becomes a video-decode measurement. That is not hypothetical: it
+   * invalidated a whole recorded run.
+   */
+  openKind?: "audio" | "video";
+  /**
    * Flush pending state and exit.
    *
    * Better than `osascript -e 'quit app'` for an unattended harness on both
@@ -300,6 +310,9 @@ export function parseProbeCommand(raw: string): ProbeCommand | null {
   // nobody intended. `file://` is tolerated because the backend strips it too.
   const open = params.get("open")?.trim();
   if (open && (open.startsWith("/") || open.startsWith("file:///"))) cmd.open = open;
+
+  const openKind = params.get("openKind")?.trim().toLowerCase();
+  if (openKind === "audio" || openKind === "video") cmd.openKind = openKind;
 
   const win = params.get("window")?.trim().toLowerCase();
   if (win === "minimize" || win === "restore") cmd.window = win;

@@ -107,6 +107,25 @@ describe("parseProbeCommand", () => {
     expect(parseProbeCommand("viboplr://probe?open=")).toEqual({});
   });
 
+  // A folder is the only practical way to seed a queue, and the resolver takes
+  // every media type — one stray video sorting first turned a whole recorded
+  // run of "playing audio" scenarios into video-decode measurements.
+  it("parses the open media-kind filter", () => {
+    expect(parseProbeCommand("viboplr://probe?open=%2Ftmp%2Fm&openKind=audio")).toEqual({
+      open: "/tmp/m",
+      openKind: "audio",
+    });
+    expect(parseProbeCommand("viboplr://probe?open=%2Ftmp%2Fm&openKind=VIDEO")).toEqual({
+      open: "/tmp/m",
+      openKind: "video",
+    });
+    // An unrecognised kind must not silently become "no filter" on a caller that
+    // meant to filter — but it also must not invent one, so it is simply dropped.
+    expect(parseProbeCommand("viboplr://probe?open=%2Ftmp%2Fm&openKind=nonsense")).toEqual({
+      open: "/tmp/m",
+    });
+  });
+
   it("parses the fullscreen verb", () => {
     expect(parseProbeCommand("viboplr://probe?fullscreen=on")).toEqual({ fullscreen: true });
     expect(parseProbeCommand("viboplr://probe?fullscreen=off")).toEqual({ fullscreen: false });

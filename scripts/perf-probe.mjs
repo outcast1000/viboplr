@@ -217,7 +217,7 @@ const SCENARIOS = [
       // Full reset first: this runs after playing-mini, so without it the
       // "theater" would be the mini player.
       await probeLink(stateQuery({ view: "nowplaying" }));
-      await probeLink(`open=${encodeURIComponent(args.video)}`);
+      await probeLink(`open=${encodeURIComponent(args.video)}&openKind=video`);
     },
     expect: expectState({ view: "nowplaying", playing: true }),
   },
@@ -237,7 +237,7 @@ const SCENARIOS = [
     needsArg: "waveform",
     drive: async (args) => {
       await probeLink(stateQuery({ view: "nowplaying" }));
-      await probeLink(`open=${encodeURIComponent(args.waveform)}`);
+      await probeLink(`open=${encodeURIComponent(args.waveform)}&openKind=audio`);
     },
     expect: expectState({ view: "nowplaying", playing: true }),
   },

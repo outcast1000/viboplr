@@ -2152,7 +2152,7 @@ function App() {
     }
     // Before `play`, so `open=<path>&play=off` means "load it, paused" rather
     // than racing its own playback.
-    if (cmd.open) await openProbePathRef.current(cmd.open);
+    if (cmd.open) await openProbePathRef.current(cmd.open, cmd.openKind);
     if (cmd.play !== undefined && cmd.play !== playback.playing) {
       playback.handlePause(); // toggle
     }
@@ -2217,18 +2217,24 @@ function App() {
   // `resolve_dropped_paths` — the same command the Finder drag-and-drop path
   // uses — so folder walking, tag reading and the media filter behave exactly
   // as they do for a real drop, and video is picked up like any other media.
-  const openProbePathRef = useRef(async (_path: string) => {});
-  useAssignRef(openProbePathRef, async (path: string) => {
+  const openProbePathRef = useRef(async (_path: string, _kind?: "audio" | "video") => {});
+  useAssignRef(openProbePathRef, async (path: string, kind?: "audio" | "video") => {
     const resolved = await invoke<Array<{
       path: string; title: string; artist_name: string | null;
       album_title: string | null; duration_secs: number | null; format: string | null;
     }>>("resolve_dropped_paths", { paths: [path] });
-    if (resolved.length === 0) {
-      console.error(`[probe] no playable media at ${path}`);
+    // A folder is the only practical way to seed a queue, and the resolver
+    // accepts every media type — so one stray video sorts to the front and a
+    // "playing audio" measurement quietly becomes a video-decode measurement.
+    const wanted = kind
+      ? resolved.filter((d) => (kind === "video") === isVideoTrack(d))
+      : resolved;
+    if (wanted.length === 0) {
+      console.error(`[probe] no playable ${kind ?? "media"} at ${path}`);
       return;
     }
     queueHook.playTracks(
-      resolved.map((d) => ({
+      wanted.map((d) => ({
         key: nextExternalKey(),
         path: d.path,
         title: d.title,

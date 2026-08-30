@@ -23,6 +23,7 @@
 //
 // Usage:
 //   node scripts/setup-perf-profile.mjs --music /path/to/music
+//   node scripts/setup-perf-profile.mjs --music <folder> --seed <audio-only folder>
 //   node scripts/setup-perf-profile.mjs --music <folder> --look vhs
 //   node scripts/setup-perf-profile.mjs --check     report readiness, change nothing
 
@@ -94,6 +95,10 @@ function report(dump, store) {
     ["queue", dump?.library?.queueLength
       ? `${dump.library.queueLength} track(s)`
       : "EMPTY — every playing-* scenario would sample an idle app"],
+    // Printed because it hid a whole invalidated run: the queue was seeded from
+    // a folder containing one video, which sorted first, so every "playing
+    // audio" scenario measured video decode. Now it is impossible not to notice.
+    ["first track", dump?.ui?.currentTrack ?? "(nothing loaded)"],
     ["heroEffectMode", lookOk ? look : `${look ?? "unset"} — detail-hero needs a specific look`],
   ];
   for (const [k, v] of rows) console.log(`  ${String(k).padEnd(16)} ${v}`);
@@ -129,6 +134,16 @@ async function main() {
     process.exit(1);
   }
   const look = typeof flags.look === "string" ? flags.look : DEFAULT_LOOK;
+  // The queue seed is separate from the collection folder on purpose. The
+  // collection wants breadth (artists for detail-hero); the queue wants audio
+  // and nothing else. `openKind=audio` below covers this on a build that
+  // supports it, but --seed also lets an older build be pointed at an
+  // audio-only subtree.
+  const seed = typeof flags.seed === "string" ? flags.seed : music;
+  if (!seed.startsWith("/") || !existsSync(seed)) {
+    console.error(`--seed must be an absolute path that exists: ${seed}`);
+    process.exit(1);
+  }
 
   // The look is the one setting with no command behind it, so it is written to
   // the store directly — which means the app must not be running, or its next
@@ -160,7 +175,12 @@ async function main() {
 
   // Seed the queue from the same folder, through the resolver the Finder drop
   // path uses. Persisting it is what lets later runs just say `play=on`.
-  await probeLink(`open=${encodeURIComponent(music)}`);
+  //
+  // `openKind=audio` is load-bearing: the resolver takes every supported media
+  // type, so a single video in the folder sorts to the front and every
+  // "playing audio" scenario silently measures video decode instead. That
+  // invalidated a whole recorded run before this filter existed.
+  await probeLink(`open=${encodeURIComponent(seed)}&openKind=audio`);
   await sleep(3000);
   dump = await askApp();
 
