@@ -101,11 +101,13 @@ function recordStartup(dump, { version, note }) {
   const entries = Array.isArray(history.entries) ? history.entries : [];
   const prev = entries.at(-1) ?? null;
   const entry = startupEntry(dump, { version, note });
-  const { spans, movers } = startupDelta(prev, entry);
+  const { spans, movers, incomparable } = startupDelta(prev, entry);
 
   console.log(
     `\nstartup: backend ${entry.backend_span_ms} ms · frontend ${entry.frontend_span_ms} ms` +
-      (spans ? `  (Δ ${fmtDelta(spans.backend_span_ms)} / ${fmtDelta(spans.frontend_span_ms)})` : "  (first entry)"),
+      (spans
+        ? `  (Δ ${fmtDelta(spans.backend_span_ms)} / ${fmtDelta(spans.frontend_span_ms)})`
+        : `  (${incomparable ?? "first entry"} — no delta)`),
   );
   for (const m of movers.slice(0, 5)) {
     console.log(`  ${fmtDelta(m.delta).padStart(8)} ms  ${m.side}/${m.label}`);

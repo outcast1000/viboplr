@@ -128,6 +128,10 @@ describe("compareState", () => {
 });
 
 describe("startupEntry", () => {
+  it("records the library size so entries are comparable", () => {
+    expect(startupEntry(healthy, { version: "x" }).tracks).toBe(1200);
+  });
+
   it("keeps the two spans separate and rounds to 0.1ms", () => {
     const entry = startupEntry(healthy, { version: "1.0.38", at: new Date("2026-08-29T12:00:00Z") });
     expect(entry).toMatchObject({
@@ -162,8 +166,23 @@ describe("startupEntry", () => {
 });
 
 describe("startupDelta", () => {
-  const prev = { backend_span_ms: 400, frontend_span_ms: 200, backend: { db: 300 }, frontend: {} };
-  const next = { backend_span_ms: 460, frontend_span_ms: 190, backend: { db: 355 }, frontend: {} };
+  const prev = { tracks: 60, backend_span_ms: 400, frontend_span_ms: 200, backend: { db: 300 }, frontend: {} };
+  const next = { tracks: 60, backend_span_ms: 460, frontend_span_ms: 190, backend: { db: 355 }, frontend: {} };
+
+  // Startup work scales with the library. The first two real entries were
+  // recorded against 0 and 120 tracks, and their delta compared nothing.
+  it("refuses to compare across a library-size change", () => {
+    const grown = { ...next, tracks: 120 };
+    const r = startupDelta(prev, grown);
+    expect(r.spans).toBeNull();
+    expect(r.movers).toEqual([]);
+    expect(r.incomparable).toContain("60 -> 120");
+  });
+
+  it("still compares when the count is unknown on either side", () => {
+    // Older entries predate the field; refusing there would hide every delta.
+    expect(startupDelta({ ...prev, tracks: undefined }, next).spans).not.toBeNull();
+  });
 
   it("has nothing to compare against on the first entry", () => {
     expect(startupDelta(null, next)).toEqual({ spans: null, movers: [] });

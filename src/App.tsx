@@ -2190,12 +2190,21 @@ function App() {
   useAssignRef(addProbeCollectionRef, async (path: string) => {
     const name = path.split("/").filter(Boolean).pop() || "Perf";
     try {
+      // `add_collection` does not reject a duplicate path — it registers a
+      // second collection over the same folder, so every track ends up in the
+      // library twice. Setting up twice took a library from 60 to 120 tracks
+      // that way, which silently moves the baseline between measured runs.
+      const existing = await invoke<Collection[]>("get_collections");
+      if (existing.some((c) => c.path === path)) {
+        console.debug(`[probe] collection already registered at ${path} — not adding again`);
+        return;
+      }
       await invoke("add_collection", { kind: "local", name, path });
       console.debug(`[probe] added collection "${name}" at ${path}`);
     } catch (e) {
-      // Already-added is the common case on a re-run and must not abort the
-      // rest of the link — the collection being there is the desired end state.
-      console.error("Probe: add_collection failed (already present?):", e);
+      // Must not abort the rest of the link — the collection existing is the
+      // desired end state, however it got there.
+      console.error("Probe: add_collection failed:", e);
     }
   });
 

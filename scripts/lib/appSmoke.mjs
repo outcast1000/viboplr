@@ -108,6 +108,10 @@ export function startupEntry(dump, { version, note = null, at = new Date() } = {
   return {
     version,
     date: at.toISOString().slice(0, 10),
+    // Startup work scales with the library, so an entry that doesn't say how
+    // big the library was cannot be compared to another. The first two entries
+    // were recorded against 0 and 120 tracks and their delta was meaningless.
+    tracks: dump.library?.trackCount ?? null,
     backend_span_ms: round1(dump.startup.backendSpanMs),
     frontend_span_ms: round1(dump.startup.frontendSpanMs),
     backend: phaseMap(dump.startup.backend),
@@ -142,6 +146,11 @@ function phaseMap(entries) {
  */
 export function startupDelta(prev, next, { thresholdMs = 20 } = {}) {
   if (!prev) return { spans: null, movers: [] };
+  // Comparing across a library-size change reports a real difference as if it
+  // were a regression. Say so rather than printing a confident wrong number.
+  if (prev.tracks != null && next.tracks != null && prev.tracks !== next.tracks) {
+    return { spans: null, movers: [], incomparable: `library changed ${prev.tracks} -> ${next.tracks} tracks` };
+  }
   const spans = {
     backend_span_ms: round1(next.backend_span_ms - prev.backend_span_ms),
     frontend_span_ms: round1(next.frontend_span_ms - prev.frontend_span_ms),

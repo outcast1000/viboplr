@@ -158,19 +158,27 @@ async function main() {
   await launchApp();
   // Onboarding first — the wizard sits over everything else.
   await probeLink("onboarding=dismiss");
-  await probeLink(`collection=${encodeURIComponent(music)}`);
-  console.log("✓ onboarding dismissed, collection added — waiting for the scan");
 
-  // The scan populates the artists the detail-hero scenario needs. Poll rather
-  // than sleeping a fixed amount: a big folder takes far longer than a small one.
+  // Adding the same folder twice registers a SECOND collection over it, so every
+  // track exists twice — the library went 60 -> 120 that way, silently changing
+  // the baseline between runs. `add_collection` does not reject a duplicate
+  // path, so the guard has to be here: a library that already has tracks is
+  // already set up.
   let dump = await askApp();
-  const deadline = Date.now() + 120000;
-  while (!dump.library.trackCount && Date.now() < deadline) {
-    await sleep(3000);
-    dump = await askApp();
-  }
-  if (!dump.library.trackCount) {
-    console.warn("  ! No tracks after 2 minutes — is that folder actually full of audio?");
+  if (dump.library.trackCount) {
+    console.log(`✓ onboarding dismissed; library already has ${dump.library.trackCount} tracks — not adding the collection again`);
+  } else {
+    await probeLink(`collection=${encodeURIComponent(music)}`);
+    console.log("✓ onboarding dismissed, collection added — waiting for the scan");
+    // Poll rather than sleeping a fixed amount: a big folder takes far longer.
+    const deadline = Date.now() + 120000;
+    while (!dump.library.trackCount && Date.now() < deadline) {
+      await sleep(3000);
+      dump = await askApp();
+    }
+    if (!dump.library.trackCount) {
+      console.warn("  ! No tracks after 2 minutes — is that folder actually full of audio?");
+    }
   }
 
   // Seed the queue from the same folder, through the resolver the Finder drop
