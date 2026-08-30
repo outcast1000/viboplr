@@ -81,6 +81,9 @@ const DEFAULT_SECONDS = 60;
 // none of that lands inside the sampled window. See cmdRunAuto.
 const DEFAULT_SETTLE_SECONDS = 10;
 const SAMPLE_INTERVAL_MS = 1000;
+// Pre-window pid discovery, for the opening footprint only. Longer than one
+// interval because the coalition task list is thresholded — see coalitionPids.
+const PRE_DISCOVERY_SECONDS = 3;
 
 const BASELINE_LABEL = "baseline-quit";
 
@@ -295,21 +298,48 @@ export function classifyBuild(execPath) {
 // contains viboplr + WebKit.WebContent + WebKit.GPU + WebKit.Networking. So a short
 // throwaway sample is all we need to learn the helper pids — no `launchctl procinfo`
 // responsible-pid walk, and no extra sudo calls per scenario.
+/**
+ * Coalition member pids visible across a set of powermetrics samples.
+ *
+ * **Union across every interval, never one interval.** The coalition's `tasks`
+ * list is *thresholded* (see the header notes): a process that used no
+ * measurable CPU in a given interval is omitted outright rather than reported as
+ * zero. On an idle app the WebKit helpers do exactly that, so a single-interval
+ * probe finds one or two pids and the footprint sum silently misses ~100 MB of
+ * WebContent — biasing precisely the idle *baselines* every other scenario is
+ * measured against. Observed live: `idle-static` resolved 1 pid and reported
+ * 37 MB where a busier run of the same state saw 4 pids and 133 MB.
+ */
+function coalitionPids(samples, appPidSet) {
+  const pids = new Set(appPidSet);
+  let resolved = false;
+  for (const sample of samples) {
+    const mine = ourCoalitions(sample, appPidSet);
+    if (mine.length) resolved = true;
+    for (const c of mine) {
+      for (const t of c?.tasks ?? []) {
+        const pid = Number(t?.pid);
+        if (Number.isInteger(pid) && pid > 0) pids.add(pid);
+      }
+    }
+  }
+  return { tracked: [...pids], resolved };
+}
+
+/**
+ * Pre-window discovery, used only to take the opening footprint reading.
+ *
+ * Deliberately samples for `PRE_DISCOVERY_SECONDS` rather than 1: the longer the
+ * window the more likely a quiet helper crosses the threshold at least once. It
+ * is still best-effort — the authoritative set is the union taken from the main
+ * window afterwards.
+ */
 function discoverTrackedPids() {
   const app = appPids();
   if (!app.length) return { app: [], tracked: [], resolved: true };
-  const samples = samplePowermetrics(1);
-  const sample = samples.at(-1);
-  if (!sample) return { app, tracked: app, resolved: false };
-  const mine = ourCoalitions(sample, new Set(app));
-  const pids = new Set(app);
-  for (const c of mine) {
-    for (const t of c?.tasks ?? []) {
-      const pid = Number(t?.pid);
-      if (Number.isInteger(pid) && pid > 0) pids.add(pid);
-    }
-  }
-  return { app, tracked: [...pids], resolved: mine.length > 0 };
+  const samples = samplePowermetrics(PRE_DISCOVERY_SECONDS);
+  const { tracked, resolved } = coalitionPids(samples, new Set(app));
+  return { app, tracked, resolved };
 }
 
 /* ----------------------------------------------------------- powermetrics */
@@ -555,28 +585,39 @@ async function sampleScenario(label, seconds) {
   }
 
   const pre = expectRunning ? discoverTrackedPids() : { app: [], tracked: [], resolved: true };
-  const tracked = pre.tracked;
   let build = expectRunning ? "unknown" : "n/a";
   if (expectRunning) {
     if (!pre.resolved) {
       console.warn("  ! No coalition found during pid discovery; tracking the app pid only.");
     }
     build = classifyBuild(processPath(pre.app[0]));
-    console.log(`  tracking ${tracked.length} pid(s): ${tracked.join(", ")} — ${build} build`);
     if (build === "dev") {
       console.warn("  ! dev build — numbers include Vite HMR and an unminified bundle.");
     }
   }
-  const pidSet = new Set(tracked);
 
   // Bracket the window rather than sampling it once: the start/end pair turns a
   // leak into a visible number. It cannot be a timer at the midpoint — powermetrics
   // runs under spawnSync, which blocks the event loop for the whole window.
   const empty = { totalMb: 0, perProcess: {} };
-  const fpStart = expectRunning ? sampleFootprint(tracked) : empty;
+  const fpStart = expectRunning ? sampleFootprint(pre.tracked) : empty;
 
   console.log(`  sampling ${seconds}s ...`);
   const samples = samplePowermetrics(seconds);
+
+  // The authoritative pid set comes from the *whole* window, not the pre-probe:
+  // a helper that was below the reporting threshold beforehand is still ours.
+  const appPidSet = new Set(expectRunning ? pre.app : []);
+  const post = expectRunning ? coalitionPids(samples, appPidSet) : { tracked: [], resolved: true };
+  const tracked = post.tracked;
+  const grew = tracked.length - pre.tracked.length;
+  if (expectRunning) {
+    console.log(
+      `  tracking ${tracked.length} pid(s): ${tracked.join(", ")} — ${build} build` +
+        (grew > 0 ? ` (+${grew} found during the window)` : ""),
+    );
+  }
+  const pidSet = new Set(tracked);
 
   const fpEnd = expectRunning ? sampleFootprint(tracked) : empty;
 
@@ -586,8 +627,12 @@ async function sampleScenario(label, seconds) {
   if (!usable.length) throw new Error("powermetrics returned no usable samples.");
 
   const extracted = usable.map((s) => extractSample(s, pidSet));
+  // Drift is only meaningful when both readings covered the same processes. If
+  // the window revealed helpers the pre-probe missed, the "growth" would be
+  // those processes' entire footprint appearing at once — a number that reads as
+  // a leak and isn't one.
   const growthMb =
-    fpEnd.totalMb !== undefined && fpStart.totalMb !== undefined
+    grew === 0 && fpEnd.totalMb !== undefined && fpStart.totalMb !== undefined
       ? fpEnd.totalMb - fpStart.totalMb
       : undefined;
 
@@ -606,7 +651,8 @@ async function sampleScenario(label, seconds) {
     attribution: extracted.some((e) => e.source === "coalition") ? "coalition" : "absent",
     build,
     tracked_pids: tracked.length,
-    helpers_resolved: pre.resolved,
+    tracked_pids_pre: pre.tracked.length,
+    helpers_resolved: post.resolved,
     cpu_ms_per_s_avg: mean(extracted.map((e) => e.cpu)),
     cpu_ms_per_s_peak: max(extracted.map((e) => e.cpu)),
     gpu_ms_per_s_avg: mean(extracted.map((e) => e.gpu)),

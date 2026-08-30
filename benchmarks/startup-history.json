@@ -1,0 +1,53 @@
+{
+  "entries": [
+    {
+      "version": "1.0.38",
+      "date": "2026-08-29",
+      "backend_span_ms": 195.5,
+      "frontend_span_ms": 127,
+      "backend": {
+        "parse_profile": 0,
+        "resolve_pre_app_data_dir": 0,
+        "check_logging_enabled": 0.3,
+        "logging::init": 0,
+        "plugin: single_instance": 0,
+        "plugin: deep_link": 0,
+        "plugin: opener": 0,
+        "plugin: dialog": 0,
+        "plugin: store": 0,
+        "plugin: updater": 0,
+        "plugin: process": 0,
+        "plugin: global_shortcut": 0,
+        "plugin: aptabase": 0,
+        "invoke_handler": 0,
+        "generate_context": 23,
+        "tauri_build_webview": 161.3,
+        "resolve_app_dir": 0,
+        "db: create_app_dir": 0,
+        "db: open_connection": 7.6,
+        "db: register_sql_functions": 0,
+        "db: init_tables": 2.1,
+        "db: run_migrations": 0.1,
+        "db: recompute_counts": 0.1,
+        "db: reconcile_track_likes": 0,
+        "Database::new": 10,
+        "migrate_search_providers": 0,
+        "create_image_dirs": 0,
+        "clean_legacy_waveforms": 0,
+        "setup_download_queue": 0,
+        "spawn_image_worker": 0,
+        "restore_window": 0.2,
+        "resolve_native_plugins_dir": 0,
+        "start_transcode_server": 0.1,
+        "manage_app_state": 0
+      },
+      "frontend": {
+        "store.init": 5,
+        "store.restore": 61,
+        "window.restore": 10,
+        "engineCapabilities": 0,
+        "loadLibrary": 2
+      }
+    }
+  ]
+}

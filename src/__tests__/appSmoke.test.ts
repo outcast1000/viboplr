@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — plain .mjs dev script, no type declarations
 import { checkDump, startupEntry, startupDelta, compareState, EXPECTED_SCHEMA } from "../../scripts/lib/appSmoke.mjs";
+import { PROBE_DUMP_SCHEMA } from "../utils/probeControl";
 
 // These checks decide whether a release is broken, so they are tested here
 // rather than only exercised by a run that needs a built .app on macOS.
@@ -18,6 +19,15 @@ const healthy = {
     frontend: [{ label: "restore", offset_ms: 10, duration_ms: 120 }],
   },
 };
+
+// These two constants live in different languages' halves of the same contract
+// and have already drifted once — the app wrote schema 2 while the checker still
+// expected 1, and nothing caught it until a run against a real build.
+describe("schema constants", () => {
+  it("agrees with the app's PROBE_DUMP_SCHEMA", () => {
+    expect(EXPECTED_SCHEMA).toBe(PROBE_DUMP_SCHEMA);
+  });
+});
 
 describe("checkDump", () => {
   it("passes a healthy dump", () => {

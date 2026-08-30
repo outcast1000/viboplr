@@ -14,6 +14,7 @@
 // macOS only (osascript / pgrep / open).
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -109,7 +110,7 @@ export async function launchApp() {
   if (appPids().length) return;
   // `open` cannot set env vars, but lib.rs also reads `--profile <name>` from
   // argv — and unlike VIBOPLR_PROFILE that leaves a trace in `ps` we can verify.
-  run("open", ["-a", APP_NAME, "--args", "--profile", PROBE_PROFILE], { allowFailure: true });
+  run("open", ["-a", resolveAppBundle(), "--args", "--profile", PROBE_PROFILE], { allowFailure: true });
   await waitFor(() => appPids().length > 0, 30000, "Viboplr to launch");
   assertProbeProfile();
   // A pid is not a mounted webview. The probe route stays closed until App.tsx's
@@ -135,13 +136,29 @@ export function assertProbeProfile() {
   }
 }
 
+/** Where an installed release lives, and what we drive unless told otherwise. */
+export const INSTALLED_APP = `/Applications/${APP_NAME}.app`;
+
+/** Overridden by `--app <path>`; see `setAppBundle`. */
+let appBundle = null;
+
+export function setAppBundle(path) {
+  appBundle = path;
+}
+
 /**
- * Which bundle `open -a` (and therefore the viboplr:// handler) will actually
- * hit. CLAUDE.md notes the process *name* cannot tell dev from release apart, so
- * a run that silently drives the wrong bundle is a real hazard — resolve it up
- * front and say so out loud.
+ * The bundle to drive, resolved once.
+ *
+ * Prefers `/Applications` over whatever LaunchServices happens to rank first.
+ * That ordering is load-bearing, not cosmetic: a `tauri build` leaves a bundle
+ * under `src-tauri/target/release/bundle/macos/`, and LaunchServices will
+ * happily rank a months-old copy of it above the installed app — which is
+ * exactly what happened the first time this ran, silently driving a stale 1.0.33
+ * against a 1.0.38 install.
  */
 export function resolveAppBundle() {
+  if (appBundle) return appBundle;
+  if (existsSync(INSTALLED_APP)) return INSTALLED_APP;
   const res = run("osascript", ["-e", `POSIX path of (path to application "${APP_NAME}")`], {
     allowFailure: true,
   });
@@ -160,7 +177,14 @@ export function resolveAppBundle() {
  */
 let probeNonce = 0;
 export async function probeLink(query) {
-  run("open", [`viboplr://probe?${query}&_n=${++probeNonce}`], { allowFailure: true });
+  // `-a <bundle>` is required, not a nicety. A bare `open viboplr://…` routes
+  // through the *scheme handler*, which LaunchServices can point at a different
+  // bundle than the one `launchApp` started — so the link would be delivered to
+  // an app we are not measuring (and would launch it). Pinning both to the same
+  // resolved path is the only way they cannot disagree.
+  run("open", ["-a", resolveAppBundle(), `viboplr://probe?${query}&_n=${++probeNonce}`], {
+    allowFailure: true,
+  });
   await sleep(1200);
 }
 

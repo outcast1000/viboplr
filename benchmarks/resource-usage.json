@@ -1,0 +1,336 @@
+[
+  {
+    "date": "2026-08-30T00:27:04Z",
+    "version": "1.0.38",
+    "commit": "651c9a0c",
+    "note": "first run with union pid discovery; idle-home includes the launch yt-dlp probe (Python 175 ms/s) so idle-static is the usable floor",
+    "results": [
+      {
+        "label": "baseline-quit",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "absent",
+        "build": "n/a",
+        "tracked_pids": 0,
+        "tracked_pids_pre": 0,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 0,
+        "cpu_ms_per_s_peak": 0,
+        "gpu_ms_per_s_avg": 0,
+        "gpu_ms_per_s_peak": 0,
+        "windowserver_cpu_ms_per_s_avg": 27.037173728813556,
+        "windowserver_gpu_ms_per_s_avg": 0.9906007457627121,
+        "energy_impact_avg": 0,
+        "footprint_mb": 0,
+        "footprint_mb_start": 0,
+        "footprint_growth_mb": 0,
+        "per_process": {}
+      },
+      {
+        "label": "idle-home",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 5,
+        "tracked_pids_pre": 3,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 23.45024606779661,
+        "cpu_ms_per_s_peak": 416.026,
+        "gpu_ms_per_s_avg": 0.6679683389830507,
+        "gpu_ms_per_s_peak": 9.30078,
+        "windowserver_cpu_ms_per_s_avg": 64.25732355932206,
+        "windowserver_gpu_ms_per_s_avg": 39.10355508474577,
+        "energy_impact_avg": 37.79688420338982,
+        "footprint_mb": 204.2223892211914,
+        "footprint_mb_start": 138.4560546875,
+        "per_process": {
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 9.648795968181817,
+            "footprint_mb": 140.12600708007812
+          },
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 4.574900786046511,
+            "footprint_mb": 17.875961303710938
+          },
+          "viboplr": {
+            "cpu_ms_per_s_avg": 4.054969220338981,
+            "footprint_mb": 40.34491729736328
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 0.5660794666666666,
+            "footprint_mb": 5.8755035400390625
+          },
+          "Python": {
+            "cpu_ms_per_s_avg": 175.269
+          }
+        }
+      },
+      {
+        "label": "idle-static",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 4,
+        "tracked_pids_pre": 2,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 1.8770144745762707,
+        "cpu_ms_per_s_peak": 48.9411,
+        "gpu_ms_per_s_avg": 0.04841507966101695,
+        "gpu_ms_per_s_peak": 2.77393,
+        "windowserver_cpu_ms_per_s_avg": 24.91303220338983,
+        "windowserver_gpu_ms_per_s_avg": 3.727692391525424,
+        "energy_impact_avg": 0.6352672372881355,
+        "footprint_mb": 178.42533111572266,
+        "footprint_mb_start": 55.53340148925781,
+        "per_process": {
+          "viboplr": {
+            "cpu_ms_per_s_avg": 0.5702348474576271,
+            "footprint_mb": 37.09491729736328
+          },
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 1.766230248275862,
+            "footprint_mb": 8.985130310058594
+          },
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 1.8357140928571425,
+            "footprint_mb": 126.48540496826172
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 0.3412850444444444,
+            "footprint_mb": 5.8598785400390625
+          }
+        }
+      },
+      {
+        "label": "detail-hero",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 4,
+        "tracked_pids_pre": 4,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 148.71476271186438,
+        "cpu_ms_per_s_peak": 192.215,
+        "gpu_ms_per_s_avg": 0.7579564915254239,
+        "gpu_ms_per_s_peak": 7.05318,
+        "windowserver_cpu_ms_per_s_avg": 448.5634745762711,
+        "windowserver_gpu_ms_per_s_avg": 513.9585423728812,
+        "energy_impact_avg": 14.312990677966106,
+        "footprint_mb": 248.55067443847656,
+        "footprint_mb_start": 267.91004943847656,
+        "footprint_growth_mb": -19.359375,
+        "per_process": {
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 113.28060677966097,
+            "footprint_mb": 190.4385757446289
+          },
+          "viboplr": {
+            "cpu_ms_per_s_avg": 38.20874576271186,
+            "footprint_mb": 37.34491729736328
+          },
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 5.911278983050848,
+            "footprint_mb": 14.891677856445312
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 0.5278787454545454,
+            "footprint_mb": 5.8755035400390625
+          }
+        }
+      },
+      {
+        "label": "playing-minimized",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 4,
+        "tracked_pids_pre": 4,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 28.56985593220339,
+        "cpu_ms_per_s_peak": 77.0775,
+        "gpu_ms_per_s_avg": 0.006169525423728814,
+        "gpu_ms_per_s_peak": 0.364002,
+        "windowserver_cpu_ms_per_s_avg": 22.139322372881356,
+        "windowserver_gpu_ms_per_s_avg": 0.5520228813559322,
+        "energy_impact_avg": 1.7971410169491524,
+        "footprint_mb": 248.16020965576172,
+        "footprint_mb_start": 255.28520965576172,
+        "footprint_growth_mb": -7.125,
+        "per_process": {
+          "viboplr": {
+            "cpu_ms_per_s_avg": 18.260637288135598,
+            "footprint_mb": 60.04808807373047
+          },
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 8.134523389830507,
+            "footprint_mb": 167.0635986328125
+          },
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 2.283981525423729,
+            "footprint_mb": 15.204269409179688
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 0.36890205,
+            "footprint_mb": 5.8442535400390625
+          }
+        }
+      },
+      {
+        "label": "playing-visible",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 4,
+        "tracked_pids_pre": 4,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 107.14034237288138,
+        "cpu_ms_per_s_peak": 154.346,
+        "gpu_ms_per_s_avg": 2.6445152542372887,
+        "gpu_ms_per_s_peak": 4.78572,
+        "windowserver_cpu_ms_per_s_avg": 437.57467796610166,
+        "windowserver_gpu_ms_per_s_avg": 450.42867796610176,
+        "energy_impact_avg": 20.049671186440676,
+        "footprint_mb": 229.8477325439453,
+        "footprint_mb_start": 266.1289825439453,
+        "footprint_growth_mb": -36.28125,
+        "per_process": {
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 43.79907118644069,
+            "footprint_mb": 151.2354965209961
+          },
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 28.021486440677965,
+            "footprint_mb": 25.063644409179688
+          },
+          "viboplr": {
+            "cpu_ms_per_s_avg": 35.52156101694915,
+            "footprint_mb": 47.67308807373047
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 1.4225244067796607,
+            "footprint_mb": 5.8755035400390625
+          }
+        }
+      },
+      {
+        "label": "playing-nowplaying",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 4,
+        "tracked_pids_pre": 4,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 118.26388644067796,
+        "cpu_ms_per_s_peak": 459.732,
+        "gpu_ms_per_s_avg": 5.096565627118643,
+        "gpu_ms_per_s_peak": 46.0636,
+        "windowserver_cpu_ms_per_s_avg": 439.0936779661016,
+        "windowserver_gpu_ms_per_s_avg": 492.27394915254246,
+        "energy_impact_avg": 45.44005050847456,
+        "footprint_mb": 398.4263153076172,
+        "footprint_mb_start": 302.3166198730469,
+        "footprint_growth_mb": 96.10969543457031,
+        "per_process": {
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 33.89056610169492,
+            "footprint_mb": 65.89199829101562
+          },
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 49.09687627118645,
+            "footprint_mb": 275.25135040283203
+          },
+          "viboplr": {
+            "cpu_ms_per_s_avg": 36.18150847457627,
+            "footprint_mb": 50.07933807373047
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 1.4164469491525422,
+            "footprint_mb": 7.2036285400390625
+          }
+        }
+      },
+      {
+        "label": "playing-fullscreen",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 4,
+        "tracked_pids_pre": 4,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 179.1979016949153,
+        "cpu_ms_per_s_peak": 380.506,
+        "gpu_ms_per_s_avg": 11.899014915254234,
+        "gpu_ms_per_s_peak": 37.5766,
+        "windowserver_cpu_ms_per_s_avg": 426.3354915254238,
+        "windowserver_gpu_ms_per_s_avg": 72.06519830508476,
+        "energy_impact_avg": 85.85701694915252,
+        "footprint_mb": 523.6923751831055,
+        "footprint_mb_start": 502.5672378540039,
+        "footprint_growth_mb": 21.125137329101562,
+        "per_process": {
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 84.4806118644068,
+            "footprint_mb": 88.36106872558594
+          },
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 61.11448305084748,
+            "footprint_mb": 372.40760040283203
+          },
+          "viboplr": {
+            "cpu_ms_per_s_avg": 35.56055084745762,
+            "footprint_mb": 55.78257751464844
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 1.3256889322033893,
+            "footprint_mb": 7.1411285400390625
+          }
+        }
+      },
+      {
+        "label": "playing-mini",
+        "seconds": 60,
+        "samples": 59,
+        "attribution": "coalition",
+        "build": "release",
+        "tracked_pids": 4,
+        "tracked_pids_pre": 4,
+        "helpers_resolved": true,
+        "cpu_ms_per_s_avg": 67.57109999999999,
+        "cpu_ms_per_s_peak": 91.4802,
+        "gpu_ms_per_s_avg": 0.13371290169491526,
+        "gpu_ms_per_s_peak": 0.293073,
+        "windowserver_cpu_ms_per_s_avg": 82.3952627118644,
+        "windowserver_gpu_ms_per_s_avg": 9.194829152542372,
+        "energy_impact_avg": 8.470917796610173,
+        "footprint_mb": 343.70774841308594,
+        "footprint_mb_start": 318.50460052490234,
+        "footprint_growth_mb": 25.203147888183594,
+        "per_process": {
+          "WebKit.WebContent": {
+            "cpu_ms_per_s_avg": 28.964986440677958,
+            "footprint_mb": 216.93887329101562
+          },
+          "viboplr": {
+            "cpu_ms_per_s_avg": 30.262859322033894,
+            "footprint_mb": 69.76695251464844
+          },
+          "WebKit.GPU": {
+            "cpu_ms_per_s_avg": 8.477584237288136,
+            "footprint_mb": 49.87641906738281
+          },
+          "WebKit.Networking": {
+            "cpu_ms_per_s_avg": 1.3903984745762716,
+            "footprint_mb": 7.1255035400390625
+          }
+        }
+      }
+    ]
+  }
+]

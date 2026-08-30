@@ -4,8 +4,12 @@
 // is broken — are unit-testable without launching anything. See
 // src/__tests__/appSmoke.test.ts.
 
-/** Schema the dump must declare; mirrors PROBE_DUMP_SCHEMA in probeControl.ts. */
-export const EXPECTED_SCHEMA = 1;
+/**
+ * Schema the dump must declare; mirrors PROBE_DUMP_SCHEMA in probeControl.ts.
+ * The two are pinned equal by a test in src/__tests__/appSmoke.test.ts — they
+ * have already drifted once, and the failure only showed up against a real build.
+ */
+export const EXPECTED_SCHEMA = 2;
 
 /**
  * Check a probe dump against what a healthy launch must look like.
