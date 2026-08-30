@@ -11,12 +11,25 @@
 // and Cmd-M in this app is *mute* — scripting the obvious "minimize" chord
 // would silently mute the audio the perf probe exists to measure.
 //
-// macOS only (osascript / pgrep / open).
+// Supports macOS (osascript / pgrep / open) and Windows (PowerShell / WMI —
+// see appControlWin.mjs, dispatched to below on process.platform === "win32").
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  appPidsWin,
+  processPathWin,
+  processArgsWin,
+  quitAppWin,
+  launchAppWin,
+  resolveAppBundleWin,
+  probeLinkWin,
+  probeDumpPathWin,
+} from "./appControlWin.mjs";
+
+const IS_WIN = process.platform === "win32";
 
 // The probe route is gated on this profile name; a default-profile app ignores
 // the links entirely, which would silently produce a run of wrong results.
@@ -52,6 +65,7 @@ export async function waitFor(predicate, timeoutMs, what) {
 /* ------------------------------------------------------- process attribution */
 
 export function appPids() {
+  if (IS_WIN) return appPidsWin();
   // Both builds run a binary named `viboplr` — see classifyBuild in perf-probe.
   const res = run("pgrep", ["-i", "-x", "viboplr"], { allowFailure: true });
   return res.stdout
@@ -61,12 +75,14 @@ export function appPids() {
 }
 
 export function processPath(pid) {
+  if (IS_WIN) return processPathWin(pid);
   const res = run("ps", ["-p", String(pid), "-o", "comm="], { allowFailure: true });
   return res.ok ? res.stdout.trim() : "";
 }
 
 /** Launch argv of a running pid, for verifying which profile it came up under. */
 export function processArgs(pid) {
+  if (IS_WIN) return processArgsWin(pid);
   const res = run("ps", ["-p", String(pid), "-o", "args="], { allowFailure: true });
   return res.ok ? res.stdout.trim() : "";
 }
@@ -80,6 +96,9 @@ export function onProbeProfile() {
 }
 
 export async function quitApp() {
+  if (IS_WIN) {
+    return quitAppWin({ waitFor, probeLink, appPids, onProbeProfile });
+  }
   if (!appPids().length) return;
   // Prefer the probe route when it's available: it flushes the debounced store
   // before exiting (the perf profile's persisted queue is what the next run
@@ -108,9 +127,13 @@ export async function quitApp() {
 
 export async function launchApp() {
   if (appPids().length) return;
-  // `open` cannot set env vars, but lib.rs also reads `--profile <name>` from
-  // argv — and unlike VIBOPLR_PROFILE that leaves a trace in `ps` we can verify.
-  run("open", ["-a", resolveAppBundle(), "--args", "--profile", PROBE_PROFILE], { allowFailure: true });
+  if (IS_WIN) {
+    launchAppWin(resolveAppBundle(), ["--profile", PROBE_PROFILE]);
+  } else {
+    // `open` cannot set env vars, but lib.rs also reads `--profile <name>` from
+    // argv — and unlike VIBOPLR_PROFILE that leaves a trace in `ps` we can verify.
+    run("open", ["-a", resolveAppBundle(), "--args", "--profile", PROBE_PROFILE], { allowFailure: true });
+  }
   await waitFor(() => appPids().length > 0, 30000, "Viboplr to launch");
   assertProbeProfile();
   // A pid is not a mounted webview. The probe route stays closed until App.tsx's
@@ -158,6 +181,7 @@ export function setAppBundle(path) {
  */
 export function resolveAppBundle() {
   if (appBundle) return appBundle;
+  if (IS_WIN) return resolveAppBundleWin();
   if (existsSync(INSTALLED_APP)) return INSTALLED_APP;
   const res = run("osascript", ["-e", `POSIX path of (path to application "${APP_NAME}")`], {
     allowFailure: true,
@@ -177,14 +201,20 @@ export function resolveAppBundle() {
  */
 let probeNonce = 0;
 export async function probeLink(query) {
-  // `-a <bundle>` is required, not a nicety. A bare `open viboplr://…` routes
-  // through the *scheme handler*, which LaunchServices can point at a different
-  // bundle than the one `launchApp` started — so the link would be delivered to
-  // an app we are not measuring (and would launch it). Pinning both to the same
-  // resolved path is the only way they cannot disagree.
-  run("open", ["-a", resolveAppBundle(), `viboplr://probe?${query}&_n=${++probeNonce}`], {
-    allowFailure: true,
-  });
+  const url = `viboplr://probe?${query}&_n=${++probeNonce}`;
+  if (IS_WIN) {
+    // Windows has no per-launch "-a bundle" pin — the registered protocol
+    // handler is whichever install last registered it. `launchApp` already
+    // guarantees only one instance is running when this fires.
+    probeLinkWin(url);
+  } else {
+    // `-a <bundle>` is required, not a nicety. A bare `open viboplr://…` routes
+    // through the *scheme handler*, which LaunchServices can point at a different
+    // bundle than the one `launchApp` started — so the link would be delivered to
+    // an app we are not measuring (and would launch it). Pinning both to the same
+    // resolved path is the only way they cannot disagree.
+    run("open", ["-a", resolveAppBundle(), url], { allowFailure: true });
+  }
   await sleep(1200);
 }
 
@@ -194,6 +224,7 @@ export async function probeLink(query) {
  * carries no path, so both sides compute this independently.
  */
 export function probeDumpPath(profile = PROBE_PROFILE) {
+  if (IS_WIN) return probeDumpPathWin(BUNDLE_ID, profile);
   return join(
     homedir(),
     "Library",

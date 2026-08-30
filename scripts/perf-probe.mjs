@@ -1,4 +1,9 @@
-// Measures the CPU / GPU / memory cost Viboplr imposes on a macOS host.
+// Measures the CPU / GPU / memory cost Viboplr imposes on the host. Supports
+// macOS (powermetrics/footprint, below) and Windows (perf counters/WMI — see
+// scripts/lib/perfWin.mjs and scripts/lib/perfSample.ps1 for that pipeline and
+// where its attribution model and units necessarily differ from the mac one).
+//
+// --- macOS pipeline ---
 //
 // Viboplr is not a single process: WKWebView spawns com.apple.WebKit.WebContent
 // (all React rendering), .GPU (compositing — non-trivial here because the window
@@ -32,6 +37,7 @@
 //     with a tail at 0.01 ms/s), so a running app is never truncated away.
 //
 // Both powermetrics and footprint require root. sudo is primed once up front.
+// (Windows needs no elevation — see primeSudo.)
 //
 // Usage:
 //   node scripts/perf-probe.mjs run [--seconds 60]     guided walk through every scenario
@@ -69,6 +75,14 @@ import {
   APP_NAME,
 } from "./lib/appControl.mjs";
 import { compareState } from "./lib/appSmoke.mjs";
+import {
+  discoverTrackedPidsWin,
+  sampleWindowWin,
+  sampleFootprintWin,
+  classifyBuildWin,
+} from "./lib/perfWin.mjs";
+
+const IS_WIN = process.platform === "win32";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const HISTORY_PATH = join(REPO_ROOT, "benchmarks", "resource-usage.json");
@@ -246,6 +260,9 @@ const SCENARIOS = [
 /* ---------------------------------------------------------------- utilities */
 
 function primeSudo() {
+  // Nothing on Windows needs elevation — Process/GPU Engine perf counters and
+  // Get-Process are readable for the app's own processes as a standard user.
+  if (IS_WIN) return;
   const cached = spawnSync("sudo", ["-n", "true"], { stdio: "ignore" });
   if (cached.status === 0) return;
   console.log("powermetrics and footprint both need root — priming sudo once.\n");
@@ -289,9 +306,11 @@ function readJson(path, fallback) {
 // the dev binary. Only the path distinguishes them.
 export function classifyBuild(execPath) {
   if (!execPath) return "unknown";
+  // Path *shape* decides this, not the host OS running the script — tests
+  // exercise both shapes on whatever platform CI happens to run on.
   if (/\/target\/(debug|release)\//.test(execPath)) return "dev";
   if (/\.app\/Contents\/MacOS\//.test(execPath)) return "release";
-  return "unknown";
+  return classifyBuildWin(execPath);
 }
 
 // Verified against real powermetrics output: the com.alex.viboplr coalition already
@@ -573,6 +592,38 @@ function footprintBytes(entry) {
 
 /* ---------------------------------------------------------------- sampling */
 
+// Platform-dispatched: mac walks powermetrics coalitions, Windows walks the
+// process tree (see perfWin.mjs / perfSample.ps1's header for why the
+// attribution model differs).
+function discoverPids() {
+  return IS_WIN ? discoverTrackedPidsWin() : discoverTrackedPids();
+}
+
+function footprint(pids) {
+  return IS_WIN ? sampleFootprintWin(pids) : sampleFootprint(pids);
+}
+
+/**
+ * One measurement window, normalized to { extracted, tracked, resolved }
+ * regardless of platform. `extracted` is one entry per sampled interval, each
+ * shaped like mac's extractSample() output.
+ *
+ * Runs even for the baseline (empty `appPidSet`): the WindowServer/DWM
+ * compositor reading is captured unconditionally on both platforms, since
+ * every other scenario's ΔwsCPU/ΔwsGPU is measured against this baseline.
+ */
+function sampleWindow(seconds, appPidSet) {
+  if (IS_WIN) return sampleWindowWin(seconds, appPidSet);
+  const samples = samplePowermetrics(seconds);
+  const post = coalitionPids(samples, appPidSet);
+  // Drop the first sample: powermetrics' opening interval catches the tail of
+  // whatever happened while the prompt was on screen.
+  const usable = samples.slice(1);
+  if (!usable.length) throw new Error("powermetrics returned no usable samples.");
+  const pidSet = new Set(post.tracked);
+  return { extracted: usable.map((s) => extractSample(s, pidSet)), tracked: post.tracked, resolved: post.resolved };
+}
+
 async function sampleScenario(label, seconds) {
   const expectRunning = label !== BASELINE_LABEL;
   const running = appPids();
@@ -584,7 +635,7 @@ async function sampleScenario(label, seconds) {
     throw new Error(`Viboplr is still running (pid ${running.join(", ")}) — the baseline needs it quit.`);
   }
 
-  const pre = expectRunning ? discoverTrackedPids() : { app: [], tracked: [], resolved: true };
+  const pre = expectRunning ? discoverPids() : { app: [], tracked: [], resolved: true };
   let build = expectRunning ? "unknown" : "n/a";
   if (expectRunning) {
     if (!pre.resolved) {
@@ -597,18 +648,16 @@ async function sampleScenario(label, seconds) {
   }
 
   // Bracket the window rather than sampling it once: the start/end pair turns a
-  // leak into a visible number. It cannot be a timer at the midpoint — powermetrics
-  // runs under spawnSync, which blocks the event loop for the whole window.
+  // leak into a visible number. It cannot be a timer at the midpoint — the
+  // sampler runs under spawnSync, which blocks the event loop for the whole window.
   const empty = { totalMb: 0, perProcess: {} };
-  const fpStart = expectRunning ? sampleFootprint(pre.tracked) : empty;
+  const fpStart = expectRunning ? footprint(pre.tracked) : empty;
 
   console.log(`  sampling ${seconds}s ...`);
-  const samples = samplePowermetrics(seconds);
-
   // The authoritative pid set comes from the *whole* window, not the pre-probe:
   // a helper that was below the reporting threshold beforehand is still ours.
   const appPidSet = new Set(expectRunning ? pre.app : []);
-  const post = expectRunning ? coalitionPids(samples, appPidSet) : { tracked: [], resolved: true };
+  const post = sampleWindow(seconds, appPidSet);
   const tracked = post.tracked;
   const grew = tracked.length - pre.tracked.length;
   if (expectRunning) {
@@ -617,16 +666,10 @@ async function sampleScenario(label, seconds) {
         (grew > 0 ? ` (+${grew} found during the window)` : ""),
     );
   }
-  const pidSet = new Set(tracked);
 
-  const fpEnd = expectRunning ? sampleFootprint(tracked) : empty;
+  const fpEnd = expectRunning ? footprint(tracked) : empty;
 
-  // Drop the first sample: powermetrics' opening interval catches the tail of
-  // whatever happened while the prompt was on screen.
-  const usable = samples.slice(1);
-  if (!usable.length) throw new Error("powermetrics returned no usable samples.");
-
-  const extracted = usable.map((s) => extractSample(s, pidSet));
+  const extracted = post.extracted;
   // Drift is only meaningful when both readings covered the same processes. If
   // the window revealed helpers the pre-probe missed, the "growth" would be
   // those processes' entire footprint appearing at once — a number that reads as
@@ -647,7 +690,7 @@ async function sampleScenario(label, seconds) {
   return {
     label,
     seconds,
-    samples: usable.length,
+    samples: extracted.length,
     attribution: extracted.some((e) => e.source === "coalition") ? "coalition" : "absent",
     build,
     tracked_pids: tracked.length,
@@ -725,13 +768,25 @@ function renderReport(results, note) {
   }
 
   out.push("");
-  out.push("1000 ms/s = one core saturated. energy impact is Apple's relative composite.");
-  out.push("mem is phys_footprint (Activity Monitor's Memory column); mem drift = growth across the window.");
   out.push(
-    "ΔwsCPU/ΔwsGPU = WindowServer's rise over the baseline. Compositing is billed to WindowServer's own",
+    IS_WIN
+      ? "1000 ms/s = one core (or GPU engine) saturated. No Windows analog to Apple's energy-impact composite."
+      : "1000 ms/s = one core saturated. energy impact is Apple's relative composite.",
   );
   out.push(
-    "coalition, so the app's real screen cost is its own gpu PLUS these. Add them before judging GPU load.",
+    IS_WIN
+      ? "mem is process Working Set (approximates phys_footprint, not identical); mem drift = growth across the window."
+      : "mem is phys_footprint (Activity Monitor's Memory column); mem drift = growth across the window.",
+  );
+  out.push(
+    IS_WIN
+      ? "ΔwsCPU/ΔwsGPU = dwm.exe's (Desktop Window Manager) rise over the baseline. Compositing is billed to DWM's"
+      : "ΔwsCPU/ΔwsGPU = WindowServer's rise over the baseline. Compositing is billed to WindowServer's own",
+  );
+  out.push(
+    IS_WIN
+      ? "own process, so the app's real screen cost is its own gpu PLUS these. Add them before judging GPU load."
+      : "coalition, so the app's real screen cost is its own gpu PLUS these. Add them before judging GPU load.",
   );
   out.push("");
 
@@ -962,8 +1017,8 @@ async function cmdRunAuto(seconds, settle, paths = {}) {
 }
 
 async function main() {
-  if (process.platform !== "darwin") {
-    console.error("perf-probe is macOS only (powermetrics / footprint / launchctl).");
+  if (process.platform !== "darwin" && process.platform !== "win32") {
+    console.error("perf-probe supports macOS and Windows only.");
     process.exit(1);
   }
 
@@ -997,7 +1052,8 @@ async function main() {
       process.exit(1);
     }
     if (kind === "path") {
-      if (!flags[key].startsWith("/")) {
+      const isAbsolute = IS_WIN ? /^[a-zA-Z]:[\\/]/.test(flags[key]) : flags[key].startsWith("/");
+      if (!isAbsolute) {
         console.error(`--${key} needs an absolute path.`);
         process.exit(1);
       }
@@ -1010,6 +1066,14 @@ async function main() {
   }
 
   if (command === "probe") {
+    if (IS_WIN) {
+      console.error(
+        "`probe` is a powermetrics-schema debugging aid and has no Windows equivalent " +
+          "(there's no schema to drift — perfSample.ps1's counter paths are fixed). Use " +
+          "`run --auto` directly.",
+      );
+      process.exit(1);
+    }
     primeSudo();
     console.log("Sampling 3s to dump powermetrics key names ...");
     const samples = samplePowermetrics(3, { keepRaw: true });

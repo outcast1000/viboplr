@@ -25,6 +25,16 @@ import type { View } from "../types";
  * handler clears the selection). Reach them with `artist=` / `album=` / `tag=`
  * instead. `quiz` is absent because `viboplr://quiz` already opens it.
  */
+/**
+ * Absolute on either platform this route runs on: POSIX (`/…`) or a Windows
+ * drive letter (`C:\…` / `C:/…`). A relative path has no meaningful base here
+ * (the app's cwd is wherever the OS started it), so accepting one would
+ * resolve somewhere nobody intended — same reasoning on both platforms.
+ */
+function isAbsoluteHostPath(p: string): boolean {
+  return p.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(p);
+}
+
 const PROBE_VIEWS = [
   "home",
   "search",
@@ -289,7 +299,7 @@ export function parseProbeCommand(raw: string): ProbeCommand | null {
 
   // Absolute only, same reasoning as `open`.
   const collection = params.get("collection")?.trim();
-  if (collection && collection.startsWith("/")) cmd.addCollection = collection;
+  if (collection && isAbsoluteHostPath(collection)) cmd.addCollection = collection;
 
   // Fixed precedence when several are given, rather than "whichever the URL
   // happened to list first" — one link can only land on one detail page.
@@ -305,11 +315,10 @@ export function parseProbeCommand(raw: string): ProbeCommand | null {
     cmd.entity = { kind: "tag", name: tag };
   }
 
-  // Absolute only: a relative path has no meaningful base here (the app's cwd
-  // is wherever launchd started it), so accepting one would resolve somewhere
-  // nobody intended. `file://` is tolerated because the backend strips it too.
+  // Absolute only (see isAbsoluteHostPath). `file://` is tolerated because the
+  // backend strips it too.
   const open = params.get("open")?.trim();
-  if (open && (open.startsWith("/") || open.startsWith("file:///"))) cmd.open = open;
+  if (open && (isAbsoluteHostPath(open) || open.startsWith("file:///"))) cmd.open = open;
 
   const openKind = params.get("openKind")?.trim().toLowerCase();
   if (openKind === "audio" || openKind === "video") cmd.openKind = openKind;

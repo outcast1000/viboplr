@@ -107,9 +107,13 @@ function report(dump, store) {
   }
 }
 
+function isAbsolutePath(p) {
+  return process.platform === "win32" ? /^[a-zA-Z]:[\\/]/.test(p) : p.startsWith("/");
+}
+
 async function main() {
-  if (process.platform !== "darwin") {
-    console.error("setup-perf-profile is macOS only.");
+  if (process.platform !== "darwin" && process.platform !== "win32") {
+    console.error("setup-perf-profile supports macOS and Windows only.");
     process.exit(1);
   }
   const flags = parseArgs(process.argv.slice(2));
@@ -129,7 +133,7 @@ async function main() {
     console.error("or --check to report readiness without changing anything.");
     process.exit(1);
   }
-  if (!music.startsWith("/") || !existsSync(music)) {
+  if (!isAbsolutePath(music) || !existsSync(music)) {
     console.error(`--music must be an absolute path that exists: ${music}`);
     process.exit(1);
   }
@@ -140,7 +144,7 @@ async function main() {
   // supports it, but --seed also lets an older build be pointed at an
   // audio-only subtree.
   const seed = typeof flags.seed === "string" ? flags.seed : music;
-  if (!seed.startsWith("/") || !existsSync(seed)) {
+  if (!isAbsolutePath(seed) || !existsSync(seed)) {
     console.error(`--seed must be an absolute path that exists: ${seed}`);
     process.exit(1);
   }

@@ -20,8 +20,8 @@
 //   node scripts/app-smoke.mjs --save [--note "..."]     append to the startup series
 //   node scripts/app-smoke.mjs --keep-open               don't quit afterwards
 //
-// macOS only, and it needs the one-time `perf` profile setup described in
-// CLAUDE.md. Exits non-zero on any failed check.
+// Supports macOS and Windows, and needs the one-time `perf` profile setup
+// described in CLAUDE.md. Exits non-zero on any failed check.
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -72,8 +72,9 @@ async function collectDump() {
   const bundle = resolveAppBundle();
   if (!bundle) throw new Error('No application named "Viboplr" is registered — nothing to smoke-test.');
   console.log(`Smoke-testing: ${bundle}`);
-  if (!bundle.startsWith("/Applications/")) {
-    console.warn("  ! Not in /Applications — this is probably a dev build, not the shipped one.");
+  const installed = process.platform === "win32" ? !bundle.includes("\\target\\") : bundle.startsWith("/Applications/");
+  if (!installed) {
+    console.warn("  ! Not an installed build — this is probably a dev build, not the shipped one.");
   }
 
   const dumpPath = probeDumpPath(PROBE_PROFILE);
@@ -125,8 +126,8 @@ function fmtDelta(n) {
 }
 
 async function main() {
-  if (process.platform !== "darwin") {
-    console.error("app-smoke is macOS only (osascript / open / pgrep).");
+  if (process.platform !== "darwin" && process.platform !== "win32") {
+    console.error("app-smoke supports macOS and Windows only.");
     process.exit(1);
   }
   const flags = parseArgs(process.argv.slice(2));

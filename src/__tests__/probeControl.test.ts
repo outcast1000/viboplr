@@ -107,6 +107,27 @@ describe("parseProbeCommand", () => {
     expect(parseProbeCommand("viboplr://probe?open=")).toEqual({});
   });
 
+  // Windows has no leading "/" — a drive letter is its absolute form, and the
+  // route runs on both platforms (see scripts/lib/appControlWin.mjs).
+  it("accepts a Windows drive-letter open path", () => {
+    expect(parseProbeCommand("viboplr://probe?open=D%3A%5Cmusic%5C00s%5Csong.mp3")).toEqual({
+      open: "D:\\music\\00s\\song.mp3",
+    });
+    expect(parseProbeCommand("viboplr://probe?open=D%3A%2Fmusic%2F00s")).toEqual({
+      open: "D:/music/00s",
+    });
+  });
+
+  it("parses an absolute collection path on either platform, ignoring a relative one", () => {
+    expect(parseProbeCommand("viboplr://probe?collection=%2FUsers%2Falex%2Fmusic")).toEqual({
+      addCollection: "/Users/alex/music",
+    });
+    expect(parseProbeCommand("viboplr://probe?collection=D%3A%5Cmusic%5C00s")).toEqual({
+      addCollection: "D:\\music\\00s",
+    });
+    expect(parseProbeCommand("viboplr://probe?collection=music")).toEqual({});
+  });
+
   // A folder is the only practical way to seed a queue, and the resolver takes
   // every media type — one stray video sorting first turned a whole recorded
   // run of "playing audio" scenarios into video-decode measurements.
