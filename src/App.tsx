@@ -291,6 +291,10 @@ function App() {
   useAssignRef(useNativeVideoRef, mpvCapable && mpvVideoCapable && playbackEngine === "native");
   // Assigned to `() => handleNext("auto")` once handleNext exists below.
   const nativeEndedRef = useRef<() => void>(() => {});
+  // Auto-skip surface for a playback failure on an auto-advanced track: toast +
+  // advance. Assigned once handleNext exists below; null until then, which makes
+  // usePlayback fall back to the error modal rather than skip with no feedback.
+  const playbackAutoSkipRef = useRef<((track: QueueTrack, error: string) => void) | null>(null);
   // False only until the first probe answers. libmpv ships bundled in every
   // release, so `mpvCapable === false` means one of two very different things:
   // "we haven't looked yet" or "it's here and it wouldn't load". Settings says
@@ -375,7 +379,7 @@ function App() {
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
     playback.currentTrack?.title ?? null,
@@ -3274,6 +3278,17 @@ function App() {
   // the media elements' `ended` (gapless is engine-internal, so no
   // handleGaplessNext check here).
   useAssignRef(nativeEndedRef, () => handleNext("auto"));
+  // Playback failure on an auto-advanced track: keep the music going — skip to
+  // the next track with a toast instead of parking the queue behind the error
+  // modal's countdown (a resolve failure also keeps its persistent
+  // "Couldn't play · …" note on the queue row). User-initiated plays still get
+  // the modal, and usePlayback's streak cap falls back to it when several
+  // tracks in a row fail — see surfacePlaybackFailure.
+  useAssignRef(playbackAutoSkipRef, (track: QueueTrack, error: string) => {
+    console.error(`Skipped "${track.title}" after playback failure:`, error);
+    notify(`Couldn't play "${track.title}" — skipping to the next track`);
+    handleNext("auto");
+  });
 
   // Deleting the currently-playing track: advance to the nearest surviving track
   // after it, else (Normal mode) auto-continue, else the nearest surviving track

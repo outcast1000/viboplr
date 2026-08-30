@@ -81,6 +81,47 @@ export function describeLocalPlaybackFailure(base: string, fileExists: boolean):
   return fileExists ? base : FILE_NOT_FOUND_PLAYBACK_ERROR;
 }
 
+// ——— Failure surfacing: modal vs auto-skip ———
+//
+// A playback failure used to stop the music behind the error modal's 15s
+// countdown no matter who started the track. The split now: a track the USER
+// clicked keeps the modal (they acted and are watching — silence needs a reason
+// on screen), while a track the QUEUE advanced to is skipped immediately, with
+// a toast plus the queue row's persistent failure note carrying the information.
+
+// Whose track a play attempt is FOR, as opposed to who issued the call.
+export type PlayIntent = { key: string; source: "user" | "auto" };
+
+// handlePlay's `source` alone can't answer "did the user ask for this track":
+// the engine-error fallback replays the SAME track as "auto" (deliberately, so
+// it can't reset the quality ladder it just advanced), which would make a
+// user-clicked track that fails both engines look auto-initiated and get
+// silently skipped. Rule: a "user" play always claims the intent; an "auto"
+// play claims it only for a DIFFERENT track (a queue advance) — a same-key
+// "auto" replay inherits the standing intent.
+export function nextPlayIntent(
+  prev: PlayIntent | null,
+  trackKey: string,
+  source: "user" | "auto",
+): PlayIntent {
+  if (source === "user" || prev?.key !== trackKey) return { key: trackKey, source };
+  return prev;
+}
+
+// Circuit breaker: after this many consecutive auto-skipped failures the modal
+// (with its slower 15s countdown) takes over. Without a cap, a fully dead queue
+// in repeat-all would churn through the resolver chain forever. The streak
+// resets on any explicit user play and whenever a track produces real playback
+// progress.
+export const MAX_CONSECUTIVE_AUTO_SKIPS = 3;
+
+export function shouldAutoSkipFailure(
+  intent: "user" | "auto",
+  consecutiveAutoSkips: number,
+): boolean {
+  return intent === "auto" && consecutiveAutoSkips < MAX_CONSECUTIVE_AUTO_SKIPS;
+}
+
 const PROBE_TIMEOUT_MS = 4000;
 
 // Classify the network state for a failing http(s) source. `navigator.onLine ===

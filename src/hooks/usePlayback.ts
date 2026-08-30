@@ -6,7 +6,7 @@ import { parseUrlScheme, isLocalTrack } from "../queueEntry";
 import { needsTranscode } from "./useStreamResolution";
 import { store } from "../store";
 import { driveProgressMachine } from "../playback/progressMachine";
-import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus, VIDEO_CODEC_PLAYBACK_ERROR, isFormatPlaybackError } from "../playback/playbackErrors";
+import { mediaErrorMessage, describePlaybackFailure, describeLocalPlaybackFailure, probeNetworkStatus, VIDEO_CODEC_PLAYBACK_ERROR, isFormatPlaybackError, nextPlayIntent, shouldAutoSkipFailure, MAX_CONSECUTIVE_AUTO_SKIPS, type PlayIntent } from "../playback/playbackErrors";
 import { track as trackTelemetry, sourceClass } from "../telemetry";
 import { classifyErrorKind } from "../utils/errorKind";
 import {
@@ -180,6 +180,10 @@ export function usePlayback(
   // of the media elements' `ended` (fires when a native track ends with
   // nothing gapless-armed).
   onNativeAutoEndedRef: React.RefObject<() => void>,
+  // App points this at "toast + handleNext('auto')" — the auto-skip surface for
+  // a playback failure on a track the queue advanced to (not a user click).
+  // See surfacePlaybackFailure; when unassigned the modal path is used instead.
+  onAutoSkipFailureRef: React.RefObject<((track: QueueTrack, error: string) => void) | null>,
 ) {
   const [currentTrack, setCurrentTrack] = useState<QueueTrack | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -235,6 +239,15 @@ export function usePlayback(
   const [rgPreampDb, setRgPreampDb] = useState<number>(0);
   const [rgPreventClip, setRgPreventClip] = useState<boolean>(true);
   const trackChangeSourceRef = useRef<"user" | "auto">("user");
+  // Whose track the current play attempt is FOR (user click vs queue advance) —
+  // decides how a failure surfaces (error modal vs auto-skip). Maintained by
+  // nextPlayIntent so the engine-error same-track replay (which comes through
+  // handlePlay as "auto") inherits a user click instead of demoting it.
+  const playIntentRef = useRef<PlayIntent | null>(null);
+  // Consecutive playback failures that were auto-skipped without any playback
+  // progress in between — the circuit breaker's counter (see
+  // surfacePlaybackFailure). Reset on user plays and on real progress ticks.
+  const autoSkipStreakRef = useRef(0);
   // Synchronous guard against concurrent transcode starts. transcodeSessionRef
   // is only set after `await start_transcode` resolves, so two callers firing
   // in the same tick (play().catch + onLoadedMetadata/onMediaError) could both
@@ -1170,6 +1183,10 @@ export function usePlayback(
         // Scrobble threshold — mirrors onTimeUpdate (native sessions are
         // always audio, but keep the video-history gate for symmetry).
         const track = currentTrackRef.current;
+        // Real playback progress — a track is actually playing, so the streak
+        // of consecutive auto-skipped failures (surfacePlaybackFailure's
+        // circuit breaker) starts over.
+        if (autoSkipStreakRef.current !== 0 && payload.positionSecs > 1) autoSkipStreakRef.current = 0;
         if (!scrobbledRef.current && track && (trackVideoHistoryRef.current || !isVideoTrack(track))) {
           if (shouldScrobble(payload.positionSecs, track.duration_secs)) {
             scrobbledRef.current = true;
@@ -1226,6 +1243,7 @@ export function usePlayback(
         resetNativeVideoPresentation();
         clearStreamReadouts();
         trackChangeSourceRef.current = "auto";
+        playIntentRef.current = nextPlayIntent(playIntentRef.current, promoted.track.key, "auto");
         setCurrentTrack(promoted.track);
         prefetchRequestedRef.current = false;
         setCurrentAssetUrl(promoted.src);
@@ -1420,6 +1438,7 @@ export function usePlayback(
 
     // Update track state for incoming
     trackChangeSourceRef.current = "auto";
+    playIntentRef.current = nextPlayIntent(playIntentRef.current, nextTrack.key, "auto");
     setCurrentTrack(nextTrack);
     prefetchRequestedRef.current = false;
     setCurrentAssetUrl(incoming.src);
@@ -1515,6 +1534,7 @@ export function usePlayback(
     activeSlotRef.current = newSlot;
 
     trackChangeSourceRef.current = "auto";
+    playIntentRef.current = nextPlayIntent(playIntentRef.current, nextTrack.key, "auto");
     setCurrentTrack(nextTrack);
     prefetchRequestedRef.current = false;
     setCurrentAssetUrl(inactiveEl.src);
@@ -1539,6 +1559,11 @@ export function usePlayback(
     // there for the session. The engine-error replay comes through as "auto",
     // which is exactly the path that must NOT reset the ladder it just advanced.
     if (source === "user") clearNativeRetries(track.key);
+    // A user play is fresh intent: it claims the failure-surfacing intent and
+    // restarts the auto-skip breaker. An "auto" play claims intent only for a
+    // different track — see nextPlayIntent for why a same-key replay must not.
+    if (source === "user") autoSkipStreakRef.current = 0;
+    playIntentRef.current = nextPlayIntent(playIntentRef.current, track.key, source);
     const generation = ++playGenerationRef.current;
     // Mark the explicit-play transition window: until the new source is installed,
     // the timeupdate-driven preload→crossfade machine must stay gated off so a
@@ -1676,6 +1701,9 @@ export function usePlayback(
   }
 
   async function handlePlayUrl(track: QueueTrack, url: string) {
+    // Always user-initiated (see the playWithSrc call below) — fresh intent.
+    autoSkipStreakRef.current = 0;
+    playIntentRef.current = nextPlayIntent(playIntentRef.current, track.key, "user");
     const generation = ++playGenerationRef.current;
     transitioningRef.current = true;
     if (eqEnabledRef.current) ensureAudioGraph();
@@ -2005,19 +2033,38 @@ export function usePlayback(
   // functional upgrade only replaces the exact base message, so it never reopens
   // a dismissed modal or clobbers a newer failure.
   function surfacePlaybackFailure(base: string, track: QueueTrack | null, src: string | null) {
-    setPlaybackError(base);
-    setFailedTrack(track);
-    setPlaying(false);
     // Anonymous reliability signal: playback failed (after any native→browser
     // fallback). Coarse class only — never the error text, title, or path.
     // `reason` is the original two-way split (dashboards key on it); the
     // bucketed `error_kind` is the finer breakdown of the same failure.
+    // Fired for BOTH surfaces below — an auto-skipped failure is still a failure.
     trackTelemetry("playback_error", {
       engine: nativeSessionRef.current ? "native" : "browser",
       source: sourceClass(track?.path ?? null),
       reason: isFormatPlaybackError(base) ? "format" : "other",
       error_kind: classifyErrorKind(base),
     });
+    // A track the QUEUE advanced to (playlist progression, gapless handoff —
+    // not a user click) skips straight to the next track instead of stopping
+    // the music behind the modal's 15s countdown. The user still sees it: App's
+    // handler raises a toast, and a resolve failure keeps its persistent
+    // "Couldn't play · …" note on the queue row. The streak cap is the circuit
+    // breaker — past it the modal (whose countdown still advances, just slowly)
+    // takes over, so a fully dead queue in repeat-all can't spin forever.
+    const intent =
+      track && playIntentRef.current?.key === track.key ? playIntentRef.current.source : "user";
+    const autoSkip = onAutoSkipFailureRef.current;
+    if (track && autoSkip && shouldAutoSkipFailure(intent, autoSkipStreakRef.current)) {
+      autoSkipStreakRef.current += 1;
+      logPlayback(
+        `Auto-skipping "${track.title}" after playback failure (${autoSkipStreakRef.current}/${MAX_CONSECUTIVE_AUTO_SKIPS}): ${base}`,
+      );
+      autoSkip(track, base);
+      return;
+    }
+    setPlaybackError(base);
+    setFailedTrack(track);
+    setPlaying(false);
     if (!track) return;
     if (isLocalTrack(track)) {
       const parsed = parseUrlScheme(track.path!);
@@ -2175,6 +2222,9 @@ export function usePlayback(
     const absolutePosition = el.currentTime + transcodeOffset;
     setPlaybackPosition(absolutePosition);
 
+    // Real playback progress — resets the auto-skip failure streak, mirroring
+    // the engine-position handler (surfacePlaybackFailure's circuit breaker).
+    if (autoSkipStreakRef.current !== 0 && absolutePosition > 1) autoSkipStreakRef.current = 0;
     // Scrobble threshold check (Last.FM rules) — optionally skip video tracks
     if (!scrobbledRef.current && currentTrack && (trackVideoHistoryRef.current || !isVideoTrack(currentTrack))) {
       if (shouldScrobble(absolutePosition, currentTrack.duration_secs)) {
