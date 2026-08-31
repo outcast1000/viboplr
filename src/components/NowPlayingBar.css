@@ -905,10 +905,11 @@
   color: var(--text-secondary);
 }
 
+/* Inline like indicator, rendered inside the title line (both the ultra
+   marquee and the compact .now-title) so it scrolls along with the text. */
 .mini-ultra-heart {
-  flex-shrink: 0;
   color: var(--error);
   pointer-events: none;
   vertical-align: -1px;
-  margin-right: 4px;
+  margin-right: 3px;
 }

@@ -429,15 +429,13 @@ export const NowPlayingBar = memo(function NowPlayingBar({
         ) : (
           <div className="mini-ultra-row">
             {currentTrack && <SpinningDisc size={14} playing={playing} />}
-            {currentTrack && currentTrack.liked === 1 && (
-              <IconHeartFilled size={11} className="mini-ultra-heart" />
-            )}
             {playbackError ? (
               <span className="mini-ultra-title">Playback failed</span>
             ) : currentTrack ? (
               <MarqueeText className="mini-ultra-title" enabled restartKey={currentTrack.key} onPlan={handleUltraPlan}>
                 {ultraTitleYieldedFor === null && (
                   <>
+                    {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                     <span className="mini-ultra-track">{currentTrack.title}</span>
                     <span className="mini-ultra-sep"> — </span>
                   </>
