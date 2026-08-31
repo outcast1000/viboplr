@@ -8,6 +8,7 @@ import { diffThumbs, flushMainPlaylist, type ThumbInfo } from "../mainPlaylist";
 import { stripImageVersion } from "../utils/resolveImageUrl";
 import { track as trackTelemetry } from "../telemetry";
 import { nextIndex, prevIndex, randomizeOrder } from "../queueNav";
+import { sameSong } from "./useLikeActions";
 
 import { useAssignRef } from "./useLatestRef";
 export interface PlaylistContext {
@@ -25,6 +26,10 @@ export function useQueue(
   // Fired whenever a play *replaces* the queue (the "Latest play" capture point).
   // Not fired by enqueue / play-next / auto-continue, which extend the queue.
   onPlay?: (tracks: QueueTrack[], startIndex: number, context: PlaylistContext | null) => void,
+  // The track that's audibly playing right now (null when paused or stopped),
+  // read at call time. Lets playTracks keep the music running when the
+  // replacing list opens on the same song — see the continuation note there.
+  getPlayingTrack?: () => QueueTrack | null,
 ) {
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -215,9 +220,23 @@ export function useQueue(
       seen.add(fresh);
       return { ...t, key: fresh };
     });
+    // Continuation: when the new list opens on the very song that's already
+    // audibly playing (Start Radio — core or plugin — seeds the station with
+    // the current track), replace the queue *around* the music instead of
+    // restarting it from zero. Only the first entry qualifies: an explicit
+    // click deeper into a list is "play this now" and still restarts. The
+    // entry adopts the playing copy's key (when free) so key-based identity —
+    // sameSong's fast path, edit-info patching of currentTrack — keeps seeing
+    // one song. The gapless preload needs no help: driveProgressMachine
+    // re-checks peekNext()'s key every tick and re-arms against the new queue.
+    const playingNow = startIndex === 0 && dedupedTracks.length > 0 ? getPlayingTrack?.() ?? null : null;
+    const continues = playingNow !== null && sameSong(playingNow, dedupedTracks[0]);
+    if (continues && dedupedTracks[0].key !== playingNow.key && !seen.has(playingNow.key)) {
+      dedupedTracks[0] = { ...dedupedTracks[0], key: playingNow.key };
+    }
     setQueue(dedupedTracks);
     setQueueIndex(startIndex);
-    handlePlay(dedupedTracks[startIndex]);
+    if (!continues) handlePlay(dedupedTracks[startIndex]);
     setPlaylistContext(context ?? null);
     onPlay?.(dedupedTracks, startIndex, context ?? null);
     playGenRef.current += 1;

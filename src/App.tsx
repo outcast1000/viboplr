@@ -505,6 +505,13 @@ function App() {
 
   const library = useLibrary(restoredRef, () => beforeNavRef.current(), viewSearch.getDebouncedQuery, undefined, setNavError);
 
+  // What's audibly playing right now, for playTracks' continuation check (keep
+  // the current track running when a replacing list — a radio station seeded
+  // from it — opens on the same song). A ref read at call time, not this
+  // render's state: playTracks is reached from stale closures.
+  const audiblePlayingTrackRef = useRef<QueueTrack | null>(null);
+  useAssignRef(audiblePlayingTrackRef, playback.playing ? playback.currentTrack : null);
+
   const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context) => {
     // Record the "Latest play" session for anything that replaces the queue.
     // Guarded so the startup queue-restore doesn't masquerade as a fresh play.
@@ -514,7 +521,7 @@ function App() {
     const next = recordPlaySession(recentPlaysRef.current, session);
     recentPlaysRef.current = next;
     store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
-  });
+  }, () => audiblePlayingTrackRef.current);
   const autoContinue = useAutoContinue(restoredRef);
   const zoom = useUiZoom();
   const mini = useMiniMode(restoredRef, zoom.uiZoomRef, zoom.miniZoomRef);

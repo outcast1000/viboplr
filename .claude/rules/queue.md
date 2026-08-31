@@ -77,7 +77,7 @@ Every way tracks enter the queue and what each must maintain.
 
 | Operation | Canonical | Invariants |
 |---|---|---|
-| **Play tracks** | `playTracks(tracks, startIndex, context?)` | Replaces entire queue. Sets `queueIndex` to `startIndex`. Sets or clears `playlistContext`. Queue mode is unaffected (no shuffle order to rebuild). |
+| **Play tracks** | `playTracks(tracks, startIndex, context?)` | Replaces entire queue. Sets `queueIndex` to `startIndex`. Sets or clears `playlistContext`. Queue mode is unaffected (no shuffle order to rebuild). **Continuation:** when `startIndex` is 0 and the first entry is the song already audibly playing (`sameSong` — a radio station seeded from the current track), `handlePlay` is skipped so the music keeps running; the entry adopts the playing copy's key (when free) so key-based identity stays one song. Everything else — context, play-generation bump, `onPlay` — still happens. |
 | **Enqueue tracks** | `enqueueTracks(tracks)` | Appends to end. Does NOT change `queueIndex`. Does NOT clear `playlistContext`. Caller must run `findDuplicates()` first and present the duplicate banner — `enqueueTracks` itself has no dedup guard. |
 | **Play next** | `playNextInQueue(track)` | Inserts single track at `queueIndex + 1`. Does NOT advance index or trigger playback. |
 | **Insert at position** | `insertAtPosition(tracks, position)` | Inserts at arbitrary index. If `position <= queueIndex`, shifts index up by `tracks.length`. |
