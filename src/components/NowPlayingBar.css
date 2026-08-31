@@ -548,7 +548,11 @@
   grid-column: 1;
   grid-row: 1;
   height: auto;
-  min-height: 52px;
+  /* The mini window heights (24px compact / 52px normal) include this footer's
+     1px borders (border-box below). A min-height here overflows the compact
+     window and clips the bottom border, pushing the content off vertical
+     center — the footer must stretch to exactly the grid row / window. */
+  min-height: 0;
   border-top: none;
   background: rgba(var(--now-playing-bg-rgb), 0.82);
   backdrop-filter: blur(24px);
@@ -574,6 +578,14 @@
   padding: 6px 12px;
   gap: 10px;
   position: relative;
+}
+
+/* At rest, fill the footer so the 48px row content centers between the 1px
+   borders — the 52px window leaves 2px that otherwise pooled below the row and
+   sat the art 1px above vertical center. Expanded keeps the row top-packed so
+   the title doesn't shift when the extra rows animate in. */
+.now-playing-mini:not(.mini-expanded) .mini-compact-row {
+  flex: 1;
 }
 
 .now-playing-mini:active {
@@ -841,16 +853,25 @@
   letter-spacing: 0.02em;
 }
 
-/* Ultra-compact mini player row (24px height) */
+/* Ultra-compact mini player row (fills the 24px window minus the footer's 1px
+   borders — a hard-coded 24px height overflowed past the bottom border and sat
+   the text 1px below vertical center). */
 .mini-ultra-row {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  height: 24px;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   min-width: 0;
   position: relative;
+}
+
+/* Seat the progress rail directly on the (now visible) bottom border instead
+   of floating 1px above it — the compact pill is too short for a gap there. */
+.mini-ultra-row .mini-progress {
+  bottom: 0;
 }
 
 .mini-ultra-row .mini-ultra-title {
@@ -861,6 +882,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   text-align: left;
+  /* Optical centering: the UI font's line box carries ~4px of dead ascent
+     (diacritics room) above the caps at this size but almost nothing below the
+     descenders, so a geometrically centered line box reads low in the 24px
+     pill. Offset tuned by eye against the live app; integer only — a
+     fractional offset blurs the glyphs. */
+  position: relative;
+  top: -1px;
 }
 
 .mini-ultra-track {
