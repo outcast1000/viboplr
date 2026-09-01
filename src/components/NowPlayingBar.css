@@ -717,6 +717,10 @@
 }
 
 
+/* Always-present rail behind the fill. A fill-only line has no visual weight
+   at the start of a track and full width at the end, which reads as the title
+   line above drifting off-centre as the track plays (worst with an empty
+   fill). The rail keeps the bottom edge constant so only the accent moves. */
 .mini-progress {
   position: absolute;
   bottom: 1px;
@@ -724,6 +728,13 @@
   right: 8px;
   height: 2px;
   border-radius: 1px;
+  background: rgba(var(--overlay-base), 0.15);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.mini-progress-fill {
+  height: 100%;
   background: var(--accent);
   opacity: 0.5;
   /* No transition: the transform is retargeted on every ~250ms position tick,
@@ -731,7 +742,6 @@
      in flight, re-blurring the mini bar's backdrop-filter every frame. The
      per-tick step is sub-pixel at these widths; smoothing buys nothing. */
   transform-origin: left;
-  pointer-events: none;
 }
 
 /* Mini player seek slider (expanded) */
@@ -911,5 +921,5 @@
   color: var(--error);
   pointer-events: none;
   vertical-align: -1px;
-  margin-right: 3px;
+  margin-right: 4px;
 }

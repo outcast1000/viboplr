@@ -424,7 +424,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                 </button>
               </div>
             </div>
-            {!miniExpanded && <div className="mini-progress" style={{ transform: `scaleX(${progress / 100})` }} />}
+            {!miniExpanded && <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} /></div>}
           </div>
         ) : (
           <div className="mini-ultra-row">
@@ -447,7 +447,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             ) : (
               <span className="mini-ultra-title">No track playing</span>
             )}
-            <div className="mini-progress" style={{ transform: `scaleX(${progress / 100})` }} />
+            <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} /></div>
           </div>
         )}
         {miniExpanded && (
