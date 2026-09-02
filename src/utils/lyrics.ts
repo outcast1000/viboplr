@@ -1,6 +1,7 @@
 // Pure lyrics helpers shared by the Now Playing view (karaoke highlighting) and
 // the Now Playing info cycler (current/random line items). Dependency-free and
-// unit-tested.
+// unit-tested. The one DOM function (`scrollLineToCenter`) is a thin binding
+// over the tested `centeredScrollTop` maths.
 
 export interface LrcLine {
   time: number;
@@ -135,6 +136,51 @@ export function pickLineByRatio(lines: string[], ratio: number): string | null {
   if (lines.length === 0) return null;
   const clamped = ratio < 0 ? 0 : ratio >= 1 ? 1 - Number.EPSILON : ratio;
   return lines[Math.floor(clamped * lines.length)];
+}
+
+/**
+ * scrollTop that vertically centers a line inside its own scroll container.
+ *
+ * Exists to replace `scrollIntoView({ block: "center" })` on lyric lines, which
+ * scrolls EVERY scrollable ancestor — and an `overflow: hidden` box is still a
+ * scroll container per spec, just one without a scrollbar. So whenever the
+ * active line was pinned at the lyrics box's edge (the end of a song, or right
+ * after a seek), the centering walk also scrolled `.now-playing-view` itself:
+ * the whole surface shifted up, the action buttons vanished behind dead space,
+ * and with no scrollbar the only way back was remounting the view. Computing
+ * the target ourselves and scrolling the one container is the whole fix.
+ *
+ * `top`s are viewport coordinates (getBoundingClientRect); `scrollTop` /
+ * `viewHeight` / `scrollHeight` are the container's live scroll metrics. The
+ * clamp mirrors what the browser would do to an out-of-range scrollTop, so the
+ * returned value is always the one that actually lands.
+ */
+export function centeredScrollTop(
+  container: { top: number; scrollTop: number; viewHeight: number; scrollHeight: number },
+  line: { top: number; height: number },
+): number {
+  const raw =
+    line.top - container.top + container.scrollTop - (container.viewHeight - line.height) / 2;
+  return Math.max(0, Math.min(raw, container.scrollHeight - container.viewHeight));
+}
+
+/** DOM binding of `centeredScrollTop`: smooth-scroll `container` so `line` sits
+ *  in its vertical middle — touching no ancestor. The maths stays in the pure
+ *  function above, where the test can reach it. */
+export function scrollLineToCenter(container: HTMLElement, line: HTMLElement): void {
+  const lineRect = line.getBoundingClientRect();
+  container.scrollTo({
+    top: centeredScrollTop(
+      {
+        top: container.getBoundingClientRect().top,
+        scrollTop: container.scrollTop,
+        viewHeight: container.clientHeight,
+        scrollHeight: container.scrollHeight,
+      },
+      { top: lineRect.top, height: lineRect.height },
+    ),
+    behavior: "smooth",
+  });
 }
 
 /** Deterministic [0,1) ratio from a string (FNV-1a). Lets a "random" line pick

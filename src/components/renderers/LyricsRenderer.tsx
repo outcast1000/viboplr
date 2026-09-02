@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { RendererProps } from "./index";
 import type { LyricsData } from "../../types/informationTypes";
 import { usePlaybackPosition } from "../../playback/positionStore";
+import { scrollLineToCenter } from "../../utils/lyrics";
 
 interface LrcLine {
   time: number;
@@ -51,9 +52,12 @@ export function LyricsRenderer({ data, onAction, context }: RendererProps) {
   const lrcLines = d?.kind === "synced" && d?.text ? parseLrc(d.text) : null;
   const currentLineIdx = lrcLines ? getCurrentLineIndex(lrcLines, positionSecs) : -1;
 
+  // `scrollLineToCenter`, NOT `scrollIntoView({ block: "center" })`: the latter
+  // scrolls every scrollable ancestor, so following a line would also drag the
+  // detail page's own scroll position around. See utils/lyrics.ts.
   useEffect(() => {
     if (syncEnabled && !userScrolled && activeLineRef.current && scrollRef.current) {
-      activeLineRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      scrollLineToCenter(scrollRef.current, activeLineRef.current);
     }
   }, [currentLineIdx, userScrolled, syncEnabled]);
 

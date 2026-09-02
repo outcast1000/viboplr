@@ -11,6 +11,7 @@ import {
   clampLyricOffset,
   formatLyricOffset,
   lyricOffsetKey,
+  centeredScrollTop,
   LYRIC_OFFSET_MAX,
 } from "../utils/lyrics";
 
@@ -88,6 +89,38 @@ describe("pickLineByRatio", () => {
   });
   it("returns null for an empty list", () => {
     expect(pickLineByRatio([], 0.5)).toBeNull();
+  });
+});
+
+describe("centeredScrollTop", () => {
+  // A 400px-tall lyrics box at viewport y=100, holding 2000px of lines,
+  // currently scrolled 300px in.
+  const box = { top: 100, scrollTop: 300, viewHeight: 400, scrollHeight: 2000 };
+
+  it("centers the line within the container", () => {
+    // Line is 20px tall at viewport y=150 → 50px below the box top, i.e. at
+    // content offset 350. Centered, its middle (360) sits at half the view
+    // height (200), so scrollTop = 360 − 200 = 160.
+    expect(centeredScrollTop(box, { top: 150, height: 20 })).toBe(160);
+  });
+
+  it("is a no-op for a line already centered", () => {
+    // Middle of the view is box.top + 200 = 300; a 20px line centered there
+    // starts at 290.
+    expect(centeredScrollTop(box, { top: 290, height: 20 })).toBe(box.scrollTop);
+  });
+
+  it("clamps at the top for a line near the start", () => {
+    // First line of the song: centering it would need a negative scrollTop.
+    expect(centeredScrollTop({ ...box, scrollTop: 0 }, { top: 110, height: 20 })).toBe(0);
+  });
+
+  it("clamps at the bottom for a line near the end", () => {
+    // Last line: the box can scroll at most scrollHeight − viewHeight = 1600.
+    // This clamp is the case the ancestor-scrolling bug lived in — with
+    // scrollIntoView, the leftover centering distance was taken from the
+    // Now Playing view's own overflow:hidden box instead.
+    expect(centeredScrollTop({ ...box, scrollTop: 1600 }, { top: 470, height: 20 })).toBe(1600);
   });
 });
 

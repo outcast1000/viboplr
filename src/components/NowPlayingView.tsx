@@ -6,7 +6,7 @@ import { isVideoTrack } from "../utils";
 import type { QueueTrack } from "../types";
 import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
-import { parseLrc, currentSyncedLineIndex, lyricPosition } from "../utils/lyrics";
+import { parseLrc, currentSyncedLineIndex, lyricPosition, scrollLineToCenter } from "../utils/lyrics";
 import { LyricsOffsetControl } from "./LyricsOffsetControl";
 import { resolveNowPlayingArt } from "../utils/nowPlayingArt";
 import { usePlaybackPosition } from "../playback/positionStore";
@@ -113,10 +113,16 @@ function NowPlayingLyrics({
   const markProgrammatic = () => { suppressUntil.current = performance.now() + 700; };
 
   // Synced: keep the active line centered (pauses while the user is scrolling).
+  //
+  // `scrollLineToCenter`, NOT `scrollIntoView({ block: "center" })` — that walks
+  // every scrollable ancestor, and the view's own `overflow: hidden` box is
+  // still one. Whenever the active line sat pinned at the lyrics box's edge, the
+  // ancestor walk shoved the whole Now Playing surface up, hiding the action row
+  // behind dead space with no scrollbar to undo it. See utils/lyrics.ts.
   useEffect(() => {
-    if (synced && !userScrolled && activeRef.current) {
+    if (synced && !userScrolled && activeRef.current && scrollRef.current) {
       markProgrammatic();
-      activeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      scrollLineToCenter(scrollRef.current, activeRef.current);
     }
   }, [synced, activeIdx, userScrolled]);
 
