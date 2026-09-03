@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import {
   IconHeartFilled,
   IconHeartOutline,
-  IconThumbsDownFilled,
+  IconBan,
 } from "./Icons";
 
 interface LikeDislikeButtonsProps {
@@ -76,7 +76,7 @@ export function LikeDislikeButtons({
     else onToggleDislike?.();
   }, [current, hasDislike, disabled, onToggleLike, onToggleDislike]);
 
-  const Icon = current === 1 ? IconHeartFilled : current === -1 ? IconThumbsDownFilled : IconHeartOutline;
+  const Icon = current === 1 ? IconHeartFilled : current === -1 ? IconBan : IconHeartOutline;
   const stateClass = current === 1 ? " liked" : current === -1 ? " disliked" : "";
   const title = (
     current === 1 ? `Liked${labelSuffix}`

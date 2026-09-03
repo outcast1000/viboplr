@@ -19,7 +19,7 @@ import { ViewSearchBar } from "./ViewSearchBar";
 import type { HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
-import { IconHeartFilled, IconThumbsDownFilled, IconRefresh, IconSparkles } from "./Icons";
+import { IconHeartFilled, IconBan, IconRefresh, IconSparkles } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { nextTriState } from "../likeKeys";
 import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel, parsePlaylistMetadata } from "../utils/autoPlaylist";
@@ -569,7 +569,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       <div className={`playlist-hero-system-cover playlist-hero-system-cover--${selectedPlaylist.system_kind}`}>
         {selectedPlaylist.system_kind === "liked"
           ? <IconHeartFilled size={88} />
-          : <IconThumbsDownFilled size={88} />}
+          : <IconBan size={88} />}
       </div>
     ) : (
       <img src={detailArtSrc} alt={selectedPlaylist.name} />
@@ -704,7 +704,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                   <div className="playlist-shortcut-art">
                     {pl.system_kind === "liked"
                       ? <IconHeartFilled size={26} />
-                      : <IconThumbsDownFilled size={26} />}
+                      : <IconBan size={26} />}
                   </div>
                   <div className="playlist-shortcut-name">{pl.name}</div>
                   <button className="playlist-shortcut-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
