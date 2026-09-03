@@ -364,29 +364,23 @@ impl Database {
 
     // --- Decoupled history ---
 
-    #[cfg(test)]
-    pub fn record_history_play(&self, track_id: i64) -> SqlResult<()> {
-        let conn = self.conn.lock().unwrap();
-
-        // Fetch track metadata
-        let (title, artist_name): (String, Option<String>) = conn.query_row(
-            "SELECT t.title, ar.name FROM tracks t
-             LEFT JOIN artists ar ON t.artist_id = ar.id
-             WHERE t.id = ?1",
-            params![track_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )?;
-
-        let canonical_artist = strip_diacritics(&artist_name.as_deref().unwrap_or("").to_lowercase());
-        let canonical_title = strip_diacritics(&title.to_lowercase());
-
-        // Upsert history_artists/tracks
+    /// Upsert the history_artist and history_track rows, insert a play (gated
+    /// by the 30-second dedup window), and bump the denormalized counters.
+    /// Shared by the library-track-id path and the metadata-only (plugin / non-
+    /// library) path so the dedup and count-update logic never drifts.
+    fn record_history_play_inner(
+        conn: &rusqlite::Connection,
+        display_title: &str,
+        display_artist: Option<&str>,
+        canonical_title: &str,
+        canonical_artist: &str,
+    ) -> SqlResult<()> {
         conn.execute(
             "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
              VALUES (?1, ?2, strftime('%s', 'now'), strftime('%s', 'now'), 0)
              ON CONFLICT(canonical_name) DO UPDATE SET
                display_name = excluded.display_name",
-            params![canonical_artist, artist_name],
+            params![canonical_artist, display_artist],
         )?;
         let history_artist_id: i64 = conn.query_row(
             "SELECT id FROM history_artists WHERE canonical_name = ?1",
@@ -399,7 +393,7 @@ impl Database {
              VALUES (?1, ?2, ?3, strftime('%s', 'now'), strftime('%s', 'now'), 0)
              ON CONFLICT(history_artist_id, canonical_title) DO UPDATE SET
                display_title = excluded.display_title",
-            params![history_artist_id, canonical_title, title],
+            params![history_artist_id, canonical_title, display_title],
         )?;
         let history_track_id: i64 = conn.query_row(
             "SELECT id FROM history_tracks WHERE history_artist_id = ?1 AND canonical_title = ?2",
@@ -440,6 +434,30 @@ impl Database {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub fn record_history_play(&self, track_id: i64) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+
+        let (title, artist_name): (String, Option<String>) = conn.query_row(
+            "SELECT t.title, ar.name FROM tracks t
+             LEFT JOIN artists ar ON t.artist_id = ar.id
+             WHERE t.id = ?1",
+            params![track_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        let canonical_artist = strip_diacritics(&artist_name.as_deref().unwrap_or("").to_lowercase());
+        let canonical_title = strip_diacritics(&title.to_lowercase());
+
+        Self::record_history_play_inner(
+            &conn,
+            &title,
+            artist_name.as_deref(),
+            &canonical_title,
+            &canonical_artist,
+        )
+    }
+
     pub fn record_play_by_metadata(&self, title: &str, artist_name: Option<&str>) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
 
@@ -447,59 +465,7 @@ impl Database {
         let canonical_artist = strip_diacritics(&artist.to_lowercase());
         let canonical_title = strip_diacritics(&title.to_lowercase());
 
-        conn.execute(
-            "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
-             VALUES (?1, ?2, strftime('%s', 'now'), strftime('%s', 'now'), 0)
-             ON CONFLICT(canonical_name) DO UPDATE SET
-               display_name = excluded.display_name",
-            params![canonical_artist, artist],
-        )?;
-        let history_artist_id: i64 = conn.query_row(
-            "SELECT id FROM history_artists WHERE canonical_name = ?1",
-            params![canonical_artist],
-            |row| row.get(0),
-        )?;
-
-        conn.execute(
-            "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count)
-             VALUES (?1, ?2, ?3, strftime('%s', 'now'), strftime('%s', 'now'), 0)
-             ON CONFLICT(history_artist_id, canonical_title) DO UPDATE SET
-               display_title = excluded.display_title",
-            params![history_artist_id, canonical_title, title],
-        )?;
-        let history_track_id: i64 = conn.query_row(
-            "SELECT id FROM history_tracks WHERE history_artist_id = ?1 AND canonical_title = ?2",
-            params![history_artist_id, canonical_title],
-            |row| row.get(0),
-        )?;
-
-        let dominated: bool = conn.query_row(
-            "SELECT EXISTS(
-                SELECT 1 FROM history_plays hp
-                WHERE hp.history_track_id = ?1
-                AND hp.played_at > strftime('%s', 'now') - 30
-            )",
-            params![history_track_id],
-            |row| row.get(0),
-        )?;
-        if dominated {
-            return Ok(());
-        }
-
-        conn.execute(
-            "INSERT INTO history_plays (history_track_id) VALUES (?1)",
-            params![history_track_id],
-        )?;
-        conn.execute(
-            "UPDATE history_tracks SET play_count = play_count + 1, last_played_at = strftime('%s', 'now') WHERE id = ?1",
-            params![history_track_id],
-        )?;
-        conn.execute(
-            "UPDATE history_artists SET play_count = play_count + 1, last_played_at = strftime('%s', 'now') WHERE id = ?1",
-            params![history_artist_id],
-        )?;
-
-        Ok(())
+        Self::record_history_play_inner(&conn, title, Some(artist), &canonical_title, &canonical_artist)
     }
 
     /// Batch-insert history plays from Last.fm import.
