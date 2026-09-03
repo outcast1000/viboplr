@@ -19,7 +19,7 @@ pub fn strip_diacritics(s: &str) -> String {
 /// Local collections:   file://{collection.path}/{track.path}
 /// Subsonic collections: subsonic://{host}/{track.path}
 /// Fallback:            track.path as-is
-const PATH_EXPR: &str =
+pub(crate) const PATH_EXPR: &str =
     "CASE \
        WHEN co.kind = 'local' AND co.path IS NOT NULL \
          THEN 'file://' || co.path || '/' || t.path \
@@ -28,20 +28,25 @@ const PATH_EXPR: &str =
        ELSE t.path \
      END";
 
-const TRACK_SELECT: &str =
-    "SELECT t.id, \
-     CASE \
+// TRACK_SELECT inlines PATH_EXPR because Rust `concat!` only accepts string
+// literals, not const identifiers. PATH_EXPR is the canonical source; any
+// standalone URI-construction SQL must use it so the expression never drifts.
+const TRACK_SELECT: &str = concat!(
+    "SELECT t.id, ",
+    "CASE \
        WHEN co.kind = 'local' AND co.path IS NOT NULL \
          THEN 'file://' || co.path || '/' || t.path \
        WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
          THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
        ELSE t.path \
-     END, \
+     END",
+    ", \
      t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
      t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, \
      t.added_at, t.modified_at \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
-     LEFT JOIN collections co ON t.collection_id = co.id";
+     LEFT JOIN collections co ON t.collection_id = co.id");
+
 
 const ENABLED_COLLECTION_FILTER: &str =
     "AND (t.collection_id IS NULL OR co.enabled = 1)";

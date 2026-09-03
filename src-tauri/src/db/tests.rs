@@ -2961,3 +2961,21 @@ fn test_bulk_update_unchanged_preserves_album() {
     assert_eq!(track.album_title.as_deref(), Some("Album"));
     assert_eq!(track.artist_name.as_deref(), Some("Artist"));
 }
+
+/// `TRACK_SELECT` must embed the identical CASE expression as `PATH_EXPR`.
+/// Rust `concat!` only accepts string literals, so the CASE is duplicated there
+/// — this test ensures it's at least structurally the same expression.
+#[test]
+fn test_path_expr_and_track_select_case_match() {
+    // Both must contain the same distinguishing sub-strings.
+    for token in ["CASE", "file://'", "subsonic://'", "REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '')"] {
+        assert!(
+            PATH_EXPR.contains(token),
+            "PATH_EXPR should contain {token:?}"
+        );
+        assert!(
+            TRACK_SELECT.contains(token),
+            "TRACK_SELECT must contain {token:?} — check that its inline CASE matches PATH_EXPR"
+        );
+    }
+}

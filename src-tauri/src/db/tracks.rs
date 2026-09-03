@@ -160,20 +160,14 @@ impl Database {
     /// None when no row matches, the row has no `extra_tags`, or it carries no RG.
     pub fn get_replaygain_by_path(&self, full_path: &str) -> SqlResult<Option<crate::models::ReplayGain>> {
         let conn = self.conn.lock().unwrap();
-        let sql = "SELECT t.extra_tags FROM tracks t \
+        let sql = format!("SELECT t.extra_tags FROM tracks t \
             LEFT JOIN collections co ON t.collection_id = co.id \
-            WHERE CASE \
-              WHEN co.kind = 'local' AND co.path IS NOT NULL \
-                THEN 'file://' || co.path || '/' || t.path \
-              WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
-                THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
-              ELSE t.path \
-            END = ?1 \
+            WHERE {PATH_EXPR} = ?1 \
             AND t.extra_tags IS NOT NULL \
             AND (t.collection_id IS NULL OR co.enabled = 1) \
-            LIMIT 1";
+            LIMIT 1");
         let json: Option<String> = conn
-            .query_row(sql, params![full_path], |row| row.get(0))
+            .query_row(&sql, params![full_path], |row| row.get(0))
             .optional()?;
         Ok(json.and_then(|j| crate::models::ReplayGain::from_extra_tags_json(&j)))
     }
@@ -567,18 +561,12 @@ impl Database {
 
     pub fn find_track_id_by_path(&self, full_path: &str) -> SqlResult<Option<i64>> {
         let conn = self.conn.lock().unwrap();
-        let sql = "SELECT t.id FROM tracks t \
+        let sql = format!("SELECT t.id FROM tracks t \
             LEFT JOIN collections co ON t.collection_id = co.id \
-            WHERE CASE \
-              WHEN co.kind = 'local' AND co.path IS NOT NULL \
-                THEN 'file://' || co.path || '/' || t.path \
-              WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
-                THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
-              ELSE t.path \
-            END = ?1 \
+            WHERE {PATH_EXPR} = ?1 \
             AND (t.collection_id IS NULL OR co.enabled = 1) \
-            LIMIT 1";
-        conn.query_row(sql, params![full_path], |row| row.get(0)).optional()
+            LIMIT 1");
+        conn.query_row(&sql, params![full_path], |row| row.get(0)).optional()
     }
 
     /// Returns the stored source format (file suffix, e.g. "mp3"/"flac") for a
@@ -703,15 +691,9 @@ impl Database {
     /// plays, so the sweep silently deleted every entry at every launch.
     pub fn get_all_track_uris(&self) -> SqlResult<Vec<String>> {
         let conn = self.conn.lock().unwrap();
-        let sql = "SELECT CASE \
-              WHEN co.kind = 'local' AND co.path IS NOT NULL \
-                THEN 'file://' || co.path || '/' || t.path \
-              WHEN co.kind = 'subsonic' AND co.url IS NOT NULL \
-                THEN 'subsonic://' || REPLACE(REPLACE(RTRIM(co.url, '/'), 'https://', ''), 'http://', '') || '/' || t.path \
-              ELSE t.path \
-            END \
-            FROM tracks t LEFT JOIN collections co ON t.collection_id = co.id";
-        let mut stmt = conn.prepare(sql)?;
+        let sql = format!("SELECT {PATH_EXPR} \
+            FROM tracks t LEFT JOIN collections co ON t.collection_id = co.id");
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         rows.collect()
     }
