@@ -1146,8 +1146,10 @@ export type ImageFetchResult =
   | { status: "error"; message?: string };
 
 export interface PluginImageProvidersAPI {
+  /** `artistName` is only passed for `album` fetches; `tag` composites are
+   *  requested by tag name alone. */
   onFetch(
-    entity: "artist" | "album",
+    entity: "artist" | "album" | "tag",
     handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
   ): () => void;
 }
@@ -1165,8 +1167,12 @@ export interface DownloadResolveResult {
     coverUrl?: string;
   } | null;
   /** File extension to save as, overriding the requested format's default.
-   *  Use "auto" to have the backend sniff the container from the downloaded
-   *  bytes (e.g. an original file of unknown format). */
+   *  Return a concrete extension whenever the provider knows the container —
+   *  naming the file is the provider's job and this is the only reliable
+   *  signal. There is NO byte-sniffing: "auto" (legacy) just falls back to the
+   *  format's default extension (or ".bin" when the provider also declared no
+   *  onGetQualities), because the extension is resolved before any bytes
+   *  arrive. */
   ext?: string | null;
 }
 

@@ -7,8 +7,10 @@ use super::*;
 pub fn get_artists(
     state: State<'_, AppState>,
     liked_only: Option<bool>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<Artist>, String> {
-    state.db.get_artists_filtered(liked_only.unwrap_or(false)).map_err(|e| e.to_string())
+    state.db.get_artists_filtered(liked_only.unwrap_or(false), limit, offset).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -23,8 +25,9 @@ pub fn get_albums(
     sort: Option<String>,
     liked_only: Option<bool>,
     limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<Album>, String> {
-    state.db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false), limit)
+    state.db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false), limit, offset)
         .map_err(|e| e.to_string())
 }
 
@@ -388,8 +391,12 @@ pub fn get_tracks_by_artist(
 }
 
 #[tauri::command]
-pub fn get_tags(state: State<'_, AppState>) -> Result<Vec<Tag>, String> {
-    state.db.get_tags().map_err(|e| e.to_string())
+pub fn get_tags(
+    state: State<'_, AppState>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<Tag>, String> {
+    state.db.get_tags(limit, offset).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

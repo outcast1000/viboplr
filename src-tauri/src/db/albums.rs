@@ -92,6 +92,7 @@ impl Database {
         sort: Option<&str>,
         liked_only: bool,
         limit: Option<i64>,
+        offset: Option<i64>,
     ) -> SqlResult<Vec<Album>> {
         let conn = self.conn.lock().unwrap();
         if let Some(aid) = artist_id {
@@ -101,8 +102,9 @@ impl Database {
                  FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
                  WHERE a.track_count > 0{} \
                    AND (a.artist_id = ?1 OR a.id IN (SELECT album_id FROM tracks WHERE artist_id = ?1)) \
-                 ORDER BY a.year, a.title",
+                 ORDER BY a.year, a.title{}",
                 liked_clause,
+                limit_offset_clause(limit, offset),
             );
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params![aid], |row| album_from_row(row))?;
@@ -115,9 +117,10 @@ impl Database {
             _ => "ORDER BY a.title",
         };
         let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
-        // Optional LIMIT so bounded consumers (the Home shelves show 20 cards)
-        // don't pull the whole album table across the IPC bridge.
-        let limit_clause = limit.map(|n| format!(" LIMIT {}", n.max(0))).unwrap_or_default();
+        // Optional LIMIT/OFFSET so bounded consumers (the Home shelves show 20
+        // cards; the plugin API's getAlbums pages) don't pull the whole album
+        // table across the IPC bridge.
+        let limit_clause = limit_offset_clause(limit, offset);
         let sql = format!(
             "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked
              FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id

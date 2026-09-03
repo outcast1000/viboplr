@@ -90,6 +90,21 @@ fn media_type_clause(media_type: Option<&str>) -> &'static str {
     }
 }
 
+/// Trailing ` LIMIT n OFFSET m` fragment for optional pagination. Empty when
+/// neither bound is given, so unpaginated callers keep their exact SQL. An
+/// offset without a limit uses SQLite's `LIMIT -1` (no limit), since OFFSET
+/// cannot stand alone. Values are clamped non-negative before interpolation.
+fn limit_offset_clause(limit: Option<i64>, offset: Option<i64>) -> String {
+    match (limit, offset) {
+        (None, None) => String::new(),
+        (l, o) => format!(
+            " LIMIT {} OFFSET {}",
+            l.map(|n| n.max(0)).unwrap_or(-1),
+            o.unwrap_or(0).max(0),
+        ),
+    }
+}
+
 fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
     let id: i64 = row.get(0)?;
     Ok(Track {

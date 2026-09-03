@@ -22,6 +22,18 @@ Two-layer system:
 1. **Rust layer** — image download worker with Rust-JS bridge, embedded artwork extraction, SQLite-backed caching, plugin file I/O, info type / image provider / stream resolver / download provider storage, scheduler, system exec (allow-listed), env var access.
 2. **TypeScript layer** — plugin discovery and loading (`usePlugins.ts`), info type orchestration (`useInformationTypes.ts`), image resolution bridge (`useImageResolver.ts`), stream resolver chain and download provider chain (`App.tsx`), rendering (`InformationSections.tsx`, `PluginViewRenderer.tsx`).
 
+## Trust Model
+
+**Installing a plugin grants it everything the app can do.** Plugin code runs in the host webview's own JS realm (`new Function`), not in an isolated one, so this is the model to design and review against:
+
+- **The sandbox is hygiene, not a security boundary.** `new Function("api", "window", "globalThis", "self", "document", code)` shadows those five *names* with a frozen stand-in (and `document` with `undefined`) — but a bare identifier resolves through the real global scope. `fetch`, `XMLHttpRequest`, `localStorage`, `location`, `top` (and via it the real DOM) are all reachable from any plugin, as is `Function("return window")()`. The sandbox's real job is discipline: it keeps a *well-behaved* plugin off ambient DOM and window state so its dependencies stay explicit in the contract.
+- **Per-plugin scoping is honor-system.** The `pluginId` in `plugin_storage_*` / `plugin_files_*` / `plugin_cache_*` calls is baked in by the JS API wrappers; the Rust commands trust whatever id arrives from the webview. Code that bypasses the wrappers can read another plugin's storage — or invoke any Tauri command at all.
+- **`apiUsage` in the manifest is declarative only.** It is shown in the Extensions view for the user's benefit; nothing enforces it. The exec allow-list and env allow-list constrain the *cooperative* API path, not a hostile plugin.
+- **The actual controls are curation and consent:** the gallery is index-only and curated, plugins auto-update from their declared `updateUrl`, and side-loading (install from URL/zip, dev plugin folder) is an explicit user action. Treat adding a gallery entry as vouching for that repo's release pipeline.
+- **Deep links:** an unscoped `viboplr://` link forwarded to plugins is **broadcast to every installed plugin's** `onDeepLink` handler. A link carrying anything sensitive (an OAuth callback token) must use the scoped form `viboplr://plugin/<pluginId>/…`, which the host delivers only to the plugin whose id it names (see `api.network.onDeepLink`). `plugin` is a reserved deep-link host for this purpose.
+
+None of this means hardening is free to skip elsewhere — path-traversal checks, the exec allow-list and the profile gates still matter, because they keep *bugs* in benign plugins from escalating. It means a review of a new API surface should ask "does this make the cooperative path safer/clearer?", not "does this stop a malicious plugin?" — the latter is decided at install time.
+
 ## Directory Structure
 
 Plugins live in `src-tauri/plugins/`. Each plugin is a folder with:
@@ -204,7 +216,7 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 - `getTrackCount()` — total track count across enabled collections
 - `getTracks(opts?)` — `{ artistId?, albumId?, tagId?, limit?, offset? }`
 - `ftsTracks(query, opts?)` / `ftsArtists(query, opts?)` / `ftsAlbums(query, opts?)` / `ftsTags(query, opts?)` — FTS5 search
-- `getArtists(opts?)` / `getAlbums(opts?)` / `getTags(opts?)` — paginated listings (`getAlbums` accepts `artistId`)
+- `getArtists(opts?)` / `getAlbums(opts?)` / `getTags(opts?)` — paginated listings (`getAlbums` accepts `artistId`). `limit`/`offset` are applied **in SQL**, so paging is genuinely cheap — earlier hosts fetched the whole table per call and sliced in JS.
 - `getTrackById(id)` / `getArtistById(id)` / `getAlbumById(id)` / `getTagById(id)`
 - `getHistory(opts?)` / `getMostPlayed(opts?)` / `getMostPlayedArtists(opts?)` — `opts.days` switches each to the rolling-window variant. `getMostPlayedArtists` returns `{ history_artist_id, play_count, track_count, display_name, rank }[]`.
 - `getHistoryPlayCount()` / `getHistoryPlaysPage(opts?)` — total play count + a cheap, **album-free**, keyset-paginated page of raw plays (`{ beforeTs?, beforeId?, limit? }`; pass the previous page's last row to advance). Use these to stream a large history in chunks instead of pulling it all via `getHistory` — the latter resolves an album per row (O(plays × tracks)) and can freeze the app on long histories.
@@ -313,7 +325,7 @@ Nested file I/O rooted inside the plugin's data directory. `path` is a string ar
   - **`url`** (on the response) is the final URL after reqwest followed any redirects — absent on older backends, so feature-detect. It exists because an ISP block page is invisible without it: national blocking (e.g. Greece's edppi.gr) 302s a request to a notice page that answers HTTP 200 from a *different host*, which otherwise reads exactly like the target site answering with no content. The qBittorrent plugin's web-indexer sweep uses it to report "redirected to <host> — the site looks blocked on your network" instead of "no results".
   - **`timeoutMs`** aborts the request after N ms. There is **no default**, deliberately: reqwest imposes none, so an unreachable host hangs the promise until the OS gives up — set one on anything that polls, and leave it off for a call that may legitimately run for minutes. A plugin can't cancel an in-flight fetch, so racing a `setTimeout` is not a substitute: the abandoned request keeps running and a poll loop leaks them.
 - `openUrl(url)` — open in system browser
-- `onDeepLink(handler)` — subscribe to deep links delivered to the app
+- `onDeepLink(handler)` — subscribe to deep links delivered to the app. Two shapes: a link of the form **`viboplr://plugin/<pluginId>/…`** is delivered *only* to the plugin whose id it names (dropped with a warning if that plugin isn't loaded); any other `viboplr://` link the host doesn't handle itself is **broadcast to every plugin's handler**. Use the scoped form for anything sensitive — an OAuth callback token in a broadcast link is readable by every installed plugin. `plugin` is a reserved deep-link host; the host never claims links under it.
 - `openBrowseWindow(url, opts?)` — opens an embedded browse window. Returns `BrowseWindowHandle` with `eval`, `close`, `show`, `hide`, `onMessage`, `onNavigation`.
 
 ### api.collections
@@ -332,7 +344,7 @@ Nested file I/O rooted inside the plugin's data directory. `path` is a string ar
 There is still **no** `api.informationTypes.invoke` escape hatch — plugins read/provide info values through the typed methods above, not arbitrary Tauri commands. The **Lyrics Search** plugin (`src-tauri/plugins/lyrics-search/`) is the canonical `searchValues` consumer (`{ typeId: "lyrics", jsonPath: "$.text", resolveTracks: true }`).
 
 ### api.imageProviders
-- `onFetch(entity, handler)` — entity is `"artist"` or `"album"`. Handler receives `(name, artistName?)` and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`.
+- `onFetch(entity, handler)` — entity is `"artist"`, `"album"`, or `"tag"` (matching the manifest's `imageProviders[].entity`). Handler receives `(name, artistName?)` — `artistName` only for albums — and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`.
 
 ### api.downloads
 - There is **no `enqueue`** — the background download queue (`enqueue_download` + its worker) was removed along with the host's batch menu items. A plugin that wants a download UI opens the host modal via `api.ui.requestAction("download-tracks", { providerId, providerName, tracks })` (single track → `SingleTrackDownload`, several → `MultiTrackDownload`), or downloads itself and lands the files in a local collection (`api.collections.resync`).
@@ -464,7 +476,7 @@ For each track to play — **the exact thing that was asked for, then your own c
 
 ### Custom URL Schemes
 
-`api.playback.onResolveStreamByUri(scheme, handler)` registers a resolver for a custom URL scheme (e.g., `custom://`). The handler returns a playable URL — or a `{ candidates: StreamCandidate[], sourceUrl? }` menu for split-stream sources — for a given `(id, quality?, opts?)`. See the `api.playback` reference above for the candidate contract, the `opts.externalAudio` hint (hi-res video: the native mpv engine merges a video-only + audio-only pair), and `sourceUrl` (attribution — report it, or the source panel shows your raw URI).
+`api.playback.onResolveStreamByUri(scheme, handler)` registers a resolver for a custom URL scheme (e.g., `custom://`). A scheme should be unique to its plugin: resolution walks loaded plugins in load order and the first resolver wins, so two plugins claiming the same scheme is silent nondeterminism — the host logs a `console.warn` at registration when a scheme (stream or storyboard) is already claimed by another plugin. The handler returns a playable URL — or a `{ candidates: StreamCandidate[], sourceUrl? }` menu for split-stream sources — for a given `(id, quality?, opts?)`. See the `api.playback` reference above for the candidate contract, the `opts.externalAudio` hint (hi-res video: the native mpv engine merges a video-only + audio-only pair), and `sourceUrl` (attribution — report it, or the source panel shows your raw URI).
 
 **How the source panel names a plugin scheme.** `nativeResolverName` (`queueEntry.ts`, pure + unit-tested) resolves the scheme to its owning plugin's **manifest name** — `ytdlp://` reads "yt-dlp", not the capitalized protocol "Ytdlp". Capitalizing the scheme is only the fallback for a scheme nothing owns (an uninstalled plugin whose tracks are still in the queue). That string is user-facing twice: it titles the panel and fills in "Open on ___", so a plugin gets the naming right for free by having a sensible `name` in its manifest.
 
@@ -695,7 +707,12 @@ cannot use ambient DOM, and this is not incidental:
   the better primitive anyway (the drag survives leaving the element and can't be
   stolen). Pointer events, not HTML5 DnD, which is banned in this webview.
 - `setTimeout`/`setInterval`, `console`, `Math`, `JSON`, `Date`, `Promise` and the
-  core constructors are available; almost nothing else is.
+  core constructors are what the stand-in `window` deliberately provides — write
+  against that vocabulary. Note the restriction is **name shadowing only**: a bare
+  identifier (`fetch`, `localStorage`, …) still resolves through the real global
+  scope, so the sandbox cannot *stop* a plugin reaching them — see "Trust Model"
+  above. Don't rely on ambient globals anyway: the shadowed set is the supported
+  contract, and anything outside it is host implementation detail that may break.
 
 **Host types.** There is no published types package. An external plugin vendors
 what it needs: copy the visualizer contract verbatim and re-sync it with a script

@@ -218,6 +218,43 @@ fn test_upsert_and_get_track() {
 }
 
 #[test]
+fn test_entity_listings_paginate_in_sql() {
+    // The plugin API's getArtists/getAlbums/getTags page with limit/offset;
+    // these must be applied in SQL (limit_offset_clause), not by fetching the
+    // whole table and slicing. Also pins offset-without-limit, which needs
+    // SQLite's `LIMIT -1` because OFFSET cannot stand alone.
+    let db = test_db();
+    for name in ["Alpha", "Bravo", "Charlie", "Delta"] {
+        let aid = db.get_or_create_artist(name).unwrap();
+        let album = db.get_or_create_album(&format!("{name} Album"), Some(aid), None).unwrap();
+        insert_track(&db, &format!("{name}/t.mp3"), &format!("{name} Song"), Some(aid), Some(album));
+        let t2 = insert_track(&db, &format!("{name}/t2.mp3"), &format!("{name} Song 2"), Some(aid), Some(album));
+        db.apply_tag_to_tracks(&[t2], &format!("{name}-tag")).unwrap();
+    }
+    db.recompute_counts().unwrap();
+
+    let page = db.get_artists_filtered(false, Some(2), Some(1)).unwrap();
+    assert_eq!(
+        page.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        vec!["Bravo", "Charlie"],
+    );
+    // Offset with no limit: everything after the first row.
+    let rest = db.get_artists_filtered(false, None, Some(3)).unwrap();
+    assert_eq!(rest.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), vec!["Delta"]);
+    // Unpaginated call unchanged.
+    assert_eq!(db.get_artists_filtered(false, None, None).unwrap().len(), 4);
+
+    let albums = db.get_albums_sorted(None, None, false, Some(2), Some(2)).unwrap();
+    assert_eq!(
+        albums.iter().map(|a| a.title.as_str()).collect::<Vec<_>>(),
+        vec!["Charlie Album", "Delta Album"],
+    );
+
+    let tags = db.get_tags(Some(1), Some(1)).unwrap();
+    assert_eq!(tags.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), vec!["Bravo-tag"]);
+}
+
+#[test]
 fn test_build_radio_sparse_seed_returns_only_seed() {
     // Seed artist has only the one track and no tags, so the curated
     // neighborhood is empty — radio returns just the seed (the frontend then
@@ -371,7 +408,7 @@ fn test_get_albums_sort_added_desc() {
     }
     db.recompute_counts().unwrap();
 
-    let albums = db.get_albums_sorted(None, Some("added_desc"), false, None).unwrap();
+    let albums = db.get_albums_sorted(None, Some("added_desc"), false, None, None).unwrap();
     assert_eq!(albums.len(), 2);
     assert_eq!(albums[0].title, "New Album");
     assert_eq!(albums[1].title, "Old Album");

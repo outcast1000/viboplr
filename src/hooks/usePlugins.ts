@@ -518,35 +518,31 @@ export function usePlugins(
             );
             return res.tags ?? [];
           },
+          // limit/offset are applied in SQL (`limit_offset_clause`), not by
+          // slicing here — these used to fetch the whole table over IPC and
+          // slice in JS, so a polite paging plugin paid the full-table cost
+          // per page on a large library.
           async getArtists(opts) {
-            const artists = await invoke<Array<{ id: number; name: string; track_count: number }>>("get_artists");
-            const offset = opts?.offset ?? 0;
-            const limit = opts?.limit;
-            if (offset || limit) {
-              return artists.slice(offset, limit ? offset + limit : undefined);
-            }
-            return artists;
+            return invoke<Array<{ id: number; name: string; track_count: number }>>("get_artists", {
+              limit: opts?.limit ?? null,
+              offset: opts?.offset ?? null,
+            });
           },
           async getAlbums(opts) {
-            const albums = await invoke<Array<{ id: number; title: string; artist_name: string | null; year: number | null }>>(
+            return invoke<Array<{ id: number; title: string; artist_name: string | null; year: number | null }>>(
               "get_albums",
-              { artistId: opts?.artistId ?? null },
+              {
+                artistId: opts?.artistId ?? null,
+                limit: opts?.limit ?? null,
+                offset: opts?.offset ?? null,
+              },
             );
-            const offset = opts?.offset ?? 0;
-            const limit = opts?.limit;
-            if (offset || limit) {
-              return albums.slice(offset, limit ? offset + limit : undefined);
-            }
-            return albums;
           },
           async getTags(opts) {
-            const tags = await invoke<Array<{ id: number; name: string; track_count: number }>>("get_tags");
-            const offset = opts?.offset ?? 0;
-            const limit = opts?.limit;
-            if (offset || limit) {
-              return tags.slice(offset, limit ? offset + limit : undefined);
-            }
-            return tags;
+            return invoke<Array<{ id: number; name: string; track_count: number }>>("get_tags", {
+              limit: opts?.limit ?? null,
+              offset: opts?.offset ?? null,
+            });
           },
           async getTrackById(id: number) {
             return invoke<Track | null>("get_track_by_id", { trackId: id }).catch(() => null);
@@ -718,6 +714,14 @@ export function usePlugins(
             scheme: string,
             handler: (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>,
           ): () => void {
+            // Resolution walks loaded plugins in load order and first-wins, so
+            // a collision is silent nondeterminism at play time — surface it at
+            // registration, where the author can still see it.
+            for (const [, lp] of loadedPluginsRef.current) {
+              if (lp.id !== pluginId && lp.streamUriResolvers.has(scheme)) {
+                console.warn(`[plugin:${pluginId}] stream scheme "${scheme}://" is already registered by plugin "${lp.id}" — the first-loaded plugin wins at resolve time`);
+              }
+            }
             loaded.streamUriResolvers.set(scheme, handler);
             const unsub = () => {
               loaded.streamUriResolvers.delete(scheme);
@@ -729,6 +733,12 @@ export function usePlugins(
             scheme: string,
             handler: (id: string) => Promise<Storyboard | null>,
           ): () => void {
+            // Same first-wins collision hazard as onResolveStreamByUri above.
+            for (const [, lp] of loadedPluginsRef.current) {
+              if (lp.id !== pluginId && lp.storyboardResolvers.has(scheme)) {
+                console.warn(`[plugin:${pluginId}] storyboard scheme "${scheme}://" is already registered by plugin "${lp.id}" — the first-loaded plugin wins at resolve time`);
+              }
+            }
             loaded.storyboardResolvers.set(scheme, handler);
             const unsub = () => {
               loaded.storyboardResolvers.delete(scheme);
@@ -1337,7 +1347,7 @@ export function usePlugins(
 
         imageProviders: {
           onFetch(
-            entity: "artist" | "album",
+            entity: "artist" | "album" | "tag",
             handler: (name: string, artistName?: string) => Promise<ImageFetchResult>,
           ): () => void {
             loaded.imageFetchHandlers.set(entity, handler);
@@ -2343,11 +2353,27 @@ export function usePlugins(
   );
 
   const forwardDeepLink = useCallback((url: string) => {
-    const pluginCount = loadedPluginsRef.current.size;
+    // Scoped routing: `viboplr://plugin/<id>/...` is delivered ONLY to the
+    // plugin whose id it names. Anything else keeps the legacy broadcast to
+    // every plugin's onDeepLink handler — which is why anything sensitive (an
+    // OAuth callback carrying a token) should use the scoped form: a broadcast
+    // link is readable by every installed plugin, not just its addressee.
+    const scoped = /^viboplr:\/\/plugin\/([^/?#]+)/.exec(url);
+    let targets: LoadedPlugin[];
+    if (scoped) {
+      const owner = loadedPluginsRef.current.get(decodeURIComponent(scoped[1]));
+      if (!owner) {
+        console.warn(`[forwardDeepLink] scoped link for plugin "${scoped[1]}", which is not loaded — dropped`);
+        return;
+      }
+      targets = [owner];
+    } else {
+      targets = Array.from(loadedPluginsRef.current.values());
+    }
     let handlerCount = 0;
-    for (const [, l] of loadedPluginsRef.current) handlerCount += l.deepLinkHandlers.length;
-    console.debug(`[forwardDeepLink] url=${url}, plugins=${pluginCount}, handlers=${handlerCount}`);
-    for (const [, loaded] of loadedPluginsRef.current) {
+    for (const l of targets) handlerCount += l.deepLinkHandlers.length;
+    console.debug(`[forwardDeepLink] url=${url}, ${scoped ? `scoped to ${targets[0].id}` : `plugins=${targets.length}`}, handlers=${handlerCount}`);
+    for (const loaded of targets) {
       for (const handler of loaded.deepLinkHandlers) {
         try {
           handler(url);

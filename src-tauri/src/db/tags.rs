@@ -91,11 +91,15 @@ impl Database {
         Ok(result)
     }
 
-    pub fn get_tags(&self) -> SqlResult<Vec<Tag>> {
+    pub fn get_tags(&self, limit: Option<i64>, offset: Option<i64>) -> SqlResult<Vec<Tag>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, track_count, liked FROM tags WHERE track_count > 0 ORDER BY name"
-        )?;
+        // Pagination is DB-side so a paging consumer (the plugin API's
+        // getTags) doesn't pull the whole table across IPC per page.
+        let sql = format!(
+            "SELECT id, name, track_count, liked FROM tags WHERE track_count > 0 ORDER BY name{}",
+            limit_offset_clause(limit, offset),
+        );
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
             Ok(Tag {
                 id: row.get(0)?,

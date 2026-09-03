@@ -40,16 +40,24 @@ impl Database {
         ).optional()
     }
 
-    pub fn get_artists_filtered(&self, liked_only: bool) -> SqlResult<Vec<Artist>> {
+    pub fn get_artists_filtered(
+        &self,
+        liked_only: bool,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
-        let sql = if liked_only {
+        let base = if liked_only {
             "SELECT id, name, track_count, liked FROM artists \
              WHERE track_count > 0 AND liked = 1 ORDER BY name"
         } else {
             "SELECT id, name, track_count, liked FROM artists \
              WHERE track_count > 0 ORDER BY name"
         };
-        let mut stmt = conn.prepare(sql)?;
+        // Pagination is DB-side so a paging consumer (the plugin API's
+        // getArtists) doesn't pull the whole table across IPC per page.
+        let sql = format!("{}{}", base, limit_offset_clause(limit, offset));
+        let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
             Ok(Artist {
                 id: row.get(0)?,
