@@ -99,7 +99,7 @@ interface TrackListProps {
   columns: ColumnConfig[];
   onColumnsChange: (columns: ColumnConfig[]) => void;
   onDoubleClick: (tracks: Track[], index: number) => void;
-  onContextMenu: (e: React.MouseEvent, track: Track, selectedTrackIds: Set<string>) => void;
+  onContextMenu: (e: React.MouseEvent, track: Track, selectedTracks: Track[]) => void;
   onArtistClick: (artistId: number, name?: string) => void;
   onAlbumClick: (albumId: number, artistId?: number | null, name?: string, artistName?: string) => void;
   onSort: (field: SortField) => void;
@@ -442,9 +442,9 @@ export function TrackList({
       if (!selectedIds.has(t.key)) {
         setSelectedIds(new Set([t.key]));
         lastClickedIndexRef.current = index;
-        onContextMenu(e, t, new Set([t.key]));
+        onContextMenu(e, t, [t]);
       } else {
-        onContextMenu(e, t, selectedIds.size > 1 ? selectedIds : new Set([t.key]));
+        onContextMenu(e, t, selectedIds.size > 1 ? tracks.filter(x => selectedIds.has(x.key)) : [t]);
       }
     },
     artistClick: onArtistClick,

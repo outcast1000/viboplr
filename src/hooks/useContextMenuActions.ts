@@ -88,11 +88,15 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     onShowMenu?.(state);
   }
 
-  function handleTrackContextMenu(e: React.MouseEvent, track: Track, selectedTrackKeys: Set<string>) {
+  function handleTrackContextMenu(e: React.MouseEvent, track: Track, selectedTracks: Track[]) {
     e.preventDefault();
-    if (selectedTrackKeys.size > 1) {
-      const trackIds = [...selectedTrackKeys].map(k => parseLibraryId(k)).filter((id): id is number => id != null);
-      showMenu({ x: e.clientX, y: e.clientY, target: { kind: "multi-track", trackIds } });
+    if (selectedTracks.length > 1) {
+      const withIds = selectedTracks.filter((t): t is Track & { id: number } => t.id != null);
+      showMenu({ x: e.clientX, y: e.clientY, target: {
+        kind: "multi-track",
+        trackIds: withIds.map(t => t.id),
+        tracks: withIds.map(t => ({ id: t.id, path: t.path ?? null })),
+      } });
     } else {
       showMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
     }
@@ -334,7 +338,19 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (target.kind === "track" && target.trackId && target.isLocal) {
       request = { trackIds: [target.trackId], title: target.title, network: idsOnNetwork([target.trackId]) };
     } else if (target.kind === "multi-track") {
-      request = { trackIds: target.trackIds, title: `${target.trackIds.length} tracks`, network: idsOnNetwork(target.trackIds) };
+      // With carried paths, delete only the local copies (matching the menu
+      // item's "Move N local tracks" label) and flag network shares from those
+      // same paths. Without them (a producer that has only ids), keep the old
+      // behavior: all ids, network check against the loaded library page.
+      const known = target.tracks;
+      const localIds = known ? known.filter(isLocalTrack).map(t => t.id) : target.trackIds;
+      if (localIds.length > 0) {
+        request = {
+          trackIds: localIds,
+          title: `${localIds.length} tracks`,
+          network: known ? known.filter(isLocalTrack).some(t => isNetworkSharePath(t.path)) : idsOnNetwork(target.trackIds),
+        };
+      }
     } else if (target.kind === "queue-multi") {
       const localTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean).filter(isLocalTrack);
       // Resolve a library id per local track: prefer the in-memory lib:N key, else

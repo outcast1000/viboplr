@@ -34,7 +34,7 @@ export interface DetailViewActions {
   toggleEntityDislike: (kind: "artist" | "album" | "tag", id: number) => void;
   deleteTracks: (trackIds: number[]) => void;
 
-  handleTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
+  handleTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTracks: Track[]) => void;
   handleAlbumContextMenu: (e: React.MouseEvent, albumId: number) => void;
   handleInfoTrackContextMenu: (e: React.MouseEvent, info: { trackId?: number; title: string; artistName: string | null }) => void;
   handleEntityContextMenu: (e: React.MouseEvent, info: { kind: "track" | "artist" | "album"; id?: number; name: string; artistName?: string | null }) => void;

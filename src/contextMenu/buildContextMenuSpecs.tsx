@@ -254,7 +254,12 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
           specs.push({ kind: "separator" });
           specs.push({ kind: "item", text: `Move to ${d.trashLabel}`, action: d.contextMenuActions.handleDeleteRequest });
         } else {
-          const localCount = d.library.tracks.filter(t => target.trackIds.includes(t.id!) && isLocalTrack(t)).length;
+          // Prefer the paths carried on the target — `library.tracks` is empty
+          // outside an active track search (and paginated even then), so gating
+          // on it hid the delete item for multi-selections on detail pages.
+          const localCount = target.tracks
+            ? target.tracks.filter(isLocalTrack).length
+            : d.library.tracks.filter(t => target.trackIds.includes(t.id!) && isLocalTrack(t)).length;
           if (localCount > 0) {
             specs.push({ kind: "separator" });
             specs.push({ kind: "item", text: `Move ${localCount} local track${localCount > 1 ? "s" : ""} to ${d.trashLabel}`, action: d.contextMenuActions.handleDeleteRequest });

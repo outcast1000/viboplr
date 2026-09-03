@@ -327,8 +327,12 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
         const ids = (await Promise.all(artists.map(a => reconnectArtistById(a.histId)))).filter((id): id is number => id != null);
         if (ids.length) onShowContextMenu(x, y, { kind: "multi-artist", artistIds: ids });
       } else {
-        const ids = (await Promise.all(tracks.map(t => reconnectTrackById(t.histId).then(tr => tr?.id ?? null)))).filter((id): id is number => id != null);
-        if (ids.length) onShowContextMenu(x, y, { kind: "multi-track", trackIds: ids });
+        const reconnected = (await Promise.all(tracks.map(t => reconnectTrackById(t.histId)))).filter((tr): tr is Track => tr?.id != null);
+        if (reconnected.length) onShowContextMenu(x, y, {
+          kind: "multi-track",
+          trackIds: reconnected.map(tr => tr.id!),
+          tracks: reconnected.map(tr => ({ id: tr.id!, path: tr.path ?? null })),
+        });
       }
     })();
   }, [onShowContextMenu, selectedKeys, orderedIndex, rowMetaByKey, showSingleMenu, reconnectArtistById, reconnectTrackById]);

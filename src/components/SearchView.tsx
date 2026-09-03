@@ -99,7 +99,7 @@ interface SearchViewProps {
   onEnqueueTag: (tagId: number) => void;
   onArtistClick: (id: number, name?: string) => void;
   onAlbumClick: (id: number, artistId?: number | null, name?: string, artistName?: string) => void;
-  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedIds: Set<string>) => void;
+  onTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTracks: Track[]) => void;
   onArtistContextMenu: (e: React.MouseEvent, id: number) => void;
   onAlbumContextMenu: (e: React.MouseEvent, id: number) => void;
   onMultiAlbumContextMenu: (e: React.MouseEvent, albumIds: number[]) => void;
@@ -634,9 +634,9 @@ export function SearchView({
     if (!selectedTrackIds.has(track.key)) {
       setSelectedTrackIds(new Set([track.key]));
       lastClickedTrackRef.current = index;
-      onTrackContextMenu(e, track, new Set([track.key]));
+      onTrackContextMenu(e, track, [track]);
     } else {
-      onTrackContextMenu(e, track, selectedTrackIds.size > 1 ? selectedTrackIds : new Set([track.key]));
+      onTrackContextMenu(e, track, selectedTrackIds.size > 1 ? results.tracks.filter(t => selectedTrackIds.has(t.key)) : [track]);
     }
   }
 

@@ -151,6 +151,45 @@ test('single local queue selection gets no Upgrade entries', async ({ page }) =>
   expect(texts.some(t => t.startsWith('Download'))).toBe(false);
 });
 
+test('multi-track selection with carried paths offers Move to Trash without library.tracks', async ({ page }) => {
+  // The target carries each track's path (set by the producing surface), so the
+  // delete item must show even though `library.tracks` is empty — which it is
+  // on detail pages and whenever no track search is active. This was the bug:
+  // multi-selections there had no "Move to Trash" at all.
+  const texts = await buildSpecTexts(page, {
+    kind: 'multi-track',
+    trackIds: [1, 2, 3],
+    tracks: [
+      { id: 1, path: 'file:///music/a.mp3' },
+      { id: 2, path: 'file:///music/b.mp3' },
+      { id: 3, path: 'subsonic://track/3' },
+    ],
+  });
+  expect(texts).toContain('Move 2 local tracks to Trash');
+});
+
+test('multi-track selection with no local tracks offers no Trash item', async ({ page }) => {
+  const texts = await buildSpecTexts(page, {
+    kind: 'multi-track',
+    trackIds: [1, 2],
+    tracks: [
+      { id: 1, path: 'subsonic://track/1' },
+      { id: 2, path: 'subsonic://track/2' },
+    ],
+  });
+  expect(texts.some(t => t.includes('Trash'))).toBe(false);
+});
+
+test('multi-track target without carried paths falls back to library.tracks', async ({ page }) => {
+  const texts = await buildSpecTexts(page, { kind: 'multi-track', trackIds: [1, 2] }, {
+    tracks: [
+      { id: 1, key: 'lib:1', path: 'file:///music/a.mp3', title: 'A', artist_name: 'X', album_title: null, duration_secs: 100, format: null, liked: 0 },
+      { id: 2, key: 'lib:2', path: 'file:///music/b.mp3', title: 'B', artist_name: 'X', album_title: null, duration_secs: 100, format: null, liked: 0 },
+    ],
+  });
+  expect(texts).toContain('Move 2 local tracks to Trash');
+});
+
 test('track with no id omits Play/Enqueue/Trash but keeps metadata-only actions', async ({ page }) => {
   const texts = await buildSpecTexts(page, { kind: 'track', title: 'X', artistName: null });
   // No trackId -> no Play/Enqueue/View Details; no isLocal -> no folder/trash.

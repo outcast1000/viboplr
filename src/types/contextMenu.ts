@@ -28,7 +28,12 @@ export type ContextMenuTarget =
   | { kind: "album"; albumId?: number; title: string; artistName: string | null }
   | { kind: "artist"; artistId?: number; name: string }
   | { kind: "tag"; tagId: number; name: string }
-  | { kind: "multi-track"; trackIds: number[] }
+  // `tracks` carries each selected track's path so the menu builder and the
+  // delete handler can answer "is it local / on a network share?" without
+  // consulting `library.tracks`, which is empty outside an active track search
+  // and paginated even then. Optional only for producers that genuinely lack
+  // paths; the delete item then falls back to the library-list lookup.
+  | { kind: "multi-track"; trackIds: number[]; tracks?: { id: number; path: string | null }[] }
   | { kind: "multi-album"; albumIds: number[] }
   | { kind: "multi-artist"; artistIds: number[] }
   | { kind: "multi-tag"; tagIds: number[] }
