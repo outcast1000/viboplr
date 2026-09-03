@@ -22,7 +22,15 @@ import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconBan, IconRefresh, IconSparkles } from "./Icons";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { nextTriState } from "../likeKeys";
-import { isAuto, isProtectedSystem, playlistRank, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel, parsePlaylistMetadata } from "../utils/autoPlaylist";
+import { isAuto, isProtectedSystem, comparePlaylists, playlistKind, playlistKindLabel, parseRecipe, autoRecipeLabel, firstArtist, featuredArtists, featuredArtistsFromMetadata, featuredArtistsLabel, parsePlaylistMetadata, type PlaylistKind } from "../utils/autoPlaylist";
+import { store } from "../store";
+import type { ViewMode } from "../types";
+import { ViewModeToggle } from "./ViewModeToggle";
+import { SortButton } from "./search/searchShared";
+import { EntityRowActions } from "./search/SearchEntityResults";
+import { toggleSortKey, chainDir, type SortKey } from "../sortChain";
+import { TrackCard, type TrackCardArt } from "./TrackCard";
+import { filterPlaylistTracks, sortPlaylistTracks, type TrackMediaFilter } from "../utils/playlistTrackList";
 import { useImageCache } from "../hooks/useImageCache";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveTrackImage, pickEntityImagePath } from "../utils/trackImage";
@@ -102,6 +110,27 @@ function isLocalPath(source: string | null): boolean {
   return !!source && source.startsWith("file://");
 }
 
+type PlaylistKindFilter = "all" | PlaylistKind;
+
+// Persisted like SearchView's `searchSettings`: view mode, sort chain, kind
+// filter and the sort bar's collapsed state survive view switches + restarts.
+interface PlaylistsViewSettings {
+  viewMode: ViewMode;
+  sortChain: SortKey[];
+  kindFilter: PlaylistKindFilter;
+  sortBarCollapsed: boolean;
+}
+
+// Same idea for the playlist detail's track list. One setting shared by all
+// playlists (a per-playlist sort would be state nobody could find again);
+// the search query is deliberately NOT persisted — it resets per playlist.
+interface PlaylistTracksViewSettings {
+  viewMode: ViewMode;
+  sortChain: SortKey[];
+  mediaFilter: TrackMediaFilter;
+  sortBarCollapsed: boolean;
+}
+
 
 export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onLocateTrack, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart, onToggleLike, onToggleDislike }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
@@ -117,6 +146,77 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   const didDragRef = useRef(false);
   const artistImages = useImageCache("artist");
   const albumImages = useImageCache("album");
+
+  // List-view presentation state (see PlaylistsViewSettings above).
+  const [viewMode, setViewMode] = useState<ViewMode>("tiles");
+  const [sortChain, setSortChain] = useState<SortKey[]>([]);
+  const [kindFilter, setKindFilter] = useState<PlaylistKindFilter>("all");
+  const [sortBarCollapsed, setSortBarCollapsed] = useState(true);
+  const settingsRestoredRef = useRef(false);
+
+  // Detail-view (track list) presentation state — see PlaylistTracksViewSettings.
+  const [trackQuery, setTrackQuery] = useState("");
+  const [trackViewMode, setTrackViewMode] = useState<ViewMode>("list");
+  const [trackSortChain, setTrackSortChain] = useState<SortKey[]>([]);
+  const [trackMediaFilter, setTrackMediaFilter] = useState<TrackMediaFilter>("all");
+  const [trackSortBarCollapsed, setTrackSortBarCollapsed] = useState(true);
+  // Seed for the Shuffle sort; bumped per Shuffle click so each click re-rolls
+  // while re-renders keep the same order (see sortPlaylistTracks).
+  const [shuffleKey, setShuffleKey] = useState(1);
+
+  useEffect(() => {
+    Promise.all([
+      store.get<PlaylistsViewSettings>("playlistsViewSettings"),
+      store.get<PlaylistTracksViewSettings>("playlistTracksViewSettings"),
+    ])
+      .then(([saved, savedTracks]) => {
+        if (saved) {
+          setViewMode(saved.viewMode ?? "tiles");
+          setSortChain(saved.sortChain ?? []);
+          setKindFilter(saved.kindFilter ?? "all");
+          setSortBarCollapsed(saved.sortBarCollapsed ?? true);
+        }
+        if (savedTracks) {
+          setTrackViewMode(savedTracks.viewMode ?? "list");
+          setTrackSortChain(savedTracks.sortChain ?? []);
+          setTrackMediaFilter(savedTracks.mediaFilter ?? "all");
+          setTrackSortBarCollapsed(savedTracks.sortBarCollapsed ?? true);
+        }
+      })
+      .catch((e) => console.error("Failed to restore playlists view settings:", e))
+      .finally(() => { settingsRestoredRef.current = true; });
+  }, []);
+
+  useEffect(() => {
+    if (!settingsRestoredRef.current) return;
+    store.set("playlistsViewSettings", { viewMode, sortChain, kindFilter, sortBarCollapsed })
+      .catch((e) => console.error("Failed to persist playlists view settings:", e));
+  }, [viewMode, sortChain, kindFilter, sortBarCollapsed]);
+
+  useEffect(() => {
+    if (!settingsRestoredRef.current) return;
+    store.set("playlistTracksViewSettings", { viewMode: trackViewMode, sortChain: trackSortChain, mediaFilter: trackMediaFilter, sortBarCollapsed: trackSortBarCollapsed })
+      .catch((e) => console.error("Failed to persist playlist tracks view settings:", e));
+  }, [trackViewMode, trackSortChain, trackMediaFilter, trackSortBarCollapsed]);
+
+  const handleSortClick = useCallback((field: string, e?: React.MouseEvent) => {
+    setSortChain(prev => toggleSortKey(prev, field, e?.shiftKey ?? false));
+  }, []);
+
+  const sortIndicator = useCallback((field: string) => {
+    const dir = chainDir(sortChain, field);
+    return dir ? (dir === "asc" ? " ▲" : " ▼") : "";
+  }, [sortChain]);
+
+  const handleTrackSortClick = useCallback((field: string, e?: React.MouseEvent) => {
+    if (field === "random") setShuffleKey(k => k + 1);
+    setTrackSortChain(prev => toggleSortKey(prev, field, e?.shiftKey ?? false));
+  }, []);
+
+  const trackSortIndicator = useCallback((field: string) => {
+    const dir = chainDir(trackSortChain, field);
+    return dir ? (dir === "asc" ? " ▲" : " ▼") : "";
+  }, [trackSortChain]);
 
   // Build the queue's PlaylistContext. Auto-playlists ("Made for you") store no
   // image_path, so fall back to the mix's first-artist image — the same raw path
@@ -205,6 +305,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   const openPlaylist = useCallback(async (pl: Playlist) => {
     setSelectedPlaylist(pl);
     setSelectedTrackIds(new Set());
+    setTrackQuery("");
     lastClickedTrackRef.current = null;
     setTracks(await loadPlaylistTracks(pl.id));
   }, [loadPlaylistTracks]);
@@ -213,25 +314,35 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     setSelectedPlaylist(null);
     setTracks([]);
     setSelectedTrackIds(new Set());
+    setTrackQuery("");
     lastClickedTrackRef.current = null;
   }, []);
+
+  // What the detail view actually renders: the playlist's tracks through the
+  // instant client-side search + media filter, then the user's sort chain.
+  // Every surface below — rows, hero Play/Enqueue, selection, drag — operates
+  // on this list, so what you see is always what plays.
+  const displayTracks = useMemo(
+    () => sortPlaylistTracks(filterPlaylistTracks(tracks, trackQuery, trackMediaFilter), trackSortChain, shuffleKey),
+    [tracks, trackQuery, trackMediaFilter, trackSortChain, shuffleKey],
+  );
 
   // Left-click selection over the detail rows (Cmd/Ctrl = toggle, Shift = range).
   // Suppressed right after a drag and when the click lands on a hover-tray button.
   const handleRowClick = useCallback((e: React.MouseEvent, index: number) => {
     if (didDragRef.current) return;
-    if ((e.target as HTMLElement).closest(".row-hover-action")) return;
-    const ids = tracks.map(t => t.id);
+    if ((e.target as HTMLElement).closest(".row-hover-action, .ds-card-play, .album-card-menu-btn")) return;
+    const ids = displayTracks.map(t => t.id);
     setSelectedTrackIds(prev => computeSelection(prev, index, ids, lastClickedTrackRef.current, e.metaKey || e.ctrlKey, e.shiftKey));
     lastClickedTrackRef.current = index;
-  }, [tracks]);
+  }, [displayTracks]);
 
   // Drag-to-queue: past a 5px threshold, hand the dragged tracks (the whole
   // selection if the pressed row is part of a multi-selection, else just it) to
   // the shared queue drag handshake.
   const handleRowMouseDown = useCallback((e: React.MouseEvent, index: number) => {
     if (e.button !== 0 || !onTrackDragStart) return;
-    if ((e.target as HTMLElement).closest(".row-hover-action")) return;
+    if ((e.target as HTMLElement).closest(".row-hover-action, .ds-card-play, .album-card-menu-btn")) return;
     const startX = e.clientX, startY = e.clientY;
     didDragRef.current = false;
     const onMove = (ev: MouseEvent) => {
@@ -240,9 +351,9 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       didDragRef.current = true;
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      const clicked = tracks[index];
+      const clicked = displayTracks[index];
       const source = (selectedTrackIds.has(clicked.id) && selectedTrackIds.size > 1)
-        ? tracks.filter(t => selectedTrackIds.has(t.id))
+        ? displayTracks.filter(t => selectedTrackIds.has(t.id))
         : [clicked];
       onTrackDragStart(source.map(playlistTrackToMinimalTrack));
     };
@@ -252,7 +363,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [tracks, selectedTrackIds, onTrackDragStart]);
+  }, [displayTracks, selectedTrackIds, onTrackDragStart]);
 
   // Like/dislike a detail row through the canonical metadata-keyed path
   // (useLikeActions, wired from App). The row is reflected optimistically for
@@ -265,6 +376,39 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     if (action === "like") onToggleLike?.(qt);
     else onToggleDislike?.(qt);
   }, [onToggleLike, onToggleDislike]);
+
+  // Native context menu for one detail-view track — shared by the list, table
+  // and tile modes so the three surfaces can't drift.
+  const showTrackMenu = useCallback((e: React.MouseEvent, t: PlaylistTrack) => {
+    e.preventDefault();
+    const specs: MenuItemSpec[] = [
+      { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
+      { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
+    ];
+    // Edit info — only on regular (user) playlists; auto/system playlist rows
+    // are regenerated, so an override wouldn't stick.
+    if (selectedPlaylist && !selectedPlaylist.system_kind) {
+      specs.push({ kind: "separator" });
+      specs.push({ kind: "item", text: "Edit info…", action: () => setEditTrack(t) });
+    }
+    if (isLocalPath(t.source)) {
+      specs.push({ kind: "separator" });
+      specs.push({ kind: "item", text: "Open Containing Folder", action: async () => {
+        try { await invoke("show_in_folder_path", { filePath: t.source! }); }
+        catch (err) { console.error("Failed to open containing folder:", err); setFolderError(String(err)); }
+      }});
+    }
+    if (pluginMenuItems && pluginMenuItems.length > 0) {
+      const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
+      if (matching.length > 0) {
+        specs.push({ kind: "separator" });
+        matching.forEach(item => {
+          specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined, albumTitle: t.album_name ?? undefined }) });
+        });
+      }
+    }
+    showNativeMenu(e.clientX, e.clientY, specs);
+  }, [selectedPlaylist, playlistContext, onPlayTracks, onEnqueueTracks, pluginMenuItems, onPluginAction]);
 
   // Override a playlist entry's display metadata (title/artist/album). Persists
   // to the playlist_tracks row only — never rewrites the underlying source or
@@ -308,13 +452,17 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     }
   }, []);
 
-  const handlePlayPlaylist = useCallback(async (e: React.MouseEvent, pl: Playlist) => {
-    e.stopPropagation();
+  const playPlaylist = useCallback(async (pl: Playlist) => {
     const rows = await loadPlaylistTracks(pl.id);
     if (rows.length > 0) {
       onPlayTracks(rows.map(playlistTrackToMinimalTrack), 0, playlistContext(pl));
     }
   }, [onPlayTracks, playlistContext, loadPlaylistTracks]);
+
+  const handlePlayPlaylist = useCallback((e: React.MouseEvent, pl: Playlist) => {
+    e.stopPropagation();
+    playPlaylist(pl).catch((err) => console.error("Failed to play playlist:", err));
+  }, [playPlaylist]);
 
   const handleEnqueuePlaylist = useCallback(async (pl: Playlist) => {
     const rows = await loadPlaylistTracks(pl.id);
@@ -325,7 +473,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
 
   const showPlaylistMenu = useCallback(async (x: number, y: number, pl: Playlist) => {
     const specs: MenuItemSpec[] = [
-      { kind: "item", text: "Play", action: () => handlePlayPlaylist({ stopPropagation: () => {} } as React.MouseEvent, pl) },
+      { kind: "item", text: "Play", action: () => playPlaylist(pl).catch((err) => console.error("Failed to play playlist:", err)) },
       { kind: "item", text: "Enqueue", action: () => handleEnqueuePlaylist(pl) },
       { kind: "item", text: "View / Edit", action: () => openPlaylist(pl) },
       { kind: "separator" },
@@ -364,7 +512,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       }
     }
     await showNativeMenu(x, y, specs);
-  }, [handlePlayPlaylist, handleEnqueuePlaylist, openPlaylist, handleExport, onExportAsMixtape, pluginMenuItems, onPluginAction]);
+  }, [playPlaylist, handleEnqueuePlaylist, openPlaylist, handleExport, onExportAsMixtape, pluginMenuItems, onPluginAction]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, pl: Playlist) => {
     e.preventDefault();
@@ -475,8 +623,10 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     return () => { cancelled = true; };
   }, [searchQuery]);
 
-  // Filter by search query: playlist name + description (client-side, instant) and
-  // track titles/artists (backend, via trackMatchIds).
+  // Filter by search query — playlist name + description client-side (instant)
+  // plus track titles/artists (backend, additive via trackMatchIds) — then by
+  // kind, then sort by the user's chain (comparePlaylists falls back to the
+  // class ranking, so an empty chain keeps system → auto → user).
   const q = searchQuery.trim().toLowerCase();
   const filtered = (q
     ? playlists.filter((p) =>
@@ -484,7 +634,10 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         (p.description?.toLowerCase().includes(q) ?? false) ||
         trackMatchIds.has(p.id))
     : playlists
-  ).slice().sort((a, b) => playlistRank(a) - playlistRank(b));
+  )
+    .filter((p) => kindFilter === "all" || playlistKind(p) === kindFilter)
+    .slice()
+    .sort((a, b) => comparePlaylists(a, b, sortChain));
 
   const deleteModal = deleteConfirm && (
     <DeletePlaylistModal
@@ -508,8 +661,11 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
 
   // Detail view
   if (selectedPlaylist) {
+    const filtering = displayTracks.length !== tracks.length;
     const detailMeta: string[] = [
-      `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`,
+      filtering
+        ? `${displayTracks.length} of ${tracks.length} tracks`
+        : `${tracks.length} ${tracks.length === 1 ? "track" : "tracks"}`,
     ];
     if (isAuto(selectedPlaylist)) detailMeta.push(`Updated ${formatDate(selectedPlaylist.saved_at)}`);
     else if (!selectedPlaylist.system_kind) detailMeta.push(`Saved ${formatDate(selectedPlaylist.saved_at)}`);
@@ -575,6 +731,17 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       <img src={detailArtSrc} alt={selectedPlaylist.name} />
     );
 
+    const playOne = (t: PlaylistTrack) => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, playlistContext(selectedPlaylist));
+    const enqueueOne = (t: PlaylistTrack) => onEnqueueTracks([playlistTrackToMinimalTrack(t)]);
+    // Tile art: the shared render-time chain already yields a ready-to-render
+    // URL (explicit image → video frame → album → artist), so hand it to the
+    // card's direct-url shape; first letter when nothing resolves.
+    const cardArt = (t: PlaylistTrack): TrackCardArt => {
+      const url = resolvedTrackImage(t);
+      return url ? { kind: "image", url, alt: t.title } : { kind: "letter", text: t.title[0]?.toUpperCase() ?? "?" };
+    };
+    const tracksEmptyMessage = tracks.length === 0 ? "This playlist is empty." : "No matching tracks.";
+
     return (
       <div className="playlists-view">
         <DetailHero
@@ -587,70 +754,146 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
           entityLabel="album"
           meta={detailMeta}
           description={detailDescription}
-          onPlay={tracks.length > 0 ? () => onPlayTracks(tracks.map(playlistTrackToMinimalTrack), 0, playlistContext(selectedPlaylist)) : undefined}
-          onEnqueue={tracks.length > 0 ? () => onEnqueueTracks(tracks.map(playlistTrackToMinimalTrack)) : undefined}
+          onPlay={displayTracks.length > 0 ? () => onPlayTracks(displayTracks.map(playlistTrackToMinimalTrack), 0, playlistContext(selectedPlaylist)) : undefined}
+          onEnqueue={displayTracks.length > 0 ? () => onEnqueueTracks(displayTracks.map(playlistTrackToMinimalTrack)) : undefined}
           overflowItems={detailOverflowItems}
         />
-        <div className="entity-list playlists-track-list">
-          {tracks.map((t, index) => (
-            <TrackRow
-              key={t.id}
-              thumb={trackThumb(t)}
-              leading={onToggleLike ? (
-                <LikeDislikeButtons
+        <ViewSearchBar
+          query={trackQuery}
+          onQueryChange={setTrackQuery}
+          placeholder="Search this playlist..."
+        >
+          <div className="playlist-detail-toolbar">
+            <button className="sort-btn sort-bar-toggle" onClick={() => setTrackSortBarCollapsed(v => !v)} title={trackSortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{trackSortBarCollapsed ? "▼" : "▲"}</button>
+            <ViewModeToggle mode={trackViewMode} onChange={setTrackViewMode} />
+          </div>
+        </ViewSearchBar>
+        <div className={`sort-bar-wrapper${trackSortBarCollapsed ? " collapsed" : ""}`}>
+          <div className="sort-bar">
+            <div className="sort-bar-row">
+              <span className="sort-bar-label">Sort:</span>
+              <div className="sort-bar-group">
+                <SortButton label="Title" field="title" chain={trackSortChain} onClick={handleTrackSortClick} />
+                <SortButton label="Artist" field="artist" chain={trackSortChain} onClick={handleTrackSortClick} />
+                <SortButton label="Album" field="album" chain={trackSortChain} onClick={handleTrackSortClick} />
+                <SortButton label="Duration" field="duration" chain={trackSortChain} onClick={handleTrackSortClick} />
+                <SortButton label={"♥ Liked"} field="liked" chain={trackSortChain} onClick={handleTrackSortClick} />
+                <SortButton label="Shuffle" field="random" chain={trackSortChain} onClick={handleTrackSortClick} />
+                {trackSortChain.length >= 1 && (
+                  <button className="sort-btn sort-btn-clear" onClick={() => setTrackSortChain([])}>Clear</button>
+                )}
+              </div>
+            </div>
+            <div className="sort-bar-row">
+              <span className="sort-bar-label">Filter:</span>
+              <div className="sort-bar-group sort-bar-group-filter">
+                <button className={`sort-btn${trackMediaFilter === "all" ? " active" : ""}`} onClick={() => setTrackMediaFilter("all")}>All</button>
+                <button className={`sort-btn${trackMediaFilter === "audio" ? " active" : ""}`} onClick={() => setTrackMediaFilter("audio")}>Audio</button>
+                <button className={`sort-btn${trackMediaFilter === "video" ? " active" : ""}`} onClick={() => setTrackMediaFilter("video")}>Video</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {trackViewMode === "basic" ? (
+          <div className="entity-table playlists-track-list">
+            <div className="entity-table-header">
+              {onToggleLike && <span className="entity-table-like"></span>}
+              <span className={`entity-table-name sortable${chainDir(trackSortChain, "title") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("title", e)}>Title{trackSortIndicator("title")}</span>
+              <span className={`entity-table-secondary sortable${chainDir(trackSortChain, "artist") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("artist", e)}>Artist{trackSortIndicator("artist")}</span>
+              <span className={`entity-table-secondary sortable${chainDir(trackSortChain, "album") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("album", e)}>Album{trackSortIndicator("album")}</span>
+              <span className={`entity-table-count sortable${chainDir(trackSortChain, "duration") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("duration", e)}>Time{trackSortIndicator("duration")}</span>
+            </div>
+            {displayTracks.map((t, index) => (
+              <div
+                key={t.id}
+                className={`entity-table-row${selectedTrackIds.has(t.id) ? " selected" : ""}`}
+                onClick={(e) => handleRowClick(e, index)}
+                onMouseDown={(e) => handleRowMouseDown(e, index)}
+                onDoubleClick={() => { setSelectedTrackIds(new Set()); playOne(t); }}
+                onContextMenu={(e) => showTrackMenu(e, t)}
+              >
+                {onToggleLike && (
+                  <LikeDislikeButtons
+                    liked={t.liked ?? 0}
+                    onToggleLike={() => rateTrack(t, "like")}
+                    onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
+                    variant="inline"
+                    size={12}
+                  />
+                )}
+                <span className="entity-table-name">
+                  <span className="entity-table-name-main">{t.title}</span>
+                  <EntityRowActions
+                    onPlay={() => playOne(t)}
+                    onEnqueue={() => enqueueOne(t)}
+                    onDetails={() => onLocateTrack?.(t.title, t.artist_name, t.album_name)}
+                  />
+                </span>
+                <span className="entity-table-secondary">{t.artist_name ?? "Unknown"}</span>
+                <span className="entity-table-secondary">{t.album_name ?? ""}</span>
+                <span className="entity-table-count">{formatDuration(t.duration_secs)}</span>
+              </div>
+            ))}
+            {displayTracks.length === 0 && <div className="empty">{tracksEmptyMessage}</div>}
+          </div>
+        ) : trackViewMode === "tiles" ? (
+          <div className="tiles-scroll">
+            <div className="entity-grid playlists-track-list">
+              {displayTracks.map((t, index) => (
+                <TrackCard
+                  key={t.id}
+                  art={cardArt(t)}
+                  title={t.title}
+                  subtitle={<>{t.artist_name && <>{t.artist_name} {"·"} </>}{formatDuration(t.duration_secs)}</>}
                   liked={t.liked ?? 0}
+                  selected={selectedTrackIds.has(t.id)}
+                  onClick={(e) => handleRowClick(e, index)}
+                  onMouseDown={(e) => handleRowMouseDown(e, index)}
+                  onDoubleClick={() => { setSelectedTrackIds(new Set()); playOne(t); }}
+                  onContextMenu={(e) => showTrackMenu(e, t)}
+                  onPlay={() => playOne(t)}
+                  onLocate={() => onLocateTrack?.(t.title, t.artist_name, t.album_name)}
                   onToggleLike={() => rateTrack(t, "like")}
                   onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
-                  variant="inline"
-                  size={12}
                 />
-              ) : undefined}
-              title={t.title}
-              selected={selectedTrackIds.has(t.id)}
-              onClick={(e) => handleRowClick(e, index)}
-              onMouseDown={(e) => handleRowMouseDown(e, index)}
-              onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null); }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                const specs: MenuItemSpec[] = [
-                  { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
-                  { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
-                ];
-                // Edit info — only on regular (user) playlists; auto/system
-                // playlist rows are regenerated, so an override wouldn't stick.
-                if (selectedPlaylist && !selectedPlaylist.system_kind) {
-                  specs.push({ kind: "separator" });
-                  specs.push({ kind: "item", text: "Edit info…", action: () => setEditTrack(t) });
-                }
-                if (isLocalPath(t.source)) {
-                  specs.push({ kind: "separator" });
-                  specs.push({ kind: "item", text: "Open Containing Folder", action: async () => {
-                    try { await invoke("show_in_folder_path", { filePath: t.source! }); }
-                    catch (err) { console.error("Failed to open containing folder:", err); setFolderError(String(err)); }
-                  }});
-                }
-                if (pluginMenuItems && pluginMenuItems.length > 0) {
-                  const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
-                  if (matching.length > 0) {
-                    specs.push({ kind: "separator" });
-                    matching.forEach(item => {
-                      specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined, albumTitle: t.album_name ?? undefined }) });
-                    });
-                  }
-                }
-                showNativeMenu(e.clientX, e.clientY, specs);
-              }}
-              subtitle={<>{t.artist_name ?? "Unknown"}{t.album_name ? <> {"·"} {t.album_name}</> : null}</>}
-              meta={formatDuration(t.duration_secs)}
-              actions={{
-                onPlay: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null),
-                onEnqueue: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]),
-                onStartRadio: onStartRadio ? () => onStartRadio({ title: t.title, artistName: t.artist_name, coverPath: rawTrackImagePath(t) }) : undefined,
-                onDetails: onLocateTrack ? () => onLocateTrack(t.title, t.artist_name, t.album_name) : undefined,
-              }}
-            />
-          ))}
-        </div>
+              ))}
+              {displayTracks.length === 0 && <div className="empty">{tracksEmptyMessage}</div>}
+            </div>
+          </div>
+        ) : (
+          <div className="entity-list playlists-track-list">
+            {displayTracks.map((t, index) => (
+              <TrackRow
+                key={t.id}
+                thumb={trackThumb(t)}
+                leading={onToggleLike ? (
+                  <LikeDislikeButtons
+                    liked={t.liked ?? 0}
+                    onToggleLike={() => rateTrack(t, "like")}
+                    onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
+                    variant="inline"
+                    size={12}
+                  />
+                ) : undefined}
+                title={t.title}
+                selected={selectedTrackIds.has(t.id)}
+                onClick={(e) => handleRowClick(e, index)}
+                onMouseDown={(e) => handleRowMouseDown(e, index)}
+                onDoubleClick={() => { setSelectedTrackIds(new Set()); playOne(t); }}
+                onContextMenu={(e) => showTrackMenu(e, t)}
+                subtitle={<>{t.artist_name ?? "Unknown"}{t.album_name ? <> {"·"} {t.album_name}</> : null}</>}
+                meta={formatDuration(t.duration_secs)}
+                actions={{
+                  onPlay: () => playOne(t),
+                  onEnqueue: () => enqueueOne(t),
+                  onStartRadio: onStartRadio ? () => onStartRadio({ title: t.title, artistName: t.artist_name, coverPath: rawTrackImagePath(t) }) : undefined,
+                  onDetails: onLocateTrack ? () => onLocateTrack(t.title, t.artist_name, t.album_name) : undefined,
+                }}
+              />
+            ))}
+            {displayTracks.length === 0 && <div className="empty">{tracksEmptyMessage}</div>}
+          </div>
+        )}
         {folderErrorModal}
         {deleteModal}
         {editTrack && (
@@ -678,6 +921,42 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   const autoPlaylists = filtered.filter(isAuto);
   const regularPlaylists = filtered.filter((p) => !p.system_kind);
 
+  const emptyMessage = searchQuery.trim() || kindFilter !== "all"
+    ? "No matching playlists"
+    : "No saved playlists yet — play some tracks, then use Save → Save as Playlist in the queue panel.";
+
+  const playGlyph = (
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+  );
+
+  // Row thumbnail for the flat list mode: the system playlists' branded
+  // gradient cover, else the same cover the tile cards resolve.
+  const rowCover = (pl: Playlist) => {
+    if (isProtectedSystem(pl) && !pl.image_path) {
+      return (
+        <div className="entity-list-img">
+          <div className={`playlist-hero-system-cover playlist-hero-system-cover--${pl.system_kind}`}>
+            {pl.system_kind === "liked" ? <IconHeartFilled size={18} /> : <IconBan size={18} />}
+          </div>
+        </div>
+      );
+    }
+    const src = isAuto(pl) ? autoCoverSrc(pl) : (pl.image_path ? imageUrl(pl.image_path) : playlistDefault);
+    return <div className="entity-list-img"><img src={src} alt="" /></div>;
+  };
+
+  const refreshButton = (
+    <button
+      className="ds-btn ds-btn--ghost ds-btn--sm"
+      onClick={handleRefreshAuto}
+      disabled={refreshingAuto}
+      title="Regenerate your mixes"
+    >
+      {refreshingAuto ? <span className="ds-spinner ds-spinner--sm" /> : <IconRefresh size={15} />}
+      Refresh
+    </button>
+  );
+
   return (
     <>
       <ViewSearchBar
@@ -685,11 +964,87 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         onQueryChange={onSearchChange}
         placeholder="Search playlists..."
       />
+      <div className="ds-tabs" style={{ padding: "0 16px", gap: 4 }}>
+        <div style={{ display: "flex", flex: 1, alignItems: "center" }}>
+          {/* In tiles mode the "Made for you" section header carries Refresh;
+              the flat modes have no sections, so it lives up here instead. */}
+          {viewMode !== "tiles" && autoPlaylists.length > 0 && refreshButton}
+        </div>
+        <button className="sort-btn sort-bar-toggle" onClick={() => setSortBarCollapsed(v => !v)} title={sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{sortBarCollapsed ? "▼" : "▲"}</button>
+        <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+      </div>
+      <div className={`sort-bar-wrapper${sortBarCollapsed ? " collapsed" : ""}`}>
+        <div className="sort-bar">
+          <div className="sort-bar-row">
+            <span className="sort-bar-label">Sort:</span>
+            <div className="sort-bar-group">
+              <SortButton label="Name" field="name" chain={sortChain} onClick={handleSortClick} />
+              <SortButton label="Tracks" field="tracks" chain={sortChain} onClick={handleSortClick} />
+              <SortButton label="Updated" field="updated" chain={sortChain} onClick={handleSortClick} />
+              {sortChain.length >= 1 && (
+                <button className="sort-btn sort-btn-clear" onClick={() => setSortChain([])}>Clear</button>
+              )}
+            </div>
+          </div>
+          <div className="sort-bar-row">
+            <span className="sort-bar-label">Filter:</span>
+            <div className="sort-bar-group sort-bar-group-filter">
+              <button className={`sort-btn${kindFilter === "all" ? " active" : ""}`} onClick={() => setKindFilter("all")}>All</button>
+              <button className={`sort-btn${kindFilter === "auto" ? " active" : ""}`} onClick={() => setKindFilter("auto")}>Made for you</button>
+              <button className={`sort-btn${kindFilter === "user" ? " active" : ""}`} onClick={() => setKindFilter("user")}>Saved</button>
+              <button className={`sort-btn${kindFilter === "system" ? " active" : ""}`} onClick={() => setKindFilter("system")}>System</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="playlists-view">
       {filtered.length === 0 ? (
-        <div className="playlists-empty ds-empty">{searchQuery.trim()
-          ? "No matching playlists"
-          : "No saved playlists yet — play some tracks, then use Save → Save as Playlist in the queue panel."}</div>
+        <div className="playlists-empty ds-empty">{emptyMessage}</div>
+      ) : viewMode === "list" ? (
+        <div className="entity-list">
+          {filtered.map((pl) => (
+            <div key={pl.id} className="entity-list-item" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
+              <div className="entity-list-content">
+                {rowCover(pl)}
+                <div className="entity-list-info">
+                  <span className="entity-list-name">{pl.name}</span>
+                  <span className="entity-list-secondary">
+                    {playlistKindLabel(playlistKind(pl))} {"·"} {pl.track_count} tracks {"·"} {formatDate(pl.saved_at)}
+                  </span>
+                </div>
+              </div>
+              <EntityRowActions
+                onPlay={() => playPlaylist(pl).catch((err) => console.error("Failed to play playlist:", err))}
+                onEnqueue={() => handleEnqueuePlaylist(pl)}
+                onDetails={() => openPlaylist(pl)}
+              />
+            </div>
+          ))}
+        </div>
+      ) : viewMode === "basic" ? (
+        <div className="entity-table">
+          <div className="entity-table-header">
+            <span className={`entity-table-name sortable${chainDir(sortChain, "name") ? " sorted" : ""}`} onClick={() => handleSortClick("name")}>Name{sortIndicator("name")}</span>
+            <span className="entity-table-secondary">Kind</span>
+            <span className={`entity-table-count sortable${chainDir(sortChain, "tracks") ? " sorted" : ""}`} onClick={() => handleSortClick("tracks")}>Tracks{sortIndicator("tracks")}</span>
+            <span className={`playlist-table-date sortable${chainDir(sortChain, "updated") ? " sorted" : ""}`} onClick={() => handleSortClick("updated")}>Updated{sortIndicator("updated")}</span>
+          </div>
+          {filtered.map((pl) => (
+            <div key={pl.id} className="entity-table-row" onClick={() => openPlaylist(pl)} onContextMenu={(e) => handleContextMenu(e, pl)}>
+              <span className="entity-table-name">
+                <span className="entity-table-name-main">{pl.name}</span>
+                <EntityRowActions
+                  onPlay={() => playPlaylist(pl).catch((err) => console.error("Failed to play playlist:", err))}
+                  onEnqueue={() => handleEnqueuePlaylist(pl)}
+                  onDetails={() => openPlaylist(pl)}
+                />
+              </span>
+              <span className="entity-table-secondary">{playlistKindLabel(playlistKind(pl))}</span>
+              <span className="entity-table-count">{pl.track_count}</span>
+              <span className="playlist-table-date">{formatDate(pl.saved_at)}</span>
+            </div>
+          ))}
+        </div>
       ) : (
         <>
           {protectedSystem.length > 0 && (
@@ -708,7 +1063,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                   </div>
                   <div className="playlist-shortcut-name">{pl.name}</div>
                   <button className="playlist-shortcut-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                    {playGlyph}
                   </button>
                 </div>
               ))}
@@ -743,7 +1098,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                       </span>
                       <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
                       <button className="ds-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                        {playGlyph}
                       </button>
                     </div>
                     <div className="playlist-card-info">
@@ -770,7 +1125,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                       <img src={pl.image_path ? imageUrl(pl.image_path) : playlistDefault} alt="" />
                       <button className="playlist-card-more" onClick={(e) => handleMoreClick(e, pl)} title="More options">&#x22EF;</button>
                       <button className="ds-card-play" onClick={(e) => handlePlayPlaylist(e, pl)} title="Play">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 0 0 0-1.69L9.54 5.98A.998.998 0 0 0 8 6.82z"/></svg>
+                        {playGlyph}
                       </button>
                     </div>
                     <div className="playlist-card-info">

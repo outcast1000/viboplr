@@ -12,8 +12,8 @@ const DETAILS_ICON = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
 );
 
-/** Hover-reveal Play/Enqueue/Details overlay shared by the album/artist/tag table + list rows. */
-function EntityRowActions({ onPlay, onEnqueue, onDetails }: { onPlay: () => void; onEnqueue: () => void; onDetails: () => void }) {
+/** Hover-reveal Play/Enqueue/Details overlay shared by the album/artist/tag table + list rows (and the Playlists list/table rows). */
+export function EntityRowActions({ onPlay, onEnqueue, onDetails }: { onPlay: () => void; onEnqueue: () => void; onDetails: () => void }) {
   return (
     <span className="row-hover-actions">
       <button type="button" className="row-hover-action row-hover-action--play" title="Play" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onPlay(); }}>

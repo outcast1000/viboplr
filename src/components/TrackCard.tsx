@@ -9,10 +9,13 @@ import { AlbumCardArt } from "./AlbumCardArt";
 import { VideoRowThumb } from "./VideoRowThumb";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 
-// Art is resolved by the caller into one of three shapes (mirrors TrackRowThumb).
+// Art is resolved by the caller into one of four shapes (mirrors TrackRowThumb).
+// "image" takes a ready-to-render URL (already converted/resolved by the caller,
+// e.g. resolveTrackImage) — for surfaces without a library Album row to hand over.
 export type TrackCardArt =
   | { kind: "video"; trackId: number; trackPath?: string | null; alt: string }
   | { kind: "album"; album: Album; imagePath: string | null }
+  | { kind: "image"; url: string; alt: string }
   | { kind: "letter"; text: string };
 
 export interface TrackCardProps {
@@ -38,6 +41,13 @@ function CardArt({ art }: { art: TrackCardArt }) {
   }
   if (art.kind === "album") {
     return <AlbumCardArt album={art.album} imagePath={art.imagePath} />;
+  }
+  if (art.kind === "image") {
+    return (
+      <div className="album-card-art">
+        <img className="album-card-art-img" src={art.url} alt={art.alt} />
+      </div>
+    );
   }
   return <div className="album-card-art">{art.text}</div>;
 }

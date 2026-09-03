@@ -10,6 +10,7 @@
 // Extracted from PlaylistsView so the classification/ordering logic is unit-testable.
 
 import { toStringMetadata } from "../mainPlaylist";
+import type { SortKey } from "../sortChain";
 
 export interface PlaylistLike {
   system_kind: string | null;
@@ -35,6 +36,50 @@ export function playlistRank(p: PlaylistLike): number {
   if (p.system_kind === "disliked") return 1;
   if (isAuto(p)) return 2;
   return 3;
+}
+
+/** The three playlist classes, as a value (for filtering/labels). */
+export type PlaylistKind = "system" | "auto" | "user";
+
+export function playlistKind(p: PlaylistLike): PlaylistKind {
+  if (isProtectedSystem(p)) return "system";
+  if (isAuto(p)) return "auto";
+  return "user";
+}
+
+/** Short human label for a playlist's class, for list/table subtitles. */
+export function playlistKindLabel(kind: PlaylistKind): string {
+  switch (kind) {
+    case "system":
+      return "System";
+    case "auto":
+      return "Made for you";
+    default:
+      return "Saved";
+  }
+}
+
+export interface SortablePlaylist extends PlaylistLike {
+  name: string;
+  track_count: number;
+  saved_at: number;
+}
+
+/**
+ * Multi-key comparator over the Playlists view's sort chain (fields: "name",
+ * "tracks", "updated"). Ties — and an empty chain — fall back to playlistRank
+ * so the class grouping (system → auto → user) stays the default order.
+ * Unknown fields compare equal rather than throwing.
+ */
+export function comparePlaylists(a: SortablePlaylist, b: SortablePlaylist, chain: SortKey[]): number {
+  for (const k of chain) {
+    let cmp = 0;
+    if (k.field === "name") cmp = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    else if (k.field === "tracks") cmp = a.track_count - b.track_count;
+    else if (k.field === "updated") cmp = a.saved_at - b.saved_at;
+    if (cmp !== 0) return k.dir === "desc" ? -cmp : cmp;
+  }
+  return playlistRank(a) - playlistRank(b);
 }
 
 /** The recipe encoded in an auto-playlist's metadata JSON (best-effort). */

@@ -1,1 +1,22 @@
 /* Playlists view styles - see App.css for main styles */
+
+/* Detail view: sort-bar toggle + view-mode toggle riding inside the track
+   search bar. order: 2 puts them right of the input (same trick as
+   .view-search-submit-btn in ViewSearchBar.css). */
+.playlist-detail-toolbar {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+/* Table mode: "Updated" date column (Name/Kind/Tracks reuse the shared
+   .entity-table-* column classes). */
+.playlist-table-date {
+  width: 110px;
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}

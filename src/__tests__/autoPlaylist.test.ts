@@ -10,6 +10,9 @@ import {
   featuredArtistsFromMetadata,
   featuredArtistsLabel,
   parsePlaylistMetadata,
+  playlistKind,
+  playlistKindLabel,
+  comparePlaylists,
 } from "../utils/autoPlaylist";
 
 const p = (system_kind: string | null, metadata: string | null = null) => ({ system_kind, metadata });
@@ -180,5 +183,62 @@ describe("parsePlaylistMetadata", () => {
     expect(parsePlaylistMetadata("not json {{{")).toBe(null);
     expect(parsePlaylistMetadata("{}")).toBe(null);
     expect(parsePlaylistMetadata(JSON.stringify({ seed_title: null }))).toBe(null);
+  });
+});
+
+describe("playlistKind / playlistKindLabel", () => {
+  it("classifies the three playlist classes", () => {
+    expect(playlistKind(p("liked"))).toBe("system");
+    expect(playlistKind(p("disliked"))).toBe("system");
+    expect(playlistKind(p("auto:genre:jazz"))).toBe("auto");
+    expect(playlistKind(p(null))).toBe("user");
+  });
+
+  it("labels each kind", () => {
+    expect(playlistKindLabel("system")).toBe("System");
+    expect(playlistKindLabel("auto")).toBe("Made for you");
+    expect(playlistKindLabel("user")).toBe("Saved");
+  });
+});
+
+describe("comparePlaylists", () => {
+  const pl = (name: string, track_count: number, saved_at: number, system_kind: string | null = null) =>
+    ({ name, track_count, saved_at, system_kind, metadata: null });
+
+  it("falls back to playlistRank on an empty chain", () => {
+    const sorted = [pl("Zed", 1, 1), pl("Mix", 5, 1, "auto:genre:x"), pl("Liked", 5, 1, "liked")]
+      .sort((a, b) => comparePlaylists(a, b, []));
+    expect(sorted.map(r => r.name)).toEqual(["Liked", "Mix", "Zed"]);
+  });
+
+  it("sorts by name case-insensitively, both directions", () => {
+    const rows = [pl("banana", 1, 1), pl("Apple", 1, 1), pl("cherry", 1, 1)];
+    expect(rows.slice().sort((a, b) => comparePlaylists(a, b, [{ field: "name", dir: "asc" }])).map(r => r.name))
+      .toEqual(["Apple", "banana", "cherry"]);
+    expect(rows.slice().sort((a, b) => comparePlaylists(a, b, [{ field: "name", dir: "desc" }])).map(r => r.name))
+      .toEqual(["cherry", "banana", "Apple"]);
+  });
+
+  it("sorts by tracks and updated", () => {
+    const rows = [pl("a", 3, 100), pl("b", 1, 300), pl("c", 2, 200)];
+    expect(rows.slice().sort((a, b) => comparePlaylists(a, b, [{ field: "tracks", dir: "asc" }])).map(r => r.name))
+      .toEqual(["b", "c", "a"]);
+    expect(rows.slice().sort((a, b) => comparePlaylists(a, b, [{ field: "updated", dir: "desc" }])).map(r => r.name))
+      .toEqual(["b", "c", "a"]);
+  });
+
+  it("applies later chain keys only on ties, then rank", () => {
+    const rows = [pl("b", 2, 1), pl("a", 2, 1), pl("c", 1, 1)];
+    const chain = [{ field: "tracks", dir: "desc" as const }, { field: "name", dir: "asc" as const }];
+    expect(rows.slice().sort((a, b) => comparePlaylists(a, b, chain)).map(r => r.name))
+      .toEqual(["a", "b", "c"]);
+    // Equal on every chain key → class ranking decides (system before user).
+    const tie = [pl("x", 2, 1), pl("x", 2, 1, "liked")];
+    expect(tie.slice().sort((a, b) => comparePlaylists(a, b, chain)).map(r => r.system_kind))
+      .toEqual(["liked", null]);
+  });
+
+  it("ignores unknown fields instead of throwing", () => {
+    expect(comparePlaylists(pl("a", 1, 1), pl("b", 1, 1), [{ field: "bogus", dir: "asc" }])).toBe(0);
   });
 });
