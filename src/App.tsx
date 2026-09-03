@@ -3761,6 +3761,11 @@ function App() {
       }}
       onSetPlaying={handleVisualizerSetPlaying}
       rate={playback.playbackRate}
+      // Spans the whole resolve, which for a remote track is a network
+      // round-trip during which the host reports the position it was ASKED for.
+      // A visualizer waiting for its own write to be echoed needs to know not to
+      // trust that echo yet — see `PluginVisualizerState.loading`.
+      loading={playback.loadingTrack !== null}
       onSetRate={playback.setPlaybackRate}
       volume={playback.volume}
       muted={playback.muted}

@@ -129,6 +129,30 @@ export interface PluginVisualizerState {
    * wrong deck.
    */
   readonly rate: number;
+  /**
+   * The host is RESOLVING a source and has not installed it yet.
+   *
+   * True from the moment a play or a cued load starts until the source is
+   * playing, which for a remote track is a whole network round-trip. The host
+   * has already committed to the track and the position by then, and reports
+   * both — so everything it says about position during this window is what it
+   * was *asked for*, not anywhere it has arrived.
+   *
+   * That distinction is the reason this is on the contract. A visualizer that
+   * writes a position and then waits for the host to echo it back will see its
+   * own request echoed on the very next frame, conclude it has landed, and stop
+   * waiting — just before the engine starts reporting from its own clock, which
+   * on a fresh remote load begins at 0 and only reaches the seek once the stream
+   * has buffered. So the visualizer draws the request, releases, and *then* gets
+   * hit by the position it was waiting to avoid. Ignoring an echo while this is
+   * true is what closes that gap; a timeout cannot, because the wait being
+   * measured is a network's, not a clock's.
+   *
+   * Optional on the interface because a host older than this cannot report it.
+   * Treat `undefined` as "unknown", not as "not loading", and keep whatever
+   * fallback you had.
+   */
+  readonly loading?: boolean;
 }
 
 /**

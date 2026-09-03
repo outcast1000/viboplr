@@ -145,6 +145,10 @@ export interface VisualizerSlotProps {
   /** Current playback rate; 1 is normal. Surfaced in the frame state so a deck's
    *  speed selector can show which speed is lit. */
   rate?: number;
+  /** The host is resolving a source and has not installed it yet — see
+   *  `PluginVisualizerState.loading`. Omit and the field is reported as
+   *  `undefined`, which the contract defines as "unknown". */
+  loading?: boolean;
   /** Set the playback rate — see `PluginVisualizerActions.setRate`. Clamped here
    *  before it reaches the host. */
   onSetRate?: (rate: number) => void;
@@ -388,6 +392,7 @@ export function VisualizerSlot({
   onLoadQueueIndex,
   onSetPlaying,
   rate = 1,
+  loading,
   onSetRate,
   volume = 1,
   muted = false,
@@ -403,8 +408,8 @@ export function VisualizerSlot({
   // Live values the frame loop reads without re-subscribing. The loop runs
   // outside React's render cycle on purpose: a 60fps setState would re-render
   // the whole Now Playing view.
-  const liveRef = useRef({ queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate });
-  useAssignRef(liveRef, { queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate });
+  const liveRef = useRef({ queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate, loading });
+  useAssignRef(liveRef, { queue, currentIndex, playing, stopped, durationSecs, currentArtUrl, rate, loading });
 
   const actionsRef = useRef({ onSeek, onPlayQueueIndex, onLoadQueueIndex, onSetPlaying, onSetRate });
   useAssignRef(actionsRef, { onSeek, onPlayQueueIndex, onLoadQueueIndex, onSetPlaying, onSetRate });
@@ -646,6 +651,10 @@ export function VisualizerSlot({
         queueRevision: revisionRef.current,
         timeMs,
         rate: live.rate,
+        // Passed through as-is, `undefined` included: the contract distinguishes
+        // "not loading" from "this host cannot tell you", and a default of false
+        // here would answer a question the caller declined to answer.
+        loading: live.loading,
       };
       try {
         visualizer.frame(state);
