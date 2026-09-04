@@ -29,8 +29,13 @@ export interface StreamResolver {
      *  merge a separate audio stream, so a resolver with split hi-res streams
      *  should answer with `candidates`. Decided per *track* (not per resolver),
      *  which is why it is an argument rather than a ref the builder closes over
-     *  — the same resolver serves an audio play and a video play in one session. */
-    opts?: { externalAudio?: boolean; fresh?: boolean },
+     *  — the same resolver serves an audio play and a video play in one session.
+     *  `preferVideo`: this call is the prefer-video pass asking for an actual
+     *  VIDEO stream — the built-in Library resolver then considers only video
+     *  copies of the match (answering null when it has none) so the pass can
+     *  fall through cleanly. Plugin resolvers receive the prefer-video hint
+     *  through their own bridge and ignore this field. */
+    opts?: { externalAudio?: boolean; fresh?: boolean; preferVideo?: boolean },
   ) => Promise<ChainResult | null>;
 }
 
@@ -48,13 +53,18 @@ export function createLibraryStreamResolver(): StreamResolver {
     id: "built-in:library",
     name: "Library",
     source: "built-in",
-    resolve: async (title, artistName, albumName) => {
+    resolve: async (title, artistName, albumName, _durationSecs, opts) => {
       const matches = await invoke<Track[]>("find_tracks_by_metadata", {
         title: stripRemasterSuffix(title) ?? title,
         artistName,
         albumName: stripRemasterSuffix(albumName),
       });
-      for (const track of matches) {
+      // The prefer-video pass wants a VIDEO copy specifically — a user's own
+      // music-video file should beat fetching one from the network. Only video
+      // copies count there; with none playable the answer is null, so the pass
+      // falls through (the normal-pass entry still serves the audio copy).
+      const candidates = opts?.preferVideo ? matches.filter((t) => isVideoTrack(t)) : matches;
+      for (const track of candidates) {
         if (!track.path) continue;
         if (track.path.startsWith("file://")) {
           // A library row is not proof the bytes are still there — a moved or

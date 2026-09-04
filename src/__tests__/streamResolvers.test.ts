@@ -143,6 +143,33 @@ describe("createLibraryStreamResolver", () => {
     const result = await createLibraryStreamResolver().resolve("Concert", "Band", null, null);
     expect(result).toMatchObject({ video: true, format: "mkv" });
   });
+
+  describe("preferVideo (the prefer-video pass)", () => {
+    const LOCAL_VIDEO = { path: "file:///music/Fire Spirit.mkv", format: "mkv" };
+
+    it("picks the video copy even when an audio copy is preferred by source order", async () => {
+      // Without the hint the walk answers with the first copy — the audio one —
+      // which the video-only pass would reject, and the user's own music-video
+      // file would never be reached.
+      mockLibrary([LOCAL, SUBSONIC, LOCAL_VIDEO]);
+      const result = await createLibraryStreamResolver().resolve("Fire Spirit", "The Gun Club", null, null, { preferVideo: true });
+      expect(result).toMatchObject({ url: LOCAL_VIDEO.path, video: true, format: "mkv" });
+    });
+
+    it("answers null when no video copy exists, so the pass falls through", async () => {
+      mockLibrary([LOCAL, SUBSONIC]);
+      expect(
+        await createLibraryStreamResolver().resolve("Fire Spirit", "The Gun Club", null, null, { preferVideo: true }),
+      ).toBeNull();
+    });
+
+    it("still verifies a local video copy exists on disk", async () => {
+      mockLibrary([LOCAL_VIDEO], false);
+      expect(
+        await createLibraryStreamResolver().resolve("Fire Spirit", "The Gun Club", null, null, { preferVideo: true }),
+      ).toBeNull();
+    });
+  });
 });
 
 describe("stripRemasterSuffix", () => {

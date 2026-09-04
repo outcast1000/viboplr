@@ -51,6 +51,8 @@ interface Opts {
   uriFails?: boolean;
   /** Drop the track's `path`, as a Home track-row or a metadata-only result has. */
   pathless?: boolean;
+  /** The user's "Prefer video" toggle. */
+  preferVideo?: boolean;
 }
 
 function mountChain(opts: Opts = {}) {
@@ -60,6 +62,7 @@ function mountChain(opts: Opts = {}) {
     uriResult = { url: "file://D:/Torrents/Vitalogy/05. Nothingman.mp3" },
     uriFails = false,
     pathless = false,
+    preferVideo = false,
   } = opts;
 
   invoke.mockImplementation((cmd: string) => {
@@ -74,6 +77,7 @@ function mountChain(opts: Opts = {}) {
   const resolveStreamByUri = uriFails
     ? vi.fn().mockRejectedValue(new Error("that torrent is no longer in qBittorrent"))
     : vi.fn().mockResolvedValue(uriResult);
+  const notify = vi.fn();
 
   renderHook(() =>
     useStreamResolution({
@@ -86,14 +90,14 @@ function mountChain(opts: Opts = {}) {
       pluginNames: new Map([["qbittorrent", "qBittorrent"]]),
       requireDep: vi.fn().mockResolvedValue(true),
       useNativeVideoRef: { current: true },
-      preferVideoRef: { current: false },
+      preferVideoRef: { current: preferVideo },
       queue: [track],
       currentTrack: null,
-      notify: vi.fn(),
+      notify,
     }),
   );
 
-  return { resolve: () => resolveTrackSrcRef.current(track), resolveStreamByUri };
+  return { resolve: () => resolveTrackSrcRef.current(track), resolveStreamByUri, notify };
 }
 
 beforeEach(() => {
@@ -181,6 +185,45 @@ describe("chain order: the track's own source, then a library copy of it", () =>
 
     expect(resolveStreamByUri).not.toHaveBeenCalled();
     expect(out.engineSource).toEqual({ kind: "file", path: STALE_LIBRARY_PATH });
+  });
+});
+
+describe("prefer video: the library's own video copy joins the video-first pass", () => {
+  const LOCAL_VIDEO_PATH = "/music/Pearl Jam - Nothingman (Live).mkv";
+
+  it("plays the user's own video copy before the track's own (audio) source", async () => {
+    const { resolve, resolveStreamByUri } = mountChain({
+      preferVideo: true,
+      libraryMatches: [
+        { path: "file:///music/Nothingman.mp3", format: "mp3" },
+        { path: `file://${LOCAL_VIDEO_PATH}`, format: "mkv" },
+      ],
+      fileOnDisk: true,
+    });
+
+    const out = await resolve();
+
+    // The video-first Library entry wins outright — the qbt source is never asked.
+    expect(resolveStreamByUri).not.toHaveBeenCalled();
+    expect(out.engineSource).toEqual({ kind: "file", path: LOCAL_VIDEO_PATH });
+    // Reclassified from the copy that plays: real container, not the pass's
+    // provisional "mp4" — and the path rides along for currentTrack enrichment.
+    expect(out.patch).toEqual({ path: `file://${LOCAL_VIDEO_PATH}`, format: "mkv" });
+  });
+
+  it("falls through to the track's own audio source when no video copy exists", async () => {
+    const { resolve, resolveStreamByUri, notify } = mountChain({
+      preferVideo: true,
+      libraryMatches: [{ path: "file:///music/Nothingman.mp3", format: "mp3" }],
+      fileOnDisk: true,
+    });
+
+    const out = await resolve();
+
+    expect(resolveStreamByUri).toHaveBeenCalled();
+    expect(out.engineSource).toEqual({ kind: "file", path: "D:/Torrents/Vitalogy/05. Nothingman.mp3" });
+    // The silent audio playback must not read as "prefer video did nothing".
+    expect(notify).toHaveBeenCalledWith("No video found — playing audio.");
   });
 });
 

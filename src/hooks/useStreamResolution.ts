@@ -173,9 +173,10 @@ interface UseStreamResolutionDeps {
    * resolve to a raw file `engineSource` instead. */
   useNativeVideoRef: React.MutableRefObject<boolean>;
   /** True when the user's "Prefer video" toggle is on. When set, every track
-   * that isn't already a video is run through the plugin stream resolvers for a
-   * video stream BEFORE its own (audio) source — a video result plays in the
-   * theater, otherwise it falls through to normal audio playback. */
+   * that isn't already a video is run through the stream resolvers (library
+   * video copies included) for a video stream BEFORE its own (audio) source —
+   * a video result plays in the theater, otherwise it falls through to normal
+   * audio playback. */
   preferVideoRef: React.MutableRefObject<boolean>;
   /** Current queue — drives pruning of stale per-track resolve failures. */
   queue: QueueTrack[];
@@ -529,7 +530,7 @@ export function useStreamResolution({
           videoFirst: videoOnly,
           resolve: async () => {
             const result = await Promise.race([
-              sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null, { externalAudio, fresh }),
+              sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null, { externalAudio, fresh, preferVideo: videoOnly }),
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
             ]);
             if (!result) throw new Error("No result");
@@ -597,19 +598,21 @@ export function useStreamResolution({
         chain.push(buildResolverEntry(sr, false));
       }
 
-      // "Prefer video": with the toggle on, try the plugin stream resolvers for
-      // an actual video stream BEFORE the track's own (audio) source — for every
+      // "Prefer video": with the toggle on, try the stream resolvers for an
+      // actual video stream BEFORE the track's own (audio) source — for every
       // track that isn't already a video (queued audio tracks + auto-continue
       // picks). Only a video result wins; if none is found the chain falls
       // through to the normal source and the track plays as audio, unchanged.
-      // The built-in Library resolver is skipped (it's a local-copy source, not
-      // a video source), and a plugin that owns the track's own scheme is
-      // skipped (its by-id entry already ran / would just re-search).
+      // The built-in Library resolver participates: `preferVideo` on its
+      // `resolve` opts makes it consider only VIDEO copies of the match, so a
+      // user's own music-video file (first in the default order) beats
+      // fetching one from the network — and with no video copy it answers
+      // null and the pass moves on. A plugin that owns the track's own scheme
+      // is skipped (its by-id entry already ran / would just re-search).
       let triedVideoFirst = false;
       if (preferVideoRef.current && !isVideoTrack(track)) {
         const videoFirst: ResolverEntry[] = [];
         for (const sr of streamResolversRef.current) {
-          if (sr.source === "built-in") continue;
           if (nativeSchemeOwner && sr.source === nativeSchemeOwner) continue;
           videoFirst.push(buildResolverEntry(sr, true));
         }
