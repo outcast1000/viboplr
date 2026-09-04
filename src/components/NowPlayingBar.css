@@ -521,6 +521,47 @@
   color: var(--text-tertiary);
 }
 
+/* Responsive collapse for narrow windows. The bar spans the full window width
+   (grid-column: 1 / -1), so window media queries measure the bar itself. Non-
+   essential controls drop out in stages so the essentials — title, transport,
+   seek — never get crushed or overlapped by the absolutely-centered transport.
+   Every selector here exists only in the full bar, so the mini player (its own
+   narrow window, different classes) is untouched. Order of sacrifice: the
+   inline EQ sliders (widest single element), then the whole audio pill
+   (EQ + mute + volume), then the playlist pill (queue mode / auto-continue),
+   then the album art. The fullscreen button stays — it is the only route to
+   fullscreen from the bar and costs one icon's width. */
+@media (max-width: 1060px) {
+  .now-group--audio .eqbar-slot {
+    display: none;
+  }
+}
+
+@media (max-width: 920px) {
+  .now-group--audio {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .now-group--playlist {
+    display: none;
+  }
+}
+
+@media (max-width: 680px) {
+  .now-art-wrapper {
+    display: none;
+  }
+  .now-main {
+    padding: 0 10px;
+    gap: 10px;
+  }
+  .now-right {
+    gap: 8px;
+  }
+}
+
 /* Help / Shortcuts */
 /* Mini player mode */
 .app.mini-mode,
