@@ -8,57 +8,63 @@ Viboplr plays audio and video from local folders and remote music services. It a
 
 ### Library Management
 - **Local Folders**: Scan folders with background progress reporting and real-time file watching
-- **Remote Collections**: Connect to remote music services via plugins (streaming, sync, browse)
+- **Music Servers**: Subsonic / Navidrome collections synced into the same library
+- **Remote Collections**: Connect to streaming services via plugins (streaming, sync, browse)
+- **Publish & Subscribe**: Export local tracks as a self-contained, hostable music source (manifest + files), and subscribe to published manifests as collections
 - **Smart Metadata**: Reads tags via `lofty`, with intelligent filename parsing fallback
-- **Full-Text Search**: SQLite FTS5-powered search across titles, artists, albums, genres, and filenames
+- **Full-Text Search**: SQLite FTS5-powered search across titles, artists, albums, genres, and filenames — accent- and case-insensitive
 - **Tags**: Genre metadata from files stored as tags with many-to-many track relationships
 
 ### Playback
-- **Native Codecs**: HTML5 audio/video elements using OS-native codecs via Tauri's asset protocol
-- **Queue Management**: Drag-and-drop reorder, play next, shuffle
-- **Crossfade**: Configurable smooth transitions between tracks
-- **Auto-Continue**: Automatic playback continuation when queue ends (by artist, tag, most played, liked, or random)
+- **Native mpv Engine**: The default engine, built on bundled libmpv — native decode of every supported format, sample-accurate gapless playback, and exclusive (bit-perfect) audio output; native video rendering on macOS and Windows
+- **Browser Engine Fallback**: HTML5 audio/video via the system webview — used automatically when mpv can't play a track
+- **10-Band Equalizer & ReplayGain**: Simple bass/treble or advanced parametric EQ, plus tag-based volume normalization
+- **Crossfade & Gapless**: Configurable crossfade up to 10s; at 0, tracks transition gapless
+- **Playback Speed**: Turntable-style speed control (pitch follows tempo)
+- **Queue Management**: Drag-and-drop reorder, play next, shuffle, duplicate detection
+- **Auto-Continue**: Automatic playback continuation when the queue ends (by artist, tag, most played, liked, or random — user-weighted)
 - **Radio**: Start an endless station from any track, artist, or tag
-- **Likes**: Tri-state like/dislike for tracks (plus likes for artists, albums, and tags), durable across library, queue, and now playing
-- **Mini Player**: Compact mode with essential controls
-- **Waveform Seek Bar**: Visual waveform display for seeking
+- **Likes**: Tri-state like/dislike for tracks (plus likes for artists, albums, and tags), durable across library, queue, and now playing; export/import as a portable file
+- **Mini Player**: Compact always-on-top mode with essential controls
+- **Waveform Seek Bar**: Visual waveform display for seeking; video tracks get storyboard seek previews
 
 ### Views
-- **Home**: Default landing page — radio-station carousel plus shelves (recently played, most played, jump back in, recently added)
-- **Now Playing**: Lean-back full-screen view with synced karaoke lyrics; video tracks expand into a theater mode with ambient glow
-- **Artists / Albums / Tags**: Browsable with breadcrumb navigation and card art
+- **Home**: Default landing page — radio-station carousel plus shelves (recently played, most played, jump back in, recently added, liked; plugins can add more)
+- **Now Playing**: Lean-back full-screen view with synced karaoke lyrics and plugin visualizers; video tracks expand into a theater mode
+- **Artists / Albums / Tags / Tracks**: Detail pages with hero headers, breadcrumb navigation, and plugin information sections
 - **History**: Tabbed view — All Time, Last 30 Days, Recent, Artists — with arrow key navigation
-- **Playlists**: Save, load, and manage playlists with cover art and thumbnail tracking; export/import as M3U8 or `.mixtape`
-- **Collections**: Manage local folders and remote service connections
+- **Playlists**: Save, load, and manage playlists with cover art and thumbnail tracking; export/import as M3U8 or `.mixtape` bundles
+- **Collections**: Manage local folders, music servers, and subscribed sources
 
 ### Service Orchestration
 - **Streaming**: Plugins provide stream resolution from various services — the core app chains them with configurable priority and fallback
 - **Scrobbling & Metadata**: Plugin-driven scrobble reporting, listening history import, similar artists/tracks, bios, and community tags with TTL-based caching
-- **Downloads**: Download tracks in FLAC, AAC, or MP3 with embedded tags and cover art via a pluggable download provider chain
-- **Lyrics**: Synced and plain lyrics from multiple plugin providers with timed highlighting and auto-scroll
+- **Downloads**: Download tracks with embedded tags and cover art — the downloader always follows the track's source (Subsonic, direct URL, or the owning plugin)
+- **Lyrics**: Synced and plain lyrics from multiple plugin providers with timed highlighting, auto-scroll, and per-track timing offset
 - **Image Providers**: Plugin-based artist/album art resolution with configurable fallback chains
 
 ### Skins
 - **8 Built-in Skins**: Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Viboplr, Sunset
-- **Custom Skins**: Import JSON skin files or install from community gallery
-- **15 Color Tokens**: Full UI theming via CSS custom properties
+- **Custom Skins**: Import JSON skin files or install from the community gallery
+- **19 Color Tokens**: Full UI theming via CSS custom properties
 - **Custom CSS**: Optional per-skin CSS overrides (sanitized)
 
 ### Plugins
-- **Plugin System**: The primary extension mechanism — JavaScript plugins provide streaming, metadata, lyrics, image resolution, downloads, context menu items, sidebar views, event hooks, settings panels, and scheduler tasks
-- **Built-in Plugins**: Last.fm (scrobbling, history import, similar artists/tracks, bios, community tags), lyrics (LRCLIB, Lyrics.ovh, Google), and artwork (TheAudioDB, Deezer, iTunes, MusicBrainz, Google Images)
-- **Gallery Plugins**: Streaming and more, installed from the in-app gallery — Spotify, TIDAL (Hi-Fi), YouTube (play + download), and Genius (song explanations)
-- **Native & User Plugins**: Built-in plugins bundled with the app; user plugins in profile directory (user plugins override native)
-- **Structured Views**: Plugins render via data model (track lists, card grids, stats, text) — no raw HTML injection
-- **Plugin Management**: Enable/disable plugins, reorder providers, and configure settings via Settings tabs
+- **Plugin System**: The primary extension mechanism — JavaScript plugins provide streaming, metadata, lyrics, image resolution, downloads, context menu items, sidebar views, home shelves, now-playing info items, visualizers, event hooks, settings panels, and scheduler tasks
+- **Built-in Plugins**: Last.fm (scrobbling, history import, similar artists/tracks, bios, community tags), lyrics (LRCLIB, Lyrics.ovh), and artwork (TheAudioDB, Deezer, iTunes, MusicBrainz)
+- **Gallery Plugins**: Installed from the in-app gallery — Spotify, TIDAL (Hi-Fi), YouTube via yt-dlp (search, play, download), Genius (song explanations), qBittorrent, visualizers, and more
+- **Structured Views**: Plugins render via a data model (track lists, card grids, stats, text) — no raw HTML injection
+- **Plugin Management**: Enable/disable plugins, toggle individual contributions, reorder providers, auto-update, and configure settings via the Extensions view
 
 ### Other
-- **Track Properties Modal**: Tabbed view with metadata, tags, similar tracks, artist bio, album info
+- **Profiles**: Chrome-like isolated profiles (library, settings, plugins per profile)
+- **Onboarding Wizard**: First-run setup — usage profile, skin, sources, recommended plugins, companion tools
+- **Managed Dependencies**: External tools plugins rely on (ffmpeg, yt-dlp) are detected, installed, and auto-updated by the app
 - **Entity Images**: Automatic artist/album art via plugin-based provider chain with configurable priority
 - **Tag Composite Images**: Auto-generated from top artist images
-- **Search Providers**: Configurable external search providers (custom and built-in)
-- **Context Menu**: Right-click with "Open Containing Folder", search providers, properties
-- **Auto Updates**: Built-in update checking and installation
+- **Context Menus**: Native OS right-click menus everywhere, with plugin-registered actions on every track surface
+- **Report a Problem**: One-click diagnostic bundle (reviewed and submitted by the user — nothing is auto-sent)
+- **Auto Updates**: Built-in update checking and installation (stable and opt-in beta channels)
 - **Cross-Platform**: macOS and Windows
 
 ## Tech Stack
@@ -66,16 +72,24 @@ Viboplr plays audio and video from local folders and remote music services. It a
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
 | App shell | Tauri 2 | Native window, small binary |
-| Backend | Rust | Scanning, DB, sync, downloads, API clients |
-| Frontend | TypeScript + React + Vite | UI, playback, state management |
-| Playback | HTML5 `<audio>` / `<video>` | OS-native codecs via webview |
+| Backend | Rust | Scanning, DB, sync, playback engine, API clients |
+| Frontend | TypeScript + React + Vite | UI, playback control, state management |
+| Playback | libmpv (bundled) + HTML5 fallback | Native decode, gapless, exclusive output; webview codecs as fallback |
 | Database | SQLite via `rusqlite` + FTS5 | Embedded media library with full-text search |
 | Tag reading | `lofty` | ID3v1/v2, Vorbis, FLAC, MP4, Opus tags |
 | File watching | `notify` | Cross-platform filesystem events |
 | Integrations | Plugin system | Streaming, scrobbling, metadata, lyrics, images |
 | State persistence | `tauri-plugin-store` v2 | Save/restore UI state across restarts |
 
+## Supported Formats
+
+**Audio** (all decoded natively by the bundled mpv engine): MP3, FLAC, AAC/M4A, ALAC, WAV, OPUS, WMA, OGG/OGA, SPX, AIFF, APE, WavPack, TTA, DSF/DFF (DSD), Musepack, MKA, CAF. On the browser fallback engine, only the webview-native formats play.
+
+**Video**: MP4/M4V/MOV (H.264) on both platforms; WebM (VP8/VP9) on Windows only via the browser engine. The mpv engine renders video natively on macOS and Windows.
+
 ## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the full guide.
 
 ### Prerequisites
 
@@ -93,6 +107,7 @@ npm run tauri dev
 ### Building for Production
 
 ```bash
+node scripts/fetch-libmpv.mjs   # vendor the pinned libmpv (bundled into the build)
 npm run tauri build
 ```
 
@@ -108,7 +123,10 @@ cd src-tauri && cargo check --release
 # Type-check frontend only
 npx tsc --noEmit
 
-# Run all tests
+# Lint
+npm run lint
+
+# Run all tests (lint + Rust + TS + E2E)
 npm run test:all
 ```
 
@@ -165,12 +183,6 @@ ssh-copy-id -i viboplr-deploy.pub youruser@your.vps.ip.or.domain
 
 Then paste the contents of the private key file (`viboplr-deploy`) into the `VPS_SSH_PRIVATE_KEY` secret. The workflow pins the host key via `ssh-keyscan` and uses `rsync -az --delete` for a clean synced deploy.
 
-### Supported Formats
-
-**Audio**: MP3, FLAC, AAC/M4A, WAV, ALAC, OPUS, WMA (best-effort)
-
-**Video**: MP4 (H.264) on both platforms; WebM (VP8/VP9) on Windows only
-
 ## Project Structure
 
 ```text
@@ -181,29 +193,26 @@ viboplr/
 │   ├── types.ts            # Shared TypeScript types
 │   ├── skinUtils.ts        # Skin validation, CSS generation, sanitization
 │   ├── skins/              # Built-in skin JSON files (8 skins)
-│   │   ├── index.ts            # Skin registry
-│   │   ├── default.json
-│   │   └── ...
-│   ├── components/         # UI components (~46 files)
+│   ├── components/         # UI components (~95 files)
 │   │   ├── TrackList.tsx       # Track table/list/tile views
 │   │   ├── NowPlayingBar.tsx   # Playback footer controls
+│   │   ├── NowPlayingView.tsx  # Lean-back now-playing view
+│   │   ├── HomeView.tsx        # Home landing surface (carousel + shelves)
 │   │   ├── QueuePanel.tsx      # Queue management
 │   │   ├── Sidebar.tsx         # Navigation sidebar
-│   │   ├── SettingsPanel.tsx   # Settings (General, Skins, Plugins, Providers, Debug)
-│   │   ├── HistoryView.tsx     # Play history view
-│   │   ├── CollectionsView.tsx # Collection management
-│   │   ├── PlaylistsView.tsx  # Saved playlists grid/detail
-│   │   ├── PluginViewRenderer.tsx # Plugin structured view rendering
-│   │   ├── InformationSections.tsx # Plugin-provided metadata tabs
+│   │   ├── SettingsPanel.tsx   # Settings (General, Playback, Providers, Debug)
+│   │   ├── ExtensionsView.tsx  # Plugin/skin management
+│   │   ├── PluginViewRenderer.tsx  # Plugin structured view rendering
+│   │   ├── InformationSections.tsx # Plugin-provided metadata sections
 │   │   └── ...
-│   ├── types/
-│   │   ├── skin.ts             # Skin system type definitions
-│   │   ├── plugin.ts           # Plugin system type definitions
-│   │   └── informationTypes.ts # Info entity, fetch result, display kind types
-│   └── hooks/              # React hooks (~27 files)
-│       ├── usePlayback.ts      # Playback state
+│   ├── playback/           # Playback engine seam (nativeEngine bridge, progress machine)
+│   ├── types/              # Skin, plugin, and information-type definitions
+│   ├── utils/              # Pure helpers (download planning, diagnostics, lyrics, ...)
+│   └── hooks/              # React hooks (~50 files)
+│       ├── usePlayback.ts      # Playback state (browser + native engine)
 │       ├── useQueue.ts         # Queue management
 │       ├── useLibrary.ts       # Library queries
+│       ├── useHome.ts          # Home shelves and radio stations
 │       ├── useSkins.ts         # Skin management and CSS injection
 │       ├── usePlugins.ts       # Plugin discovery, loading, and runtime
 │       └── ...
@@ -211,25 +220,35 @@ viboplr/
 │   ├── src/
 │   │   ├── main.rs             # Entry point
 │   │   ├── lib.rs              # Tauri setup, plugin/command registration
-│   │   ├── commands.rs         # ~186 Tauri commands + AppState
-│   │   ├── db.rs               # SQLite operations (~117 public functions)
+│   │   ├── commands/           # Tauri commands, split by area (app, library, media, ...)
+│   │   ├── db/                 # SQLite layer, split by entity (tracks, albums, likes, ...)
+│   │   ├── mpv_engine/         # Native libmpv playback engine (dual decks, video layers)
 │   │   ├── models.rs           # Shared data models
 │   │   ├── scanner.rs          # Folder scanning
 │   │   ├── watcher.rs          # File watching
 │   │   ├── subsonic.rs         # Subsonic API client
 │   │   ├── sync.rs             # Subsonic collection sync
+│   │   ├── manifest_sync.rs    # Subscribed music-source sync
+│   │   ├── music_publish.rs    # Publish local tracks as a hostable source
+│   │   ├── mixtape.rs          # Mixtape export/import
 │   │   ├── skins.rs            # Skin file I/O and gallery fetching
-│   │   ├── downloader.rs       # Track download manager
+│   │   ├── downloader.rs       # Download helpers (tags, cover embed)
+│   │   ├── dependencies.rs     # Managed external binaries (ffmpeg, yt-dlp)
+│   │   ├── profiles.rs         # Profile management
 │   │   ├── entity_image.rs     # Image slug management
 │   │   ├── composite_image.rs  # Tag composite image generation
 │   │   ├── plugins.rs          # Plugin management and file I/O
 │   │   ├── image_provider/     # Image provider Rust-JS bridge
 │   │   ├── lyric_provider/     # Lyric provider fallback chain
-│   │   ├── timing.rs           # Startup profiling
-│   │   └── seed.rs             # Debug-only test data seeding
-│   ├── plugins/            # Built-in plugins (15+ plugins)
+│   │   ├── video_frames.rs     # Video thumbnails via ffmpeg
+│   │   ├── storyboard.rs       # Seek-preview sprite sheets
+│   │   └── timing.rs           # Startup profiling
+│   ├── plugins/            # Built-in plugins (Last.fm, lyrics, artwork)
 │   └── Cargo.toml
-├── SPEC.md                 # Detailed specification
+├── docs/                   # Marketing/docs website (viboplr.com)
+├── scripts/                # Build, release, benchmarking, and libmpv vendoring scripts
+├── DEVELOPMENT.md          # Developer guide
+├── PLUGIN-API-REFERENCE.md # Plugin API reference
 └── CLAUDE.md               # AI assistant guidance
 ```
 
@@ -239,7 +258,7 @@ Viboplr is free software, licensed under the **GNU General Public License v3.0 o
 
 Copyright (C) 2026 outcast1000.
 
-All Rust and JavaScript dependencies are permissively licensed (MIT or Apache-2.0), so they impose no additional restrictions. The app invokes `ffmpeg` and `yt-dlp` as separate external processes (not linked), so their licenses do not affect Viboplr's. See SPEC.md for the dependency breakdown.
+All Rust and JavaScript dependencies are permissively licensed (MIT or Apache-2.0), so they impose no additional restrictions. libmpv is loaded at runtime as a separate library, and the app invokes `ffmpeg` and `yt-dlp` as separate external processes (not linked), so their licenses do not affect Viboplr's.
 
 ## Recommended IDE Setup
 
