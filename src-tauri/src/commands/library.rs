@@ -205,6 +205,23 @@ pub fn find_track_by_metadata(
         .map_err(|e| e.to_string())
 }
 
+/// All library copies of the best-matching cascade tier, ordered local >
+/// subsonic > other. Backs the playback Library resolver, which verifies a
+/// local copy still exists on disk and falls through to the next copy —
+/// `find_track_by_metadata` can only ever answer with the preferred row.
+#[tauri::command]
+pub fn find_tracks_by_metadata(
+    state: State<'_, AppState>,
+    title: String,
+    artist_name: Option<String>,
+    album_name: Option<String>,
+) -> Result<Vec<Track>, String> {
+    state
+        .db
+        .find_tracks_by_metadata(&title, artist_name.as_deref(), album_name.as_deref())
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn find_track_id_by_path(
     state: State<'_, AppState>,

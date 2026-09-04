@@ -505,16 +505,44 @@ impl Database {
         artist_name: Option<&str>,
         album_name: Option<&str>,
     ) -> SqlResult<Option<Track>> {
+        Ok(self
+            .find_tracks_by_metadata(title, artist_name, album_name)?
+            .into_iter()
+            .next())
+    }
+
+    /// Every enabled-collection copy in the first cascade tier that matches
+    /// (title+artist+album → title+artist → title only), ordered local >
+    /// subsonic > other and capped at 10. The single-result
+    /// `find_track_by_metadata` is the head of this list; callers that can
+    /// *verify* a copy walk the whole list instead — the playback Library
+    /// resolver checks that a local file still exists and falls through to
+    /// the network copy when it doesn't, rather than ending the lookup on a
+    /// row that outlived its file.
+    pub fn find_tracks_by_metadata(
+        &self,
+        title: &str,
+        artist_name: Option<&str>,
+        album_name: Option<&str>,
+    ) -> SqlResult<Vec<Track>> {
         let conn = self.conn.lock().unwrap();
 
-        // Source preference: local files first, then subsonic, then other sources (by path prefix)
+        // Source preference: local files first, then subsonic, then other
+        // sources. The cap bounds the title-only tier, where a common title
+        // ("Intro") can match a row per album.
         let order_clause = "ORDER BY CASE \
             WHEN co.kind = 'local' THEN 0 \
             WHEN co.kind = 'subsonic' THEN 1 \
             ELSE 2 \
-        END LIMIT 1";
+        END LIMIT 10";
 
         let enabled_filter = ENABLED_COLLECTION_FILTER;
+
+        let query_tier = |sql: &str, params: &[&dyn rusqlite::types::ToSql]| -> SqlResult<Vec<Track>> {
+            let mut stmt = conn.prepare(sql)?;
+            let rows = stmt.query_map(params, |row| track_from_row(row))?;
+            rows.collect()
+        };
 
         if let Some(artist) = artist_name {
             // Try title + artist + album first
@@ -526,10 +554,8 @@ impl Database {
                      {} {}",
                     TRACK_SELECT, enabled_filter, order_clause
                 );
-                let result: Option<Track> = conn
-                    .query_row(&sql, params![title, artist, album], |row| track_from_row(row))
-                    .optional()?;
-                if result.is_some() {
+                let result = query_tier(&sql, params![title, artist, album])?;
+                if !result.is_empty() {
                     return Ok(result);
                 }
             }
@@ -541,10 +567,8 @@ impl Database {
                  {} {}",
                 TRACK_SELECT, enabled_filter, order_clause
             );
-            let result: Option<Track> = conn
-                .query_row(&sql, params![title, artist], |row| track_from_row(row))
-                .optional()?;
-            if result.is_some() {
+            let result = query_tier(&sql, params![title, artist])?;
+            if !result.is_empty() {
                 return Ok(result);
             }
         }
@@ -555,8 +579,7 @@ impl Database {
              {} {}",
             TRACK_SELECT, enabled_filter, order_clause
         );
-        conn.query_row(&sql, params![title], |row| track_from_row(row))
-            .optional()
+        query_tier(&sql, params![title])
     }
 
     pub fn find_track_id_by_path(&self, full_path: &str) -> SqlResult<Option<i64>> {
@@ -1016,6 +1039,44 @@ mod tests {
             nulls.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
         let rows = stmt.query_map(refs.as_slice(), |r| r.get::<_, String>(3)).unwrap();
         rows.collect::<SqlResult<Vec<_>>>().unwrap()
+    }
+
+    /// The playback Library resolver walks EVERY copy of a match so it can
+    /// verify each one (a local row whose file is gone falls through to the
+    /// network copy). That only works if the plural lookup returns the whole
+    /// tier ordered local > network — and if the single-result lookup stays
+    /// its head, so the two can never disagree about the preferred copy.
+    #[test]
+    fn test_find_tracks_by_metadata_returns_every_copy_local_first() {
+        let db = Database::new_in_memory().unwrap();
+        let local = db
+            .add_collection("local", "music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        let sub = db
+            .add_collection("subsonic", "nav", None, Some("https://nav.example"), None, None, None, None)
+            .unwrap();
+        let artist = db.get_or_create_artist("The Gun Club").unwrap();
+        db.upsert_track("sub-42", "Fire Spirit", Some(artist), None, None, None, Some("mp3"), None, None, Some(sub.id), None)
+            .unwrap();
+        db.upsert_track("Fire Spirit.mp3", "Fire Spirit", Some(artist), None, None, None, Some("mp3"), None, None, Some(local.id), None)
+            .unwrap();
+
+        let copies = db
+            .find_tracks_by_metadata("fire spirit", Some("The Gun Club"), None)
+            .unwrap();
+        assert_eq!(copies.len(), 2, "both copies of the match must come back");
+        assert!(
+            copies[0].path.starts_with("file://"),
+            "the local copy must be preferred, got: {:?}",
+            copies[0].path
+        );
+        assert!(copies[1].path.starts_with("subsonic://"));
+
+        let single = db
+            .find_track_by_metadata("fire spirit", Some("The Gun Club"), None)
+            .unwrap()
+            .expect("single lookup must still match");
+        assert_eq!(single.id, copies[0].id, "the single lookup is the head of the plural one");
     }
 
     /// The gc liveness set must be the COMPUTED playable URI. `tracks.path` for a

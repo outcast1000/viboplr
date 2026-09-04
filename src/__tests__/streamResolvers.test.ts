@@ -1,5 +1,16 @@
-import { describe, it, expect, vi } from "vitest";
-import { resolveStreamChain, stripRemasterSuffix, type StreamResolver } from "../streamResolvers";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const invoke = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invoke(...args),
+}));
+
+import {
+  resolveStreamChain,
+  stripRemasterSuffix,
+  createLibraryStreamResolver,
+  type StreamResolver,
+} from "../streamResolvers";
 
 function makeResolver(
   overrides: Partial<StreamResolver> & { id: string },
@@ -74,6 +85,63 @@ describe("resolveStreamChain", () => {
   it("returns null for empty resolver list", async () => {
     const result = await resolveStreamChain([], "Title", "Artist", null);
     expect(result).toBeNull();
+  });
+});
+
+describe("createLibraryStreamResolver", () => {
+  const LOCAL = { path: "file:///music/Fire Spirit.mp3", format: "mp3" };
+  const SUBSONIC = { path: "subsonic://navidrome.example/42", format: "mp3" };
+
+  function mockLibrary(matches: Array<{ path: string; format: string | null }>, fileOnDisk = true) {
+    invoke.mockImplementation((cmd: string) => {
+      if (cmd === "find_tracks_by_metadata") return Promise.resolve(matches);
+      if (cmd === "file_exists") return Promise.resolve(fileOnDisk);
+      return Promise.reject(new Error(`unexpected command: ${cmd}`));
+    });
+  }
+
+  beforeEach(() => {
+    invoke.mockReset();
+  });
+
+  it("prefers the local copy and attributes it with a file:// sourceUrl", async () => {
+    // The prefix is load-bearing: effectiveLocalPath and the queue-thumb
+    // localPath derivation both key on it — a bare path reads as remote.
+    mockLibrary([LOCAL, SUBSONIC]);
+    const result = await createLibraryStreamResolver().resolve("Fire Spirit", "The Gun Club", null, null);
+    expect(result).toMatchObject({ url: LOCAL.path, sourceUrl: LOCAL.path, format: "mp3", video: false });
+  });
+
+  it("falls through a local row whose file is gone to the network copy", async () => {
+    mockLibrary([LOCAL, SUBSONIC], false);
+    const result = await createLibraryStreamResolver().resolve("Fire Spirit", "The Gun Club", null, null);
+    expect(result).toMatchObject({ url: SUBSONIC.path, sourceUrl: SUBSONIC.path });
+  });
+
+  it("returns null when the only copy's file is gone", async () => {
+    mockLibrary([LOCAL], false);
+    expect(await createLibraryStreamResolver().resolve("Fire Spirit", "The Gun Club", null, null)).toBeNull();
+  });
+
+  it("returns null when nothing matches", async () => {
+    mockLibrary([]);
+    expect(await createLibraryStreamResolver().resolve("Skeletons", "The Sound", null, null)).toBeNull();
+  });
+
+  it("strips remaster suffixes from the lookup, not the answer", async () => {
+    mockLibrary([LOCAL]);
+    await createLibraryStreamResolver().resolve("Fire Spirit - 2011 Remaster", "The Gun Club", "Fire Of Love - Remastered", null);
+    expect(invoke).toHaveBeenCalledWith("find_tracks_by_metadata", {
+      title: "Fire Spirit",
+      artistName: "The Gun Club",
+      albumName: "Fire Of Love",
+    });
+  });
+
+  it("reports the matched copy's media kind so the chain can reclassify", async () => {
+    mockLibrary([{ path: "file:///music/Concert.mkv", format: "mkv" }]);
+    const result = await createLibraryStreamResolver().resolve("Concert", "Band", null, null);
+    expect(result).toMatchObject({ video: true, format: "mkv" });
   });
 });
 

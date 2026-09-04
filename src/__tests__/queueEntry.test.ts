@@ -520,8 +520,8 @@ describe("effectiveLocalPath", () => {
     )).toBe("D:/Torrents/In Rainbows/03 - Nude.flac");
   });
 
-  it("takes the Library resolver's unprefixed path", () => {
-    expect(effectiveLocalPath({ path: "ext:7" }, { name: "Library", sourceUrl: "/music/song.flac" }))
+  it("follows a Library win on a local copy (file://-prefixed like any resolver)", () => {
+    expect(effectiveLocalPath({ path: "ext:7" }, { name: "Library", sourceUrl: "file:///music/song.flac" }))
       .toBe("/music/song.flac");
   });
 
@@ -531,9 +531,9 @@ describe("effectiveLocalPath", () => {
       { path: "ytdlp://x" },
       { name: "yt-dlp", sourceUrl: "https://www.youtube.com/watch?v=x" },
     )).toBeNull();
-    // A "Library" win that somehow reported a URL is not a path — passing it to
-    // Open folder or a tag read would be nonsense.
-    expect(effectiveLocalPath({ path: "ext:7" }, { name: "Library", sourceUrl: "https://cdn/x.mp3" }))
+    // A Library win on a NETWORK copy attributes to that copy's own URI — not
+    // a path; passing it to Open folder or a tag read would be nonsense.
+    expect(effectiveLocalPath({ path: "ext:7" }, { name: "Library", sourceUrl: "subsonic://host/42" }))
       .toBeNull();
     expect(effectiveLocalPath({ path: null }, null)).toBeNull();
   });

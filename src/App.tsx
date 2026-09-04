@@ -34,7 +34,7 @@ import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
 import { buildPluginOverflowItems } from "./utils/heroOverflow";
 import { applyReduceMotionAttr } from "./utils/reducedMotion";
 import { parseProbeCommand, isProbeProfile, buildProbeDump, type ProbeCommand } from "./utils/probeControl";
-import { type StreamResolver, stripRemasterSuffix } from "./streamResolvers";
+import { type StreamResolver, createLibraryStreamResolver } from "./streamResolvers";
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
 
@@ -1092,28 +1092,7 @@ function App() {
   // Build ordered stream resolver list from built-in + plugins + user ordering
   useEffect(() => {
     const buildResolvers = async () => {
-      const builtinLibrary: StreamResolver = {
-        id: "built-in:library",
-        name: "Library",
-        source: "built-in",
-        resolve: async (title, artistName, albumName) => {
-          const track = await invoke<Track | null>("find_track_by_metadata", {
-            title: stripRemasterSuffix(title) ?? title,
-            artistName,
-            albumName: stripRemasterSuffix(albumName),
-          });
-          if (!track || !track.path) return null;
-          const filePath = track.path.startsWith("file://") ? track.path.substring(7) : track.path;
-          // Report the matched copy's media kind so the resolver layer can
-          // reclassify the played track: a VIDEO track that falls back to a
-          // library AUDIO copy (e.g. a VPN-blocked YouTube video → its local /
-          // Subsonic audio version) must then play as audio. Otherwise the
-          // native engine renders video:true over an audio stream and the video
-          // window lingers showing black / the previous frame. (See the
-          // reclassify branch in useStreamResolution.)
-          return { url: track.path, label: "Library", sourceUrl: filePath, video: isVideoTrack(track), format: track.format };
-        },
-      };
+      const builtinLibrary = createLibraryStreamResolver();
 
       // Collect plugin stream resolvers from manifests
       const pluginResolvers: StreamResolver[] = [];

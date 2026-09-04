@@ -3,8 +3,10 @@ import { renderHook } from "@testing-library/react";
 
 // The chain lives in hook state (it is rebuilt per resolve off a dozen refs), so
 // there is no pure function to point at — mount the hook and drive the resolver
-// it publishes. This is the first coverage the chain has had; before it, neither
-// the entry ordering nor the `patch` reclassification was asserted anywhere.
+// it publishes. The library-copy fallback is the real `createLibraryStreamResolver`
+// passed through `streamResolversRef`, exactly as App.tsx wires it, so these
+// tests cover the chain and the resolver together: entry ordering, the
+// local→network copy walk, the `file_exists` guard, and `patch` reclassification.
 
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({
@@ -16,6 +18,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { useStreamResolution } from "../hooks/useStreamResolution";
+import { createLibraryStreamResolver } from "../streamResolvers";
 import type { QueueTrack, ResolvedTrackSource } from "../types";
 import type { StreamCandidate } from "../types/plugin";
 
@@ -34,10 +37,13 @@ const QBT_TRACK: QueueTrack = {
  *  path, exactly as `db/tracks.rs` composes `'file://' || co.path || '/' || t.path`. */
 const STALE_LIBRARY_PATH = "D:\\Music\\- Garage/Pearl Jam - Nothingman.mp3";
 
+const SUBSONIC_COPY_PATH = "subsonic://navidrome.example/42";
+const SUBSONIC_STREAM_URL = "https://navidrome.example/rest/stream.view?id=42";
+
 interface Opts {
-  /** What `find_track_by_metadata` answers. */
-  localMatch?: { path: string; format: string | null } | null;
-  /** What `file_exists` answers for the matched path. */
+  /** What `find_tracks_by_metadata` answers — every copy, local first. */
+  libraryMatches?: Array<{ path: string; format: string | null }>;
+  /** What `file_exists` answers for a matched local path. */
   fileOnDisk?: boolean;
   /** What the `qbt` by-URI resolver hands back. */
   uriResult?: { url: string; candidates?: StreamCandidate[]; sourceUrl?: string };
@@ -49,7 +55,7 @@ interface Opts {
 
 function mountChain(opts: Opts = {}) {
   const {
-    localMatch = null,
+    libraryMatches = [],
     fileOnDisk = true,
     uriResult = { url: "file://D:/Torrents/Vitalogy/05. Nothingman.mp3" },
     uriFails = false,
@@ -57,8 +63,9 @@ function mountChain(opts: Opts = {}) {
   } = opts;
 
   invoke.mockImplementation((cmd: string) => {
-    if (cmd === "find_track_by_metadata") return Promise.resolve(localMatch);
+    if (cmd === "find_tracks_by_metadata") return Promise.resolve(libraryMatches);
     if (cmd === "file_exists") return Promise.resolve(fileOnDisk);
+    if (cmd === "resolve_subsonic_location") return Promise.resolve(SUBSONIC_STREAM_URL);
     return Promise.reject(new Error(`unexpected command: ${cmd}`));
   });
 
@@ -73,7 +80,7 @@ function mountChain(opts: Opts = {}) {
       resolveTrackSrcRef: resolveTrackSrcRef as never,
       transcodeSessionRef: { current: null } as never,
       resolveStreamByUriRef: { current: resolveStreamByUri } as never,
-      streamResolversRef: { current: [] },
+      streamResolversRef: { current: [createLibraryStreamResolver()] },
       resolveStreamByUri,
       streamUriResolverOwner: (scheme: string) => (scheme === "qbt" ? "qbittorrent" : null),
       pluginNames: new Map([["qbittorrent", "qBittorrent"]]),
@@ -93,17 +100,16 @@ beforeEach(() => {
   invoke.mockReset();
 });
 
-describe("chain order: the track's own source, then a local copy of it", () => {
+describe("chain order: the track's own source, then a library copy of it", () => {
   it("plays the exact file that was clicked, not a title+artist match", async () => {
-    // The reported bug. A library row for the same title/artist was tried FIRST,
-    // because "prefer a local copy" was written when every remote scheme was a
-    // network stream. find_track_by_metadata is fuzzy about WHICH copy, so
-    // clicking "05. Nothingman.mp3" inside a Vitalogy torrent resolved to
-    // "Pearl Jam - Nothingman.mp3" in an unrelated compilation folder — a
-    // different recording. (Here that file is present, so the old order really
-    // would have played it.)
+    // The original bug this order exists for. A library row for the same
+    // title/artist used to be tried FIRST, and find_tracks_by_metadata is fuzzy
+    // about WHICH copy, so clicking "05. Nothingman.mp3" inside a Vitalogy
+    // torrent resolved to "Pearl Jam - Nothingman.mp3" in an unrelated
+    // compilation folder — a different recording. (Here that file is present,
+    // so the old order really would have played it.)
     const { resolve, resolveStreamByUri } = mountChain({
-      localMatch: { path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" },
+      libraryMatches: [{ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" }],
       fileOnDisk: true,
     });
 
@@ -114,11 +120,9 @@ describe("chain order: the track's own source, then a local copy of it", () => {
     expect(out.src).not.toContain("- Garage");
   });
 
-  it("falls back to the local copy when the track's own source fails", async () => {
-    // Moving the entry back must not cost the feature: it is still there, just
-    // as a fallback, which is what the rest of the chain is.
+  it("falls back to the library copy when the track's own source fails", async () => {
     const { resolve, resolveStreamByUri } = mountChain({
-      localMatch: { path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" },
+      libraryMatches: [{ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" }],
       fileOnDisk: true,
       uriFails: true,
     });
@@ -128,33 +132,48 @@ describe("chain order: the track's own source, then a local copy of it", () => {
     expect(resolveStreamByUri).toHaveBeenCalled();
     expect(out.engineSource).toEqual({ kind: "file", path: STALE_LIBRARY_PATH });
     // The matched row's path + format ride along so a path-less track can be
-    // reclassified from the copy that actually plays.
+    // reclassified from the copy that actually plays, and so `currentTrack`
+    // learns the real file behind the play (Show in folder, the tag probe).
     expect(out.patch).toEqual({ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" });
   });
 
-  it("skips a library row whose file is gone instead of dying on it", async () => {
-    // A row outlives its file. Resolving it "successfully" handed mpv a path that
-    // can't load — a *playback* failure, and the chain only advances on a
-    // *resolve* failure, so the retry re-resolved the same dead path and gave up.
-    // Now it throws during resolve, so the chain keeps going.
+  it("falls through a local row whose file is gone to the network copy", async () => {
+    // A row outlives its file. Resolving it "successfully" hands mpv a path
+    // that can't load — a *playback* failure, which never advances the chain.
+    // The Library resolver checks `file_exists` and walks the next copy of the
+    // same match instead, so the Subsonic copy plays.
     const { resolve } = mountChain({
-      localMatch: { path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" },
+      libraryMatches: [
+        { path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" },
+        { path: SUBSONIC_COPY_PATH, format: "mp3" },
+      ],
       fileOnDisk: false,
       uriFails: true,
     });
 
-    // Both entries are exhausted, so the chain reports failure rather than
-    // handing back a source that cannot play.
+    const out = await resolve();
+
+    expect(out.src).toBe(SUBSONIC_STREAM_URL);
+    expect(out.engineSource).toEqual({ kind: "http", url: SUBSONIC_STREAM_URL });
+  });
+
+  it("fails rather than handing back a dead path when no copy is playable", async () => {
+    const { resolve } = mountChain({
+      libraryMatches: [{ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" }],
+      fileOnDisk: false,
+      uriFails: true,
+    });
+
     await expect(resolve()).rejects.toThrow(/Couldn't find a playable source/);
   });
 
-  it("is the first entry for a track with no source of its own", async () => {
-    // A Home track-row carries only title + artist, so there is no native entry
-    // for the local copy to sit behind — and its `patch` is what classifies the
-    // track from the file that was matched.
+  it("serves a track with no source of its own from the library", async () => {
+    // A Home track-row carries only title + artist, so there is no native
+    // entry — the Library resolver is the first thing in the chain, and its
+    // `patch` is what classifies the track from the file that was matched.
     const { resolve, resolveStreamByUri } = mountChain({
       pathless: true,
-      localMatch: { path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" },
+      libraryMatches: [{ path: `file://${STALE_LIBRARY_PATH}`, format: "mp3" }],
       fileOnDisk: true,
     });
 

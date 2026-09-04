@@ -78,11 +78,11 @@ export function isRemoteTrack(track: { path?: string | null }): boolean {
  *
  * `isLocalTrack` only looks at the track's own scheme, which is the wrong
  * question for a track that *plays* from a local file under some other scheme:
- * a plugin resolver (qbt://, and any future one) reports its `sourceUrl` as
- * `file://…`, and the Library fallback reports a bare local path. Those files
- * are as readable as any library track — tag readers and the audio-property
- * probe work on them — so a caller asking "can I inspect this file?" must ask
- * this, not the scheme. Returns the bare OS path, `file://` stripped.
+ * a resolver that landed on a file — a plugin's (qbt://) or the built-in
+ * Library's — reports its `sourceUrl` as `file://…`. Those files are as
+ * readable as any library track — tag readers and the audio-property probe
+ * work on them — so a caller asking "can I inspect this file?" must ask this,
+ * not the scheme. Returns the bare OS path, `file://` stripped.
  */
 export function effectiveLocalPath(
   track: { path?: string | null },
@@ -92,8 +92,6 @@ export function effectiveLocalPath(
   const sourceUrl = resolvedSource?.sourceUrl ?? null;
   if (!sourceUrl) return null;
   if (sourceUrl.startsWith("file://")) return sourceUrl.slice("file://".length) || null;
-  // Library fallback: sourceUrl is the local file path, unprefixed.
-  if (resolvedSource?.name === "Library" && !sourceUrl.includes("://")) return sourceUrl;
   return null;
 }
 
