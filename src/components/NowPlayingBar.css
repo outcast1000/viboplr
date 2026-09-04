@@ -901,6 +901,28 @@
   top: -1px;
 }
 
+/* "Title — " lead of the ultra line. Yielding to a wide on-request lyric line
+   collapses it via the 1fr→0fr grid-track trick (an intrinsic width can't be
+   transitioned directly, and a fixed max-width would either clip long titles
+   out of the whole-line marquee or distort the transition timing). The lead
+   stays mounted so both directions animate; when unsupported (old WebKitGTK)
+   the tracks snap, which is exactly the old unmount behavior. */
+.mini-ultra-lead {
+  display: inline-grid;
+  grid-template-columns: 1fr;
+  vertical-align: bottom;
+  transition: grid-template-columns 250ms var(--ease-out-quart), opacity 200ms ease;
+}
+.mini-ultra-lead.is-yielded {
+  grid-template-columns: 0fr;
+  opacity: 0;
+}
+.mini-ultra-lead-inner {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .mini-ultra-track {
   font-weight: 600;
   color: var(--text-primary);

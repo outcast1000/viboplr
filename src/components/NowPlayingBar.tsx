@@ -227,22 +227,24 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   const [miniCycleState, setMiniCycleState] = useState(initialCycleState);
 
   // Compact (ultra) row: when a preempting on-request item (a sung lyric line)
-  // is too wide to share the line with the track title, the title yields for
-  // that line. `onDisplay` (from the cycler) records what's up and brings the
-  // title back the moment the content changes; `onPlan` (from the line's
-  // MarqueeText) hides it when the full line overflows while a request is
-  // showing. One-way per content instance, so it can't oscillate: hiding
-  // shrinks the line, and the next measure (no overflow) takes no action.
-  const [ultraTitleYieldedFor, setUltraTitleYieldedFor] = useState<string | null>(null);
-  const ultraDisplayRef = useRef({ sig: "", request: false });
+  // is too wide to share the line with the track title, the title yields.
+  // `onPlan` (from the line's MarqueeText) starts the yield when the full line
+  // overflows while a request is showing; `onDisplay` (from the cycler) ends it
+  // as soon as a non-request item shows through — NOT on every content change:
+  // lyric lines chain, and a per-line reset painted a frame of title + truncated
+  // line before every long one (a visible flash). The yield is one-way per
+  // burst, so it can't oscillate: hiding shrinks the line, and the next measure
+  // (no overflow) takes no action. The title stays mounted and collapses via
+  // CSS (`.mini-ultra-lead.is-yielded`) so the hand-off animates instead of
+  // popping.
+  const [ultraTitleYielded, setUltraTitleYielded] = useState(false);
+  const ultraRequestRef = useRef(false);
   const handleUltraDisplay = useCallback((d: { sig: string; request: boolean }) => {
-    ultraDisplayRef.current = d;
-    setUltraTitleYieldedFor((prev) => (prev !== null && prev !== d.sig ? null : prev));
+    ultraRequestRef.current = d.request;
+    if (!d.request) setUltraTitleYielded(false);
   }, []);
   const handleUltraPlan = useCallback((plan: MarqueePlan | null) => {
-    if (plan && ultraDisplayRef.current.request) {
-      setUltraTitleYieldedFor((prev) => prev ?? ultraDisplayRef.current.sig);
-    }
+    if (plan && ultraRequestRef.current) setUltraTitleYielded(true);
   }, []);
   // Scrub preview over the seek track: pct drives the waveform's ghost tint,
   // x positions the floating time bubble (px within .now-seek-wrap).
@@ -433,13 +435,13 @@ export const NowPlayingBar = memo(function NowPlayingBar({
               <span className="mini-ultra-title">Playback failed</span>
             ) : currentTrack ? (
               <MarqueeText className="mini-ultra-title" enabled restartKey={currentTrack.key} onPlan={handleUltraPlan}>
-                {ultraTitleYieldedFor === null && (
-                  <>
+                <span className={`mini-ultra-lead${ultraTitleYielded ? " is-yielded" : ""}`}>
+                  <span className="mini-ultra-lead-inner">
                     {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
                     <span className="mini-ultra-track">{currentTrack.title}</span>
                     <span className="mini-ultra-sep"> — </span>
-                  </>
-                )}
+                  </span>
+                </span>
                 <NowPlayingInfoCycler plain className="mini-ultra-artist" items={nowPlayingInfo} sep=" · " fallbackText={currentTrack.artist_name || "Unknown"} cycleResetKey={currentTrack.key} cycleState={miniCycleState} onCycleState={setMiniCycleState} onDisplay={handleUltraDisplay} />
               </MarqueeText>
             ) : loadingTrack ? (
