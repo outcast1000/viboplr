@@ -2,24 +2,24 @@
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
 
-/// Build an FTS5 MATCH expression requiring every word to match the row (any
-/// column) and at least one word to match inside the `cols` column set:
-/// `({cols}:w1 OR {cols}:w2 …) AND w1 AND w2 …`. An FTS5 column filter binds
-/// only to the immediately-following phrase, so the naive `{cols}:w1 AND w2`
-/// scopes just the first word — making matches depend on word order (e.g.
-/// "rage rare" missing an album that "rare rage" finds). This form is
-/// order-independent and never drops a row the naive form could match under
-/// some word ordering.
+/// Build an FTS5 MATCH expression requiring every word to match inside the
+/// `cols` column set: `{cols}:w1 AND {cols}:w2 …`. Each word carries its own
+/// column filter because an FTS5 filter binds only to the immediately-following
+/// phrase — the naive `{cols}:w1 AND w2` scopes just the first word and lets
+/// the rest match any indexed column, path included.
 ///
-/// A single word gets just `{cols}:w`: the colset match implies the global
-/// one, and the redundant `AND w` would cost a second full posting-list walk
-/// (felt on every keystroke of a query's first word).
+/// Every word must land in the entity's own fields. The looser "one word in
+/// the colset, the rest anywhere in the row" form this replaced filled the
+/// artist/album sections with junk on common-word queries: "the sound"
+/// returned every artist with "the" in the name whose tracks mentioned
+/// "sound" somewhere (a title, a folder name), while the artist actually
+/// named The Sound was pushed out of the trimmed dropdown section.
 fn fts_colset_query(cols: &str, words: &[String]) -> String {
-    if let [w] = words {
-        return format!("{{{cols}}}:{w}");
-    }
-    let scoped: Vec<String> = words.iter().map(|w| format!("{{{cols}}}:{w}")).collect();
-    format!("({}) AND {}", scoped.join(" OR "), words.join(" AND "))
+    words
+        .iter()
+        .map(|w| format!("{{{cols}}}:{w}"))
+        .collect::<Vec<_>>()
+        .join(" AND ")
 }
 
 impl Database {
@@ -582,10 +582,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fts_colset_query_single_word_has_no_redundant_global_term() {
-        // `({cols}:w) AND w` ≡ `{cols}:w` — a colset match implies the global
-        // one — but FTS5 still evaluates the redundant global term at full
-        // posting-list cost, doubling every first-word-of-a-query keystroke.
+    fn test_fts_colset_query_single_word() {
         assert_eq!(
             fts_colset_query("artist_name", &["\"art\"*".to_string()]),
             "{artist_name}:\"art\"*"
@@ -593,10 +590,13 @@ mod tests {
     }
 
     #[test]
-    fn test_fts_colset_query_multi_word_keeps_order_independent_closure() {
+    fn test_fts_colset_query_scopes_every_word_to_the_colset() {
+        // Each word needs its own column filter: an FTS5 filter binds only to
+        // the phrase right after it, so `{cols}:w1 AND w2` would let w2 match
+        // any column (path included) — the "the sound" junk-results bug.
         assert_eq!(
             fts_colset_query("album_title artist_name", &["\"rage\"*".to_string(), "\"rare\"*".to_string()]),
-            "({album_title artist_name}:\"rage\"* OR {album_title artist_name}:\"rare\"*) AND \"rage\"* AND \"rare\"*"
+            "{album_title artist_name}:\"rage\"* AND {album_title artist_name}:\"rare\"*"
         );
     }
 
@@ -615,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn test_search_all_matches_across_fields_in_any_word_order() {
+    fn test_search_all_requires_every_word_in_the_entity_fields() {
         let db = Database::new_in_memory().unwrap();
         let col = db
             .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
@@ -624,8 +624,9 @@ mod tests {
         seed_track(&db, col.id, "ratm/ratm/02.mp3", "Killing in the Name", "Rage Against The Machine", "Rage Against The Machine");
         db.recompute_counts().unwrap();
 
-        // An album must be findable by artist word + album word, in either order
-        // ("rage" only exists in the artist name, "rare" only in the album title).
+        // Albums: every word must land in album title OR artist name, in either
+        // word order ("rage" only exists in the artist name, "rare" only in the
+        // album title).
         for q in ["rage rare", "rare rage"] {
             let res = db.search_all(q, 10, 10, 10).unwrap();
             assert!(
@@ -633,19 +634,55 @@ mod tests {
                 "query {q:?} should return the album, got: {:?}",
                 res.albums.iter().map(|a| &a.title).collect::<Vec<_>>()
             );
-            // The artist section keeps matching artist word + non-artist word.
+            // Artists: every word must be in the artist NAME — "rare" is not,
+            // so the artist section stays clean.
             assert!(
-                res.artists.iter().any(|a| a.name == "Rage Against The Machine"),
-                "query {q:?} should return the artist"
+                res.artists.is_empty(),
+                "query {q:?} must not match any artist, got: {:?}",
+                res.artists.iter().map(|a| &a.name).collect::<Vec<_>>()
             );
         }
 
-        // Album-title word + track-title word still matches (the self-titled
-        // album is found via its track "Killing in the Name").
+        // A track-title word does not qualify an album ("killing" exists only
+        // in the track title) — but the track itself still matches, since
+        // tracks search all fields.
         let res = db.search_all("rage killing", 10, 10, 10).unwrap();
         assert!(
-            res.albums.iter().any(|a| a.title == "Rage Against The Machine"),
-            "album-title + track-title words should still match the album"
+            res.albums.is_empty(),
+            "a track-title word must not match the album section, got: {:?}",
+            res.albums.iter().map(|a| &a.title).collect::<Vec<_>>()
+        );
+        assert!(
+            res.tracks.iter().any(|t| t.title == "Killing in the Name"),
+            "the track section keeps matching artist word + title word"
+        );
+    }
+
+    #[test]
+    fn test_search_all_common_word_query_does_not_flood_sections() {
+        // The shape of the original bug report: searching "the sound" filled
+        // Artists/Albums with rows where only ONE of the words was in the
+        // entity's name ("Poison the Well", "…Soundtrack") and the other
+        // matched elsewhere in the row, crowding out the artist The Sound.
+        let db = Database::new_in_memory().unwrap();
+        let col = db
+            .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        seed_track(&db, col.id, "sound/jeopardy/01.mp3", "Heartland", "The Sound", "Jeopardy");
+        seed_track(&db, col.id, "poison/01.mp3", "A Sound Beginning", "Poison the Well", "The Opposite of December");
+        seed_track(&db, col.id, "bregovic/01.mp3", "In the Deathcar", "Goran Bregovic", "Arizona Dream (Original Motion Picture Soundtrack)");
+        db.recompute_counts().unwrap();
+
+        let res = db.search_all("the sound", 10, 10, 10).unwrap();
+        assert_eq!(
+            res.artists.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+            vec!["The Sound"],
+            "only the artist whose name carries every word matches"
+        );
+        assert_eq!(
+            res.albums.iter().map(|a| a.title.as_str()).collect::<Vec<_>>(),
+            vec!["Jeopardy"],
+            "only albums whose title/artist carry every word match (\"Soundtrack\" alone is not enough)"
         );
     }
 
