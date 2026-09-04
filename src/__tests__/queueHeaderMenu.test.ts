@@ -9,8 +9,6 @@ function makeDeps(overrides: Partial<QueueHeaderMenuDeps> = {}): QueueHeaderMenu
     onSaveAsM3U: vi.fn(),
     onPublishQueue: vi.fn(),
     onExportAsMixtape: vi.fn(),
-    preferVideoResolution: false,
-    onPreferVideoResolutionChange: vi.fn(),
     onClear: vi.fn(),
     ...overrides,
   };
@@ -54,7 +52,6 @@ describe("buildQueueHeaderMenuSpecs", () => {
       "Load playlist…",
       "Save", "Save as Playlist", "Export as M3U",
       "Share", "Publish hosted source…", "Save as file (.mixtape)…",
-      "Prefer video",
       "Clear playlist",
     ]);
   });
@@ -87,28 +84,11 @@ describe("buildQueueHeaderMenuSpecs", () => {
     expect(deps[key]).toHaveBeenCalledTimes(1);
   });
 
-  it("reflects the prefer-video flag as the check state", () => {
-    const on = buildQueueHeaderMenuSpecs(makeDeps({ preferVideoResolution: true }));
-    const item = on.find((s) => s.kind === "check");
-    expect(item).toMatchObject({ kind: "check", checked: true });
-    const off = buildQueueHeaderMenuSpecs(makeDeps({ preferVideoResolution: false }));
-    expect(off.find((s) => s.kind === "check")).toMatchObject({ checked: false });
-  });
-
-  it("toggles prefer-video to the opposite of its current value", () => {
-    const onChange = vi.fn();
-    invokeItem(
-      buildQueueHeaderMenuSpecs(makeDeps({ preferVideoResolution: true, onPreferVideoResolutionChange: onChange })),
-      "Prefer video",
-    );
-    expect(onChange).toHaveBeenCalledWith(false);
-
-    onChange.mockClear();
-    invokeItem(
-      buildQueueHeaderMenuSpecs(makeDeps({ preferVideoResolution: false, onPreferVideoResolutionChange: onChange })),
-      "Prefer video",
-    );
-    expect(onChange).toHaveBeenCalledWith(true);
+  // Prefer video is deliberately NOT in this menu — it is a visible header
+  // button with an in-list banner while on (see QueuePanel), because a mode
+  // that changes what every play does must not hide behind a ⋯.
+  it("carries no prefer-video item", () => {
+    expect(texts(buildQueueHeaderMenuSpecs(makeDeps()))).not.toContain("Prefer video");
   });
 
   it("separates the destructive Clear from the rest", () => {

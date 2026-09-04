@@ -135,8 +135,6 @@ interface NowPlayingBarProps {
   eqShowBarControl: boolean;
   onEqShowBarControlChange: (v: boolean) => void;
   onToggleQueueMode: () => void;
-  onRandomize: () => void;
-  queueLength: number;
   onToggleAutoContinue: () => void;
   onToggleAutoContinueSameFormat: () => void;
   onToggleAutoContinuePopover: () => void;
@@ -196,7 +194,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqCustomPresets,
   onEqEnabledChange, onEqModeChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqBassChange, onEqTrebleChange, onEqResetAll, onEqSaveAs,
   eqShowBarControl, onEqShowBarControlChange,
-  onToggleQueueMode, onRandomize, queueLength,
+  onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, likeDisabled, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
@@ -697,8 +695,6 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           <QueueModeGroup
             queueMode={queueMode}
             onToggleQueueMode={onToggleQueueMode}
-            onRandomize={onRandomize}
-            queueLength={queueLength}
             autoContinueEnabled={autoContinueEnabled}
             autoContinueSameFormat={autoContinueSameFormat}
             showAutoContinuePopover={showAutoContinuePopover}

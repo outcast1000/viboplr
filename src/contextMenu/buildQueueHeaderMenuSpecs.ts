@@ -1,8 +1,10 @@
 // Queue header (⋯) menu spec builder, extracted from QueuePanel.
 //
-// Pure: given the queue-level callbacks and the prefer-video flag, returns the
-// MenuItemSpec[] to display. QueuePanel keeps a thin useCallback wrapper that
-// owns the anchor rect + showNativeMenu.
+// Pure: given the queue-level callbacks, returns the MenuItemSpec[] to
+// display. QueuePanel keeps a thin useCallback wrapper that owns the anchor
+// rect + showNativeMenu. (Prefer video and Randomize are visible header
+// buttons, not menu items — a mode that changes what every play does must not
+// hide behind a ⋯.)
 //
 // Extracted for the same reason buildContextMenuSpecs was: showNativeMenu opens
 // a native OS menu with no DOM, so every item behind it — including "Clear
@@ -17,8 +19,6 @@ export interface QueueHeaderMenuDeps {
   onSaveAsM3U: () => void;
   onPublishQueue: () => void;
   onExportAsMixtape: () => void;
-  preferVideoResolution: boolean;
-  onPreferVideoResolutionChange: (enabled: boolean) => void;
   onClear: () => void;
 }
 
@@ -45,13 +45,6 @@ export function buildQueueHeaderMenuSpecs(d: QueueHeaderMenuDeps): MenuItemSpec[
         { kind: "item", text: "Publish hosted source…", action: d.onPublishQueue },
         { kind: "item", text: "Save as file (.mixtape)…", action: d.onExportAsMixtape },
       ],
-    },
-    { kind: "separator" },
-    {
-      kind: "check",
-      text: "Prefer video",
-      checked: d.preferVideoResolution,
-      action: () => d.onPreferVideoResolutionChange(!d.preferVideoResolution),
     },
     { kind: "separator" },
     { kind: "item", text: "Clear playlist", action: d.onClear },

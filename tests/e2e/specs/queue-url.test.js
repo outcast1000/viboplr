@@ -79,7 +79,6 @@ test('queue header menu offers Clear playlist', async ({ page }) => {
     const specs = mod.buildQueueHeaderMenuSpecs({
       onLoadPlaylist: noop, onSaveToPlaylists: noop, onSaveAsM3U: noop,
       onPublishQueue: noop, onExportAsMixtape: noop,
-      preferVideoResolution: false, onPreferVideoResolutionChange: noop,
       onClear: noop,
     });
     const out = [];
@@ -94,8 +93,31 @@ test('queue header menu offers Clear playlist', async ({ page }) => {
 
   expect(texts).toContain('Clear playlist');
   expect(texts).toContain('Load playlist…');
-  expect(texts).toContain('Prefer video');
   expect(texts).toContain('Save as Playlist');
+  // Prefer video moved out of this menu — it is a visible queue-header button
+  // with an in-list banner while on (see QueuePanel).
+  expect(texts).not.toContain('Prefer video');
+});
+
+test('queue header carries the Randomize and Prefer video buttons', async ({ page }) => {
+  // Both moved out of hidden surfaces (the transport bar / the ⋯ menu) to the
+  // head of the playlist. Prefer video additionally announces itself with an
+  // in-list banner whose Turn off button is the escape hatch.
+  const randomize = page.locator('.queue-header [aria-label="Randomize queue order"]');
+  const preferVideo = page.locator('.queue-header [aria-label="Prefer video"]');
+  await expect(randomize).toBeVisible();
+  await expect(preferVideo).toBeVisible();
+  await expect(preferVideo).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.queue-prefer-video-row')).toHaveCount(0);
+
+  await preferVideo.click();
+  await expect(preferVideo).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.queue-prefer-video-row')).toBeVisible();
+
+  // The banner's Turn off button disables the mode and removes the banner.
+  await page.locator('.queue-prefer-video-off').click();
+  await expect(preferVideo).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('.queue-prefer-video-row')).toHaveCount(0);
 });
 
 test('now playing bar updates when a track plays', async ({ page }) => {

@@ -39,8 +39,6 @@ interface FullscreenControlsProps {
   onVolume: (level: number) => void;
   onMute: () => void;
   onToggleQueueMode: () => void;
-  onRandomize: () => void;
-  queueLength: number;
   onToggleAutoContinue: () => void;
   onToggleAutoContinueSameFormat: () => void;
   onToggleAutoContinuePopover: () => void;
@@ -100,7 +98,7 @@ export function FullscreenControls({
   autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
   imagePath,
   onPause, onStop, onNext, onPrevious,
-  onSeek, onVolume, onMute, onToggleQueueMode, onRandomize, queueLength,
+  onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
   eq, nativeVideoActive = false, resolvedSource = null,
@@ -264,8 +262,6 @@ export function FullscreenControls({
           <QueueModeGroup
             queueMode={queueMode}
             onToggleQueueMode={onToggleQueueMode}
-            onRandomize={onRandomize}
-            queueLength={queueLength}
             autoContinueEnabled={autoContinueEnabled}
             autoContinueSameFormat={autoContinueSameFormat}
             showAutoContinuePopover={showAutoContinuePopover}

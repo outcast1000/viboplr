@@ -411,6 +411,47 @@
   to { transform: rotate(360deg); }
 }
 
+/* Leading row shown while "Prefer video" is on. The mode changes what every
+   play in the list does, so the list itself announces it — with the escape
+   hatch right there. Matches the backfill row's gutters; accent-tinted so it
+   reads as a mode, not as a queue entry. */
+.queue-prefer-video-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  color: var(--accent);
+  background: rgba(var(--accent-rgb), 0.08);
+  border-bottom: 1px solid var(--border);
+  animation: queue-item-in 220ms var(--ease-out-quart);
+}
+
+.queue-prefer-video-row svg {
+  flex-shrink: 0;
+}
+
+.queue-prefer-video-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.queue-prefer-video-off {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.queue-prefer-video-off:hover {
+  background: var(--bg-hover);
+}
+
 /* Trailing row shown while a play's remaining tracks are still resolving.
    Reuses the per-row resolving spinner so the two waits read as the same kind
    of thing, and matches the row gutters so the list doesn't appear to shift. */

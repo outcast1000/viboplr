@@ -4112,7 +4112,6 @@ function App() {
     },
     onToggleFullscreen: () => toggleFullscreenForTrack(),
     onToggleQueueMode: queueHook.toggleQueueMode,
-    onRandomize: queueHook.randomizeQueue,
     onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
     onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
     onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
@@ -4248,8 +4247,6 @@ function App() {
     onVolume: playback.handleVolume,
     onMute: playback.toggleMute,
     onToggleQueueMode: queueHook.toggleQueueMode,
-    onRandomize: queueHook.randomizeQueue,
-    queueLength: queueHook.queue.length,
     onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
     onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
     onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
@@ -5005,13 +5002,11 @@ function App() {
               onRgPreventClipChange={playback.setRgPreventClip}
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
-              preferVideoResolution={preferVideoResolution}
               playbackRate={playback.playbackRate}
               onPlaybackRateChange={playback.setPlaybackRate}
               nowPlayingVisualizers={candidatesFor(plugins.visualizers, "nowplaying").map(v => ({ key: visualizerKey(v), name: v.name }))}
               nowPlayingVisualizer={nowPlayingVisualizer}
               onNowPlayingVisualizerChange={(key) => setVisualizerSlots(prev => ({ ...prev, nowplaying: key }))}
-              onPreferVideoResolutionChange={handlePreferVideoResolutionChange}
               videoStoryboards={videoStoryboards}
               onVideoStoryboardsChange={handleVideoStoryboardsChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
@@ -5285,6 +5280,8 @@ function App() {
           onPublishQueue={handlePublishQueue}
           preferVideoResolution={preferVideoResolution}
           onPreferVideoResolutionChange={handlePreferVideoResolutionChange}
+          onRandomize={queueHook.randomizeQueue}
+          queueMode={queueHook.queueMode}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];
@@ -5721,8 +5718,6 @@ function App() {
         onToggleFullscreen={npBar.onToggleFullscreen}
         canFullscreen={canFullscreen}
         onToggleQueueMode={npBar.onToggleQueueMode}
-        onRandomize={npBar.onRandomize}
-        queueLength={queueHook.queue.length}
         onToggleAutoContinue={npBar.onToggleAutoContinue}
         onToggleAutoContinueSameFormat={npBar.onToggleAutoContinueSameFormat}
         onToggleAutoContinuePopover={npBar.onToggleAutoContinuePopover}

@@ -1056,14 +1056,12 @@ interface SettingsPanelProps {
   onRgPreventClipChange: (enabled: boolean) => void;
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
-  preferVideoResolution: boolean;
   /** Visualizer candidates for the Now Playing slot + the current pick. */
   playbackRate: number;
   onPlaybackRateChange: (rate: number) => void;
   nowPlayingVisualizers: { key: string; name: string }[];
   nowPlayingVisualizer: string | null;
   onNowPlayingVisualizerChange: (key: string | null) => void;
-  onPreferVideoResolutionChange: (enabled: boolean) => void;
   videoStoryboards: boolean;
   onVideoStoryboardsChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
@@ -1181,13 +1179,11 @@ export function SettingsPanel({
   onRgPreventClipChange,
   trackVideoHistory,
   onTrackVideoHistoryChange,
-  preferVideoResolution,
   playbackRate,
   onPlaybackRateChange,
   nowPlayingVisualizers,
   nowPlayingVisualizer,
   onNowPlayingVisualizerChange,
-  onPreferVideoResolutionChange,
   videoStoryboards,
   onVideoStoryboardsChange,
   minimizeToMiniPlayer,
@@ -1733,13 +1729,6 @@ export function SettingsPanel({
                           <option key={v.key} value={v.key}>{v.name}</option>
                         ))}
                       </select>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Prefer video<HelpLink anchor="prefer-video" topic="Prefer video" /></span>
-                        <span className="settings-description">For any track that isn't already a video — queued songs and auto-continue picks alike — try the stream resolvers (e.g. YouTube) for a music video and play it in the theater before falling back to the track's own audio source. Plays normal audio when no video is found.</span>
-                      </div>
-                      <ToggleSwitch checked={preferVideoResolution} onChange={onPreferVideoResolutionChange} />
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
