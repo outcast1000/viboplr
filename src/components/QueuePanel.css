@@ -45,11 +45,25 @@
   width: var(--queue-width, 300px);
   z-index: 1000;
   border-top: 1px solid var(--border);
+  /* Translucent over the fullscreen surface, not the opaque grid-panel
+     `--bg-secondary` — a solid slab of skin chrome over the blurred-art stage
+     reads as the windowed app leaking through (it was the "empty blue box" in
+     issue #123's screenshot). Skin tokens stay in charge: `--bg-primary-rgb` is
+     the ground every skin's text tokens are designed against, so rows remain
+     legible on light skins where an always-dark scrim would invert them. */
+  background: rgba(var(--bg-primary-rgb), 0.78);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
   transform: translateX(100%);
   transition: transform 0.22s var(--ease-out-quart, ease);
 }
 .app.audio-fs-open.fs-queue-revealed .queue-panel {
   transform: translateX(0);
+}
+/* The info bar's opaque --bg-secondary would sit as a solid strip inside the
+   translucent drawer; the drawer's own ground is enough behind it. */
+.app.audio-fs-open .queue-panel .queue-info-bar {
+  background: transparent;
 }
 /* The drawer is summoned by a pointer gesture; with no pointer there is no way to
    ask for it, so don't animate it in and out under the user. */

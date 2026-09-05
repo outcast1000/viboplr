@@ -255,6 +255,11 @@ interface QueuePanelProps {
   onToggleDislike?: (track: QueueTrack) => void;
   externalDropTarget: number | null;
   collapsed: boolean;
+  /** Audio-fullscreen drawer state: undefined outside fullscreen, else whether
+   *  the drawer is currently slid in. Drives scroll-to-current on each reveal —
+   *  the parked drawer keeps its last scroll position otherwise, so it would
+   *  open on wherever the user last browsed rather than on what's playing. */
+  fsRevealed?: boolean;
   onToggleCollapsed: () => void;
   onResizeWidth: (width: number) => void;
   isPlaying?: boolean;
@@ -299,7 +304,7 @@ export function QueuePanel({
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
   onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
-  collapsed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
+  collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures, backfillPending,
 }: QueuePanelProps) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
@@ -469,8 +474,13 @@ export function QueuePanel({
   const rowToggleLike = useCallback((t: QueueTrack) => latestRef.current.onToggleLike?.(t), []);
   const rowToggleDislike = useCallback((t: QueueTrack) => latestRef.current.onToggleDislike?.(t), []);
 
-  // Scroll to currently playing track when panel opens or un-collapses
+  // Scroll to currently playing track when panel opens, un-collapses, or the
+  // fullscreen drawer reveals (each reveal, not just the first — the parked
+  // drawer keeps its scroll position between reveals).
   useEffect(() => {
+    // Parked fullscreen drawer: wait for the reveal rather than scrolling a
+    // panel that is translated off-screen.
+    if (fsRevealed === false) return;
     if (!collapsed && queueIndex >= 0 && queuePanelRef.current) {
       requestAnimationFrame(() => {
         const list = queuePanelRef.current?.querySelector(".queue-list");
@@ -478,7 +488,7 @@ export function QueuePanel({
         item?.scrollIntoView({ block: "nearest", behavior: "smooth" });
       });
     }
-  }, [collapsed]);
+  }, [collapsed, fsRevealed]);
 
   // Auto-approve countdown for duplicate warning
   useEffect(() => {

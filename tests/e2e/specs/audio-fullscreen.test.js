@@ -96,7 +96,7 @@ test('the corner exit button leaves fullscreen', async ({ page }) => {
   await expect(page.locator('.now-playing-view')).toBeVisible();
 });
 
-test('the fullscreen bar keeps exit and drops playlist', async ({ page }) => {
+test('the fullscreen bar keeps exit and the queue button', async ({ page }) => {
   await enterFullscreen(page);
   const bar = page.locator('.audio-fs .fs-controls');
 
@@ -106,16 +106,58 @@ test('the fullscreen bar keeps exit and drops playlist', async ({ page }) => {
   // surface's corner row is accepted: that row fades with the artwork and reads
   // as part of the presentation, while the bar is the transport.
   await expect(bar.locator('button[title="Exit fullscreen"]')).toHaveCount(1);
-  // Queue is dropped, and only Queue: the queue reveals itself at the
-  // right edge on this surface, so the button would be a second route to a
-  // gesture that already exists. Video fullscreen has no such gesture and still
-  // passes one.
-  await expect(bar.locator('button[title="Queue"]')).toHaveCount(0);
+  // Queue is back: it used to be dropped as a second route to the edge-reveal
+  // gesture, but the gesture is invisible (issue #123's reporter read the drawer
+  // as broken) — the button is the discoverable route, the gesture the fast path.
+  await expect(bar.locator('button[title="Queue"]')).toHaveCount(1);
   // The rest of the bar is untouched. Prefix match: the real title carries the
   // shortcut hint ("Play / Pause (Space)"), so an exact `[title="Play / Pause"]`
   // matches nothing — as this assertion silently did until the Exit expectation
   // above stopped failing first and let execution reach it.
   await expect(bar.locator('button[title^="Play / Pause"]')).toHaveCount(1);
+});
+
+test('the bar queue button pins the drawer open until toggled again', async ({ page }) => {
+  await enterFullscreen(page);
+  const app = page.locator('.app');
+  const revealed = () => app.evaluate((el) => el.classList.contains('fs-queue-revealed'));
+  const queueBtn = page.locator('.audio-fs .fs-controls button[title="Queue"]');
+
+  await queueBtn.click();
+  await expect.poll(revealed).toBe(true);
+  await expect(queueBtn).toHaveClass(/active/);
+
+  // Pinned means pinned: moving the pointer away — which hides an edge-revealed
+  // drawer — leaves it up.
+  const { width, height } = page.viewportSize();
+  await page.mouse.move(Math.round(width / 4), Math.round(height / 2));
+  await page.waitForTimeout(200);
+  expect(await revealed()).toBe(true);
+
+  await queueBtn.click();
+  await expect.poll(revealed).toBe(false);
+});
+
+test('Cmd+P toggles the drawer in fullscreen instead of the collapsed flag', async ({ page }) => {
+  // In the grid, Cmd+P collapses the panel; in fullscreen the collapsed flag is
+  // invisible (the drawer always renders expanded), so the same intent — "show /
+  // hide the queue" — routes to the drawer pin. Without this a keyboard user has
+  // no way to open the queue in fullscreen at all: the edge gesture is
+  // pointer-only.
+  await enterFullscreen(page);
+  const app = page.locator('.app');
+  const revealed = () => app.evaluate((el) => el.classList.contains('fs-queue-revealed'));
+
+  await page.keyboard.press('ControlOrMeta+p');
+  await expect.poll(revealed).toBe(true);
+  await page.keyboard.press('ControlOrMeta+p');
+  await expect.poll(revealed).toBe(false);
+
+  // ...and the persisted collapsed state was never touched: back in the grid the
+  // panel is still expanded.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.audio-fs')).toHaveCount(0);
+  await expect(page.locator('.queue-panel.collapsed')).toHaveCount(0);
 });
 
 test("the bar's exit button leaves fullscreen", async ({ page }) => {
@@ -150,6 +192,33 @@ test('the queue reveals itself at the right edge and hides again', async ({ page
   // flicker it every time the pointer crossed that single line.
   await page.mouse.move(Math.round(width / 2), Math.round(height / 2));
   await expect.poll(revealed).toBe(false);
+});
+
+test('a collapsed queue still renders the track list in the fullscreen drawer', async ({ page }) => {
+  // The drawer CSS forces full --queue-width even when the grid column is the
+  // collapsed 40px strip — but the strip CONTENT (vertical "Queue" label, no
+  // list) used to render into it, so the drawer slid in looking empty
+  // (issue #123). In fullscreen the panel must render expanded regardless of
+  // the persisted collapsed state.
+  await page.locator('.queue-collapse-btn').click();
+  await expect(page.locator('.queue-panel.collapsed .queue-collapsed-strip')).toBeVisible();
+
+  await enterFullscreen(page);
+  const { width, height } = page.viewportSize();
+  await page.mouse.move(width - 4, Math.round(height / 2));
+  await expect
+    .poll(() => page.locator('.app').evaluate((el) => el.classList.contains('fs-queue-revealed')))
+    .toBe(true);
+
+  const panel = page.locator('.queue-panel');
+  await expect(panel).not.toHaveClass(/collapsed/);
+  await expect(panel.locator('.queue-collapsed-strip')).toHaveCount(0);
+  await expect(panel.locator('.queue-list .queue-item').first()).toBeVisible();
+
+  // The preference is untouched: leaving fullscreen restores the strip.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.audio-fs')).toHaveCount(0);
+  await expect(page.locator('.queue-panel.collapsed .queue-collapsed-strip')).toBeVisible();
 });
 
 test('leaving fullscreen forgets the revealed drawer', async ({ page }) => {
