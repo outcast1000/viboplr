@@ -47,6 +47,6 @@ export function buildQueueHeaderMenuSpecs(d: QueueHeaderMenuDeps): MenuItemSpec[
       ],
     },
     { kind: "separator" },
-    { kind: "item", text: "Clear playlist", action: d.onClear },
+    { kind: "item", text: "Clear queue", action: d.onClear },
   ];
 }

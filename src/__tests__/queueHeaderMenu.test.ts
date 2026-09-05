@@ -52,7 +52,7 @@ describe("buildQueueHeaderMenuSpecs", () => {
       "Load playlist…",
       "Save", "Save as Playlist", "Export as M3U",
       "Share", "Publish hosted source…", "Save as file (.mixtape)…",
-      "Clear playlist",
+      "Clear queue",
     ]);
   });
 
@@ -64,11 +64,11 @@ describe("buildQueueHeaderMenuSpecs", () => {
     expect(share?.kind).toBe("submenu");
   });
 
-  // "Clear playlist" is the only route to clearing the queue, and it lives
+  // "Clear queue" is the only route to clearing the queue, and it lives
   // behind a native menu — so this wiring is otherwise untested.
-  it("wires Clear playlist to onClear", () => {
+  it("wires Clear queue to onClear", () => {
     const deps = makeDeps();
-    invokeItem(buildQueueHeaderMenuSpecs(deps), "Clear playlist");
+    invokeItem(buildQueueHeaderMenuSpecs(deps), "Clear queue");
     expect(deps.onClear).toHaveBeenCalledTimes(1);
   });
 
@@ -93,7 +93,7 @@ describe("buildQueueHeaderMenuSpecs", () => {
 
   it("separates the destructive Clear from the rest", () => {
     const specs = buildQueueHeaderMenuSpecs(makeDeps());
-    const clearAt = specs.findIndex((s) => s.kind !== "separator" && s.text === "Clear playlist");
+    const clearAt = specs.findIndex((s) => s.kind !== "separator" && s.text === "Clear queue");
     expect(specs[clearAt - 1].kind).toBe("separator");
   });
 });
