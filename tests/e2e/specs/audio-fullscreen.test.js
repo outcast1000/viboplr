@@ -106,11 +106,11 @@ test('the fullscreen bar keeps exit and drops playlist', async ({ page }) => {
   // surface's corner row is accepted: that row fades with the artwork and reads
   // as part of the presentation, while the bar is the transport.
   await expect(bar.locator('button[title="Exit fullscreen"]')).toHaveCount(1);
-  // Playlist is dropped, and only Playlist: the queue reveals itself at the
+  // Queue is dropped, and only Queue: the queue reveals itself at the
   // right edge on this surface, so the button would be a second route to a
   // gesture that already exists. Video fullscreen has no such gesture and still
   // passes one.
-  await expect(bar.locator('button[title="Playlist"]')).toHaveCount(0);
+  await expect(bar.locator('button[title="Queue"]')).toHaveCount(0);
   // The rest of the bar is untouched. Prefix match: the real title carries the
   // shortcut hint ("Play / Pause (Space)"), so an exact `[title="Play / Pause"]`
   // matches nothing — as this assertion silently did until the Exit expectation

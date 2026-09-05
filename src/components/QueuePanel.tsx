@@ -686,14 +686,14 @@ export function QueuePanel({
       {!collapsed && <div className={`queue-resize-handle${resizing ? " active" : ""}`} onMouseDown={handleResizeMouseDown} />}
       {collapsed ? (
         <div className="queue-collapsed-strip" onClick={onToggleCollapsed}>
-          <span className="queue-collapsed-label">Playlist</span>
+          <span className="queue-collapsed-label">Queue</span>
           <span className="queue-collapsed-count">{queue.length} track{queue.length !== 1 ? "s" : ""}</span>
           {queue.length > 0 && <span className="queue-collapsed-duration">{formatTotalDuration(queue)}</span>}
         </div>
       ) : (
       <>
       <div className="queue-header">
-        <span className="queue-title">Playlist</span>
+        <span className="queue-title">Queue</span>
         <div className="queue-header-actions">
           <button
             className="g-btn g-btn-sm"
