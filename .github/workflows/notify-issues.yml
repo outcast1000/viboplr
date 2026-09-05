@@ -1,11 +1,15 @@
-name: Notify on new issue
+name: Notify on issue activity
 
 on:
   issues:
     types: [opened]
+  issue_comment:
+    types: [created]
 
 jobs:
   notify:
+    # Skip our own comments; issue_comment also fires on PR comments, which we keep.
+    if: github.event_name == 'issues' || github.event.comment.user.login != 'outcast1000'
     runs-on: ubuntu-latest
     steps:
       - name: Push notification via ntfy
@@ -14,18 +18,30 @@ jobs:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
           # Untrusted input goes through env vars, never inline in the script,
           # so a crafted issue title can't inject shell commands.
+          EVENT_NAME: ${{ github.event_name }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
           ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+          COMMENT_AUTHOR: ${{ github.event.comment.user.login }}
         run: |
           if [ -z "$NTFY_TOPIC" ]; then
             echo "NTFY_TOPIC secret is not set; skipping notification."
             exit 0
           fi
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            TITLE="Reply on #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
+            CLICK="$COMMENT_URL"
+            BODY="Comment by ${COMMENT_AUTHOR}: ${COMMENT_URL}"
+          else
+            TITLE="Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}"
+            CLICK="$ISSUE_URL"
+            BODY="Opened by ${ISSUE_AUTHOR}: ${ISSUE_URL}"
+          fi
           curl -sf \
-            -H "Title: Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}" \
+            -H "Title: ${TITLE}" \
             -H "Tags: speech_balloon" \
-            -H "Click: ${ISSUE_URL}" \
-            -d "Opened by ${ISSUE_AUTHOR}: ${ISSUE_URL}" \
+            -H "Click: ${CLICK}" \
+            -d "${BODY}" \
             "https://ntfy.sh/${NTFY_TOPIC}"
