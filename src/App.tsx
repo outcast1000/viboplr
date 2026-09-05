@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { exit } from "@tauri-apps/plugin-process";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { applyWindowFullscreen } from "./utils/windowFullscreen";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { subscribe, combineUnlisten, safeUnlisten } from "./utils/tauriEvents";
 import "./base.css";
@@ -674,9 +675,9 @@ function App() {
     const next = !audioFullscreen;
     if (next && !canAudioFullscreen) return;
     setAudioFullscreen(next);
-    getCurrentWindow()
-      .setFullscreen(next)
-      .catch((e) => console.error("Failed to set window fullscreen:", e));
+    applyWindowFullscreen(next).catch((e) =>
+      console.error("Failed to set window fullscreen:", e),
+    );
   }, [audioFullscreen, canAudioFullscreen]);
 
   // One fullscreen *intent*, dispatched by track kind — video to its own path

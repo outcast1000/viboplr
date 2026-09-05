@@ -352,8 +352,8 @@ export function usePlayback(
   const browserPlaybackStartedRef = useRef(false);
 
   function setWindowFullscreen(fullscreen: boolean) {
-    import("@tauri-apps/api/window")
-      .then(({ getCurrentWindow }) => getCurrentWindow().setFullscreen(fullscreen))
+    import("../utils/windowFullscreen")
+      .then(({ applyWindowFullscreen }) => applyWindowFullscreen(fullscreen))
       .catch((e) => console.error("Failed to set window fullscreen:", e));
   }
 
