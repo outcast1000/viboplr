@@ -49,6 +49,9 @@ async function buildSpecTexts(page, target, dataOverrides = {}) {
       beginRetrieveImage: noop,
       setSearchInitialQuery: noop, setSearchQueryKey: noop, setDeleteTagConfirm: noop,
       trashLabel: 'Trash',
+      // "Add to Playlist ▸" submenu inputs.
+      userPlaylists: dataOverrides.userPlaylists ?? [],
+      onAddToPlaylist: noop, onAddToNewPlaylist: noop, onBrowsePlaylists: noop,
       // Ref-shaped deps: the builder reads `.current` to decide whether the
       // owning modal exists, so these must be objects, not bare nulls.
       handleExportAsMixtapeRef: { current: null },

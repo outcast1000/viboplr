@@ -52,6 +52,8 @@ import type { PlaylistContext } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
 import type { BackfillPlay } from "./hooks/usePlayActions";
 import { useToasts } from "./hooks/useToasts";
+import { useUserPlaylists } from "./hooks/useUserPlaylists";
+import { toPlaylistTrackPayload } from "./utils/playlistPayload";
 import { useProfileSwitch } from "./hooks/useProfileSwitch";
 import ProfileSwitchOverlay from "./components/ProfileSwitchOverlay";
 import { Toasts } from "./components/Toasts";
@@ -116,6 +118,8 @@ import { HistoryView } from "./components/HistoryView";
 import type { HistoryViewHandle } from "./components/HistoryView";
 import { PlaylistsView } from "./components/PlaylistsView";
 import { SavePlaylistModal } from "./components/SavePlaylistModal";
+import { PlaylistPickerModal } from "./components/PlaylistPickerModal";
+import { ConfirmModal } from "./components/ConfirmModal";
 import { EditTrackMetadataModal, buildTrackInfoEntries, type TrackInfoEntry } from "./components/EditTrackMetadataModal";
 import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
@@ -236,6 +240,15 @@ function App() {
   const [navError, setNavError] = useState<string | null>(null);
   const [showSavePlaylistModal, setShowSavePlaylistModal] = useState(false);
   const [savePlaylistDefaultCover, setSavePlaylistDefaultCover] = useState<string | null>(null);
+  // Tracks staged for "Add to Playlist ▸ New playlist…" from a context-menu
+  // selection. While set, the SavePlaylistModal saves these instead of the queue.
+  const [playlistDraft, setPlaylistDraft] = useState<QueueTrack[] | null>(null);
+  // Duplicates held back by an "Add to Playlist" append, awaiting the user's
+  // "add anyway" confirmation. `added` is how many unique tracks already landed.
+  const [playlistDupConfirm, setPlaylistDupConfirm] = useState<{ playlistId: number; playlistName: string; duplicates: QueueTrack[]; added: number } | null>(null);
+  // Tracks staged for the searchable playlist picker ("All N playlists…" —
+  // the long tail the capped native submenu can't list).
+  const [playlistPicker, setPlaylistPicker] = useState<{ tracks: QueueTrack[]; excludeId?: number } | null>(null);
   const [editQueueTrack, setEditQueueTrack] = useState<{ index: number; title: string; artist: string; album: string; info: TrackInfoEntry[] } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
@@ -1684,6 +1697,108 @@ function App() {
     if (payload) contextMenuActions.setDeleteConfirm(payload);
   }, [library.tracks, contextMenuActions.setDeleteConfirm]);
 
+  const userPlaylists = useUserPlaylists();
+
+  // Append tracks to an existing user playlist. The backend skips entries the
+  // playlist already contains and reports which; those raise a confirm modal
+  // ("add anyway?") that re-sends exactly them with allowDuplicates — so a
+  // deliberate second copy is one click, never silent, and a mis-click adds
+  // nothing twice. Also handed to PlaylistsView's detail-row submenu.
+  const appendTracksToPlaylist = useCallback(async (playlistId: number, playlistName: string, tracks: QueueTrack[]) => {
+    if (tracks.length === 0) return;
+    try {
+      const result = await invoke<{ added: number; skipped: number; skipped_indices: number[] }>("append_playlist_tracks", {
+        playlistId,
+        tracks: tracks.map(toPlaylistTrackPayload),
+        allowDuplicates: false,
+      });
+      if (result.skipped > 0) {
+        setPlaylistDupConfirm({
+          playlistId,
+          playlistName,
+          duplicates: result.skipped_indices.map(i => tracks[i]).filter(Boolean),
+          added: result.added,
+        });
+      } else {
+        notify(`Added ${result.added} track${result.added > 1 ? "s" : ""} to ${playlistName}`);
+      }
+    } catch (e) {
+      console.error("Failed to add tracks to playlist:", e);
+      notify(`Couldn't add to ${playlistName}`);
+    }
+  }, [notify]);
+
+  // "Add anyway" from the duplicate confirm: re-send just the duplicates with
+  // the allow flag set.
+  const handlePlaylistDupConfirm = useCallback(async () => {
+    const pending = playlistDupConfirm;
+    if (!pending) return;
+    setPlaylistDupConfirm(null);
+    try {
+      const result = await invoke<{ added: number }>("append_playlist_tracks", {
+        playlistId: pending.playlistId,
+        tracks: pending.duplicates.map(toPlaylistTrackPayload),
+        allowDuplicates: true,
+      });
+      notify(`Added ${result.added} track${result.added > 1 ? "s" : ""} to ${pending.playlistName}`);
+    } catch (e) {
+      console.error("Failed to add duplicate tracks to playlist:", e);
+      notify(`Couldn't add to ${pending.playlistName}`);
+    }
+  }, [playlistDupConfirm, notify]);
+
+  // "New playlist…" from a selection: stage the tracks as a draft and open the
+  // same SavePlaylistModal the queue save uses.
+  const openNewPlaylistDraft = useCallback(async (tracks: QueueTrack[]) => {
+    if (tracks.length === 0) return;
+    try {
+      setPlaylistDraft(tracks);
+      setSavePlaylistDefaultCover(await resolveFirstAlbumCover(tracks));
+      setShowSavePlaylistModal(true);
+    } catch (e) {
+      console.error("Failed to prepare new playlist:", e);
+      notify("Couldn't create the playlist");
+    }
+  }, [notify]);
+
+  // Open the searchable playlist picker for a resolved set of tracks. Also
+  // handed to PlaylistsView (which passes its own excludeId).
+  const openPlaylistPicker = useCallback((tracks: QueueTrack[], excludeId?: number) => {
+    if (tracks.length === 0) return;
+    setPlaylistPicker({ tracks, excludeId });
+  }, []);
+
+  // Context-menu wrappers: resolve the target's tracks first.
+  const { fetchTargetTracks } = contextMenuActions;
+  const handleAddToPlaylist = useCallback(async (playlistId: number, playlistName: string, target: import("./types/contextMenu").ContextMenuTarget) => {
+    try {
+      const tracks = await fetchTargetTracks(target);
+      await appendTracksToPlaylist(playlistId, playlistName, tracks);
+    } catch (e) {
+      console.error("Failed to resolve tracks for playlist add:", e);
+      notify(`Couldn't add to ${playlistName}`);
+    }
+  }, [fetchTargetTracks, appendTracksToPlaylist, notify]);
+
+  const handleAddToNewPlaylist = useCallback(async (target: import("./types/contextMenu").ContextMenuTarget) => {
+    try {
+      const tracks = await fetchTargetTracks(target);
+      await openNewPlaylistDraft(tracks);
+    } catch (e) {
+      console.error("Failed to prepare new playlist:", e);
+      notify("Couldn't create the playlist");
+    }
+  }, [fetchTargetTracks, openNewPlaylistDraft, notify]);
+
+  const handleBrowsePlaylists = useCallback(async (target: import("./types/contextMenu").ContextMenuTarget) => {
+    try {
+      openPlaylistPicker(await fetchTargetTracks(target));
+    } catch (e) {
+      console.error("Failed to resolve tracks for playlist picker:", e);
+      notify("Couldn't open the playlist picker");
+    }
+  }, [fetchTargetTracks, openPlaylistPicker, notify]);
+
   const buildAndShowNativeMenu = useCallback((cm: { x: number; y: number; target: import("./types/contextMenu").ContextMenuTarget }) => {
     contextMenuActions.setContextMenu(cm);
     const specs = buildContextMenuSpecs(cm.target, {
@@ -1692,6 +1807,8 @@ function App() {
       albumImageCache, tagImageCache, beginRetrieveImage,
       setSearchInitialQuery, setSearchQueryKey,
       setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef,
+      userPlaylists, onAddToPlaylist: handleAddToPlaylist, onAddToNewPlaylist: handleAddToNewPlaylist,
+      onBrowsePlaylists: handleBrowsePlaylists,
     });
     if (!specs) {
       contextMenuActions.setContextMenu(null);
@@ -1700,7 +1817,7 @@ function App() {
     // Returned (errors already logged, so the promise never rejects) so a caller
     // can hold UI open for the menu's lifetime — popup resolves on dismissal.
     return showNativeMenu(cm.x, cm.y, specs).catch((e) => console.error("Failed to show native menu:", e));
-  }, [contextMenuActions, videoLayout, queueHook, library, plugins, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef]);
+  }, [contextMenuActions, videoLayout, queueHook, library, plugins, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef, userPlaylists, handleAddToPlaylist, handleAddToNewPlaylist, handleBrowsePlaylists]);
   useAssignRef(showNativeMenuRef, buildAndShowNativeMenu);
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
@@ -3928,15 +4045,12 @@ function App() {
 
   async function handleSavePlaylistConfirm(name: string, imagePath: string | null) {
     setShowSavePlaylistModal(false);
-    const tracks = queueHook.queue.map((t) => ({
-      title: t.title,
-      artist_name: t.artist_name ?? null,
-      album_name: t.album_title ?? null,
-      duration_secs: t.duration_secs ?? null,
-      source: t.path,
-      image_url: t.image_url ?? null,
-    }));
-    const ctx = queueHook.playlistContext;
+    // A staged context-menu selection ("Add to Playlist ▸ New playlist…") saves
+    // instead of the queue; the queue's playlist context doesn't describe it.
+    const draft = playlistDraft;
+    setPlaylistDraft(null);
+    const tracks = (draft ?? queueHook.queue).map(toPlaylistTrackPayload);
+    const ctx = draft ? null : queueHook.playlistContext;
     try {
       // The backend copies imageUrl into playlist_images/{id}.jpg. Never store
       // the raw path via update_playlist_image here — the default cover can
@@ -3950,8 +4064,10 @@ function App() {
         metadata: ctx?.metadata ? JSON.stringify(ctx.metadata) : null,
         tracks,
       });
+      if (draft) notify(`Created "${name}" with ${tracks.length} track${tracks.length > 1 ? "s" : ""}`);
     } catch (err) {
       console.error("Failed to save playlist:", err);
+      notify(`Couldn't save "${name}"`);
     }
   }
 
@@ -4836,6 +4952,11 @@ function App() {
               onTrackDragStart={contextMenuActions.handleTrackDragStart}
               onToggleLike={likeActions.handleToggleLike}
               onToggleDislike={likeActions.handleToggleDislike}
+              userPlaylists={userPlaylists}
+              onAddTracksToPlaylist={appendTracksToPlaylist}
+              onCreatePlaylistFromTracks={openNewPlaylistDraft}
+              onBrowsePlaylists={openPlaylistPicker}
+              onNotify={notify}
             />
           )}
 
@@ -5686,13 +5807,49 @@ function App() {
           defaultName={(() => {
             const date = new Date();
             const dateStr = date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+            if (playlistDraft) {
+              // A staged selection usually shares one artist — name it after them.
+              const artist = playlistDraft[0]?.artist_name;
+              return artist && playlistDraft.every(t => t.artist_name === artist)
+                ? `${artist} ${dateStr}`
+                : `New Playlist ${dateStr}`;
+            }
             return queueHook.playlistContext?.name
               ? `${queueHook.playlistContext.name} ${dateStr}`
               : `Queue ${dateStr}`;
           })()}
           defaultImage={savePlaylistDefaultCover}
           onSave={handleSavePlaylistConfirm}
-          onClose={() => setShowSavePlaylistModal(false)}
+          onClose={() => { setShowSavePlaylistModal(false); setPlaylistDraft(null); }}
+        />
+      )}
+
+      {playlistPicker && (
+        <PlaylistPickerModal
+          playlists={userPlaylists}
+          excludeId={playlistPicker.excludeId}
+          trackCount={playlistPicker.tracks.length}
+          onPick={(id, name) => {
+            const tracks = playlistPicker.tracks;
+            setPlaylistPicker(null);
+            appendTracksToPlaylist(id, name, tracks).catch(console.error);
+          }}
+          onClose={() => setPlaylistPicker(null)}
+        />
+      )}
+
+      {playlistDupConfirm && (
+        <ConfirmModal
+          title="Already in playlist"
+          message={
+            playlistDupConfirm.duplicates.length === 1
+              ? `"${playlistDupConfirm.duplicates[0]?.title}" is already in ${playlistDupConfirm.playlistName}.${playlistDupConfirm.added > 0 ? ` The other ${playlistDupConfirm.added} track${playlistDupConfirm.added > 1 ? "s were" : " was"} added.` : ""} Add it again?`
+              : `${playlistDupConfirm.duplicates.length} tracks are already in ${playlistDupConfirm.playlistName}.${playlistDupConfirm.added > 0 ? ` The other ${playlistDupConfirm.added} track${playlistDupConfirm.added > 1 ? "s were" : " was"} added.` : ""} Add them again?`
+          }
+          confirmLabel="Add anyway"
+          cancelLabel="Skip"
+          onConfirm={handlePlaylistDupConfirm}
+          onCancel={() => setPlaylistDupConfirm(null)}
         />
       )}
 

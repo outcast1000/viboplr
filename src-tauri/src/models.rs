@@ -437,6 +437,9 @@ pub struct Playlist {
     pub description: Option<String>,
     pub metadata: Option<String>,
     pub system_kind: Option<String>,
+    /// Last incremental mutation (append/remove/reorder/meta/cover); None for
+    /// playlists never edited since creation. `saved_at` stays creation time.
+    pub updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

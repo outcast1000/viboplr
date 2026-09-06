@@ -36,7 +36,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT p.id, p.name, p.source, p.saved_at, p.image_path,
                     (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) as track_count,
-                    p.description, p.metadata, p.system_kind
+                    p.description, p.metadata, p.system_kind, p.updated_at
              FROM playlists p ORDER BY p.saved_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -50,6 +50,7 @@ impl Database {
                 description: row.get(6)?,
                 metadata: row.get(7)?,
                 system_kind: row.get(8)?,
+                updated_at: row.get(9)?,
             })
         })?;
         rows.collect()
@@ -186,6 +187,233 @@ impl Database {
         Ok(ids.into_iter().collect())
     }
 
+    /// Err unless the playlist exists and is a user playlist (`system_kind IS
+    /// NULL`). Every incremental mutation goes through this: the protected
+    /// liked/disliked playlists have no real rows (their tracks are projected
+    /// from entity_likes, with synthetic ids), and auto mixes are regenerated
+    /// snapshots where an edit would be silently clobbered on the next
+    /// `ensure_auto_playlists`.
+    fn ensure_user_playlist(&self, playlist_id: i64) -> SqlResult<()> {
+        let exists: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT 1 FROM playlists WHERE id = ?1",
+                params![playlist_id],
+                |_| Ok(true),
+            ).optional()?.unwrap_or(false)
+        };
+        if !exists {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        if self.system_playlist_kind(playlist_id)?.is_some() {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                Some("Cannot modify a system playlist".to_string()),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Stamp a playlist's `updated_at` to now. Called by every incremental
+    /// mutation so "recently used" ordering (the Add to Playlist submenu)
+    /// reflects actual edits. Runs on the caller's connection/transaction.
+    fn touch_playlist(conn: &rusqlite::Connection, playlist_id: i64) -> SqlResult<()> {
+        conn.execute(
+            "UPDATE playlists SET updated_at = strftime('%s','now') WHERE id = ?1",
+            params![playlist_id],
+        )?;
+        Ok(())
+    }
+
+    /// Renumber a playlist's rows to `0..n-1` in their current `position`
+    /// order. Two-phase because SQLite enforces UNIQUE(playlist_id, position)
+    /// per-row during UPDATE: first flip every position negative (still
+    /// unique, can't collide with any real position), then assign the final
+    /// sequence. Must run inside the caller's transaction.
+    fn renumber_positions(conn: &rusqlite::Connection, playlist_id: i64) -> SqlResult<()> {
+        conn.execute(
+            "UPDATE playlist_tracks SET position = -position - 1 WHERE playlist_id = ?1",
+            params![playlist_id],
+        )?;
+        let ids: Vec<i64> = {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position DESC",
+            )?;
+            let rows = stmt.query_map(params![playlist_id], |r| r.get(0))?;
+            rows.collect::<SqlResult<Vec<i64>>>()?
+        };
+        let mut stmt = conn.prepare(
+            "UPDATE playlist_tracks SET position = ?1 WHERE id = ?2",
+        )?;
+        for (i, id) in ids.iter().enumerate() {
+            stmt.execute(params![i as i64, id])?;
+        }
+        Ok(())
+    }
+
+    /// Append tracks to a user playlist. With `allow_duplicates` false,
+    /// entries the playlist already contains are skipped — a duplicate is an
+    /// exact `source` match when the incoming track has one, else a
+    /// case-insensitive title+artist match; the caller warns and can re-append
+    /// the skipped ones with `allow_duplicates` true once the user confirms.
+    /// Returns `(input index, inserted row id)` pairs — the index says which
+    /// payload each row came from, so the caller's image-download step can't
+    /// pair an image with the wrong row when a skipped duplicate interleaves —
+    /// plus the number of skipped duplicates.
+    pub fn append_playlist_tracks(
+        &self,
+        playlist_id: i64,
+        tracks: &[(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)],
+        allow_duplicates: bool,
+    ) -> SqlResult<(Vec<(usize, i64)>, usize)> {
+        self.ensure_user_playlist(playlist_id)?;
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        let norm = |title: &str, artist: Option<&str>| {
+            format!("{}\u{1}{}", title.to_lowercase(), artist.unwrap_or("").to_lowercase())
+        };
+        let (mut sources, mut names) = (
+            std::collections::HashSet::new(),
+            std::collections::HashSet::new(),
+        );
+        {
+            let mut stmt = tx.prepare(
+                "SELECT source, title, artist_name FROM playlist_tracks WHERE playlist_id = ?1",
+            )?;
+            let rows = stmt.query_map(params![playlist_id], |r| {
+                Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?))
+            })?;
+            for r in rows {
+                let (source, title, artist) = r?;
+                if let Some(s) = source {
+                    sources.insert(s);
+                }
+                names.insert(norm(&title, artist.as_deref()));
+            }
+        }
+
+        let mut next: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(position) + 1, 0) FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+            |r| r.get(0),
+        )?;
+
+        let mut inserted = Vec::new();
+        let mut skipped = 0usize;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO playlist_tracks (playlist_id, position, title, artist_name, album_name, duration_secs, source, image_path)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?;
+            for (i, (title, artist, album, duration, source, image)) in tracks.iter().enumerate() {
+                let dup = !allow_duplicates && match source {
+                    Some(s) => sources.contains(*s),
+                    None => names.contains(&norm(title, *artist)),
+                };
+                if dup {
+                    skipped += 1;
+                    continue;
+                }
+                stmt.execute(params![playlist_id, next, title, artist, album, duration, source, image])?;
+                inserted.push((i, tx.last_insert_rowid()));
+                next += 1;
+                if let Some(s) = source {
+                    sources.insert((*s).to_string());
+                }
+                names.insert(norm(title, *artist));
+            }
+        }
+        if !inserted.is_empty() {
+            Self::touch_playlist(&tx, playlist_id)?;
+        }
+        tx.commit()?;
+        Ok((inserted, skipped))
+    }
+
+    /// Remove rows from a user playlist and renumber the survivors
+    /// contiguously. Returns the removed rows' image paths so the caller can
+    /// delete the files (parity with `delete_playlist_record`).
+    pub fn remove_playlist_tracks(&self, playlist_id: i64, track_ids: &[i64]) -> SqlResult<Vec<String>> {
+        self.ensure_user_playlist(playlist_id)?;
+        if track_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let placeholders = vec!["?"; track_ids.len()].join(",");
+        let mut sql_params: Vec<&dyn rusqlite::types::ToSql> = vec![&playlist_id];
+        for id in track_ids {
+            sql_params.push(id);
+        }
+        let image_paths: Vec<String> = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT image_path FROM playlist_tracks
+                 WHERE playlist_id = ?1 AND id IN ({placeholders}) AND image_path IS NOT NULL",
+            ))?;
+            let rows = stmt.query_map(sql_params.as_slice(), |r| r.get(0))?;
+            rows.collect::<SqlResult<Vec<String>>>()?
+        };
+        tx.execute(
+            &format!("DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND id IN ({placeholders})"),
+            sql_params.as_slice(),
+        )?;
+        Self::renumber_positions(&tx, playlist_id)?;
+        Self::touch_playlist(&tx, playlist_id)?;
+        tx.commit()?;
+        Ok(image_paths)
+    }
+
+    /// Apply a full permutation to a user playlist's track order.
+    /// `ordered_ids` must be exactly the playlist's current id set — a stale
+    /// frontend snapshot (row added/removed since it was taken) is rejected
+    /// rather than allowed to corrupt positions.
+    pub fn reorder_playlist_tracks(&self, playlist_id: i64, ordered_ids: &[i64]) -> SqlResult<()> {
+        self.ensure_user_playlist(playlist_id)?;
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let current: std::collections::HashSet<i64> = {
+            let mut stmt = tx.prepare(
+                "SELECT id FROM playlist_tracks WHERE playlist_id = ?1",
+            )?;
+            let rows = stmt.query_map(params![playlist_id], |r| r.get(0))?;
+            rows.collect::<SqlResult<_>>()?
+        };
+        let given: std::collections::HashSet<i64> = ordered_ids.iter().copied().collect();
+        if given.len() != ordered_ids.len() || given != current {
+            return Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                Some("Reorder does not match the playlist's current tracks".to_string()),
+            ));
+        }
+        tx.execute(
+            "UPDATE playlist_tracks SET position = -position - 1 WHERE playlist_id = ?1",
+            params![playlist_id],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "UPDATE playlist_tracks SET position = ?1 WHERE id = ?2",
+            )?;
+            for (i, id) in ordered_ids.iter().enumerate() {
+                stmt.execute(params![i as i64, id])?;
+            }
+        }
+        Self::touch_playlist(&tx, playlist_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Rename a user playlist and set its description.
+    pub fn update_playlist_meta(&self, playlist_id: i64, name: &str, description: Option<&str>) -> SqlResult<()> {
+        self.ensure_user_playlist(playlist_id)?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlists SET name = ?1, description = ?2, updated_at = strftime('%s','now') WHERE id = ?3",
+            params![name, description, playlist_id],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_playlist(&self, playlist_id: i64) -> SqlResult<()> {
         // Only the protected `liked`/`disliked` system playlists are
         // undeletable. Auto-playlists (`auto:*`) are user-deletable (they
@@ -200,6 +428,19 @@ impl Database {
         }
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM playlists WHERE id = ?1", params![playlist_id])?;
+        Ok(())
+    }
+
+    /// Set or clear a user playlist's cover image path. Guarded variant of
+    /// `update_playlist_image` for the user-facing edit flow (that one stays
+    /// unguarded for the save/import/auto-mix pipelines, which own the row).
+    pub fn set_user_playlist_image(&self, playlist_id: i64, image_path: Option<&str>) -> SqlResult<()> {
+        self.ensure_user_playlist(playlist_id)?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlists SET image_path = ?1, updated_at = strftime('%s','now') WHERE id = ?2",
+            params![image_path, playlist_id],
+        )?;
         Ok(())
     }
 

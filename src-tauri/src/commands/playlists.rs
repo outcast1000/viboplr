@@ -159,28 +159,203 @@ pub fn save_playlist_record(
         }
 
         // Download/copy track images
-        for (track_id, maybe_url) in track_image_urls {
-            if let Some(url) = maybe_url {
-                let dest = img_dir.join(format!("{}_{}.jpg", playlist_id, track_id));
-                let ok = if url.starts_with("http://") || url.starts_with("https://") {
-                    client.get(&url).send().ok()
-                        .filter(|r| r.status().is_success())
-                        .and_then(|r| r.bytes().ok())
-                        .and_then(|bytes| std::fs::write(&dest, &bytes).ok())
-                        .is_some()
-                } else {
-                    let src = std::path::Path::new(&url);
-                    src.exists() && std::fs::copy(src, &dest).is_ok()
-                };
-                if ok {
-                    let abs = dest.to_string_lossy().to_string();
-                    let _ = db_arc.update_playlist_track_image(track_id, &abs);
-                }
-            }
-        }
+        download_playlist_track_images(&img_dir, &client, &db_arc, playlist_id, track_image_urls);
     });
 
     Ok(playlist_id)
+}
+
+/// Download/copy per-track images into `playlist_images/` and record the
+/// resulting paths. Shared by `save_playlist_record` and
+/// `append_playlist_tracks` — run it on a background thread.
+fn download_playlist_track_images(
+    img_dir: &std::path::Path,
+    client: &reqwest::blocking::Client,
+    db: &Database,
+    playlist_id: i64,
+    track_image_urls: Vec<(i64, Option<String>)>,
+) {
+    for (track_id, maybe_url) in track_image_urls {
+        if let Some(url) = maybe_url {
+            let dest = img_dir.join(format!("{}_{}.jpg", playlist_id, track_id));
+            let ok = if url.starts_with("http://") || url.starts_with("https://") {
+                client.get(&url).send().ok()
+                    .filter(|r| r.status().is_success())
+                    .and_then(|r| r.bytes().ok())
+                    .and_then(|bytes| std::fs::write(&dest, &bytes).ok())
+                    .is_some()
+            } else {
+                let src = std::path::Path::new(&url);
+                src.exists() && std::fs::copy(src, &dest).is_ok()
+            };
+            if ok {
+                let abs = dest.to_string_lossy().to_string();
+                let _ = db.update_playlist_track_image(track_id, &abs);
+            }
+        }
+    }
+}
+
+/// Append tracks to a user playlist. With `allow_duplicates` false, entries
+/// already in the playlist are skipped (exact source match, falling back to
+/// title+artist) and reported — counts plus which payload indices — so the
+/// caller can warn and re-send just those with `allow_duplicates: true` once
+/// the user confirms.
+#[tauri::command]
+pub fn append_playlist_tracks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    tracks: Vec<PlaylistTrackPayload>,
+    allow_duplicates: bool,
+) -> Result<AppendPlaylistResult, String> {
+    let track_tuples: Vec<(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)> =
+        tracks.iter().map(|t| {
+            (
+                t.title.as_str(),
+                t.artist_name.as_deref(),
+                t.album_name.as_deref(),
+                t.duration_secs,
+                t.source.as_deref(),
+                None,
+            )
+        }).collect();
+
+    let (inserted, skipped) = state.db
+        .append_playlist_tracks(playlist_id, &track_tuples, allow_duplicates)
+        .map_err(|e| e.to_string())?;
+    let added = inserted.len();
+    let inserted_set: std::collections::HashSet<usize> = inserted.iter().map(|(i, _)| *i).collect();
+    let skipped_indices: Vec<usize> = (0..tracks.len()).filter(|i| !inserted_set.contains(i)).collect();
+
+    let _ = app.emit("playlists-changed", ());
+
+    // Background image download for the rows that were actually inserted.
+    // The DB returns (payload index, row id) pairs so a skipped duplicate
+    // can't shift an image onto the wrong row.
+    let track_image_urls: Vec<(i64, Option<String>)> = inserted.into_iter()
+        .map(|(idx, row_id)| (row_id, tracks[idx].image_url.clone()))
+        .collect();
+
+    if !track_image_urls.is_empty() {
+        let app_dir = state.app_dir.clone();
+        let db_arc = state.db.clone();
+        std::thread::spawn(move || {
+            let img_dir = app_dir.join("playlist_images");
+            let _ = std::fs::create_dir_all(&img_dir);
+            let client = reqwest::blocking::Client::new();
+            download_playlist_track_images(&img_dir, &client, &db_arc, playlist_id, track_image_urls);
+        });
+    }
+
+    Ok(AppendPlaylistResult { added, skipped, skipped_indices })
+}
+
+/// Remove tracks from a user playlist and delete their cached image files.
+#[tauri::command]
+pub fn remove_playlist_tracks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+) -> Result<(), String> {
+    let image_paths = state.db
+        .remove_playlist_tracks(playlist_id, &track_ids)
+        .map_err(|e| e.to_string())?;
+    for path in image_paths {
+        let _ = std::fs::remove_file(&path);
+    }
+    let _ = app.emit("playlists-changed", ());
+    Ok(())
+}
+
+/// Apply a full permutation to a user playlist's track order.
+#[tauri::command]
+pub fn reorder_playlist_tracks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    ordered_ids: Vec<i64>,
+) -> Result<(), String> {
+    state.db
+        .reorder_playlist_tracks(playlist_id, &ordered_ids)
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("playlists-changed", ());
+    Ok(())
+}
+
+/// Rename a user playlist / edit its description.
+#[tauri::command]
+pub fn update_playlist_meta(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    name: String,
+    description: Option<String>,
+) -> Result<(), String> {
+    state.db
+        .update_playlist_meta(playlist_id, &name, description.as_deref())
+        .map_err(|e| e.to_string())?;
+    let _ = app.emit("playlists-changed", ());
+    Ok(())
+}
+
+/// Set or remove a user playlist's cover. `image_path` is a picked file
+/// (typically a temp copy from `paste_clipboard_to_playlist_images` /
+/// `copy_to_playlist_images`); it is copied into `playlist_images/` under a
+/// timestamped name owned by this playlist — never stored as-is, because
+/// `delete_playlist_record` later `remove_file`s whatever path is in the DB
+/// and an arbitrary caller path could be a shared cache file. Returns the new
+/// stored path (None when removed).
+#[tauri::command]
+pub fn set_playlist_cover(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    playlist_id: i64,
+    image_path: Option<String>,
+) -> Result<Option<String>, String> {
+    let previous = state.db.get_playlists().map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|p| p.id == playlist_id)
+        .ok_or_else(|| "Playlist not found".to_string())?
+        .image_path;
+
+    let stored = match &image_path {
+        Some(src) => {
+            let img_dir = state.app_dir.join("playlist_images");
+            std::fs::create_dir_all(&img_dir).map_err(|e| e.to_string())?;
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            // Timestamped name: replacing a cover must change the path, or
+            // convertFileSrc's URL stays identical and the webview keeps
+            // showing the cached old image.
+            let dest = img_dir.join(format!("{}_{}.jpg", playlist_id, timestamp));
+            std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
+            Some(dest.to_string_lossy().to_string())
+        }
+        None => None,
+    };
+
+    state.db
+        .set_user_playlist_image(playlist_id, stored.as_deref())
+        .map_err(|e| e.to_string())?;
+
+    // Clean up: the previous stored cover, and the picked temp source.
+    if let Some(prev) = previous {
+        if stored.as_deref() != Some(prev.as_str()) {
+            let _ = std::fs::remove_file(&prev);
+        }
+    }
+    if let Some(src) = image_path {
+        if stored.as_deref() != Some(src.as_str()) {
+            let _ = std::fs::remove_file(&src);
+        }
+    }
+
+    let _ = app.emit("playlists-changed", ());
+    Ok(stored)
 }
 
 #[tauri::command]

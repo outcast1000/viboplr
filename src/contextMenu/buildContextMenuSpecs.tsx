@@ -6,6 +6,8 @@ import type { MenuItemSpec } from "../nativeMenu";
 import type { ContextMenuTarget } from "../types/contextMenu";
 import { toPluginTarget } from "../types/contextMenu";
 import { buildPluginMenuSpecs } from "./pluginMenuGroups";
+import { buildAddToPlaylistSubmenu } from "./addToPlaylistMenu";
+import type { UserPlaylist } from "../hooks/useUserPlaylists";
 import { isLocalTrack, parseLibraryId } from "../queueEntry";
 import type { useContextMenuActions } from "../hooks/useContextMenuActions";
 import type { useLibrary } from "../hooks/useLibrary";
@@ -35,6 +37,14 @@ export interface ContextMenuDeps {
   setSearchQueryKey: (fn: (k: number) => number) => void;
   setDeleteTagConfirm: (tags: { id: number; name: string }[] | null) => void;
   trashLabel: string;
+  /** The user's own (mutable) playlists, for the "Add to Playlist ▸" submenu. */
+  userPlaylists: UserPlaylist[];
+  /** Append the target's tracks to an existing user playlist. */
+  onAddToPlaylist: (playlistId: number, playlistName: string, target: ContextMenuTarget) => void;
+  /** Create a new playlist from the target's tracks (opens the save modal). */
+  onAddToNewPlaylist: (target: ContextMenuTarget) => void;
+  /** Open the searchable playlist picker (the submenu caps its list). */
+  onBrowsePlaylists: (target: ContextMenuTarget) => void;
   handleExportAsMixtapeRef: React.MutableRefObject<((trackIds: number[], defaultTitle?: string) => void) | null>;
   openPublishMusicSourceRef: React.MutableRefObject<((trackIds: number[]) => void) | null>;
   openEditTrackInfoRef: React.MutableRefObject<((queueIndex: number) => void) | null>;
@@ -107,6 +117,15 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       if (d.contextMenuActions.handleQueueMoveToBottom) {
         specs.push({ kind: "item", text: "Move to bottom", action: d.contextMenuActions.handleQueueMoveToBottom });
       }
+
+      // Add to Playlist — queue entries are QueueTracks resolved in place, so
+      // this works for external (ext:) entries too, not just library rows.
+      specs.push({ kind: "separator" });
+      specs.push(buildAddToPlaylistSubmenu(d.userPlaylists, {
+        onPick: (id, name) => d.onAddToPlaylist(id, name, target),
+        onNew: () => d.onAddToNewPlaylist(target),
+        onBrowse: () => d.onBrowsePlaylists(target),
+      }));
 
       // Single-track actions
       if (count === 1) {
@@ -217,6 +236,16 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       if (hasId) {
         specs.push({ kind: "item", text: isMulti ? `Play ${target.trackIds.length} tracks` : "Play", action: d.contextMenuActions.handleContextPlay });
         specs.push({ kind: "item", text: isMulti ? `Enqueue ${target.trackIds.length} tracks` : "Enqueue", action: d.contextMenuActions.handleContextEnqueue });
+      }
+      // Add to Playlist — track/multi-track/album selections append to a user
+      // playlist (duplicates skipped backend-side) or seed a new one. Gated on
+      // hasId like Play/Enqueue: a metadata-only row can't resolve to sources.
+      if (hasId && (target.kind === "track" || target.kind === "multi-track" || target.kind === "album")) {
+        specs.push(buildAddToPlaylistSubmenu(d.userPlaylists, {
+          onPick: (id, name) => d.onAddToPlaylist(id, name, target),
+          onNew: () => d.onAddToNewPlaylist(target),
+          onBrowse: () => d.onBrowsePlaylists(target),
+        }));
       }
       if (hasId && (target.kind === "artist" || target.kind === "album" || target.kind === "tag")) {
         const refreshAction = target.kind === "artist"

@@ -30,7 +30,11 @@ import { SortButton } from "./search/searchShared";
 import { EntityRowActions } from "./search/SearchEntityResults";
 import { toggleSortKey, chainDir, type SortKey } from "../sortChain";
 import { TrackCard, type TrackCardArt } from "./TrackCard";
-import { filterPlaylistTracks, sortPlaylistTracks, type TrackMediaFilter } from "../utils/playlistTrackList";
+import { filterPlaylistTracks, sortPlaylistTracks, chainIsStoredOrder, type TrackMediaFilter } from "../utils/playlistTrackList";
+import { buildAddToPlaylistSubmenu } from "../contextMenu/addToPlaylistMenu";
+import { computeReorderedIds } from "../utils/playlistReorder";
+import type { UserPlaylist } from "../hooks/useUserPlaylists";
+import { SavePlaylistModal } from "./SavePlaylistModal";
 import { useImageCache } from "../hooks/useImageCache";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveTrackImage, pickEntityImagePath } from "../utils/trackImage";
@@ -104,6 +108,16 @@ interface PlaylistsViewProps {
   // system playlist an unlike drops the row on the next entity_likes reload.
   onToggleLike?: (track: QueueTrack) => void;
   onToggleDislike?: (track: QueueTrack) => void;
+  /** The user's own (mutable) playlists, for the detail view's "Add to Playlist ▸" submenu. */
+  userPlaylists?: UserPlaylist[];
+  /** Append tracks to another user playlist (App owns the invoke + toast). */
+  onAddTracksToPlaylist?: (playlistId: number, playlistName: string, tracks: QueueTrack[]) => void;
+  /** Create a new playlist from tracks (App opens the save modal). */
+  onCreatePlaylistFromTracks?: (tracks: QueueTrack[]) => void;
+  /** Open the searchable playlist picker (the submenu caps its list). */
+  onBrowsePlaylists?: (tracks: QueueTrack[], excludeId?: number) => void;
+  /** Lightweight feedback (useToasts.notify). */
+  onNotify?: (message: string) => void;
 }
 
 function isLocalPath(source: string | null): boolean {
@@ -121,23 +135,37 @@ interface PlaylistsViewSettings {
   sortBarCollapsed: boolean;
 }
 
-// Same idea for the playlist detail's track list. One setting shared by all
-// playlists (a per-playlist sort would be state nobody could find again);
-// the search query is deliberately NOT persisted — it resets per playlist.
+// Same idea for the playlist detail's track list — view mode, media filter and
+// the sort bar's collapsed state are shared by all playlists. The SORT CHAIN is
+// not: it persists per playlist (see `playlistTrackSortChains` below), because
+// a global chain silently disabled drag-to-reorder on every playlist after one
+// sort click anywhere. The search query is not persisted — it resets per
+// playlist.
 interface PlaylistTracksViewSettings {
   viewMode: ViewMode;
-  sortChain: SortKey[];
+  /** Legacy: the old global chain. No longer applied or written — each playlist
+   *  now carries its own chain — but kept in the type so old stores parse. */
+  sortChain?: SortKey[];
   mediaFilter: TrackMediaFilter;
   sortBarCollapsed: boolean;
 }
 
+// Per-playlist sort chains, keyed by playlist id. Absent key = natural
+// (stored) order, which is what makes a fresh user playlist reorderable.
+type PlaylistTrackSortChains = Record<string, SortKey[]>;
 
-export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onLocateTrack, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart, onToggleLike, onToggleDislike }: PlaylistsViewProps) {
+
+export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnqueueTracks, onStartRadio, onLocateTrack, onExportAsMixtape, pluginMenuItems, onPluginAction, onTrackDragStart, onToggleLike, onToggleDislike, userPlaylists, onAddTracksToPlaylist, onCreatePlaylistFromTracks, onBrowsePlaylists, onNotify }: PlaylistsViewProps) {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [tracks, setTracks] = useState<PlaylistTrack[]>([]);
   const [deleteConfirm, setDeleteConfirm] = useState<Playlist | null>(null);
   const [editTrack, setEditTrack] = useState<PlaylistTrack | null>(null);
+  // "Edit details…" (rename / description / cover) for the open user playlist.
+  const [editDetails, setEditDetails] = useState(false);
+  // Drag-to-reorder insert indicator: rows at or after this display index shift
+  // to show the drop line. Null while no reorder drag is live.
+  const [reorderInsertIndex, setReorderInsertIndex] = useState<number | null>(null);
   const [folderError, setFolderError] = useState<string | null>(null);
   const [refreshingAuto, setRefreshingAuto] = useState(false);
   // Detail-view multi-select (by playlist-track id) + drag-to-queue handshake.
@@ -163,13 +191,17 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   // Seed for the Shuffle sort; bumped per Shuffle click so each click re-rolls
   // while re-renders keep the same order (see sortPlaylistTracks).
   const [shuffleKey, setShuffleKey] = useState(1);
+  // Per-playlist sort chains (see PlaylistTrackSortChains). A ref: read when a
+  // playlist opens and written when its chain changes — never during render.
+  const trackSortChainsRef = useRef<PlaylistTrackSortChains>({});
 
   useEffect(() => {
     Promise.all([
       store.get<PlaylistsViewSettings>("playlistsViewSettings"),
       store.get<PlaylistTracksViewSettings>("playlistTracksViewSettings"),
+      store.get<PlaylistTrackSortChains>("playlistTrackSortChains"),
     ])
-      .then(([saved, savedTracks]) => {
+      .then(([saved, savedTracks, savedChains]) => {
         if (saved) {
           setViewMode(saved.viewMode ?? "tiles");
           setSortChain(saved.sortChain ?? []);
@@ -178,10 +210,14 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         }
         if (savedTracks) {
           setTrackViewMode(savedTracks.viewMode ?? "list");
-          setTrackSortChain(savedTracks.sortChain ?? []);
+          // Deliberately NOT savedTracks.sortChain: the legacy global chain
+          // gated reordering on every playlist at once. Chains are per-playlist
+          // now; the legacy value is dropped rather than migrated (there is no
+          // "the playlist it belonged to").
           setTrackMediaFilter(savedTracks.mediaFilter ?? "all");
           setTrackSortBarCollapsed(savedTracks.sortBarCollapsed ?? true);
         }
+        if (savedChains) trackSortChainsRef.current = savedChains;
       })
       .catch((e) => console.error("Failed to restore playlists view settings:", e))
       .finally(() => { settingsRestoredRef.current = true; });
@@ -195,9 +231,28 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
 
   useEffect(() => {
     if (!settingsRestoredRef.current) return;
-    store.set("playlistTracksViewSettings", { viewMode: trackViewMode, sortChain: trackSortChain, mediaFilter: trackMediaFilter, sortBarCollapsed: trackSortBarCollapsed })
+    store.set("playlistTracksViewSettings", { viewMode: trackViewMode, mediaFilter: trackMediaFilter, sortBarCollapsed: trackSortBarCollapsed })
       .catch((e) => console.error("Failed to persist playlist tracks view settings:", e));
-  }, [trackViewMode, trackSortChain, trackMediaFilter, trackSortBarCollapsed]);
+  }, [trackViewMode, trackMediaFilter, trackSortBarCollapsed]);
+
+  // Persist the open playlist's own sort chain. An empty chain deletes the
+  // entry (absent = natural order), and ids of since-deleted playlists are
+  // pruned so the record doesn't grow forever.
+  useEffect(() => {
+    if (!settingsRestoredRef.current || !selectedPlaylist) return;
+    const chains = { ...trackSortChainsRef.current };
+    if (trackSortChain.length > 0) chains[String(selectedPlaylist.id)] = trackSortChain;
+    else delete chains[String(selectedPlaylist.id)];
+    if (playlists.length > 0) {
+      const live = new Set(playlists.map(p => String(p.id)));
+      for (const id of Object.keys(chains)) {
+        if (!live.has(id)) delete chains[id];
+      }
+    }
+    trackSortChainsRef.current = chains;
+    store.set("playlistTrackSortChains", chains)
+      .catch((e) => console.error("Failed to persist playlist sort chains:", e));
+  }, [trackSortChain, selectedPlaylist, playlists]);
 
   const handleSortClick = useCallback((field: string, e?: React.MouseEvent) => {
     setSortChain(prev => toggleSortKey(prev, field, e?.shiftKey ?? false));
@@ -306,6 +361,8 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     setSelectedPlaylist(pl);
     setSelectedTrackIds(new Set());
     setTrackQuery("");
+    // Each playlist carries its own sort; absent = natural (stored) order.
+    setTrackSortChain(trackSortChainsRef.current[String(pl.id)] ?? []);
     lastClickedTrackRef.current = null;
     setTracks(await loadPlaylistTracks(pl.id));
   }, [loadPlaylistTracks]);
@@ -327,6 +384,72 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     [tracks, trackQuery, trackMediaFilter, trackSortChain, shuffleKey],
   );
 
+  // Editing (remove / reorder / rename / cover) is user playlists only: the
+  // liked/disliked projections have no real rows and auto mixes are regenerated
+  // snapshots — the backend rejects mutations on both, so don't offer them.
+  const editable = !!selectedPlaylist && !selectedPlaylist.system_kind;
+  // Reordering is only meaningful when the rows are shown in their stored
+  // (position) order with nothing filtered out — under a sort or filter the
+  // on-screen neighbors aren't the position neighbors, so a drop is ambiguous.
+  // "# ascending" counts as stored order (chainIsStoredOrder).
+  const naturalOrder = chainIsStoredOrder(trackSortChain) && !trackQuery.trim() && trackMediaFilter === "all";
+
+  // The rows a row-level action applies to: the whole multi-selection when the
+  // pressed row is part of one, else just that row (same rule as the drag).
+  const effectiveSelection = useCallback((t: PlaylistTrack): PlaylistTrack[] =>
+    (selectedTrackIds.has(t.id) && selectedTrackIds.size > 1)
+      ? displayTracks.filter(x => selectedTrackIds.has(x.id))
+      : [t],
+  [selectedTrackIds, displayTracks]);
+
+  // Remove rows from the open user playlist. Optimistic (the rows vanish at
+  // once), reverts from DB on failure — the handleEditTrackSave precedent.
+  const handleRemoveTracks = useCallback(async (sel: PlaylistTrack[]) => {
+    if (!selectedPlaylist || sel.length === 0) return;
+    const playlistId = selectedPlaylist.id;
+    const ids = new Set(sel.map(t => t.id));
+    // Renumber the survivors like the backend does — positions are visible
+    // (the "#" column), so a gap would show until the next reload.
+    setTracks(prev => prev.filter(t => !ids.has(t.id)).map((t, i) => ({ ...t, position: i })));
+    setSelectedTrackIds(new Set());
+    try {
+      await invoke("remove_playlist_tracks", { playlistId, trackIds: [...ids] });
+    } catch (e) {
+      console.error("Failed to remove playlist tracks:", e);
+      setTracks(await loadPlaylistTracks(playlistId));
+    }
+  }, [selectedPlaylist, loadPlaylistTracks]);
+
+  // Save the "Edit details…" modal: rename/description, then the cover only
+  // when it changed. Optimistic on the open playlist; reverts via reload.
+  const handleEditDetailsSave = useCallback(async (name: string, imagePath: string | null, description: string | null) => {
+    if (!selectedPlaylist) return;
+    const prev = selectedPlaylist;
+    setEditDetails(false);
+    const patch = { ...prev, name, description };
+    setSelectedPlaylist(patch);
+    setPlaylists(list => list.map(p => (p.id === prev.id ? { ...p, name, description } : p)));
+    try {
+      await invoke("update_playlist_meta", { playlistId: prev.id, name, description });
+      if (imagePath !== prev.image_path) {
+        const stored = await invoke<string | null>("set_playlist_cover", { playlistId: prev.id, imagePath });
+        setSelectedPlaylist(cur => (cur && cur.id === prev.id ? { ...cur, image_path: stored } : cur));
+      }
+    } catch (e) {
+      console.error("Failed to update playlist details:", e);
+      // Re-read the truth rather than restoring `prev` — the rename may have
+      // landed even though the cover write failed.
+      try {
+        const rows = await invoke<Playlist[]>("get_playlists");
+        setPlaylists(rows);
+        const fresh = rows.find(p => p.id === prev.id);
+        if (fresh) setSelectedPlaylist(fresh);
+      } catch (e2) {
+        console.error("Failed to reload playlists after edit failure:", e2);
+      }
+    }
+  }, [selectedPlaylist]);
+
   // Left-click selection over the detail rows (Cmd/Ctrl = toggle, Shift = range).
   // Suppressed right after a drag and when the click lands on a hover-tray button.
   const handleRowClick = useCallback((e: React.MouseEvent, index: number) => {
@@ -337,33 +460,111 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     lastClickedTrackRef.current = index;
   }, [displayTracks]);
 
-  // Drag-to-queue: past a 5px threshold, hand the dragged tracks (the whole
-  // selection if the pressed row is part of a multi-selection, else just it) to
-  // the shared queue drag handshake.
+  // Apply a reorder drop: permute `tracks` optimistically (positions
+  // reassigned client-side so the Edit-info modal's position stays right),
+  // then persist. Reverts from DB on failure.
+  const applyReorder = useCallback(async (movedIds: number[], insertAt: number) => {
+    if (!selectedPlaylist) return;
+    const playlistId = selectedPlaylist.id;
+    const ids = tracks.map(t => t.id);
+    const orderedIds = computeReorderedIds(ids, movedIds, insertAt);
+    if (orderedIds === ids) return; // no-op move (same reference back)
+    const byId = new Map(tracks.map(t => [t.id, t]));
+    setTracks(orderedIds.map((id, i) => ({ ...byId.get(id)!, position: i })));
+    try {
+      await invoke("reorder_playlist_tracks", { playlistId, orderedIds });
+    } catch (e) {
+      console.error("Failed to reorder playlist tracks:", e);
+      setTracks(await loadPlaylistTracks(playlistId));
+    }
+  }, [selectedPlaylist, tracks, loadPlaylistTracks]);
+
+  // Row drag. Two gestures share the mousedown, raw mouse listeners per the
+  // WKWebView drag rule:
+  // - On an editable user playlist in natural order (list/table modes), the drag
+  //   REORDERS within the playlist — rows carry data-pl-index, the drop line
+  //   comes from row midpoints — and hands off to the shared drag-to-queue
+  //   handshake if the pointer enters the queue panel mid-gesture.
+  // - Everywhere else it's the plain drag-to-queue it always was.
   const handleRowMouseDown = useCallback((e: React.MouseEvent, index: number) => {
-    if (e.button !== 0 || !onTrackDragStart) return;
+    if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest(".row-hover-action, .ds-card-play, .album-card-menu-btn")) return;
+    const canReorder = editable && naturalOrder && trackViewMode !== "tiles";
+    // Reorder intent that's currently gated (a search, sort or filter is
+    // active): keep the local drag so a drop inside the list can SAY why
+    // nothing moved, instead of silently doing nothing.
+    const reorderGated = editable && !naturalOrder && trackViewMode !== "tiles";
+    if (!canReorder && !onTrackDragStart) return;
     const startX = e.clientX, startY = e.clientY;
     didDragRef.current = false;
-    const onMove = (ev: MouseEvent) => {
-      if (didDragRef.current) return;
-      if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 5) return;
-      didDragRef.current = true;
+    const clicked = displayTracks[index];
+    const source = (selectedTrackIds.has(clicked.id) && selectedTrackIds.size > 1)
+      ? displayTracks.filter(t => selectedTrackIds.has(t.id))
+      : [clicked];
+
+    let ghost: HTMLDivElement | null = null;
+    let insertAt: number | null = null;
+    const cleanup = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      const clicked = displayTracks[index];
-      const source = (selectedTrackIds.has(clicked.id) && selectedTrackIds.size > 1)
-        ? displayTracks.filter(t => selectedTrackIds.has(t.id))
-        : [clicked];
-      onTrackDragStart(source.map(playlistTrackToMinimalTrack));
+      if (ghost) { ghost.remove(); ghost = null; }
+      setReorderInsertIndex(null);
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!didDragRef.current) {
+        if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 5) return;
+        didDragRef.current = true;
+        if (!canReorder && !reorderGated) {
+          // Plain drag-to-queue: hand the whole gesture to the shared handshake.
+          cleanup();
+          onTrackDragStart?.(source.map(playlistTrackToMinimalTrack));
+          return;
+        }
+        ghost = document.createElement("div");
+        ghost.className = "queue-drag-ghost";
+        ghost.textContent = `${source.length} track${source.length > 1 ? "s" : ""}`;
+        document.body.appendChild(ghost);
+      }
+      if (ghost) {
+        ghost.style.left = `${ev.clientX + 12}px`;
+        ghost.style.top = `${ev.clientY - 10}px`;
+      }
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (onTrackDragStart && under?.closest(".queue-panel")) {
+        // Crossed into the queue panel: this is a drag-to-queue after all.
+        // The shared handshake installs its own listeners (the button is still
+        // down) and draws its own ghost, so drop ours entirely.
+        cleanup();
+        onTrackDragStart(source.map(playlistTrackToMinimalTrack));
+        return;
+      }
+      const rowEl = under?.closest("[data-pl-index]") as HTMLElement | null;
+      if (rowEl) {
+        const overIndex = parseInt(rowEl.getAttribute("data-pl-index")!, 10);
+        const rect = rowEl.getBoundingClientRect();
+        insertAt = ev.clientY < rect.top + rect.height / 2 ? overIndex : overIndex + 1;
+      } else if (under?.closest(".playlists-track-list")) {
+        insertAt = displayTracks.length; // below the last row → end
+      } else {
+        insertAt = null;
+      }
+      // No drop indicator while gated — the drop can't land anywhere.
+      setReorderInsertIndex(canReorder ? insertAt : null);
     };
     const onUp = () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
+      const dropAt = insertAt;
+      const dragged = didDragRef.current;
+      cleanup();
+      if (!dragged || dropAt === null) return;
+      if (canReorder) {
+        applyReorder(source.map(t => t.id), dropAt).catch(console.error);
+      } else if (reorderGated) {
+        onNotify?.("To reorder this playlist, clear the search, sort and filters first.");
+      }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
-  }, [displayTracks, selectedTrackIds, onTrackDragStart]);
+  }, [displayTracks, selectedTrackIds, onTrackDragStart, editable, naturalOrder, trackViewMode, applyReorder, onNotify]);
 
   // Like/dislike a detail row through the canonical metadata-keyed path
   // (useLikeActions, wired from App). The row is reflected optimistically for
@@ -381,15 +582,37 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   // and tile modes so the three surfaces can't drift.
   const showTrackMenu = useCallback((e: React.MouseEvent, t: PlaylistTrack) => {
     e.preventDefault();
-    const specs: MenuItemSpec[] = [
-      { kind: "item", text: "Play", action: () => onPlayTracks([playlistTrackToMinimalTrack(t)], 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
-      { kind: "item", text: "Enqueue", action: () => onEnqueueTracks([playlistTrackToMinimalTrack(t)]) },
+    const sel = effectiveSelection(t);
+    const selTracks = sel.map(playlistTrackToMinimalTrack);
+    const specs: MenuItemSpec[] = sel.length > 1 ? [
+      { kind: "item", text: `Play ${sel.length} tracks`, action: () => onPlayTracks(selTracks, 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
+      { kind: "item", text: `Enqueue ${sel.length} tracks`, action: () => onEnqueueTracks(selTracks) },
+    ] : [
+      { kind: "item", text: "Play", action: () => onPlayTracks(selTracks, 0, selectedPlaylist ? playlistContext(selectedPlaylist) : null) },
+      { kind: "item", text: "Enqueue", action: () => onEnqueueTracks(selTracks) },
     ];
+    // Add to Playlist — the same submenu the library/queue menus carry
+    // (universal track actions), excluding the playlist being viewed.
+    if (userPlaylists && onAddTracksToPlaylist && onCreatePlaylistFromTracks) {
+      specs.push(buildAddToPlaylistSubmenu(userPlaylists, {
+        onPick: (id, name) => onAddTracksToPlaylist(id, name, selTracks),
+        onNew: () => onCreatePlaylistFromTracks(selTracks),
+        onBrowse: onBrowsePlaylists ? () => onBrowsePlaylists(selTracks, selectedPlaylist?.id) : undefined,
+        excludeId: selectedPlaylist?.id,
+      }));
+    }
     // Edit info — only on regular (user) playlists; auto/system playlist rows
     // are regenerated, so an override wouldn't stick.
     if (selectedPlaylist && !selectedPlaylist.system_kind) {
       specs.push({ kind: "separator" });
-      specs.push({ kind: "item", text: "Edit info…", action: () => setEditTrack(t) });
+      if (sel.length === 1) {
+        specs.push({ kind: "item", text: "Edit info…", action: () => setEditTrack(t) });
+      }
+      specs.push({
+        kind: "item",
+        text: sel.length > 1 ? `Remove ${sel.length} tracks from playlist` : "Remove from playlist",
+        action: () => { handleRemoveTracks(sel).catch(console.error); },
+      });
     }
     if (isLocalPath(t.source)) {
       specs.push({ kind: "separator" });
@@ -408,7 +631,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       }
     }
     showNativeMenu(e.clientX, e.clientY, specs);
-  }, [selectedPlaylist, playlistContext, onPlayTracks, onEnqueueTracks, pluginMenuItems, onPluginAction]);
+  }, [selectedPlaylist, playlistContext, onPlayTracks, onEnqueueTracks, pluginMenuItems, onPluginAction, effectiveSelection, userPlaylists, onAddTracksToPlaylist, onCreatePlaylistFromTracks, onBrowsePlaylists, handleRemoveTracks]);
 
   // Override a playlist entry's display metadata (title/artist/album). Persists
   // to the playlist_tracks row only — never rewrites the underlying source or
@@ -676,9 +899,13 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     const detailDescription = selectedPlaylist.description?.trim()
       || (featured.length > 0 ? `Featuring ${featured.join(", ")}` : undefined);
 
-    const detailOverflowItems: HeroOverflowItem[] = [
+    const detailOverflowItems: HeroOverflowItem[] = [];
+    if (editable) {
+      detailOverflowItems.push({ kind: "action", id: "edit-details", label: "Edit details…", onClick: () => setEditDetails(true) });
+    }
+    detailOverflowItems.push(
       { kind: "action", id: "export-m3u", label: "Export as M3U", onClick: () => handleExport(selectedPlaylist) },
-    ];
+    );
     if (onExportAsMixtape) {
       detailOverflowItems.push({
         kind: "action", id: "export-mixtape", label: "Export as Mixtape",
@@ -773,6 +1000,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
             <div className="sort-bar-row">
               <span className="sort-bar-label">Sort:</span>
               <div className="sort-bar-group">
+                <SortButton label="#" field="position" chain={trackSortChain} onClick={handleTrackSortClick} />
                 <SortButton label="Title" field="title" chain={trackSortChain} onClick={handleTrackSortClick} />
                 <SortButton label="Artist" field="artist" chain={trackSortChain} onClick={handleTrackSortClick} />
                 <SortButton label="Album" field="album" chain={trackSortChain} onClick={handleTrackSortClick} />
@@ -798,6 +1026,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
           <div className="entity-table playlists-track-list">
             <div className="entity-table-header">
               {onToggleLike && <span className="entity-table-like"></span>}
+              <span className={`pl-track-num sortable${chainDir(trackSortChain, "position") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("position", e)} title="Playlist order">#{trackSortIndicator("position")}</span>
               <span className={`entity-table-name sortable${chainDir(trackSortChain, "title") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("title", e)}>Title{trackSortIndicator("title")}</span>
               <span className={`entity-table-secondary sortable${chainDir(trackSortChain, "artist") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("artist", e)}>Artist{trackSortIndicator("artist")}</span>
               <span className={`entity-table-secondary sortable${chainDir(trackSortChain, "album") ? " sorted" : ""}`} onClick={(e) => handleTrackSortClick("album", e)}>Album{trackSortIndicator("album")}</span>
@@ -806,7 +1035,8 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
             {displayTracks.map((t, index) => (
               <div
                 key={t.id}
-                className={`entity-table-row${selectedTrackIds.has(t.id) ? " selected" : ""}`}
+                data-pl-index={index}
+                className={`entity-table-row${selectedTrackIds.has(t.id) ? " selected" : ""}${reorderInsertIndex === index ? " pl-reorder-before" : ""}${reorderInsertIndex === index + 1 && index === displayTracks.length - 1 ? " pl-reorder-after" : ""}`}
                 onClick={(e) => handleRowClick(e, index)}
                 onMouseDown={(e) => handleRowMouseDown(e, index)}
                 onDoubleClick={() => { setSelectedTrackIds(new Set()); playOne(t); }}
@@ -821,6 +1051,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
                     size={12}
                   />
                 )}
+                <span className="pl-track-num">{t.position + 1}</span>
                 <span className="entity-table-name">
                   <span className="entity-table-name-main">{t.title}</span>
                   <EntityRowActions
@@ -865,16 +1096,23 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
             {displayTracks.map((t, index) => (
               <TrackRow
                 key={t.id}
+                dataAttrs={{ "data-pl-index": index }}
+                className={`${reorderInsertIndex === index ? "pl-reorder-before" : ""}${reorderInsertIndex === index + 1 && index === displayTracks.length - 1 ? " pl-reorder-after" : ""}`}
                 thumb={trackThumb(t)}
-                leading={onToggleLike ? (
-                  <LikeDislikeButtons
-                    liked={t.liked ?? 0}
-                    onToggleLike={() => rateTrack(t, "like")}
-                    onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
-                    variant="inline"
-                    size={12}
-                  />
-                ) : undefined}
+                leading={
+                  <>
+                    <span className="pl-track-num">{t.position + 1}</span>
+                    {onToggleLike && (
+                      <LikeDislikeButtons
+                        liked={t.liked ?? 0}
+                        onToggleLike={() => rateTrack(t, "like")}
+                        onToggleDislike={onToggleDislike ? () => rateTrack(t, "dislike") : undefined}
+                        variant="inline"
+                        size={12}
+                      />
+                    )}
+                  </>
+                }
                 title={t.title}
                 selected={selectedTrackIds.has(t.id)}
                 onClick={(e) => handleRowClick(e, index)}
@@ -910,6 +1148,17 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
             })}
             onSave={handleEditTrackSave}
             onClose={() => setEditTrack(null)}
+          />
+        )}
+        {editDetails && (
+          <SavePlaylistModal
+            title="Edit Playlist"
+            defaultName={selectedPlaylist.name}
+            defaultImage={selectedPlaylist.image_path}
+            withDescription
+            defaultDescription={selectedPlaylist.description}
+            onSave={handleEditDetailsSave}
+            onClose={() => setEditDetails(false)}
           />
         )}
       </div>

@@ -520,7 +520,10 @@ impl Database {
                 image_path  TEXT,
                 description TEXT,
                 metadata    TEXT,
-                system_kind TEXT
+                system_kind TEXT,
+                -- Bumped by incremental mutations (append/remove/reorder/meta/
+                -- cover); saved_at stays the creation/regeneration time.
+                updated_at  INTEGER
             );
             -- The partial unique index on system_kind is created in run_migrations,
             -- NOT here: on an existing pre-feature DB the playlists table already
@@ -769,6 +772,25 @@ impl Database {
                  CREATE INDEX IF NOT EXISTS idx_tracks_title_norm
                      ON tracks(strip_diacritics(unicode_lower(title)));",
             )?;
+        }
+
+        // 9. playlists.updated_at — bumped by the incremental playlist
+        //    mutations (append/remove/reorder/meta/cover) so the "Add to
+        //    Playlist ▸" submenu can rank by recent use. Distinct from
+        //    saved_at, which stays the creation (or auto-mix regeneration)
+        //    time shown on the cards. Schema-presence detected, like #1.
+        {
+            let has_updated_at: bool = {
+                let conn = self.conn.lock().unwrap();
+                conn.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('playlists') WHERE name = 'updated_at'",
+                    [], |r| r.get::<_, i64>(0),
+                )? > 0
+            };
+            if !has_updated_at {
+                let conn = self.conn.lock().unwrap();
+                conn.execute("ALTER TABLE playlists ADD COLUMN updated_at INTEGER", [])?;
+            }
         }
 
         Ok(())

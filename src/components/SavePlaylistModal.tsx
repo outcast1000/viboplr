@@ -5,15 +5,21 @@ import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import playlistDefault from "../assets/playlist-default.png";
 
 interface SavePlaylistModalProps {
+  /** Modal heading — defaults to "Save Playlist"; the edit-details flow passes "Edit Playlist". */
+  title?: string;
   defaultName: string;
   defaultImage?: string | null;
-  onSave: (name: string, imagePath: string | null) => void;
+  /** When true, show an editable description field (used by the edit-details flow). */
+  withDescription?: boolean;
+  defaultDescription?: string | null;
+  onSave: (name: string, imagePath: string | null, description: string | null) => void;
   onClose: () => void;
 }
 
-export function SavePlaylistModal({ defaultName, defaultImage, onSave, onClose }: SavePlaylistModalProps) {
+export function SavePlaylistModal({ title, defaultName, defaultImage, withDescription, defaultDescription, onSave, onClose }: SavePlaylistModalProps) {
   const [name, setName] = useState(defaultName);
   const [imagePath, setImagePath] = useState<string | null>(defaultImage ?? null);
+  const [description, setDescription] = useState(defaultDescription ?? "");
   const [imageError, setImageError] = useState<string | null>(null);
 
   async function handlePasteImage() {
@@ -66,7 +72,7 @@ export function SavePlaylistModal({ defaultName, defaultImage, onSave, onClose }
 
   function handleSave() {
     if (!name.trim()) return;
-    onSave(name.trim(), imagePath);
+    onSave(name.trim(), imagePath, description.trim() || null);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
@@ -76,7 +82,7 @@ export function SavePlaylistModal({ defaultName, defaultImage, onSave, onClose }
   return (
     <div className="ds-modal-overlay">
       <div className="ds-modal ds-modal--lg" onClick={(e) => e.stopPropagation()}>
-        <h2 className="ds-modal-title">Save Playlist</h2>
+        <h2 className="ds-modal-title">{title ?? "Save Playlist"}</h2>
         <div className="save-playlist-image-row">
           <div className="save-playlist-image-preview">
             <img src={imagePath ? convertFileSrc(imagePath) : playlistDefault} alt="" />
@@ -103,6 +109,17 @@ export function SavePlaylistModal({ defaultName, defaultImage, onSave, onClose }
             autoFocus
           />
         </div>
+        {withDescription && (
+          <div className="modal-field">
+            <label>Description</label>
+            <textarea
+              className="ds-input"
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+        )}
         <div className="ds-modal-actions">
           <button className="ds-btn ds-btn--ghost" onClick={onClose}>
             Cancel

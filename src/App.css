@@ -1743,3 +1743,23 @@
   font-weight: 600;
   color: var(--text-primary);
 }
+
+/* Playlist picker modal (Add to Playlist ▸ All N playlists…): the searchable
+   long tail a capped native submenu can't carry. */
+.playlist-picker-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 12px 0 4px;
+}
+
+.playlist-picker-list .ds-list-item {
+  width: 100%;
+  text-align: left;
+}
+
+.playlist-picker-list .empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}

@@ -14,6 +14,20 @@ export interface PlaylistTrackListItem {
   duration_secs: number | null;
   source: string | null;
   liked?: number;
+  /** The row's stored playlist position (0-based). Drives the "#" column and
+   *  the "position" sort field. */
+  position?: number;
+}
+
+/**
+ * True when a sort chain leaves the rows in their STORED playlist order — an
+ * empty chain, or "#" ascending alone. Reordering is well-defined in exactly
+ * these states (plus no query/filter), so the drag-to-reorder gate uses this
+ * rather than `chain.length === 0`.
+ */
+export function chainIsStoredOrder(chain: SortKey[]): boolean {
+  if (chain.length === 0) return true;
+  return chain.length === 1 && chain[0].field === "position" && chain[0].dir === "asc";
 }
 
 export type TrackMediaFilter = "all" | "audio" | "video";
@@ -42,8 +56,8 @@ export function filterPlaylistTracks<T extends PlaylistTrackListItem>(
 }
 
 /**
- * Multi-key sort over the detail view's chain (fields: "title", "artist",
- * "album", "duration", "liked"). An empty chain keeps the playlist's own
+ * Multi-key sort over the detail view's chain (fields: "position", "title",
+ * "artist", "album", "duration", "liked"). An empty chain keeps the playlist's own
  * order; ties keep it too (Array.sort is stable). A leading "random" key is a
  * seeded shuffle — deterministic per `shuffleKey`, re-rolled only when the
  * caller bumps it (never Math.random(); see useEntityDetail.seededRandom).
@@ -68,7 +82,8 @@ export function sortPlaylistTracks<T extends PlaylistTrackListItem>(
   sorted.sort((a, b) => {
     for (const k of chain) {
       let cmp = 0;
-      if (k.field === "title") cmp = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+      if (k.field === "position") cmp = (a.position ?? 0) - (b.position ?? 0);
+      else if (k.field === "title") cmp = a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
       else if (k.field === "artist") cmp = (a.artist_name ?? "").localeCompare(b.artist_name ?? "", undefined, { sensitivity: "base" });
       else if (k.field === "album") cmp = (a.album_name ?? "").localeCompare(b.album_name ?? "", undefined, { sensitivity: "base" });
       else if (k.field === "duration") cmp = (a.duration_secs ?? 0) - (b.duration_secs ?? 0);

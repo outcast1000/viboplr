@@ -1467,6 +1467,260 @@ fn test_delete_playlist_cascades() {
     assert_eq!(db.get_playlist_tracks(playlist_id).unwrap().len(), 0);
 }
 
+/// Insert a playlist row with an arbitrary system_kind (the public API only
+/// creates user playlists; liked/disliked come from ensure_system_playlists
+/// and auto mixes from the generator).
+fn insert_kind_playlist(db: &Database, name: &str, kind: &str) -> i64 {
+    let conn = db.conn.lock().unwrap();
+    conn.execute(
+        "INSERT INTO playlists (name, system_kind) VALUES (?1, ?2)",
+        params![name, kind],
+    ).unwrap();
+    conn.last_insert_rowid()
+}
+
+#[test]
+fn test_append_continues_positions_and_skips_duplicates() {
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    db.save_playlist_tracks(id, &[
+        ("Song A", Some("Artist A"), None, None, Some("file:///a.mp3"), None),
+        ("Song B", Some("Artist B"), None, None, Some("file:///b.mp3"), None),
+        ("Song C", Some("Artist C"), None, None, None, None),
+    ]).unwrap();
+
+    let (inserted, skipped) = db.append_playlist_tracks(id, &[
+        ("Song A renamed", None, None, None, Some("file:///a.mp3"), None), // dup by source
+        ("Song D", Some("Artist D"), None, Some(120.0), Some("file:///d.mp3"), None),
+        ("song c", Some("ARTIST C"), None, None, None, None),              // dup by title+artist, case-insensitive
+        ("Song E", Some("Artist E"), None, None, None, None),
+    ], false).unwrap();
+
+    assert_eq!(skipped, 2);
+    // (payload index, row id) pairs: only the non-duplicates, at their input indices.
+    assert_eq!(inserted.len(), 2);
+    assert_eq!(inserted[0].0, 1);
+    assert_eq!(inserted[1].0, 3);
+
+    let tracks = db.get_playlist_tracks(id).unwrap();
+    assert_eq!(tracks.len(), 5);
+    assert_eq!(tracks[3].title, "Song D");
+    assert_eq!(tracks[3].position, 3);
+    assert_eq!(tracks[4].title, "Song E");
+    assert_eq!(tracks[4].position, 4);
+}
+
+#[test]
+fn test_append_dedups_within_one_batch() {
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    let (inserted, skipped) = db.append_playlist_tracks(id, &[
+        ("Song A", Some("Artist"), None, None, Some("file:///a.mp3"), None),
+        ("Song A", Some("Artist"), None, None, Some("file:///a.mp3"), None),
+    ], false).unwrap();
+    assert_eq!(inserted.len(), 1);
+    assert_eq!(skipped, 1);
+}
+
+#[test]
+fn test_append_allow_duplicates_inserts_everything() {
+    // The "add anyway" confirmation path: the same song can be added twice.
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    db.save_playlist_tracks(id, &[
+        ("Song A", Some("Artist"), None, None, Some("file:///a.mp3"), None),
+    ]).unwrap();
+
+    let (inserted, skipped) = db.append_playlist_tracks(id, &[
+        ("Song A", Some("Artist"), None, None, Some("file:///a.mp3"), None),
+        ("Song A", Some("Artist"), None, None, Some("file:///a.mp3"), None),
+    ], true).unwrap();
+    assert_eq!(inserted.len(), 2);
+    assert_eq!(skipped, 0);
+
+    let tracks = db.get_playlist_tracks(id).unwrap();
+    assert_eq!(tracks.len(), 3);
+    assert_eq!(tracks.iter().map(|t| t.position).collect::<Vec<_>>(), vec![0, 1, 2]);
+}
+
+#[test]
+fn test_playlist_mutations_reject_system_and_auto_playlists() {
+    let db = test_db();
+    let auto_id = insert_kind_playlist(&db, "Daily Mix", "auto:daily-mix:someone");
+    let liked_id = db.get_playlists().unwrap().into_iter()
+        .find(|p| p.system_kind.as_deref() == Some("liked")).unwrap().id;
+
+    for pid in [auto_id, liked_id] {
+        assert!(db.append_playlist_tracks(pid, &[("S", None, None, None, None, None)], false).is_err());
+        assert!(db.remove_playlist_tracks(pid, &[1]).is_err());
+        assert!(db.reorder_playlist_tracks(pid, &[]).is_err());
+        assert!(db.update_playlist_meta(pid, "New Name", None).is_err());
+        assert!(db.set_user_playlist_image(pid, None).is_err());
+    }
+
+    // And a missing playlist is an error, not a silent no-op.
+    assert!(db.append_playlist_tracks(999_999, &[("S", None, None, None, None, None)], false).is_err());
+}
+
+#[test]
+fn test_remove_renumbers_positions_contiguously() {
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    db.save_playlist_tracks(id, &[
+        ("A", None, None, None, None, None),
+        ("B", None, None, None, None, Some("/img/b.jpg")),
+        ("C", None, None, None, None, None),
+        ("D", None, None, None, None, Some("/img/d.jpg")),
+        ("E", None, None, None, None, None),
+    ]).unwrap();
+    let tracks = db.get_playlist_tracks(id).unwrap();
+    let (b_id, d_id) = (tracks[1].id, tracks[3].id);
+
+    let images = db.remove_playlist_tracks(id, &[b_id, d_id]).unwrap();
+    let mut images_sorted = images.clone();
+    images_sorted.sort();
+    assert_eq!(images_sorted, vec!["/img/b.jpg".to_string(), "/img/d.jpg".to_string()]);
+
+    let remaining = db.get_playlist_tracks(id).unwrap();
+    assert_eq!(remaining.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), vec!["A", "C", "E"]);
+    assert_eq!(remaining.iter().map(|t| t.position).collect::<Vec<_>>(), vec![0, 1, 2]);
+
+    // Appending after a remove continues from the new max position.
+    let (inserted, _) = db.append_playlist_tracks(id, &[("F", None, None, None, None, None)], false).unwrap();
+    assert_eq!(inserted.len(), 1);
+    let after = db.get_playlist_tracks(id).unwrap();
+    assert_eq!(after[3].title, "F");
+    assert_eq!(after[3].position, 3);
+}
+
+#[test]
+fn test_reorder_applies_permutation() {
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    db.save_playlist_tracks(id, &[
+        ("A", None, None, None, None, None),
+        ("B", None, None, None, None, None),
+        ("C", None, None, None, None, None),
+    ]).unwrap();
+    let ids: Vec<i64> = db.get_playlist_tracks(id).unwrap().iter().map(|t| t.id).collect();
+
+    db.reorder_playlist_tracks(id, &[ids[2], ids[0], ids[1]]).unwrap();
+    let tracks = db.get_playlist_tracks(id).unwrap();
+    assert_eq!(tracks.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), vec!["C", "A", "B"]);
+    assert_eq!(tracks.iter().map(|t| t.position).collect::<Vec<_>>(), vec![0, 1, 2]);
+}
+
+#[test]
+fn test_reorder_rejects_wrong_id_set() {
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    db.save_playlist_tracks(id, &[
+        ("A", None, None, None, None, None),
+        ("B", None, None, None, None, None),
+    ]).unwrap();
+    let ids: Vec<i64> = db.get_playlist_tracks(id).unwrap().iter().map(|t| t.id).collect();
+
+    // Missing an id, containing a foreign id, or duplicating one: all rejected.
+    assert!(db.reorder_playlist_tracks(id, &[ids[0]]).is_err());
+    assert!(db.reorder_playlist_tracks(id, &[ids[0], 999_999]).is_err());
+    assert!(db.reorder_playlist_tracks(id, &[ids[0], ids[0]]).is_err());
+
+    // Positions untouched after the rejections.
+    let tracks = db.get_playlist_tracks(id).unwrap();
+    assert_eq!(tracks.iter().map(|t| t.title.as_str()).collect::<Vec<_>>(), vec!["A", "B"]);
+    assert_eq!(tracks.iter().map(|t| t.position).collect::<Vec<_>>(), vec![0, 1]);
+}
+
+#[test]
+fn test_reorder_reverse_50_rows_never_trips_unique() {
+    // The two-phase renumber (negate all, then assign 0..n-1) is what keeps a
+    // large permutation from colliding with UNIQUE(playlist_id, position).
+    let db = test_db();
+    let id = db.save_playlist("Big", None, None, None, None).unwrap();
+    let titles: Vec<String> = (0..50).map(|i| format!("T{i}")).collect();
+    let rows: Vec<(&str, Option<&str>, Option<&str>, Option<f64>, Option<&str>, Option<&str>)> =
+        titles.iter().map(|t| (t.as_str(), None, None, None, None, None)).collect();
+    db.save_playlist_tracks(id, &rows).unwrap();
+
+    let mut ids: Vec<i64> = db.get_playlist_tracks(id).unwrap().iter().map(|t| t.id).collect();
+    ids.reverse();
+    db.reorder_playlist_tracks(id, &ids).unwrap();
+
+    let tracks = db.get_playlist_tracks(id).unwrap();
+    assert_eq!(tracks[0].title, "T49");
+    assert_eq!(tracks[49].title, "T0");
+    assert_eq!(tracks.iter().map(|t| t.position).collect::<Vec<_>>(), (0..50).collect::<Vec<i64>>());
+}
+
+#[test]
+fn test_playlist_mutations_bump_updated_at() {
+    // updated_at ranks the "Add to Playlist" submenu by recent use: every
+    // incremental mutation stamps it; creation alone leaves it NULL.
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    let get = |db: &Database| db.get_playlists().unwrap().into_iter().find(|p| p.id == id).unwrap().updated_at;
+    assert_eq!(get(&db), None);
+
+    let clear = |db: &Database| {
+        let conn = db.conn.lock().unwrap();
+        conn.execute("UPDATE playlists SET updated_at = NULL WHERE id = ?1", params![id]).unwrap();
+    };
+
+    db.append_playlist_tracks(id, &[("A", None, None, None, None, None)], false).unwrap();
+    assert!(get(&db).is_some(), "append must bump updated_at");
+    clear(&db);
+
+    // An all-duplicates append changes nothing and must not bump.
+    db.append_playlist_tracks(id, &[("A", None, None, None, None, None)], false).unwrap();
+    assert_eq!(get(&db), None, "no-op append must not bump updated_at");
+
+    db.append_playlist_tracks(id, &[("B", None, None, None, None, None)], false).unwrap();
+    clear(&db);
+    let ids: Vec<i64> = db.get_playlist_tracks(id).unwrap().iter().map(|t| t.id).collect();
+    db.reorder_playlist_tracks(id, &[ids[1], ids[0]]).unwrap();
+    assert!(get(&db).is_some(), "reorder must bump updated_at");
+    clear(&db);
+
+    db.remove_playlist_tracks(id, &[ids[0]]).unwrap();
+    assert!(get(&db).is_some(), "remove must bump updated_at");
+    clear(&db);
+
+    db.update_playlist_meta(id, "Renamed", None).unwrap();
+    assert!(get(&db).is_some(), "meta edit must bump updated_at");
+    clear(&db);
+
+    db.set_user_playlist_image(id, Some("/imgs/x.jpg")).unwrap();
+    assert!(get(&db).is_some(), "cover change must bump updated_at");
+}
+
+#[test]
+fn test_update_playlist_meta() {
+    let db = test_db();
+    let id = db.save_playlist("Old Name", None, None, Some("old desc"), None).unwrap();
+    db.update_playlist_meta(id, "New Name", Some("new desc")).unwrap();
+    let pl = db.get_playlists().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    assert_eq!(pl.name, "New Name");
+    assert_eq!(pl.description.as_deref(), Some("new desc"));
+
+    // Clearing the description stores NULL, not an empty string.
+    db.update_playlist_meta(id, "New Name", None).unwrap();
+    let pl = db.get_playlists().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    assert_eq!(pl.description, None);
+}
+
+#[test]
+fn test_set_user_playlist_image() {
+    let db = test_db();
+    let id = db.save_playlist("Mix", None, None, None, None).unwrap();
+    db.set_user_playlist_image(id, Some("/imgs/cover.jpg")).unwrap();
+    let pl = db.get_playlists().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    assert_eq!(pl.image_path.as_deref(), Some("/imgs/cover.jpg"));
+
+    db.set_user_playlist_image(id, None).unwrap();
+    let pl = db.get_playlists().unwrap().into_iter().find(|p| p.id == id).unwrap();
+    assert_eq!(pl.image_path, None);
+}
+
 #[test]
 fn test_save_playlist_description_and_metadata() {
     let db = test_db();

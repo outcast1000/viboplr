@@ -324,6 +324,52 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
         (t) => store[`track:${norm(t.artistName)}:${norm(t.title)}`] ?? 0
       );
     }
+    // Saved playlists — one mutable user playlist so the detail view's
+    // editing surfaces (reorder / remove / append) are testable. Tracks live
+    // in window.__TEST_PLAYLIST_TRACKS__ so specs can read the live order.
+    case 'get_playlists':
+      return [
+        { id: 100, name: 'My Mix', source: 'playlist', saved_at: 1700000000, image_path: null, track_count: (window.__TEST_PLAYLIST_TRACKS__ || []).length, description: null, metadata: null, system_kind: null, updated_at: null },
+      ];
+    case 'get_playlist_tracks': {
+      const rows = (window.__TEST_PLAYLIST_TRACKS__ = window.__TEST_PLAYLIST_TRACKS__ || [
+        { id: 11, playlist_id: 100, position: 0, title: 'PL One', artist_name: 'Artist A', album_name: 'Album X', duration_secs: 100, source: 'file:///music/pl1.mp3', image_path: null },
+        { id: 12, playlist_id: 100, position: 1, title: 'PL Two', artist_name: 'Artist A', album_name: 'Album X', duration_secs: 110, source: 'file:///music/pl2.mp3', image_path: null },
+        { id: 13, playlist_id: 100, position: 2, title: 'PL Three', artist_name: 'Artist B', album_name: 'Album Y', duration_secs: 120, source: 'file:///music/pl3.mp3', image_path: null },
+        { id: 14, playlist_id: 100, position: 3, title: 'PL Four', artist_name: 'Artist B', album_name: 'Album Y', duration_secs: 130, source: 'file:///music/pl4.mp3', image_path: null },
+      ]);
+      return rows.map((t, i) => ({ ...t, position: i }));
+    }
+    case 'reorder_playlist_tracks': {
+      const rows = window.__TEST_PLAYLIST_TRACKS__ || [];
+      const byId = new Map(rows.map(t => [t.id, t]));
+      window.__TEST_PLAYLIST_TRACKS__ = (args.orderedIds || []).map(id => byId.get(id)).filter(Boolean);
+      (window.__TEST_REORDER_CALLS__ = window.__TEST_REORDER_CALLS__ || []).push(args);
+      return null;
+    }
+    case 'remove_playlist_tracks': {
+      const doomed = new Set(args.trackIds || []);
+      window.__TEST_PLAYLIST_TRACKS__ = (window.__TEST_PLAYLIST_TRACKS__ || []).filter(t => !doomed.has(t.id));
+      return null;
+    }
+    case 'append_playlist_tracks': {
+      const rows = (window.__TEST_PLAYLIST_TRACKS__ = window.__TEST_PLAYLIST_TRACKS__ || []);
+      const existing = new Set(rows.map(t => t.source));
+      let added = 0;
+      const skippedIndices = [];
+      (args.tracks || []).forEach((t, i) => {
+        if (!args.allowDuplicates && t.source && existing.has(t.source)) { skippedIndices.push(i); return; }
+        rows.push({ id: 1000 + rows.length, playlist_id: args.playlistId, position: rows.length, title: t.title, artist_name: t.artist_name, album_name: t.album_name, duration_secs: t.duration_secs, source: t.source, image_path: null });
+        added++;
+      });
+      return { added, skipped: skippedIndices.length, skipped_indices: skippedIndices };
+    }
+    case 'update_playlist_meta':
+    case 'set_playlist_cover':
+    case 'ensure_auto_playlists':
+      return null;
+    case 'search_playlist_track_ids':
+      return [];
     case 'search_youtube':
       return { url: 'https://www.youtube.com/watch?v=mock123', video_title: args.title };
     case 'yt_dlp_check':

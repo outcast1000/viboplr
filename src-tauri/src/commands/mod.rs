@@ -424,6 +424,16 @@ pub struct PlaylistTrackPayload {
     pub image_url: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AppendPlaylistResult {
+    pub added: usize,
+    pub skipped: usize,
+    /// Indices into the request's `tracks` that were skipped as duplicates —
+    /// the frontend re-sends exactly these with `allow_duplicates: true` when
+    /// the user confirms "add anyway".
+    pub skipped_indices: Vec<usize>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackLikeQuery {

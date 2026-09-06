@@ -201,33 +201,37 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     }
   }
 
+  /** Resolve the tracks a context-menu target refers to. Shared by enqueue
+   *  and add-to-playlist so the two resolutions can't drift. Queue targets
+   *  come back as the queue's own QueueTracks (no DB round-trip); everything
+   *  else resolves through the library commands. */
+  async function fetchTargetTracks(target: ContextMenuTarget): Promise<(Track | QueueTrack)[]> {
+    if (target.kind === "track" && target.trackId) {
+      const track = await invoke<Track>("get_track_by_id", { trackId: target.trackId });
+      return [track];
+    } else if (target.kind === "album" && target.albumId) {
+      return await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
+    } else if (target.kind === "artist" && target.artistId) {
+      return await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
+    } else if (target.kind === "tag" && target.tagId) {
+      return await invoke<Track[]>("get_tracks_by_tag", { tagId: target.tagId });
+    } else if (target.kind === "multi-track") {
+      return await invoke<Track[]>("get_tracks_by_ids", { ids: target.trackIds });
+    } else if (target.kind === "queue-multi") {
+      return target.indices.map(i => queueHook.queue[i]).filter(Boolean);
+    } else if (target.kind === "multi-album" || target.kind === "multi-artist" || target.kind === "multi-tag") {
+      return await fetchMultiEntityTracks(target);
+    }
+    return [];
+  }
+
   async function handleContextEnqueue() {
     const cm = contextMenuRef.current;
     if (!cm) return;
-    const { target } = cm;
-    if (target.kind === "track" && target.trackId) {
-      try {
-        const track = await invoke<Track>("get_track_by_id", { trackId: target.trackId });
-        handleEnqueue([track]);
-      } catch (e) { console.error("Failed to enqueue track:", e); }
-    } else if (target.kind === "album" && target.albumId) {
-      const albumTracks = await invoke<Track[]>("get_tracks", { opts: { albumId: target.albumId } });
-      handleEnqueue(albumTracks);
-    } else if (target.kind === "artist" && target.artistId) {
-      const artistTracks = await invoke<Track[]>("get_tracks_by_artist", { artistId: target.artistId });
-      handleEnqueue(artistTracks);
-    } else if (target.kind === "tag" && target.tagId) {
-      const tagTracks = await invoke<Track[]>("get_tracks_by_tag", { tagId: target.tagId });
-      handleEnqueue(tagTracks);
-    } else if (target.kind === "multi-track") {
-      try {
-        const selected = await invoke<Track[]>("get_tracks_by_ids", { ids: target.trackIds });
-        handleEnqueue(selected);
-      } catch (e) { console.error("Failed to enqueue tracks:", e); }
-    } else if (target.kind === "multi-album" || target.kind === "multi-artist" || target.kind === "multi-tag") {
-      const all = await fetchMultiEntityTracks(target);
-      handleEnqueue(all);
-    }
+    try {
+      const tracks = await fetchTargetTracks(cm.target);
+      handleEnqueue(tracks as Track[]);
+    } catch (e) { console.error("Failed to enqueue tracks:", e); }
   }
 
   // Remove queue entries. When the currently-playing track is among them,
@@ -488,6 +492,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     handleMultiArtistContextMenu,
     handleMultiTagContextMenu,
     fetchMultiEntityTracks,
+    fetchTargetTracks,
     handleContextPlay,
     startRadio: playActions.startRadio,
     handleContextEnqueue,

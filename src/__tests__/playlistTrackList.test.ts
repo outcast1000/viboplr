@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { filterPlaylistTracks, sortPlaylistTracks } from "../utils/playlistTrackList";
+import { filterPlaylistTracks, sortPlaylistTracks, chainIsStoredOrder } from "../utils/playlistTrackList";
 import type { SortKey } from "../sortChain";
 
 const t = (
@@ -95,5 +95,28 @@ describe("sortPlaylistTracks", () => {
 
   it("ignores unknown fields instead of throwing", () => {
     expect(sortPlaylistTracks(rows, [{ field: "bogus", dir: "asc" }], 1).map(r => r.title)).toEqual(rows.map(r => r.title));
+  });
+});
+
+describe("position sort + chainIsStoredOrder", () => {
+  const pos = (title: string, position: number) => ({ ...t(title), position });
+  const rows = [pos("stored-2", 2), pos("stored-0", 0), pos("stored-1", 1)];
+
+  it("sorts by the stored playlist position in both directions", () => {
+    expect(sortPlaylistTracks(rows, [{ field: "position", dir: "asc" }], 1).map(r => r.title))
+      .toEqual(["stored-0", "stored-1", "stored-2"]);
+    expect(sortPlaylistTracks(rows, [{ field: "position", dir: "desc" }], 1).map(r => r.title))
+      .toEqual(["stored-2", "stored-1", "stored-0"]);
+  });
+
+  it("chainIsStoredOrder: empty chain and lone '# asc' are stored order; anything else is not", () => {
+    expect(chainIsStoredOrder([])).toBe(true);
+    expect(chainIsStoredOrder([{ field: "position", dir: "asc" }])).toBe(true);
+    expect(chainIsStoredOrder([{ field: "position", dir: "desc" }])).toBe(false);
+    expect(chainIsStoredOrder([{ field: "title", dir: "asc" }])).toBe(false);
+    expect(chainIsStoredOrder([
+      { field: "position", dir: "asc" },
+      { field: "title", dir: "asc" },
+    ])).toBe(false);
   });
 });
