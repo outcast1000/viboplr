@@ -4,7 +4,7 @@ import { fetchLikeStates, applyLikeState } from "../utils/likeReconcile";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { formatDuration } from "../utils";
-import { save } from "@tauri-apps/plugin-dialog";
+import { save, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import { EditTrackMetadataModal, buildTrackInfoEntries, type TrackMetadataEdit } from "./EditTrackMetadataModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
@@ -16,7 +16,7 @@ import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
 import { TrackRow, type TrackRowThumb } from "./TrackRow";
 import { ViewSearchBar } from "./ViewSearchBar";
-import type { HeroOverflowItem } from "../utils/heroOverflow";
+import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import playlistDefault from "../assets/playlist-default.png";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { IconHeartFilled, IconBan, IconRefresh, IconSparkles } from "./Icons";
@@ -450,6 +450,48 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     }
   }, [selectedPlaylist]);
 
+  // Cover art, reachable from the hero ⋯ and the grid right-click menu without
+  // going through the Edit-details modal — parity with the artist/album/tag
+  // detail pages, which offer Set/Paste/Remove image straight from the hero.
+  //
+  // Takes a playlist id rather than reading `selectedPlaylist`, because the grid
+  // menu acts on a row that isn't open. `imagePath` is a temp copy already
+  // inside playlist_images/; `set_playlist_cover` re-copies it under a
+  // timestamped name it owns and deletes the temp, so nothing else may store
+  // the picked path as-is.
+  const applyCover = useCallback(async (playlistId: number, imagePath: string | null) => {
+    try {
+      const stored = await invoke<string | null>("set_playlist_cover", { playlistId, imagePath });
+      setPlaylists(list => list.map(p => (p.id === playlistId ? { ...p, image_path: stored } : p)));
+      setSelectedPlaylist(cur => (cur && cur.id === playlistId ? { ...cur, image_path: stored } : cur));
+    } catch (e) {
+      console.error("Failed to set playlist cover:", e);
+    }
+  }, []);
+
+  const handleSetCoverFromFile = useCallback(async (playlistId: number) => {
+    const selected = await openFileDialog({
+      multiple: false,
+      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+    });
+    if (!selected || typeof selected !== "string") return;
+    try {
+      const copied = await invoke<string>("copy_to_playlist_images", { sourcePath: selected });
+      await applyCover(playlistId, copied);
+    } catch (e) {
+      console.error("Failed to copy playlist image:", e);
+    }
+  }, [applyCover]);
+
+  const handlePasteCover = useCallback(async (playlistId: number) => {
+    try {
+      const path = await invoke<string>("paste_clipboard_to_playlist_images");
+      await applyCover(playlistId, path);
+    } catch (e) {
+      console.error("Failed to paste playlist image:", e);
+    }
+  }, [applyCover]);
+
   // Left-click selection over the detail rows (Cmd/Ctrl = toggle, Shift = range).
   // Suppressed right after a drag and when the click lands on a hover-tray button.
   const handleRowClick = useCallback((e: React.MouseEvent, index: number) => {
@@ -699,9 +741,23 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       { kind: "item", text: "Play", action: () => playPlaylist(pl).catch((err) => console.error("Failed to play playlist:", err)) },
       { kind: "item", text: "Enqueue", action: () => handleEnqueuePlaylist(pl) },
       { kind: "item", text: "View / Edit", action: () => openPlaylist(pl) },
+    ];
+    // Cover art without opening the playlist first. Same gate as `editable` —
+    // system projections and auto mixes have no user-owned cover to set.
+    if (!pl.system_kind) {
+      specs.push(
+        { kind: "separator" },
+        { kind: "item", text: "Set image…", action: () => handleSetCoverFromFile(pl.id) },
+        { kind: "item", text: "Paste image", action: () => handlePasteCover(pl.id) },
+      );
+      if (pl.image_path) {
+        specs.push({ kind: "item", text: "Remove image", action: () => { void applyCover(pl.id, null); } });
+      }
+    }
+    specs.push(
       { kind: "separator" },
       { kind: "item", text: "Export as M3U", action: () => handleExport(pl) },
-    ];
+    );
     if (onExportAsMixtape) {
       specs.push({ kind: "item", text: "Export as Mixtape", action: async () => {
         try {
@@ -735,7 +791,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       }
     }
     await showNativeMenu(x, y, specs);
-  }, [playPlaylist, handleEnqueuePlaylist, openPlaylist, handleExport, onExportAsMixtape, pluginMenuItems, onPluginAction]);
+  }, [playPlaylist, handleEnqueuePlaylist, openPlaylist, handleExport, onExportAsMixtape, pluginMenuItems, onPluginAction, handleSetCoverFromFile, handlePasteCover, applyCover]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, pl: Playlist) => {
     e.preventDefault();
@@ -901,7 +957,21 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
 
     const detailOverflowItems: HeroOverflowItem[] = [];
     if (editable) {
+      const playlistId = selectedPlaylist.id;
       detailOverflowItems.push({ kind: "action", id: "edit-details", label: "Edit details…", onClick: () => setEditDetails(true) });
+      // Same labels/icons/order as every other detail hero. No "Retrieve image"
+      // or "Search image": a playlist is a user's own list, so there is no
+      // provider chain to re-fetch a cover from and nothing to search for.
+      detailOverflowItems.push(...buildHeroOverflowItems({
+        entityKind: "playlist",
+        imageActions: {
+          onSetFromFile: () => handleSetCoverFromFile(playlistId),
+          onPasteFromClipboard: () => handlePasteCover(playlistId),
+          onRemove: selectedPlaylist.image_path ? () => { void applyCover(playlistId, null); } : undefined,
+        },
+        pluginItems: [],
+      }));
+      detailOverflowItems.push({ kind: "divider" });
     }
     detailOverflowItems.push(
       { kind: "action", id: "export-m3u", label: "Export as M3U", onClick: () => handleExport(selectedPlaylist) },

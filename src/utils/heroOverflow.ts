@@ -19,7 +19,7 @@ export interface HeroRadioActions {
 }
 
 export interface HeroOverflowArgs {
-  entityKind: "track" | "album" | "artist" | "tag";
+  entityKind: "track" | "album" | "artist" | "tag" | "playlist";
   imageActions: HeroImageActions;
   radio?: HeroRadioActions;           // honored only when entityKind === "track"
   pluginItems: HeroOverflowItem[];
