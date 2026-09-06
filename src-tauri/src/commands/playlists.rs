@@ -141,19 +141,7 @@ pub fn save_playlist_record(
 
         // Download/copy playlist cover
         if let Some(url) = image_url_clone {
-            let dest = img_dir.join(format!("{}.jpg", playlist_id));
-            let ok = if url.starts_with("http://") || url.starts_with("https://") {
-                client.get(&url).send().ok()
-                    .filter(|r| r.status().is_success())
-                    .and_then(|r| r.bytes().ok())
-                    .and_then(|bytes| std::fs::write(&dest, &bytes).ok())
-                    .is_some()
-            } else {
-                let src = std::path::Path::new(&url);
-                src.exists() && std::fs::copy(src, &dest).is_ok()
-            };
-            if ok {
-                let abs = dest.to_string_lossy().to_string();
+            if let Some(abs) = store_playlist_image(&img_dir, &client, &format!("{}", playlist_id), &url) {
                 let _ = db_arc.update_playlist_image(playlist_id, &abs);
             }
         }
@@ -163,6 +151,40 @@ pub fn save_playlist_record(
     });
 
     Ok(playlist_id)
+}
+
+/// Put one image — a remote URL or a local path — into `playlist_images/` as
+/// `<stem>.<ext>` and return the stored absolute path (None on any failure).
+///
+/// The extension is read off the bytes, never assumed: these sources are
+/// arbitrary (a plugin's catalog, a scraped page, a file the user picked), and
+/// writing a PNG or WebP under a `.jpg` name makes the file lie to everything
+/// that later reads it by name. The webview sniffs content and so never
+/// noticed, which is exactly why this went unseen. A local file whose bytes
+/// aren't recognizable falls back to its own extension.
+fn store_playlist_image(
+    img_dir: &std::path::Path,
+    client: &reqwest::blocking::Client,
+    stem: &str,
+    url: &str,
+) -> Option<String> {
+    let (bytes, fallback_ext) = if url.starts_with("http://") || url.starts_with("https://") {
+        let bytes = client.get(url).send().ok()
+            .filter(|r| r.status().is_success())
+            .and_then(|r| r.bytes().ok())?;
+        (bytes.to_vec(), "jpg".to_string())
+    } else {
+        let src = std::path::Path::new(url);
+        let ext = src.extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("jpg")
+            .to_lowercase();
+        (std::fs::read(src).ok()?, ext)
+    };
+    let ext = super::sniff_image_ext(&bytes).map(str::to_string).unwrap_or(fallback_ext);
+    let dest = img_dir.join(format!("{}.{}", stem, ext));
+    std::fs::write(&dest, &bytes).ok()?;
+    Some(dest.to_string_lossy().to_string())
 }
 
 /// Download/copy per-track images into `playlist_images/` and record the
@@ -177,19 +199,8 @@ fn download_playlist_track_images(
 ) {
     for (track_id, maybe_url) in track_image_urls {
         if let Some(url) = maybe_url {
-            let dest = img_dir.join(format!("{}_{}.jpg", playlist_id, track_id));
-            let ok = if url.starts_with("http://") || url.starts_with("https://") {
-                client.get(&url).send().ok()
-                    .filter(|r| r.status().is_success())
-                    .and_then(|r| r.bytes().ok())
-                    .and_then(|bytes| std::fs::write(&dest, &bytes).ok())
-                    .is_some()
-            } else {
-                let src = std::path::Path::new(&url);
-                src.exists() && std::fs::copy(src, &dest).is_ok()
-            };
-            if ok {
-                let abs = dest.to_string_lossy().to_string();
+            let stem = format!("{}_{}", playlist_id, track_id);
+            if let Some(abs) = store_playlist_image(img_dir, client, &stem, &url) {
                 let _ = db.update_playlist_track_image(track_id, &abs);
             }
         }
@@ -328,10 +339,21 @@ pub fn set_playlist_cover(
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis();
+            // Keep the source's real extension (the feeders already pick it
+            // correctly: `.png` from a clipboard paste, the picked file's own
+            // from `copy_to_playlist_images`). Hardcoding `.jpg` here wrote a
+            // PNG under a JPEG name — the webview sniffs content so it still
+            // rendered, but the file lied to everything else that reads it.
+            // Matches `set_entity_image`, which is the artist/album precedent.
+            let ext = std::path::Path::new(src)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("jpg")
+                .to_lowercase();
             // Timestamped name: replacing a cover must change the path, or
             // convertFileSrc's URL stays identical and the webview keeps
             // showing the cached old image.
-            let dest = img_dir.join(format!("{}_{}.jpg", playlist_id, timestamp));
+            let dest = img_dir.join(format!("{}_{}.{}", playlist_id, timestamp, ext));
             std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
             Some(dest.to_string_lossy().to_string())
         }

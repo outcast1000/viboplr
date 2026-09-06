@@ -150,14 +150,28 @@ pub struct BulkUpdateFields {
     pub tag_mode: Option<String>,
 }
 
-fn detect_image_format(data: &[u8]) -> &'static str {
+/// The extension implied by an image's magic bytes, when they're recognizable.
+/// Content beats filename here: a URL's path says nothing reliable about what
+/// the server actually returned, and a picked file may be misnamed.
+pub(crate) fn sniff_image_ext(data: &[u8]) -> Option<&'static str> {
     if data.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
-        "png"
+        Some("png")
     } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        "jpg"
+        Some("jpg")
+    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        Some("gif")
+    } else if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WEBP" {
+        Some("webp")
     } else {
-        "png"
+        None
     }
+}
+
+/// Extension for bytes that are about to be written as an entity image. Callers
+/// here hand over clipboard/plugin data that was PNG-encoded on the way in, so
+/// an unrecognized blob is far likelier to be PNG than anything else.
+fn detect_image_format(data: &[u8]) -> &'static str {
+    sniff_image_ext(data).unwrap_or("png")
 }
 
 
@@ -989,6 +1003,26 @@ mod tests {
 
     fn test_state() -> AppState {
         test_app_state()
+    }
+
+    #[test]
+    fn test_sniff_image_ext_reads_magic_bytes() {
+        assert_eq!(sniff_image_ext(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0]), Some("png"));
+        assert_eq!(sniff_image_ext(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpg"));
+        assert_eq!(sniff_image_ext(b"GIF89a...."), Some("gif"));
+        assert_eq!(sniff_image_ext(b"RIFF\0\0\0\0WEBPVP8 "), Some("webp"));
+        // A truncated RIFF header must not be read past its end.
+        assert_eq!(sniff_image_ext(b"RIFF\0\0\0"), None);
+        assert_eq!(sniff_image_ext(b"not an image"), None);
+        assert_eq!(sniff_image_ext(&[]), None);
+    }
+
+    /// Unrecognized bytes stay PNG here: this path only ever receives data that
+    /// was PNG-encoded on the way in (clipboard, plugin uploads).
+    #[test]
+    fn test_detect_image_format_defaults_to_png() {
+        assert_eq!(detect_image_format(&[0xFF, 0xD8, 0xFF]), "jpg");
+        assert_eq!(detect_image_format(b"whatever"), "png");
     }
 
     /// Helper: get or create a test collection
