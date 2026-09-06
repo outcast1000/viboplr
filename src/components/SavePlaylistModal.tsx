@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import playlistDefault from "../assets/playlist-default.png";
 
@@ -36,7 +37,7 @@ export function SavePlaylistModal({ title, defaultName, defaultImage, withDescri
   async function handleSetImage() {
     const selected = await open({
       multiple: false,
-      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+      filters: IMAGE_PICKER_FILTERS,
     });
     if (selected) {
       try {

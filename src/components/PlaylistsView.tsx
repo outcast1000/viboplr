@@ -5,6 +5,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { formatDuration } from "../utils";
 import { save, open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { DeletePlaylistModal } from "./DeletePlaylistModal";
 import { EditTrackMetadataModal, buildTrackInfoEntries, type TrackMetadataEdit } from "./EditTrackMetadataModal";
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
@@ -472,7 +473,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
   const handleSetCoverFromFile = useCallback(async (playlistId: number) => {
     const selected = await openFileDialog({
       multiple: false,
-      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+      filters: IMAGE_PICKER_FILTERS,
     });
     if (!selected || typeof selected !== "string") return;
     try {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials } from "../utils";
 import type { Artist, ColumnConfig, QueueTrack } from "../types";
@@ -148,7 +149,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
   const handleSetImageFromFile = useCallback(async () => {
     const selected = await openFileDialog({
       multiple: false,
-      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png"] }],
+      filters: IMAGE_PICKER_FILTERS,
     });
     if (!selected || typeof selected !== "string") return;
     try {

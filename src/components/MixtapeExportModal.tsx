@@ -1,6 +1,7 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { track as trackTelemetry } from "../telemetry";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { useState, useEffect, useCallback } from "react";
 import { formatDuration, formatFileSize } from "../utils";
@@ -109,7 +110,7 @@ export function MixtapeExportModal({ tracks, defaultTitle, defaultCoverPath, def
 
   const handleCoverChoose = useCallback(async () => {
     const result = await open({
-      filters: [{ name: "Images", extensions: ["jpg", "jpeg", "png", "webp"] }],
+      filters: IMAGE_PICKER_FILTERS,
     });
     if (result) {
       setCoverPath(result);
