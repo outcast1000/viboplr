@@ -105,7 +105,7 @@ Dynamic states: `.sidebar-collapsed` (56px), `.queue-open` (adds col 3), `.queue
 **Component:** `CaptionBar.tsx` (full width, `-webkit-app-region: drag`)
 
 Contents left-to-right:
-- Window controls (macOS left)
+- Window controls (macOS left; Windows/Linux right — the maximize button swaps to the "restore down" glyph and label while the window is maximized, tracked off `onResized` rather than a local toggle. See `frontend.md` → **WindowControls.tsx**)
 - Brand logo ("iboPLR" with gradient)
 - `CentralSearchDropdown` (global search with results preview — library rows, then an on-demand "Search “x” on <plugin>" section per plugin catalog the user hasn't hidden in Extensions → Contributions; see `plugins.md` "Global Search")
 - Spacer (draggable)
