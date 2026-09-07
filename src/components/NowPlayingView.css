@@ -160,7 +160,6 @@
   justify-content: center;
   gap: 40px;
   width: 100%;
-  max-width: 1100px;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -218,8 +217,10 @@
 
    The column's own cap grows with `max()` for the same reason. A hard 560px
    meant a bigger font just wrapped more, which is not "bigger lyrics"; `max()`
-   guarantees it never comes out narrower than it is today. The 1100px stage cap
-   still bounds it in practice. */
+   guarantees it never comes out narrower than it is today. This cap is now the
+   only thing bounding the column — the stage no longer carries a max-width — so
+   the `vw` term is what keeps a wide window from serving lyrics as one long line
+   while still letting them grow with the room. */
 .np-lyrics-col {
   position: relative;
   flex: 1 1 0;
@@ -406,13 +407,11 @@
   text-overflow: ellipsis;
 }
 
-/* When there are no lyrics, center the art alone (no two-column split). The
-   1100px stage cap exists to stop art and lyrics drifting apart on a wide
-   screen; with nothing to hold together it would only crop a visualizer that
-   just earned the extra width. */
+/* When there are no lyrics, center the art alone (no two-column split). The gap
+   goes with the column it was separating — the stage itself is uncapped in every
+   case now, so there is nothing else to undo here. */
 .np-audio--nolyrics .np-stage {
   gap: 0;
-  max-width: none;
 }
 .np-audio--nolyrics .np-lyrics-col {
   display: none;
@@ -532,17 +531,14 @@
 .now-playing-view--fs.np-audio--nolyrics .np-art-col--visualizer {
   --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 92vw, 1400px);
 }
-/* The 1100px cap exists to stop art and lyrics drifting apart on a wide monitor.
-   At fullscreen width that reads as a narrow strip in the middle of the screen,
-   so it loosens rather than lifting entirely.
-   `:not(--nolyrics)` is load-bearing: `.np-audio--nolyrics .np-stage` already
-   lifts the cap to `none` at the same specificity, and this rule is later in the
-   file — so written plainly it would put a 1600px cap *back* on the one case that
-   deliberately has none, silently clipping a visualizer that just earned the
-   whole stage. There is nothing to hold together when there are no lyrics. */
-.now-playing-view--fs:not(.np-audio--nolyrics) .np-stage {
-  max-width: 1600px;
-}
+/* No stage width cap in either tier. There used to be one (1100px docked, 1600px
+   fullscreen) to stop art and lyrics drifting apart on a wide monitor, but they
+   cannot drift: the stage is a centred flex row, so the two columns sit side by
+   side with a fixed 40px gap and any surplus width falls outside the pair. All
+   the cap actually did was stop the lyrics column reaching its own `vw` size and
+   clip a visualizer that had earned the room. Column widths are bounded where
+   they are decided — `--np-art-size`, `--np-vis-size`, `.np-lyrics-col` — each of
+   which already scales with the window. */
 /* Fullscreen lyrics get their own tier for the same reason the art and the
    visualizer do: none of the app furniture the in-grid budget reserves for is
    here, and this surface exists to be read from across a room. Higher floor

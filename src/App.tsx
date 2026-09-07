@@ -4713,7 +4713,7 @@ function App() {
       {/* Main content */}
       <main className="main" data-dock={videoPlaying && videoLayout.dockSide !== "queue" ? videoLayout.dockSide : undefined}>
         {/* Content area */}
-        <div className="content" ref={contentRef} style={videoPlaying && videoLayout.dockSide !== "queue" ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
+        <div className="content" data-view={view} ref={contentRef} style={videoPlaying && videoLayout.dockSide !== "queue" ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
           <DetailViewProvider actions={detailViewActions} state={detailViewState}>
           {/* Track detail view */}
           {library.selectedTrack !== null && (() => {

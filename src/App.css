@@ -163,8 +163,14 @@
 }
 
 /* Cap content width on wide screens (skip docked-video layouts, which
-   split horizontal space between the video panel and the content). */
-.main:not([data-dock]) > .content {
+   split horizontal space between the video panel and the content).
+
+   Now Playing opts out. It is a full-bleed surface rather than a column of
+   content — a blurred, scrimmed backdrop filling the pane with a stage centred
+   in it — so the reading cap left two gutters of bare app background beside it
+   on a wide screen, with the backdrop stopping dead at 1600px. It does its own
+   centring (`.np-stage`), so it needs the whole pane, not a measure. */
+.main:not([data-dock]) > .content:not([data-view="nowplaying"]) {
   width: 100%;
   max-width: var(--ds-content-max, 1600px);
   margin-inline: auto;
