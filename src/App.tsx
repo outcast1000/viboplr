@@ -1283,51 +1283,24 @@ function App() {
   const [queueCollapsed, setQueueCollapsed] = usePersistedSetting("queueCollapsed", false, restoredRef);
   const [queueWidth, setQueueWidth] = usePersistedSetting("queueWidth", 300, restoredRef);
 
-  // Edge-revealed queue drawer, fullscreen only.
+  // Queue drawer, fullscreen only — summoned by the bar's Queue button or Cmd+P,
+  // and open until toggled again.
   //
-  // Fullscreen has no room for a permanently-parked panel, so the drawer has two
-  // summons: push the pointer into the right edge and it slides in, move away and
-  // it leaves (the fast path, same pointer-driven shape as the control bar's own
-  // idle-hide) — or the bar's Queue button / Cmd+P, which PIN it open until
-  // toggled again. The button exists because the edge gesture is invisible: a
-  // user who doesn't know it can't discover it (issue #123's reporter found the
-  // drawer and still read it as broken), and a keyboard user can't perform it at
-  // all. Button = discoverable route, gesture = fast path.
-  //
-  // Hysteresis, not one threshold: reveal at the outer EDGE strip, hide only once
-  // the pointer is clear of the whole drawer. A single boundary would flicker the
-  // panel every time the pointer crossed it, and the drawer is exactly the region
-  // you have to be inside to click a track in it.
-  const [fsQueueRevealed, setFsQueueRevealed] = useState(false);
-  const [fsQueuePinned, setFsQueuePinned] = useState(false);
-  // Held while a queue-item native context menu is up. The menu can extend past
-  // the drawer's left edge, so the first mousemove after it closes can land
-  // outside the drawer and would slam it shut on the action the user just took.
-  const [fsQueueMenuOpen, setFsQueueMenuOpen] = useState(false);
-  const fsQueueVisible = fsQueueRevealed || fsQueuePinned || fsQueueMenuOpen;
-  const toggleFsQueuePin = useCallback(() => setFsQueuePinned((v) => !v), []);
+  // Fullscreen has no room for a permanently-parked panel, hence a drawer. It
+  // used to ALSO reveal itself whenever the pointer entered a 24px strip at the
+  // right edge (hiding once the pointer cleared the whole drawer, so a single
+  // boundary couldn't flicker it). That is **gone** (issue #125) and must not
+  // come back: the right edge is on the way to everything up there — the corner
+  // action row, the window controls — so a trip to any of them opened and shut
+  // the drawer several times, and nothing about an invisible gesture explained
+  // why the queue kept appearing. An explicit toggle is the whole feature.
+  const [fsQueueOpen, setFsQueueOpen] = useState(false);
+  const toggleFsQueuePin = useCallback(() => setFsQueueOpen((v) => !v), []);
   useEffect(() => {
-    if (!audioFullscreen) {
-      // Fullscreen-only state, all of it: left set, the drawer would be open
-      // (or a menu-hold armed) before the next entry asked for anything.
-      setFsQueueRevealed(false);
-      setFsQueuePinned(false);
-      setFsQueueMenuOpen(false);
-      return;
-    }
-    const EDGE_PX = 24;
-    const onMove = (e: MouseEvent) => {
-      // A held button means a drag is in flight — reordering queue rows or
-      // pulling the width-resize handle, both of which legitimately take the
-      // pointer outside the drawer mid-gesture. Don't hide (or reveal) under it.
-      if (e.buttons !== 0) return;
-      const fromRight = window.innerWidth - e.clientX;
-      if (fromRight <= EDGE_PX) setFsQueueRevealed(true);
-      else if (fromRight > queueWidth) setFsQueueRevealed(false);
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [audioFullscreen, queueWidth]);
+    // Fullscreen-only state: left set, the drawer would be open before the next
+    // entry asked for it.
+    if (!audioFullscreen) setFsQueueOpen(false);
+  }, [audioFullscreen]);
   const [searchViewModes, setSearchViewModes] = usePersistedSetting<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>("searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" }, restoredRef);
   const [pluginViewMode, setPluginViewMode] = usePersistedSetting<PluginViewMode>("pluginViewMode", "list", restoredRef);
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
@@ -4484,7 +4457,7 @@ function App() {
   return (
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
-    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""} ${audioFullscreen ? "audio-fs-open" : ""} ${audioFullscreen && fsQueueVisible ? "fs-queue-revealed" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
+    <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""} ${audioFullscreen ? "audio-fs-open" : ""} ${audioFullscreen && fsQueueOpen ? "fs-queue-revealed" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
       {/* Hidden audio elements (A/B for gapless playback) */}
       <audio
         ref={playback.audioRefA}
@@ -5489,25 +5462,17 @@ function App() {
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];
-            const menuClosed = buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
+            buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
               trackIds: tracks.map(t => parseLibraryId(t.key)).filter((id): id is number => id != null),
               firstTrack: first ? { title: first.title, artistName: first.artist_name, albumTitle: first.album_title ?? null, isLocal: isLocalTrack(first) } : { title: "", artistName: null, albumTitle: null, isLocal: false },
             } });
-            // In fullscreen, hold the drawer open for the menu's lifetime: the
-            // native menu can extend past the drawer's left edge, so the first
-            // mousemove after it closes could land outside and hide the drawer
-            // on the heels of the action the user just picked.
-            if (audioFullscreen && menuClosed) {
-              setFsQueueMenuOpen(true);
-              menuClosed.finally(() => setFsQueueMenuOpen(false));
-            }
           }}
           onToggleLike={likeActions.handleToggleLike}
           onToggleDislike={likeActions.handleToggleDislike}
           externalDropTarget={contextMenuActions.externalDropTarget}
           collapsed={
-            // In audio fullscreen the panel is an edge-revealed drawer at full
+            // In audio fullscreen the panel is a slide-in drawer at full
             // --queue-width (QueuePanel.css), so a collapsed queue must still
             // render the expanded header + list — the 40px strip content
             // stretched to drawer width reads as an empty panel. The persisted
@@ -5515,7 +5480,7 @@ function App() {
             // the collapsed strip.
             queueCollapsed && !audioFullscreen
           }
-          fsRevealed={audioFullscreen ? fsQueueVisible : undefined}
+          fsRevealed={audioFullscreen ? fsQueueOpen : undefined}
           onToggleCollapsed={handleToggleQueueCollapsed}
           onResizeWidth={handleResizeQueueWidth}
           isPlaying={playback.playing}
@@ -6057,14 +6022,12 @@ function App() {
               // row, which is fine — the corner row fades with the artwork and
               // the bar is the transport.)
               onToggleFullscreen={toggleAudioFullscreen}
-              // The Queue button pins the edge-revealed drawer open (and shows
-              // pressed while it's up, however it was summoned). It used to be
-              // dropped as "a second route to the edge gesture", but the gesture
-              // is invisible — nothing teaches it, and #123's reporter read the
-              // drawer as broken — so the button is the discoverable route and
-              // the gesture stays the fast path. Shares its intent with Cmd+P
-              // via handleToggleQueueCollapsed's fullscreen branch.
-              showQueue={fsQueueVisible}
+              // The Queue button opens the drawer and shows pressed while it's
+              // up. With the edge gesture gone (#125) it — and Cmd+P, which
+              // shares its intent via handleToggleQueueCollapsed's fullscreen
+              // branch — is the only way in, so it must never be dropped as
+              // "a second route" the way it once was (#123).
+              showQueue={fsQueueOpen}
               onToggleQueue={toggleFsQueuePin}
               active
             />

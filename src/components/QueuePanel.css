@@ -13,11 +13,13 @@
   container-name: queue;
 }
 
-/* ── Fullscreen: edge-revealed drawer ─────────── */
+/* ── Fullscreen: slide-in drawer ─────────── */
 /* Audio fullscreen pins an overlay at z-index 999 over the whole app, this panel
    included, so in the grid the panel simply cannot be seen. In fullscreen it
    stops being a column and becomes a drawer: parked off the right edge, slid in
-   while the pointer is there (App.tsx owns the reveal), gone again after.
+   by the control bar's Queue button or Cmd+P (App.tsx owns the state), gone
+   again on the next toggle. There is no pointer-driven reveal — see App.tsx and
+   issue #125 for why one must not come back.
  *
  * `position: fixed` rather than a z-index bump on the grid item, for two reasons:
  * the drawer must be full width even when the user has the queue *collapsed*
@@ -65,8 +67,8 @@
 .app.audio-fs-open .queue-panel .queue-info-bar {
   background: transparent;
 }
-/* The drawer is summoned by a pointer gesture; with no pointer there is no way to
-   ask for it, so don't animate it in and out under the user. */
+/* A drawer that slides across a third of the screen is exactly the motion this
+   preference is about; the toggle still shows/hides it, just without the slide. */
 @media (prefers-reduced-motion: reduce) {
   .app.audio-fs-open .queue-panel {
     transition: none;

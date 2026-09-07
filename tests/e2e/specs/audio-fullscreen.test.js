@@ -107,8 +107,8 @@ test('the fullscreen bar keeps exit and the queue button', async ({ page }) => {
   // as part of the presentation, while the bar is the transport.
   await expect(bar.locator('button[title="Exit fullscreen"]')).toHaveCount(1);
   // Queue is back: it used to be dropped as a second route to the edge-reveal
-  // gesture, but the gesture is invisible (issue #123's reporter read the drawer
-  // as broken) — the button is the discoverable route, the gesture the fast path.
+  // gesture, and since that gesture is gone (issue #125) it and Cmd+P are the
+  // only ways to open the drawer at all.
   await expect(bar.locator('button[title="Queue"]')).toHaveCount(1);
   // The rest of the bar is untouched. Prefix match: the real title carries the
   // shortcut hint ("Play / Pause (Space)"), so an exact `[title="Play / Pause"]`
@@ -117,7 +117,7 @@ test('the fullscreen bar keeps exit and the queue button', async ({ page }) => {
   await expect(bar.locator('button[title^="Play / Pause"]')).toHaveCount(1);
 });
 
-test('the bar queue button pins the drawer open until toggled again', async ({ page }) => {
+test('the bar queue button holds the drawer open until toggled again', async ({ page }) => {
   await enterFullscreen(page);
   const app = page.locator('.app');
   const revealed = () => app.evaluate((el) => el.classList.contains('fs-queue-revealed'));
@@ -127,8 +127,8 @@ test('the bar queue button pins the drawer open until toggled again', async ({ p
   await expect.poll(revealed).toBe(true);
   await expect(queueBtn).toHaveClass(/active/);
 
-  // Pinned means pinned: moving the pointer away — which hides an edge-revealed
-  // drawer — leaves it up.
+  // Only the toggle closes it. Pointer position has no say either way — moving
+  // away used to hide an edge-revealed drawer (issue #125).
   const { width, height } = page.viewportSize();
   await page.mouse.move(Math.round(width / 4), Math.round(height / 2));
   await page.waitForTimeout(200);
@@ -142,8 +142,7 @@ test('Cmd+P toggles the drawer in fullscreen instead of the collapsed flag', asy
   // In the grid, Cmd+P collapses the panel; in fullscreen the collapsed flag is
   // invisible (the drawer always renders expanded), so the same intent — "show /
   // hide the queue" — routes to the drawer pin. Without this a keyboard user has
-  // no way to open the queue in fullscreen at all: the edge gesture is
-  // pointer-only.
+  // no way to open the queue in fullscreen at all.
   await enterFullscreen(page);
   const app = page.locator('.app');
   const revealed = () => app.evaluate((el) => el.classList.contains('fs-queue-revealed'));
@@ -170,7 +169,11 @@ test("the bar's exit button leaves fullscreen", async ({ page }) => {
   await expect(page.locator('.now-playing-view')).toBeVisible();
 });
 
-test('the queue reveals itself at the right edge and hides again', async ({ page }) => {
+test('the pointer never summons the queue by itself', async ({ page }) => {
+  // Issue #125: the drawer used to reveal itself whenever the pointer entered a
+  // 24px strip at the right edge. The right edge is on the way to the corner
+  // action row and the window controls, so a trip to any button opened and shut
+  // the drawer several times, with nothing to explain why. The gesture is gone.
   await enterFullscreen(page);
   const app = page.locator('.app');
   const revealed = () => app.evaluate((el) => el.classList.contains('fs-queue-revealed'));
@@ -180,18 +183,14 @@ test('the queue reveals itself at the right edge and hides again', async ({ page
   const z = await page.locator('.queue-panel').evaluate((el) => getComputedStyle(el).zIndex);
   expect(Number(z)).toBeGreaterThan(999);
 
+  // Walk the right edge from the control bar up to the corner buttons — the
+  // exact trip that flickered the drawer — and then sit in it.
   const { width, height } = page.viewportSize();
-  await page.mouse.move(width - 4, Math.round(height / 2));
-  await expect.poll(revealed).toBe(true);
-
-  // Hysteresis: still open while the pointer is inside the drawer...
-  await page.mouse.move(width - 120, Math.round(height / 2));
-  expect(await revealed()).toBe(true);
-
-  // ...and only closes once it is clear of the whole drawer. One threshold would
-  // flicker it every time the pointer crossed that single line.
-  await page.mouse.move(Math.round(width / 2), Math.round(height / 2));
-  await expect.poll(revealed).toBe(false);
+  for (const y of [height - 60, Math.round(height / 2), 120, 30]) {
+    await page.mouse.move(width - 4, y);
+  }
+  await page.waitForTimeout(300);
+  expect(await revealed()).toBe(false);
 });
 
 test('a collapsed queue still renders the track list in the fullscreen drawer', async ({ page }) => {
@@ -204,8 +203,7 @@ test('a collapsed queue still renders the track list in the fullscreen drawer', 
   await expect(page.locator('.queue-panel.collapsed .queue-collapsed-strip')).toBeVisible();
 
   await enterFullscreen(page);
-  const { width, height } = page.viewportSize();
-  await page.mouse.move(width - 4, Math.round(height / 2));
+  await page.locator('.audio-fs .fs-controls button[title="Queue"]').click();
   await expect
     .poll(() => page.locator('.app').evaluate((el) => el.classList.contains('fs-queue-revealed')))
     .toBe(true);
@@ -221,18 +219,17 @@ test('a collapsed queue still renders the track list in the fullscreen drawer', 
   await expect(page.locator('.queue-panel.collapsed .queue-collapsed-strip')).toBeVisible();
 });
 
-test('leaving fullscreen forgets the revealed drawer', async ({ page }) => {
+test('leaving fullscreen forgets the open drawer', async ({ page }) => {
   await enterFullscreen(page);
-  const { width, height } = page.viewportSize();
-  await page.mouse.move(width - 4, Math.round(height / 2));
+  await page.locator('.audio-fs .fs-controls button[title="Queue"]').click();
   await expect
     .poll(() => page.locator('.app').evaluate((el) => el.classList.contains('fs-queue-revealed')))
     .toBe(true);
 
   await page.keyboard.press('Escape');
   await expect(page.locator('.audio-fs')).toHaveCount(0);
-  // Fullscreen-only state: left set, it would be waiting on the next entry
-  // before the pointer had asked for anything.
+  // Fullscreen-only state: left set, the drawer would be open on the next entry
+  // before anyone had asked for it.
   await expect(page.locator('.app.fs-queue-revealed')).toHaveCount(0);
 });
 
