@@ -57,6 +57,12 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 const POSITION_EMIT_INTERVAL: Duration = Duration::from_millis(240);
+/// How often the demuxer cache is sampled. Deliberately its own clock rather
+/// than a ride-along on the position tick: mpv keeps filling the cache while
+/// **paused**, but stops emitting `time-pos` altogether, so a position-driven
+/// poll froze the buffered edge for the whole pause — exactly when the user is
+/// sitting there watching it fill.
+const BUFFER_POLL_INTERVAL: Duration = Duration::from_millis(240);
 const FADE_TICK: Duration = Duration::from_millis(30);
 
 /// Where engine events go. Production wraps `AppHandle::emit`; tests collect.
@@ -673,9 +679,8 @@ impl Engine {
         // near-constant 0 through a real stall, because mpv unpauses the moment
         // it has ~1s of data and so is only ever "buffering" while the cache is
         // near empty (confirmed against a throttled HTTP source). It's observed
-        // purely as a **wake-up**: `time-pos` stops advancing the instant mpv
-        // pauses for cache, so without this trigger the readout would freeze at
-        // exactly the moment the user is watching it.
+        // purely as a **wake-up**, so a stall reaches the UI without waiting
+        // out the poll interval.
         for (name, format, id) in [
             ("paused-for-cache", Format::Flag, 5u64),
             ("cache-buffering-state", Format::Int64, 6u64),
@@ -1287,9 +1292,19 @@ fn run_event_loop(
     sink: EventSink,
 ) {
     let mut last_position_emit = Instant::now() - POSITION_EMIT_INTERVAL;
+    let mut last_buffer_poll = Instant::now() - BUFFER_POLL_INTERVAL;
     let mut last_buffer: Option<BufferFingerprint> = None;
     loop {
-        let Some(event) = client.wait_event(0.5) else {
+        let event = client.wait_event(0.5);
+        // Sample the cache on every pass, whatever woke us (including the 0.5s
+        // timeout, which is *all* we get while paused). The fingerprint guard
+        // keeps a settled cache silent, so this costs three property reads per
+        // interval and emits nothing unless the buffered edge actually moved.
+        if last_buffer_poll.elapsed() >= BUFFER_POLL_INTERVAL {
+            last_buffer_poll = Instant::now();
+            emit_buffer_if_changed(&client, deck, &state, &sink, &mut last_buffer);
+        }
+        let Some(event) = event else {
             continue;
         };
         #[cfg(test)]
@@ -1409,16 +1424,6 @@ fn run_event_loop(
                                         "durationSecs": duration,
                                     }),
                                 );
-                                // Ride the position throttle so the buffered-ahead
-                                // range keeps moving during healthy playback. The
-                                // change guard keeps a settled cache silent.
-                                emit_buffer_if_changed(
-                                    &client,
-                                    deck,
-                                    &state,
-                                    &sink,
-                                    &mut last_buffer,
-                                );
                             }
                         }
                     }
@@ -1451,10 +1456,9 @@ fn run_event_loop(
                             );
                         }
                     }
-                    // The stall signals. They fire on their own schedule, which
-                    // matters: `time-pos` stops advancing the moment mpv pauses
-                    // for cache, so the position tick alone would freeze the
-                    // readout exactly when the user needs it.
+                    // The stall signals, sampled ahead of the poll clock so a
+                    // stall shows up immediately rather than up to
+                    // BUFFER_POLL_INTERVAL later.
                     ("paused-for-cache", PropertyData::Flag(_))
                     | ("cache-buffering-state", PropertyData::Int64(_)) => {
                         emit_buffer_if_changed(&client, deck, &state, &sink, &mut last_buffer);
@@ -2098,6 +2102,62 @@ mod tests {
             }
         }
         eprintln!("[edge] FINAL duration={duration:.3} lastCacheEnd={last_cache:?} pos={pos:.2}");
+    }
+
+    /// **The buffered edge must keep moving while paused.** mpv goes on filling
+    /// the demuxer cache when playback is paused, but stops emitting `time-pos`
+    /// entirely — so while the buffer poll rode the position tick, pausing a
+    /// remote track (subsonic, any http source) froze the seek bar's buffered
+    /// edge for the whole pause, which is precisely when a user watches it fill.
+    /// The poll now runs on its own clock (`BUFFER_POLL_INTERVAL`), fed by the
+    /// event loop's own 0.5s `wait_event` timeout when nothing else wakes it.
+    ///
+    /// Harness: same as `probe_buffered_edge_vs_duration` — a Range-honoring
+    /// static server, ideally throttled so the cache is still filling at the
+    /// moment of the pause. `#[ignore]`d because of the server dependency.
+    ///   VIBOPLR_PROBE_URL=http://127.0.0.1:8731/probe.mp3 \
+    ///     cargo test --lib test_paused_stream_keeps_reporting_buffer -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn test_paused_stream_keeps_reporting_buffer() {
+        let url = std::env::var("VIBOPLR_PROBE_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8731/probe.mp3".into());
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        engine
+            .play(&url, None, "trk:paused-buffer", None, 0.2, false, false)
+            .expect("play throttled http");
+
+        // Let the session get going, then pause and forget everything the
+        // playing phase reported.
+        wait_for(&rx, "engine-buffer", Duration::from_secs(30));
+        engine.set_paused(true).expect("pause");
+        std::thread::sleep(Duration::from_millis(500));
+        while rx.try_recv().is_ok() {}
+
+        // Everything from here on was emitted with playback paused.
+        let mut edges: Vec<f64> = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+            match rx.recv_timeout(remaining) {
+                Ok((n, p)) if n == "engine-buffer" => {
+                    if let Some(edge) = p["cacheEndSecs"].as_f64() {
+                        eprintln!("[paused] cacheEnd={edge:.2}");
+                        edges.push(edge);
+                    }
+                    if edges.len() >= 2 && edges[edges.len() - 1] > edges[0] {
+                        break;
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        engine.set_paused(false).ok();
+        assert!(
+            edges.len() >= 2 && edges[edges.len() - 1] > edges[0],
+            "buffered edge did not advance while paused: {edges:?}"
+        );
     }
 
     /// The headers a resolver supplies must reach the server **verbatim** — one
