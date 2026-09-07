@@ -1346,6 +1346,15 @@
   padding-top: 12px;
 }
 
+/* Shown in place of the mix grid when no auto-playlists exist, so the section's
+   Generate control stays reachable instead of the section vanishing. */
+.playlists-section-empty {
+  padding: 16px;
+  text-align: left;
+  font-size: var(--fs-sm);
+  max-width: 640px;
+}
+
 /* Spotify-style shortcut tiles for system playlists (Liked / Disliked) */
 .playlist-shortcuts {
   display: grid;

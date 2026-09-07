@@ -7,6 +7,12 @@
 // `system_kind = "auto:<recipe>[:<key>]"`; `saved_at` doubles as the
 // last-refreshed timestamp (24h staleness), and `metadata` holds the recipe spec.
 //
+// Every recipe depends on data a library may not have (play history, tags with a
+// non-zero `track_count`, years, likes), so `ensure_auto_playlists` guarantees a
+// floor of `MIN_AUTO_PLAYLISTS` by topping up with two fallback recipes seeded
+// from liked/recently-played/random tracks. Those top-ups are pruned again as
+// soon as the real recipes can fill the floor on their own.
+//
 // Shared types/helpers live in db/mod.rs; these are inherent `impl Database`
 // methods reachable via `use super::*`.
 use super::*;
@@ -19,6 +25,16 @@ const MIN_DECADE_TRACKS: i64 = 12;
 const AUTO_STALE_SECS: i64 = 24 * 60 * 60;
 /// Forgotten cutoff for the discovery mix (tracks not played in this long).
 const DISCOVERY_CUTOFF_SECS: i64 = 30 * 24 * 60 * 60;
+/// Minimum number of mixes to surface. Every recipe above depends on data a
+/// library may simply not have — play history, tags with a non-zero
+/// `track_count`, years, likes — so a real (even large) library can legitimately
+/// produce nothing. Below this count, fallback mixes are generated from the
+/// liked/recently-played-weighted seed picker that Home's radio stations use,
+/// falling back to a plain random slice of the library.
+const MIN_AUTO_PLAYLISTS: usize = 3;
+/// A seeded fallback station shorter than this is topped up with random tracks
+/// rather than shipped as a two-track "mix".
+const MIN_FALLBACK_LEN: usize = 5;
 
 /// Top featured artists across the mix's tracks, ranked by track count
 /// descending (ties keep first-seen order), capped at `max`. Mirrors the
@@ -77,6 +93,13 @@ enum Recipe {
     Genre { tag_id: i64 },
     Decade { start: i32, end: i32 },
     Discovery,
+    /// Fallback: a radio station from an arbitrary seed (liked / recently played
+    /// / random, per `pick_radio_seeds`), topped up with random tracks when the
+    /// station comes back thin.
+    SeededFallback { artist: String, seed_title: String },
+    /// Last-resort fallback: a random slice of the library. `index` offsets into
+    /// the random ordering so several samplers don't serve the same tracks.
+    Sampler { index: u32 },
 }
 
 /// A desired auto-playlist: its identity (`kind`), display `name`, recipe `metadata`
@@ -189,50 +212,242 @@ impl Database {
         rows.collect()
     }
 
+    /// A random slice of the (non-disliked, enabled-collection) library. `index`
+    /// skips `index * count` rows of the random ordering, so sampler 0 and
+    /// sampler 1 don't overlap within a run.
+    pub fn generate_sampler_mix(&self, index: u32, count: u32) -> SqlResult<Vec<Track>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "{} WHERE t.liked != -1 {} ORDER BY RANDOM() LIMIT ?1 OFFSET ?2",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut slice = |offset: i64| -> SqlResult<Vec<Track>> {
+            let rows = stmt.query_map(params![count as i64, offset], |row| track_from_row(row))?;
+            rows.collect()
+        };
+        let tracks = slice((index as i64) * (count as i64))?;
+        if !tracks.is_empty() || index == 0 {
+            return Ok(tracks);
+        }
+        // A library smaller than `index * count` has no disjoint slice left.
+        // Overlapping mixes beat an empty section, so start over from the top.
+        slice(0)
+    }
+
+    /// Pad `tracks` up to `target` with random library tracks it doesn't already
+    /// contain. Used when a fallback station's seed has too few neighbours to
+    /// fill a mix — a 2-track card reads as broken, and the alternative to
+    /// padding is showing nothing at all.
+    fn fill_with_random(&self, tracks: &mut Vec<Track>, target: u32) -> SqlResult<()> {
+        if tracks.len() >= target as usize {
+            return Ok(());
+        }
+        let want = target as usize - tracks.len();
+        let exclude: Vec<String> = tracks.iter().map(|t| t.id.to_string()).collect();
+        let exclude_clause = if exclude.is_empty() {
+            String::new()
+        } else {
+            format!(" AND t.id NOT IN ({})", exclude.join(","))
+        };
+        let extra: Vec<Track> = {
+            let conn = self.conn.lock().unwrap();
+            let sql = format!(
+                "{} WHERE t.liked != -1 {}{} ORDER BY RANDOM() LIMIT ?1",
+                TRACK_SELECT, ENABLED_COLLECTION_FILTER, exclude_clause
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![want as i64], |row| track_from_row(row))?;
+            rows.collect::<SqlResult<Vec<_>>>()?
+        };
+        tracks.extend(extra);
+        Ok(())
+    }
+
     // --- Orchestrator ---
 
-    /// Decide which auto-playlists should exist, prune obsolete ones, and
-    /// (re)generate stale/missing ones into materialized `playlist_tracks`.
-    /// `force` regenerates everything regardless of `saved_at` age. A single
-    /// failing generator is logged and skipped (the batch continues).
+    /// Decide which auto-playlists should exist, (re)generate stale/missing ones
+    /// into materialized `playlist_tracks`, top the result up to
+    /// `MIN_AUTO_PLAYLISTS`, and prune whatever is no longer wanted. `force`
+    /// regenerates everything regardless of `saved_at` age. A single failing
+    /// generator is logged and skipped (the batch continues).
+    ///
+    /// Pruning runs LAST because the fallback set isn't known until the recipe
+    /// mixes have been generated: a spec can exist and still yield nothing.
     pub fn ensure_auto_playlists(&self, force: bool) -> SqlResult<()> {
-        let specs = self.desired_auto_specs()?;
-        let desired: std::collections::HashSet<String> =
-            specs.iter().map(|s| s.kind.clone()).collect();
-        self.prune_auto_playlists(&desired)?;
+        // Dedupe by kind: `top_daily_artists` can return two seeds by the same
+        // artist (its radio-seed fallback only prefers distinct artists), which
+        // yields two specs with one kind — and would then count twice towards
+        // MIN_AUTO_PLAYLISTS.
+        let mut seen_kinds: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let specs: Vec<AutoSpec> = self
+            .desired_auto_specs()?
+            .into_iter()
+            .filter(|s| seen_kinds.insert(s.kind.clone()))
+            .collect();
+        let mut desired: std::collections::HashSet<String> = seen_kinds;
 
         let now = self.auto_now_ts()?;
+        let mut live = 0usize;
         for spec in &specs {
-            let existing = self.get_auto_row(&spec.kind)?;
-            let stale = force
-                || match existing {
-                    Some((_, saved_at)) => (now - saved_at) > AUTO_STALE_SECS,
-                    None => true,
-                };
-            if !stale {
-                continue;
+            if self.materialize_spec(spec, now, force)? {
+                live += 1;
             }
-            let tracks = match self.generate_auto_tracks(&spec.recipe) {
-                Ok(t) => t,
-                Err(e) => {
-                    log::warn!("auto-playlist '{}' generation failed: {}", spec.kind, e);
+        }
+
+        // Top up. Existing fallback rows are reused (so their names and 24h
+        // snapshots stay put across launches) before new seeds are drawn, and
+        // once the recipe mixes recover, the leftovers fall out of `desired` and
+        // are pruned below.
+        if live < MIN_AUTO_PLAYLISTS {
+            let fallbacks = self.fallback_specs(MIN_AUTO_PLAYLISTS - live, &desired)?;
+            for spec in &fallbacks {
+                if self.materialize_spec(spec, now, force)? {
+                    desired.insert(spec.kind.clone());
+                }
+            }
+        }
+
+        self.prune_auto_playlists(&desired)?;
+        Ok(())
+    }
+
+    /// Generate one spec into its row when stale, and report whether a non-empty
+    /// mix exists for it afterwards. An empty generator result drops the row
+    /// (nothing persists an empty mix), so the returned flag is what the
+    /// `MIN_AUTO_PLAYLISTS` top-up counts.
+    fn materialize_spec(&self, spec: &AutoSpec, now: i64, force: bool) -> SqlResult<bool> {
+        let existing = self.get_auto_row(&spec.kind)?;
+        let stale = force
+            || match existing {
+                Some((_, saved_at)) => (now - saved_at) > AUTO_STALE_SECS,
+                None => true,
+            };
+        if !stale {
+            // A fresh row is always non-empty — empty mixes are never persisted.
+            return Ok(true);
+        }
+        let tracks = match self.generate_auto_tracks(&spec.recipe) {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("auto-playlist '{}' generation failed: {}", spec.kind, e);
+                // Keep (and count) a previous snapshot rather than dropping a
+                // usable mix because one regeneration failed.
+                return Ok(existing.is_some());
+            }
+        };
+        if tracks.is_empty() {
+            // Don't persist empty mixes; drop any stale placeholder row.
+            if let Some((id, _)) = existing {
+                let _ = self.delete_auto_row_by_id(id);
+            }
+            return Ok(false);
+        }
+        let id = match existing {
+            Some((id, _)) => id,
+            None => self.insert_auto_row(spec)?,
+        };
+        self.replace_auto_tracks(id, spec, &tracks, now)?;
+        Ok(true)
+    }
+
+    /// Up to `need` fallback specs: existing fallback rows first (reused as-is),
+    /// then fresh seeds from `pick_radio_seeds` (liked and recently-played
+    /// tracks are weighted to the top, the rest is random — so the mixes are
+    /// personal when there's anything to be personal about), then plain random
+    /// samplers for a library with no usable artist names at all.
+    fn fallback_specs(
+        &self,
+        need: usize,
+        taken: &std::collections::HashSet<String>,
+    ) -> SqlResult<Vec<AutoSpec>> {
+        let mut specs: Vec<AutoSpec> = Vec::new();
+
+        for (kind, name, metadata) in self.list_fallback_rows()? {
+            if specs.len() >= need {
+                break;
+            }
+            if let Some(recipe) = Self::fallback_recipe_from_metadata(&metadata) {
+                specs.push(AutoSpec { kind, name, metadata, recipe });
+            }
+        }
+
+        if specs.len() < need {
+            // Overdraw: seeds without an artist name, and artists a daily mix
+            // already covers, are skipped.
+            let seeds = self.pick_radio_seeds(((need - specs.len()) * 4).max(4) as u32)?;
+            for seed in seeds {
+                if specs.len() >= need {
+                    break;
+                }
+                let artist = match seed.artist_name.as_deref().map(str::trim) {
+                    Some(a) if !a.is_empty() => a.to_string(),
+                    _ => continue,
+                };
+                let canon = strip_diacritics(&artist.to_lowercase());
+                let kind = format!("auto:seeded:{}", canon);
+                // Same artist as a daily mix → same card name; skip it.
+                if taken.contains(&kind)
+                    || taken.contains(&format!("auto:daily-mix:{}", canon))
+                    || specs.iter().any(|s| s.kind == kind)
+                {
                     continue;
                 }
-            };
-            if tracks.is_empty() {
-                // Don't persist empty mixes; drop any stale placeholder row.
-                if let Some((id, _)) = existing {
-                    let _ = self.delete_auto_row_by_id(id);
-                }
-                continue;
+                specs.push(AutoSpec {
+                    kind,
+                    name: format!("{} Mix", artist),
+                    metadata: serde_json::json!({
+                        "recipe": "seeded",
+                        "seed_artist": artist,
+                        "seed_title": seed.title,
+                    })
+                    .to_string(),
+                    recipe: Recipe::SeededFallback { artist, seed_title: seed.title },
+                });
             }
-            let id = match existing {
-                Some((id, _)) => id,
-                None => self.insert_auto_row(spec)?,
-            };
-            self.replace_auto_tracks(id, spec, &tracks, now)?;
         }
-        Ok(())
+
+        // Nothing seedable (no artist names anywhere) — hand out random slices.
+        let mut index = 0u32;
+        while specs.len() < need && index < MIN_AUTO_PLAYLISTS as u32 * 2 {
+            let kind = format!("auto:sampler:{}", index);
+            if !taken.contains(&kind) && !specs.iter().any(|s| s.kind == kind) {
+                specs.push(AutoSpec {
+                    kind,
+                    name: if index == 0 {
+                        "Library Mix".to_string()
+                    } else {
+                        format!("Library Mix {}", index + 1)
+                    },
+                    metadata: serde_json::json!({ "recipe": "sampler", "index": index }).to_string(),
+                    recipe: Recipe::Sampler { index },
+                });
+            }
+            index += 1;
+        }
+
+        Ok(specs)
+    }
+
+    /// Rebuild a fallback recipe from a stored row's metadata. Returns `None`
+    /// for anything unrecognised, so a row written by a future (or corrupted)
+    /// build is simply not reused — it falls out of `desired` and is pruned.
+    fn fallback_recipe_from_metadata(metadata: &str) -> Option<Recipe> {
+        let v: serde_json::Value = serde_json::from_str(metadata).ok()?;
+        match v.get("recipe")?.as_str()? {
+            "seeded" => {
+                let artist = v.get("seed_artist")?.as_str()?.to_string();
+                let seed_title = v.get("seed_title")?.as_str()?.to_string();
+                Some(Recipe::SeededFallback { artist, seed_title })
+            }
+            "sampler" => Some(Recipe::Sampler {
+                index: v.get("index")?.as_u64()? as u32,
+            }),
+            _ => None,
+        }
     }
 
     fn generate_auto_tracks(&self, recipe: &Recipe) -> SqlResult<Vec<Track>> {
@@ -243,6 +458,14 @@ impl Database {
             Recipe::Genre { tag_id } => self.generate_genre_mix(*tag_id, MIX_LEN),
             Recipe::Decade { start, end } => self.generate_decade_mix(*start, *end, MIX_LEN),
             Recipe::Discovery => self.generate_discovery_mix(MIX_LEN),
+            Recipe::SeededFallback { artist, seed_title } => {
+                let mut tracks = self.build_radio_for_track(seed_title, Some(artist), MIX_LEN)?;
+                if tracks.len() < MIN_FALLBACK_LEN {
+                    self.fill_with_random(&mut tracks, MIX_LEN)?;
+                }
+                Ok(tracks)
+            }
+            Recipe::Sampler { index } => self.generate_sampler_mix(*index, MIX_LEN),
         }
     }
 
@@ -380,6 +603,19 @@ impl Database {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()
+    }
+
+    /// Existing fallback rows as `(kind, name, metadata)`, oldest first so the
+    /// reuse order is stable across runs.
+    fn list_fallback_rows(&self) -> SqlResult<Vec<(String, String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT system_kind, name, COALESCE(metadata, '') FROM playlists \
+             WHERE system_kind LIKE 'auto:seeded:%' OR system_kind LIKE 'auto:sampler:%' \
+             ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        rows.collect()
     }
 
     fn insert_auto_row(&self, spec: &AutoSpec) -> SqlResult<i64> {
@@ -728,6 +964,205 @@ mod tests {
         }
         db.ensure_auto_playlists(false).unwrap();
         assert!(saved_at(&db) > backdated, "a stale mix must be regenerated");
+    }
+
+    // --- MIN_AUTO_PLAYLISTS top-up ---
+
+    fn auto_kinds(db: &Database) -> Vec<String> {
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT system_kind FROM playlists WHERE system_kind LIKE 'auto:%' ORDER BY system_kind")
+            .unwrap();
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0)).unwrap();
+        rows.map(|r| r.unwrap()).collect()
+    }
+
+    /// Every mix that exists must carry tracks — the top-up must never ship an
+    /// empty card to reach the minimum.
+    fn assert_all_non_empty(db: &Database) {
+        let conn = db.conn.lock().unwrap();
+        let empty: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM playlists p WHERE p.system_kind LIKE 'auto:%' \
+                 AND (SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = p.id) = 0",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(empty, 0, "no auto playlist may be empty");
+    }
+
+    #[test]
+    fn test_ensure_auto_tops_up_to_minimum_single_artist() {
+        // One artist, no tags, no years, no history, no likes: the genre/decade/
+        // discovery recipes all come back empty and the daily mixes collapse to a
+        // single kind, so the top-up has to make up the difference.
+        let db = test_db();
+        let cid = add_local_collection(&db);
+        let artist = db.get_or_create_artist("Solo").unwrap();
+        for i in 0..12 {
+            mk_track(&db, cid, &format!("s{}.mp3", i), &format!("S{}", i), artist, None, None);
+        }
+        db.recompute_counts().unwrap();
+
+        db.ensure_auto_playlists(true).unwrap();
+        let kinds = auto_kinds(&db);
+        assert!(
+            kinds.len() >= MIN_AUTO_PLAYLISTS,
+            "expected at least {} mixes, got {:?}",
+            MIN_AUTO_PLAYLISTS,
+            kinds
+        );
+        assert_all_non_empty(&db);
+    }
+
+    #[test]
+    fn test_ensure_auto_tops_up_with_samplers_when_nothing_is_seedable() {
+        // Tracks with no artist at all: `pick_radio_seeds` yields nothing usable,
+        // so only the random samplers can fill the section.
+        let db = test_db();
+        let cid = add_local_collection(&db);
+        for i in 0..6 {
+            db.upsert_track(
+                &format!("n{}.mp3", i),
+                &format!("N{}", i),
+                None,
+                None,
+                None,
+                Some(180.0),
+                Some("mp3"),
+                None,
+                None,
+                Some(cid),
+                None,
+            )
+            .unwrap();
+        }
+        db.recompute_counts().unwrap();
+
+        db.ensure_auto_playlists(true).unwrap();
+        let kinds = auto_kinds(&db);
+        assert_eq!(kinds.len(), MIN_AUTO_PLAYLISTS, "exactly the minimum, all samplers: {:?}", kinds);
+        assert!(kinds.iter().all(|k| k.starts_with("auto:sampler:")), "{:?}", kinds);
+        assert_all_non_empty(&db);
+    }
+
+    #[test]
+    fn test_ensure_auto_reuses_fallback_rows_across_runs() {
+        let db = test_db();
+        let cid = add_local_collection(&db);
+        let artist = db.get_or_create_artist("Solo").unwrap();
+        for i in 0..8 {
+            mk_track(&db, cid, &format!("s{}.mp3", i), &format!("S{}", i), artist, None, None);
+        }
+        db.recompute_counts().unwrap();
+
+        db.ensure_auto_playlists(true).unwrap();
+        let first = auto_kinds(&db);
+        // A second (non-forced) run must not churn the cards: the fallback rows
+        // are reused, not re-seeded under new names.
+        db.ensure_auto_playlists(false).unwrap();
+        assert_eq!(first, auto_kinds(&db), "fallback mixes must be stable across runs");
+        // And a forced regeneration keeps the same identities too.
+        db.ensure_auto_playlists(true).unwrap();
+        assert_eq!(first, auto_kinds(&db), "forced refresh must keep the same fallback mixes");
+    }
+
+    #[test]
+    fn test_ensure_auto_prunes_fallbacks_once_recipes_recover() {
+        let db = test_db();
+        let cid = add_local_collection(&db);
+        let solo = db.get_or_create_artist("Solo").unwrap();
+        for i in 0..8 {
+            mk_track(&db, cid, &format!("s{}.mp3", i), &format!("S{}", i), solo, None, None);
+        }
+        db.recompute_counts().unwrap();
+        db.ensure_auto_playlists(true).unwrap();
+        assert!(
+            auto_kinds(&db).iter().any(|k| k.starts_with("auto:seeded:") || k.starts_with("auto:sampler:")),
+            "expected fallback mixes on a bare library"
+        );
+
+        // Give the library enough material for three real recipe mixes: three
+        // tags (genre) plus a populated decade.
+        for (i, tag) in ["rock", "jazz", "folk"].iter().enumerate() {
+            let tid = db.get_or_create_tag(tag).unwrap();
+            for j in 0..14 {
+                let id = mk_track(
+                    &db,
+                    cid,
+                    &format!("{}-{}.mp3", tag, j),
+                    &format!("{} {}", tag, j),
+                    solo,
+                    None,
+                    Some(1990 + (i as i32)),
+                );
+                db.add_track_tag(id, tid).unwrap();
+            }
+        }
+        db.recompute_counts().unwrap();
+        db.ensure_auto_playlists(true).unwrap();
+
+        let kinds = auto_kinds(&db);
+        assert!(kinds.len() >= MIN_AUTO_PLAYLISTS, "{:?}", kinds);
+        assert!(
+            kinds.iter().all(|k| !k.starts_with("auto:sampler:") && !k.starts_with("auto:seeded:")),
+            "fallbacks must be pruned once the recipes fill the minimum: {:?}",
+            kinds
+        );
+    }
+
+    #[test]
+    fn test_sampler_mix_falls_back_to_first_slice_on_a_small_library() {
+        let db = test_db();
+        let cid = add_local_collection(&db);
+        let artist = db.get_or_create_artist("A").unwrap();
+        for i in 0..3 {
+            mk_track(&db, cid, &format!("a{}.mp3", i), &format!("A{}", i), artist, None, None);
+        }
+        db.recompute_counts().unwrap();
+
+        // Slice 2 starts past the end of a 3-track library — it must still return
+        // tracks rather than an empty (and therefore dropped) mix.
+        let mix = db.generate_sampler_mix(2, MIX_LEN).unwrap();
+        assert_eq!(mix.len(), 3);
+    }
+
+    #[test]
+    fn test_sampler_mix_excludes_disliked() {
+        let db = test_db();
+        let cid = add_local_collection(&db);
+        let artist = db.get_or_create_artist("A").unwrap();
+        let keep = mk_track(&db, cid, "k.mp3", "K", artist, None, None);
+        let hated = mk_track(&db, cid, "h.mp3", "H", artist, None, None);
+        db.toggle_liked("tracks", hated, -1).unwrap();
+        db.recompute_counts().unwrap();
+
+        let mix = db.generate_sampler_mix(0, MIX_LEN).unwrap();
+        let ids: std::collections::HashSet<i64> = mix.iter().map(|t| t.id).collect();
+        assert!(ids.contains(&keep));
+        assert!(!ids.contains(&hated), "disliked track must be excluded");
+    }
+
+    #[test]
+    fn test_fallback_recipe_from_metadata() {
+        match Database::fallback_recipe_from_metadata(
+            r#"{"recipe":"seeded","seed_artist":"A","seed_title":"T","first_artist":"A"}"#,
+        ) {
+            Some(Recipe::SeededFallback { artist, seed_title }) => {
+                assert_eq!(artist, "A");
+                assert_eq!(seed_title, "T");
+            }
+            other => panic!("expected a seeded recipe, got {:?}", other.is_some()),
+        }
+        match Database::fallback_recipe_from_metadata(r#"{"recipe":"sampler","index":2}"#) {
+            Some(Recipe::Sampler { index }) => assert_eq!(index, 2),
+            other => panic!("expected a sampler recipe, got {:?}", other.is_some()),
+        }
+        // Unrecognised / malformed rows are not reused (they get pruned instead).
+        assert!(Database::fallback_recipe_from_metadata(r#"{"recipe":"genre"}"#).is_none());
+        assert!(Database::fallback_recipe_from_metadata("not json").is_none());
+        assert!(Database::fallback_recipe_from_metadata(r#"{"recipe":"seeded"}"#).is_none());
     }
 
     #[test]

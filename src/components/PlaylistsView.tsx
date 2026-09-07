@@ -321,13 +321,22 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     setRefreshingAuto(true);
     try {
       await invoke("ensure_auto_playlists", { force: true });
-      await loadPlaylists();
+      // Read the rows here rather than via loadPlaylists so we can tell the
+      // user when the run produced nothing: the backend persists no empty
+      // mixes, so a generate that can't find enough library material is a
+      // silent no-op otherwise.
+      const rows = await invoke<Playlist[]>("get_playlists");
+      setPlaylists(rows);
+      if (!rows.some(isAuto)) {
+        onNotify?.("No mixes yet — they need a scanned collection, and improve once you've played and liked some tracks.");
+      }
     } catch (e) {
       console.error("Failed to refresh auto playlists:", e);
+      onNotify?.("Couldn't generate your mixes.");
     } finally {
       setRefreshingAuto(false);
     }
-  }, [loadPlaylists]);
+  }, [onNotify]);
 
   useEffect(() => {
     loadPlaylists();
@@ -1265,15 +1274,24 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
     return <div className="entity-list-img"><img src={src} alt="" /></div>;
   };
 
+  // The "Made for you" section is shown even with zero mixes (as long as the
+  // search/filter isn't deliberately hiding it), because its header carries the
+  // only control that forces generation. Hiding it when empty made the empty
+  // state a dead end: the 24h throttle in App.tsx means the automatic refresh
+  // may not try again for a day.
+  const showAutoSection =
+    autoPlaylists.length > 0 ||
+    (!searchQuery.trim() && (kindFilter === "all" || kindFilter === "auto"));
+
   const refreshButton = (
     <button
       className="ds-btn ds-btn--ghost ds-btn--sm"
       onClick={handleRefreshAuto}
       disabled={refreshingAuto}
-      title="Regenerate your mixes"
+      title={autoPlaylists.length > 0 ? "Regenerate your mixes" : "Generate your mixes now"}
     >
       {refreshingAuto ? <span className="ds-spinner ds-spinner--sm" /> : <IconRefresh size={15} />}
-      Refresh
+      {autoPlaylists.length > 0 ? "Refresh" : "Generate mixes"}
     </button>
   );
 
@@ -1288,7 +1306,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         <div style={{ display: "flex", flex: 1, alignItems: "center" }}>
           {/* In tiles mode the "Made for you" section header carries Refresh;
               the flat modes have no sections, so it lives up here instead. */}
-          {viewMode !== "tiles" && autoPlaylists.length > 0 && refreshButton}
+          {viewMode !== "tiles" && showAutoSection && refreshButton}
         </div>
         <button className="sort-btn sort-bar-toggle" onClick={() => setSortBarCollapsed(v => !v)} title={sortBarCollapsed ? "Show sort bar" : "Hide sort bar"}>{sortBarCollapsed ? "▼" : "▲"}</button>
         <ViewModeToggle mode={viewMode} onChange={setViewMode} />
@@ -1318,7 +1336,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
         </div>
       </div>
       <div className="playlists-view">
-      {filtered.length === 0 ? (
+      {filtered.length === 0 && !(viewMode === "tiles" && showAutoSection) ? (
         <div className="playlists-empty ds-empty">{emptyMessage}</div>
       ) : viewMode === "list" ? (
         <div className="entity-list">
@@ -1389,20 +1407,18 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
               ))}
             </div>
           )}
-          {autoPlaylists.length > 0 && (
+          {showAutoSection && (
             <div className="playlists-section">
               <div className="playlists-section-header">
                 <h3 className="playlists-section-title">Made for you</h3>
-                <button
-                  className="ds-btn ds-btn--ghost ds-btn--sm"
-                  onClick={handleRefreshAuto}
-                  disabled={refreshingAuto}
-                  title="Regenerate your mixes"
-                >
-                  {refreshingAuto ? <span className="ds-spinner ds-spinner--sm" /> : <IconRefresh size={15} />}
-                  Refresh
-                </button>
+                {refreshButton}
               </div>
+              {autoPlaylists.length === 0 && (
+                <div className="playlists-section-empty ds-empty">
+                  No mixes right now. They rebuild on their own about once a day —
+                  use Generate mixes to build them from your library now.
+                </div>
+              )}
               <div className="playlists-grid">
                 {autoPlaylists.map((pl) => {
                   // Spotify-"Daily Mix"-style description: the mix's top artists,

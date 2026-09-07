@@ -390,8 +390,16 @@ pub fn get_playlists(state: State<'_, AppState>) -> Result<Vec<Playlist>, String
 /// age; with `force == false` the per-mix 24h staleness check decides, so calling
 /// this on view-mount is cheap when everything is fresh.
 #[tauri::command]
-pub fn ensure_auto_playlists(state: State<'_, AppState>, force: bool) -> Result<(), String> {
-    state.db.ensure_auto_playlists(force).map_err(|e| e.to_string())
+pub fn ensure_auto_playlists(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    force: bool,
+) -> Result<(), String> {
+    state.db.ensure_auto_playlists(force).map_err(|e| e.to_string())?;
+    // Notify any mounted Playlists view: this runs off a scan/sync completion as
+    // well as on demand, so the mixes can change while the view is open.
+    let _ = app.emit("playlists-changed", ());
+    Ok(())
 }
 
 #[tauri::command]

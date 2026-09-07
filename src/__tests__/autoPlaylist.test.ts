@@ -13,6 +13,7 @@ import {
   playlistKind,
   playlistKindLabel,
   comparePlaylists,
+  decideAutoRerunAfterSync,
 } from "../utils/autoPlaylist";
 
 const p = (system_kind: string | null, metadata: string | null = null) => ({ system_kind, metadata });
@@ -240,5 +241,76 @@ describe("comparePlaylists", () => {
 
   it("ignores unknown fields instead of throwing", () => {
     expect(comparePlaylists(pl("a", 1, 1), pl("b", 1, 1), [{ field: "bogus", dir: "asc" }])).toBe(0);
+  });
+});
+
+describe("decideAutoRerunAfterSync", () => {
+  it("regenerates when the library has no mixes", () => {
+    const d = decideAutoRerunAfterSync({
+      hasAutoPlaylists: false,
+      seenCollectionIds: [1],
+      collectionId: 1,
+    });
+    expect(d).toMatchObject({ run: true, force: false, reason: "no-mixes" });
+  });
+
+  it("does nothing when mixes exist and the collection is known", () => {
+    const d = decideAutoRerunAfterSync({
+      hasAutoPlaylists: true,
+      seenCollectionIds: [1, 2],
+      collectionId: 2,
+    });
+    expect(d).toMatchObject({ run: false, force: false, reason: "none" });
+    expect(d.nextSeenCollectionIds).toEqual([1, 2]);
+  });
+
+  it("force-regenerates for a collection it has not seen before", () => {
+    const d = decideAutoRerunAfterSync({
+      hasAutoPlaylists: true,
+      seenCollectionIds: [1],
+      collectionId: 7,
+    });
+    expect(d).toMatchObject({ run: true, force: true, reason: "new-collection" });
+    expect(d.nextSeenCollectionIds).toEqual([1, 7]);
+  });
+
+  it("seeds an empty record instead of treating every collection as new", () => {
+    const d = decideAutoRerunAfterSync({
+      hasAutoPlaylists: true,
+      seenCollectionIds: [],
+      collectionId: 3,
+    });
+    expect(d).toMatchObject({ run: false, reason: "none" });
+    expect(d.nextSeenCollectionIds).toEqual([3]);
+  });
+
+  it("still generates on a first-ever check with no mixes", () => {
+    const d = decideAutoRerunAfterSync({
+      hasAutoPlaylists: false,
+      seenCollectionIds: [],
+      collectionId: 3,
+    });
+    expect(d).toMatchObject({ run: true, force: false, reason: "no-mixes" });
+    expect(d.nextSeenCollectionIds).toEqual([3]);
+  });
+
+  it("handles an event with no collection id", () => {
+    const d = decideAutoRerunAfterSync({
+      hasAutoPlaylists: true,
+      seenCollectionIds: [1],
+      collectionId: null,
+    });
+    expect(d).toMatchObject({ run: false, reason: "none" });
+    expect(d.nextSeenCollectionIds).toEqual([1]);
+  });
+
+  it("returns the same array reference when nothing was recorded", () => {
+    const seen = [4];
+    const d = decideAutoRerunAfterSync({
+      hasAutoPlaylists: true,
+      seenCollectionIds: seen,
+      collectionId: 4,
+    });
+    expect(d.nextSeenCollectionIds).toBe(seen);
   });
 });

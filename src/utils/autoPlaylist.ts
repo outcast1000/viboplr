@@ -83,7 +83,7 @@ export function comparePlaylists(a: SortablePlaylist, b: SortablePlaylist, chain
 }
 
 /** The recipe encoded in an auto-playlist's metadata JSON (best-effort). */
-export type AutoRecipe = "daily-mix" | "genre" | "decade" | "discovery" | "unknown";
+export type AutoRecipe = "daily-mix" | "genre" | "decade" | "discovery" | "seeded" | "sampler" | "unknown";
 
 /**
  * Parse the recipe label from an auto-playlist's metadata JSON. Tolerant of
@@ -93,11 +93,16 @@ export function parseRecipe(metadata: string | null | undefined): AutoRecipe {
   if (!metadata) return "unknown";
   try {
     const parsed = JSON.parse(metadata) as { recipe?: string };
+    // "seeded" and "sampler" are the top-up recipes the backend generates when
+    // the four primary ones can't fill MIN_AUTO_PLAYLISTS: a station from a
+    // liked/recently-played/random seed, and a plain random library slice.
     switch (parsed?.recipe) {
       case "daily-mix":
       case "genre":
       case "decade":
       case "discovery":
+      case "seeded":
+      case "sampler":
         return parsed.recipe;
       default:
         return "unknown";
@@ -204,7 +209,66 @@ export function autoRecipeLabel(recipe: AutoRecipe): string {
       return "Decade mix";
     case "discovery":
       return "For you";
+    case "seeded":
+      return "Mix";
+    case "sampler":
+      return "From your library";
     default:
       return "Auto playlist";
   }
+}
+
+// ── Post-sync regeneration ──
+//
+// The automatic "Made for you" refresh in App.tsx is throttled to once a day,
+// which is right for a steady library but wrong for the two moments where the
+// mixes are visibly stale: a library that produced no mixes at all (the backend
+// persists no empty mix, so a run made before the first scan finished leaves the
+// section empty for up to 24h), and a freshly added collection (whose artists,
+// tags and decades can't be in any existing snapshot). Both are detected when a
+// scan/sync completes, so the decision is made here and pinned by unit tests.
+
+export interface AutoRerunInput {
+  /** Whether any `auto:*` playlist currently exists. */
+  hasAutoPlaylists: boolean;
+  /** Collection ids recorded by previous post-sync checks. */
+  seenCollectionIds: number[];
+  /** The collection whose scan/sync just completed; null when the event omits it. */
+  collectionId: number | null;
+}
+
+export interface AutoRerunDecision {
+  /** Whether to invoke `ensure_auto_playlists`. */
+  run: boolean;
+  /** The `force` flag for that invoke. */
+  force: boolean;
+  reason: "new-collection" | "no-mixes" | "none";
+  /** The seen-collection list to persist after this check. */
+  nextSeenCollectionIds: number[];
+}
+
+export function decideAutoRerunAfterSync(input: AutoRerunInput): AutoRerunDecision {
+  const { hasAutoPlaylists, seenCollectionIds, collectionId } = input;
+  const nextSeenCollectionIds =
+    collectionId != null && !seenCollectionIds.includes(collectionId)
+      ? [...seenCollectionIds, collectionId]
+      : seenCollectionIds;
+
+  // An empty record means we've never checked (a fresh profile, or an upgrade
+  // from a build without this bookkeeping) — every collection would look new,
+  // so seed the list instead and let the no-mixes branch decide. Otherwise a
+  // routine sync right after updating the app would force a pointless rebuild.
+  const seeding = seenCollectionIds.length === 0;
+  const isNewCollection =
+    collectionId != null && !seeding && !seenCollectionIds.includes(collectionId);
+
+  if (isNewCollection) {
+    // A new collection can change the top artists / tags / decades every mix is
+    // built from, so rebuild the snapshots rather than only filling in gaps.
+    return { run: true, force: true, reason: "new-collection", nextSeenCollectionIds };
+  }
+  if (!hasAutoPlaylists) {
+    return { run: true, force: false, reason: "no-mixes", nextSeenCollectionIds };
+  }
+  return { run: false, force: false, reason: "none", nextSeenCollectionIds };
 }

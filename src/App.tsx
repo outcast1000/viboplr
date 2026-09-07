@@ -7,6 +7,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { applyWindowFullscreen } from "./utils/windowFullscreen";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { subscribe, combineUnlisten, safeUnlisten } from "./utils/tauriEvents";
+import { isAuto, decideAutoRerunAfterSync } from "./utils/autoPlaylist";
 import "./base.css";
 import "./design-system.css";
 import "./App.css";
@@ -2948,6 +2949,55 @@ function App() {
       }
     })();
      
+  }, [appRestoring]);
+
+  // The 24h throttle above is wrong at two moments, so a completed scan/sync
+  // re-checks: when the library has no mixes at all (the backend persists no
+  // empty mix, so a refresh that ran before the first scan finished leaves the
+  // section empty for a day) and when a collection the app hasn't seen before
+  // just finished (its artists/tags/decades are in no existing snapshot).
+  // `decideAutoRerunAfterSync` owns that decision; everything else is a no-op.
+  useEffect(() => {
+    if (appRestoring) return;
+    let inFlight = false;
+    const check = async (collectionId: number | null) => {
+      // Collections sync in parallel, so several completions can land at once;
+      // one regeneration at a time is enough (the next event re-checks).
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const rows = await invoke<Array<{ system_kind: string | null }>>("get_playlists");
+        const seen = (await store.get<number[]>("autoPlaylistCollections")) ?? [];
+        const decision = decideAutoRerunAfterSync({
+          hasAutoPlaylists: rows.some(isAuto),
+          seenCollectionIds: seen,
+          collectionId,
+        });
+        if (decision.nextSeenCollectionIds !== seen) {
+          await store.set("autoPlaylistCollections", decision.nextSeenCollectionIds);
+        }
+        if (!decision.run) return;
+        console.debug(`Regenerating auto playlists after sync (${decision.reason})`);
+        await invoke("ensure_auto_playlists", { force: decision.force });
+        // Only stamp the throttle when mixes actually exist now: stamping a run
+        // that produced nothing is what strands the section empty for 24h.
+        const after = await invoke<Array<{ system_kind: string | null }>>("get_playlists");
+        if (after.some(isAuto)) {
+          await store.set("autoPlaylistsRefreshedAt", Date.now());
+        }
+      } catch (e) {
+        console.error("Failed to re-check auto playlists after sync:", e);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const stopScan = subscribe<{ collectionId?: number }>("scan-complete", (event) => {
+      check(event.payload.collectionId ?? null).catch(console.error);
+    });
+    const stopSync = subscribe<{ collectionId?: number }>("sync-complete", (event) => {
+      check(event.payload.collectionId ?? null).catch(console.error);
+    });
+    return combineUnlisten(stopScan, stopSync);
   }, [appRestoring]);
 
   // Persist current track as QueueEntry (location + metadata, no DB IDs)
