@@ -779,6 +779,67 @@ impl Database {
         .optional()
     }
 
+    /// Local track locations for an album, as `(collection_root, absolute_path)`
+    /// pairs. Folder-art discovery needs both halves: the path says which
+    /// directory to probe, the root says where to stop climbing.
+    ///
+    /// Several rows rather than one because an album is not always one
+    /// directory — a multi-disc release spreads over `CD1/`, `CD2/`, and only
+    /// one of them may carry the art. Capped because the answer is nearly
+    /// always in the first row and this runs per album during a library scan.
+    pub fn get_album_track_locations(
+        &self,
+        album_title: &str,
+        artist_name: Option<&str>,
+    ) -> SqlResult<Vec<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, params): (&str, Vec<&dyn rusqlite::types::ToSql>) = if artist_name.is_some() {
+            (
+                "SELECT DISTINCT co.path, co.path || '/' || t.path FROM tracks t \
+                 JOIN albums a ON t.album_id = a.id \
+                 LEFT JOIN artists ar ON t.artist_id = ar.id \
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE a.title = ?1 AND ar.name = ?2 AND co.kind = 'local' LIMIT 12",
+                vec![&album_title, &artist_name],
+            )
+        } else {
+            (
+                "SELECT DISTINCT co.path, co.path || '/' || t.path FROM tracks t \
+                 JOIN albums a ON t.album_id = a.id \
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE a.title = ?1 AND co.kind = 'local' LIMIT 12",
+                vec![&album_title],
+            )
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map(params.as_slice(), |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect()
+    }
+
+    /// Local track locations for an artist, as `(collection_root,
+    /// absolute_path)` pairs — the artist-folder counterpart of
+    /// `get_album_track_locations`.
+    ///
+    /// Spread across albums on purpose: the artist folder is confirmed by
+    /// basename, so a track filed under `Compilations/` contributes nothing
+    /// while a track under `Artist/Album/` resolves it. Taking rows from
+    /// several albums makes the second kind likely to appear.
+    pub fn get_artist_track_locations(
+        &self,
+        artist_name: &str,
+    ) -> SqlResult<Vec<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT co.path, co.path || '/' || t.path FROM tracks t \
+             LEFT JOIN artists ar ON t.artist_id = ar.id \
+             LEFT JOIN collections co ON t.collection_id = co.id \
+             WHERE ar.name = ?1 AND co.kind = 'local' \
+             GROUP BY t.album_id LIMIT 12",
+        )?;
+        let rows = stmt.query_map(params![artist_name], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect()
+    }
+
     /// Group tracks that look like the same song into duplicate sets.
     ///
     /// Tracks are first bucketed by a diacritic-insensitive normalized

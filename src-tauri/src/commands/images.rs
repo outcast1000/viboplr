@@ -186,6 +186,69 @@ pub fn save_entity_image_from_provider(
     Ok(saved.to_string_lossy().to_string())
 }
 
+/// The folder-art filename patterns for `entity` ("album" / "artist"), in probe
+/// order. Falls back to the built-in defaults when the user hasn't set a list.
+#[tauri::command]
+pub fn get_folder_image_patterns(state: State<'_, AppState>, entity: String) -> Vec<String> {
+    crate::image_provider::folder::FolderImageProvider::new(state.db.clone()).patterns(&entity)
+}
+
+/// Replace the folder-art pattern list for `entity`. An empty list resets to the
+/// defaults rather than disabling discovery — switching the provider off is what
+/// the `active` toggle in Settings → Providers is for, and a silently
+/// never-matching pattern list would look like a broken provider instead.
+#[tauri::command]
+pub fn set_folder_image_patterns(
+    state: State<'_, AppState>,
+    entity: String,
+    patterns: Vec<String>,
+) -> Result<Vec<String>, String> {
+    use crate::image_provider::folder;
+    let cleaned: Vec<String> = patterns
+        .iter()
+        .map(|p| p.trim().to_lowercase())
+        .filter(|p| !p.is_empty())
+        .collect();
+    let key = if entity == "artist" {
+        folder::ARTIST_PATTERNS_KEY
+    } else {
+        folder::ALBUM_PATTERNS_KEY
+    };
+    if cleaned.is_empty() {
+        state.db.plugin_storage_delete("__core__", key)?;
+        return Ok(folder::default_patterns(&entity));
+    }
+    let raw = serde_json::to_string(&cleaned).map_err(|e| e.to_string())?;
+    state.db.plugin_storage_set("__core__", key, &raw)?;
+    Ok(cleaned)
+}
+
+/// Locate an entity's folder image and copy it to a temp file, so the Retrieve
+/// modal can offer "Folder image" as a selectable provider and preview it before
+/// applying — the counterpart of `extract_embedded_album_image`.
+#[tauri::command]
+pub fn extract_folder_entity_image(
+    state: State<'_, AppState>,
+    kind: String,
+    name: String,
+    artist_name: Option<String>,
+) -> Result<String, String> {
+    let provider = crate::image_provider::folder::FolderImageProvider::new(state.db.clone());
+    let found = match kind.as_str() {
+        "album" => provider.find_album_image(&name, artist_name.as_deref())?,
+        "artist" => provider.find_artist_image(&name)?,
+        other => return Err(format!("Folder art does not apply to {}", other)),
+    };
+    let slug = crate::entity_image::entity_image_slug(&kind, &name, artist_name.as_deref());
+    let tmp_dir = state.app_dir.join("tmp_preview");
+    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+    let saved = crate::image_provider::folder::store_discovered(
+        &found,
+        &tmp_dir.join(format!("folder-{}.jpg", slug)),
+    )?;
+    Ok(saved.to_string_lossy().to_string())
+}
+
 /// Extract an album's embedded artwork (from the audio file's tags) to a temp
 /// file and return its path, so the Retrieve modal can offer "Embedded artwork"
 /// as a selectable provider and preview it before applying. Returns an error

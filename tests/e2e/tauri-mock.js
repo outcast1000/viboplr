@@ -263,6 +263,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return [];
     case 'get_image_providers':
       return [];
+    case 'get_folder_image_patterns':
+      return ['cover.*', 'folder.*', 'front.*'];
+    case 'set_folder_image_patterns':
+      return args.patterns ?? [];
     case 'get_information_types':
       return [];
     case 'sync_information_types':

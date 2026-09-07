@@ -793,6 +793,23 @@ impl Database {
             }
         }
 
+        // 10. Seed the built-in image providers (folder art, embedded artwork)
+        //     as ordinary image_providers rows. Embedded artwork used to be
+        //     hardcoded ahead of the whole chain; making it a row is what lets
+        //     the user order it against plugin providers like everything else.
+        //     INSERT OR IGNORE, so a user who has since reordered or disabled
+        //     one keeps their choice across launches.
+        {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn.prepare(
+                "INSERT OR IGNORE INTO image_providers (plugin_id, entity, priority)
+                 VALUES (?1, ?2, ?3)",
+            )?;
+            for (plugin_id, entity, priority) in crate::image_provider::CORE_IMAGE_PROVIDERS {
+                stmt.execute(params![plugin_id, entity, priority])?;
+            }
+        }
+
         Ok(())
     }
 }

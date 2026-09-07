@@ -47,7 +47,7 @@ mod taskbar_win;
 #[link(name = "resource", kind = "static")]
 unsafe extern "C" {}
 
-use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry};
+use commands::{AppState, DownloadQueue, ImageDownloadRequest, ImageResolveRegistry, ImageResolveResult};
 use db::Database;
 use image_provider::AlbumImageProvider;
 use std::sync::{Arc, Condvar, Mutex};
@@ -141,6 +141,9 @@ macro_rules! invoke_handler {
             commands::clear_image_failures,
             commands::save_entity_image_from_provider,
             commands::extract_embedded_album_image,
+            commands::extract_folder_entity_image,
+            commands::get_folder_image_patterns,
+            commands::set_folder_image_patterns,
             commands::record_play,
             commands::get_history_recent,
             commands::get_history_play_count,
@@ -378,91 +381,308 @@ pub(crate) fn base64_decode_and_save(data: &str, dest: &std::path::Path) -> Resu
     image_provider::write_image(dest, &bytes)
 }
 
-/// Resolve an entity image through the JS plugin bridge and persist it.
+
+/// What the image worker is resolving, and how to talk about it: which entity
+/// the `image_providers` rows belong to, how to name it in a log line, and the
+/// JSON shapes the frontend listens for.
 ///
-/// Shared by the artist/album/tag arms of the image-download worker: registers a
-/// one-shot channel, emits `image-resolve-request`, then on the response saves the
-/// base64/url payload to `dest` and emits the entity's `*-image-ready` event, or
-/// records the failure and emits `*-image-error`. The per-entity payload shapes
-/// (which JSON keys identify the entity) and event names are supplied by the caller
-/// via closures so the resolve/save/emit flow lives in exactly one place.
-#[allow(clippy::too_many_arguments)]
-fn resolve_image_via_bridge(
-    app_handle: &tauri::AppHandle,
-    worker_db: &Database,
-    worker_registry: &ImageResolveRegistry,
-    entity: &str,
-    label: &str,
+/// These per-entity differences used to be six closures threaded through the
+/// resolver as arguments. As one type they sit together, and the resolver below
+/// can be a plain loop over providers instead of a function with a
+/// `#[allow(clippy::too_many_arguments)]` on it.
+enum ImageTarget {
+    Artist { name: String },
+    Album { title: String, artist_name: Option<String> },
+    Tag { name: String },
+}
+
+impl ImageTarget {
+    fn entity(&self) -> &'static str {
+        match self {
+            ImageTarget::Artist { .. } => "artist",
+            ImageTarget::Album { .. } => "album",
+            ImageTarget::Tag { .. } => "tag",
+        }
+    }
+
+    /// The name to print in logs — not necessarily unique, unlike the slug.
+    fn label(&self) -> &str {
+        match self {
+            ImageTarget::Artist { name } | ImageTarget::Tag { name } => name,
+            ImageTarget::Album { title, .. } => title,
+        }
+    }
+
+    fn slug(&self) -> String {
+        match self {
+            ImageTarget::Album { title, artist_name } => {
+                entity_image::entity_image_slug("album", title, artist_name.as_deref())
+            }
+            _ => entity_image::entity_image_slug(self.entity(), self.label(), None),
+        }
+    }
+
+    fn ready_event(&self) -> &'static str {
+        match self {
+            ImageTarget::Artist { .. } => "artist-image-ready",
+            ImageTarget::Album { .. } => "album-image-ready",
+            ImageTarget::Tag { .. } => "tag-image-ready",
+        }
+    }
+
+    fn error_event(&self) -> &'static str {
+        match self {
+            ImageTarget::Artist { .. } => "artist-image-error",
+            ImageTarget::Album { .. } => "album-image-error",
+            ImageTarget::Tag { .. } => "tag-image-error",
+        }
+    }
+
+    /// Payload for `image-resolve-request`. Carries `plugin_id` because the
+    /// bridge answers for **one** provider now — see `resolve_entity_image`.
+    fn request_payload(&self, request_id: &str, plugin_id: &str) -> serde_json::Value {
+        match self {
+            ImageTarget::Album { title, artist_name } => serde_json::json!({
+                "request_id": request_id, "plugin_id": plugin_id, "entity": "album",
+                "title": title, "artist_name": artist_name,
+            }),
+            _ => serde_json::json!({
+                "request_id": request_id, "plugin_id": plugin_id, "entity": self.entity(),
+                "name": self.label(),
+            }),
+        }
+    }
+
+    fn ready_payload(&self, path: &str, source: &str) -> serde_json::Value {
+        match self {
+            ImageTarget::Album { title, artist_name } => serde_json::json!({
+                "path": path, "title": title, "artist_name": artist_name, "source": source,
+            }),
+            _ => serde_json::json!({ "path": path, "name": self.label(), "source": source }),
+        }
+    }
+
+    fn error_payload(&self, error: &str) -> serde_json::Value {
+        match self {
+            ImageTarget::Album { title, artist_name } => serde_json::json!({
+                "title": title, "artist_name": artist_name, "error": error,
+            }),
+            _ => serde_json::json!({ "name": self.label(), "error": error }),
+        }
+    }
+}
+
+/// The collaborators one pass of the image worker needs. Bundled so the
+/// resolver and its per-provider helpers take one reference instead of five.
+struct ImageChain<'a> {
+    app_handle: &'a tauri::AppHandle,
+    db: &'a Database,
+    registry: &'a ImageResolveRegistry,
+    folder: &'a image_provider::folder::FolderImageProvider,
+    embedded: &'a image_provider::embedded::EmbeddedArtworkProvider,
+}
+
+/// Per-provider ceiling for a bridge round-trip.
+const PROVIDER_TIMEOUT_SECS: u64 = 20;
+/// Ceiling for a whole chain's worth of *bridge* round-trips. The image worker
+/// is a single thread, so a chain of wedged providers doesn't just delay its own
+/// entity — it holds every thumbnail queued behind it. Local providers are
+/// exempt: they can't hang on a network and skipping them would mean a slow
+/// plugin ahead of `core:folder` could suppress art already on disk.
+const CHAIN_BUDGET_SECS: u64 = 45;
+
+/// Walk the user's configured provider chain for one entity and store the first
+/// image that lands.
+///
+/// **The order comes entirely from `image_providers`** — the list the user drags
+/// in Settings → Providers — and the built-in `core:*` providers are rows in that
+/// same table, so this loop is the only thing deciding what wins.
+///
+/// It used to be split in two, and that split is what this replaces: embedded
+/// artwork ran unconditionally here in Rust *before* the bridge was ever asked,
+/// while the plugin order was walked in JS (`useImageResolver`). Embedded was
+/// therefore unorderable by construction — the Settings row rendered it as a
+/// locked "always first" pill because that was the literal truth — and there was
+/// nowhere for a second local provider to sit at all.
+fn resolve_entity_image(
+    chain: &ImageChain,
+    target: &ImageTarget,
     slug: &str,
     dest: &std::path::Path,
-    ready_event: &str,
-    error_event: &str,
-    timeout_msg: &str,
-    make_request: impl Fn(&str) -> serde_json::Value,
-    make_ready: impl Fn(&str, &str) -> serde_json::Value,
-    make_error: impl Fn(&str) -> serde_json::Value,
 ) {
+    let entity = target.entity();
+    let providers = chain.db.get_image_providers(entity).unwrap_or_default();
+    if providers.is_empty() {
+        log::info!("No active image providers for {} {}", entity, target.label());
+        let _ = chain.db.record_image_failure(entity, slug);
+        let _ = chain.app_handle.emit(
+            target.error_event(),
+            target.error_payload("No image providers enabled"),
+        );
+        return;
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(CHAIN_BUDGET_SECS);
+    let mut last_error = String::from("No provider had an image");
+
+    for (plugin_id, _priority, _id) in &providers {
+        let outcome = if plugin_id == image_provider::CORE_FOLDER {
+            resolve_from_folder(chain, target, dest)
+        } else if plugin_id == image_provider::CORE_EMBEDDED {
+            resolve_from_embedded(chain, target, dest)
+        } else if image_provider::is_core_provider(plugin_id) {
+            // A `core:*` row this build doesn't know — a row left behind by a
+            // downgrade, say. It must fail its turn, not be handed to the
+            // plugin bridge, which would go looking for a plugin by that id.
+            Err(format!("Unknown built-in image provider: {}", plugin_id))
+        } else if std::time::Instant::now() >= deadline {
+            Err("chain time budget exhausted".to_string())
+        } else {
+            request_plugin_image(chain, target, plugin_id, slug)
+                .and_then(|result| store_plugin_image(result, dest))
+        };
+
+        match outcome {
+            Ok(path) => {
+                let path = path.to_string_lossy().to_string();
+                log::info!("{} image for {} from {}", entity, target.label(), plugin_id);
+                let _ = chain
+                    .app_handle
+                    .emit(target.ready_event(), target.ready_payload(&path, plugin_id));
+                return;
+            }
+            Err(e) => {
+                log::info!(
+                    "{} provider {} did not resolve {}: {}",
+                    entity, plugin_id, target.label(), e
+                );
+                last_error = e;
+            }
+        }
+    }
+
+    log::warn!(
+        "All providers failed for {} {}: {}",
+        entity, target.label(), last_error
+    );
+    let _ = chain.db.record_image_failure(entity, slug);
+    let _ = chain
+        .app_handle
+        .emit(target.error_event(), target.error_payload(&last_error));
+}
+
+/// `core:folder` — the sidecar image in the media folder.
+fn resolve_from_folder(
+    chain: &ImageChain,
+    target: &ImageTarget,
+    dest: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    let found = match target {
+        ImageTarget::Album { title, artist_name } => {
+            chain.folder.find_album_image(title, artist_name.as_deref())?
+        }
+        ImageTarget::Artist { name } => chain.folder.find_artist_image(name)?,
+        ImageTarget::Tag { .. } => return Err("Folder art does not apply to tags".into()),
+    };
+    image_provider::folder::store_discovered(&found, dest)
+}
+
+/// `core:embedded` — artwork in the audio file's own tags.
+fn resolve_from_embedded(
+    chain: &ImageChain,
+    target: &ImageTarget,
+    dest: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    let ImageTarget::Album { title, artist_name } = target else {
+        return Err("Embedded artwork only applies to albums".into());
+    };
+    AlbumImageProvider::fetch_album_image(
+        chain.embedded,
+        title,
+        artist_name.as_deref(),
+        dest,
+    )?;
+    // The provider swaps in the extension the picture's mime type calls for, so
+    // the file it wrote is not necessarily the `dest` it was handed.
+    written_image_path(dest).ok_or_else(|| "Embedded artwork vanished after write".to_string())
+}
+
+/// Which file a provider actually wrote, given the `.jpg` base path it was
+/// handed. Safe against picking up a stale sibling because the worker only
+/// resolves when no stored image exists (and a forced re-fetch deletes every
+/// extension first — see `queue_image_fetch`).
+fn written_image_path(dest: &std::path::Path) -> Option<std::path::PathBuf> {
+    if dest.exists() {
+        return Some(dest.to_path_buf());
+    }
+    for ext in ["png", "webp", "gif", "jpeg", "jpg"] {
+        let candidate = dest.with_extension(ext);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Ask the JS plugin bridge for **one** provider's image: register a one-shot
+/// channel, emit `image-resolve-request` naming the plugin, wait for the
+/// matching `image_resolve_response`.
+fn request_plugin_image(
+    chain: &ImageChain,
+    target: &ImageTarget,
+    plugin_id: &str,
+    slug: &str,
+) -> Result<ImageResolveResult, String> {
     let request_id = format!(
-        "{}-{}-{}",
-        entity,
+        "{}-{}-{}-{}",
+        target.entity(),
         slug,
+        plugin_id,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis()
     );
     let (tx, rx) = std::sync::mpsc::channel();
-    worker_registry.pending.lock().unwrap().insert(request_id.clone(), tx);
+    chain
+        .registry
+        .pending
+        .lock()
+        .unwrap()
+        .insert(request_id.clone(), tx);
 
-    log::info!("Requesting image resolve for {}: {}", entity, label);
-    let _ = app_handle.emit("image-resolve-request", make_request(&request_id));
+    log::info!(
+        "Requesting {} image resolve from {}: {}",
+        target.entity(), plugin_id, target.label()
+    );
+    let _ = chain.app_handle.emit(
+        "image-resolve-request",
+        target.request_payload(&request_id, plugin_id),
+    );
 
-    match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-        Ok(result) => {
-            worker_registry.pending.lock().unwrap().remove(&request_id);
+    let outcome = rx
+        .recv_timeout(std::time::Duration::from_secs(PROVIDER_TIMEOUT_SECS))
+        .map_err(|_| "Resolve timeout".to_string());
+    chain.registry.pending.lock().unwrap().remove(&request_id);
+    outcome
+}
 
-            if let Some(error) = result.error {
-                log::warn!("All providers failed for {} {}: {}", entity, label, error);
-                let _ = worker_db.record_image_failure(entity, slug);
-                let _ = app_handle.emit(error_event, make_error(&error));
-            } else if let Some(data) = result.data {
-                match base64_decode_and_save(&data, dest) {
-                    Ok(()) => {
-                        let path = dest.to_string_lossy().to_string();
-                        log::info!("Saved {} image from base64 data: {}", entity, label);
-                        let _ = app_handle.emit(ready_event, make_ready(&path, "plugin"));
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to decode/save base64 image for {} {}: {}", entity, label, e);
-                        let _ = worker_db.record_image_failure(entity, slug);
-                        let _ = app_handle.emit(error_event, make_error(&e));
-                    }
-                }
-            } else if let Some(url) = result.url {
-                match download_image_from_url(&url, result.headers.as_ref(), dest) {
-                    Ok(()) => {
-                        let path = dest.to_string_lossy().to_string();
-                        log::info!("Downloaded {} image from {}: {}", entity, url, label);
-                        let _ = app_handle.emit(ready_event, make_ready(&path, "plugin"));
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to download {} image from {}: {}", entity, url, e);
-                        let _ = worker_db.record_image_failure(entity, slug);
-                        let _ = app_handle.emit(error_event, make_error(&e));
-                    }
-                }
-            } else {
-                log::warn!("Empty resolve result for {} {}", entity, label);
-                let _ = worker_db.record_image_failure(entity, slug);
-            }
-        }
-        Err(_) => {
-            worker_registry.pending.lock().unwrap().remove(&request_id);
-            log::warn!("Image resolve timeout for {} {}", entity, label);
-            let _ = worker_db.record_image_failure(entity, slug);
-            let _ = app_handle.emit(error_event, make_error(timeout_msg));
-        }
+/// Persist whatever a plugin handed back (base64 bytes or a URL to fetch).
+fn store_plugin_image(
+    result: ImageResolveResult,
+    dest: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    if let Some(error) = result.error {
+        return Err(error);
     }
+    if let Some(data) = result.data {
+        base64_decode_and_save(&data, dest)?;
+    } else if let Some(url) = result.url {
+        download_image_from_url(&url, result.headers.as_ref(), dest)?;
+    } else {
+        return Err("Empty resolve result".into());
+    }
+    Ok(dest.to_path_buf())
 }
 
 /// One-time migration: web search moved from a core feature into the
@@ -788,7 +1008,10 @@ pub fn run() {
                 condvar: Condvar::new(),
             }));
 
-            // Create embedded artwork provider for album images (Rust-native, no bridge needed)
+            // Built-in image providers. Both are Rust-native (no bridge
+            // round-trip) but neither is privileged: they take their turn in the
+            // user's chain like any plugin — see `resolve_entity_image`.
+            let folder_provider = image_provider::folder::FolderImageProvider::new(db.clone());
             let embedded_provider = image_provider::embedded::EmbeddedArtworkProvider::new(db.clone());
 
             // Spawn the image download worker thread
@@ -801,6 +1024,13 @@ pub fn run() {
             });
             let worker_registry_for_state = worker_registry.clone();
             timer.time("spawn_image_worker", || { std::thread::spawn(move || {
+                let chain = ImageChain {
+                    app_handle: &app_handle,
+                    db: &worker_db,
+                    registry: &worker_registry,
+                    folder: &folder_provider,
+                    embedded: &embedded_provider,
+                };
                 loop {
                     let request = {
                         let mut queue = worker_queue.queue.lock().unwrap();
@@ -810,87 +1040,41 @@ pub fn run() {
                         queue.pop().unwrap() // LIFO: pop from the end
                     };
 
-                    match &request {
+                    let (target, force) = match request {
                         ImageDownloadRequest::Artist { name, force } => {
-                            let slug = entity_image::entity_image_slug("artist", name, None);
-                            if !force && worker_db.is_image_failed("artist", &slug).unwrap_or(false) {
-                                log::info!("Skipping previously failed artist image: {}", name);
-                                continue;
-                            }
-                            let dest = worker_app_dir.join("artist_images").join(format!("{}.jpg", slug));
-                            if !force && dest.exists() {
-                                log::info!("Artist image already exists for {}, skipping", name);
-                                continue;
-                            }
-
-                            resolve_image_via_bridge(
-                                &app_handle, &worker_db, &worker_registry,
-                                "artist", name, &slug, &dest,
-                                "artist-image-ready", "artist-image-error", "Resolve timeout",
-                                |request_id| serde_json::json!({ "request_id": request_id, "entity": "artist", "name": name }),
-                                |path, source| serde_json::json!({ "path": path, "name": name, "source": source }),
-                                |error| serde_json::json!({ "name": name, "error": error }),
-                            );
+                            (ImageTarget::Artist { name }, force)
                         }
                         ImageDownloadRequest::Album { title, artist_name, force } => {
-                            let slug = entity_image::entity_image_slug("album", title, artist_name.as_deref());
-                            if !force && worker_db.is_image_failed("album", &slug).unwrap_or(false) {
-                                log::info!("Skipping previously failed album image: {}", title);
-                                continue;
-                            }
-                            let dest = worker_app_dir.join("album_images").join(format!("{}.jpg", slug));
-                            if !force && dest.exists() {
-                                log::info!("Album image already exists for {}, skipping", title);
-                                continue;
-                            }
-
-                            // Try embedded artwork first (Rust-native, no bridge needed)
-                            if let Ok(source) = embedded_provider.fetch_album_image(title, artist_name.as_deref(), &dest) {
-                                let path_str = {
-                                    // embedded might write .png instead of .jpg, find the actual file
-                                    let actual = dest.with_extension("png");
-                                    if actual.exists() { actual.to_string_lossy().to_string() }
-                                    else { dest.to_string_lossy().to_string() }
-                                };
-                                log::info!("Album image from embedded artwork: {} from {}", title, source);
-                                let _ = app_handle.emit("album-image-ready",
-                                    serde_json::json!({ "path": &path_str, "title": title, "artist_name": artist_name, "source": &source }));
-                                std::thread::sleep(std::time::Duration::from_millis(1100));
-                                continue;
-                            }
-
-                            // Fall through to bridge for external providers
-                            resolve_image_via_bridge(
-                                &app_handle, &worker_db, &worker_registry,
-                                "album", title, &slug, &dest,
-                                "album-image-ready", "album-image-error", "Resolve timeout",
-                                |request_id| serde_json::json!({ "request_id": request_id, "entity": "album", "title": title, "artist_name": artist_name }),
-                                |path, source| serde_json::json!({ "path": path, "title": title, "artist_name": artist_name, "source": source }),
-                                |error| serde_json::json!({ "title": title, "artist_name": artist_name, "error": error }),
-                            );
+                            (ImageTarget::Album { title, artist_name }, force)
                         }
                         ImageDownloadRequest::Tag { name, force } => {
-                            let slug = entity_image::entity_image_slug("tag", name, None);
-                            if !force && worker_db.is_image_failed("tag", &slug).unwrap_or(false) {
-                                log::info!("Skipping previously failed tag image: {}", name);
-                                continue;
-                            }
-                            if !force && entity_image::get_image_path(&worker_app_dir, "tag", &slug).is_some() {
-                                log::info!("Tag image already exists for {}, skipping", name);
-                                continue;
-                            }
-
-                            let dest = worker_app_dir.join("tag_images").join(format!("{}.jpg", slug));
-                            resolve_image_via_bridge(
-                                &app_handle, &worker_db, &worker_registry,
-                                "tag", name, &slug, &dest,
-                                "tag-image-ready", "tag-image-error", "timeout",
-                                |request_id| serde_json::json!({ "request_id": request_id, "entity": "tag", "name": name }),
-                                |path, source| serde_json::json!({ "path": path, "name": name, "source": source }),
-                                |error| serde_json::json!({ "name": name, "error": error }),
-                            );
+                            (ImageTarget::Tag { name }, force)
                         }
+                    };
+
+                    let entity = target.entity();
+                    let slug = target.slug();
+
+                    if !force && worker_db.is_image_failed(entity, &slug).unwrap_or(false) {
+                        log::info!("Skipping previously failed {} image: {}", entity, target.label());
+                        continue;
                     }
+                    // `get_image_path` rather than `dest.exists()`: a stored
+                    // image may carry any of the extensions a provider can
+                    // produce, and the artist/album arms used to test only the
+                    // `.jpg` name — so an album whose art came back as a PNG was
+                    // re-resolved, through the whole provider chain, on every
+                    // single request.
+                    if !force && entity_image::get_image_path(&worker_app_dir, entity, &slug).is_some() {
+                        log::info!("{} image already exists for {}, skipping", entity, target.label());
+                        continue;
+                    }
+
+                    let dest = worker_app_dir
+                        .join(format!("{}_images", entity))
+                        .join(format!("{}.jpg", slug));
+                    resolve_entity_image(&chain, &target, &slug, &dest);
+
 
                     std::thread::sleep(std::time::Duration::from_millis(1100));
                 }

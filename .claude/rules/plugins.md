@@ -442,21 +442,38 @@ Renderers emit actions via `onAction(actionId, payload)`. Built-in actions handl
 
 ## Image Provider Chain (Rust-JS Bridge)
 
-Image fetching uses a bridge between the Rust download worker and JS plugin handlers.
+Image fetching walks one user-ordered provider list. **Rust owns the walk**; the JS bridge answers for a single provider at a time.
+
+### The list
+
+Providers are rows in `image_providers` (`plugin_id`, `entity`, `priority`, `active`), reordered by dragging in Settings → Providers. It holds two kinds of row:
+
+- **Plugin providers**, declared via `contributes.imageProviders` and synced by `usePlugins`.
+- **Built-in (`core:*`) providers**, seeded by migration #10 and Rust-native: **`core:folder`** (album + artist — the sidecar image in the media folder) and **`core:embedded`** (album — artwork in the audio file's tags, via `lofty`). Defaults are `core:folder` = 10, `core:embedded` = 20, below the 100-step scale the Settings UI writes, so they seed ahead of a pre-existing profile's plugin rows.
+
+The `core:` prefix is load-bearing in three places, all of which walk the table by `plugin_id`: `sync_image_providers` exempts these rows from its deactivate-all and orphan `DELETE` (it reconciles against the *installed plugin list*, which they are not in), `SettingsPanel`'s `isInstalled` exempts them from the no-manifest filter, and the resolver runs them natively instead of asking the bridge for a plugin that doesn't exist. A plugin id can never collide: `:` is not legal in a manifest id. `image_provider::is_core_provider` / `utils/coreImageProviders.ts` are the two sides of that predicate.
 
 ### Flow
 
-1. **Album only:** Rust tries `EmbeddedArtworkProvider` first (extracts from audio file via `lofty`). If found, bridge is skipped.
-2. Rust worker creates a one-shot `mpsc` channel, registers it in `ImageResolveRegistry`, emits `image-resolve-request` event to frontend.
-3. `useImageResolver.ts` receives event, queries `get_image_providers` for active providers in priority order.
-4. Calls each plugin's `imageFetchHandlers` sequentially. First `{status: "ok"}` wins.
-5. Sends result back via `image_resolve_response` command (URL with optional headers, or base64 data).
-6. Rust worker downloads from URL (or decodes base64), saves to disk, emits `artist-image-ready` / `album-image-ready`.
-7. On failure or 30s timeout: records in `image_fetch_failures` table.
+1. The worker builds an `ImageTarget` (artist / album / tag) and skips out early on a recorded failure or an already-stored image (`entity_image::get_image_path`, so any stored extension counts — not just `.jpg`).
+2. `resolve_entity_image` reads `get_image_providers(entity)` and walks it **in priority order**, whatever the mix of core and plugin rows.
+3. A **core** row runs in-process: folder-art discovery (`image_provider/folder.rs`) or embedded-artwork extraction. Neither is privileged; a core row that can't answer for this entity (folder art for a tag, embedded for anything but an album) just fails and the walk continues.
+4. A **plugin** row goes over the bridge: register a one-shot `mpsc` channel in `ImageResolveRegistry`, emit `image-resolve-request` **naming the plugin** (`plugin_id` in the payload), wait up to 20s. `useImageResolver.ts` calls that one plugin's handler and answers via `image_resolve_response` — a URL (with optional headers), base64 data, or an `error` that means "try the next one".
+5. First success wins: the file is saved and `artist-image-ready` / `album-image-ready` / `tag-image-ready` fires, with `source` set to the winning provider id.
+6. All providers exhausted → one row in `image_fetch_failures` (a 24h suppression) and `*-image-error`. A whole chain's worth of *bridge* round-trips is additionally capped at 45s (`CHAIN_BUDGET_SECS`), because the image worker is a single thread and a wedged chain delays every thumbnail queued behind it. Core providers are exempt from that budget — they can't hang on a network, and skipping them would let a slow plugin suppress art already on disk.
 
-### Default Priority Order (user-configurable via Settings > Providers)
+**Do not reintroduce a privileged first provider.** Embedded artwork used to run unconditionally in Rust *before* the bridge was asked, while the plugin order was walked in JS — so it was unorderable by construction (Settings rendered it as a locked "always first" pill because that was the literal truth) and there was nowhere for a second local provider to sit. Splitting the walk across the two languages is what made that unavoidable; keep it in one place.
 
-Priority order is user-configurable via Settings > Providers. Default priority is hardcoded internally in `usePlugins.ts` (lower number = higher priority). Unknown plugins are added last (priority 999). For albums, the Rust-native `EmbeddedArtworkProvider` always runs first before any plugin providers.
+### Folder-art discovery (`image_provider/folder.rs`)
+
+Navidrome's model: an ordered list of case-insensitive globs, first match wins, **user-editable** per entity (Settings → Providers, the sub-row under the Folder image provider; stored in `plugin_storage` under `__core__` so the worker can read it from Rust with no webview involved). Defaults: `cover.*`, `folder.*`, `front.*`, `album.*`, `albumart*.*` for albums; `artist.*`, `folder.*`, `fanart.*` for artists. An empty list resets to the defaults rather than disabling the provider — that is what the `active` toggle is for.
+
+Two rules that are the difference between this being useful and being confidently wrong, both pinned by unit tests:
+
+- **Walk-up is gated on disc-folder names.** A multi-disc release keeps its art at the album level while the tracks sit in `CD1/`, so the parent must be probed — but only when the track's own folder *names itself* a disc (`is_disc_dir`: `CD1`, `disc 2`, `disk_03`; the digit check is what stops it eating `Discovery`), and never above the collection root. Climbing unconditionally would assign one cover to every album in a shared `Singles/` or root folder.
+- **The artist folder is confirmed by name, not by position.** `artist_search_dirs` only accepts an ancestor whose basename slug-matches the artist (`canonical_slug`, so a `Bjork` folder matches `Björk`). `Artist/Album/` is a convention, not a guarantee, and this is also what stops a `Various Artists` folder image becoming every guest artist's portrait.
+
+Discovered files are **copied** into `album_images/` / `artist_images/` like every other provider's result, and named from their **bytes** (`sniff_image_ext`) — a PNG saved as `cover.jpg` by a tagger is common enough that trusting the extension would store something the webview can't decode.
 
 ## Stream Resolver Chain
 

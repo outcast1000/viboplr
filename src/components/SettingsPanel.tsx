@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react";
+import { Fragment, useState, useEffect, useCallback, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -13,6 +13,11 @@ import { trashLabel } from "../utils";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { ARTWORK_VISUALIZER_NAME } from "../utils/visualizerSlots";
+import {
+  CORE_FOLDER_PROVIDER,
+  imageProviderName,
+  isCoreImageProvider,
+} from "../utils/coreImageProviders";
 import { store } from "../store";
 import { PromptModal } from "./PromptModal";
 import { HelpLink } from "./HelpLink";
@@ -62,7 +67,6 @@ interface ProviderRow {
   entity: string;
   sortOrder: number;
   providers: ProviderPillData[];
-  hasLockedFirst: boolean; // true for album images (Embedded)
 }
 
 function parseProviderConfig(
@@ -80,7 +84,7 @@ function parseProviderConfig(
     }
   }
   function displayName(pluginId: string): string {
-    return pluginNameMap.get(pluginId) ?? pluginId;
+    return imageProviderName(pluginId, pluginNameMap);
   }
 
   // Filter out providers whose plugin is no longer installed. The backend
@@ -88,8 +92,12 @@ function parseProviderConfig(
   // (so user settings persist across uninstall/reinstall), but rows for
   // plugins that no longer exist on disk would otherwise show up as dim
   // pills the user can't act on.
+  //
+  // The built-in `core:*` providers have no manifest and so no entry in that
+  // map — without the exemption this filter would hide the folder-art and
+  // embedded-artwork rows from the very list they exist to be ordered in.
   const isInstalled = (pluginId: string) =>
-    pluginStates ? pluginNameMap.has(pluginId) : true;
+    isCoreImageProvider(pluginId) || (pluginStates ? pluginNameMap.has(pluginId) : true);
 
   // Group image providers by entity
   const imagesByEntity = new Map<string, ImageProviderRow[]>();
@@ -136,7 +144,6 @@ function parseProviderConfig(
           active: ip.active,
           displayName: displayName(ip.pluginId),
         })),
-        hasLockedFirst: entity === "album",
       });
     }
 
@@ -157,7 +164,6 @@ function parseProviderConfig(
             active: ip.active,
             displayName: displayName(ip.pluginId),
           })),
-          hasLockedFirst: false,
         });
       }
     }
@@ -171,6 +177,87 @@ function parseProviderConfig(
   // more — a track's own source picks its downloader (decideDownload), and
   // per-provider entry points are plugin-contributed.
   return entityMap;
+}
+
+/**
+ * The folder-art pattern list for one entity — the ordered globs the
+ * `core:folder` provider probes, first match wins.
+ *
+ * Editable rather than hardcoded because which file in a folder is "the" cover
+ * is genuinely the user's call: a `cover.jpg` and a Windows-Media-Player
+ * `folder.jpg` routinely sit side by side, and libraries built by different
+ * taggers disagree about which one is canonical.
+ *
+ * Committed on blur / Enter, not per keystroke — every save is a DB write plus
+ * a re-read, and a half-typed `cove` is a pattern that matches nothing.
+ */
+function FolderPatternEditor({ entity }: { entity: string }) {
+  const [text, setText] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  // Bumped to re-read the stored list — Escape, and the recovery path after a
+  // failed save.
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
+
+  useEffect(() => {
+    let alive = true;
+    invoke<string[]>("get_folder_image_patterns", { entity })
+      .then((patterns) => { if (alive) setText(patterns.join(", ")); })
+      .catch((e) => {
+        console.error("Failed to load folder image patterns:", e);
+        if (alive) setText("");
+      });
+    return () => { alive = false; };
+  }, [entity, reloadKey]);
+
+  const commit = async (raw: string) => {
+    setSaving(true);
+    try {
+      const patterns = raw.split(",").map((p) => p.trim()).filter(Boolean);
+      const saved = await invoke<string[]>("set_folder_image_patterns", { entity, patterns });
+      // Show the backend's answer rather than the typed text: an empty list
+      // resets to the defaults, so what was saved is not always what was typed.
+      setText(saved.join(", "));
+    } catch (e) {
+      console.error("Failed to save folder image patterns:", e);
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (text === null) return null;
+
+  return (
+    <div className="provider-vsub">
+      <span className="provider-vsub-label">Filenames</span>
+      <input
+        type="text"
+        className="ds-input provider-vsub-input"
+        value={text}
+        disabled={saving}
+        spellCheck={false}
+        placeholder="cover.*, folder.*, front.*"
+        aria-label={`Folder image filename patterns for ${entity}s`}
+        title="Comma-separated, in probe order. * is a wildcard; matching ignores case."
+        onChange={(e) => setText(e.target.value)}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          if (e.key === "Escape") reload();
+        }}
+      />
+      <button
+        type="button"
+        className="ds-btn ds-btn--ghost ds-btn--sm"
+        disabled={saving}
+        onClick={() => commit("")}
+        title="Restore the default filename patterns"
+      >
+        Reset
+      </button>
+    </div>
+  );
 }
 
 function ProviderPrioritySection({
@@ -392,37 +479,39 @@ function ProviderPrioritySection({
       <div key={`${row.kind}-${row.typeId}`} className="provider-priority-row">
         <span className="provider-priority-label">{row.label}</span>
         <div className="provider-vlist" data-vlist>
-          {row.hasLockedFirst && (
-            <div className="provider-vrow provider-vrow-locked" title="Embedded artwork is always tried first">
-              <span className="provider-vrow-lock">{"🔒"}</span>
-              <span className="provider-vrow-name">Embedded</span>
-              <span className="provider-vrow-note">always first</span>
-            </div>
-          )}
           {row.providers.map((provider, i) => (
-            <div
-              key={provider.pluginId}
-              className={`provider-vrow${!provider.active ? " provider-vrow-off" : ""}`}
-              data-row-index={i}
-            >
-              {isMulti && (
-                <span
-                  className="provider-vrow-handle"
-                  onMouseDown={(e) => startRowDrag(e, i, provider.displayName, (from, to) => applyReorder(row, from, to))}
-                  title="Drag to reorder"
-                >{"⠿"}</span>
+            // The folder-art row is followed by its own pattern editor as a
+            // sibling sub-row rather than an inline control: it's a text field,
+            // so it can't live in a native menu, and it needs a full line.
+            // `startRowDrag` addresses rows by `data-row-index`, not by child
+            // position, so an unindexed sibling here can't confuse the drag.
+            <Fragment key={provider.pluginId}>
+              <div
+                className={`provider-vrow${!provider.active ? " provider-vrow-off" : ""}`}
+                data-row-index={i}
+              >
+                {isMulti && (
+                  <span
+                    className="provider-vrow-handle"
+                    onMouseDown={(e) => startRowDrag(e, i, provider.displayName, (from, to) => applyReorder(row, from, to))}
+                    title="Drag to reorder"
+                  >{"⠿"}</span>
+                )}
+                {isMulti && <span className="provider-vrow-rank">{i + 1}</span>}
+                <span className="provider-vrow-name">{provider.displayName}</span>
+                <button
+                  type="button"
+                  className={`provider-switch${provider.active ? " on" : ""}`}
+                  role="switch"
+                  aria-checked={provider.active}
+                  onClick={() => handleToggleActive(row, provider)}
+                  title={provider.active ? "Enabled — click to disable" : "Disabled — click to enable"}
+                />
+              </div>
+              {provider.pluginId === CORE_FOLDER_PROVIDER && provider.active && (
+                <FolderPatternEditor entity={row.entity} />
               )}
-              {isMulti && <span className="provider-vrow-rank">{i + 1}</span>}
-              <span className="provider-vrow-name">{provider.displayName}</span>
-              <button
-                type="button"
-                className={`provider-switch${provider.active ? " on" : ""}`}
-                role="switch"
-                aria-checked={provider.active}
-                onClick={() => handleToggleActive(row, provider)}
-                title={provider.active ? "Enabled — click to disable" : "Disabled — click to enable"}
-              />
-            </div>
+            </Fragment>
           ))}
         </div>
       </div>

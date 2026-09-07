@@ -2,7 +2,13 @@ use std::path::{Path, PathBuf};
 use deunicode::deunicode;
 use unicode_normalization::UnicodeNormalization;
 
-static EXTENSIONS: &[&str] = &["jpg", "jpeg", "png"];
+/// Extensions a stored entity image can carry. This list is the *reader* side
+/// of every write path, so it must cover everything a writer can produce or the
+/// image silently disappears: `set_entity_image` names the file from the picked
+/// source's extension and the pickers accept webp, while `sniff_image_ext`
+/// names downloaded and folder-discovered files from their bytes and can return
+/// gif. Keep it a superset of both.
+static EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif"];
 
 static RESERVED_NAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL",

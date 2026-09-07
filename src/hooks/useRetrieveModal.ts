@@ -3,6 +3,12 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import type { InfoEntity, InfoFetchResult, DisplayKind } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
 import type { ImageFetchResult } from "../types/plugin";
+import {
+  coreProviderSupports,
+  fetchCoreImageProvider,
+  imageProviderName,
+  isCoreImageProvider,
+} from "../utils/coreImageProviders";
 
 import { useAssignRef } from "./useLatestRef";
 // Centered, cancelable "Retrieve" modal for user-triggered image & info fetches.
@@ -32,7 +38,7 @@ export interface ProviderRow {
   name: string;
   pluginId?: string;
   integerId?: number;   // info: type integer id to upsert against
-  embedded?: boolean;   // synthetic album "embedded artwork" source
+  coreId?: string;      // built-in image provider (folder art / embedded artwork)
   status: ProviderStatus;
 }
 
@@ -42,7 +48,8 @@ export interface ImagePreview {
   save:
     | { kind: "url"; url: string; headers?: Record<string, string> }
     | { kind: "data"; data: string }
-    | { kind: "embedded" };
+    // A built-in provider already wrote a temp copy; apply just files it.
+    | { kind: "path"; path: string };
 }
 
 export type RetrievePhase =
@@ -180,12 +187,14 @@ export function useRetrieveModal(
     try {
       if (data.kind === "image") {
         const k = data.entityKind as "artist" | "album" | "tag";
-        if (provider.embedded) {
-          const path = await invoke<string>("extract_embedded_album_image", {
-            albumTitle: data.name, artistName: data.artistName ?? null,
-          });
+        if (provider.coreId) {
+          const path = await fetchCoreImageProvider(provider.coreId, k, data.name, data.artistName);
           if (gen !== genRef.current) return { ok: false, status: "error" };
-          return { ok: true, status: "found", imagePreview: { src: `${convertFileSrc(path)}#g=${gen}`, save: { kind: "embedded" } } };
+          return {
+            ok: true,
+            status: "found",
+            imagePreview: { src: `${convertFileSrc(path)}#g=${gen}`, save: { kind: "path", path } },
+          };
         }
         const result = await invokeImageFetch(provider.pluginId!, k, data.name, data.artistName ?? undefined);
         if (gen !== genRef.current) return { ok: false, status: "error" };
@@ -250,10 +259,19 @@ export function useRetrieveModal(
 
   // ── Public openers ────────────────────────────────────────
   const openImage = useCallback((args: OpenImageArgs) => {
+    // The built-in providers arrive inside `args.providers` (they're rows in
+    // the same ordered table), so the modal walks them wherever the user put
+    // them. Embedded artwork used to be unshifted onto the front here — the
+    // frontend half of the "always first" policy that no longer exists.
     const providers: ProviderRow[] = [];
-    if (args.kind === "album") providers.push({ id: "__embedded__", name: "Embedded artwork (audio file)", embedded: true, status: "pending" });
-    for (const [pluginId, , integerId] of args.providers) {
-      providers.push({ id: pluginId, name: args.pluginNames.get(pluginId) ?? pluginId, pluginId, integerId, status: "pending" });
+    for (const [providerId, , integerId] of args.providers) {
+      const name = imageProviderName(providerId, args.pluginNames, "long");
+      if (isCoreImageProvider(providerId)) {
+        if (!coreProviderSupports(providerId, args.kind)) continue;
+        providers.push({ id: providerId, name, coreId: providerId, status: "pending" });
+      } else {
+        providers.push({ id: providerId, name, pluginId: providerId, integerId, status: "pending" });
+      }
     }
     const data: RetrieveModalData = {
       kind: "image",
@@ -313,9 +331,8 @@ export function useRetrieveModal(
       try {
         if (m.kind === "image" && m.imagePreview) {
           const save = m.imagePreview.save;
-          if (save.kind === "embedded") {
-            const path = await invoke<string>("extract_embedded_album_image", { albumTitle: m.name, artistName: m.artistName ?? null });
-            await invoke("set_entity_image", { kind: m.entityKind, name: m.name, artistName: m.artistName ?? null, sourcePath: path });
+          if (save.kind === "path") {
+            await invoke("set_entity_image", { kind: m.entityKind, name: m.name, artistName: m.artistName ?? null, sourcePath: save.path });
           } else {
             await invoke("save_entity_image_from_provider", {
               kind: m.entityKind, name: m.name, artistName: m.artistName ?? null,

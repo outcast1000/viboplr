@@ -659,20 +659,26 @@
   gap: 12px;
 }
 
-.provider-vrow-locked {
-  background: rgba(var(--overlay-base), 0.04);
-  border-style: dashed;
-  cursor: default;
+/* Sub-row hanging off a provider row (folder-art filename patterns). Indented
+   and unbordered so it reads as belonging to the row above rather than as
+   another draggable provider. */
+.provider-vsub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px 6px 28px;
 }
-.provider-vrow-lock {
-  font-size: var(--fs-2xs);
-  line-height: 1;
-  flex-shrink: 0;
-}
-.provider-vrow-note {
+.provider-vsub-label {
   font-size: var(--fs-2xs);
   color: var(--text-tertiary);
   flex-shrink: 0;
+}
+.provider-vsub-input {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-2xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 3px 6px;
 }
 
 /* Enable/disable toggle */

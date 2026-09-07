@@ -127,6 +127,77 @@ fn test_image_providers_check_constraint_dropped() {
 }
 
 #[test]
+fn test_core_image_providers_are_seeded_ahead_of_plugins() {
+    // A pre-feature profile already carries plugin rows on the 100-step scale
+    // the Settings UI writes. Seeding must land the built-ins ahead of them
+    // without colliding — folder art first, then embedded (where it effectively
+    // sat when it was hardcoded), then whatever the user had.
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("viboplr.db");
+    {
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE image_providers (
+                id          INTEGER PRIMARY KEY,
+                plugin_id   TEXT NOT NULL,
+                entity      TEXT NOT NULL,
+                priority    INTEGER NOT NULL DEFAULT 500,
+                active      INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (plugin_id, entity)
+             );
+             INSERT INTO image_providers (plugin_id, entity, priority) VALUES ('lastfm', 'album', 100);
+             CREATE TABLE db_version (version INTEGER NOT NULL);
+             INSERT INTO db_version (rowid, version) VALUES (1, 1);",
+        ).unwrap();
+    }
+    let db = Database::new(dir.path()).unwrap();
+    let order: Vec<String> = db
+        .get_image_providers("album")
+        .unwrap()
+        .into_iter()
+        .map(|(plugin_id, _, _)| plugin_id)
+        .collect();
+    assert_eq!(order, vec!["core:folder", "core:embedded", "lastfm"]);
+}
+
+#[test]
+fn test_plugin_sync_leaves_the_core_image_providers_alone() {
+    // sync_image_providers reconciles against the *installed plugin list*. The
+    // built-ins aren't plugins, so without their exemption the deactivate-all
+    // would switch them off and the orphan DELETE would then drop them — on
+    // every plugin sync, taking the user's ordering with them.
+    let dir = tempfile::tempdir().unwrap();
+    let db = Database::new(dir.path()).unwrap();
+    for (plugin_id, entity, _) in crate::image_provider::CORE_IMAGE_PROVIDERS {
+        assert!(crate::image_provider::is_core_provider(plugin_id));
+        db.update_image_provider_priority(plugin_id, entity, 700).unwrap();
+    }
+
+    db.sync_image_providers(&[("lastfm".to_string(), "album".to_string(), 100)]).unwrap();
+
+    let album: Vec<(String, i64)> = db
+        .get_image_providers("album")
+        .unwrap()
+        .into_iter()
+        .map(|(plugin_id, priority, _)| (plugin_id, priority))
+        .collect();
+    assert_eq!(
+        album,
+        vec![
+            ("lastfm".to_string(), 100),
+            ("core:folder".to_string(), 700),
+            ("core:embedded".to_string(), 700),
+        ],
+        "core rows must survive the sync, still active and with the user's priority",
+    );
+
+    // And a sync that finds no plugins at all must not clear them either.
+    db.sync_image_providers(&[]).unwrap();
+    assert_eq!(db.get_image_providers("album").unwrap().len(), 2);
+    assert_eq!(db.get_image_providers("artist").unwrap().len(), 1);
+}
+
+#[test]
 fn test_find_duplicate_groups_normalizes_and_ranks() {
     let db = test_db();
     let cid = test_collection(&db);

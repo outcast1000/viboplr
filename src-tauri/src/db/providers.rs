@@ -142,11 +142,18 @@ impl Database {
     /// Takes vec of (plugin_id, entity, priority).
     /// Deactivates all rows, upserts current providers (preserving user-customized priorities),
     /// reactivates current providers, then deletes orphaned rows.
+    ///
+    /// **The built-in `core:*` rows are exempt from all three steps.** This
+    /// function reconciles the table against the *installed plugin list*, and
+    /// the built-ins (folder art, embedded artwork) are not plugins — without
+    /// the exemption the deactivate-all would switch them off and the
+    /// orphan DELETE would then remove them outright, on every plugin sync,
+    /// taking the user's ordering with them.
     pub fn sync_image_providers(&self, providers: &[(String, String, i64)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("BEGIN")?;
         // Deactivate all
-        conn.execute("UPDATE image_providers SET active = 0", [])?;
+        conn.execute("UPDATE image_providers SET active = 0 WHERE plugin_id NOT LIKE 'core:%'", [])?;
         // Insert new providers (OR IGNORE preserves existing rows with user-customized priorities)
         {
             let mut insert_stmt = conn.prepare(
@@ -167,11 +174,11 @@ impl Database {
         }
         // Delete orphaned rows (plugin_id not in the provided set)
         if providers.is_empty() {
-            conn.execute("DELETE FROM image_providers", [])?;
+            conn.execute("DELETE FROM image_providers WHERE plugin_id NOT LIKE 'core:%'", [])?;
         } else {
             let placeholders: Vec<String> = providers.iter().map(|_| "?".to_string()).collect();
             let sql = format!(
-                "DELETE FROM image_providers WHERE plugin_id NOT IN ({})",
+                "DELETE FROM image_providers WHERE plugin_id NOT LIKE 'core:%' AND plugin_id NOT IN ({})",
                 placeholders.join(", ")
             );
             let params: Vec<&dyn rusqlite::types::ToSql> = providers.iter().map(|p| &p.0 as &dyn rusqlite::types::ToSql).collect();
