@@ -1,4 +1,4 @@
-import { useRef, useEffect, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import type { View } from "../types";
 import type { PluginSidebarItem, PluginBadge } from "../types/plugin";
 import type { UpdateBadge } from "../hooks/useAppUpdater";
@@ -109,21 +109,6 @@ export function Sidebar({
   onPluginView,
   badgeMap,
 }: SidebarProps) {
-  const navRef = useRef<HTMLElement>(null);
-  const indicatorRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!navRef.current || !indicatorRef.current) return;
-    const activeBtn = navRef.current.querySelector(".nav-btn.active") as HTMLElement | null;
-    if (activeBtn) {
-      indicatorRef.current.style.transform = `translateY(${activeBtn.offsetTop}px)`;
-      indicatorRef.current.style.height = `${activeBtn.offsetHeight}px`;
-      indicatorRef.current.style.opacity = "1";
-    } else {
-      indicatorRef.current.style.opacity = "0";
-    }
-  }, [view, selectedTrack]);
-
   const noDetail = selectedTrack === null;
   // Now Playing icon reflects the current track: spinning disc for audio, film
   // reel for video (both rotate while playing, freeze when paused); a static disc
@@ -134,7 +119,10 @@ export function Sidebar({
     : icons.nowplaying;
   const navItems: { key: string; label: string; icon: ReactNode; active: boolean; onClick: () => void; hint: string }[] = [
     { key: "home", label: "Home", icon: icons.home, active: noDetail && view === "home", onClick: onShowHome, hint: `Home \u2014 ${mod}0` },
-    { key: "nowplaying", label: "Now Playing", icon: nowPlayingIcon, active: noDetail && view === "nowplaying", onClick: onShowNowPlaying, hint: `Now Playing \u2014 ${mod}3` },
+    // With colour no longer signalling playback here (see Sidebar.css), rotation is
+    // the only visual cue \u2014 and a reduced-motion user has that frozen too. So the
+    // hint names the state, per this file's "every state names itself" rule.
+    { key: "nowplaying", label: "Now Playing", icon: nowPlayingIcon, active: noDetail && view === "nowplaying", onClick: onShowNowPlaying, hint: `Now Playing \u2014 ${mod}3${nowPlayingMedia ? (nowPlayingActive ? " \u00b7 playing" : " \u00b7 paused") : ""}` },
     { key: "search", label: "Library", icon: icons.library, active: noDetail && view === "search", onClick: onShowSearch, hint: `Library \u2014 ${mod}1` },
     { key: "history", label: "History", icon: icons.history, active: noDetail && view === "history", onClick: onShowHistory, hint: `Play History \u2014 ${mod}2` },
     { key: "playlists", label: "Playlists", icon: icons.playlists, active: noDetail && view === "playlists", onClick: onShowPlaylists, hint: "Playlists" },
@@ -149,14 +137,18 @@ export function Sidebar({
 
   return (
     <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
-      <nav className="nav" ref={navRef}>
-        <div className="sidebar-indicator" ref={indicatorRef} />
+      <nav className="nav">
         {navItems.map((item) => (
           <button
             key={item.key}
             className={`nav-btn ${item.active ? "active" : ""}`}
             onClick={() => navClick(item.key, item.onClick)}
             title={item.hint}
+            /* Collapsed, the button is a bare svg with no text node in it, so
+               without this it has no accessible name at all. Set unconditionally
+               — expanded it just restates the visible label. */
+            aria-label={item.label}
+            aria-current={item.active ? "page" : undefined}
           >
             <span className="nav-btn-label">{item.icon} {!collapsed && item.label}</span>
           </button>
@@ -172,6 +164,8 @@ export function Sidebar({
                   className={`nav-btn ${noDetail && view === viewKey ? "active" : ""}`}
                   onClick={() => navClick("plugin:" + item.pluginId, () => onPluginView?.(item.pluginId, item.id))}
                   title={item.label}
+                  aria-label={item.label}
+                  aria-current={noDetail && view === viewKey ? "page" : undefined}
                 >
                   <span className="nav-btn-label">
                     <PluginIcon name={item.icon} /> {!collapsed && item.label}
@@ -202,7 +196,9 @@ export function Sidebar({
         <button
           className={`nav-btn sidebar-bottom-btn${noDetail && view === "collections" ? " active" : ""}`}
           onClick={() => navClick("collections", onShowCollections)}
-          title={collapsed ? (collectionAlertLabel ?? "Collections") : undefined}
+          title={collectionAlertLabel ?? "Collections"}
+          aria-label="Collections"
+          aria-current={noDetail && view === "collections" ? "page" : undefined}
         >
           <span className="nav-btn-label">{icons.collections} {!collapsed && "Collections"}</span>
           {collectionAlertLabel && (
@@ -214,14 +210,14 @@ export function Sidebar({
             />
           )}
         </button>
-        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "extensions" ? " active" : ""}`} onClick={() => navClick("extensions", () => onShowExtensions?.())} title={collapsed ? "Extensions" : undefined}>
+        <button className={`nav-btn sidebar-bottom-btn${noDetail && view === "extensions" ? " active" : ""}`} onClick={() => navClick("extensions", () => onShowExtensions?.())} title="Extensions" aria-label="Extensions" aria-current={noDetail && view === "extensions" ? "page" : undefined}>
           <span className="nav-btn-label">
             <svg {...iconProps}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 17h7M17.5 14v7"/></svg>
             {!collapsed && "Extensions"}
           </span>
           {!!extensionUpdateCount && extensionUpdateCount > 0 && <span className="ext-nav-badge">{extensionUpdateCount}</span>}
         </button>
-        <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={() => navClick("settings", onShowSettings)} title={collapsed ? "Settings" : undefined}>
+        <button className={`nav-btn sidebar-bottom-btn${view === "settings" ? " active" : ""}`} onClick={() => navClick("settings", onShowSettings)} title="Settings" aria-label="Settings" aria-current={view === "settings" ? "page" : undefined}>
           <span className="nav-btn-label">{icons.settings} {!collapsed && "Settings"}</span>
           {updateBadge && (
             <span

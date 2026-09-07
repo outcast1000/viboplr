@@ -14,6 +14,22 @@
   transition: color 0.2s ease;
 }
 
+/* Sheen + grooves, painted ON the disc body rather than on a skin surface — the
+   body is `currentColor`, an ink colour that does not flip with skin type. So
+   they take the never-flipped --on-image-rgb / --scrim-rgb pair, not
+   --overlay-base / --overlay-inverse: those two swap under
+   [data-skin-type="light"] (base.css) and would invert the shading against a
+   fill that stayed put, turning the highlight into a smudge. Declared here
+   rather than as fill=/stroke= attributes so a skin's customCSS can reach them.
+*/
+.spinning-disc-sheen {
+  fill: rgba(var(--on-image-rgb), 0.55);
+}
+
+.spinning-disc-groove {
+  stroke: rgba(var(--scrim-rgb), 0.25);
+}
+
 .spinning-disc.playing .spinning-disc-svg {
   animation: spinning-disc-spin 1.8s linear infinite;
 }

@@ -121,14 +121,16 @@ Navigation items (top to bottom):
 - **Home** (Cmd+0) — curated landing surface (`HomeView`), default startup view
 - Library (Cmd+1) — unified search/browse view rendered by `SearchView` with tabs for Tracks, Artists, Albums, Tags
 - History (Cmd+2)
-- **Now Playing** (Cmd+3) — lean-back view of the current track (`NowPlayingView`). Its sidebar icon reflects playback state: a spinning disc (`SpinningDisc`) for audio, a `FilmStrip` for video, both frozen when paused.
+- **Now Playing** (Cmd+3) — lean-back view of the current track (`NowPlayingView`). Its sidebar icon reflects playback state: a spinning disc (`SpinningDisc`) for audio, a `FilmReel` for video, both frozen when paused. Inside the nav both inherit the button's colour instead of painting themselves `--accent` as they do on a track row — accent here means "this is the active view", so a playing track used to leave Now Playing looking permanently selected. Rotation is the only visual playback cue, so the button's `title` names the state too (`· playing` / `· paused`): the global reduced-motion guard in `base.css` freezes that rotation.
 - Playlists
 - Plugin sidebar items (below separator)
 - Bottom: Collections (with sync-error badge — an `error` dot when an **enabled** collection has a `last_sync_error`; `collectionAlertLabel` prop, derived by the pure `collectionAlert()` in `utils/collectionAlert.ts`, which also supplies the `title`/`aria-label` text. It exists because `last_sync_error` renders only inside CollectionsView, a destination nobody visits unprompted — so a server going down was discoverable only by playback failing, with the explanation one click away on a page the user had no reason to open. Disabled collections are skipped: they aren't syncing, so nothing the user does would clear the dot), Extensions (with update count badge), Settings (with update badge — one dot, `accent` when an update is ready and `error` when the last update attempt failed; `updateBadge` prop, derived by `updateBadgeFor` in `useAppUpdater`. Colour can't be the only signal, so the dot carries a `title`/`aria-label` naming its state.)
 
 App startup always lands on Home. The previously-selected view is **not** persisted — `view` is neither read nor written from the app store, and selected entities (artist/album/tag) are not restored on startup either. Within a session, opening an entity navigates to its detail page as usual.
 
-Active state: animated `.sidebar-indicator` follows active nav button via JS-computed transform.
+Active state: an accent-tinted pill (`.nav-btn.active`) plus accent text. Deliberately **one** cue — there used to also be a border ring and a JS-positioned accent rail (`.sidebar-indicator`, removed along with the layout-measuring effect that placed it). The pill is what survived because the rail only ever tracked items inside `.nav`: the bottom three buttons live in `.sidebar-bottom`, so half the pane already said "selected" a different way. Don't reintroduce a second simultaneous cue.
+
+Active items also carry `aria-current="page"`, and every button carries an `aria-label` — collapsed to 56px they render as a bare `<svg>` with no text node, and would otherwise have no accessible name. The three bottom buttons show their `title` in both states (they used to only when collapsed, while the top five always did).
 
 ## Main Content
 

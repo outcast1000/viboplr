@@ -1047,6 +1047,7 @@ const SHORTCUTS: Array<[string, string]> = [
   [`${MOD} 3`, "Now Playing"],
   [`${MOD} L`, "Like the current track"],
   [`${MOD} P`, "Toggle the queue panel"],
+  [`${MOD} B`, "Show / hide the sidebar"],
   [`${MOD} ⇧ M`, "Mini player"],
 ];
 

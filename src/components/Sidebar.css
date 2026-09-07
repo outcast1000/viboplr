@@ -91,22 +91,27 @@
   flex-shrink: 0;
 }
 
+/* Active = a filled pill plus accent text. There used to be two more cues on top
+   of these: a 1px accent ring around the pill, and a JS-positioned accent rail
+   (.sidebar-indicator) at the nav's left edge — four signals for one state.
+   The pill is what survived because it is the only one that also covered the
+   bottom buttons: Collections / Extensions / Settings live outside .nav, so the
+   rail never tracked them and the pane said "selected" two different ways
+   depending on which half you were looking at. Alpha is up from 0.12 to carry
+   the weight the rail was carrying. */
 .nav-btn.active {
-  background: rgba(var(--accent-rgb), 0.12);
-  border-color: rgba(var(--accent-rgb), 0.2);
+  background: rgba(var(--accent-rgb), 0.16);
+  border-color: transparent;
   color: var(--accent);
   font-weight: 600;
 }
 
-.sidebar-indicator {
-  position: absolute;
-  left: 0;
-  width: 3px;
-  height: 32px;
-  background: var(--accent);
-  border-radius: 0 2px 2px 0;
-  transition: transform 200ms ease, height 200ms ease, opacity 200ms ease;
-  pointer-events: none;
+/* Without this the generic :hover above repaints an active button in the neutral
+   hover grey — it would read as *less* selected under the pointer. */
+.nav-btn.active:hover {
+  background: rgba(var(--accent-rgb), 0.22);
+  border-color: transparent;
+  color: var(--accent);
 }
 
 .collection-kind {
@@ -160,6 +165,30 @@
 
 .plugin-badge--muted {
   background: var(--text-tertiary);
+}
+
+/* Now Playing glyph inside the nav.
+
+   SpinningDisc/FilmReel paint themselves --accent while playing, which is right
+   on a track row (accent = "this is the playing row") and wrong here: in the nav
+   accent is what .nav-btn.active means, so a playing track left Now Playing
+   looking permanently selected. Inside the nav the glyph inherits the button's
+   own colour — secondary at rest, primary on hover, accent only when the view
+   really is active — and "playing" is carried by the rotation alone. */
+.nav .spinning-disc,
+.nav .spinning-disc.playing,
+.nav .film-reel,
+.nav .film-reel.playing {
+  color: inherit;
+}
+
+/* It is also the only filled glyph among 2px-stroke outline icons, so at a
+   matched 18px it reads a size heavier than everything beside it. */
+.nav .spinning-disc-svg,
+.nav .film-reel {
+  width: 16px;
+  height: 16px;
+  margin: 0 1px;
 }
 
 /* Extensions update badge on the Extensions nav item (moved from App.css). */
