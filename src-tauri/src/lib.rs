@@ -490,6 +490,10 @@ const PROVIDER_TIMEOUT_SECS: u64 = 20;
 /// exempt: they can't hang on a network and skipping them would mean a slow
 /// plugin ahead of `core:folder` could suppress art already on disk.
 const CHAIN_BUDGET_SECS: u64 = 45;
+/// How long the image worker waits after a resolve that reached a **remote**
+/// provider, so a library-wide fill-in doesn't hammer somebody's API. Paid only
+/// when `resolve_entity_image` reports it used the bridge — see the worker.
+const REMOTE_IMAGE_THROTTLE: std::time::Duration = std::time::Duration::from_millis(1100);
 
 /// Walk the user's configured provider chain for one entity and store the first
 /// image that lands.
@@ -504,12 +508,17 @@ const CHAIN_BUDGET_SECS: u64 = 45;
 /// therefore unorderable by construction — the Settings row rendered it as a
 /// locked "always first" pill because that was the literal truth — and there was
 /// nowhere for a second local provider to sit at all.
+///
+/// Returns whether the walk ever reached the **plugin bridge** — i.e. whether it
+/// may have talked to a remote API. The worker's inter-request throttle keys off
+/// this: a chain satisfied by `core:folder` or `core:embedded` touched only the
+/// local disk and has nobody to be polite to. See the call site.
 fn resolve_entity_image(
     chain: &ImageChain,
     target: &ImageTarget,
     slug: &str,
     dest: &std::path::Path,
-) {
+) -> bool {
     let entity = target.entity();
     let providers = chain.db.get_image_providers(entity).unwrap_or_default();
     if providers.is_empty() {
@@ -519,11 +528,12 @@ fn resolve_entity_image(
             target.error_event(),
             target.error_payload("No image providers enabled"),
         );
-        return;
+        return false;
     }
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(CHAIN_BUDGET_SECS);
     let mut last_error = String::from("No provider had an image");
+    let mut used_bridge = false;
 
     for (plugin_id, _priority, _id) in &providers {
         let outcome = if plugin_id == image_provider::CORE_FOLDER {
@@ -538,6 +548,7 @@ fn resolve_entity_image(
         } else if std::time::Instant::now() >= deadline {
             Err("chain time budget exhausted".to_string())
         } else {
+            used_bridge = true;
             request_plugin_image(chain, target, plugin_id, slug)
                 .and_then(|result| store_plugin_image(result, dest))
         };
@@ -549,7 +560,7 @@ fn resolve_entity_image(
                 let _ = chain
                     .app_handle
                     .emit(target.ready_event(), target.ready_payload(&path, plugin_id));
-                return;
+                return used_bridge;
             }
             Err(e) => {
                 log::info!(
@@ -569,6 +580,7 @@ fn resolve_entity_image(
     let _ = chain
         .app_handle
         .emit(target.error_event(), target.error_payload(&last_error));
+    used_bridge
 }
 
 /// `core:folder` — the sidecar image in the media folder.
@@ -1073,10 +1085,21 @@ pub fn run() {
                     let dest = worker_app_dir
                         .join(format!("{}_images", entity))
                         .join(format!("{}.jpg", slug));
-                    resolve_entity_image(&chain, &target, &slug, &dest);
+                    let used_bridge = resolve_entity_image(&chain, &target, &slug, &dest);
 
-
-                    std::thread::sleep(std::time::Duration::from_millis(1100));
+                    // Throttle **remote** work only. This worker is one serial
+                    // thread, so a flat post-resolve sleep is paid by every
+                    // entity in the queue behind it: a freshly scanned library
+                    // whose art all came from `core:folder` spent a second per
+                    // artist and per album doing nothing, and the grid took the
+                    // best part of a minute to fill in for a 25-artist library
+                    // that had every image sitting on disk next to the tracks
+                    // (#126). Local providers have no API to be polite to, so
+                    // the courtesy delay applies only when the chain actually
+                    // went out over the plugin bridge.
+                    if used_bridge {
+                        std::thread::sleep(REMOTE_IMAGE_THROTTLE);
+                    }
                 }
             }); });
 

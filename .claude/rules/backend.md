@@ -123,7 +123,7 @@ Long-running operations use `thread::spawn` with `AtomicBool` guards for cancell
 - **Scanning** — walks folder tree, reads tags, upserts tracks
 - **Syncing** — Subsonic album pagination + track import
 - **Last.fm import** — paginated scrobble history import (200/page, 200ms rate limit)
-- **Image fetching** — LIFO queue (most recently requested = first processed) with 1100ms rate limit between downloads. Failure tracking in `image_fetch_failures` table.
+- **Image fetching** — LIFO queue (most recently requested = first processed), deduped on the way in, drained by one serial worker. The 1100ms courtesy delay between resolves is paid **only when the chain reached the plugin bridge** (`resolve_entity_image` returns whether it did): a flat post-resolve sleep is charged to every entity queued behind it, so a freshly scanned library whose art all came from `core:folder` spent a second per artist and per album doing nothing and its grids took ~a minute to fill in (#126). Local providers have no API to be polite to. Failure tracking in `image_fetch_failures` table.
 - **Lyrics fetching** — provider chain with `AtomicI64` tracking currently-fetching track ID
 
 ## Playback Resolution

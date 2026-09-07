@@ -94,10 +94,11 @@ fn queue_image_fetch(
         let _ = state.db.clear_image_failure(kind, slug);
     }
     let mut queue = state.download_queue.queue.lock().unwrap();
-    // The queue is drained one entity at a time with a 1100ms courtesy delay, so
-    // a duplicate is not merely redundant work — it is a second full pass over
-    // every provider for an answer already in flight. Several surfaces ask for
-    // the same thumbnail in the same tick (observed: four entities queued twice
+    // The queue is drained one entity at a time, so a duplicate is not merely
+    // redundant work — it is a second full pass over every provider for an
+    // answer already in flight, and a chain ending at a remote provider also
+    // pays that provider's courtesy delay again. Several surfaces ask for the
+    // same thumbnail in the same tick (observed: four entities queued twice
     // within 21ms), so dedupe on the way in.
     if queue.contains(&request) {
         return;

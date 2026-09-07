@@ -543,6 +543,100 @@ mod tests {
         assert!(provider.find_album_image("Kid A", Some("Radiohead")).is_err());
     }
 
+    /// What a freshly scanned, fully sidecar-arted library costs to resolve
+    /// locally — the number the image worker's throttle decision rests on.
+    ///
+    /// `#[ignore]`d because it is a measurement, not an assertion: a wall-clock
+    /// bound here would measure the machine (see `update_checker`'s note on
+    /// exactly that mistake). Run it when changing the discovery walk or the
+    /// worker's sleep gate:
+    ///
+    /// ```text
+    /// cargo test probe_local_fill_in_cost -- --ignored --nocapture
+    /// ```
+    ///
+    /// The shape it exists to keep honest: the worker is one serial thread, so
+    /// the whole library's fill-in is the *sum* of these. Against the flat
+    /// 1100ms post-resolve sleep this replaced, the same 75 entities cost 82.5
+    /// seconds of sleeping alone — which is what a user with organized folders
+    /// was actually waiting for (#126).
+    #[test]
+    #[ignore]
+    fn probe_local_fill_in_cost() {
+        const ARTISTS: usize = 25;
+        const ALBUMS_EACH: usize = 2;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let mut files = Vec::new();
+        for a in 1..=ARTISTS {
+            let artist = format!("Artist {}", a);
+            std::fs::create_dir_all(root.join(&artist)).unwrap();
+            std::fs::write(root.join(&artist).join("artist.jpg"), PNG).unwrap();
+            for b in 1..=ALBUMS_EACH {
+                let album = format!("Album {}-{}", a, b);
+                let dir = root.join(&artist).join(&album);
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(dir.join("cover.jpg"), PNG).unwrap();
+                for t in 1..=3 {
+                    let rel = format!("{}/{}/0{} Track.flac", artist, album, t);
+                    std::fs::write(root.join(&rel), b"x").unwrap();
+                    files.push((rel, artist.clone(), album.clone()));
+                }
+            }
+        }
+
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let collection = db
+            .add_collection("local", "music", Some(root.to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+        let scanned: Vec<crate::db::ScannedFileMeta> = files
+            .iter()
+            .map(|(rel, artist, album)| crate::db::ScannedFileMeta {
+                relative_path: rel.clone(),
+                title: "Track".to_string(),
+                artist: Some(artist.clone()),
+                album: Some(album.clone()),
+                year: None,
+                track_number: None,
+                duration_secs: None,
+                format: Some("flac".to_string()),
+                file_size: None,
+                modified_at: None,
+                tag_names: Vec::new(),
+                extra_tags: None,
+                write_extra_tags: false,
+            })
+            .collect();
+        db.ingest_scanned_files(&scanned, Some(collection.id)).unwrap();
+
+        let out = tmp.path().join("__cache");
+        let provider = FolderImageProvider::new(db);
+        let started = std::time::Instant::now();
+        let mut resolved = 0usize;
+        for a in 1..=ARTISTS {
+            let artist = format!("Artist {}", a);
+            let found = provider.find_artist_image(&artist).unwrap();
+            store_discovered(&found, &out.join(format!("artist-{}.jpg", a))).unwrap();
+            resolved += 1;
+            for b in 1..=ALBUMS_EACH {
+                let album = format!("Album {}-{}", a, b);
+                let found = provider.find_album_image(&album, Some(&artist)).unwrap();
+                store_discovered(&found, &out.join(format!("album-{}-{}.jpg", a, b))).unwrap();
+                resolved += 1;
+            }
+        }
+        let elapsed = started.elapsed();
+        println!(
+            "resolved {} entities from folder art in {:?} ({:?} each); \
+             the flat 1100ms throttle would have added {:?}",
+            resolved,
+            elapsed,
+            elapsed / resolved as u32,
+            std::time::Duration::from_millis(1100) * resolved as u32,
+        );
+    }
+
     #[test]
     fn honours_a_user_edited_pattern_list() {
         let (tmp, db) = library_with_sidecar_art();
