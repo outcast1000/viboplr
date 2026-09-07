@@ -4306,7 +4306,9 @@ function App() {
       else setEqShowBarControlAdvanced(v);
     },
     onToggleFullscreen: () => toggleFullscreenForTrack(),
-    onToggleQueueMode: queueHook.toggleQueueMode,
+    // Leaving Normal mode unmounts the Auto Continue button, so drop the
+    // popover with it — otherwise it springs back open on the way round.
+    onToggleQueueMode: () => { queueHook.toggleQueueMode(); autoContinue.setShowPopover(false); },
     onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
     onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
     onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
@@ -4441,7 +4443,9 @@ function App() {
     onSeek: playback.handleSeek,
     onVolume: playback.handleVolume,
     onMute: playback.toggleMute,
-    onToggleQueueMode: queueHook.toggleQueueMode,
+    // Leaving Normal mode unmounts the Auto Continue button, so drop the
+    // popover with it — otherwise it springs back open on the way round.
+    onToggleQueueMode: () => { queueHook.toggleQueueMode(); autoContinue.setShowPopover(false); },
     onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
     onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
     onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
