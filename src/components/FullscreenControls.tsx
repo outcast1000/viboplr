@@ -241,7 +241,7 @@ export function FullscreenControls({
                   <SourceIndicator track={currentTrack} resolvedSource={resolvedSource ?? null} />
                   <span className="fs-link" onClick={currentTrack.artist_name ? () => onNavigateToArtistByName(currentTrack.artist_name!) : undefined}>{currentTrack.artist_name || "Unknown"}</span>
                   {currentTrack.album_title && (
-                    <><span className="fs-sep"> — </span><span className="fs-link" onClick={() => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.artist_name)}>{currentTrack.album_title}</span></>
+                    <><span className="fs-sep"> — </span><span className="fs-link" onClick={() => onNavigateToAlbumByName(currentTrack.album_title!, currentTrack.album_artist_name ?? currentTrack.artist_name)}>{currentTrack.album_title}</span></>
                   )}
                 </span>
               </>

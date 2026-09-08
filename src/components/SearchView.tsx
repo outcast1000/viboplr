@@ -998,7 +998,7 @@ export function SearchView({
                 if (isLocalVideo(t)) {
                   thumb = { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title };
                 } else {
-                  const img = (t.album_title ? getAlbumImage(t.album_title, t.artist_name) : null)
+                  const img = (t.album_title ? getAlbumImage(t.album_title, t.album_artist_name ?? t.artist_name) : null)
                     ?? (t.artist_name ? getArtistImage(t.artist_name) : null);
                   thumb = img ? { kind: "image", url: resolveImageUrl(img) ?? "" } : { kind: "disc" };
                 }
@@ -1056,7 +1056,7 @@ export function SearchView({
                   const art: TrackCardArt = isLocalVideo(t)
                     ? { kind: "video", trackId: t.id!, trackPath: t.path, alt: t.title }
                     : t.album_title
-                    ? { kind: "album", album: { id: t.album_id ?? 0, title: t.album_title, artist_name: t.artist_name } as Album, imagePath: getAlbumImage(t.album_title, t.artist_name) }
+                    ? { kind: "album", album: { id: t.album_id ?? 0, title: t.album_title, artist_name: t.album_artist_name ?? t.artist_name } as Album, imagePath: getAlbumImage(t.album_title, t.album_artist_name ?? t.artist_name) }
                     : { kind: "letter", text: t.title[0]?.toUpperCase() ?? "?" };
                   return (
                     <TrackCard

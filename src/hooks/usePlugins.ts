@@ -614,6 +614,7 @@ export function usePlugins(
             // the plugin never meant to touch.
             const out: Record<string, unknown> = {};
             if (fields.artist_name !== undefined) out.artist_name = fields.artist_name;
+            if (fields.album_artist_name !== undefined) out.album_artist_name = fields.album_artist_name;
             if (fields.album_title !== undefined) out.album_title = fields.album_title;
             if (fields.year !== undefined) out.year = fields.year;
             if (fields.tag_names !== undefined) out.tag_names = fields.tag_names;

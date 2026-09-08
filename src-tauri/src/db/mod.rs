@@ -43,8 +43,9 @@ const TRACK_SELECT: &str = concat!(
     ", \
      t.title, t.artist_id, ar.name, t.album_id, al.title, COALESCE(t.year, al.year), \
      t.track_number, t.duration_secs, t.format, t.file_size, t.collection_id, co.name, t.liked, \
-     t.added_at, t.modified_at \
+     t.added_at, t.modified_at, aar.name \
      FROM tracks t LEFT JOIN artists ar ON t.artist_id = ar.id LEFT JOIN albums al ON t.album_id = al.id \
+     LEFT JOIN artists aar ON al.artist_id = aar.id \
      LEFT JOIN collections co ON t.collection_id = co.id");
 
 
@@ -53,6 +54,37 @@ const ENABLED_COLLECTION_FILTER: &str =
 
 const ENABLED_COLLECTION_FILTER_STANDALONE: &str =
     "AND (t.collection_id IS NULL OR EXISTS (SELECT 1 FROM collections c WHERE c.id = t.collection_id AND c.enabled = 1))";
+
+/// The one definition of the FTS table's shape, shared by `init_tables`,
+/// `rebuild_fts` and the debug `clear_database` — three hand-written copies
+/// drifted once (the debug copy silently lost `path`). `album_artist` is the
+/// album's own artist (ALBUMARTIST), what makes a compilation findable by
+/// "various artists"; the track-search colsets deliberately exclude it, so a
+/// track never matches by its album's artist (see search.rs / tracks.rs).
+pub(crate) const TRACKS_FTS_CREATE: &str =
+    "CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
+        title,
+        artist_name,
+        album_artist,
+        album_title,
+        tag_names,
+        path,
+        content='',
+        contentless_delete=1,
+        tokenize='unicode61 remove_diacritics 2'
+    );";
+
+/// "This artist is worth listing": performs on a track, OR is the album artist
+/// of an album with tracks. The second arm is what keeps "Various Artists" and
+/// album-artist-only artists (a DJ-mix curator) in the Artists views — they own
+/// albums via `albums.artist_id` (the ALBUMARTIST) without any track of their
+/// own. `alias` is the artists table's alias in the calling query.
+pub(crate) fn artist_visible_clause(alias: &str) -> String {
+    format!(
+        "({a}.track_count > 0 OR EXISTS (SELECT 1 FROM albums _av WHERE _av.artist_id = {a}.id AND _av.track_count > 0))",
+        a = alias
+    )
+}
 
 // Video container formats as stored in `tracks.format`. Every surface that
 // splits audio from video — the library media-type filter, FTS search, entity
@@ -126,6 +158,7 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
         liked: row.get::<_, i32>(14).unwrap_or(0),
         added_at: row.get(15)?,
         modified_at: row.get(16)?,
+        album_artist_name: row.get(17)?,
     })
 }
 
@@ -415,17 +448,6 @@ impl Database {
                 UNIQUE(track_id, tag_id)
             );
 
-            CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
-                title,
-                artist_name,
-                album_title,
-                tag_names,
-                path,
-                content='',
-                contentless_delete=1,
-                tokenize='unicode61 remove_diacritics 2'
-            );
-
             -- HTTP conditional-fetch cache for manifest collections (skip re-ingest
             -- of unchanged manifests). Keyed by collection; rows are orphaned when a
             -- collection is removed (harmless).
@@ -589,6 +611,9 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_track_tags_track_id ON track_tags(track_id);
             ",
         )?;
+        // FTS table from the shared DDL — one definition for every creation
+        // site, so the columns can't drift between init, rebuild and clear.
+        conn.execute_batch(TRACKS_FTS_CREATE)?;
         Ok(())
     }
 
@@ -807,6 +832,27 @@ impl Database {
             )?;
             for (plugin_id, entity, priority) in crate::image_provider::CORE_IMAGE_PROVIDERS {
                 stmt.execute(params![plugin_id, entity, priority])?;
+            }
+        }
+
+        // 11. tracks_fts album_artist column — what makes "various artists"
+        //     match in Library/central search (the artist_name column holds
+        //     TRACK artists, and no track on a merged compilation carries the
+        //     album artist). FTS5 can't ALTER ADD COLUMN, so a table predating
+        //     the column is dropped and rebuilt — the exact rebuild every scan
+        //     and sync already runs at its end (~0.15s at 20k tracks). Schema-
+        //     presence detected (pragma_table_info works on FTS5 tables), like
+        //     #1 — never `db_version < N`.
+        {
+            let has_fts_album_artist: bool = {
+                let conn = self.conn.lock().unwrap();
+                conn.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('tracks_fts') WHERE name = 'album_artist'",
+                    [], |r| r.get::<_, i64>(0),
+                )? > 0
+            };
+            if !has_fts_album_artist {
+                self.rebuild_fts()?;
             }
         }
 

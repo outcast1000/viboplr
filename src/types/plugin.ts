@@ -564,6 +564,9 @@ export interface PluginLibraryAPI {
   applyTagsBulk(assignments: Array<[number, string[]]>): Promise<number>;
   bulkUpdateTracks(trackIds: number[], fields: {
     artist_name?: string | null;
+    /** ALBUMARTIST: which artist the tracks' album files under. `null` clears
+     * back to the track-artist fallback; omitted leaves it untouched. */
+    album_artist_name?: string | null;
     album_title?: string | null;
     year?: number | null;
     tag_names?: string[] | null;
@@ -793,6 +796,10 @@ export interface PluginTrack {
   path?: string | null;
   title: string;
   artist_name?: string | null;
+  /** ALBUMARTIST — the artist the album files under — when the source knows it
+   * (compilations, DJ mixes). Optional and additive: host surfaces fall back to
+   * `artist_name` for album art and album navigation. */
+  album_artist_name?: string | null;
   album_title?: string | null;
   duration_secs?: number | null;
   track_number?: number | null;

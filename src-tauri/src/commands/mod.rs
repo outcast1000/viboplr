@@ -139,6 +139,11 @@ where
 pub struct BulkUpdateFields {
     #[serde(default, deserialize_with = "double_option")]
     pub artist_name: Option<Option<String>>,
+    /// ALBUMARTIST: which artist the tracks' album files under. Set on every
+    /// selected track (e.g. "Various Artists" to merge a forked compilation);
+    /// Clear falls back to each track's own artist.
+    #[serde(default, deserialize_with = "double_option")]
+    pub album_artist_name: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub album_title: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
@@ -194,11 +199,15 @@ impl Drop for ResyncGuard {
     }
 }
 
+/// `full` (local collections only) bypasses the scanner's mtime fast path so
+/// every file's tags are re-read — the user's "Full rescan". Subsonic/manifest
+/// resyncs already re-fetch everything server-side, so they ignore it.
 pub fn run_collection_resync(
     db: Arc<Database>,
     app: AppHandle,
     collection: Collection,
     resyncing: Arc<Mutex<HashSet<i64>>>,
+    full: bool,
 ) {
     let collection_id = collection.id;
 
@@ -224,7 +233,7 @@ pub fn run_collection_resync(
             thread::spawn(move || {
                 let _guard = ResyncGuard { id: collection_id, set: resyncing };
                 let start = std::time::Instant::now();
-                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
+                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), full, |scanned, total| {
                     let _ = app.emit(
                         "scan-progress",
                         ScanProgress {

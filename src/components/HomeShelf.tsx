@@ -20,7 +20,7 @@ function playlistFallbackImage(
   const seed = tracks?.[0];
   if (!seed) return null;
   return (
-    (seed.album_title ? albumImageFor(seed.album_title, seed.artist_name ?? undefined) : null) ??
+    (seed.album_title ? albumImageFor(seed.album_title, (seed.album_artist_name ?? seed.artist_name) ?? undefined) : null) ??
     (seed.artist_name ? artistImageFor(seed.artist_name) : null)
   );
 }

@@ -64,7 +64,9 @@ pub fn sync_collection(
             }
         };
 
-        let artist_name = album.artist.as_deref();
+        // OpenSubsonic's explicit albumArtist outranks the album-level artist
+        // (which Navidrome already populates with the album artist anyway).
+        let artist_name = album.album_artist.as_deref().or(album.artist.as_deref());
         let artist_id = artist_name
             .and_then(|name| db.get_or_create_artist(name).ok());
 

@@ -374,12 +374,14 @@ impl Database {
 
                 // Incremental FTS: refresh this row (delete + re-insert), mirroring
                 // the full rebuild's columns + strip_diacritics + enabled gate.
+                // Manifest albums are keyed by the track artist (the format has no
+                // albumArtist), so ?3 fills both artist columns.
                 tx.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![track_id])?;
                 if enabled {
                     let tag_names = item.tags.join(" ");
                     tx.execute(
-                        "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path)
-                         VALUES (?1, strip_diacritics(?2), strip_diacritics(?3), strip_diacritics(?4), strip_diacritics(?5), strip_diacritics(?6))",
+                        "INSERT INTO tracks_fts (rowid, title, artist_name, album_artist, album_title, tag_names, path)
+                         VALUES (?1, strip_diacritics(?2), strip_diacritics(?3), strip_diacritics(?3), strip_diacritics(?4), strip_diacritics(?5), strip_diacritics(?6))",
                         params![
                             track_id,
                             item.title,
@@ -452,6 +454,7 @@ impl Database {
         &self,
         track_ids: &[i64],
         artist_name: FieldUpdate<&str>,
+        album_artist_name: FieldUpdate<&str>,
         album_title: FieldUpdate<&str>,
         year: FieldUpdate<i32>,
         title: Option<&str>,
@@ -503,11 +506,43 @@ impl Database {
                     }
                 };
 
+                // Step 1a2: Album artist. The album a track files under is keyed by
+                // its *effective album artist* — an explicit album artist when set,
+                // else the track artist (the scanner's fallback for untagged files).
+                // `Assigned(Some(id))` = explicit; `Assigned(None)` = cleared back
+                // to the track-artist fallback; `Unchanged` = field untouched.
+                #[derive(Clone, Copy)]
+                enum AlbumArtistOutcome { Unchanged, Assigned(Option<i64>) }
+                let album_artist_outcome = match album_artist_name {
+                    FieldUpdate::Unchanged => AlbumArtistOutcome::Unchanged,
+                    FieldUpdate::Clear => AlbumArtistOutcome::Assigned(None),
+                    FieldUpdate::Set(name) => {
+                        let existing: Option<i64> = conn.query_row(
+                            "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
+                            params![name],
+                            |row| row.get(0),
+                        ).optional()?;
+                        let aid = match existing {
+                            Some(id) => id,
+                            None => {
+                                conn.execute("INSERT INTO artists (name) VALUES (?1)", params![name])?;
+                                conn.last_insert_rowid()
+                            }
+                        };
+                        AlbumArtistOutcome::Assigned(Some(aid))
+                    }
+                };
+
                 // Step 1b: When the artist changed (set or cleared) but the album
                 // title was NOT touched, move each track's album to one under the
                 // new artist target (find or create). `target_aid` may be NULL.
+                // Skipped when the album artist was edited too — an explicit album
+                // artist owns the filing (Step 1c), and re-filing by track artist
+                // here would immediately be undone there.
                 if let ArtistOutcome::Assigned(target_aid) = artist_outcome {
-                    if matches!(album_title, FieldUpdate::Unchanged) {
+                    if matches!(album_title, FieldUpdate::Unchanged)
+                        && matches!(album_artist_outcome, AlbumArtistOutcome::Unchanged)
+                    {
                         // Collect (track_id, album_title, album_year) for tracks that have albums
                         let mut track_albums: Vec<(i64, String, Option<i32>)> = Vec::new();
                         for chunk in track_ids.chunks(500) {
@@ -559,6 +594,65 @@ impl Database {
                     }
                 }
 
+                // Step 1c: An album-artist edit (album title untouched) re-files each
+                // track's album under its new effective owner: the explicit album
+                // artist, or — when cleared — the track's own (post-Step-1) artist.
+                // This is the in-app fix for a compilation that scanned as per-artist
+                // forks: set Album Artist = "Various Artists" on its tracks and the
+                // forks converge on one album row.
+                if let AlbumArtistOutcome::Assigned(explicit) = album_artist_outcome {
+                    if matches!(album_title, FieldUpdate::Unchanged) {
+                        let mut rows: Vec<(i64, Option<i64>, String, Option<i32>)> = Vec::new();
+                        for chunk in track_ids.chunks(500) {
+                            let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+                            let sql = format!(
+                                "SELECT t.id, t.artist_id, al.title, al.year FROM tracks t \
+                                 JOIN albums al ON t.album_id = al.id \
+                                 WHERE t.id IN ({})", placeholders
+                            );
+                            let mut stmt = conn.prepare(&sql)?;
+                            let params: Vec<&dyn rusqlite::types::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::types::ToSql).collect();
+                            let found = stmt.query_map(params.as_slice(), |row| {
+                                Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<i32>>(3)?))
+                            })?;
+                            for row in found {
+                                rows.push(row?);
+                            }
+                        }
+                        let mut album_cache: std::collections::HashMap<(String, Option<i64>), i64> = std::collections::HashMap::new();
+                        for (tid, track_aid, title, album_year) in &rows {
+                            let owner = explicit.or(*track_aid);
+                            let key = (title.clone(), owner);
+                            let album_id = if let Some(&cached_id) = album_cache.get(&key) {
+                                cached_id
+                            } else {
+                                let existing: Option<i64> = conn.query_row(
+                                    "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+                                     AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+                                    params![title, owner],
+                                    |row| row.get(0),
+                                ).optional()?;
+                                let id = match existing {
+                                    Some(id) => id,
+                                    None => {
+                                        conn.execute(
+                                            "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
+                                            params![title, owner, album_year],
+                                        )?;
+                                        conn.last_insert_rowid()
+                                    }
+                                };
+                                album_cache.insert(key, id);
+                                id
+                            };
+                            conn.execute(
+                                "UPDATE tracks SET album_id = ?1 WHERE id = ?2",
+                                params![album_id, tid],
+                            )?;
+                        }
+                    }
+                }
+
                 // Step 2: Album. Set to a (found/created) album, or clear to NULL.
                 // The album-creation year follows the `year` field: Set → that
                 // year, Clear → none, Unchanged → inherit the track's old album year.
@@ -566,6 +660,40 @@ impl Database {
                     FieldUpdate::Unchanged => {}
                     FieldUpdate::Clear => {
                         update_track_column(&conn, track_ids, "album_id", None::<i64>)?;
+                    }
+                    // An explicit album artist keys the new album for ALL tracks,
+                    // whatever their (possibly untouched, possibly varied) track
+                    // artists — that's what makes "title + Various Artists" a
+                    // one-step compilation merge. Cleared/untouched falls through
+                    // to the track-artist-derived keying below.
+                    FieldUpdate::Set(title) if matches!(album_artist_outcome, AlbumArtistOutcome::Assigned(Some(_))) => {
+                        let AlbumArtistOutcome::Assigned(owner) = album_artist_outcome else { unreachable!() };
+                        let album_year = match year {
+                            FieldUpdate::Set(y) => Some(y),
+                            FieldUpdate::Clear => None,
+                            FieldUpdate::Unchanged => conn.query_row(
+                                "SELECT al.year FROM tracks t JOIN albums al ON t.album_id = al.id WHERE t.id = ?1 AND al.year IS NOT NULL",
+                                params![track_ids[0]],
+                                |row| row.get(0),
+                            ).optional().ok().flatten(),
+                        };
+                        let existing_album: Option<i64> = conn.query_row(
+                            "SELECT id FROM albums WHERE strip_diacritics(unicode_lower(title)) = strip_diacritics(unicode_lower(?1)) \
+                             AND (artist_id = ?2 OR (?2 IS NULL AND artist_id IS NULL))",
+                            params![title, owner],
+                            |row| row.get(0),
+                        ).optional()?;
+                        let album_id = match existing_album {
+                            Some(id) => id,
+                            None => {
+                                conn.execute(
+                                    "INSERT INTO albums (title, artist_id, year) VALUES (?1, ?2, ?3)",
+                                    params![title, owner, album_year],
+                                )?;
+                                conn.last_insert_rowid()
+                            }
+                        };
+                        update_track_column(&conn, track_ids, "album_id", album_id)?;
                     }
                     FieldUpdate::Set(title) => match artist_outcome {
                         ArtistOutcome::Assigned(target_aid) => {

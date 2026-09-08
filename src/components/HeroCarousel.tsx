@@ -56,20 +56,20 @@ function slideFor(
     // back to the seed track's album/artist image, which fetches on demand.
     const seed = it.tracks?.[0];
     const fallback = seed
-      ? (seed.album_title ? albumImageFor(seed.album_title, seed.artist_name ?? undefined) : null) ??
+      ? (seed.album_title ? albumImageFor(seed.album_title, (seed.album_artist_name ?? seed.artist_name) ?? undefined) : null) ??
         (seed.artist_name ? artistImageFor(seed.artist_name) : null)
       : null;
     return { coverSrc: resolveImagePath(it.coverUrl ?? fallback), title: it.name, subtitle: it.subtitle ?? null };
   }
   // track-rows
-  const it = item as { track: { title: string; artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
+  const it = item as { track: { title: string; artist_name?: string; album_artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
   const explicit = it.track.image_url ?? null;
   // Video frame URLs are already converted — do NOT pass them through resolveImagePath.
   const videoFrame = !explicit ? videoFrames[shelfVideoKey(it.track.path)] ?? null : null;
   if (videoFrame) return { coverSrc: videoFrame, title: it.track.title, subtitle: it.track.artist_name ?? null };
   const path =
     explicit ??
-    (it.track.album_title ? albumImageFor(it.track.album_title, it.track.artist_name) : null) ??
+    (it.track.album_title ? albumImageFor(it.track.album_title, it.track.album_artist_name ?? it.track.artist_name) : null) ??
     (it.track.artist_name ? artistImageFor(it.track.artist_name) : null);
   return { coverSrc: resolveImagePath(path), title: it.track.title, subtitle: it.track.artist_name ?? null };
 }

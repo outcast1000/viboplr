@@ -1196,6 +1196,7 @@ pub fn run() {
                                     app_handle.clone(),
                                     col,
                                     Arc::clone(&resyncing),
+                                    false,
                                 );
                             }
                         }

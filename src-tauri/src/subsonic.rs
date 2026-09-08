@@ -27,6 +27,9 @@ pub struct SubsonicAlbum {
     pub id: String,
     pub name: String,
     pub artist: Option<String>,
+    /// OpenSubsonic `albumArtist` (absent on legacy servers). When present it
+    /// outranks `artist` as the artist the album files under.
+    pub album_artist: Option<String>,
     pub year: Option<i32>,
     pub genre: Option<String>,
 }
@@ -196,6 +199,7 @@ impl SubsonicClient {
                     id: a["id"].as_str().unwrap_or("").to_string(),
                     name: a["name"].as_str().unwrap_or("Unknown").to_string(),
                     artist: a["artist"].as_str().map(|s| s.to_string()),
+                    album_artist: a["albumArtist"].as_str().map(|s| s.to_string()),
                     year: a["year"].as_i64().map(|y| y as i32),
                     genre: a["genre"].as_str().map(|s| s.to_string()),
                 });
@@ -211,6 +215,7 @@ impl SubsonicClient {
             id: a["id"].as_str().unwrap_or("").to_string(),
             name: a["name"].as_str().unwrap_or("Unknown").to_string(),
             artist: a["artist"].as_str().map(|s| s.to_string()),
+            album_artist: a["albumArtist"].as_str().map(|s| s.to_string()),
             year: a["year"].as_i64().map(|y| y as i32),
             genre: a["genre"].as_str().map(|s| s.to_string()),
         };

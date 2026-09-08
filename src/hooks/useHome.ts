@@ -418,7 +418,7 @@ export function useHome(opts: UseHomeOptions) {
     try {
       const seeds = (await invoke<Track[]>("pick_radio_seeds", { count: RADIO_STATION_COUNT })) ?? [];
       if (seeds.length === 0) return [];
-      const covers = await Promise.all(seeds.map((seed) => resolveCover(seed.album_title, seed.artist_name)));
+      const covers = await Promise.all(seeds.map((seed) => resolveCover(seed.album_title, seed.album_artist_name ?? seed.artist_name)));
       return seeds.map((seed, i) => ({ seed, coverUrl: covers[i] }));
     } catch (e) {
       console.error("Failed to pick radio stations:", e);
@@ -691,7 +691,7 @@ export function useHome(opts: UseHomeOptions) {
               return {
                 status: "ok",
                 items: tracks.map(t => ({
-                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
+                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_artist_name: t.album_artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
                 })),
               };
             } catch (e) {
@@ -711,7 +711,7 @@ export function useHome(opts: UseHomeOptions) {
               return {
                 status: "ok",
                 items: tracks.map(t => ({
-                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
+                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_artist_name: t.album_artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
                 })),
               };
             } catch (e) {

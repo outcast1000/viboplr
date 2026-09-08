@@ -164,6 +164,7 @@ where
         track_entries.push(BundleTrack {
             title: source.title.clone(),
             artist: source.artist.clone(),
+            album_artist: None,
             album: source.album.clone(),
             duration_secs: source.duration_secs,
             file: Some(archive_path),
@@ -474,6 +475,7 @@ mod tests {
             vec![BundleTrack {
                 title: "Track 1".into(),
                 artist: "Artist".into(),
+                album_artist: None,
                 album: None,
                 duration_secs: Some(180.0),
                 file: Some("tracks/01-track-1.flac".into()),

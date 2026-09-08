@@ -59,7 +59,7 @@ function TrackImage({ track, getAlbumImage, getArtistImage }: {
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
 }) {
-  const albumPath = track.album_title ? getAlbumImage(track.album_title, track.artist_name) : null;
+  const albumPath = track.album_title ? getAlbumImage(track.album_title, track.album_artist_name ?? track.artist_name) : null;
   const artistPath = track.artist_name ? getArtistImage(track.artist_name) : null;
   const imagePath = albumPath || artistPath;
   if (imagePath) {

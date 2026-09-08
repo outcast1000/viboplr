@@ -132,6 +132,10 @@ pub struct Track {
     pub liked: i32,
     pub added_at: Option<i64>,
     pub modified_at: Option<i64>,
+    /// The album's own artist (`albums.artist_id` — the ALBUMARTIST). Differs
+    /// from `artist_name` on compilations; queue/art/navigation surfaces use it
+    /// (falling back to `artist_name`) so a VA track points at the merged album.
+    pub album_artist_name: Option<String>,
 }
 
 /// One match from a search across cached `information_values` (any info type —
@@ -498,6 +502,11 @@ pub struct BundleManifest {
 pub struct BundleTrack {
     pub title: String,
     pub artist: String,
+    /// ALBUMARTIST when known. Optional + defaulted so manifests written
+    /// before the field existed keep deserializing (restore falls back to
+    /// `artist` frontend-side).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub album_artist: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

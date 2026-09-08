@@ -32,6 +32,17 @@ describe("pickEntityImagePath", () => {
     expect(pickEntityImagePath({ album_title: "Unknown", artist_name: "Nobody" }, lookups)).toBeNull();
     expect(pickEntityImagePath({}, lookups)).toBeNull();
   });
+
+  it("keys the album lookup by the album artist when the track carries one", () => {
+    // Compilation: the album image is cached under the ALBUM artist ("VA"),
+    // not the track artist — the fallback chain must ask with the right key.
+    expect(
+      pickEntityImagePath(
+        { album_title: "Greatest", artist_name: "Artie", album_artist_name: "VA" },
+        lookups,
+      ),
+    ).toBe("/covers/VA-Greatest.jpg");
+  });
 });
 
 describe("resolveTrackImage", () => {

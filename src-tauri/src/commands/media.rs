@@ -946,6 +946,7 @@ mod tests {
                 title: Some("Nude".into()),
                 track_number: crate::models::FieldUpdate::Set(3),
                 artist: crate::models::FieldUpdate::Set("Radiohead".into()),
+                album_artist: crate::models::FieldUpdate::Set("Radiohead AA".into()),
                 album: crate::models::FieldUpdate::Set("In Rainbows".into()),
                 year: crate::models::FieldUpdate::Set(2007),
                 genre: Some("Alternative".into()),
@@ -956,6 +957,7 @@ mod tests {
         let tags = read_one_file_tags(path.to_str().unwrap()).expect("tagged file reads");
         assert_eq!(tags.title.as_deref(), Some("Nude"));
         assert_eq!(tags.artist.as_deref(), Some("Radiohead"));
+        assert_eq!(tags.album_artist.as_deref(), Some("Radiohead AA"));
         assert_eq!(tags.album.as_deref(), Some("In Rainbows"));
         assert_eq!(tags.track_number, Some(3));
         assert_eq!(tags.year, Some(2007));

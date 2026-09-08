@@ -902,6 +902,7 @@ mod tests {
             liked: 0,
             added_at: None,
             modified_at: None,
+            album_artist_name: None,
         };
         let tracks = vec![
             mk(Some("A")),

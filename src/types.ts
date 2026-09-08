@@ -31,6 +31,10 @@ export interface Track {
   artist_name: string | null;
   album_id: number | null;
   album_title: string | null;
+  /** The album's own artist (ALBUMARTIST). Differs from artist_name on
+   * compilations; album art/navigation from a track should use
+   * `album_artist_name ?? artist_name`. */
+  album_artist_name?: string | null;
   year: number | null;
   track_number: number | null;
   duration_secs: number | null;
@@ -51,6 +55,10 @@ export interface QueueTrack {
   title: string;
   artist_name: string | null;
   album_title: string | null;
+  /** The album's own artist (ALBUMARTIST) when known. Optional so persisted
+   * queues from older builds restore unchanged; consumers fall back to
+   * `artist_name` (and the backend album lookup matches either artist). */
+  album_artist_name?: string | null;
   duration_secs: number | null;
   format: string | null;
   image_url?: string;

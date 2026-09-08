@@ -358,7 +358,7 @@ function albumSegment(track: QueueTrack): NowPlayingInfoSegment | null {
   if (!track.album_title) return null;
   return {
     text: track.album_title,
-    nav: { kind: "album", name: track.album_title, artistName: track.artist_name ?? undefined },
+    nav: { kind: "album", name: track.album_title, artistName: (track.album_artist_name ?? track.artist_name) ?? undefined },
   };
 }
 

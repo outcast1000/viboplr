@@ -59,6 +59,25 @@ describe("resolveNowPlayingArt", () => {
     expect(art).toEqual({ path: "/covers/artist.jpg", pending: false });
   });
 
+  it("keys the album lookup by the album artist when the track carries one", () => {
+    // Compilation case: the album row is owned by "Various Artists", so a
+    // lookup by the track artist would miss the cached cover.
+    const getAlbumImage = vi.fn((_name: string, artist?: string | null) =>
+      artist === "Various Artists" ? "/covers/comp.jpg" : null);
+    const art = resolveNowPlayingArt(
+      makeTrack({ album_artist_name: "Various Artists" }),
+      { ...allPending, getAlbumImage },
+    );
+    expect(art).toEqual({ path: "/covers/comp.jpg", pending: false });
+    expect(getAlbumImage).toHaveBeenCalledWith("Album", "Various Artists");
+  });
+
+  it("keys the album lookup by the track artist when no album artist is known", () => {
+    const getAlbumImage = vi.fn(() => null);
+    resolveNowPlayingArt(makeTrack(), { ...allSettledEmpty, getAlbumImage });
+    expect(getAlbumImage).toHaveBeenCalledWith("Album", "Artist");
+  });
+
   it("reports pending while a lookup is still in flight", () => {
     expect(resolveNowPlayingArt(makeTrack(), allPending)).toEqual({
       path: null,

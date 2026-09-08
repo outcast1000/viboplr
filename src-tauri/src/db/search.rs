@@ -37,21 +37,34 @@ impl Database {
             return Ok(SearchAllResults { artists: vec![], albums: vec![], tracks: vec![] });
         }
 
-        // --- Artists: use FTS on artist_name to find matching artist IDs ---
+        // --- Artists: FTS on artist_name (mapped via the track's artist) OR
+        // album_artist (mapped via the track's ALBUM's artist) — the second arm
+        // is what finds "Various Artists" and any album-artist-only artist,
+        // whom no track row carries. Visibility must be artist_visible_clause,
+        // not track_count > 0, for the same reason. ---
         let artists = {
             let fts_query = fts_colset_query("artist_name", &words);
+            let fts_album_artist_query = fts_colset_query("album_artist", &words);
             let mut stmt = conn.prepare(
-                "SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
-                 FROM artists a \
-                 WHERE a.track_count > 0 \
-                 AND a.id IN ( \
-                   SELECT t.artist_id FROM tracks t \
-                   JOIN tracks_fts ON tracks_fts.rowid = t.id \
-                   WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
-                 ) \
-                 ORDER BY COALESCE(a.liked, 0) DESC, a.name LIMIT ?2"
+                &format!(
+                    "SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
+                     FROM artists a \
+                     WHERE {} \
+                     AND (a.id IN ( \
+                       SELECT t.artist_id FROM tracks t \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
+                     ) OR a.id IN ( \
+                       SELECT al.artist_id FROM tracks t \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       JOIN albums al ON t.album_id = al.id \
+                       WHERE tracks_fts MATCH ?2 AND al.artist_id IS NOT NULL \
+                     )) \
+                     ORDER BY COALESCE(a.liked, 0) DESC, a.name LIMIT ?3",
+                    artist_visible_clause("a")
+                )
             )?;
-            let rows = stmt.query_map(params![fts_query, artist_limit], |row| {
+            let rows = stmt.query_map(params![fts_query, fts_album_artist_query, artist_limit], |row| {
                 Ok(Artist {
                     id: row.get(0)?,
                     name: row.get(1)?,
@@ -62,9 +75,11 @@ impl Database {
             rows.collect::<SqlResult<Vec<_>>>()?
         };
 
-        // --- Albums: FTS on album_title + artist_name to find matching album IDs ---
+        // --- Albums: FTS on album_title + artist_name + album_artist to find
+        // matching album IDs (album_artist is what matches a compilation
+        // searched by "various artists" — no track row carries that name) ---
         let albums = {
-            let fts_query = fts_colset_query("album_title artist_name", &words);
+            let fts_query = fts_colset_query("album_title artist_name album_artist", &words);
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT al.id, al.title, al.artist_id, ar.name, al.year, al.track_count, al.liked \
                  FROM albums al \
@@ -126,7 +141,7 @@ impl Database {
                 Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, tags: None, total })
             }
             "artists" => {
-                let where_clause = "WHERE a.track_count > 0";
+                let where_clause = format!("WHERE {}", artist_visible_clause("a"));
                 let total: i64 = conn.query_row(
                     &format!("SELECT COUNT(*) FROM artists a {}", where_clause), [], |row| row.get(0),
                 )?;
@@ -242,16 +257,28 @@ impl Database {
                 Ok(SearchEntityResult { tracks: Some(tracks), albums: None, artists: None, tags: None, total })
             }
             "artists" => {
+                // Track-artist arm OR album-artist arm, same shape and reasons
+                // as search_all's artists section (Various Artists has no track
+                // rows, hence also artist_visible_clause over track_count).
                 let fts_query = fts_colset_query("artist_name", &words);
-                let total: i64 = conn.query_row(
-                    "SELECT COUNT(DISTINCT a.id) FROM artists a \
-                     WHERE a.track_count > 0 \
-                     AND a.id IN ( \
+                let fts_album_artist_query = fts_colset_query("album_artist", &words);
+                let match_clause = format!(
+                    "{} \
+                     AND (a.id IN ( \
                        SELECT t.artist_id FROM tracks t \
                        JOIN tracks_fts ON tracks_fts.rowid = t.id \
                        WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
-                     )",
-                    params![fts_query],
+                     ) OR a.id IN ( \
+                       SELECT al.artist_id FROM tracks t \
+                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
+                       JOIN albums al ON t.album_id = al.id \
+                       WHERE tracks_fts MATCH ?2 AND al.artist_id IS NOT NULL \
+                     ))",
+                    artist_visible_clause("a")
+                );
+                let total: i64 = conn.query_row(
+                    &format!("SELECT COUNT(DISTINCT a.id) FROM artists a WHERE {}", match_clause),
+                    params![fts_query, fts_album_artist_query],
                     |row| row.get(0),
                 )?;
 
@@ -271,15 +298,10 @@ impl Database {
                 let mut stmt = conn.prepare(
                     &format!("SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
                      FROM artists a \
-                     WHERE a.track_count > 0 \
-                     AND a.id IN ( \
-                       SELECT t.artist_id FROM tracks t \
-                       JOIN tracks_fts ON tracks_fts.rowid = t.id \
-                       WHERE tracks_fts MATCH ?1 AND t.artist_id IS NOT NULL \
-                     ) \
-                     {} LIMIT ?2 OFFSET ?3", order)
+                     WHERE {} \
+                     {} LIMIT ?3 OFFSET ?4", match_clause, order)
                 )?;
-                let rows = stmt.query_map(params![fts_query, limit, offset], |row| {
+                let rows = stmt.query_map(params![fts_query, fts_album_artist_query, limit, offset], |row| {
                     Ok(Artist {
                         id: row.get(0)?,
                         name: row.get(1)?,
@@ -292,7 +314,7 @@ impl Database {
                 Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), tags: None, total })
             }
             "albums" => {
-                let fts_query = fts_colset_query("album_title artist_name", &words);
+                let fts_query = fts_colset_query("album_title artist_name album_artist", &words);
                 let total: i64 = conn.query_row(
                     "SELECT COUNT(DISTINCT al.id) FROM albums al \
                      WHERE al.track_count > 0 \
@@ -598,6 +620,95 @@ mod tests {
             fts_colset_query("album_title artist_name", &["\"rage\"*".to_string(), "\"rare\"*".to_string()]),
             "{album_title artist_name}:\"rage\"* AND {album_title artist_name}:\"rare\"*"
         );
+    }
+
+    /// A merged compilation's ONLY connection to "Various Artists" is its album
+    /// row — no track's artist_name carries the name — so finding it by typed
+    /// search rests entirely on the album_artist FTS column and the
+    /// album-artist arm of the artists queries.
+    #[test]
+    fn test_search_finds_a_compilation_and_its_album_artist() {
+        let db = Database::new_in_memory().unwrap();
+        let col = db
+            .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        let va = db.get_or_create_artist("Various Artists").unwrap();
+        let comp = db.get_or_create_album("Summer Hits", Some(va), None).unwrap();
+        for (path, title, artist) in [("c/01.mp3", "One", "Alpha"), ("c/02.mp3", "Two", "Beta")] {
+            let aid = db.get_or_create_artist(artist).unwrap();
+            let id = db
+                .upsert_track(path, title, Some(aid), Some(comp), None, Some(200.0), Some("mp3"), None, None, Some(col.id), None)
+                .unwrap();
+            db.update_fts_for_track(id).unwrap();
+        }
+        db.recompute_counts().unwrap();
+
+        // Central search: the VA artist row (zero tracks of its own) and the
+        // compilation album both match.
+        let all = db.search_all("various", 10, 10, 10).unwrap();
+        assert!(all.artists.iter().any(|a| a.name == "Various Artists"), "artists section finds VA");
+        assert!(all.albums.iter().any(|a| a.title == "Summer Hits"), "albums section finds the compilation");
+
+        // Library tab searches go through search_entity.
+        let artists = db.search_entity("various", "artists", &TrackQuery::default()).unwrap();
+        assert_eq!(artists.total, 1);
+        assert!(artists.artists.unwrap().iter().any(|a| a.name == "Various Artists"));
+        let albums = db.search_entity("various", "albums", &TrackQuery::default()).unwrap();
+        assert!(albums.albums.unwrap().iter().any(|a| a.title == "Summer Hits"));
+
+        // A TRACK search must not match by album artist — the track colsets
+        // deliberately exclude the column, or "various artists" would flood the
+        // tracks section with every song on every compilation.
+        let tracks = db.search_entity("various", "tracks", &TrackQuery::default()).unwrap();
+        assert!(tracks.tracks.unwrap().is_empty(), "tracks never match by album artist");
+    }
+
+    /// Migration #11: a tracks_fts predating the album_artist column (FTS5 has
+    /// no ALTER ADD COLUMN) is detected by schema presence and rebuilt with the
+    /// current shape, repopulated from the tracks tables.
+    #[test]
+    fn test_migration_rebuilds_a_pre_album_artist_fts_table() {
+        let db = Database::new_in_memory().unwrap();
+        let col = db
+            .add_collection("local", "Music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        seed_track(&db, col.id, "va/01.mp3", "One", "Various Artists", "Summer Hits");
+        db.recompute_counts().unwrap();
+
+        // Simulate a DB from before the column existed: the old 5-column shape.
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute_batch(
+                "DROP TABLE tracks_fts;
+                 CREATE VIRTUAL TABLE tracks_fts USING fts5(
+                     title, artist_name, album_title, tag_names, path,
+                     content='', contentless_delete=1,
+                     tokenize='unicode61 remove_diacritics 2'
+                 );",
+            )
+            .unwrap();
+        }
+
+        db.run_migrations().unwrap();
+
+        let (has_column, rows): (bool, i64) = {
+            let conn = db.conn.lock().unwrap();
+            let has: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('tracks_fts') WHERE name = 'album_artist'",
+                    [], |r| r.get(0),
+                )
+                .unwrap();
+            let rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM tracks_fts WHERE tracks_fts MATCH '{album_artist}:\"various\"*'",
+                    [], |r| r.get(0),
+                )
+                .unwrap();
+            (has > 0, rows)
+        };
+        assert!(has_column, "migration must recreate tracks_fts with album_artist");
+        assert_eq!(rows, 1, "the rebuilt index must be repopulated");
     }
 
     /// Seed one track with its artist + album, FTS-indexed. Returns the track id.

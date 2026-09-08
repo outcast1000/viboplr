@@ -7,6 +7,21 @@
   min-height: 0;
 }
 
+/* One-shot post-update hint (e.g. "Full Rescan to merge compilations"). */
+.collections-view-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--accent-dim);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
 .collections-empty {
   color: var(--text-secondary);
   font-size: var(--fs-base);

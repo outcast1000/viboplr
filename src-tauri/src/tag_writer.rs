@@ -14,6 +14,8 @@ pub struct TagUpdates {
     pub title: Option<String>,
     pub track_number: FieldUpdate<u32>,
     pub artist: FieldUpdate<String>,
+    /// ALBUMARTIST (TPE2/aART/ALBUMARTIST — lofty maps the per-format frame).
+    pub album_artist: FieldUpdate<String>,
     pub album: FieldUpdate<String>,
     pub year: FieldUpdate<u32>,
     pub genre: Option<String>,
@@ -48,6 +50,13 @@ pub fn write_tags(path: &Path, updates: &TagUpdates) -> Result<(), String> {
         FieldUpdate::Unchanged => {}
         FieldUpdate::Clear => { tag.remove_artist(); }
         FieldUpdate::Set(artist) => tag.set_artist(artist.clone()),
+    }
+    match &updates.album_artist {
+        FieldUpdate::Unchanged => {}
+        FieldUpdate::Clear => { tag.remove_key(lofty::tag::ItemKey::AlbumArtist); }
+        FieldUpdate::Set(album_artist) => {
+            tag.insert_text(lofty::tag::ItemKey::AlbumArtist, album_artist.clone());
+        }
     }
     match &updates.album {
         FieldUpdate::Unchanged => {}

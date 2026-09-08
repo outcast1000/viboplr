@@ -51,6 +51,10 @@ fn is_video_file(path: &Path) -> bool {
 struct ParsedTags {
     title: String,
     artist: Option<String>,
+    /// ALBUMARTIST (TPE2/aART) — the artist the album files under. None falls
+    /// back to the track artist at ingest, so single-artist libraries are
+    /// unaffected and only tagged compilations group under one album.
+    album_artist: Option<String>,
     album: Option<String>,
     genre: Option<String>,
     year: Option<i32>,
@@ -133,6 +137,10 @@ fn read_tags(path: &Path) -> ParsedTags {
         if let Some(tag) = tag {
             let title = tag.title().map(|s| fix_encoding(&s));
             let artist = tag.artist().map(|s| fix_encoding(&s));
+            let album_artist = tag
+                .get_string(lofty::tag::ItemKey::AlbumArtist)
+                .map(fix_encoding)
+                .filter(|s| !s.trim().is_empty());
             let album = tag.album().map(|s| fix_encoding(&s));
             let genre = tag.genre().map(|s| fix_encoding(&s));
             let year = tag.date().map(|d| d.year as i32);
@@ -143,6 +151,7 @@ fn read_tags(path: &Path) -> ParsedTags {
                 return ParsedTags {
                     title: title.unwrap(),
                     artist,
+                    album_artist,
                     album,
                     genre,
                     year,
@@ -240,6 +249,7 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
                 title: caps.name("title").map(|m| m.as_str().trim().to_string())
                     .unwrap_or_else(|| stem.to_string()),
                 artist: caps.name("artist").map(|m| m.as_str().trim().to_string()),
+                album_artist: None,
                 album: caps.name("album").map(|m| m.as_str().trim().to_string()),
                 genre: None,
                 year: None,
@@ -254,6 +264,7 @@ fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags
     ParsedTags {
         title: stem.to_string(),
         artist: None,
+        album_artist: None,
         album: None,
         genre: None,
         year: None,
@@ -312,6 +323,7 @@ pub fn scan_folder(
     db: &Arc<Database>,
     folder_path: &str,
     collection_id: Option<i64>,
+    force: bool,
     progress_callback: impl Fn(u64, u64) + Send,
 ) -> u64 {
     let root = PathBuf::from(folder_path);
@@ -343,7 +355,7 @@ pub fn scan_folder(
         let path = entry.path();
         let relative = path.strip_prefix(&root).unwrap_or(path).to_string_lossy().to_string();
         seen_paths.insert(relative);
-        if let Some(meta) = prepare_media_file(db, path, collection_id, Some(folder_path)) {
+        if let Some(meta) = prepare_media_file(db, path, collection_id, Some(folder_path), force) {
             pending.push(meta);
             if pending.len() >= INGEST_CHUNK {
                 if let Err(e) = db.ingest_scanned_files(&pending, collection_id) {
@@ -386,7 +398,7 @@ pub fn scan_folder(
 /// Single-file entry point (downloads, watch paths) — the folder scan goes
 /// through `prepare_media_file` + chunked `ingest_scanned_files` instead.
 pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<i64> {
-    let meta = prepare_media_file(db, path, collection_id, collection_root)?;
+    let meta = prepare_media_file(db, path, collection_id, collection_root, false)?;
     match db.ingest_scanned_files(std::slice::from_ref(&meta), collection_id) {
         Ok(ids) => ids.into_iter().next().flatten(),
         Err(e) => {
@@ -401,7 +413,7 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
 /// `None` when the file should be skipped. The DB is only touched for the
 /// one scan-state read; the writes happen in `Database::ingest_scanned_files`
 /// so a folder scan can batch them into chunked transactions.
-fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<crate::db::ScannedFileMeta> {
+fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>, force: bool) -> Option<crate::db::ScannedFileMeta> {
     // Compute relative path by stripping collection root
     let relative_path = match collection_root {
         Some(root) => path
@@ -424,16 +436,19 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64);
 
-    // Skip if file hasn't changed since last scan. Exception: re-read an audio file
+    // Skip if file hasn't changed since last scan. Exceptions: re-read an audio file
     // whose row predates the extra_tags backfill (extra_tags still NULL) even when
-    // the mtime is unchanged, so existing libraries fill in on the next scan. Video
-    // files carry no embedded tags, so they keep the plain mtime skip.
+    // the mtime is unchanged, so existing libraries fill in on the next scan (video
+    // files carry no embedded tags, so they keep the plain mtime skip); and a
+    // `force` scan (the user's "Full rescan") re-reads everything — the recovery
+    // path for tags edited without an mtime bump and for re-keying albums by
+    // ALBUMARTIST on rows scanned before that tag was honored.
     let scan_state = db.get_track_scan_state_by_path(&relative_path, collection_id);
     let stored_modified = scan_state.and_then(|(m, _)| m);
     let needs_tag_backfill = !is_video_file(path)
         && scan_state.map(|(_, has_extra)| !has_extra).unwrap_or(false);
     if let (Some(stored), Some(current)) = (stored_modified, modified_at) {
-        if stored >= current && !needs_tag_backfill {
+        if stored >= current && !needs_tag_backfill && !force {
             return None; // Unchanged and already processed for tags
         }
         info!("Updated file: {}", relative_path);
@@ -462,6 +477,7 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
             relative_path,
             title,
             artist: None,
+            album_artist: None,
             album: None,
             year: None,
             track_number: None,
@@ -480,6 +496,7 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
         relative_path,
         title: tags.title,
         artist: tags.artist,
+        album_artist: tags.album_artist,
         album: tags.album,
         year: tags.year,
         track_number: tags.track_number,
@@ -499,6 +516,9 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
 pub struct DroppedMedia {
     pub title: String,
     pub artist: Option<String>,
+    /// ALBUMARTIST when the file carries one (None otherwise) — lets queue
+    /// surfaces resolve album art/navigation by the album's artist.
+    pub album_artist: Option<String>,
     pub album: Option<String>,
     pub duration_secs: Option<f64>,
     /// Lower-cased file extension (mp3, flac, mp4, …), or None if absent.
@@ -526,13 +546,14 @@ pub fn read_dropped_media(path: &Path) -> DroppedMedia {
             .ok()
             .map(|f| f.properties().duration().as_secs_f64())
             .filter(|&d| d > 0.0);
-        return DroppedMedia { title, artist: None, album: None, duration_secs, format };
+        return DroppedMedia { title, artist: None, album_artist: None, album: None, duration_secs, format };
     }
 
     let tags = read_tags(path);
     DroppedMedia {
         title: tags.title,
         artist: tags.artist,
+        album_artist: tags.album_artist,
         album: tags.album,
         duration_secs: tags.duration_secs,
         format,
@@ -585,7 +606,7 @@ mod tests {
             .add_collection("local", "t", Some(root.to_str().unwrap()), None, None, None, None, None)
             .unwrap();
 
-        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), |_, _| {});
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
         assert_eq!(removed, 0);
         assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 130);
 
@@ -597,15 +618,98 @@ mod tests {
         assert_eq!(track.title, "Song 000");
 
         // Unchanged rescan: mtime fast path, still 130 rows.
-        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), |_, _| {});
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
         assert_eq!(removed, 0);
         assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 130);
 
         // A file removed from disk is pruned on the next scan.
         std::fs::remove_file(root.join("Artist 000 - Song 000.mp3")).unwrap();
-        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), |_, _| {});
+        let removed = scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
         assert_eq!(removed, 1);
         assert_eq!(db.get_track_count_for_collection(collection.id).unwrap(), 129);
+    }
+
+    /// Offline Full Rescan of a REAL profile DB — no app, no webview. For
+    /// verifying what a rescan does to an actual library (e.g. how the
+    /// ALBUMARTIST re-keying lands) before shipping. Recipe:
+    ///
+    ///   VIBOPLR_RESCAN_DIR="$HOME/Library/Application Support/com.alex.viboplr/profiles/dev-1" \
+    ///     cargo test probe_full_rescan_profile_db -- --ignored --nocapture
+    ///
+    /// Opens `{dir}/viboplr.db` — which runs init + migrations, exactly like an
+    /// app launch — force-rescans every enabled local collection, then rebuilds
+    /// FTS and counts, exactly like the app's resync tail. MUTATES that DB; run
+    /// it against a copy, never a live profile.
+    #[test]
+    #[ignore]
+    fn probe_full_rescan_profile_db() {
+        let dir = match std::env::var("VIBOPLR_RESCAN_DIR") {
+            Ok(d) => d,
+            Err(_) => {
+                eprintln!("set VIBOPLR_RESCAN_DIR to a profile directory containing viboplr.db");
+                return;
+            }
+        };
+        let db = Arc::new(Database::new(std::path::Path::new(&dir)).expect("open profile db"));
+        for c in db.get_collections().expect("collections") {
+            if c.kind != "local" || !c.enabled {
+                eprintln!("skipping {} ({}, enabled={})", c.name, c.kind, c.enabled);
+                continue;
+            }
+            let Some(path) = c.path.clone() else { continue };
+            eprintln!("force-rescanning '{}' at {}", c.name, path);
+            let start = std::time::Instant::now();
+            let removed = scan_folder(&db, &path, Some(c.id), true, |done, total| {
+                if done % 1000 == 0 {
+                    eprintln!("  {}/{}", done, total);
+                }
+            });
+            eprintln!("  done in {:.1}s ({} pruned)", start.elapsed().as_secs_f64(), removed);
+        }
+        db.rebuild_fts().expect("rebuild fts");
+        db.recompute_counts().expect("recompute counts");
+        eprintln!("rescan complete");
+    }
+
+    /// `force: true` (the "Full rescan" action) bypasses the mtime fast path and
+    /// re-reads every unchanged file, re-asserting the on-disk truth over the DB
+    /// row — the convergence path for tags edited without an mtime bump and for
+    /// re-keying albums by ALBUMARTIST on rows scanned before the tag was
+    /// honored. `force: false` keeps the skip (pinned above).
+    #[test]
+    fn test_force_scan_reingests_unchanged_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("Artist - Song.mp3"), b"not really audio").unwrap();
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let collection = db
+            .add_collection("local", "t", Some(root.to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
+
+        // Drift the row away from the file: a non-NULL extra_tags the file (a
+        // garbage byte blob lofty can't read → filename fallback → extra_tags
+        // NULL) would never produce. Non-NULL also disarms the extra_tags
+        // backfill exception, so only `force` can trigger a re-read.
+        let track = db
+            .find_track_by_metadata("Song", Some("Artist"), None)
+            .unwrap()
+            .expect("scanned track");
+        db.set_track_extra_tags(track.id, Some("{}")).unwrap();
+        let has_extra = |db: &Arc<Database>| {
+            db.get_track_scan_state_by_path("Artist - Song.mp3", Some(collection.id))
+                .expect("row exists")
+                .1
+        };
+        assert!(has_extra(&db));
+
+        // Ordinary rescan: mtime unchanged, row untouched.
+        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), false, |_, _| {});
+        assert!(has_extra(&db), "mtime fast path must skip the unchanged file");
+
+        // Force rescan: the file is re-read and the row re-asserted from disk.
+        scan_folder(&db, root.to_str().unwrap(), Some(collection.id), true, |_, _| {});
+        assert!(!has_extra(&db), "force must re-read and re-assert the file");
     }
 
     #[test]

@@ -39,8 +39,12 @@ export function resolveNowPlayingArt(
 ): NowPlayingArt {
   if (track.image_url) return { path: track.image_url, pending: false };
 
+  // Album art is keyed by the album's OWN artist (ALBUMARTIST) — on a
+  // compilation the track artist keys nothing. Falls back to the track artist
+  // for entries that don't carry it (older persisted queues, plugin tracks).
+  const albumArtist = track.album_artist_name ?? track.artist_name;
   const albumPath = track.album_title
-    ? lookups.getAlbumImage(track.album_title, track.artist_name)
+    ? lookups.getAlbumImage(track.album_title, albumArtist)
     : null;
   const artistPath = !albumPath && track.artist_name
     ? lookups.getArtistImage(track.artist_name)
@@ -49,7 +53,7 @@ export function resolveNowPlayingArt(
   if (path) return { path, pending: false };
 
   const albumOut = !!track.album_title
-    && !(lookups.isAlbumImageResolved?.(track.album_title, track.artist_name) ?? true);
+    && !(lookups.isAlbumImageResolved?.(track.album_title, albumArtist) ?? true);
   const artistOut = !!track.artist_name
     && !(lookups.isArtistImageResolved?.(track.artist_name) ?? true);
   return { path: null, pending: albumOut || artistOut };

@@ -417,6 +417,7 @@ mod tests {
             crate::models::BundleTrack {
                 title: "A".into(),
                 artist: "".into(),
+                album_artist: None,
                 album: None,
                 duration_secs: None,
                 // Verbatim matters: this mixed-slash UNC form is what a restored
@@ -428,6 +429,7 @@ mod tests {
             crate::models::BundleTrack {
                 title: "No file".into(),
                 artist: "".into(),
+                album_artist: None,
                 album: None,
                 duration_secs: None,
                 file: None,
@@ -516,6 +518,7 @@ mod tests {
         crate::models::BundleTrack {
             title: "t".into(),
             artist: "a".into(),
+            album_artist: None,
             album: None,
             duration_secs: None,
             file: Some(file.into()),
@@ -562,6 +565,7 @@ mod tests {
         m.tracks.push(BundleTrack {
             title: "t".into(),
             artist: "a".into(),
+            album_artist: None,
             album: None,
             duration_secs: None,
             file: Some(uri.into()),
@@ -593,6 +597,7 @@ mod tests {
         m.tracks.push(BundleTrack {
             title: "t".into(),
             artist: "a".into(),
+            album_artist: None,
             album: None,
             duration_secs: None,
             file: Some("spotify://keep".into()),

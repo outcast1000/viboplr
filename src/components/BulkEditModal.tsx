@@ -15,8 +15,13 @@ export interface BulkEditResult {
   albumChanged: boolean;
   /** Artist was edited (`newArtist` holds the value, null = cleared). */
   artistChanged: boolean;
+  /** Album artist was edited (`newAlbumArtist` holds the value, null = cleared
+   * back to the track-artist fallback). Changes which artist the album files
+   * under, so album re-pointing must prefer it over the track artist. */
+  albumArtistChanged: boolean;
   newAlbum: string | null;
   newArtist: string | null;
+  newAlbumArtist: string | null;
 }
 
 interface BulkEditModalProps {
@@ -100,11 +105,14 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
   // Compute shared values
   const shared = useMemo(() => {
     const artists = new Set(tracks.map((t) => t.artist_name ?? ""));
+    const albumArtists = new Set(tracks.map((t) => t.album_artist_name ?? ""));
     const albums = new Set(tracks.map((t) => t.album_title ?? ""));
     const years = new Set(tracks.map((t) => t.year));
     return {
       artist: artists.size === 1 ? [...artists][0] : "",
       artistPlaceholder: artists.size === 1 ? undefined : "Multiple values",
+      albumArtist: albumArtists.size === 1 ? [...albumArtists][0] : "",
+      albumArtistPlaceholder: albumArtists.size === 1 ? undefined : "Multiple values",
       album: albums.size === 1 ? [...albums][0] : "",
       albumPlaceholder: albums.size === 1 ? undefined : "Multiple values",
       year: years.size === 1 && [...years][0] != null ? String([...years][0]) : "",
@@ -119,6 +127,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
   );
   const [dirtyTrackNumber, setDirtyTrackNumber] = useState(false);
   const [artist, setArtist] = useState(shared.artist);
+  const [albumArtist, setAlbumArtist] = useState(shared.albumArtist);
   const [album, setAlbum] = useState(shared.album);
   const [year, setYear] = useState(shared.year);
   const [tags, setTags] = useState<TagEntry[]>([]);
@@ -126,6 +135,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
   const [tagMode, setTagMode] = useState<"replace" | "add" | "remove">("replace");
 
   const [dirtyArtist, setDirtyArtist] = useState(false);
+  const [dirtyAlbumArtist, setDirtyAlbumArtist] = useState(false);
   const [dirtyAlbum, setDirtyAlbum] = useState(false);
   const [dirtyYear, setDirtyYear] = useState(false);
   const [dirtyTags, setDirtyTags] = useState(false);
@@ -167,11 +177,12 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
     }
   }, [tagMode]);
 
-  const hasDirtyFields = dirtyArtist || dirtyAlbum || dirtyYear || dirtyTags || dirtyTitle || dirtyTrackNumber;
+  const hasDirtyFields = dirtyArtist || dirtyAlbumArtist || dirtyAlbum || dirtyYear || dirtyTags || dirtyTitle || dirtyTrackNumber;
 
   // A field is "cleared" when explicitly marked dirty while empty — this is what
   // distinguishes "set to null" from "leave unchanged" (which stays non-dirty).
   const clearedArtist = dirtyArtist && artist === "";
+  const clearedAlbumArtist = dirtyAlbumArtist && albumArtist === "";
   const clearedAlbum = dirtyAlbum && album === "";
   const clearedYear = dirtyYear && year === "";
   const clearedTrackNumber = dirtyTrackNumber && trackNumber === "";
@@ -202,6 +213,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
 
     const fields: Record<string, unknown> = {};
     if (dirtyArtist) fields.artist_name = artist || null;
+    if (dirtyAlbumArtist) fields.album_artist_name = albumArtist || null;
     if (dirtyAlbum) fields.album_title = album || null;
     if (dirtyYear) fields.year = year ? parseInt(year, 10) : null;
     if (dirtyTitle) fields.title = title;
@@ -221,6 +233,7 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
       } else {
         const patch: Partial<Track> = {};
         if (dirtyArtist) patch.artist_name = artist || null;
+        if (dirtyAlbumArtist) patch.album_artist_name = albumArtist || null;
         if (dirtyAlbum) patch.album_title = album || null;
         if (dirtyYear) patch.year = year ? parseInt(year, 10) : null;
         if (dirtyTitle) patch.title = title;
@@ -233,8 +246,10 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
         onSave({
           albumChanged: dirtyAlbum,
           artistChanged: dirtyArtist,
+          albumArtistChanged: dirtyAlbumArtist,
           newAlbum: album || null,
           newArtist: artist || null,
+          newAlbumArtist: albumArtist || null,
         });
       }
     } catch (e) {
@@ -302,6 +317,18 @@ export default function BulkEditModal({ tracks, artistOptions, albumOptions, tag
             onChange={(v) => { setArtist(v); setDirtyArtist(true); }}
             suggestions={artistOptions}
             placeholder={clearedArtist ? "Will be cleared" : shared.artistPlaceholder}
+          />
+        </FieldRow>
+
+        {/* ALBUMARTIST: which artist the album files under. Setting it (e.g.
+            "Various Artists") merges per-track-artist forks of a compilation
+            into one album; clearing falls back to each track's own artist. */}
+        <FieldRow label="Album artist" dirty={dirtyAlbumArtist} cleared={clearedAlbumArtist} onClear={() => { setAlbumArtist(""); setDirtyAlbumArtist(true); }} onRevert={() => { setAlbumArtist(shared.albumArtist); setDirtyAlbumArtist(false); }}>
+          <AutocompleteInput
+            value={albumArtist}
+            onChange={(v) => { setAlbumArtist(v); setDirtyAlbumArtist(true); }}
+            suggestions={artistOptions}
+            placeholder={clearedAlbumArtist ? "Will follow each track's artist" : shared.albumArtistPlaceholder}
           />
         </FieldRow>
 

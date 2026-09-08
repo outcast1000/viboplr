@@ -235,6 +235,8 @@ Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript front
 
 **Two track types:** `Track` (full library type with DB IDs) is used by library list views. `QueueTrack` (metadata-only, no `id`/`album_id`/`artist_id`) is used by queue, now-playing, and playlists. Queue/playback surfaces never rely on DB IDs — they use name-based image lookups and on-demand metadata resolution for library operations.
 
+**Album artist:** an album is keyed by its **album artist** (`albums.artist_id` = ALBUMARTIST tag ?? track artist), so a tagged compilation is one album owned by "Various Artists" while each track keeps its performer. Both track types carry an optional `album_artist_name`; surfaces resolving an album from a track use `album_artist_name ?? artist_name`, and `find_album_by_name` matches either artist. See `backend.md` → "Album identity (album artist)".
+
 **Home view:** the default landing surface. A radio-station carousel plus a stack of horizontal shelves (built-in: Recently played, Most played · 30 days, Most played artists · 30 days, Recently added, Liked albums, Liked artists, Jump back in). Plugins contribute additional shelves via static `contributes.homeShelves` or the runtime `api.home.registerShelf` API. See `ui.md` for layout / shelf rendering and `plugins.md` for the plugin contribution surface.
 
 ## Do Not Reintroduce

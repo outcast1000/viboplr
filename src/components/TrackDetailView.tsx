@@ -278,7 +278,7 @@ export function TrackDetailView({
     heroMeta.push({ label: track.artist_name, onClick: () => actions.navigateToArtist(track.artist_id ?? 0, track.artist_name!) });
   }
   if (track.album_title) {
-    heroMeta.push({ label: track.album_title, onClick: () => actions.navigateToAlbum(track.album_id ?? 0, track.artist_id, track.album_title!, track.artist_name ?? undefined) });
+    heroMeta.push({ label: track.album_title, onClick: () => actions.navigateToAlbum(track.album_id ?? 0, track.artist_id, track.album_title!, (track.album_artist_name ?? track.artist_name) ?? undefined) });
   }
   if (track.year) heroMeta.push(String(track.year));
   if (track.format) heroMeta.push(`${track.format.toUpperCase()}${audioProps?.bitrate ? ` · ${audioProps.bitrate} kbps` : ""}`);

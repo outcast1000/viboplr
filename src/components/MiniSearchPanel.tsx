@@ -32,7 +32,7 @@ function AlbumImg({ album, getAlbumImage, getArtistImage }: {
 function TrackImg({ track, getAlbumImage, getArtistImage }: {
   track: Track; getAlbumImage: (t: string, a?: string | null) => string | null; getArtistImage: (n: string) => string | null;
 }) {
-  const p = (track.album_title ? getAlbumImage(track.album_title, track.artist_name) : null)
+  const p = (track.album_title ? getAlbumImage(track.album_title, track.album_artist_name ?? track.artist_name) : null)
     || (track.artist_name ? getArtistImage(track.artist_name) : null);
   if (p) return <img className="mini-result-img" src={resolveImageUrl(p)} alt="" />;
   return <span className="mini-result-img-fallback">{(track.title[0] ?? "?").toUpperCase()}</span>;

@@ -5,6 +5,10 @@ import { resolveImageUrl } from "./resolveImageUrl";
 export interface TrackImageMeta {
   title?: string;
   artist_name?: string | null;
+  /** ALBUMARTIST when known — album images are keyed by the album's own
+   * artist, so on compilations the track artist keys nothing. Optional;
+   * the chain falls back to artist_name. */
+  album_artist_name?: string | null;
   album_title?: string | null;
   image_url?: string | null;
 }
@@ -28,7 +32,7 @@ export function pickEntityImagePath(
   deps: EntityImageLookups,
 ): string | null {
   return (
-    (t.album_title ? deps.albumImageFor(t.album_title, t.artist_name ?? undefined) : null) ??
+    (t.album_title ? deps.albumImageFor(t.album_title, (t.album_artist_name ?? t.artist_name) ?? undefined) : null) ??
     (t.artist_name ? deps.artistImageFor(t.artist_name) : null) ??
     null
   );

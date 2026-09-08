@@ -34,7 +34,7 @@ pub async fn add_collection(
             let track_count_before = db.get_track_count_for_collection(collection_id).unwrap_or(0);
             thread::spawn(move || {
                 let start = std::time::Instant::now();
-                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), |scanned, total| {
+                let removed_tracks = scanner::scan_folder(&db, &scan_path, Some(collection_id), false, |scanned, total| {
                     let _ = app.emit(
                         "scan-progress",
                         ScanProgress {
@@ -289,6 +289,7 @@ pub fn resync_collection(
     app: AppHandle,
     state: State<'_, AppState>,
     collection_id: i64,
+    full: Option<bool>,
 ) -> Result<(), String> {
     let collection = state
         .db
@@ -304,6 +305,7 @@ pub fn resync_collection(
         app,
         collection,
         state.resyncing_collections.clone(),
+        full.unwrap_or(false),
     );
     Ok(())
 }

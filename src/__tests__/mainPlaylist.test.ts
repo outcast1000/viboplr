@@ -46,6 +46,19 @@ describe("buildManifest", () => {
     expect(library.tracks[0].thumb).toBeNull();
   });
 
+  it("round-trips the album artist, and restores null when a legacy manifest omits it", () => {
+    // A compilation entry keeps which artist its album files under across
+    // restarts; manifests written before the field existed restore unchanged.
+    const m = buildManifest([makeTrack({ album_artist_name: "Various Artists" })], { name: "P" });
+    expect(m.tracks[0].album_artist).toBe("Various Artists");
+    const restored = tracksFromManifest(m);
+    expect(restored[0].album_artist_name).toBe("Various Artists");
+
+    const legacy = buildManifest([makeTrack()], { name: "P" });
+    delete (legacy.tracks[0] as { album_artist?: string | null }).album_artist;
+    expect(tracksFromManifest(legacy)[0].album_artist_name).toBeNull();
+  });
+
   it("sets cover to 'cover.jpg' when context has an image", () => {
     const m = buildManifest([], { name: "P", imagePath: "/abs/x.jpg" });
     expect(m.cover).toBe("cover.jpg");

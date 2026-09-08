@@ -18,15 +18,22 @@ export function useCollectionActions(deps: {
   const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
   const [resyncingCollection, setResyncingCollection] = useState<{ id: number; name: string } | null>(null);
 
-  async function handleResyncCollection(collectionId: number) {
+  async function handleResyncCollection(collectionId: number, full = false) {
     const col = deps.collections.find(c => c.id === collectionId);
     setResyncingCollection({ id: collectionId, name: col?.name ?? "Collection" });
     try {
-      await invoke("resync_collection", { collectionId });
+      await invoke("resync_collection", { collectionId, full });
     } catch (e) {
       console.error("Failed to resync collection:", e);
       setResyncingCollection(null);
     }
+  }
+
+  /** Full rescan: bypasses the scanner's mtime fast path so every file's tags
+   * are re-read — the recovery path for external tag edits and for re-keying
+   * albums by ALBUMARTIST on rows scanned before the tag was honored. */
+  function handleFullRescanCollection(collectionId: number) {
+    return handleResyncCollection(collectionId, true);
   }
 
   function clearResyncingState() {
@@ -125,6 +132,7 @@ export function useCollectionActions(deps: {
     setRemoveCollectionConfirm,
     resyncingCollection,
     handleResyncCollection,
+    handleFullRescanCollection,
     clearResyncingState,
     handleToggleCollectionEnabled,
     handleCheckConnection,

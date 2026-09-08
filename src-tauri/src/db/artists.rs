@@ -47,12 +47,19 @@ impl Database {
         offset: Option<i64>,
     ) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
+        let visible = artist_visible_clause("artists");
         let base = if liked_only {
-            "SELECT id, name, track_count, liked FROM artists \
-             WHERE track_count > 0 AND liked = 1 ORDER BY name"
+            format!(
+                "SELECT id, name, track_count, liked FROM artists \
+                 WHERE {} AND liked = 1 ORDER BY name",
+                visible
+            )
         } else {
-            "SELECT id, name, track_count, liked FROM artists \
-             WHERE track_count > 0 ORDER BY name"
+            format!(
+                "SELECT id, name, track_count, liked FROM artists \
+                 WHERE {} ORDER BY name",
+                visible
+            )
         };
         // Pagination is DB-side so a paging consumer (the plugin API's
         // getArtists) doesn't pull the whole table across IPC per page.
@@ -72,9 +79,12 @@ impl Database {
     pub fn find_artist_by_name(&self, name: &str) -> SqlResult<Option<Artist>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, name, track_count, liked FROM artists \
-             WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
-             AND track_count > 0",
+            &format!(
+                "SELECT id, name, track_count, liked FROM artists \
+                 WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
+                 AND {}",
+                artist_visible_clause("artists")
+            ),
             params![name],
             |row| Ok(Artist {
                 id: row.get(0)?,

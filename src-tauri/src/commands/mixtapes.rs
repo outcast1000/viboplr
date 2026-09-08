@@ -93,6 +93,7 @@ pub fn export_mixtape_playlist_only(
         crate::models::BundleTrack {
             title: t.title.clone(),
             artist: t.artist.clone().unwrap_or_default(),
+            album_artist: None,
             album: t.album.clone(),
             duration_secs: t.duration_secs,
             file: None,

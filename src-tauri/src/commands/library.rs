@@ -269,6 +269,10 @@ pub struct DroppedTrack {
     pub path: String,
     pub title: String,
     pub artist_name: Option<String>,
+    /// ALBUMARTIST when the file carries one — the artist the album files
+    /// under; queue surfaces use it (over `artist_name`) for album art and
+    /// album navigation.
+    pub album_artist_name: Option<String>,
     pub album_title: Option<String>,
     pub duration_secs: Option<f64>,
     pub format: Option<String>,
@@ -302,6 +306,7 @@ pub async fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrac
                     path: format!("file://{}", abs),
                     title: meta.title,
                     artist_name: meta.artist,
+                    album_artist_name: meta.album_artist,
                     album_title: meta.album,
                     duration_secs: meta.duration_secs,
                     format: meta.format,
@@ -864,6 +869,7 @@ pub async fn bulk_update_tracks(
     tauri::async_runtime::spawn_blocking(move || {
     // Resolve each nullable field to its tri-state: Unchanged / Clear / Set.
     let artist_u = crate::models::FieldUpdate::from_double_opt(fields.artist_name);
+    let album_artist_u = crate::models::FieldUpdate::from_double_opt(fields.album_artist_name);
     let album_u = crate::models::FieldUpdate::from_double_opt(fields.album_title);
     let year_u = crate::models::FieldUpdate::from_double_opt(fields.year);
     let track_number_u = crate::models::FieldUpdate::from_double_opt(fields.track_number);
@@ -872,6 +878,7 @@ pub async fn bulk_update_tracks(
     let track_info = db.bulk_update_tracks(
         &track_ids,
         artist_u.as_str_update(),
+        album_artist_u.as_str_update(),
         album_u.as_str_update(),
         year_u,
         fields.title.as_deref(),
@@ -921,6 +928,7 @@ pub async fn bulk_update_tracks(
             title: fields.title.clone(),
             track_number: track_number_u.map(|n| n as u32),
             artist: artist_u.clone(),
+            album_artist: album_artist_u.clone(),
             album: album_u.clone(),
             year: year_u.map(|y| y as u32),
             genre,

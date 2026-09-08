@@ -23,6 +23,9 @@ pub struct ScannedFileMeta {
     pub relative_path: String,
     pub title: String,
     pub artist: Option<String>,
+    /// ALBUMARTIST — keys the album row when present; falls back to `artist`,
+    /// so untagged files keep the old per-track-artist album identity.
+    pub album_artist: Option<String>,
     pub album: Option<String>,
     pub year: Option<i32>,
     pub track_number: Option<i32>,
@@ -107,8 +110,15 @@ impl Database {
                     Some(name) => Some(super::artists::get_or_create_artist_conn(&tx, name)?),
                     None => None,
                 };
+                // The album files under its ALBUMARTIST (falling back to the track
+                // artist), so a compilation's tracks share one album row while each
+                // keeps its own artist_id. Same shape the Subsonic sync produces.
+                let album_artist_id = match f.album_artist.as_deref() {
+                    Some(name) => Some(super::artists::get_or_create_artist_conn(&tx, name)?),
+                    None => artist_id,
+                };
                 let album_id = match f.album.as_deref() {
-                    Some(title) => Some(super::albums::get_or_create_album_conn(&tx, title, artist_id, f.year)?),
+                    Some(title) => Some(super::albums::get_or_create_album_conn(&tx, title, album_artist_id, f.year)?),
                     None => None,
                 };
                 let track_id: i64 = tx.prepare_cached(UPSERT_TRACK_SQL)?.query_row(
@@ -199,17 +209,11 @@ impl Database {
              DELETE FROM history_tracks;
              DELETE FROM history_artists;
              DELETE FROM collections;
-             DROP TABLE IF EXISTS tracks_fts;
-             CREATE VIRTUAL TABLE tracks_fts USING fts5(
-                 title,
-                 artist_name,
-                 album_title,
-                 tag_names,
-                 content='',
-                 contentless_delete=1,
-                 tokenize='unicode61 remove_diacritics 2'
-             );"
+             DROP TABLE IF EXISTS tracks_fts;"
         )?;
+        // Recreate from the shared DDL — this copy had drifted (it lost `path`)
+        // while it was a third hand-written CREATE.
+        conn.execute_batch(TRACKS_FTS_CREATE)?;
         Ok(())
     }
 
@@ -224,16 +228,18 @@ impl Database {
     pub(super) fn update_fts_for_track_inner(conn: &Connection, track_id: i64) -> SqlResult<()> {
         conn.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![track_id])?;
         conn.execute(
-            "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path)
+            "INSERT INTO tracks_fts (rowid, title, artist_name, album_artist, album_title, tag_names, path)
              SELECT t.id,
                     strip_diacritics(t.title),
                     strip_diacritics(COALESCE(ar.name, '')),
+                    strip_diacritics(COALESCE(aar.name, '')),
                     strip_diacritics(COALESCE(al.title, '')),
                     strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
                     strip_diacritics(COALESCE(t.path, ''))
              FROM tracks t
              LEFT JOIN artists ar ON t.artist_id = ar.id
              LEFT JOIN albums al ON t.album_id = al.id
+             LEFT JOIN artists aar ON al.artist_id = aar.id
              WHERE t.id = ?1",
             params![track_id],
         )?;
@@ -276,28 +282,19 @@ impl Database {
 
     pub fn rebuild_fts(&self) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute_batch(
-            "DROP TABLE IF EXISTS tracks_fts;
-             CREATE VIRTUAL TABLE tracks_fts USING fts5(
-                 title,
-                 artist_name,
-                 album_title,
-                 tag_names,
-                 path,
-                 content='',
-                 contentless_delete=1,
-                 tokenize='unicode61 remove_diacritics 2'
-             );"
-        )?;
+        conn.execute_batch(&format!("DROP TABLE IF EXISTS tracks_fts; {}", TRACKS_FTS_CREATE))?;
         conn.execute_batch(
             &format!(
-                "INSERT INTO tracks_fts (rowid, title, artist_name, album_title, tag_names, path)
-                 SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')), strip_diacritics(COALESCE(al.title, '')),
+                "INSERT INTO tracks_fts (rowid, title, artist_name, album_artist, album_title, tag_names, path)
+                 SELECT t.id, strip_diacritics(t.title), strip_diacritics(COALESCE(ar.name, '')),
+                        strip_diacritics(COALESCE(aar.name, '')),
+                        strip_diacritics(COALESCE(al.title, '')),
                         strip_diacritics(COALESCE((SELECT GROUP_CONCAT(tg.name, ' ') FROM track_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.track_id = t.id), '')),
                         strip_diacritics(COALESCE(t.path, ''))
                  FROM tracks t
                  LEFT JOIN artists ar ON t.artist_id = ar.id
                  LEFT JOIN albums al ON t.album_id = al.id
+                 LEFT JOIN artists aar ON al.artist_id = aar.id
                  WHERE 1=1 {};",
                 ENABLED_COLLECTION_FILTER_STANDALONE
             ),
@@ -757,13 +754,17 @@ impl Database {
         artist_name: Option<&str>,
     ) -> SqlResult<Option<String>> {
         let conn = self.conn.lock().unwrap();
+        // The artist may be the ALBUM artist (a.artist_id) or a track artist —
+        // on a merged compilation no track carries the album artist, so a
+        // track-artist-only match would find nothing.
         match artist_name {
             Some(artist) => conn.query_row(
                 "SELECT co.path || '/' || t.path FROM tracks t \
                  JOIN albums a ON t.album_id = a.id \
                  LEFT JOIN artists ar ON t.artist_id = ar.id \
+                 LEFT JOIN artists aar ON a.artist_id = aar.id \
                  LEFT JOIN collections co ON t.collection_id = co.id \
-                 WHERE a.title = ?1 AND ar.name = ?2 AND co.kind = 'local' LIMIT 1",
+                 WHERE a.title = ?1 AND (ar.name = ?2 OR aar.name = ?2) AND co.kind = 'local' LIMIT 1",
                 params![album_title, artist],
                 |row| row.get(0),
             ),
@@ -794,12 +795,15 @@ impl Database {
     ) -> SqlResult<Vec<(String, String)>> {
         let conn = self.conn.lock().unwrap();
         let (sql, params): (&str, Vec<&dyn rusqlite::types::ToSql>) = if artist_name.is_some() {
+            // Album artist OR track artist — same reasoning as
+            // `get_track_path_for_album`.
             (
                 "SELECT DISTINCT co.path, co.path || '/' || t.path FROM tracks t \
                  JOIN albums a ON t.album_id = a.id \
                  LEFT JOIN artists ar ON t.artist_id = ar.id \
+                 LEFT JOIN artists aar ON a.artist_id = aar.id \
                  LEFT JOIN collections co ON t.collection_id = co.id \
-                 WHERE a.title = ?1 AND ar.name = ?2 AND co.kind = 'local' LIMIT 12",
+                 WHERE a.title = ?1 AND (ar.name = ?2 OR aar.name = ?2) AND co.kind = 'local' LIMIT 12",
                 vec![&album_title, &artist_name],
             )
         } else {

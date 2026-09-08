@@ -5,6 +5,9 @@ import { nextExternalKey } from "./queueEntry";
 export interface ManifestTrack {
   title: string;
   artist: string;
+  /** ALBUMARTIST when known. Optional: manifests written before it existed
+   * omit it, and the restore path falls back to `artist`. */
+  album_artist?: string | null;
   album: string | null;
   duration_secs: number | null;
   file: string | null;
@@ -140,6 +143,7 @@ export function buildManifest(queue: QueueTrack[], context: PlaylistContext | nu
     tracks: queue.map(t => ({
       title: t.title,
       artist: t.artist_name ?? "",
+      album_artist: t.album_artist_name ?? null,
       album: t.album_title ?? null,
       duration_secs: t.duration_secs,
       file: t.path,
@@ -194,6 +198,7 @@ export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
     path: m.file,
     title: m.title,
     artist_name: m.artist || null,
+    album_artist_name: m.album_artist ?? null,
     album_title: m.album,
     duration_secs: m.duration_secs,
     // Restore the persisted format. Legacy manifests written before format was

@@ -7,6 +7,9 @@ export interface QueueEntry {
   title: string;
   artist_name: string | null;
   album_title: string | null;
+  /** ALBUMARTIST when known — optional so entries serialized by older builds
+   * deserialize unchanged; consumers fall back to artist_name. */
+  album_artist_name?: string | null;
   duration_secs: number | null;
   track_number: number | null;
   year: number | null;
@@ -47,6 +50,7 @@ export function pluginTrackToQueueTrack(info: PluginTrack): QueueTrack {
     path: info.path ?? null,
     title: info.title,
     artist_name: info.artist_name ?? null,
+    album_artist_name: info.album_artist_name ?? null,
     album_title: info.album_title ?? null,
     duration_secs: info.duration_secs ?? null,
     format: info.kind === "video" ? "mp4" : null,
@@ -133,6 +137,7 @@ export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
     title: track.title,
     artist_name: track.artist_name,
     album_title: track.album_title,
+    album_artist_name: track.album_artist_name,
     duration_secs: track.duration_secs,
     track_number: "track_number" in track ? track.track_number : null,
     year: "year" in track ? track.year : null,
@@ -153,6 +158,7 @@ export function trackToQueueTrack(track: Track): QueueTrack {
     title: track.title,
     artist_name: track.artist_name,
     album_title: track.album_title,
+    album_artist_name: track.album_artist_name,
     duration_secs: track.duration_secs,
     format: track.format,
     image_url: track.image_url,
@@ -177,6 +183,7 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
     artist_name: entry.artist_name,
     album_id: null,
     album_title: entry.album_title,
+    album_artist_name: entry.album_artist_name ?? null,
     year: entry.year,
     track_number: entry.track_number,
     duration_secs: entry.duration_secs,
@@ -204,6 +211,7 @@ export function queueEntryToQueueTrack(entry: QueueEntry): QueueTrack {
     title: entry.title,
     artist_name: entry.artist_name,
     album_title: entry.album_title,
+    album_artist_name: entry.album_artist_name ?? null,
     duration_secs: entry.duration_secs,
     format: entry.format,
     liked: entry.liked ?? 0,

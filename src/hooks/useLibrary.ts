@@ -453,11 +453,18 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     const matchedArtist = artistName
       ? artists.find(a => normalizeForMatch(a.name) === normalizeForMatch(artistName))
       : null;
-    const matchedAlbum = albumTitle && matchedArtist
-      ? albums.find(a => normalizeForMatch(a.title) === normalizeForMatch(albumTitle) && a.artist_id === matchedArtist.id)
-      : null;
+    // The album row's artist is the ALBUM artist, so a compilation track's
+    // artist matches no album directly — accept an unambiguous title-only match
+    // (the merged VA album) and only fall to the artist page when the title is
+    // ambiguous (two same-titled albums by different artists).
+    const titleMatches = albumTitle && matchedArtist
+      ? albums.filter(a => normalizeForMatch(a.title) === normalizeForMatch(albumTitle))
+      : [];
+    const matchedAlbum =
+      titleMatches.find(a => a.artist_id === matchedArtist?.id) ??
+      (titleMatches.length === 1 ? titleMatches[0] : null);
     if (matchedAlbum && matchedArtist) {
-      handleAlbumClick(matchedAlbum.id, matchedArtist.id);
+      handleAlbumClick(matchedAlbum.id, matchedAlbum.artist_id);
     } else if (matchedArtist) {
       handleArtistClick(matchedArtist.id);
     } else if (searchAllFallback) {

@@ -22,6 +22,14 @@ interface CollectionsViewProps {
   onToggleEnabled: (collection: Collection) => void;
   onCheckConnection: (collectionId: number) => void;
   onResync: (collectionId: number) => void;
+  /** Full rescan (local collections only): re-reads every file's tags, mtime
+   * fast path bypassed. Slower than Resync; the fix for external tag edits and
+   * for merging compilations after the ALBUMARTIST update. */
+  onFullRescan: (collectionId: number) => void;
+  /** One-shot post-update hint: suggest a Full rescan so tagged compilations
+   * merge under their album artist. Shown until dismissed. */
+  showAlbumArtistHint: boolean;
+  onDismissAlbumArtistHint: () => void;
   checkingConnectionId: number | null;
   connectionResult: { collectionId: number; ok: boolean; message: string } | null;
   resyncProgress: ResyncProgress | null;
@@ -42,6 +50,9 @@ export function CollectionsView({
   onToggleEnabled,
   onCheckConnection,
   onResync,
+  onFullRescan,
+  showAlbumArtistHint,
+  onDismissAlbumArtistHint,
   checkingConnectionId,
   connectionResult,
   resyncProgress,
@@ -56,8 +67,24 @@ export function CollectionsView({
   onOpenUrl,
   statsMap,
 }: CollectionsViewProps) {
+  const hasLocalCollections = collections.some((c) => c.kind === "local");
   return (
     <div className="collections-view">
+      {showAlbumArtistHint && hasLocalCollections && (
+        <div className="collections-view-hint">
+          <span>
+            Album artist support was added — run <strong>Full Rescan</strong> on your
+            local folders so tagged compilations merge under one album.
+          </span>
+          <button
+            className="collections-view-action-btn"
+            onClick={onDismissAlbumArtistHint}
+            title="Dismiss this hint"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       {collections.length === 0 ? (
         <div className="collections-empty">
           <p>No collections yet. Add a folder or server to get started.</p>
@@ -170,6 +197,16 @@ export function CollectionsView({
                       title="Resync"
                     >
                       {resyncProgress?.collectionId === c.id ? "Resyncing..." : "Resync"}
+                    </button>
+                  )}
+                  {c.kind === "local" && (
+                    <button
+                      className="collections-view-action-btn"
+                      onClick={() => onFullRescan(c.id)}
+                      disabled={resyncProgress != null || (resyncComplete != null && !resyncComplete.error)}
+                      title="Re-read every file's tags, including unchanged files (slower than Resync)"
+                    >
+                      Full Rescan
                     </button>
                   )}
                   {c.kind === "subsonic" && (

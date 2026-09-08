@@ -3202,7 +3202,7 @@ fn test_pick_radio_seeds_distinct_artists() {
 fn test_bulk_update_title_and_track_number() {
     let db = test_db();
     let t1 = insert_track(&db, "x.mp3", "Old Title", None, None);
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, Some("New Title"), FieldUpdate::Set(7), None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, Some("New Title"), FieldUpdate::Set(7), None, TagMode::Replace).unwrap();
     let track = db.get_track_by_id(t1).unwrap();
     assert_eq!(track.title, "New Title");
     assert_eq!(track.track_number, Some(7));
@@ -3215,7 +3215,7 @@ fn test_bulk_update_tag_mode_add_keeps_existing() {
     let rock = db.get_or_create_tag("Rock").unwrap();
     db.add_track_tag(t1, rock).unwrap();
     // Add "Live" — Rock must remain.
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, Some(&["Live".to_string()]), TagMode::Add).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, Some(&["Live".to_string()]), TagMode::Add).unwrap();
     let names: Vec<String> = db.get_tags_for_track(t1).unwrap().into_iter().map(|t| t.name).collect();
     assert_eq!(names.len(), 2);
     assert!(names.contains(&"Rock".to_string()));
@@ -3230,7 +3230,7 @@ fn test_bulk_update_tag_mode_remove_only_named() {
     let live = db.get_or_create_tag("Live").unwrap();
     db.add_track_tag(t1, rock).unwrap();
     db.add_track_tag(t1, live).unwrap();
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, Some(&["Live".to_string()]), TagMode::Remove).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, Some(&["Live".to_string()]), TagMode::Remove).unwrap();
     let names: Vec<String> = db.get_tags_for_track(t1).unwrap().into_iter().map(|t| t.name).collect();
     assert_eq!(names, vec!["Rock".to_string()]);
 }
@@ -3241,7 +3241,7 @@ fn test_bulk_update_tag_mode_replace_overwrites() {
     let t1 = insert_track(&db, "x.mp3", "Song", None, None);
     let rock = db.get_or_create_tag("Rock").unwrap();
     db.add_track_tag(t1, rock).unwrap();
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, Some(&["Jazz".to_string()]), TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, Some(&["Jazz".to_string()]), TagMode::Replace).unwrap();
     let names: Vec<String> = db.get_tags_for_track(t1).unwrap().into_iter().map(|t| t.name).collect();
     assert_eq!(names, vec!["Jazz".to_string()]);
 }
@@ -3253,7 +3253,7 @@ fn test_bulk_update_clear_album() {
     let album = db.get_or_create_album("Album", Some(artist), Some(2001)).unwrap();
     let t1 = insert_track(&db, "x.mp3", "Song", Some(artist), Some(album));
     // Clearing album drops album_id to NULL but leaves the artist intact.
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Clear, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Clear, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     let track = db.get_track_by_id(t1).unwrap();
     assert_eq!(track.album_id, None);
     assert_eq!(track.album_title, None);
@@ -3267,7 +3267,7 @@ fn test_bulk_update_clear_artist() {
     let album = db.get_or_create_album("Album", Some(artist), Some(2001)).unwrap();
     let t1 = insert_track(&db, "x.mp3", "Song", Some(artist), Some(album));
     // Clearing artist nulls artist_id and reassigns the album to a NULL-artist album.
-    db.bulk_update_tracks(&[t1], FieldUpdate::Clear, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Clear, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     let track = db.get_track_by_id(t1).unwrap();
     assert_eq!(track.artist_id, None);
     assert_eq!(track.artist_name, None);
@@ -3278,9 +3278,9 @@ fn test_bulk_update_clear_artist() {
 fn test_bulk_update_clear_track_number() {
     let db = test_db();
     let t1 = insert_track(&db, "x.mp3", "Song", None, None);
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Set(5), None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Set(5), None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().track_number, Some(5));
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Clear, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Clear, None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().track_number, None);
 }
 
@@ -3290,9 +3290,9 @@ fn test_bulk_update_clear_year_no_album_is_null() {
     // No album → the reported year comes purely from the track column, so a
     // cleared year truly reads as NULL.
     let t1 = insert_track(&db, "x.mp3", "Song", None, None);
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set(1999), None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set(1999), None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().year, Some(1999));
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Clear, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Clear, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().year, None);
 }
 
@@ -3304,9 +3304,9 @@ fn test_bulk_update_clear_year_reverts_to_album_year() {
     let artist = db.get_or_create_artist("Artist").unwrap();
     let album = db.get_or_create_album("Album", Some(artist), Some(2001)).unwrap();
     let t1 = insert_track(&db, "x.mp3", "Song", Some(artist), Some(album));
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set(1999), None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set(1999), None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().year, Some(1999));
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Clear, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Clear, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().year, Some(2001));
 }
 
@@ -3317,11 +3317,81 @@ fn test_bulk_update_unchanged_preserves_album() {
     let album = db.get_or_create_album("Album", Some(artist), Some(2001)).unwrap();
     let t1 = insert_track(&db, "x.mp3", "Song", Some(artist), Some(album));
     // Touching only the title must leave album/artist untouched (Unchanged != Clear).
-    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, Some("Renamed"), FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, Some("Renamed"), FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     let track = db.get_track_by_id(t1).unwrap();
     assert_eq!(track.title, "Renamed");
     assert_eq!(track.album_title.as_deref(), Some("Album"));
     assert_eq!(track.artist_name.as_deref(), Some("Artist"));
+}
+
+/// Step 1c: setting the album artist alone (album title untouched) merges a
+/// compilation's per-track-artist forks onto one album owned by that artist —
+/// the in-app fix for libraries whose files carry no ALBUMARTIST tag.
+#[test]
+fn test_bulk_update_album_artist_merges_forked_compilation() {
+    let db = test_db();
+    let a1 = db.get_or_create_artist("Alpha").unwrap();
+    let a2 = db.get_or_create_artist("Beta").unwrap();
+    let fork1 = db.get_or_create_album("Comp", Some(a1), None).unwrap();
+    let fork2 = db.get_or_create_album("Comp", Some(a2), None).unwrap();
+    let t1 = insert_track(&db, "c1.mp3", "One", Some(a1), Some(fork1));
+    let t2 = insert_track(&db, "c2.mp3", "Two", Some(a2), Some(fork2));
+
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Unchanged, FieldUpdate::Set("Various Artists"), FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.recompute_counts().unwrap();
+
+    let tr1 = db.get_track_by_id(t1).unwrap();
+    let tr2 = db.get_track_by_id(t2).unwrap();
+    assert_eq!(tr1.album_id, tr2.album_id, "both tracks share the merged album");
+    assert_eq!(tr1.album_artist_name.as_deref(), Some("Various Artists"));
+    // Track artists are untouched — the album artist is a separate axis.
+    assert_eq!(tr1.artist_name.as_deref(), Some("Alpha"));
+    assert_eq!(tr2.artist_name.as_deref(), Some("Beta"));
+    let merged = db.find_album_by_name("Comp", Some("Various Artists")).unwrap().unwrap();
+    assert_eq!(merged.track_count, 2);
+}
+
+/// Step 2 + explicit album artist: setting title AND album artist together
+/// creates ONE album under that artist even though the (untouched) track
+/// artists differ — otherwise the title edit would group per track artist and
+/// re-fork the very compilation being assembled.
+#[test]
+fn test_bulk_update_title_plus_album_artist_keys_one_album() {
+    let db = test_db();
+    let a1 = db.get_or_create_artist("Alpha").unwrap();
+    let a2 = db.get_or_create_artist("Beta").unwrap();
+    let t1 = insert_track(&db, "s1.mp3", "One", Some(a1), None);
+    let t2 = insert_track(&db, "s2.mp3", "Two", Some(a2), None);
+
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Unchanged, FieldUpdate::Set("Various Artists"), FieldUpdate::Set("New Comp"), FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.recompute_counts().unwrap();
+
+    let tr1 = db.get_track_by_id(t1).unwrap();
+    let tr2 = db.get_track_by_id(t2).unwrap();
+    assert_eq!(tr1.album_id, tr2.album_id, "one album despite differing track artists");
+    assert_eq!(tr1.album_artist_name.as_deref(), Some("Various Artists"));
+}
+
+/// Clearing the album artist re-files each track's album under its own track
+/// artist — the same fallback the scanner applies to untagged files.
+#[test]
+fn test_bulk_update_album_artist_clear_falls_back_to_track_artist() {
+    let db = test_db();
+    let a1 = db.get_or_create_artist("Alpha").unwrap();
+    let a2 = db.get_or_create_artist("Beta").unwrap();
+    let va = db.get_or_create_artist("Various Artists").unwrap();
+    let comp = db.get_or_create_album("Comp", Some(va), None).unwrap();
+    let t1 = insert_track(&db, "d1.mp3", "One", Some(a1), Some(comp));
+    let t2 = insert_track(&db, "d2.mp3", "Two", Some(a2), Some(comp));
+
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Unchanged, FieldUpdate::Clear, FieldUpdate::Unchanged, FieldUpdate::Unchanged, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    db.recompute_counts().unwrap();
+
+    let tr1 = db.get_track_by_id(t1).unwrap();
+    let tr2 = db.get_track_by_id(t2).unwrap();
+    assert_ne!(tr1.album_id, tr2.album_id, "cleared album artist forks per track artist");
+    assert_eq!(tr1.album_artist_name.as_deref(), Some("Alpha"));
+    assert_eq!(tr2.album_artist_name.as_deref(), Some("Beta"));
 }
 
 /// `TRACK_SELECT` must embed the identical CASE expression as `PATH_EXPR`.

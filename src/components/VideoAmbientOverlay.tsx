@@ -105,7 +105,7 @@ export function VideoAmbientOverlay({
   const nextSrc = nextTrack
     ? resolveImageSrc(
         nextTrack.image_url
-          ?? (nextTrack.album_title ? getAlbumImage(nextTrack.album_title, nextTrack.artist_name) : null)
+          ?? (nextTrack.album_title ? getAlbumImage(nextTrack.album_title, nextTrack.album_artist_name ?? nextTrack.artist_name) : null)
           ?? (nextTrack.artist_name ? getArtistImage(nextTrack.artist_name) : null),
       )
     : null;

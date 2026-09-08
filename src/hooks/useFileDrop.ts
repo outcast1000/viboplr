@@ -12,6 +12,7 @@ interface DroppedTrack {
   path: string;
   title: string;
   artist_name: string | null;
+  album_artist_name: string | null;
   album_title: string | null;
   duration_secs: number | null;
   format: string | null;
@@ -71,6 +72,7 @@ export function useFileDrop(deps: UseFileDropDeps) {
           path: d.path,
           title: d.title,
           artist_name: d.artist_name,
+          album_artist_name: d.album_artist_name,
           album_title: d.album_title,
           duration_secs: d.duration_secs,
           format: d.format,

@@ -160,7 +160,7 @@ async function enrichRadioCover(
   if (!seedTrack) return;
   let cover: string | null = null;
   if (seedTrack.album_title) {
-    cover = await entityImage("album", seedTrack.album_title, seedTrack.artist_name ?? null);
+    cover = await entityImage("album", seedTrack.album_title, seedTrack.album_artist_name ?? seedTrack.artist_name ?? null);
   }
   if (!cover && seedTrack.artist_name) {
     cover = await entityImage("artist", seedTrack.artist_name, null);

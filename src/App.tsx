@@ -192,7 +192,7 @@ function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<V
 // mixtape and playlist backends read the cover from disk, so a remote
 // image_url is downloaded into playlist_images first.
 async function resolveFirstAlbumCover(
-  tracks: Array<{ album_title?: string | null; artist_name?: string | null; image_url?: string | null }>,
+  tracks: Array<{ album_title?: string | null; album_artist_name?: string | null; artist_name?: string | null; image_url?: string | null }>,
 ): Promise<string | null> {
   const first = tracks.find(t => t.album_title || t.artist_name || t.image_url);
   if (!first) return null;
@@ -201,7 +201,7 @@ async function resolveFirstAlbumCover(
       const albumImg = await invoke<string | null>("get_entity_image", {
         kind: "album",
         name: first.album_title,
-        artistName: first.artist_name ?? null,
+        artistName: first.album_artist_name ?? first.artist_name ?? null,
       });
       if (albumImg) return albumImg;
     }
@@ -2331,6 +2331,7 @@ function App() {
   useAssignRef(openProbePathRef, async (path: string, kind?: "audio" | "video") => {
     const resolved = await invoke<Array<{
       path: string; title: string; artist_name: string | null;
+      album_artist_name: string | null;
       album_title: string | null; duration_secs: number | null; format: string | null;
     }>>("resolve_dropped_paths", { paths: [path] });
     // A folder is the only practical way to seed a queue, and the resolver
@@ -2349,6 +2350,7 @@ function App() {
         path: d.path,
         title: d.title,
         artist_name: d.artist_name,
+        album_artist_name: d.album_artist_name,
         album_title: d.album_title,
         duration_secs: d.duration_secs,
         format: d.format,
@@ -2866,6 +2868,39 @@ function App() {
     consumePendingProfileSwitch();
   }, [appRestoring, consumePendingProfileSwitch]);
 
+  // One-shot Collections-view hint: after the ALBUMARTIST update, local
+  // libraries scanned before it keep per-track-artist album forks until a Full
+  // Rescan re-keys them — the banner points at that button. Default true
+  // (hidden) so nothing flashes before the store answers. A profile with no
+  // local collections has nothing scanned under the old keying, so it is
+  // marked dismissed up front rather than nagging a future first folder.
+  const [albumArtistHintDismissed, setAlbumArtistHintDismissed] = useState(true);
+  useEffect(() => {
+    if (appRestoring) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const dismissed = await store.get<boolean>("albumArtistRescanHintDismissed");
+        if (dismissed || cancelled) return;
+        const cols = await invoke<Collection[]>("get_collections");
+        if (cancelled) return;
+        if (cols.some((c) => c.kind === "local")) {
+          setAlbumArtistHintDismissed(false);
+        } else {
+          await store.set("albumArtistRescanHintDismissed", true);
+        }
+      } catch (e) {
+        console.error("Failed to evaluate album-artist rescan hint:", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [appRestoring]);
+  const dismissAlbumArtistHint = useCallback(() => {
+    setAlbumArtistHintDismissed(true);
+    store.set("albumArtistRescanHintDismissed", true).catch((e) =>
+      console.error("Failed to persist albumArtistRescanHintDismissed:", e));
+  }, []);
+
   // First-run onboarding: decide once after restore completes. Existing
   // profiles (collections present, or the legacy plugin-recommendations flag
   // set) are marked complete silently so only fresh profiles see the wizard.
@@ -3122,7 +3157,8 @@ function App() {
         setDetailTrack({
           id: null, key: queueTrack.key, path: queueTrack.path,
           title: queueTrack.title, artist_id: null, artist_name: queueTrack.artist_name,
-          album_id: null, album_title: queueTrack.album_title, year: null,
+          album_id: null, album_title: queueTrack.album_title,
+          album_artist_name: queueTrack.album_artist_name ?? null, year: null,
           track_number: null, duration_secs: queueTrack.duration_secs,
           format: queueTrack.format, file_size: null, collection_id: null,
           collection_name: null, liked: queueTrack.liked ?? 0,
@@ -3130,7 +3166,7 @@ function App() {
           image_url: queueTrack.image_url,
         });
         if (queueTrack.album_title) {
-          albumImageCache.getImage(queueTrack.album_title, queueTrack.artist_name);
+          albumImageCache.getImage(queueTrack.album_title, queueTrack.album_artist_name ?? queueTrack.artist_name);
         }
         if (queueTrack.artist_name) {
           artistImageCache.getImage(queueTrack.artist_name);
@@ -3942,7 +3978,7 @@ function App() {
     try {
       // Album detail (standalone albums view, or an album opened inside artist view).
       if ((view === "albums" || view === "artists") && selectedAlbum != null) {
-        if (!(result.albumChanged || result.artistChanged)) return;
+        if (!(result.albumChanged || result.artistChanged || result.albumArtistChanged)) return;
         const oldAlbum = library.albums.find(a => a.id === selectedAlbum);
         if (!oldAlbum) return;
         const oldTitle = oldAlbum.title;
@@ -3950,7 +3986,11 @@ function App() {
         const stillExists = await invoke<Album | null>("find_album_by_name", { title: oldTitle, artistName: oldArtist ?? null });
         if (stillExists) return; // still has tracks — stay (refetched via bulkEditKey)
         const targetTitle = result.albumChanged ? result.newAlbum : oldTitle;
-        const targetArtist = result.artistChanged ? result.newArtist : oldArtist;
+        // The album files under its album artist, so an explicit album-artist
+        // edit outranks a track-artist edit for where the tracks moved.
+        const targetArtist = result.albumArtistChanged
+          ? result.newAlbumArtist
+          : result.artistChanged ? result.newArtist : oldArtist;
         if (targetTitle) library.navigateToAlbumByName(targetTitle, targetArtist ?? undefined);
         return;
       }
@@ -4725,7 +4765,7 @@ function App() {
                 trackId={track.id}
                 track={track}
                 albumImagePath={
-                  (track.album_title ? albumImageCache.getImage(track.album_title, track.artist_name) : null)
+                  (track.album_title ? albumImageCache.getImage(track.album_title, track.album_artist_name ?? track.artist_name) : null)
                     || track.image_url || null}
                 artistImagePath={track.artist_name ? artistImageCache.getImage(track.artist_name) : null}
                 isCurrentTrack={isCurrentTrack}
@@ -5003,6 +5043,9 @@ function App() {
               onToggleEnabled={collectionActions.handleToggleCollectionEnabled}
               onCheckConnection={collectionActions.handleCheckConnection}
               onResync={collectionActions.handleResyncCollection}
+              onFullRescan={collectionActions.handleFullRescanCollection}
+              showAlbumArtistHint={!albumArtistHintDismissed}
+              onDismissAlbumArtistHint={dismissAlbumArtistHint}
               checkingConnectionId={collectionActions.checkingConnectionId}
               connectionResult={collectionActions.connectionResult}
               resyncProgress={resyncProgress}
