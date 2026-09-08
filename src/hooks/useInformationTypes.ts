@@ -35,6 +35,10 @@ interface UseInformationTypesOpts {
   exclude?: string[];
   /** If set, only these type IDs are loaded (all others skipped). */
   include?: string[];
+  /** Load nothing at all: no type query, no cache reads, no fetches. For
+   * entities where per-entity metadata is meaningless (a "Various Artists"
+   * collective) — distinct from `include: []`, which means "no filter". */
+  disabled?: boolean;
   invokeInfoFetch: (
     pluginId: string,
     infoTypeId: string,
@@ -54,6 +58,7 @@ export function useInformationTypes({
   entity,
   exclude,
   include,
+  disabled,
   invokeInfoFetch,
   pluginNames,
 }: UseInformationTypesOpts) {
@@ -74,7 +79,7 @@ export function useInformationTypes({
   const entityKeyRef = useRef<string>("");
 
   const loadSections = useCallback(async () => {
-    if (!entity) {
+    if (!entity || disabled) {
       setSections([]);
       return;
     }
@@ -281,7 +286,7 @@ export function useInformationTypes({
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity?.kind, entity?.id, entity?.name, entity?.artistName, excludeKey, includeKey, invokeInfoFetch]);
+  }, [entity?.kind, entity?.id, entity?.name, entity?.artistName, excludeKey, includeKey, disabled, invokeInfoFetch]);
 
   useEffect(() => {
     loadSections();

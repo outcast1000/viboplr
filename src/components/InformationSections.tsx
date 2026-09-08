@@ -28,6 +28,10 @@ interface InformationSectionsProps {
   /** Filter sections by placement. "header" shows ranked_list/tag_list/image_gallery; "below" shows everything else. Omit to show all. */
   placement?: "header" | "below";
   customTabs?: CustomTab[];
+  /** Skip every plugin info section (no fetches, no cache reads) and render
+   * only `customTabs`. For entities where per-entity metadata is meaningless —
+   * a "Various Artists" collective, whose Last.fm bio/similar describe nothing. */
+  pluginSectionsDisabled?: boolean;
   /** True when the entity is the currently playing track — lets position-aware
       renderers (lyrics) subscribe to the live playback position. */
   livePosition?: boolean;
@@ -64,6 +68,7 @@ export function InformationSections({
   exclude,
   placement,
   customTabs,
+  pluginSectionsDisabled,
   livePosition,
   invokeInfoFetch,
   pluginNames,
@@ -77,7 +82,7 @@ export function InformationSections({
   onEntityContextMenu,
   retrieve,
 }: InformationSectionsProps) {
-  const { sections, refresh, reloadCache, getTypeMeta } = useInformationTypes({ entity, exclude, invokeInfoFetch, pluginNames });
+  const { sections, refresh, reloadCache, getTypeMeta } = useInformationTypes({ entity, exclude, disabled: pluginSectionsDisabled, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const entityKey = entity ? buildEntityKey(entity) : null;

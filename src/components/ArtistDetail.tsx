@@ -21,6 +21,7 @@ import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { isVariousArtists } from "../utils/variousArtists";
 
 interface ArtistDetailProps {
   name: string;
@@ -102,6 +103,13 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
   const infoEntity: InfoEntity = artist
     ? { kind: "artist", name: artist.name, id: artist.id }
     : { kind: "artist", name, id: 0 };
+
+  // A "Various Artists"-style collective is a real, navigable artist row (it
+  // owns the compilations filed under it) but not a real musician: external
+  // metadata for the name — Last.fm bio, similar artists, scrobble stats — is
+  // junk describing a catch-all entity. Skip those fetches and render only
+  // library-derived content (the Albums tab, the hero).
+  const collective = isVariousArtists(name);
 
   const handleEntityClick = useCallback((kind: string, id?: number, entityName?: string) => {
     if (kind === "artist") actions.navigateToArtist(id ?? 0, entityName);
@@ -223,12 +231,13 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         onPlay={sortedTracks.length > 0 ? handlePlayAll : undefined}
         onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : undefined}
         overflowItems={overflowItems}
-        titleLine={<TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
+        titleLine={collective ? undefined : <TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
       />
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}
           exclude={["artist_stats"]}
+          pluginSectionsDisabled={collective}
           placement="header"
           customTabs={albums.length > 0 ? [{
             id: "albums",
@@ -311,6 +320,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         <EntityTagPanel tracks={sortedTracks} />
       )}
 
+      {!collective && (
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}
@@ -328,6 +338,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
           onEntityContextMenu={actions.handleEntityContextMenu}
         />
       </div>
+      )}
     </div>
   );
 }
