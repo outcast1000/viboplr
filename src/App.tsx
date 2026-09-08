@@ -66,6 +66,8 @@ import { useAutoContinue } from "./hooks/useAutoContinue";
 import { usePasteImage } from "./hooks/usePasteImage";
 import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistory";
 import { useAppUpdater, updateBadgeFor } from "./hooks/useAppUpdater";
+import { resolveUpdateNotice, dismissNotice, type UpdateNoticeDismissals } from "./utils/updateNotice";
+import { UpdateNoticeBanner } from "./components/UpdateNoticeBanner";
 import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
 import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { usePersistedSetting, usePersistMirror } from "./hooks/usePersistedSetting";
@@ -1347,6 +1349,24 @@ function App() {
     onNotify: notify,
   });
 
+  // Update notice banner (top of the content column). The sidebar's Settings
+  // dot stays as the quiet fallback; this is the loud half, because Settings is
+  // a page nobody opens unprompted — so a release announced only there was, for
+  // most users, announced nowhere. Dismissals are keyed by *what* was announced
+  // (see utils/updateNotice.ts), so waving one away doesn't silence the next.
+  const [updateNoticeDismissed, setUpdateNoticeDismissed] = usePersistedSetting<UpdateNoticeDismissals>(
+    "updateNoticeDismissed", {}, restoredRef,
+  );
+  const updateNotice = useMemo(() => resolveUpdateNotice({
+    appUpdate: updater.updateState.available,
+    extensionUpdates: extensionsHook.updates,
+    dismissed: updateNoticeDismissed,
+  }), [updater.updateState.available, extensionsHook.updates, updateNoticeDismissed]);
+  const handleDismissUpdateNotice = useCallback(() => {
+    if (!updateNotice) return;
+    setUpdateNoticeDismissed(prev => dismissNotice(prev, updateNotice));
+  }, [updateNotice, setUpdateNoticeDismissed]);
+
   // Stable wrapper so switchToProfile's identity doesn't churn per render.
   const saveStoreNow = useCallback(() => store.save(), []);
   const profileSwitch = useProfileSwitch({
@@ -2589,6 +2609,7 @@ function App() {
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
+          updateNoticeDismissed: savedUpdateNoticeDismissed,
           reduceMotion: savedReduceMotion,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
           eqEnabled: savedEqEnabled, eqMode: savedEqMode, eqPreset: savedEqPreset, eqGains: savedEqGains,
@@ -2671,6 +2692,7 @@ function App() {
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
         if (savedVideoStoryboards === false) setVideoStoryboards(false);
+        if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
 
         // EQ / RG / Now Playing info / debug values all arrive from the one
@@ -4754,6 +4776,31 @@ function App() {
       <main className="main" data-dock={videoPlaying && videoLayout.dockSide !== "queue" ? videoLayout.dockSide : undefined}>
         {/* Content area */}
         <div className="content" data-view={view} ref={contentRef} style={videoPlaying && videoLayout.dockSide !== "queue" ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
+          {/* Update notice — above the view, inside `.content` so it can't be
+              scrolled away and isn't reordered by `.main`'s video-dock
+              direction. Hidden while the wizard owns the screen: a first run
+              has an errand of its own. */}
+          {updateNotice && !showOnboarding && (
+            <UpdateNoticeBanner
+              notice={updateNotice}
+              installing={updateNotice.kind === "app" && updater.updateState.downloading}
+              progress={updater.updateState.progress}
+              error={updater.updateState.error}
+              onUpdate={() => {
+                if (updateNotice.kind === "app") updater.handleInstallUpdate();
+                else extensionsHook.updateAll();
+              }}
+              onOpenDetails={() => {
+                if (updateNotice.kind === "app") {
+                  setSettingsScrollTarget("app-update");
+                  library.setView("settings");
+                } else {
+                  library.setView("extensions");
+                }
+              }}
+              onDismiss={handleDismissUpdateNotice}
+            />
+          )}
           <DetailViewProvider actions={detailViewActions} state={detailViewState}>
           {/* Track detail view */}
           {library.selectedTrack !== null && (() => {

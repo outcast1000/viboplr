@@ -250,14 +250,17 @@ export function useExtensions(props: UseExtensionsProps) {
       } finally {
         setBusyMessage(null);
       }
-      setResultModal(
-        ok
-          ? { title: "Update Complete", message: `${name} was updated successfully.` }
-          : {
-              title: "Update Failed",
-              message: `Couldn't update ${name}. Please try again later.`,
-            },
-      );
+      // Success raises nothing: the row's version changing, the update badge
+      // clearing and the notice banner going away *are* the feedback — same
+      // rule as a track deletion (conventions.md "Delete Tracks"). A modal here
+      // made the user dismiss a box to be told what the screen already showed.
+      // Failure still has to interrupt: nothing visible changes on its own.
+      if (!ok) {
+        setResultModal({
+          title: "Update Failed",
+          message: `Couldn't update ${name}. Please try again later.`,
+        });
+      }
     },
     [updates, performUpdate],
   );
@@ -291,12 +294,9 @@ export function useExtensions(props: UseExtensionsProps) {
     } finally {
       setBusyMessage(null);
     }
-    if (failed.length === 0) {
-      setResultModal({
-        title: "Updates Complete",
-        message: `${succeeded} extension${succeeded !== 1 ? "s were" : " was"} updated successfully.`,
-      });
-    } else {
+    // Only a partial failure is worth a box — see `updateExtension` above for
+    // why an all-succeeded batch reports nothing.
+    if (failed.length > 0) {
       setResultModal({
         title: "Some Updates Failed",
         message: `${succeeded} of ${available.length} updated. Failed: ${failed.join(", ")}.`,

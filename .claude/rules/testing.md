@@ -40,6 +40,8 @@ Commands live in `package.json` scripts (`test`, `test:rust`, `test:e2e`, `test:
 
 **Mocks:** `tests/e2e/tauri-mock.js` mocks the Tauri IPC layer so tests run in a browser without the Rust backend. E2E tests drive the dev server, not a built app — anything that only exists in a Tauri build (native menus, the mpv engine, file dialogs) cannot be asserted here. For that tier see **Built app** below.
 
+**Fixtures that change what every spec sees are opt-in `window.__E2E_*__` flags**, seeded with a second `addInitScript` before `goto`. `__E2E_VA__` (the compilation fixtures), `__E2E_STORE_SEED__` (persisted settings), `__E2E_APP_UPDATE__` and `__E2E_EXT_UPDATES__` (what the two update checks answer). The update ones exist because a found update renders a banner *above* the content column — left on by default it would push down every view another spec asserts on. Note that neither update check runs on its own inside a test: the automatic pass is 30s after launch, so a spec drives the check button in Settings (`Check for Updates`) or Extensions (`Check for updates`).
+
 ## Built app (macOS)
 
 `npm run app:smoke` is the only check that runs against **the bundle we ship**. It drives the installed app through the `viboplr://probe` deep link (`src/utils/probeControl.ts`) and reads back a state dump — see CLAUDE.md → "Built-app smoke test + startup series" for the mechanism and the constraints on the dump command.

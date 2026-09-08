@@ -411,6 +411,17 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return null;
     case 'search_playlist_track_ids':
       return [];
+    // Update checks. Both answer "nothing available" unless a test opts in,
+    // because the app checks in the background and every spec would otherwise
+    // grow an update banner above the view it is asserting on.
+    case 'app_update_check':
+      return (typeof window !== 'undefined' && window.__E2E_APP_UPDATE__) || null;
+    case 'check_for_extension_updates':
+      return {
+        updates: (typeof window !== 'undefined' && window.__E2E_EXT_UPDATES__) || [],
+        failed: [],
+        unchecked: [],
+      };
     case 'search_youtube':
       return { url: 'https://www.youtube.com/watch?v=mock123', video_title: args.title };
     case 'yt_dlp_check':

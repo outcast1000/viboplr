@@ -124,7 +124,7 @@ Navigation items (top to bottom):
 - **Now Playing** (Cmd+3) — lean-back view of the current track (`NowPlayingView`). Its sidebar icon reflects playback state: a spinning disc (`SpinningDisc`) for audio, a `FilmReel` for video, both frozen when paused. Inside the nav both inherit the button's colour instead of painting themselves `--accent` as they do on a track row — accent here means "this is the active view", so a playing track used to leave Now Playing looking permanently selected. Rotation is the only visual playback cue, so the button's `title` names the state too (`· playing` / `· paused`): the global reduced-motion guard in `base.css` freezes that rotation.
 - Playlists
 - Plugin sidebar items (below separator)
-- Bottom: Collections (with sync-error badge — an `error` dot when an **enabled** collection has a `last_sync_error`; `collectionAlertLabel` prop, derived by the pure `collectionAlert()` in `utils/collectionAlert.ts`, which also supplies the `title`/`aria-label` text. It exists because `last_sync_error` renders only inside CollectionsView, a destination nobody visits unprompted — so a server going down was discoverable only by playback failing, with the explanation one click away on a page the user had no reason to open. Disabled collections are skipped: they aren't syncing, so nothing the user does would clear the dot), Extensions (with update count badge), Settings (with update badge — one dot, `accent` when an update is ready and `error` when the last update attempt failed; `updateBadge` prop, derived by `updateBadgeFor` in `useAppUpdater`. Colour can't be the only signal, so the dot carries a `title`/`aria-label` naming its state.)
+- Bottom: Collections (with sync-error badge — an `error` dot when an **enabled** collection has a `last_sync_error`; `collectionAlertLabel` prop, derived by the pure `collectionAlert()` in `utils/collectionAlert.ts`, which also supplies the `title`/`aria-label` text. It exists because `last_sync_error` renders only inside CollectionsView, a destination nobody visits unprompted — so a server going down was discoverable only by playback failing, with the explanation one click away on a page the user had no reason to open. Disabled collections are skipped: they aren't syncing, so nothing the user does would clear the dot), Extensions (with update count badge), Settings (with update badge — one dot, `accent` when an update is ready and `error` when the last update attempt failed; `updateBadge` prop, derived by `updateBadgeFor` in `useAppUpdater`. Colour can't be the only signal, so the dot carries a `title`/`aria-label` naming its state. This dot is the **quiet** half of the announcement — the loud half is the update notice banner over the content column, see "Main Content" below — and it stays because the banner is dismissible.)
 
 App startup always lands on Home. The previously-selected view is **not** persisted — `view` is neither read nor written from the app store, and selected entities (artist/album/tag) are not restored on startup either. Within a session, opening an entity navigates to its detail page as usual.
 
@@ -153,6 +153,16 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 | `extensions` | extensions panel | — |
 | `settings` | settings panel | — |
 | `plugin:*` | `PluginViewRenderer` | — |
+
+### Update notice banner
+
+`UpdateNoticeBanner` renders as the **first child of `.content`**, above whichever view is showing — so a new release announces itself where the user already is, instead of only as a dot on the Settings nav button. It appears for an available **app** update (headline + "What's new" release notes + **Update & restart**) and, once that one is dismissed or absent, for pending **extension** updates (**Update all**). One at a time, app first; see `frontend.md` → `utils/updateNotice.ts` for the ranking and the per-release dismissal rules.
+
+Placement is the load-bearing part:
+- **Inside `.content`, not `.main`.** `.main` flips its flex direction for the video dock (`data-dock` → `row` / `column-reverse`), so a child there would land beside or below the view depending on where the user parked the video panel. `.content` is `overflow: hidden` with the views scrolling inside themselves, so the strip also can't be scrolled away.
+- **It takes layout; it does not overlay.** A floating card can cover a control. The cost is that the view shifts down once while the notice is up — which is the reason dismissal exists and is remembered.
+- **Suppressed while the onboarding wizard is up** — a first run has an errand of its own.
+- The sidebar's Settings dot stays as the quiet fallback (it also covers the *failed*-update case, which the banner only shows after an attempt from the banner itself). Don't remove one on the strength of the other.
 
 ### View Modes
 

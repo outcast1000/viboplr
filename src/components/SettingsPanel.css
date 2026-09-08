@@ -268,39 +268,8 @@
   color: var(--success);
 }
 
-/* Update download progress (replaces the old static "Downloading…" text). */
-.update-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 200px;
-}
-.update-progress-bar {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bg-tertiary);
-  overflow: hidden;
-}
-.update-progress-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--accent);
-  transition: width 0.2s var(--ease-out-quart);
-}
-/* No Content-Length: sweep instead of claiming a percentage we don't have. */
-.update-progress-fill.is-indeterminate {
-  width: 35%;
-  animation: update-progress-sweep 1.2s ease-in-out infinite;
-}
-@keyframes update-progress-sweep {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(340%); }
-}
-.update-progress-text {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
+/* Download progress for the update lives with its component now
+   (`UpdateProgress.css`) — the notice banner hosts it too. */
 
 /* Persistent updater failure notice. */
 .update-error {
@@ -335,34 +304,6 @@
   align-items: center;
   gap: 8px;
 }
-.update-available {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 16px;
-  text-align: center;
-  max-width: 280px;
-}
-.update-version {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-  color: var(--accent);
-}
-.update-notes {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  margin: 6px 0;
-  max-height: 80px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  text-align: left;
-}
-.update-progress {
-  font-size: var(--fs-sm);
-  color: var(--text-secondary);
-  text-align: center;
-}
-
 /* Debug timing table */
 .debug-timing-section {
   margin-bottom: 16px;

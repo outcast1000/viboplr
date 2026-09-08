@@ -23,6 +23,7 @@ import { PromptModal } from "./PromptModal";
 import { HelpLink } from "./HelpLink";
 import { getPlatform } from "./DependencyModal";
 import { NowPlayingInfoSettings, type NowPlayingInfoSettingsProps } from "./NowPlayingInfoSettings";
+import { UpdateProgress } from "./UpdateProgress";
 import { startRowDrag } from "../utils/rowDrag";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY } from "../hooks/usePlugins";
 import "./SettingsPanel.css";
@@ -631,39 +632,6 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
-function formatMb(bytes: number): string {
-  return `${(bytes / 1_000_000).toFixed(1)} MB`;
-}
-
-/**
- * Live download progress for the app update. The backend has always streamed
- * `app-update-progress`, but the panel used to render a static "Downloading…"
- * — so a 50 MB download over a slow link was indistinguishable from a hang.
- * `total` is 0 until the first chunk carries a Content-Length, and some
- * servers never send one, so the indeterminate case stays supported.
- */
-function UpdateProgress({ progress }: { progress: { downloaded: number; total: number } | null }) {
-  const total = progress?.total ?? 0;
-  const downloaded = progress?.downloaded ?? 0;
-  const pct = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : null;
-
-  return (
-    <div className="update-progress" role="status" aria-live="polite">
-      <div className="update-progress-bar">
-        <div
-          className={`update-progress-fill ${pct === null ? "is-indeterminate" : ""}`}
-          style={pct === null ? undefined : { width: `${pct}%` }}
-        />
-      </div>
-      <span className="update-progress-text">
-        {pct === null
-          ? `Downloading… ${formatMb(downloaded)}`
-          : `Downloading… ${pct}% · ${formatMb(downloaded)} of ${formatMb(total)}`}
-      </span>
-    </div>
-  );
-}
-
 /**
  * Persistent failure notice for the updater. Deliberately not a toast: a toast
  * auto-dismisses after 4.5s, and the failure a user most needs to see is the
@@ -1237,6 +1205,8 @@ type SettingsTab = "general" | "playback" | "providers" | "debug";
  *  default (General) tab. Keep in step with the `id="…"` attributes below. */
 const SECTION_TABS: Record<string, SettingsTab> = {
   "now-playing-info": "playback",
+  // The update notice banner's "Details" lands here.
+  "app-update": "general",
 };
 
 export function SettingsPanel({
@@ -1426,7 +1396,7 @@ export function SettingsPanel({
       <div className="settings-content-body">
             {settingsTab === "general" && (
               <>
-                <div className="settings-group">
+                <div className="settings-group" id="app-update">
                   <div className="settings-group-title">ViboPLR</div>
                   <div className="settings-card">
                     <div className="settings-about-content">

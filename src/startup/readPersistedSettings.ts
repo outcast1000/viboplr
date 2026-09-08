@@ -9,6 +9,7 @@ import type { AppStore } from "../store";
 import type { ViewMode, ColumnConfig } from "../types";
 import type { VideoLayoutState } from "../hooks/useVideoLayout";
 import type { VisualizerSlotSelection } from "../utils/visualizerSlots";
+import type { UpdateNoticeDismissals } from "../utils/updateNotice";
 
 export interface PersistedSettings {
   vol: number | undefined;
@@ -17,6 +18,8 @@ export interface PersistedSettings {
   playbackEngine: string | undefined;
   audioExclusive: boolean | undefined;
   betaUpdates: boolean | undefined;
+  /** Per-kind signatures of update notices the user has waved away. */
+  updateNoticeDismissed: UpdateNoticeDismissals | undefined;
   telemetryEnabled: boolean | undefined;
   trackVideoHistory: boolean | undefined;
   preferVideoResolution: boolean | undefined;
@@ -101,6 +104,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     playbackEngine: read<string>("playbackEngine"),
     audioExclusive: read<boolean>("audioExclusive"),
     betaUpdates: read<boolean>("betaUpdates"),
+    updateNoticeDismissed: read<UpdateNoticeDismissals>("updateNoticeDismissed"),
     telemetryEnabled: read<boolean>("telemetryEnabled"),
     trackVideoHistory: read<boolean>("trackVideoHistory"),
     preferVideoResolution: read<boolean>("preferVideoResolution"),

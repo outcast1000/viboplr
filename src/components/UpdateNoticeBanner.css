@@ -1,0 +1,132 @@
+/* "A new version is ready" strip at the top of the content column.
+
+   Opaque, not a translucent wash: with the native mpv engine the app punches a
+   CSS hole through the window for the video surface, and anything semi-
+   transparent above it reads over that hole instead of over the app (the same
+   correction `.queue-duplicate-banner` and `.queue-context-banner` carry). The
+   accent is therefore mixed INTO a skin surface colour rather than laid over
+   it with alpha. */
+.update-notice {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-secondary));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  animation: fade-in 0.18s var(--ease-out-quart);
+}
+
+/* An install that failed. Recoloured rather than replaced: the version on
+   offer is still the subject, only the last attempt went wrong. */
+.update-notice.has-error {
+  background: color-mix(in srgb, var(--error) 10%, var(--bg-secondary));
+  border-bottom-color: color-mix(in srgb, var(--error) 35%, var(--border));
+}
+.update-notice.has-error .update-notice-icon {
+  color: var(--error);
+}
+
+.update-notice-error {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.update-notice-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-notice-icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.update-notice-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* "What's new" / "Which ones" — a disclosure, not a button. */
+.update-notice-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  color: var(--accent);
+  border-radius: var(--ds-radius);
+}
+.update-notice-link:hover {
+  background: var(--bg-hover);
+}
+.update-notice-caret {
+  display: flex;
+  transition: transform 0.15s var(--ease-out-quart);
+}
+.update-notice-caret.is-open {
+  transform: rotate(180deg);
+}
+
+/* Pushed to the far end so the primary action lands in a stable place
+   regardless of how long the headline is. */
+.update-notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.update-notice-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: var(--ds-radius);
+}
+.update-notice-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Release notes / extension names. Capped and scrollable — a long changelog
+   must not push the view it sits above off the screen. */
+.update-notice-notes {
+  margin-top: 8px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding-right: 4px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Narrow windows: let the headline wrap under the icon rather than squeezing
+   the actions out of reach. */
+@media (max-width: 720px) {
+  .update-notice-row {
+    flex-wrap: wrap;
+  }
+  .update-notice-actions {
+    margin-left: 0;
+  }
+}

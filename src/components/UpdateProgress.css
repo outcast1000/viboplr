@@ -1,0 +1,35 @@
+/* Update download progress (replaces an old static "Downloading…" text).
+   Moved out of SettingsPanel.css when the update notice banner became a second
+   host for it — the component travels with its own styling. */
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+}
+.update-progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.update-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s var(--ease-out-quart);
+}
+/* No Content-Length: sweep instead of claiming a percentage we don't have. */
+.update-progress-fill.is-indeterminate {
+  width: 35%;
+  animation: update-progress-sweep 1.2s ease-in-out infinite;
+}
+@keyframes update-progress-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+.update-progress-text {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
