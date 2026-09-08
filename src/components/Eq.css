@@ -1,16 +1,21 @@
 /* Equalizer (popover + response curve + inline bar control)
    Extracted from App.css. Consumed by: EqPopover.tsx, EqCurve.tsx, EqBarControl.tsx. */
 
-/* Positioning context for the popover, which anchors to the button's bottom
-   edge. Shared by both hosts (now-playing bar, fullscreen bar) via EqButton. */
+/* Layout slot for the button. The popover no longer positions against it — it
+   is portalled out and anchored in viewport coordinates (see below) — but the
+   wrapper stays as the cluster's own box in either bar's flex row. */
 .eq-button-wrapper {
   position: relative;
 }
 
+/* Fixed, not absolute: EqPopover portals itself to `document.fullscreenElement
+   ?? document.body` and sets `bottom`/`right` from the button's rect. It has to
+   leave the bar because z-index only ranks within the nearest stacking context,
+   and in audio fullscreen `.audio-fs` (z-index 999) is one — so the panel was
+   capped underneath the queue drawer (fixed, 1000 at the root). At the root it
+   sits at 1100, above the drawer, below modals (2000) and toasts (9000). */
 .eq-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
+  position: fixed;
   width: 600px;
   max-width: calc(100vw - 24px);
   background: var(--bg-secondary);
@@ -18,7 +23,7 @@
   border-radius: var(--ds-radius-modal, 10px);
   padding: 16px 18px 16px;
   box-shadow: 0 16px 40px rgba(var(--overlay-inverse), 0.45);
-  z-index: 1000;
+  z-index: 1100;
   display: flex;
   flex-direction: column;
   gap: 14px;

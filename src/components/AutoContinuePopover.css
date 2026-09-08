@@ -1,11 +1,20 @@
+/* Layout slot for the trigger button. The popover no longer positions against
+   it — it is portalled out and anchored in viewport coordinates (see below) —
+   but the wrapper stays as the cluster's box in either bar's flex row, and the
+   click-outside handler still matches it to spot a click on the anchor. */
 .auto-continue-wrapper {
   position: relative;
 }
 
+/* Fixed, not absolute: AutoContinuePopover portals itself to
+   `document.fullscreenElement ?? document.body` and sets `bottom`/`right` from
+   the button's rect. It has to leave the bar because z-index only ranks within
+   the nearest stacking context, and in audio fullscreen `.audio-fs` (z-index
+   999) is one — so the panel was capped underneath the queue drawer (fixed,
+   1000 at the root). At the root 1100 clears the drawer and still sits below
+   modals (2000) and toasts (9000). */
 .auto-continue-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  right: 0;
+  position: fixed;
   width: 460px;
   max-width: calc(100vw - 24px);
   background: var(--bg-secondary);

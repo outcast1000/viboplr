@@ -1,7 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { HelpLink } from "./HelpLink";
 import "./AutoContinuePopover.css";
+
+/** Gap between the anchor button and the panel's bottom edge. */
+const ANCHOR_GAP_PX = 8;
 
 const SLIDERS: { key: keyof AutoContinueWeights; label: string }[] = [
   { key: "random", label: "Random" },
@@ -29,6 +33,26 @@ export function AutoContinuePopover({
   onClose, anchorRef,
 }: Props) {
   const popoverRef = useRef<HTMLDivElement>(null);
+  // Viewport coordinates, because the panel is portalled out of the bar — see
+  // the portal note below. Bottom/right, so it grows up and to the left off the
+  // button exactly as the old `bottom: calc(100% + 8px); right: 0` did.
+  const [pos, setPos] = useState<{ bottom: number; right: number } | null>(null);
+
+  const place = useCallback(() => {
+    const rect = anchorRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPos({
+      bottom: window.innerHeight - rect.top + ANCHOR_GAP_PX,
+      right: window.innerWidth - rect.right,
+    });
+  }, [anchorRef]);
+
+  useLayoutEffect(() => { place(); }, [place]);
+
+  useEffect(() => {
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [place]);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
@@ -52,8 +76,20 @@ export function AutoContinuePopover({
     return () => document.removeEventListener("keydown", handleKey);
   }, [onClose]);
 
-  return (
-    <div className="auto-continue-popover" ref={popoverRef} role="dialog" aria-label="Auto Continue">
+  // Portalled to `document.fullscreenElement ?? document.body`, same reasoning
+  // as `EqPopover`: a z-index only ranks within the nearest stacking context, so
+  // in audio fullscreen (`.audio-fs`, z-index 999) this panel was capped below
+  // the queue drawer (fixed, 1000 at the root) and opened underneath it. The
+  // fullscreen half of the target keeps it visible over browser-engine
+  // `:fullscreen` video, which paints only its own subtree.
+  return createPortal(
+    <div
+      className="auto-continue-popover"
+      ref={popoverRef}
+      role="dialog"
+      aria-label="Auto Continue"
+      style={pos ? { bottom: pos.bottom, right: pos.right } : { visibility: "hidden" }}
+    >
       <div className="ac-titlebar">
         <span className="ac-title">Auto Continue<HelpLink anchor="auto-continue" topic="Auto Continue" /></span>
         <button className="ac-close" onClick={onClose} aria-label="Close" title="Close">
@@ -95,6 +131,7 @@ export function AutoContinuePopover({
           </div>
         ))}
       </div>
-    </div>
+    </div>,
+    document.fullscreenElement ?? document.body,
   );
 }

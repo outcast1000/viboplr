@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   BUILTIN_PRESETS,
   SIMPLE_PRESETS,
@@ -37,6 +38,8 @@ interface Props {
 
 const CURVE_WIDTH = 564;
 const CURVE_HEIGHT = 190;
+/** Gap between the anchor button and the panel's bottom edge. */
+const ANCHOR_GAP_PX = 8;
 
 export function EqPopover({
   enabled, mode, preset, gains, preGainDb, bassDb, trebleDb, customPresets,
@@ -45,6 +48,27 @@ export function EqPopover({
   showBarControl, onShowBarControlChange, onClose, anchorRef,
 }: Props) {
   const popoverRef = useRef<HTMLDivElement>(null);
+  // Anchored in viewport coordinates rather than to the button's own box,
+  // because the panel is portalled out of both bars — see the portal note
+  // below. Bottom/right, so it still grows up and to the left off the button
+  // exactly as the old `bottom: calc(100% + 8px); right: 0` did.
+  const [pos, setPos] = useState<{ bottom: number; right: number } | null>(null);
+
+  const place = useCallback(() => {
+    const rect = anchorRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPos({
+      bottom: window.innerHeight - rect.top + ANCHOR_GAP_PX,
+      right: window.innerWidth - rect.right,
+    });
+  }, [anchorRef]);
+
+  useLayoutEffect(() => { place(); }, [place]);
+
+  useEffect(() => {
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [place]);
 
   useEffect(() => {
     function handleDown(e: MouseEvent) {
@@ -79,8 +103,22 @@ export function EqPopover({
     onTrebleChange(p.trebleDb);
   }
 
-  return (
-    <div className="eq-popover" ref={popoverRef} role="dialog" aria-label="Equalizer">
+  // Portalled out of whichever bar mounted it. `z-index` only ever ranks within
+  // the nearest stacking context, and in audio fullscreen the whole surface is
+  // one (`.audio-fs`, z-index 999) — so in place the panel was capped below the
+  // queue drawer (fixed, z-index 1000 at the root) and opened underneath it. The
+  // target is `document.fullscreenElement ?? document.body` for the same reason
+  // as `SourceIndicator`'s panel: inside DOM `:fullscreen` the browser paints
+  // only that subtree, so a panel parked at the app root would never appear over
+  // browser-engine fullscreen video.
+  return createPortal(
+    <div
+      className="eq-popover"
+      ref={popoverRef}
+      role="dialog"
+      aria-label="Equalizer"
+      style={pos ? { bottom: pos.bottom, right: pos.right } : { visibility: "hidden" }}
+    >
       {/* Consolidated header: title · mode · spacer · enable · close */}
       <div className="eq-popover-header">
         <span className="eq-popover-title">Equalizer<HelpLink anchor="equalizer" topic="the equalizer" /></span>
@@ -225,6 +263,7 @@ export function EqPopover({
           <span className="eq-enable-label">{showBarControl ? "On" : "Off"}</span>
         </button>
       </div>
-    </div>
+    </div>,
+    document.fullscreenElement ?? document.body,
   );
 }
