@@ -75,8 +75,27 @@ const TEST_COLLECTIONS = [
   { id: 1, kind: 'local', name: 'Music', path: '/music', url: null, username: null, last_synced_at: null, auto_update: false, auto_update_interval_mins: 60, enabled: true, last_sync_duration_secs: null, last_sync_error: null },
 ];
 
+// Album-artist fixtures, opt-in per spec via `window.__E2E_VA__ = true` in an
+// addInitScript (several older specs hard-assert the base fixture counts, so
+// these must not leak into them). Adds a "Various Artists" compilation: one
+// album row owned by an artist no track carries — the shape the backend
+// produces for ALBUMARTIST-tagged files — plus a subsonic collection so the
+// local-only gating of Full Rescan is assertable.
+function applyVaFixtures() {
+  if (!window.__E2E_VA__ || window.__E2E_VA_APPLIED__) return;
+  window.__E2E_VA_APPLIED__ = true;
+  TEST_ARTISTS.push({ id: 3, name: 'Various Artists', track_count: 0, liked: 0 });
+  TEST_ALBUMS.push({ id: 3, title: 'Big Comp', artist_id: 3, artist_name: 'Various Artists', year: 2021, track_count: 2, liked: 0 });
+  TEST_TRACKS.push(
+    { id: 5, key: 'lib:5', path: 'file:///music/Comps/Big Comp/01 Comp One.mp3', title: 'Comp One', artist_id: 1, artist_name: 'Artist A', album_id: 3, album_title: 'Big Comp', album_artist_name: 'Various Artists', year: 2021, track_number: 1, duration_secs: 200, format: 'mp3', file_size: 8000000, collection_id: 1, collection_name: 'Music', liked: 0, added_at: 1700000000, modified_at: 1700000000 },
+    { id: 6, key: 'lib:6', path: 'file:///music/Comps/Big Comp/02 Comp Two.mp3', title: 'Comp Two', artist_id: 2, artist_name: 'Artist B', album_id: 3, album_title: 'Big Comp', album_artist_name: 'Various Artists', year: 2021, track_number: 2, duration_secs: 190, format: 'mp3', file_size: 8000000, collection_id: 1, collection_name: 'Music', liked: 0, added_at: 1700000000, modified_at: 1700000000 },
+  );
+  TEST_COLLECTIONS.push({ id: 2, kind: 'subsonic', name: 'Server', path: null, url: 'https://music.example.com', username: 'alex', last_synced_at: 1700000000, auto_update: false, auto_update_interval_mins: 60, enabled: true, last_sync_duration_secs: 3, last_sync_error: null });
+}
+
 // Mock invoke — returns sensible defaults for commands the app calls on startup
 window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
+  applyVaFixtures();
   // Plugin commands (store, shortcuts, etc.) — return safe defaults
   if (cmd.startsWith('plugin:')) {
     // plugin:store — LazyStore / Store operations. The app restores persisted
@@ -257,6 +276,12 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'main_playlist_remove_thumb':
     case 'main_playlist_set_thumb':
       return null;
+    // Records every resync request so specs can assert the `full` flag the
+    // Collections buttons send (Resync → false, Full Rescan → true).
+    case 'resync_collection': {
+      (window.__TEST_RESYNC_CALLS__ = window.__TEST_RESYNC_CALLS__ || []).push(args);
+      return null;
+    }
     case 'get_download_providers':
       return [];
     case 'get_stream_resolvers':
@@ -271,10 +296,22 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return [];
     case 'sync_information_types':
       return null;
-    case 'info_get_values_for_entity':
+    // With the VA fixtures on, serve one cached artist info section ("About",
+    // rich_text, fresh "ok" so nothing tries a plugin fetch). This is what makes
+    // the Various-Artists suppression assertable: a real artist's page shows the
+    // About tab, the VA page must not render info sections at all.
+    case 'info_get_values_for_entity': {
+      if (window.__E2E_VA__ && String((args && args.entityKey) || '').startsWith('artist:')) {
+        return [[1, 'artist_bio', JSON.stringify({ summary: 'Mock artist bio' }), 'ok', Math.floor(Date.now() / 1000)]];
+      }
       return [];
-    case 'info_get_types_for_entity':
+    }
+    case 'info_get_types_for_entity': {
+      if (window.__E2E_VA__ && args && args.entity === 'artist') {
+        return [['artist_bio', 'About', 'rich_text', 7776000, 0, [['mock-plugin', 1]], '']];
+      }
       return [];
+    }
     case 'get_active_download_providers':
       return [];
     case 'cleanup_temp_mixtapes':
