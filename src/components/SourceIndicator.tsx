@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { QueueTrack, ResolvedSource } from "../types";
@@ -11,12 +12,16 @@ import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
  * subtitle line, and the hover panel behind it (source label, decode facts,
  * path/URL, Open folder / Open on <service>).
  *
- * Self-contained on purpose, and that is load-bearing rather than tidiness: the
- * panel is `position: fixed`, so it could in principle be rendered anywhere —
- * but inside **DOM fullscreen** the browser paints only the fullscreened
- * subtree, so a panel hoisted to the app root would silently never appear over
- * fullscreen video. Rendering it next to its own icon keeps it inside whatever
- * subtree the icon is in.
+ * The panel is `position: fixed` but is **portalled out** of the bar, because
+ * `z-index: 10000` is only ever relative to the nearest stacking context and the
+ * bar builds one on the way down (`.now-info` carries `z-index: 1`) — so in place
+ * the panel painted under the queue drawer, the video surfaces and every modal,
+ * no matter how large its own z-index got.
+ *
+ * The portal target is `document.fullscreenElement ?? document.body`, and the
+ * fullscreen half is load-bearing rather than defensive: inside **DOM
+ * fullscreen** the browser paints only the fullscreened subtree, so a panel
+ * hoisted to the app root would silently never appear over fullscreen video.
  *
  * Both playback bars mount it. It used to exist only on the docked one, which
  * meant the answer to "why does this sound wrong / where is this streaming
@@ -120,7 +125,7 @@ export function SourceIndicator({ track, resolvedSource }: SourceIndicatorProps)
       >
         <SourceIcon isLocal={isLocal} />
       </span>
-      {open && anchor && (
+      {open && anchor && createPortal(
         <SourcePanel
           track={track}
           resolvedSource={resolvedSource}
@@ -131,7 +136,8 @@ export function SourceIndicator({ track, resolvedSource }: SourceIndicatorProps)
             if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
           }}
           onClose={() => setOpen(false)}
-        />
+        />,
+        document.fullscreenElement ?? document.body,
       )}
     </>
   );
