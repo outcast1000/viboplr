@@ -709,7 +709,7 @@ export const TOOLS = [
     name: "logs",
     tier: "full",
     description:
-      "App logs, home-dir scrubbed: action=tail is the backend log (last 200 lines), action=frontend is the in-memory error + stream-resolver ring buffers, action=configure sets file/debug logging (file logging applies on next launch). Consent rule: show the user before posting log contents anywhere public.",
+      "App logs, home-dir scrubbed: action=tail is the backend log (last 200 lines), action=frontend is the always-on in-memory ring buffers — uncaught errors, stream-resolver activity, plugin api.log lines, and recent toasts (check the last two after a fire-and-forget action seems to do nothing: its failure surfaces only there), action=configure sets file/debug logging (file logging applies on next launch). Consent rule: show the user before posting log contents anywhere public.",
     inputSchema: obj(
       {
         action: en(["tail", "frontend", "configure"], "What to do"),

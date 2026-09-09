@@ -25,6 +25,7 @@ function makeInput(overrides: Partial<DiagnosticInput> = {}): DiagnosticInput {
     dependencies: [],
     appErrors: [],
     resolverLog: [],
+    pluginLog: [],
     logTail: [],
     context: null,
     homeDir: null,
@@ -158,6 +159,21 @@ describe("buildDiagnosticReport", () => {
     // Keeps the most recent attempts — those are the ones near the failure.
     expect(report).toContain("p59");
     expect(report).not.toContain("p0 ");
+  });
+
+  it("renders the plugin log with home paths scrubbed", () => {
+    const report = buildDiagnosticReport(
+      makeInput({
+        pluginLog: [
+          { seq: 1, ts: "2026-09-10T10:00:00Z", level: "error", section: "ytdlp", message: "Watch video failed: /Users/alex/x not found" },
+        ],
+        homeDir: "/Users/alex",
+      }),
+    );
+    expect(report).toContain("Plugin log (1)");
+    expect(report).toContain("ERROR (ytdlp) Watch video failed:");
+    expect(report).toContain("~/x");
+    expect(report).not.toContain("/Users/alex");
   });
 
   it("survives an unserializable resolver input", () => {

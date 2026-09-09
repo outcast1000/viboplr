@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { recordNotification } from "../utils/notificationLog";
 
 export interface Toast {
   id: number;
@@ -20,6 +21,9 @@ export function useToasts(timeoutMs = 4500) {
   }, []);
 
   const notify = useCallback((message: string) => {
+    // A toast is often the only feedback a fire-and-forget flow gives; the ring
+    // buffer keeps a durable trace for the control API and diagnostics.
+    recordNotification(message);
     const id = ++idRef.current;
     setToasts((prev) => [...prev, { id, message }]);
     setTimeout(() => dismiss(id), timeoutMs);

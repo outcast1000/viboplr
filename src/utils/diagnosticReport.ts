@@ -18,6 +18,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { appErrorEntries, type AppErrorEntry } from "./errorLog";
 import { resolverLogEntries, type ResolverLogEntry } from "./resolverLog";
+import { pluginLogEntries, type PluginLogEntry } from "./pluginLog";
 
 export interface DiagnosticEnvironment {
   appVersion: string;
@@ -60,6 +61,7 @@ export interface DiagnosticInput {
   dependencies: DiagnosticDependency[];
   appErrors: AppErrorEntry[];
   resolverLog: ResolverLogEntry[];
+  pluginLog: PluginLogEntry[];
   logTail: string[];
   context?: DiagnosticContext | null;
   homeDir?: string | null;
@@ -68,6 +70,7 @@ export interface DiagnosticInput {
 /** Keep the pasted report inside GitHub's comment limit with room to spare. */
 const MAX_RESOLVER_ENTRIES = 25;
 const MAX_ERROR_ENTRIES = 10;
+const MAX_PLUGIN_LOG_ENTRIES = 25;
 
 /**
  * Replace the user's home directory with `~` everywhere it appears, in both
@@ -100,6 +103,12 @@ function formatErrors(errors: AppErrorEntry[]): string[] {
     const head = `[${e.ts}] (${e.scope}) ${e.message}`;
     return e.stack ? [head, ...e.stack.split("\n").map((l) => `    ${l.trim()}`)] : [head];
   });
+}
+
+function formatPluginLog(entries: PluginLogEntry[]): string[] {
+  return entries
+    .slice(-MAX_PLUGIN_LOG_ENTRIES)
+    .map((e) => `[${e.ts}] ${e.level.toUpperCase().padEnd(5)} (${e.section}) ${e.message}`);
 }
 
 function formatResolverEntries(entries: ResolverLogEntry[]): string[] {
@@ -187,6 +196,15 @@ export function buildDiagnosticReport(input: DiagnosticInput): string {
     );
   }
 
+  if (input.pluginLog.length > 0) {
+    sections.push(
+      details(
+        `Plugin log (${Math.min(input.pluginLog.length, MAX_PLUGIN_LOG_ENTRIES)})`,
+        fence(formatPluginLog(input.pluginLog)),
+      ),
+    );
+  }
+
   if (input.logTail.length > 0) {
     sections.push(details(`Log tail (${input.logTail.length} lines)`, fence(input.logTail)));
   } else if (!env.loggingEnabled) {
@@ -263,6 +281,7 @@ export async function collectDiagnosticReport(sources: DiagnosticSources): Promi
     dependencies: sources.dependencies,
     appErrors: appErrorEntries(),
     resolverLog: resolverLogEntries(),
+    pluginLog: pluginLogEntries(),
     logTail: facts?.logTail ?? [],
     context: sources.context ?? null,
     homeDir: facts?.homeDir ?? null,

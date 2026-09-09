@@ -3,6 +3,7 @@ import { invoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/cor
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { subscribe, safeUnlisten } from "../utils/tauriEvents";
 import { isExperimental } from "../utils/pluginStability";
+import { recordPluginLog } from "../utils/pluginLog";
 import { foldHeaderPairs, setCookieValues, type PluginHeaderPairs } from "../utils/pluginFetchHeaders";
 import {
   filterContributions,
@@ -469,6 +470,10 @@ export function usePlugins(
       return {
         appVersion: appVersionRef.current,
         log: (level: string, message: string, section?: string) => {
+          // The ring buffer is the always-on copy — the file log below is off
+          // by default and truncated per launch, so without it a plugin's own
+          // error report was unreadable after the fact.
+          recordPluginLog(level, message, section ?? pluginId);
           // Fire-and-forget: this IS the logger (a plugin's api.log). Reporting its
           // own failure would recurse, and a lost plugin log line has no user impact.
           invoke("write_frontend_log", { level, message, section: section ?? pluginId }).catch(() => {}); // eslint-disable-line no-restricted-syntax

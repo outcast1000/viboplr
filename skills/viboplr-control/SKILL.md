@@ -148,7 +148,7 @@ External results have no library ids — they are addressed only via `searchId` 
 |---|---|
 | `GET /logs` | backend log tail (last 200 lines; file is truncated per launch; home dir scrubbed to `~`). Says when file logging is off |
 | `POST /logs` | `{enabled?, debug?}` — file logging takes effect on the **next app launch**; debug (frontend activity) logging is live |
-| `GET /logs/frontend` | in-memory ring buffers: uncaught frontend errors + stream-resolver activity (what played through which resolver and why) — these work even when file logging is off |
+| `GET /logs/frontend` | in-memory ring buffers, always on even with file logging off: uncaught frontend errors, stream-resolver activity (what played through which resolver and why), plugin `api.log` lines (`pluginLog`), and recent toasts (`notifications`). The last two are how to see why a fire-and-forget verb (e.g. a plugin action) failed — its outcome surfaces only as a toast + plugin log line |
 
 Consent rule for logs: show the user before posting log contents anywhere public (an issue, a gist) — same model as the app's own "Report a problem".
 

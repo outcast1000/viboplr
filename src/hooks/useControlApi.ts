@@ -17,6 +17,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { appErrorEntries } from "../utils/errorLog";
 import { resolverLogEntries } from "../utils/resolverLog";
+import { pluginLogEntries } from "../utils/pluginLog";
+import { notificationLogEntries } from "../utils/notificationLog";
 import { scrubPaths } from "../utils/diagnosticReport";
 import { subscribe } from "../utils/tauriEvents";
 import { useAssignRef, useLatestRef } from "./useLatestRef";
@@ -649,9 +651,11 @@ export function useControlApi(deps: ControlApiDeps) {
       // --- Logs ---
 
       case "logs.frontend": {
-        // The in-memory ring buffers "Report a problem" reads: uncaught
-        // frontend errors + stream-resolver activity. Home dir scrubbed — an
-        // assistant may relay these lines into an issue.
+        // The always-on in-memory ring buffers: uncaught frontend errors,
+        // stream-resolver activity, plugin api.log lines, and recent toasts —
+        // the last two are how a fire-and-forget verb's outcome (a failed
+        // "Watch YouTube video" search, say) becomes readable after the fact.
+        // Home dir scrubbed — an assistant may relay these lines into an issue.
         const facts = await invoke<{ homeDir?: string | null }>("collect_diagnostics")
           .catch((e) => { console.error("Control API: collect_diagnostics failed:", e); return null; });
         const home = facts?.homeDir ?? null;
@@ -660,6 +664,8 @@ export function useControlApi(deps: ControlApiDeps) {
         return {
           errors: scrub(appErrorEntries()),
           resolverLog: scrub(resolverLogEntries()),
+          pluginLog: scrub(pluginLogEntries()),
+          notifications: scrub(notificationLogEntries()),
         };
       }
 
