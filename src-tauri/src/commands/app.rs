@@ -229,7 +229,8 @@ const LOG_TAIL_LINES: usize = 200;
 
 /// Last `LOG_TAIL_LINES` lines of the profile's log file, reading at most the
 /// final `LOG_TAIL_BYTES` so this stays cheap regardless of file size.
-fn read_log_tail(log_path: &std::path::Path) -> Vec<String> {
+/// pub(crate): the control API's GET /v1/logs serves the same tail.
+pub(crate) fn read_log_tail(log_path: &std::path::Path) -> Vec<String> {
     use std::io::{Read, Seek, SeekFrom};
 
     let Ok(mut file) = std::fs::File::open(log_path) else {
@@ -334,6 +335,96 @@ mod log_tail_tests {
         let (_dir, path) = write_log(&[]);
         assert!(read_log_tail(&path).is_empty());
     }
+}
+
+// --- Control API (localhost HTTP for AI assistants — see control_api.rs) ---
+
+/// Status shape Settings renders: address, token (masked in the UI, copyable),
+/// and where the discovery file lives.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ControlApiStatus {
+    pub running: bool,
+    pub port: Option<u16>,
+    pub token: Option<String>,
+    pub discovery_path: String,
+}
+
+fn control_api_status_of(state: &AppState) -> ControlApiStatus {
+    ControlApiStatus {
+        running: state.control_api.port().is_some(),
+        port: state.control_api.port(),
+        token: state.control_api.token(),
+        discovery_path: crate::control_api::discovery_path(&state.app_dir)
+            .to_string_lossy()
+            .into_owned(),
+    }
+}
+
+#[tauri::command]
+pub fn control_api_start(app: AppHandle, state: State<'_, AppState>) -> Result<ControlApiStatus, String> {
+    crate::control_api::start(
+        &state.control_api,
+        state.db.clone(),
+        app.clone(),
+        &state.app_dir,
+        &state.profile_name,
+        &app.package_info().version.to_string(),
+    )?;
+    Ok(control_api_status_of(&state))
+}
+
+#[tauri::command]
+pub fn control_api_stop(state: State<'_, AppState>) -> Result<ControlApiStatus, String> {
+    crate::control_api::stop(&state.control_api, &state.app_dir);
+    Ok(control_api_status_of(&state))
+}
+
+#[tauri::command]
+pub fn control_api_status(state: State<'_, AppState>) -> Result<ControlApiStatus, String> {
+    Ok(control_api_status_of(&state))
+}
+
+/// Rotate the bearer token. Implemented as stop → clear → start so the running
+/// server and the discovery file can never disagree about the live token.
+#[tauri::command]
+pub fn control_api_regenerate_token(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ControlApiStatus, String> {
+    let was_running = state.control_api.port().is_some();
+    crate::control_api::stop(&state.control_api, &state.app_dir);
+    state.control_api.clear_token();
+    if was_running {
+        crate::control_api::start(
+            &state.control_api,
+            state.db.clone(),
+            app.clone(),
+            &state.app_dir,
+            &state.profile_name,
+            &app.package_info().version.to_string(),
+        )?;
+    }
+    Ok(control_api_status_of(&state))
+}
+
+/// The frontend dispatcher's reply to one bridged `control-api-request`.
+/// A late reply (the HTTP side already timed out) is a silent no-op.
+#[tauri::command]
+pub fn control_api_respond(
+    state: State<'_, AppState>,
+    id: u64,
+    ok: bool,
+    result: serde_json::Value,
+) {
+    state.control_api.respond(id, ok, result);
+}
+
+/// Invoked once by the dispatcher after app restore; bridged routes answer
+/// 503 until then.
+#[tauri::command]
+pub fn control_api_client_ready(state: State<'_, AppState>) {
+    state.control_api.mark_webview_ready();
 }
 
 /// Fixed name of the probe state dump, written into the profile directory.

@@ -167,6 +167,38 @@ export function trackToQueueTrack(track: Track): QueueTrack {
   };
 }
 
+/** One saved-playlist row as `get_playlist_tracks` returns it — the subset the
+ *  queue conversion needs. (The row also carries `id`/`playlist_id`/`position`,
+ *  which are playlist-editing concerns, not queue ones.) */
+export interface PlaylistTrackRow {
+  title: string;
+  artist_name: string | null;
+  album_name: string | null;
+  duration_secs: number | null;
+  source: string | null;
+  image_path: string | null;
+  liked?: number;
+}
+
+/**
+ * Converts a saved-playlist row to a QueueTrack (fresh external key; the row's
+ * `source` is the scheme-prefixed path). The one mapping for every surface
+ * that plays playlist rows — PlaylistsView and the control API.
+ */
+export function playlistTrackToQueueTrack(t: PlaylistTrackRow): QueueTrack {
+  return {
+    key: nextExternalKey(),
+    path: t.source ?? null,
+    title: t.title,
+    artist_name: t.artist_name,
+    album_title: t.album_name,
+    duration_secs: t.duration_secs ?? null,
+    format: null,
+    image_url: t.image_path ?? undefined,
+    liked: t.liked ?? 0,
+  };
+}
+
 /**
  * Converts a QueueEntry back to a Track.
  *

@@ -120,6 +120,9 @@ pub struct AppState {
     /// Update found by the last `app_update_check`, consumed by install.
     pub pending_app_update: tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>,
     pub mpv_engine: Arc<crate::mpv_engine::EngineHandle>,
+    /// Localhost control API for AI assistants (see control_api.rs). The state
+    /// lives for the app's lifetime; the server starts/stops with the toggle.
+    pub control_api: Arc<crate::control_api::ControlApi>,
 }
 
 /// Deserialize into a "double option" so the field can be in three states:
@@ -1003,6 +1006,7 @@ pub(crate) fn test_app_state() -> AppState {
         dep_cache: Arc::new(crate::dependencies::DepCache::new()),
         pending_app_update: tokio::sync::Mutex::new(None),
         mpv_engine: Default::default(),
+        control_api: Default::default(),
     }
 }
 

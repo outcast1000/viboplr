@@ -632,6 +632,155 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
+// Shape of `control_api_status` (commands/app.rs ControlApiStatus).
+interface ControlApiStatus {
+  running: boolean;
+  port: number | null;
+  token: string | null;
+  discoveryPath: string;
+}
+
+/**
+ * Settings → General → "AI remote control": the toggle plus, while running,
+ * the address / token / discovery-file rows an assistant needs to connect.
+ * Failures render inline in the card (persistent), not as a toast.
+ */
+function ControlApiSection({
+  enabled,
+  onEnabledChange,
+}: {
+  enabled: boolean;
+  onEnabledChange: (on: boolean) => Promise<void>;
+}) {
+  const [status, setStatus] = useState<ControlApiStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setStatus(await invoke<ControlApiStatus>("control_api_status"));
+    } catch (e) {
+      console.error("Failed to read control API status:", e);
+    }
+  }, []);
+  useEffect(() => {
+    invoke<ControlApiStatus>("control_api_status")
+      .then(setStatus)
+      .catch((e) => console.error("Failed to read control API status:", e));
+  }, []);
+
+  async function handleToggle(on: boolean) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onEnabledChange(on);
+    } catch (e) {
+      console.error("Failed to toggle the control API:", e);
+      setError(String(e));
+    }
+    await refresh();
+    setBusy(false);
+  }
+
+  async function handleRegenerate() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await invoke<ControlApiStatus>("control_api_regenerate_token"));
+    } catch (e) {
+      console.error("Failed to regenerate the control API token:", e);
+      setError(String(e));
+    }
+    setBusy(false);
+  }
+
+  function copyValue(label: string, value: string) {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(label);
+      setTimeout(() => setCopied((c) => (c === label ? null : c)), 1500);
+    }).catch((e) => console.error("Clipboard write failed:", e));
+  }
+
+  const running = enabled && status?.running === true;
+  return (
+    <div className="settings-group" id="control-api">
+      <div className="settings-group-title">AI remote control</div>
+      <div className="settings-card">
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-label">Allow AI assistants to control Viboplr<HelpLink anchor="control-api" topic="AI remote control" /></span>
+            <span className="settings-description">
+              Runs a private control server on this computer only (127.0.0.1, token-protected).
+              Assistants like Claude can then search your library, control playback, and edit
+              playlists, tags and likes. Off by default; nothing leaves your machine.
+            </span>
+          </div>
+          <ToggleSwitch checked={enabled} onChange={handleToggle} />
+        </div>
+        {running && status && (
+          <>
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-label">Address</span>
+                <span className="settings-description">127.0.0.1:{status.port}</span>
+              </div>
+              <div className="settings-row-actions">
+                <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => copyValue("address", `http://127.0.0.1:${status.port}`)}>
+                  {copied === "address" ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-label">Access token</span>
+                <span className="settings-description">
+                  {status.token ? `••••••••${status.token.slice(-4)}` : "—"} · required as a Bearer token on every request
+                </span>
+              </div>
+              <div className="settings-row-actions">
+                <button
+                  className="ds-btn ds-btn--secondary ds-btn--sm"
+                  disabled={!status.token}
+                  onClick={() => status.token && copyValue("token", status.token)}
+                >
+                  {copied === "token" ? "Copied" : "Copy"}
+                </button>
+                <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled={busy} onClick={handleRegenerate}>
+                  Regenerate
+                </button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-label">Discovery file</span>
+                <span className="settings-description">
+                  Port and token for tools that connect automatically: {status.discoveryPath}
+                </span>
+              </div>
+              <div className="settings-row-actions">
+                <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => copyValue("path", status.discoveryPath)}>
+                  {copied === "path" ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+        {error && (
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-label" style={{ color: "var(--error)" }}>Something went wrong</span>
+              <span className="settings-description">{error}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Persistent failure notice for the updater. Deliberately not a toast: a toast
  * auto-dismisses after 4.5s, and the failure a user most needs to see is the
@@ -1142,6 +1291,11 @@ interface SettingsPanelProps {
   onFetchBackendTimings: () => void;
   // Plugins (for provider priority section)
   pluginStates?: PluginState[];
+  // AI remote control (localhost control API — see src-tauri/src/control_api.rs)
+  controlApiEnabled: boolean;
+  /** Persists the flag and starts/stops the server; rejects on failure so the
+   *  section can surface the error inline. */
+  onControlApiEnabledChange: (enabled: boolean) => Promise<void>;
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
@@ -1207,6 +1361,7 @@ const SECTION_TABS: Record<string, SettingsTab> = {
   "now-playing-info": "playback",
   // The update notice banner's "Details" lands here.
   "app-update": "general",
+  "control-api": "general",
 };
 
 export function SettingsPanel({
@@ -1265,6 +1420,8 @@ export function SettingsPanel({
   frontendTimings,
   onFetchBackendTimings,
   pluginStates,
+  controlApiEnabled,
+  onControlApiEnabledChange,
   loggingEnabled,
   onLoggingEnabledChange,
   debugLogging,
@@ -1500,6 +1657,8 @@ export function SettingsPanel({
                     </div>
                   </div>
                 </div>
+
+                <ControlApiSection enabled={controlApiEnabled} onEnabledChange={onControlApiEnabledChange} />
 
                 <div className="settings-group">
                   <div className="settings-group-title">Window</div>

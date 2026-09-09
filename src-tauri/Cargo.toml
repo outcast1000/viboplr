@@ -45,6 +45,9 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png"]
 arboard = "3"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 axum = "0.8"
+# OS entropy for the control API's bearer token (control_api.rs) — the minimal
+# primitive (rand's own backend) rather than the full rand crate.
+getrandom = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "process", "io-util", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
 trash = "5"
@@ -64,6 +67,10 @@ mslnk = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
+# Control-API router tests drive axum handlers via `ServiceExt::oneshot`, and
+# `#[tokio::test]` needs the macros feature (dev-only; features merge).
+tokio = { version = "1", features = ["macros", "rt"] }
+tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 lto = true

@@ -88,6 +88,7 @@ import { RetrieveModal } from "./components/RetrieveModal";
 import { useExtensions } from "./hooks/useExtensions";
 
 import { useLikeActions } from "./hooks/useLikeActions";
+import { useControlApi } from "./hooks/useControlApi";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
 import type { PluginTrack, PluginBadge, PluginPlayContext } from "./types/plugin";
@@ -355,6 +356,20 @@ function App() {
     setVideoSubtitlesOn((on) => !on); // persistence: usePersistedSetting
   }, []);
   const [loggingEnabled, setLoggingEnabled] = usePersistedSetting("loggingEnabled", false, restoredRef);
+  // Localhost control API for AI assistants (Settings → General → "AI remote
+  // control"). The flag is read again at startup in Rust (lib.rs) to start the
+  // server before the webview exists; the handler below covers live toggles.
+  const [controlApiEnabled, setControlApiEnabled] = usePersistedSetting("controlApiEnabled", false, restoredRef);
+  const handleControlApiEnabledChange = useCallback(async (on: boolean) => {
+    setControlApiEnabled(on);
+    try {
+      await invoke(on ? "control_api_start" : "control_api_stop");
+    } catch (e) {
+      console.error("Failed to toggle the control API:", e);
+      setControlApiEnabled(!on); // the server state is the truth — revert
+      throw e; // the Settings section shows the failure inline
+    }
+  }, [setControlApiEnabled]);
   // Default ON — stale yt-dlp breaks against YouTube and the failure looks
   // like an app bug to users. See MANAGED-DEPENDENCIES-PLAN.md.
   const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = usePersistedSetting("autoUpdateManagedDeps", true, restoredRef);
@@ -3482,6 +3497,54 @@ function App() {
   // the media elements' `ended` (gapless is engine-internal, so no
   // handleGaplessNext check here).
   useAssignRef(nativeEndedRef, () => handleNext("auto"));
+
+  // Localhost control API dispatcher: answers `control-api-request` events from
+  // the Rust server (control_api.rs) through the canonical action hooks. `next`
+  // goes through handleNext — the media-key path — so an assistant's "next" at
+  // the end of the queue gets auto-continue like the hardware button does.
+  useControlApi({
+    appRestoring,
+    view: library.view,
+    queueHook,
+    playback,
+    next: () => handleNext(),
+    previous: () => queueHook.playPrevious(),
+    startRadio: playActions.startRadio,
+    playWithBackfill: playActions.playWithBackfill,
+    mini: { miniMode: mini.miniMode, toggleMiniMode: mini.toggleMiniMode },
+    window: {
+      setFullscreen: (on: boolean) => setProbeFullscreenRef.current(on),
+      isFullscreen: () => audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null,
+    },
+    logging: {
+      enabled: loggingEnabled,
+      setEnabled: handleLoggingEnabledChange,
+      debug: debugLogging,
+      setDebug: handleDebugLoggingChange,
+    },
+    plugins: {
+      pluginStates: plugins.pluginStates,
+      togglePlugin: plugins.togglePlugin,
+      searchProviders: plugins.searchProviders,
+      invokePluginSearch: plugins.invokePluginSearch,
+      invokeInfoFetch: plugins.invokeInfoFetch,
+      pluginNames: plugins.pluginNames,
+      homeShelves: plugins.homeShelves,
+      invokeHomeShelf: plugins.invokeHomeShelf,
+      invokeHomeShelfResolvePlay: plugins.invokeHomeShelfResolvePlay,
+      menuItems: plugins.menuItems,
+      dispatchContextMenuAction: plugins.dispatchContextMenuAction,
+      forwardDeepLink: plugins.forwardDeepLink,
+    },
+    skins: { installedSkins: skins.installedSkins, activeSkinId: skins.activeSkinId, applySkin: skins.applySkin },
+    extensions: {
+      updates: extensionsHook.updates,
+      checking: extensionsHook.checking,
+      lastChecked: extensionsHook.lastChecked,
+      checkForUpdates: extensionsHook.checkForUpdates,
+    },
+    likeActions,
+  });
   // Playback failure on an auto-advanced track: keep the music going — skip to
   // the next track with a toast instead of parking the queue behind the error
   // modal's countdown (a resolve failure also keeps its persistent
@@ -5303,6 +5366,8 @@ function App() {
                   .catch((e) => console.error("Failed to fetch startup timings:", e))
               }
               pluginStates={plugins.pluginStates}
+              controlApiEnabled={controlApiEnabled}
+              onControlApiEnabledChange={handleControlApiEnabledChange}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
               debugLogging={debugLogging}

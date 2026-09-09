@@ -11,7 +11,7 @@ import { EditTrackMetadataModal, buildTrackInfoEntries, type TrackMetadataEdit }
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
 import type { PlaylistContext } from "../hooks/useQueue";
 import type { QueueTrack } from "../types";
-import { nextExternalKey } from "../queueEntry";
+import { playlistTrackToQueueTrack } from "../queueEntry";
 import type { ExportTrack } from "./MixtapeExportModal";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { DetailHero } from "./DetailHero";
@@ -79,18 +79,10 @@ function formatDate(ts: number): string {
 }
 
 
+// Delegates to the shared conversion in queueEntry.ts (also used by the
+// control API's playlists.play) so the two can't drift.
 function playlistTrackToMinimalTrack(t: PlaylistTrack): QueueTrack {
-  return {
-    key: nextExternalKey(),
-    path: t.source ?? null,
-    title: t.title,
-    artist_name: t.artist_name,
-    album_title: t.album_name,
-    duration_secs: t.duration_secs ?? null,
-    format: null,
-    image_url: t.image_path ?? undefined,
-    liked: t.liked ?? 0,
-  };
+  return playlistTrackToQueueTrack(t);
 }
 
 interface PlaylistsViewProps {

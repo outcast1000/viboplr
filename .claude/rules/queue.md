@@ -192,7 +192,7 @@ How the app prevents accidental duplicate enqueues.
 
 **Invariants:**
 - `enqueueTracks()` itself has NO built-in dedup. Callers are responsible for running `findDuplicates()` and presenting the banner. If you add a new enqueue entry point, it must follow this pattern.
-- **One exception:** `appendToPlaySession()` (the backfill tail of a play already in progress) skips the banner by design — see conventions.md "Play With Backfill". It is the only sanctioned bypass; a new enqueue surface is not one.
+- **Two sanctioned exceptions to the banner, and only these:** `appendToPlaySession()` (the backfill tail of a play already in progress) skips the check entirely — see conventions.md "Play With Backfill". And the **control API's `queue.add`** (`useControlApi.ts`) *runs* `findDuplicates()` but resolves the answer programmatically instead of showing the banner: duplicates are skipped and their count reported in the HTTP response, or added when the request said `allowDuplicates: true` — a modal popping over a user who didn't act (and auto-approving in 10s) would be strictly worse than a machine-readable answer to the machine that asked. A new enqueue surface is neither of these.
 - The countdown resets to 10s whenever `pendingEnqueue` changes (new batch replaces previous).
 - Auto-approve fires via a `useEffect` watching `[countdown, pendingEnqueue]` — when `countdown === 0 && pendingEnqueue !== null`, calls `onAllowAll`.
 - Image resolution happens async after tracks are added to the queue, regardless of which duplicate resolution path the user picks.

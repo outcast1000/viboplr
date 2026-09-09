@@ -8,27 +8,11 @@ import type {
   FetchProgressEntry,
 } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
+// The cache-decision rule and the provider-chain walk live in
+// utils/infoFetchChain.ts, shared with the control API's info verbs.
+import { decideCacheAction, fetchInfoThroughChain } from "../utils/infoFetchChain";
 
-const ERROR_TTL = 3600; // 1 hour in seconds
 const EMPTY_DELAY_MS = 3000; // show progress for 3s before switching to empty
-
-type CacheAction = "render" | "render_and_refetch" | "loading" | "empty";
-
-function decideCacheAction(
-  status: string | null,
-  fetchedAt: number | null,
-  ttl: number,
-  now: number,
-): CacheAction {
-  if (status === null || fetchedAt === null) return "loading";
-  const age = now - fetchedAt;
-  const effectiveTtl = status === "error" ? ERROR_TTL : ttl;
-  const stale = age >= effectiveTtl;
-
-  if (status === "ok") return stale ? "render_and_refetch" : "render";
-  // not_found or error
-  return stale ? "loading" : "empty";
-}
 
 interface UseInformationTypesOpts {
   entity: InfoEntity | null;
@@ -181,92 +165,37 @@ export function useInformationTypes({
       inFlightRef.current.add(dedupKey);
 
       (async () => {
-        let usedIntegerId = providers[0]?.[1] ?? 0;
-        const progress: FetchProgressEntry[] = [];
-
-        const updateProgress = () => {
+        const updateProgress = (steps: FetchProgressEntry[]) => {
           if (!mountedRef.current || entityKeyRef.current !== entityKey) return;
           setSections((prev) => {
             const next = [...prev];
             const existing = next.find((s) => s.typeId === typeId);
             if (existing && existing.state.kind === "loading") {
-              existing.state = { kind: "loading", progress: [...progress] };
+              existing.state = { kind: "loading", progress: [...steps] };
             }
             return next;
           });
         };
 
         try {
-          let result: InfoFetchResult = { status: "error" };
-
-          // Try providers in priority order (fallback chain)
-          for (const [pluginId, integerId] of providers) {
-            const providerName = pluginNames?.get(pluginId) ?? pluginId;
-            const entry: FetchProgressEntry = { provider: providerName, status: "fetching" };
-            progress.push(entry);
-            updateProgress();
-
-            result = await invokeInfoFetch(pluginId, typeId, entity, (url) => {
-              entry.url = url;
-              updateProgress();
-            });
-            usedIntegerId = integerId;
-            entry.status = result.status === "ok" ? "ok" : result.status === "not_found" ? "not_found" : "error";
-            updateProgress();
-            if (result.status === "ok") break;
-          }
-
-          const value = result.status === "ok" ? JSON.stringify(result.value) : "{}";
-          await invoke("info_upsert_value", {
-            informationTypeId: usedIntegerId,
-            entityKey,
-            value,
-            status: result.status,
+          // The walk + cache writes live in utils/infoFetchChain.ts (shared
+          // with the control API's info.fetch); this hook only renders.
+          const { result } = await fetchInfoThroughChain({
+            typeId, providers, entity, entityKey,
+            invokeInfoFetch, pluginNames,
+            onProgress: updateProgress,
           });
-
-          // Clean up stale cached values from other providers for this type_id
-          for (const [, integerId] of providers) {
-            if (integerId !== usedIntegerId) {
-              // Fire-and-forget: cleaning up stale cache entries — failure doesn't affect current fetch
-              await invoke("info_delete_value", {
-                informationTypeId: integerId,
-                entityKey,
-              }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: dropping a stale cache row; the refetch below is the real work
-            }
-          }
 
           if (mountedRef.current && entityKeyRef.current === entityKey && result.status === "ok") {
             setSections((prev) => {
               const next = [...prev];
               const existing = next.find((s) => s.typeId === typeId);
               if (existing) {
-                existing.state = { kind: "loaded", data: (result as any).value, stale: false };
+                existing.state = { kind: "loaded", data: result.value, stale: false };
               }
               return next;
             });
           } else if (mountedRef.current && entityKeyRef.current === entityKey && result.status !== "ok") {
-            setTimeout(() => {
-              if (mountedRef.current && entityKeyRef.current === entityKey) {
-                setSections((prev) => {
-                  const next = [...prev];
-                  const existing = next.find((s) => s.typeId === typeId);
-                  if (existing) {
-                    existing.state = { kind: "empty" };
-                  }
-                  return next;
-                });
-              }
-            }, EMPTY_DELAY_MS);
-          }
-        } catch {
-          // Fire-and-forget: persisting error status to cache — failure doesn't affect the UI state update below
-          await invoke("info_upsert_value", {
-            informationTypeId: usedIntegerId,
-            entityKey,
-            value: "{}",
-            status: "error",
-          }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: recording an error status; the error is already surfaced to the caller
-          if (mountedRef.current && entityKeyRef.current === entityKey) {
             setTimeout(() => {
               if (mountedRef.current && entityKeyRef.current === entityKey) {
                 setSections((prev) => {

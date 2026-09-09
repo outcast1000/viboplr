@@ -292,8 +292,11 @@ export function usePlayActions({
   // Build a radio station from a seed track and play it. Play-only (no enqueue):
   // it replaces the queue with a freshly generated station under a "Radio: …"
   // context. Tracks are mapped to QueueTracks (fresh keys, DB ids stripped).
-  const startRadio = useCallback(async (seed: { title: string; artistName: string | null; coverPath: string | null }) => {
-    if (!seed.title) return;
+  // Resolves with the station's track count, or null when nothing started
+  // (seed not in the library, or the build failed) — UI callers ignore it;
+  // the control API reports it to the HTTP caller.
+  const startRadio = useCallback(async (seed: { title: string; artistName: string | null; coverPath: string | null }): Promise<number | null> => {
+    if (!seed.title) return null;
     try {
       const tracks = await invoke<Track[]>("build_radio_for_track", {
         seedTitle: seed.title,
@@ -303,7 +306,7 @@ export function usePlayActions({
       if (tracks.length === 0) {
         // Seed isn't in the library, so there's nothing to play or seed from.
         notify(`Couldn't start radio — "${seed.title}" isn't in your library.`);
-        return;
+        return null;
       }
       // Anonymous: a station was started. Radio is always track-seeded here
       // (build_radio_for_track), so there's no meaningful seed_kind to send.
@@ -331,9 +334,11 @@ export function usePlayActions({
       } else {
         notify(`Radio started · ${tracks.length} tracks`);
       }
+      return tracks.length;
     } catch (e) {
       console.error("Failed to start radio:", e);
       notify("Failed to start radio.");
+      return null;
     }
   }, [playTracks, setPlaylistContext, notify]);
 

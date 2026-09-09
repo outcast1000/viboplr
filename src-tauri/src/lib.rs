@@ -1,6 +1,7 @@
 mod browse_window;
 mod commands;
 mod composite_image;
+mod control_api;
 mod db;
 pub mod dependencies;
 mod entity_image;
@@ -335,6 +336,12 @@ macro_rules! invoke_handler {
             commands::engine_get_audio_info,
             commands::app_update_check,
             commands::app_update_install,
+            commands::control_api_start,
+            commands::control_api_stop,
+            commands::control_api_status,
+            commands::control_api_regenerate_token,
+            commands::control_api_respond,
+            commands::control_api_client_ready,
             $($extra,)*
         ]
     };
@@ -1443,6 +1450,32 @@ pub fn run() {
             let dep_updater_cache = Arc::clone(&dep_cache);
             let dep_updater_store_path = app_dir.join("app-state.json");
 
+            // Localhost control API (AI remote control). The state object always
+            // exists; the server starts only when the profile's store enables it.
+            let control_api_state = Arc::new(control_api::ControlApi::default());
+            let control_api_enabled = {
+                let store_path = app_dir.join("app-state.json");
+                std::fs::read_to_string(&store_path)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .and_then(|j| j.get("controlApiEnabled").and_then(|v| v.as_bool()))
+                    .unwrap_or(false)
+            };
+            if control_api_enabled {
+                timer.time("start_control_api", || {
+                    if let Err(e) = control_api::start(
+                        &control_api_state,
+                        db.clone(),
+                        app.handle().clone(),
+                        &app_dir,
+                        &profile_name,
+                        &app.package_info().version.to_string(),
+                    ) {
+                        log::error!("Control API failed to start: {}", e);
+                    }
+                });
+            }
+
             timer.time("manage_app_state", || {
                 app.manage(AppState {
                     db,
@@ -1466,6 +1499,7 @@ pub fn run() {
                     dep_cache,
                     pending_app_update: tokio::sync::Mutex::new(None),
                     mpv_engine: Default::default(),
+                    control_api: control_api_state,
                 });
             });
 
@@ -1524,6 +1558,11 @@ pub fn run() {
         .run(|app, event| {
             match &event {
                 tauri::RunEvent::Exit => {
+                    // Courtesy cleanup: without it the discovery file merely goes
+                    // stale, which consumers must handle anyway (health probe).
+                    if let Some(state) = app.try_state::<AppState>() {
+                        control_api::remove_discovery_file(&state.app_dir);
+                    }
                     std::process::exit(0);
                 }
                 #[cfg(target_os = "macos")]

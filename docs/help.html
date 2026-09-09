@@ -227,8 +227,20 @@
     </div>
   </section>
 
+  <!-- AI remote control -->
+  <section class="section" id="control-api">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>AI remote control</h2>
+        <p class="docs-lead">Let an AI assistant on this computer search your library, control playback, and edit playlists, tags and likes.</p>
+        <p>When enabled, Viboplr runs a small private control server on your own machine (<code>127.0.0.1</code> — it is never reachable from the network). Assistants such as Claude connect to it with the <strong>access token</strong> shown in Settings; every request must carry that token, so other websites and apps can't drive your player without it. The <strong>discovery file</strong> lets tools find the address and token automatically — its location is shown next to the toggle.</p>
+        <p>What an assistant can do: search tracks, artists, albums and tags; read and change the queue; play, pause, seek and skip; create and edit playlists; apply tags; and like or dislike music. What it can't do: delete files, rewrite your audio files' metadata, or reach anything outside your library. It's off by default; turning it off stops the server immediately, and <strong>Regenerate</strong> revokes the old token any time.</p>
+      </div>
+    </div>
+  </section>
+
   <!-- Providers & priority -->
-  <section class="section" id="providers">
+  <section class="section section-alt" id="providers">
     <div class="container">
       <div class="docs-body reveal">
         <h2>Providers &amp; priority</h2>
@@ -245,7 +257,7 @@
   </section>
 
   <!-- Auto Continue -->
-  <section class="section section-alt" id="auto-continue">
+  <section class="section" id="auto-continue">
     <div class="container">
       <div class="docs-body reveal">
         <h2>Auto Continue</h2>
@@ -264,7 +276,7 @@
   </section>
 
   <!-- Equalizer -->
-  <section class="section" id="equalizer">
+  <section class="section section-alt" id="equalizer">
     <div class="container">
       <div class="docs-body reveal">
         <h2>Equalizer</h2>
@@ -283,7 +295,7 @@
   </section>
 
   <!-- Now playing info -->
-  <section class="section section-alt" id="now-playing-info">
+  <section class="section" id="now-playing-info">
     <div class="container">
       <div class="docs-body reveal">
         <h2>Now Playing Info</h2>

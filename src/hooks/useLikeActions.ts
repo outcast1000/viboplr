@@ -92,31 +92,47 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     queueHook.setQueue(prev => prev.map(t => sameSong(t, track) ? { ...t, liked: likedValue } : t));
   }
 
-  async function applyTrackRating(track: QueueTrack, action: "like" | "dislike") {
+  /** Set a track's rating to an absolute tri-state value. The toggle handlers
+   *  route through here (with `nextTriState`) so the two paths can't drift;
+   *  the control API calls it directly for idempotent set semantics.
+   *  `source` decides the plugin event: the like button dispatches on both
+   *  transitions (like AND un-like — today's behavior), the dislike button
+   *  never does, and an absolute set dispatches only when the new state is a
+   *  like. Returns whether the write succeeded. */
+  async function setTrackRating(
+    track: QueueTrack,
+    likeState: number,
+    source: "like" | "dislike" | "set" = "set",
+  ): Promise<boolean> {
     const id = likeIdentity(track);
-    if (inFlightRef.current.has(id)) return;
+    if (inFlightRef.current.has(id)) return false;
     const prevLiked = track.liked;
-    const newLiked = nextTriState(prevLiked, action);
     inFlightRef.current.add(id);
     // Optimistic: reflect the new state immediately so the UI is responsive.
-    mirrorTrackLike(track, newLiked);
+    mirrorTrackLike(track, likeState);
     try {
       await invoke("set_entity_like_state", {
         kind: "track",
         entity: trackLikePayload(track),
-        likeState: newLiked,
+        likeState,
       });
-      // Only "like" dispatches the plugin event (dislike never has), and only
-      // after the write succeeds — never optimistically.
-      if (action === "like") plugins.dispatchEvent("track:liked", track, newLiked === 1);
+      // Only after the write succeeds — never optimistically.
+      const dispatch = source === "like" || (source === "set" && likeState === 1);
+      if (dispatch) plugins.dispatchEvent("track:liked", track, likeState === 1);
+      return true;
     } catch (e) {
-      console.error(`Failed to toggle ${action}:`, e);
+      console.error("Failed to set track rating:", e);
       // Revert the optimistic mirror to the prior value and surface the failure.
       mirrorTrackLike(track, prevLiked);
       notify(`Couldn't save like for "${track.title}" — please retry`);
+      return false;
     } finally {
       inFlightRef.current.delete(id);
     }
+  }
+
+  async function applyTrackRating(track: QueueTrack, action: "like" | "dislike") {
+    await setTrackRating(track, nextTriState(track.liked, action), action);
   }
 
   async function handleToggleLike(track: QueueTrack) {
@@ -127,94 +143,117 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     await applyTrackRating(track, "dislike");
   }
 
-  async function handleToggleArtistLike(artistId: number) {
+  /** One optimistic write for artist/album/tag likes: mirror, persist, revert
+   *  on failure. The six toggle handlers and the name-based set-state entry
+   *  points (control API) all route through here. `noun` keeps the historical
+   *  failure copy ("like" for like actions, "rating" otherwise). */
+  async function writeEntityLike(
+    kind: "artist" | "album" | "tag",
+    entity: ReturnType<typeof entityLikePayload>,
+    likeState: number,
+    prevLiked: number,
+    mirror: (liked: number) => void,
+    label: string,
+    noun: "like" | "rating",
+  ): Promise<boolean> {
+    mirror(likeState);
+    try {
+      await invoke("set_entity_like_state", { kind, entity, likeState });
+      return true;
+    } catch (e) {
+      console.error(`Failed to set ${kind} like state:`, e);
+      mirror(prevLiked);
+      notify(`Couldn't save ${noun} for "${label}" — please retry`);
+      return false;
+    }
+  }
+
+  const mirrorArtist = (artistId: number) => (liked: number) =>
+    library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked } : a));
+  const mirrorAlbum = (albumId: number) => (liked: number) =>
+    library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked } : a));
+  const mirrorTag = (tagId: number) => (liked: number) =>
+    library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked } : t));
+
+  async function applyArtistRating(artistId: number, action: "like" | "dislike") {
     const artist = library.artists.find(a => a.id === artistId);
     if (!artist) return;
-    const prevLiked = artist.liked;
-    const newLiked = nextTriState(prevLiked, "like");
-    library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
-    try {
-      await invoke("set_entity_like_state", { kind: "artist", entity: entityLikePayload(artist.name), likeState: newLiked });
-    } catch (e) {
-      console.error("Failed to toggle artist like:", e);
-      library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: prevLiked } : a));
-      notify(`Couldn't save like for "${artist.name}" — please retry`);
-    }
+    await writeEntityLike(
+      "artist", entityLikePayload(artist.name), nextTriState(artist.liked, action),
+      artist.liked, mirrorArtist(artistId), artist.name, action === "like" ? "like" : "rating",
+    );
   }
 
-  async function handleToggleArtistDislike(artistId: number) {
-    const artist = library.artists.find(a => a.id === artistId);
-    if (!artist) return;
-    const prevLiked = artist.liked;
-    const newLiked = nextTriState(prevLiked, "dislike");
-    library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: newLiked } : a));
-    try {
-      await invoke("set_entity_like_state", { kind: "artist", entity: entityLikePayload(artist.name), likeState: newLiked });
-    } catch (e) {
-      console.error("Failed to toggle artist dislike:", e);
-      library.setArtists(prev => prev.map(a => a.id === artistId ? { ...a, liked: prevLiked } : a));
-      notify(`Couldn't save rating for "${artist.name}" — please retry`);
-    }
-  }
-
-  async function handleToggleAlbumLike(albumId: number) {
+  async function applyAlbumRating(albumId: number, action: "like" | "dislike") {
     const album = library.albums.find(a => a.id === albumId);
     if (!album) return;
-    const prevLiked = album.liked;
-    const newLiked = nextTriState(prevLiked, "like");
-    library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
-    try {
-      await invoke("set_entity_like_state", { kind: "album", entity: entityLikePayload(album.title, album.artist_name), likeState: newLiked });
-    } catch (e) {
-      console.error("Failed to toggle album like:", e);
-      library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: prevLiked } : a));
-      notify(`Couldn't save like for "${album.title}" — please retry`);
-    }
+    await writeEntityLike(
+      "album", entityLikePayload(album.title, album.artist_name), nextTriState(album.liked, action),
+      album.liked, mirrorAlbum(albumId), album.title, action === "like" ? "like" : "rating",
+    );
   }
 
-  async function handleToggleAlbumDislike(albumId: number) {
-    const album = library.albums.find(a => a.id === albumId);
-    if (!album) return;
-    const prevLiked = album.liked;
-    const newLiked = nextTriState(prevLiked, "dislike");
-    library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: newLiked } : a));
-    try {
-      await invoke("set_entity_like_state", { kind: "album", entity: entityLikePayload(album.title, album.artist_name), likeState: newLiked });
-    } catch (e) {
-      console.error("Failed to toggle album dislike:", e);
-      library.setAlbums(prev => prev.map(a => a.id === albumId ? { ...a, liked: prevLiked } : a));
-      notify(`Couldn't save rating for "${album.title}" — please retry`);
-    }
-  }
-
-  async function handleToggleTagLike(tagId: number) {
+  async function applyTagRating(tagId: number, action: "like" | "dislike") {
     const tag = library.tags.find(t => t.id === tagId);
     if (!tag) return;
-    const prevLiked = tag.liked;
-    const newLiked = nextTriState(prevLiked, "like");
-    library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
-    try {
-      await invoke("set_entity_like_state", { kind: "tag", entity: entityLikePayload(tag.name), likeState: newLiked });
-    } catch (e) {
-      console.error("Failed to toggle tag like:", e);
-      library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: prevLiked } : t));
-      notify(`Couldn't save like for "${tag.name}" — please retry`);
-    }
+    await writeEntityLike(
+      "tag", entityLikePayload(tag.name), nextTriState(tag.liked, action),
+      tag.liked, mirrorTag(tagId), tag.name, action === "like" ? "like" : "rating",
+    );
   }
 
-  async function handleToggleTagDislike(tagId: number) {
-    const tag = library.tags.find(t => t.id === tagId);
-    if (!tag) return;
-    const prevLiked = tag.liked;
-    const newLiked = nextTriState(prevLiked, "dislike");
-    library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: newLiked } : t));
-    try {
-      await invoke("set_entity_like_state", { kind: "tag", entity: entityLikePayload(tag.name), likeState: newLiked });
-    } catch (e) {
-      console.error("Failed to toggle tag dislike:", e);
-      library.setTags(prev => prev.map(t => t.id === tagId ? { ...t, liked: prevLiked } : t));
-      notify(`Couldn't save rating for "${tag.name}" — please retry`);
-    }
+  const handleToggleArtistLike = (artistId: number) => applyArtistRating(artistId, "like");
+  const handleToggleArtistDislike = (artistId: number) => applyArtistRating(artistId, "dislike");
+  const handleToggleAlbumLike = (albumId: number) => applyAlbumRating(albumId, "like");
+  const handleToggleAlbumDislike = (albumId: number) => applyAlbumRating(albumId, "dislike");
+  const handleToggleTagLike = (tagId: number) => applyTagRating(tagId, "like");
+  const handleToggleTagDislike = (tagId: number) => applyTagRating(tagId, "dislike");
+
+  // --- Name-addressed set-state (control API) ---
+  // The durable entity_likes store is metadata-keyed, so the write always
+  // succeeds even when the entity isn't in loaded library state — `mirrored`
+  // reports whether the in-memory lists could be updated optimistically (a
+  // false means the UI catches up on the next list load).
+
+  async function setArtistLike(name: string, likeState: number): Promise<{ ok: boolean; mirrored: boolean }> {
+    const n = normalizeForMatch(name);
+    const artist = library.artists.find(a => normalizeForMatch(a.name) === n) ?? null;
+    const canonical = artist?.name ?? name;
+    const ok = await writeEntityLike(
+      "artist", entityLikePayload(canonical), likeState, artist?.liked ?? 0,
+      artist ? mirrorArtist(artist.id) : () => {}, canonical, "rating",
+    );
+    return { ok, mirrored: artist !== null };
+  }
+
+  async function setAlbumLike(
+    title: string,
+    artistName: string | undefined,
+    likeState: number,
+  ): Promise<{ ok: boolean; mirrored: boolean }> {
+    const t = normalizeForMatch(title);
+    const a = artistName ? normalizeForMatch(artistName) : null;
+    const album = library.albums.find(al =>
+      normalizeForMatch(al.title) === t &&
+      (a === null || normalizeForMatch(al.artist_name ?? "") === a)) ?? null;
+    const ok = await writeEntityLike(
+      "album",
+      entityLikePayload(album?.title ?? title, album?.artist_name ?? artistName),
+      likeState, album?.liked ?? 0,
+      album ? mirrorAlbum(album.id) : () => {}, album?.title ?? title, "rating",
+    );
+    return { ok, mirrored: album !== null };
+  }
+
+  async function setTagLike(name: string, likeState: number): Promise<{ ok: boolean; mirrored: boolean }> {
+    const n = normalizeForMatch(name);
+    const tag = library.tags.find(t => normalizeForMatch(t.name) === n) ?? null;
+    const canonical = tag?.name ?? name;
+    const ok = await writeEntityLike(
+      "tag", entityLikePayload(canonical), likeState, tag?.liked ?? 0,
+      tag ? mirrorTag(tag.id) : () => {}, canonical, "rating",
+    );
+    return { ok, mirrored: tag !== null };
   }
 
   return {
@@ -226,5 +265,9 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     handleToggleAlbumDislike,
     handleToggleTagLike,
     handleToggleTagDislike,
+    setTrackRating,
+    setArtistLike,
+    setAlbumLike,
+    setTagLike,
   };
 }
