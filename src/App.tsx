@@ -3543,6 +3543,7 @@ function App() {
       lastChecked: extensionsHook.lastChecked,
       checkForUpdates: extensionsHook.checkForUpdates,
     },
+    collections: { resync: collectionActions.resyncCollection },
     likeActions,
   });
   // Playback failure on an auto-advanced track: keep the music going — skip to

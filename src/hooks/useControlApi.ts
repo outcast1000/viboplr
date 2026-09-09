@@ -153,6 +153,13 @@ export interface ControlApiDeps {
     debug: boolean;
     setDebug: (on: boolean) => void;
   };
+  collections: {
+    /** useCollectionActions.resyncCollection — sets the same in-flight UI
+     *  state the Collections view shows and rethrows failures so they land in
+     *  the HTTP response. Resolves with the collection's name; the scan runs
+     *  in the background. */
+    resync: (collectionId: number, full?: boolean) => Promise<string>;
+  };
   likeActions: {
     setTrackRating: (track: QueueTrack, likeState: number, source?: "like" | "dislike" | "set") => Promise<boolean>;
     setArtistLike: (name: string, likeState: number) => Promise<{ ok: boolean; mirrored: boolean }>;
@@ -934,6 +941,18 @@ export function useControlApi(deps: ControlApiDeps) {
         for (const name of remove) tags = await removeTag(trackId, tags, name);
         for (const name of add) tags = await applyTag(trackId, name);
         return { tags };
+      }
+
+      case "collections.rescan": {
+        const collectionId = payload.collectionId;
+        if (typeof collectionId !== "number") bad("collectionId must be a number");
+        const full = payload.full === true;
+        // resync_collection validates the id and kind itself and spawns the
+        // scan in the background — this answer means "started", not
+        // "finished"; progress lands in the library and in GET /collections'
+        // last_synced_at.
+        const name = await d.collections.resync(collectionId, full);
+        return { started: true, name, full };
       }
 
       case "playlists.create": {

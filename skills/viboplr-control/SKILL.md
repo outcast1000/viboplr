@@ -161,6 +161,13 @@ Consent rule for logs: show the user before posting log contents anywhere public
 | `POST /extensions/check-updates` | — starts a check in the background → `{started: true}`; poll `GET /extensions` after ~15s for results |
 | `POST /skins/apply` | `{id}` or `{name}` (case-insensitive) — switch the app's skin |
 
+**Collections** (list + rescan — adding/removing collections stays in the app)
+
+| Endpoint | Body / notes |
+|---|---|
+| `GET /collections` | the user's music sources with kind, enabled, sync status/errors and track counts. Credentials are never included |
+| `POST /collections/{id}/rescan` | `{full?: bool}` — re-sync one collection with disk/server. Returns `{started, name, full}` immediately; the scan runs in the background (confirm via `GET /collections` — `last_synced_at` moves — or by searching for the new tracks). `full` re-reads every file's tags, bypassing the mtime fast path (expensive; for external tag edits) |
+
 **Tags + likes**
 
 | Endpoint | Body |
@@ -208,6 +215,15 @@ Consent rule for logs: show the user before posting log contents anywhere public
 3. `POST /home/play {"fetchId":"h1","index":<the mix>}`
 
 **"What are the lyrics to this?"** → `GET /lyrics` (no params — uses the playing track)
+
+**"I added new music — update my library"**
+1. `GET /collections` → pick the collection whose `path`/`url` covers the new files
+2. `POST /collections/{id}/rescan` (add `{"full":true}` only when tags were edited externally)
+3. Poll `GET /collections` until `last_synced_at` moves, or search for the new tracks. New files only appear if their folder is inside an existing collection — there is no verb to add one.
+
+**"What version is Viboplr, and is it current?"**
+1. `GET /health` → `version` (the running app)
+2. Latest stable release: `GET https://api.github.com/repos/outcast1000/viboplr/releases/latest` → `tag_name` (strip the leading `v`; `releases/latest` already excludes betas/prereleases). Report-only — updates are installed from inside the app (Settings → General), never from here.
 
 **"Tell me about this artist"**
 1. `GET /info/entity?kind=artist&name=<artist>` → see what's cached

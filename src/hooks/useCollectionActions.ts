@@ -18,14 +18,29 @@ export function useCollectionActions(deps: {
   const [removeCollectionConfirm, setRemoveCollectionConfirm] = useState<Collection | null>(null);
   const [resyncingCollection, setResyncingCollection] = useState<{ id: number; name: string } | null>(null);
 
-  async function handleResyncCollection(collectionId: number, full = false) {
+  /** Shared resync core — sets the in-flight UI state and RETHROWS failures,
+   * so the control API dispatcher can put them in the HTTP response. UI
+   * callers go through handleResyncCollection, which catches and logs.
+   * Resolves with the collection's name; the scan itself runs in the
+   * background (resync_collection returns after spawning it). */
+  async function resyncCollection(collectionId: number, full = false): Promise<string> {
     const col = deps.collections.find(c => c.id === collectionId);
-    setResyncingCollection({ id: collectionId, name: col?.name ?? "Collection" });
+    const name = col?.name ?? "Collection";
+    setResyncingCollection({ id: collectionId, name });
     try {
       await invoke("resync_collection", { collectionId, full });
     } catch (e) {
-      console.error("Failed to resync collection:", e);
       setResyncingCollection(null);
+      throw e;
+    }
+    return name;
+  }
+
+  async function handleResyncCollection(collectionId: number, full = false) {
+    try {
+      await resyncCollection(collectionId, full);
+    } catch (e) {
+      console.error("Failed to resync collection:", e);
     }
   }
 
@@ -131,6 +146,7 @@ export function useCollectionActions(deps: {
     removeCollectionConfirm,
     setRemoveCollectionConfirm,
     resyncingCollection,
+    resyncCollection,
     handleResyncCollection,
     handleFullRescanCollection,
     clearResyncingState,

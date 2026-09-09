@@ -327,6 +327,8 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/playlists/{id}/play", post(|s, p, b| handle_playlist_bridge(s, p, "playlists.play", b)))
         .route("/v1/playlists/{id}/enqueue", post(|s, p, b| handle_playlist_bridge(s, p, "playlists.enqueue", b)))
         .route("/v1/playlists/{id}", patch(|s, p, b| handle_playlist_bridge(s, p, "playlists.rename", b)))
+        .route("/v1/collections", get(handle_get_collections))
+        .route("/v1/collections/{id}/rescan", post(|s, p, b| handle_collection_bridge(s, p, "collections.rescan", b)))
         .route("/v1/history", get(handle_history))
         .route("/v1/tags", get(handle_tags))
         .route("/v1/info/search", get(handle_info_search))
@@ -528,6 +530,41 @@ async fn handle_tag_tracks(
 ) -> Response {
     db_read(state.db.clone(), move |db| {
         db.get_tracks_by_tag(id).map_err(|e| e.to_string())
+    })
+    .await
+}
+
+/// Collections with their stats, minus credentials: `username` is dropped (and
+/// the password fields are never selected by `get_collections` at all) — a
+/// caller picking a collection to rescan needs identity and freshness, not the
+/// server login.
+async fn handle_get_collections(AxumState(state): AxumState<ServerState>) -> Response {
+    db_read(state.db.clone(), |db| {
+        let collections = db.get_collections().map_err(|e| e.to_string())?;
+        let stats = db.get_collection_stats().map_err(|e| e.to_string())?;
+        Ok(collections
+            .into_iter()
+            .map(|c| {
+                let s = stats.iter().find(|s| s.collection_id == c.id);
+                json!({
+                    "id": c.id,
+                    "kind": c.kind,
+                    "name": c.name,
+                    "path": c.path,
+                    "url": c.url,
+                    "enabled": c.enabled,
+                    "auto_update": c.auto_update,
+                    "auto_update_interval_mins": c.auto_update_interval_mins,
+                    "last_synced_at": c.last_synced_at,
+                    "last_sync_duration_secs": c.last_sync_duration_secs,
+                    "last_sync_error": c.last_sync_error,
+                    "track_count": s.map(|s| s.track_count).unwrap_or(0),
+                    "video_count": s.map(|s| s.video_count).unwrap_or(0),
+                    "total_size": s.map(|s| s.total_size).unwrap_or(0),
+                    "total_duration_secs": s.map(|s| s.total_duration).unwrap_or(0.0),
+                })
+            })
+            .collect::<Vec<_>>())
     })
     .await
 }
@@ -839,6 +876,22 @@ async fn handle_playlist_bridge(
     }
 }
 
+async fn handle_collection_bridge(
+    state: AxumState<ServerState>,
+    path: AxumPath<i64>,
+    verb: &'static str,
+    body: Bytes,
+) -> Response {
+    let timeout = state.0.bridge_timeout;
+    match parse_body(json!({}), &body) {
+        Ok(mut payload) => {
+            payload["collectionId"] = json!(path.0);
+            bridge(&state.0, verb, payload, timeout).await
+        }
+        Err(e) => error_response(StatusCode::BAD_REQUEST, e),
+    }
+}
+
 async fn handle_track_bridge(
     state: AxumState<ServerState>,
     path: AxumPath<i64>,
@@ -1018,6 +1071,70 @@ mod tests {
         let tracks = json["tracks"].as_array().expect("tracks array");
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0]["title"], json!("Bridge Song"));
+    }
+
+    #[tokio::test]
+    async fn test_collections_list_never_carries_credentials() {
+        let state = test_state(noop_emit());
+        state
+            .db
+            .add_collection(
+                "subsonic",
+                "Navi",
+                None,
+                Some("https://music.example"),
+                Some("alex"),
+                Some("secret-token"),
+                Some("salt"),
+                None,
+            )
+            .expect("seed collection");
+        let router = build_router(state);
+        let res = router
+            .oneshot(request("GET", "/v1/collections", Some(TEST_TOKEN)))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        let row = &json[0];
+        assert_eq!(row["name"], json!("Navi"));
+        assert_eq!(row["kind"], json!("subsonic"));
+        assert_eq!(row["track_count"], json!(0));
+        // The whole reason this endpoint maps fields by hand:
+        assert!(row.get("username").is_none(), "username must not be exposed");
+        let raw = serde_json::to_string(&json).unwrap();
+        assert!(!raw.contains("secret-token"), "credentials must not be exposed");
+    }
+
+    #[tokio::test]
+    async fn test_collection_rescan_bridges_with_the_path_id() {
+        let api_slot: Arc<Mutex<Option<Arc<ControlApi>>>> = Arc::new(Mutex::new(None));
+        let responder_slot = Arc::clone(&api_slot);
+        let state = test_state(Arc::new(move |req: &ControlRequest| {
+            if let Some(api) = responder_slot.lock().unwrap().clone() {
+                api.respond(req.id, true, json!({ "verb": req.verb, "payload": req.payload }));
+            }
+        }));
+        *api_slot.lock().unwrap() = Some(Arc::clone(&state.api));
+
+        let router = build_router(state);
+        let res = router
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/v1/collections/7/rescan")
+                    .header("Authorization", format!("Bearer {}", TEST_TOKEN))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(r#"{"full":true}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["verb"], json!("collections.rescan"));
+        assert_eq!(json["payload"]["collectionId"], json!(7));
+        assert_eq!(json["payload"]["full"], json!(true));
     }
 
     #[tokio::test]
