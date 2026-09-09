@@ -31,7 +31,9 @@ claude mcp add viboplr -- node /path/to/viboplr/mcp/viboplr-mcp.mjs
 ```
 
 The app doesn't need to be running when the client starts — tools answer with a
-pointer at the Settings toggle until it is.
+pointer at the Settings toggle until it is, and the `launch_app` tool starts the
+installed app on request and waits for its API to answer (the toggle persists,
+so a launched app brings the API up on its own).
 
 ## Tiers
 

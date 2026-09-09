@@ -5,7 +5,7 @@ description: Control a running Viboplr music player over its localhost HTTP API 
 
 # Controlling Viboplr
 
-Viboplr (the desktop music player) can expose a **token-protected HTTP API on 127.0.0.1**. It is off by default — the user enables it in **Settings → General → AI remote control**. If discovery fails, ask them to switch it on there.
+Viboplr (the desktop music player) can expose a **token-protected HTTP API on 127.0.0.1**. It is off by default — the user enables it in **Settings → General → AI remote control**. If discovery fails, ask them to switch it on there. If the app simply isn't running, you may start it yourself — the setting persists, so a launched app brings the API up on its own: macOS `open -b com.alex.viboplr`, Windows the installed `viboplr.exe` (e.g. `%LOCALAPPDATA%\Viboplr\`), Linux `viboplr` — then re-run discovery after a few seconds.
 
 ## 1. Discover the server
 

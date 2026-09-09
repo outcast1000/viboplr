@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no type declarations
-import { TOOLS, parseCliArgs, versionCmp } from "../../mcp/viboplr-mcp.mjs";
+import { TOOLS, parseCliArgs, versionCmp, launchCommands } from "../../mcp/viboplr-mcp.mjs";
 
 // The MCP server is the one satellite that talks to the control API on the
 // user's behalf from clients we don't control, so the protocol handshake, the
@@ -199,6 +199,21 @@ describe("tool table (static)", () => {
     expect(versionCmp("1.0.58-beta.1", "1.0.57")).toBeGreaterThan(0);
   });
 
+  it("builds platform-appropriate launch candidates", () => {
+    const mac = launchCommands("darwin", {});
+    expect(mac[0]).toEqual({ cmd: "open", args: ["-b", "com.alex.viboplr"] });
+    expect(mac[1].args).toEqual(["-a", "Viboplr"]);
+
+    const win = launchCommands("win32", { LOCALAPPDATA: "C:\\Users\\x\\AppData\\Local", ProgramFiles: "C:\\Program Files" });
+    expect(win.map((c: { exe: string }) => c.exe)).toEqual([
+      "C:\\Users\\x\\AppData\\Local\\Viboplr\\viboplr.exe",
+      "C:\\Users\\x\\AppData\\Local\\Programs\\Viboplr\\viboplr.exe",
+      "C:\\Program Files\\Viboplr\\viboplr.exe",
+    ]);
+
+    expect(launchCommands("linux", {})).toEqual([{ cmd: "viboplr", args: [] }]);
+  });
+
   it("parses tier and profile from argv, rejecting garbage", () => {
     expect(parseCliArgs([], {})).toEqual({ tier: "default", profile: undefined });
     expect(parseCliArgs(["--tier=full"], {})).toEqual({ tier: "full", profile: undefined });
@@ -251,6 +266,13 @@ describe("MCP server over stdio", () => {
     expect(names).toContain("app_version");
     expect(names).toContain("collections");
     for (const full of FULL_ONLY) expect(names).not.toContain(full);
+  });
+
+  it("answers launch_app with alreadyRunning when the app is reachable", async () => {
+    const res = await rpc.request("tools/call", { name: "launch_app", arguments: {} });
+    const info = JSON.parse(toolText(res.result));
+    expect(info.alreadyRunning).toBe(true);
+    expect(info.version).toBe("1.0.57");
   });
 
   it("proxies a tool call with the bearer token from the discovery file", async () => {

@@ -19,9 +19,10 @@
 // Env:    VIBOPLR_MCP_TIER, VIBOPLR_MCP_PROFILE,
 //         VIBOPLR_MCP_DISCOVERY_DIR (profiles dir override, mainly for tests)
 
-import { readdirSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const VERSION = "0.1.0";
@@ -33,7 +34,8 @@ const DEFAULT_MS = 30_000;
 
 const NOT_RUNNING =
   'Viboplr is not reachable — the app may not be running, or "AI remote control" ' +
-  "is off. Ask the user to start Viboplr and enable it in Settings → General.";
+  "is off. Call the launch_app tool to start it (the setting persists across " +
+  "restarts), or ask the user to start Viboplr and enable it in Settings → General.";
 
 // cfg.tier is folded in at initialize time — see dispatch().
 const INSTRUCTIONS = [
@@ -200,6 +202,62 @@ export function versionCmp(a, b) {
     if (d) return d;
   }
   return 0;
+}
+
+/**
+ * Platform launch candidates for the installed app, tried in order until one
+ * spawns. macOS resolves through LaunchServices (bundle id first — the process
+ * name can't tell builds apart, but the id can); Windows tries the Tauri NSIS
+ * install locations; Linux relies on the binary being on PATH.
+ */
+export function launchCommands(platform = process.platform, env = process.env) {
+  if (platform === "darwin") {
+    return [
+      { cmd: "open", args: ["-b", BUNDLE_ID] },
+      { cmd: "open", args: ["-a", "Viboplr"] },
+    ];
+  }
+  if (platform === "win32") {
+    // win32.join explicitly: this list must be well-formed regardless of what
+    // platform the (unit-tested) builder itself runs on.
+    const local = env.LOCALAPPDATA ?? win32.join(env.USERPROFILE ?? homedir(), "AppData", "Local");
+    const programFiles = env.ProgramFiles ?? "C:\\Program Files";
+    return [
+      { exe: win32.join(local, "Viboplr", "viboplr.exe") },
+      { exe: win32.join(local, "Programs", "Viboplr", "viboplr.exe") },
+      { exe: win32.join(programFiles, "Viboplr", "viboplr.exe") },
+    ];
+  }
+  return [{ cmd: "viboplr", args: [] }];
+}
+
+function trySpawnApp() {
+  const attempted = [];
+  for (const candidate of launchCommands()) {
+    const cmd = candidate.exe ?? candidate.cmd;
+    if (candidate.exe && !existsSync(candidate.exe)) {
+      attempted.push(candidate.exe);
+      continue;
+    }
+    attempted.push(candidate.exe ?? `${candidate.cmd} ${candidate.args.join(" ")}`);
+    try {
+      const child = spawn(cmd, candidate.args ?? [], { detached: true, stdio: "ignore" });
+      child.unref();
+      return { ok: true, via: attempted[attempted.length - 1] };
+    } catch (e) {
+      console.error("viboplr-mcp: launch attempt failed:", e?.message ?? e);
+    }
+  }
+  return { ok: false, attempted };
+}
+
+async function healthOrNull(timeoutMs = 3000) {
+  try {
+    return await apiRequest("GET", "/v1/health", undefined, { timeoutMs });
+  } catch {
+    // Not reachable (yet) — the caller polls; this is the probe, not a failure.
+    return null;
+  }
 }
 
 function qs(params) {
@@ -510,6 +568,43 @@ export const TOOLS = [
       typeId
         ? apiRequest("POST", "/v1/info/fetch", { kind, name, title, artistName, typeId }, { timeoutMs: SLOW_MS })
         : apiRequest("GET", `/v1/info/entity${qs({ kind, name, title, artistName })}`),
+  },
+  {
+    name: "launch_app",
+    description:
+      "Start Viboplr when it isn't running: launches the installed app and waits (up to ~30s) for its control API to answer. Requires the user to have enabled Settings → General → AI remote control at least once — the setting persists, so a launched app brings the API up on its own. Already running? Returns immediately with alreadyRunning. Never quits or restarts the app.",
+    inputSchema: obj({}),
+    run: async () => {
+      const before = await healthOrNull();
+      if (before) return { alreadyRunning: true, version: before.version, profile: before.profile };
+      const launched = trySpawnApp();
+      if (!launched.ok) {
+        throw new Error(
+          `Couldn't find the installed app to launch (tried: ${launched.attempted.join(", ")}). ` +
+            "Ask the user to start Viboplr themselves.",
+        );
+      }
+      const waitMs = Number(process.env.VIBOPLR_MCP_LAUNCH_WAIT_MS ?? 30_000);
+      const started = Date.now();
+      while (Date.now() - started < waitMs) {
+        await sleep(1000);
+        const health = await healthOrNull();
+        if (health) {
+          return {
+            launched: true,
+            via: launched.via,
+            waitedSecs: Math.round((Date.now() - started) / 1000),
+            version: health.version,
+            profile: health.profile,
+          };
+        }
+      }
+      throw new Error(
+        `Launched the app (via ${launched.via}) but the control API didn't answer within ${Math.round(waitMs / 1000)}s. ` +
+          'Most likely "AI remote control" has never been enabled — ask the user to switch it on once in ' +
+          "Viboplr → Settings → General; it persists from then on.",
+      );
+    },
   },
   {
     name: "collections",
