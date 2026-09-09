@@ -69,6 +69,7 @@
         <a href="#exclusive-audio" class="btn btn-outline">Exclusive audio</a>
         <a href="#replaygain" class="btn btn-outline">ReplayGain</a>
         <a href="#profiles" class="btn btn-outline">Profiles</a>
+        <a href="#mcp-server" class="btn btn-outline">AI control</a>
       </div>
     </div>
   </section>
@@ -234,7 +235,8 @@
         <h2>AI remote control</h2>
         <p class="docs-lead">Let an AI assistant on this computer search your library, control playback, and edit playlists, tags and likes.</p>
         <p>When enabled, Viboplr runs a small private control server on your own machine (<code>127.0.0.1</code> — it is never reachable from the network). Assistants such as Claude connect to it with the <strong>access token</strong> shown in Settings; every request must carry that token, so other websites and apps can't drive your player without it. The <strong>discovery file</strong> lets tools find the address and token automatically — its location is shown next to the toggle.</p>
-        <p>What an assistant can do: search tracks, artists, albums and tags; read and change the queue; play, pause, seek and skip; create and edit playlists; apply tags; and like or dislike music. What it can't do: delete files, rewrite your audio files' metadata, or reach anything outside your library. It's off by default; turning it off stops the server immediately, and <strong>Regenerate</strong> revokes the old token any time.</p>
+        <p>What an assistant can do: search tracks, artists, albums and tags; read and change the queue; play, pause, seek and skip; create and edit playlists; apply tags; like or dislike music; start radio stations; and rescan your collections. What it can't do: delete files, rewrite your audio files' metadata, or reach anything outside your library. It's off by default; turning it off stops the server immediately, and <strong>Regenerate</strong> revokes the old token any time.</p>
+        <p>The easiest way to connect an assistant is the bundled MCP server &mdash; see <a href="#mcp-server">Connecting an AI assistant</a> below.</p>
       </div>
     </div>
   </section>
@@ -306,6 +308,39 @@
           <li><strong>Dwell</strong> &mdash; the dropdown on the right does double duty. <em>Off</em> hides the item entirely; <em>Preview only</em> shows it once when the track starts and then drops it from the rotation (good for a quick stat you don't need on repeat); <em>On request</em> keeps it out of the rotation but pops it up the moment its content changes &mdash; it's how synced lyrics show each line exactly as it's sung, with the normal rotation playing through the instrumental gaps; <em>1&times;</em> to <em>10&times;</em> set how long it stays on screen, as a multiple of the ~5 second base interval.</li>
         </ul>
         <p>Each track begins with a <em>preview pass</em> that shows every enabled item once, then settles into the rotation. Items that have nothing to say for the current track (no lyrics, no tags, no play count) simply sit out rather than showing a blank. <strong>Reset to defaults</strong> puts the whole list back the way it shipped.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Connecting an AI assistant (MCP) -->
+  <section class="section section-alt" id="mcp-server">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Connecting an AI assistant (MCP)</h2>
+        <p class="docs-lead">Give Claude Desktop, Claude Code, or any MCP client a set of typed Viboplr tools &mdash; search, playback, queue, playlists, tags, likes and more.</p>
+        <p>The MCP server is a single small script that translates an assistant's tool calls into requests against the <a href="#control-api">AI remote control</a> server. It runs on your computer, finds the app automatically, and keeps the access token to itself &mdash; the assistant never sees it. The assistant must run <strong>on the same computer as Viboplr</strong>: web-based assistants (and cloud sandboxes) can't reach a server that only listens on <code>127.0.0.1</code>.</p>
+        <p><strong>Before you start:</strong> install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer, switch on <strong>Settings &rarr; General &rarr; AI remote control</strong> in Viboplr, and save
+          <a href="https://github.com/outcast1000/viboplr/raw/main/mcp/viboplr-mcp.mjs" target="_blank" rel="noopener"><code>viboplr-mcp.mjs</code></a>
+          somewhere permanent (for example <code>~/viboplr/viboplr-mcp.mjs</code>). No <code>npm install</code> needed &mdash; the script is self-contained.</p>
+        <p><strong>Claude Desktop</strong> &mdash; open <em>Settings &rarr; Developer &rarr; Edit Config</em> and add the server (use your real path):</p>
+        <div class="docs-code"><pre>{
+  "mcpServers": {
+    "viboplr": {
+      "command": "node",
+      "args": ["/Users/you/viboplr/viboplr-mcp.mjs"]
+    }
+  }
+}</pre></div>
+        <p>Then <strong>fully quit</strong> Claude Desktop (not just the window) and relaunch &mdash; MCP servers connect at startup. The Viboplr tools appear under the tools icon beneath the message box.</p>
+        <p><strong>Claude Code</strong> &mdash; one command in the terminal, then start a new session:</p>
+        <div class="docs-code"><pre>claude mcp add viboplr -- node /Users/you/viboplr/viboplr-mcp.mjs</pre></div>
+        <p>Try it: <em>&ldquo;What's playing in Viboplr?&rdquo;</em>, <em>&ldquo;Play something mellow&rdquo;</em>, <em>&ldquo;Queue the rest of this album&rdquo;</em>, <em>&ldquo;Make a playlist of my forgotten favorites&rdquo;</em>.</p>
+        <ul class="docs-list">
+          <li><strong>Two tool tiers.</strong> By default the assistant gets the music surface &mdash; search, playback, queue, playlists, tags, likes, radio, plugin catalogs, collections. Add <code>--tier=full</code> after the script path to also expose the power tools: extensions and skins, window control, logs, plugin actions and entity images. The default is deliberate &mdash; it bounds what web content flowing through the assistant could ever reach.</li>
+          <li><strong>Nothing happens?</strong> Check that Viboplr is running and the AI remote control toggle is on &mdash; the tools answer with exactly that hint when they can't reach the app. In Claude Desktop, if the server never appears, replace <code>"node"</code> with the full path from <code>which node</code> in your terminal (the app launches outside your shell profile).</li>
+          <li><strong>Several profiles?</strong> The server picks your <code>default</code> profile (or the only running one); add <code>--profile=name</code> to target another.</li>
+          <li><strong>Privacy is unchanged.</strong> The MCP server adds no access the token doesn't already grant, and the hard limits hold: no file deletion, no audio-tag rewrites, no extension installs.</li>
+        </ul>
       </div>
     </div>
   </section>
