@@ -192,3 +192,44 @@ test('drag shows the insert indicator while over a row', async ({ page }) => {
   await page.mouse.up();
   await expect(page.locator('.playlists-track-list .pl-reorder-before')).toHaveCount(0);
 });
+
+// Issue #129: the hover action tray sat over the row's trailing duration ("a
+// small over button card on the track time text"). It is now anchored to a
+// zero-width slot in front of that meta cell, which is a *layout* fact — no
+// unit tier can see it, so it is asserted here with real boxes.
+test('the hover action tray does not cover the row duration', async ({ page }) => {
+  await openMyMix(page);
+
+  const row = page.locator('.playlists-track-list [data-pl-index]').nth(1);
+  const box = await row.boundingBox();
+  // Hover the row's left half: over the tray itself the pointer would still
+  // reveal it, but a *user* reading the duration hovers the row, not the tray.
+  await page.mouse.move(box.x + 40, box.y + box.height / 2);
+
+  const tray = row.locator('.row-hover-actions');
+  const meta = row.locator('.entity-list-count');
+  await expect(tray).toBeVisible();
+  await expect(meta).toBeVisible();
+
+  const trayBox = await tray.boundingBox();
+  const metaBox = await meta.boundingBox();
+  expect(trayBox.width).toBeGreaterThan(0);
+  expect(trayBox.x + trayBox.width).toBeLessThanOrEqual(metaBox.x);
+});
+
+// The corollary: buying that clearance must not have cost the row any width.
+// The slot cancels its own flex gap, so the duration sits where it always did.
+test('the tray slot costs the row no layout', async ({ page }) => {
+  await openMyMix(page);
+
+  const rows = page.locator('.playlists-track-list [data-pl-index]');
+  const first = await rows.nth(0).boundingBox();
+  const metaBefore = await rows.nth(0).locator('.entity-list-count').boundingBox();
+
+  // Hovering reveals the tray; the meta must not move when it appears.
+  await page.mouse.move(first.x + 40, first.y + first.height / 2);
+  await expect(rows.nth(0).locator('.row-hover-actions')).toBeVisible();
+  const metaAfter = await rows.nth(0).locator('.entity-list-count').boundingBox();
+
+  expect(Math.round(metaAfter.x)).toBe(Math.round(metaBefore.x));
+});

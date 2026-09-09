@@ -5,8 +5,10 @@
 //
 // Emits the existing global CSS classes verbatim (see App.css `.entity-list-*`
 // / `.row-hover-action*`) so skins keep working. The `.row-hover-actions` tray
-// is rendered as a SIBLING of `.entity-list-content`, matching the parent
-// hover-reveal selector.
+// sits inside a zero-width `.entity-list-actions-slot` placed just before the
+// trailing meta, so it floats to the LEFT of the duration rather than over it;
+// every surface's reveal rule (`.<row>:hover .row-hover-actions`) is a
+// descendant selector and still matches.
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { VideoRowThumb } from "./VideoRowThumb";
@@ -122,9 +124,19 @@ export function TrackRow({
           {belowSubtitle}
         </div>
         {column}
+        {/* Zero-width anchor: the tray is absolute inside it, so it floats just
+            LEFT of the trailing meta instead of on top of it. Anchored to the
+            row (its old home) the tray covered the duration — reported in #129
+            as "a small button card over the track time text". The negative
+            margin cancels the one extra `.entity-list-content` gap this slot
+            adds, so the row's layout is byte-identical to before. */}
+        {actions && (
+          <span className="entity-list-actions-slot">
+            <RowHoverActions {...actions} />
+          </span>
+        )}
         {meta != null && <span className="entity-list-count">{meta}</span>}
       </div>
-      {actions && <RowHoverActions {...actions} />}
     </div>
   );
 }

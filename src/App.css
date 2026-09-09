@@ -834,7 +834,12 @@
    A frosted, right-anchored tray floats over the row holding the action
    buttons; row content stays fully legible (the tray's blur frosts whatever
    is behind it). Each surface only toggles `opacity`/`pointer-events` on
-   `:hover` to reveal it. */
+   `:hover` to reveal it.
+
+   It is positioned against whatever nearest ancestor is `relative`: the name
+   cell in table rows, and `.entity-list-actions-slot` in list rows (below) —
+   both chosen so the tray floats over the row's *text* column and never over
+   the trailing meta, which on a track row is the duration. */
 .row-hover-actions {
   position: absolute;
   top: 50%;
@@ -854,6 +859,22 @@
   pointer-events: none;
   transition: opacity 0.16s ease;
   z-index: 2;
+}
+
+/* The list row's tray anchor (see TrackRow.tsx). A zero-width, full-height
+   flex item sitting immediately before `.entity-list-count`, so the tray's
+   `right: 8px` measures from the meta's left edge and the duration stays
+   readable while the buttons are up.
+
+   `margin-right: -12px` cancels the single extra `.entity-list-content` gap
+   the slot introduces, keeping the row's metrics exactly as they were — the
+   tray must cost no layout, or every row would twitch on hover. */
+.entity-list-actions-slot {
+  position: relative;
+  flex: 0 0 auto;
+  width: 0;
+  align-self: stretch;
+  margin-right: -12px;
 }
 
 .row-hover-action {
