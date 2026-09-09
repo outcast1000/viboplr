@@ -19,16 +19,19 @@ It holds `{ port, token, profile, pid, startedAt }`. **Never trust it blindly** 
 
 ```bash
 F=$(ls ~/Library/Application\ Support/com.alex.viboplr/profiles/*/control-api.json 2>/dev/null | head -1)
-PORT=$(python3 -c "import json,sys;print(json.load(open('$F'))['port'])")
-TOKEN=$(python3 -c "import json,sys;print(json.load(open('$F'))['token'])")
-curl -sf -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/health"
+PORT=$(python3 -c "import json;print(json.load(open('$F'))['port'])")
+vc() { python3 -c "import json;print('Authorization: Bearer '+json.load(open('$F'))['token'])" \
+  | curl -sf -H @- -H 'Content-Type: application/json' "$@"; }
+vc "http://127.0.0.1:$PORT/v1/health"
 ```
 
-A healthy answer is `{"ok":true, "version":…, "profile":…}`. Multiple files = multiple app instances (profiles); pick by the `profile` field, `default` for a normal install. **Never print the token** into output, logs, or files.
+A healthy answer is `{"ok":true, "version":…, "profile":…}`. Multiple files = multiple app instances (profiles); pick by the `profile` field, `default` for a normal install.
+
+**Token hygiene (hard rule):** the token must never appear in a shell variable, a command line, command output, or any file you write. It flows from the discovery file straight into curl over the stdin pipe (`-H @-`) inside `vc`, and nowhere else — never `cat` the discovery file or extract its `token` field into output. Shell state does not persist between commands, so re-run the setup lines (`F`, `PORT`, `vc`) at the start of every shell invocation.
 
 ## 2. Rules of the road
 
-- Every request needs `Authorization: Bearer $TOKEN`. Bodies are JSON.
+- Every request needs the `Authorization: Bearer` header — always sent through the `vc` helper above (token piped via `-H @-`), never inline on the command line. Bodies are JSON: `vc -X POST -d '{"play":true}' "http://127.0.0.1:$PORT/v1/playback"`.
 - Errors come back as `{"error": "message"}` with 400/401/404. **503** = app still starting (wait, retry). **504** = webview busy (retry once).
 - Track ids come from `/v1/search` — they are library ids. Playlist **row** ids (a different id space!) come from `/v1/playlists/{id}/tracks` and are what remove/reorder take.
 - All mutations are queue/playlist/tag/like/extension-toggle level. The API cannot delete files, rewrite audio-file metadata, **install or delete extensions**, or touch anything outside the library. Extension install/delete is a permanent non-goal (an install verb would let the token run arbitrary code) — never suggest working around it.
