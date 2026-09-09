@@ -1253,4 +1253,29 @@ mod tests {
             );
         }
     }
+
+    /// `album_added_at_sql` — the ORDER BY behind the Albums "Added" sort and
+    /// the "Recently added albums" shelf — must be answered from
+    /// `idx_tracks_album_added` (run_migrations #12) as a **covering** index.
+    ///
+    /// The subquery runs once per album, so the difference is not academic:
+    /// served by `idx_tracks_album_id` instead, each album also pays a table
+    /// lookup per track to read `added_at`, making the sort cost one row read
+    /// per track in the whole library (measured 11.5ms vs 3.2ms at 4000
+    /// albums / 20k tracks — see bench_album_added_sort). The SQL is built by
+    /// the helper itself, so the assertion tracks the real expression rather
+    /// than a copy of it: only the index can drift, which is the failure this
+    /// exists to catch.
+    #[test]
+    fn test_album_added_sort_uses_the_covering_index() {
+        let sql = format!(
+            "SELECT a.id FROM albums a WHERE a.track_count > 0 ORDER BY {} DESC",
+            album_added_at_sql("a"),
+        );
+        let details = plan_details(&sql);
+        assert!(
+            details.iter().any(|d| d.contains("COVERING INDEX idx_tracks_album_added")),
+            "album added_at ordering should be covered by idx_tracks_album_added, got: {details:?}"
+        );
+    }
 }

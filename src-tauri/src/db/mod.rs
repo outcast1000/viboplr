@@ -191,6 +191,21 @@ fn album_from_row(row: &rusqlite::Row) -> rusqlite::Result<Album> {
     })
 }
 
+/// "When was this album added?" — the newest `added_at` among its tracks.
+/// `albums` carries no `added_at` column of its own (and deliberately gains
+/// none: an album's row is created the first time any of its tracks is seen,
+/// so a stored stamp would date the album to its *first* track and a later
+/// disc arriving would never move it). Shared by the Home shelf's
+/// `added_desc` order and the Library's Added sort, so the two can never
+/// disagree about what "recently added" means. `alias` is the `albums` alias
+/// in the caller's query.
+pub(crate) fn album_added_at_sql(alias: &str) -> String {
+    format!(
+        "COALESCE((SELECT MAX(t.added_at) FROM tracks t WHERE t.album_id = {}.id), 0)",
+        alias
+    )
+}
+
 /// Maps sort field names to SQL expressions
 fn sort_column_sql(field: Option<&str>) -> Option<String> {
     match field {
@@ -605,6 +620,9 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_tracks_artist_id ON tracks(artist_id);
             CREATE INDEX IF NOT EXISTS idx_tracks_album_id ON tracks(album_id);
+            -- Serves album_added_at_sql (the Albums Added sort / the Recently
+            -- added albums shelf) from the index alone; see run_migrations #12.
+            CREATE INDEX IF NOT EXISTS idx_tracks_album_added ON tracks(album_id, added_at);
             CREATE INDEX IF NOT EXISTS idx_tracks_collection_id ON tracks(collection_id);
             CREATE INDEX IF NOT EXISTS idx_albums_artist_id ON albums(artist_id);
             CREATE INDEX IF NOT EXISTS idx_track_tags_tag_id ON track_tags(tag_id);
@@ -854,6 +872,36 @@ impl Database {
             if !has_fts_album_artist {
                 self.rebuild_fts()?;
             }
+        }
+
+        // 12. Covering index for `album_added_at_sql` — the Albums "Added"
+        //     sort and the Home "Recently added albums" shelf, both of which
+        //     order by MAX(added_at) over an album's tracks because `albums`
+        //     has no date of its own.
+        //
+        //     `idx_tracks_album_id` alone makes that a per-album index seek
+        //     PLUS a table lookup for every one of its tracks' `added_at`, so
+        //     the sort costs one row read per track in the library. Leading
+        //     with album_id and carrying added_at makes each album's answer the
+        //     last entry in its own index range: one seek, no table access.
+        //     Measured by bench_album_added_sort at 4000 albums / 20k tracks
+        //     (debug): first page 11.5ms → 3.2ms, which takes it from the
+        //     slowest album sort by 10x to level with the Year sort
+        //     (1.1ms first page, 4.4ms deep). It is still the dearest of them
+        //     — a correlated subquery per album is the price of not storing a
+        //     date that would be wrong — but it is no longer an outlier.
+        //     The write side is measured by the same bench: ~+25ms to ingest
+        //     20k tracks (~5%, ~1.4us/track), against a real scan that spends
+        //     seconds per thousand files reading tags off disk.
+        //
+        //     Idempotent and schema-presence detected by IF NOT EXISTS, like
+        //     #8 — never `db_version < N`.
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_tracks_album_added
+                     ON tracks(album_id, added_at);",
+            )?;
         }
 
         Ok(())

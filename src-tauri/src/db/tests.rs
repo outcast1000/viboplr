@@ -485,6 +485,64 @@ fn test_get_albums_sort_added_desc() {
     assert_eq!(albums[1].title, "Old Album");
 }
 
+/// The Library's Albums tab "Added" sort. It shares `album_added_at_sql` with
+/// the Home shelf above, and covers BOTH album query paths — the browse list
+/// and the FTS-filtered search, which resolve their sort columns separately
+/// (and under different table aliases), so a field added to one silently does
+/// nothing in the other.
+#[test]
+fn test_search_entity_albums_sort_chain_added() {
+    let db = test_db();
+    let collection_id = test_collection(&db);
+
+    let a1 = db.get_or_create_artist("Artist A").unwrap();
+    let a2 = db.get_or_create_artist("Artist B").unwrap();
+    let alb1 = db.get_or_create_album("Old Album", Some(a1), None).unwrap();
+    let alb2 = db.get_or_create_album("New Album", Some(a2), None).unwrap();
+
+    // Inserted through `upsert_track` (not raw SQL) so the FTS index is
+    // populated — the typed-query assertion below goes through `tracks_fts`.
+    db.upsert_track("file:///old.mp3", "Old Song", Some(a1), Some(alb1), None, None, None, None, None, Some(collection_id), None).unwrap();
+    db.upsert_track("file:///new.mp3", "New Song", Some(a2), Some(alb2), None, None, None, None, None, Some(collection_id), None).unwrap();
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute("UPDATE tracks SET added_at = 1000 WHERE path = 'file:///old.mp3'", []).unwrap();
+        conn.execute("UPDATE tracks SET added_at = 2000 WHERE path = 'file:///new.mp3'", []).unwrap();
+    }
+    db.recompute_counts().unwrap();
+    db.rebuild_fts().unwrap();
+
+    let added_desc = Some(vec![SortKey { field: "added".to_string(), dir: "desc".to_string() }]);
+
+    // Browse (no query) → list_entity
+    let listed = db.search_entity("", "albums", &TrackQuery {
+        limit: Some(10),
+        sort_chain: added_desc.clone(),
+        ..Default::default()
+    }).unwrap().albums.unwrap();
+    assert_eq!(listed[0].title, "New Album");
+    assert_eq!(listed[1].title, "Old Album");
+
+    // Ascending is the same order reversed, not the default title order.
+    let asc = db.search_entity("", "albums", &TrackQuery {
+        limit: Some(10),
+        sort_chain: Some(vec![SortKey { field: "added".to_string(), dir: "asc".to_string() }]),
+        ..Default::default()
+    }).unwrap().albums.unwrap();
+    assert_eq!(asc[0].title, "Old Album");
+    assert_eq!(asc[1].title, "New Album");
+
+    // Typed query → the FTS branch (both rows match "album").
+    let searched = db.search_entity("album", "albums", &TrackQuery {
+        limit: Some(10),
+        sort_chain: added_desc,
+        ..Default::default()
+    }).unwrap().albums.unwrap();
+    assert_eq!(searched.len(), 2);
+    assert_eq!(searched[0].title, "New Album");
+    assert_eq!(searched[1].title, "Old Album");
+}
+
 #[test]
 fn test_get_tag_by_id() {
     let db = test_db();
@@ -3409,5 +3467,133 @@ fn test_path_expr_and_track_select_case_match() {
             TRACK_SELECT.contains(token),
             "TRACK_SELECT must contain {token:?} — check that its inline CASE matches PATH_EXPR"
         );
+    }
+}
+
+/// An existing library gets `idx_tracks_album_added` from run_migrations #12,
+/// not from `init_tables` — every user upgrading into the Albums "Added" sort
+/// takes that path, and it is the half a fresh-schema test can't see.
+///
+/// Dropping the index first also proves the covering-index assertion in
+/// `db::tracks::tests::test_album_added_sort_uses_the_covering_index` isn't
+/// vacuous: without the index the same query falls back to a non-covering plan.
+#[test]
+fn test_album_added_index_is_created_by_migration() {
+    let db = test_db();
+
+    let plan = |db: &Database| -> Vec<String> {
+        let sql = format!(
+            "SELECT a.id FROM albums a WHERE a.track_count > 0 ORDER BY {} DESC",
+            album_added_at_sql("a"),
+        );
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let rows = stmt.query_map([], |r| r.get::<_, String>(3)).unwrap();
+        rows.collect::<SqlResult<Vec<_>>>().unwrap()
+    };
+
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute_batch("DROP INDEX IF EXISTS idx_tracks_album_added;").unwrap();
+    }
+    let without = plan(&db);
+    assert!(
+        !without.iter().any(|d| d.contains("idx_tracks_album_added")),
+        "index should be gone after the drop, got: {without:?}"
+    );
+
+    db.run_migrations().unwrap();
+
+    let with = plan(&db);
+    assert!(
+        with.iter().any(|d| d.contains("COVERING INDEX idx_tracks_album_added")),
+        "migration should restore the covering index, got: {with:?}"
+    );
+}
+
+/// Cost of the Albums "Added" sort, whose ORDER BY is a correlated subquery
+/// over `tracks` (albums carry no `added_at` of their own). Measured against
+/// the plain column sorts on the same data so the overhead is attributable,
+/// and at a deep offset because the sort must rank every album before LIMIT
+/// applies — paging repeats the whole cost.
+#[test]
+#[ignore]
+fn bench_album_added_sort() {
+    let db = test_db();
+    seed_bench_db(&db, 2000, 4000, 20000, 0);
+
+    {
+        let conn = db.conn.lock().unwrap();
+        let added = album_added_at_sql("a");
+        for (label, order) in [
+            ("added only", format!("{added} DESC")),
+            ("artist, added", format!("ar.name ASC, {added} DESC")),
+        ] {
+            let sql = format!(
+                "SELECT a.id FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+                 WHERE a.track_count > 0 ORDER BY {order} LIMIT 40 OFFSET 0"
+            );
+            let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", sql)).unwrap();
+            let rows: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(3)).unwrap()
+                .collect::<SqlResult<Vec<_>>>().unwrap();
+            println!("--- query plan: {} ---", label);
+            for r in rows { println!("  {}", r); }
+        }
+    }
+
+    let mut results: Vec<BenchResult> = Vec::new();
+    for field in ["name", "year", "tracks", "added"] {
+        for (suffix, offset) in [("page1", 0i64), ("page50", 2000i64)] {
+            let r = bench(&format!("albums sort={} {}", field, suffix), 20, || {
+                let _ = db.search_entity("", "albums", &TrackQuery {
+                    limit: Some(40),
+                    offset: Some(offset),
+                    sort_chain: Some(vec![SortKey { field: field.to_string(), dir: "desc".to_string() }]),
+                    ..Default::default()
+                }).unwrap();
+            });
+            results.push(r);
+        }
+    }
+    // Multi-key chains (shift+click appends a key). The subquery is evaluated
+    // once per candidate row while the sorter record is built, so its cost is
+    // the same wherever `added` sits in the chain.
+    println!("--- multi-key chains ---");
+    for (label, chain) in [
+        ("artist,name", vec!["artist", "name"]),
+        ("artist,added", vec!["artist", "added"]),
+        ("added,name", vec!["added", "name"]),
+        ("added,artist,year", vec!["added", "artist", "year"]),
+    ] {
+        let keys: Vec<SortKey> = chain.iter()
+            .map(|f| SortKey { field: f.to_string(), dir: "desc".to_string() })
+            .collect();
+        let r = bench(&format!("albums chain={}", label), 20, || {
+            let _ = db.search_entity("", "albums", &TrackQuery {
+                limit: Some(40),
+                sort_chain: Some(keys.clone()),
+                ..Default::default()
+            }).unwrap();
+        });
+        println!("{:<32} avg {:>8.3} ms", r.name, r.avg_ms);
+    }
+
+    println!("--- timings (4000 albums / 20000 tracks) ---");
+    for r in &results {
+        println!("{:<28} avg {:>8.3} ms  min {:>8.3}  max {:>8.3}", r.name, r.avg_ms, r.min_ms, r.max_ms);
+    }
+
+    // The other half of the cost: an index is paid for on every write, and
+    // ingesting a library is this app's write-heaviest operation by far.
+    println!("--- ingest cost of 20000 tracks (index present vs dropped) ---");
+    for (label, drop_index) in [("with idx_tracks_album_added", false), ("without", true)] {
+        let fresh = test_db();
+        if drop_index {
+            let conn = fresh.conn.lock().unwrap();
+            conn.execute_batch("DROP INDEX IF EXISTS idx_tracks_album_added;").unwrap();
+        }
+        let start = std::time::Instant::now();
+        seed_bench_db(&fresh, 2000, 4000, 20000, 0);
+        println!("{:<30} {:>8.1} ms", label, start.elapsed().as_secs_f64() * 1000.0);
     }
 }

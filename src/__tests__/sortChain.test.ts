@@ -51,6 +51,22 @@ describe("toggleSortKey", () => {
     expect(toggleSortKey([], "title", true)).toEqual([{ field: "title", dir: "asc" }]);
   });
 
+  it("date fields open descending — 'Added' means newest first", () => {
+    expect(toggleSortKey([], "added", false)).toEqual([{ field: "added", dir: "desc" }]);
+    expect(toggleSortKey([], "modified", false)).toEqual([{ field: "modified", dir: "desc" }]);
+    // Replacing another key gets the same treatment...
+    expect(toggleSortKey([{ field: "title", dir: "asc" }], "added", false))
+      .toEqual([{ field: "added", dir: "desc" }]);
+    // ...and so does a shift+click that appends it.
+    expect(toggleSortKey([{ field: "title", dir: "asc" }], "added", true))
+      .toEqual([{ field: "title", dir: "asc" }, { field: "added", dir: "desc" }]);
+  });
+
+  it("a second click on a date field still flips to ascending", () => {
+    expect(toggleSortKey([{ field: "added", dir: "desc" }], "added", false))
+      .toEqual([{ field: "added", dir: "asc" }]);
+  });
+
   it("never creates duplicate fields", () => {
     const chain: SortKey[] = [{ field: "title", dir: "asc" }];
     const result = toggleSortKey(chain, "title", true);

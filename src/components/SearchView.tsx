@@ -896,6 +896,7 @@ export function SearchView({
                 <SortButton label="Artist" field="artist" chain={albumSortChain} onClick={handleAlbumSortClick} />
                 <SortButton label="Year" field="year" chain={albumSortChain} onClick={handleAlbumSortClick} />
                 <SortButton label="Tracks" field="tracks" chain={albumSortChain} onClick={handleAlbumSortClick} />
+                <SortButton label="Added" field="added" chain={albumSortChain} onClick={handleAlbumSortClick} />
                 <SortButton label={"\u2665 Liked"} field="liked" chain={albumSortChain} onClick={handleAlbumSortClick} />
                 <SortButton label="Shuffle" field="random" chain={albumSortChain} onClick={handleAlbumSortClick} />
                 {albumSortChain.length >= 2 && (

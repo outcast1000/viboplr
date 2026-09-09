@@ -126,8 +126,8 @@ impl Database {
 
         let order_clause = match sort {
             Some("added_desc") =>
-                "ORDER BY (SELECT MAX(t.added_at) FROM tracks t WHERE t.album_id = a.id) DESC, a.title",
-            _ => "ORDER BY a.title",
+                format!("ORDER BY {} DESC, a.title", album_added_at_sql("a")),
+            _ => "ORDER BY a.title".to_string(),
         };
         let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
         // Optional LIMIT/OFFSET so bounded consumers (the Home shelves show 20
