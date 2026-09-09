@@ -104,12 +104,12 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     ? { kind: "artist", name: artist.name, id: artist.id }
     : { kind: "artist", name, id: 0 };
 
-  // A "Various Artists"-style collective is a real, navigable artist row (it
-  // owns the compilations filed under it) but not a real musician: external
-  // metadata for the name — Last.fm bio, similar artists, scrobble stats — is
-  // junk describing a catch-all entity. Skip those fetches and render only
-  // library-derived content (the Albums tab, the hero).
-  const collective = isVariousArtists(name);
+  // A tagger placeholder — "Various Artists", "Unknown Artist" — is a real,
+  // navigable artist row (it owns the albums filed under it) but not a real
+  // musician: external metadata for the name — Last.fm bio, similar artists,
+  // scrobble stats — is junk describing a catch-all entity. Skip those fetches
+  // and render only library-derived content (the Albums tab, the hero).
+  const placeholder = isVariousArtists(name);
 
   const handleEntityClick = useCallback((kind: string, id?: number, entityName?: string) => {
     if (kind === "artist") actions.navigateToArtist(id ?? 0, entityName);
@@ -234,13 +234,13 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         onPlay={sortedTracks.length > 0 ? handlePlayAll : undefined}
         onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : undefined}
         overflowItems={overflowItems}
-        titleLine={collective ? undefined : <TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
+        titleLine={placeholder ? undefined : <TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
       />
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}
           exclude={["artist_stats"]}
-          pluginSectionsDisabled={collective}
+          pluginSectionsDisabled={placeholder}
           placement="header"
           customTabs={albums.length > 0 ? [{
             id: "albums",
@@ -323,7 +323,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         <EntityTagPanel tracks={sortedTracks} />
       )}
 
-      {!collective && (
+      {!placeholder && (
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}
