@@ -9,6 +9,7 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { shouldWakeMiniSearch } from "../utils/miniSearchTrigger";
+import { isTextEntryTarget } from "../utils/textEntry";
 import type { QueueTrack } from "../types";
 import type { useLibrary } from "./useLibrary";
 import type { usePlayback } from "./usePlayback";
@@ -61,7 +62,11 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
       // and be lost on relaunch.
       if (d.profileSwitchActive) return;
       const { library, playback, queueHook, mini } = d;
-      const isInput = (e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA";
+      // "Is the user typing?" — deliberately not a tagName check. A slider or a
+      // checkbox is an <input> but not text entry, and treating one as typing
+      // parked the arrow keys the moment a click left focus on the volume
+      // slider. See utils/textEntry.ts.
+      const isInput = isTextEntryTarget(e.target);
 
       if (
         shouldWakeMiniSearch(e, {
