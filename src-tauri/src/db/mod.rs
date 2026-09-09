@@ -86,6 +86,28 @@ pub(crate) fn artist_visible_clause(alias: &str) -> String {
     )
 }
 
+/// How many non-empty albums this artist *owns* (`albums.artist_id` = the
+/// ALBUMARTIST). The counterpart to `artist_visible_clause`'s second arm: an
+/// album-artist-only artist has `track_count` 0 — correctly, since no track
+/// performs under that name — so this is the only number that describes it, and
+/// a UI rendering "0 tracks" for such a row states something false. Surfaces
+/// fall back to this count when `track_count` is 0.
+///
+/// Deliberately NOT folded into `artists.track_count`: that column means "tracks
+/// that perform under this name", which is the first arm of the visibility
+/// clause and the `"tracks"` sort field in both artist sort resolvers. Widening
+/// it would make the second arm dead code and make the Tracks column mean two
+/// different things depending on the row.
+///
+/// A correlated subquery per artist row, served by `idx_albums_artist_id`.
+/// `alias` is the artists table's alias in the calling query.
+pub(crate) fn artist_album_count_sql(alias: &str) -> String {
+    format!(
+        "(SELECT COUNT(*) FROM albums _ac WHERE _ac.artist_id = {a}.id AND _ac.track_count > 0)",
+        a = alias
+    )
+}
+
 // Video container formats as stored in `tracks.format`. Every surface that
 // splits audio from video — the library media-type filter, FTS search, entity
 // listing, collection stats, auto-continue and radio — builds its SQL from

@@ -29,13 +29,17 @@ impl Database {
     pub fn get_artist_by_id(&self, artist_id: i64) -> SqlResult<Option<Artist>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, name, track_count, liked FROM artists WHERE id = ?1",
+            &format!(
+                "SELECT id, name, track_count, liked, {} FROM artists WHERE id = ?1",
+                artist_album_count_sql("artists")
+            ),
             params![artist_id],
             |row| Ok(Artist {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 track_count: row.get(2)?,
                 liked: row.get::<_, i32>(3).unwrap_or(0),
+                album_count: row.get(4)?,
             }),
         ).optional()
     }
@@ -48,17 +52,18 @@ impl Database {
     ) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
         let visible = artist_visible_clause("artists");
+        let albums = artist_album_count_sql("artists");
         let base = if liked_only {
             format!(
-                "SELECT id, name, track_count, liked FROM artists \
+                "SELECT id, name, track_count, liked, {} FROM artists \
                  WHERE {} AND liked = 1 ORDER BY name",
-                visible
+                albums, visible
             )
         } else {
             format!(
-                "SELECT id, name, track_count, liked FROM artists \
+                "SELECT id, name, track_count, liked, {} FROM artists \
                  WHERE {} ORDER BY name",
-                visible
+                albums, visible
             )
         };
         // Pagination is DB-side so a paging consumer (the plugin API's
@@ -71,6 +76,7 @@ impl Database {
                 name: row.get(1)?,
                 track_count: row.get(2)?,
                 liked: row.get::<_, i32>(3).unwrap_or(0),
+                album_count: row.get(4)?,
             })
         })?;
         rows.collect()
@@ -80,9 +86,10 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             &format!(
-                "SELECT id, name, track_count, liked FROM artists \
+                "SELECT id, name, track_count, liked, {} FROM artists \
                  WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
                  AND {}",
+                artist_album_count_sql("artists"),
                 artist_visible_clause("artists")
             ),
             params![name],
@@ -91,6 +98,7 @@ impl Database {
                 name: row.get(1)?,
                 track_count: row.get(2)?,
                 liked: row.get::<_, i32>(3).unwrap_or(0),
+                album_count: row.get(4)?,
             }),
         ).optional()
     }

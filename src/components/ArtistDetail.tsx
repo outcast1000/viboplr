@@ -206,8 +206,11 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
   }, [actions.enqueueTracks, sortedTracks]);
 
   const meta: Array<string | { label: string; onClick: () => void }> = [];
-  if (isLibrary && artist?.track_count) meta.push(`${artist.track_count} tracks`);
-  if (albums.length > 0) meta.push(`${albums.length} albums`);
+  // Both counts are already omitted at 0 — an album-artist-only artist (0 own
+  // tracks, see utils/artistCount.ts) shows only its album count here, so this
+  // page never needed the tracks-or-albums fallback the list rows use.
+  if (isLibrary && artist?.track_count) meta.push(`${artist.track_count} ${artist.track_count === 1 ? "track" : "tracks"}`);
+  if (albums.length > 0) meta.push(`${albums.length} ${albums.length === 1 ? "album" : "albums"}`);
 
   return (
     <div className="artist-detail">

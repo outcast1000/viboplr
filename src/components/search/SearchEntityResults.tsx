@@ -1,6 +1,7 @@
 // Per-tab entity result renderers for SearchView (albums/artists/tags).
 import type { Artist, Album, Tag, ViewMode } from "../../types";
 import { computeSelection } from "../../utils/rowSelection";
+import { artistCountLabel } from "../../utils/artistCount";
 import { ArtistCardArt } from "../ArtistCardArt";
 import { AlbumCardArt } from "../AlbumCardArt";
 import { TagCardArt } from "../TagCardArt";
@@ -371,7 +372,7 @@ export function SearchArtistResults({
                 <ArtistCardArt artist={a} imagePath={getArtistImage(a.name)} className="entity-list-img circular" />
                 <div className="entity-list-info">
                   <span className="entity-list-name">{a.name}</span>
-                  <span className="entity-list-secondary">{a.track_count} tracks</span>
+                  <span className="entity-list-secondary">{artistCountLabel(a)}</span>
                 </div>
               </div>
               <EntityRowActions onPlay={() => onPlayArtist(a.id)} onEnqueue={() => onEnqueueArtist(a.id)} onDetails={() => onArtistClick(a.id)} />

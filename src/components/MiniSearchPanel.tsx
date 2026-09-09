@@ -1,6 +1,7 @@
 import { useRef, useEffect } from "react";
 import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { artistCountLabel } from "../utils/artistCount";
 import "./MiniSearchPanel.css";
 
 interface MiniSearchPanelProps {
@@ -125,7 +126,7 @@ export function MiniSearchPanel({
             <div className="mini-result-art"><ArtistImg artist={artist} getArtistImage={getArtistImage} /></div>
             <div className="mini-result-info">
               <div className="mini-result-title">{artist.name}</div>
-              <div className="mini-result-subtitle">Artist · {artist.track_count} tracks</div>
+              <div className="mini-result-subtitle">Artist · {artistCountLabel(artist)}</div>
             </div>
           </div>
         ))}

@@ -55,6 +55,13 @@ test('Various Artists is a listed, navigable artist with zero tracks of its own'
   await expect(vaCard).toHaveCount(1);
   await vaCard.click();
   await expect(page.locator('.detail-hero-title')).toHaveText('Various Artists');
+
+  // It owns one album and performs on nothing, so the meta row names the album
+  // and must not claim a track count — "0 tracks" is false about a row that is
+  // only listed because it has an album with tracks in it.
+  const meta = page.locator('.detail-hero-meta-row');
+  await expect(meta).toContainText('1 album');
+  await expect(meta).not.toContainText('tracks');
 });
 
 test('the VA artist page keeps library content but suppresses metadata sections', async ({ page }) => {

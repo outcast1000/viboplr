@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
 import type { PluginSearchSection } from "../utils/centralSearchPlugins";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { artistCountLabel } from "../utils/artistCount";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { TrackArtFallback } from "./TrackArtFallback";
@@ -372,7 +373,7 @@ export function CentralSearchDropdown({
                     </div>
                     <div className="result-info">
                       <div className="result-title">{artist.name}</div>
-                      <div className="result-subtitle">Artist · {artist.track_count} tracks</div>
+                      <div className="result-subtitle">Artist · {artistCountLabel(artist)}</div>
                     </div>
                     <span className="result-action">→</span>
                   </div>

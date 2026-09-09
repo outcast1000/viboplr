@@ -1,8 +1,14 @@
 export interface Artist {
   id: number;
   name: string;
+  /** Tracks that perform under this name. 0 for an album-artist-only artist. */
   track_count: number;
   liked: number;
+  /**
+   * Non-empty albums this artist owns as ALBUMARTIST. Only meaningful when
+   * `track_count` is 0 — see `utils/artistCount.ts` for the display rule.
+   */
+  album_count: number;
 }
 
 export interface Album {

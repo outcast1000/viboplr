@@ -102,7 +102,7 @@ describe("buildAlbumContext", () => {
 
 describe("buildArtistContext", () => {
   it("builds context with artist data", () => {
-    const artist = { id: 1, name: "Radiohead", track_count: 50, liked: 0 };
+    const artist = { id: 1, name: "Radiohead", track_count: 50, liked: 0, album_count: 4 };
     const ctx = buildArtistContext(artist, "/images/artist.jpg");
     expect(ctx).toEqual({
       name: "Radiohead",
@@ -157,7 +157,7 @@ describe("context → manifest roundtrip", () => {
 
   it("artist context survives buildManifest → contextFromManifest", async () => {
     const { buildManifest, contextFromManifest } = await import("../mainPlaylist");
-    const artist = { id: 1, name: "Radiohead", track_count: 50, liked: 0 };
+    const artist = { id: 1, name: "Radiohead", track_count: 50, liked: 0, album_count: 4 };
     const ctx = buildArtistContext(artist, "/images/artist.jpg");
 
     const manifest = buildManifest([], ctx);

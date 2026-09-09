@@ -47,7 +47,7 @@ impl Database {
             let fts_album_artist_query = fts_colset_query("album_artist", &words);
             let mut stmt = conn.prepare(
                 &format!(
-                    "SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
+                    "SELECT DISTINCT a.id, a.name, a.track_count, a.liked, {} \
                      FROM artists a \
                      WHERE {} \
                      AND (a.id IN ( \
@@ -61,6 +61,7 @@ impl Database {
                        WHERE tracks_fts MATCH ?2 AND al.artist_id IS NOT NULL \
                      )) \
                      ORDER BY COALESCE(a.liked, 0) DESC, a.name LIMIT ?3",
+                    artist_album_count_sql("a"),
                     artist_visible_clause("a")
                 )
             )?;
@@ -70,6 +71,7 @@ impl Database {
                     name: row.get(1)?,
                     track_count: row.get(2)?,
                     liked: row.get::<_, i32>(3).unwrap_or(0),
+                    album_count: row.get(4)?,
                 })
             })?;
             rows.collect::<SqlResult<Vec<_>>>()?
@@ -158,10 +160,13 @@ impl Database {
                     },
                     "a.name",
                 );
-                let sql = format!("SELECT a.id, a.name, a.track_count, a.liked FROM artists a {} {} LIMIT ?1 OFFSET ?2", where_clause, order);
+                let sql = format!(
+                    "SELECT a.id, a.name, a.track_count, a.liked, {} FROM artists a {} {} LIMIT ?1 OFFSET ?2",
+                    artist_album_count_sql("a"), where_clause, order
+                );
                 let mut stmt = conn.prepare(&sql)?;
                 let rows = stmt.query_map(params![limit, offset], |row| {
-                    Ok(Artist { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)?, liked: row.get::<_, i32>(3).unwrap_or(0) })
+                    Ok(Artist { id: row.get(0)?, name: row.get(1)?, track_count: row.get(2)?, liked: row.get::<_, i32>(3).unwrap_or(0), album_count: row.get(4)? })
                 })?;
                 let artists = rows.collect::<SqlResult<Vec<_>>>()?;
                 Ok(SearchEntityResult { tracks: None, albums: None, artists: Some(artists), tags: None, total })
@@ -297,10 +302,10 @@ impl Database {
                     "a.name",
                 );
                 let mut stmt = conn.prepare(
-                    &format!("SELECT DISTINCT a.id, a.name, a.track_count, a.liked \
+                    &format!("SELECT DISTINCT a.id, a.name, a.track_count, a.liked, {} \
                      FROM artists a \
                      WHERE {} \
-                     {} LIMIT ?3 OFFSET ?4", match_clause, order)
+                     {} LIMIT ?3 OFFSET ?4", artist_album_count_sql("a"), match_clause, order)
                 )?;
                 let rows = stmt.query_map(params![fts_query, fts_album_artist_query, limit, offset], |row| {
                     Ok(Artist {
@@ -308,6 +313,7 @@ impl Database {
                         name: row.get(1)?,
                         track_count: row.get(2)?,
                         liked: row.get::<_, i32>(3).unwrap_or(0),
+                        album_count: row.get(4)?,
                     })
                 })?;
                 let artists = rows.collect::<SqlResult<Vec<_>>>()?;
@@ -648,13 +654,26 @@ mod tests {
         // Central search: the VA artist row (zero tracks of its own) and the
         // compilation album both match.
         let all = db.search_all("various", 10, 10, 10).unwrap();
-        assert!(all.artists.iter().any(|a| a.name == "Various Artists"), "artists section finds VA");
+        let found_va = all.artists.iter().find(|a| a.name == "Various Artists").expect("artists section finds VA");
         assert!(all.albums.iter().any(|a| a.title == "Summer Hits"), "albums section finds the compilation");
+        // It performs on nothing, so album_count is the only count that
+        // describes it and every artist select has to carry it — a UI rendering
+        // track_count alone says "0 tracks" about a row with an album in it.
+        assert_eq!(found_va.track_count, 0);
+        assert_eq!(found_va.album_count, 1);
 
         // Library tab searches go through search_entity.
         let artists = db.search_entity("various", "artists", &TrackQuery::default()).unwrap();
         assert_eq!(artists.total, 1);
-        assert!(artists.artists.unwrap().iter().any(|a| a.name == "Various Artists"));
+        let rows = artists.artists.unwrap();
+        let row_va = rows.iter().find(|a| a.name == "Various Artists").unwrap();
+        assert_eq!(row_va.album_count, 1, "the FTS-filtered artist select carries it too");
+
+        // The unfiltered browse resolver is a separate query under a different
+        // alias, so it is asserted separately.
+        let browsed = db.search_entity("", "artists", &TrackQuery::default()).unwrap();
+        let browsed_va = browsed.artists.unwrap().into_iter().find(|a| a.name == "Various Artists").unwrap();
+        assert_eq!(browsed_va.album_count, 1);
         let albums = db.search_entity("various", "albums", &TrackQuery::default()).unwrap();
         assert!(albums.albums.unwrap().iter().any(|a| a.title == "Summer Hits"));
 

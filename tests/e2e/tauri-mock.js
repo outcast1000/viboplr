@@ -62,8 +62,8 @@ const TEST_TRACKS = [
 ];
 
 const TEST_ARTISTS = [
-  { id: 1, name: 'Artist A', track_count: 2, liked: 0 },
-  { id: 2, name: 'Artist B', track_count: 1, liked: 0 },
+  { id: 1, name: 'Artist A', track_count: 2, liked: 0, album_count: 1 },
+  { id: 2, name: 'Artist B', track_count: 1, liked: 0, album_count: 1 },
 ];
 
 const TEST_ALBUMS = [
@@ -84,7 +84,9 @@ const TEST_COLLECTIONS = [
 function applyVaFixtures() {
   if (!window.__E2E_VA__ || window.__E2E_VA_APPLIED__) return;
   window.__E2E_VA_APPLIED__ = true;
-  TEST_ARTISTS.push({ id: 3, name: 'Various Artists', track_count: 0, liked: 0 });
+    // 0 own tracks but 1 owned album — the shape that made a track_count-only
+  // subtitle read "0 tracks". See utils/artistCount.ts.
+  TEST_ARTISTS.push({ id: 3, name: 'Various Artists', track_count: 0, liked: 0, album_count: 1 });
   TEST_ALBUMS.push({ id: 3, title: 'Big Comp', artist_id: 3, artist_name: 'Various Artists', year: 2021, track_count: 2, liked: 0 });
   TEST_TRACKS.push(
     { id: 5, key: 'lib:5', path: 'file:///music/Comps/Big Comp/01 Comp One.mp3', title: 'Comp One', artist_id: 1, artist_name: 'Artist A', album_id: 3, album_title: 'Big Comp', album_artist_name: 'Various Artists', year: 2021, track_number: 1, duration_secs: 200, format: 'mp3', file_size: 8000000, collection_id: 1, collection_name: 'Music', liked: 0, added_at: 1700000000, modified_at: 1700000000 },
@@ -175,7 +177,12 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'get_artists':
       return TEST_ARTISTS;
     case 'get_albums':
-      return TEST_ALBUMS;
+      // ArtistDetail calls this with an artistId and renders `albums.length`,
+      // so an unfiltered answer made every artist page claim every album.
+      // No artistId (the Library Albums tab) still gets the whole list.
+      return args && args.artistId != null
+        ? TEST_ALBUMS.filter(a => a.artist_id === args.artistId)
+        : TEST_ALBUMS;
     case 'get_collections':
       return TEST_COLLECTIONS;
     case 'get_collection_stats':

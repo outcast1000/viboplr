@@ -75,6 +75,10 @@ pub struct Artist {
     pub name: String,
     pub track_count: i64,
     pub liked: i32,
+    /// Non-empty albums this artist owns as ALBUMARTIST. Only meaningful when
+    /// `track_count` is 0 — an album-artist-only artist — which is when the UI
+    /// names albums instead of tracks. See `db::artist_album_count_sql`.
+    pub album_count: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

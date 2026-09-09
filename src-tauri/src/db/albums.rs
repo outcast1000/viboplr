@@ -263,4 +263,43 @@ mod tests {
         assert_eq!(alphas.artist_name.as_deref(), Some("Alpha"));
         assert_eq!(alphas.track_count, 1);
     }
+
+    /// An album-artist-only artist is listed with track_count 0 — no track
+    /// performs under that name — so `album_count` is the only number that
+    /// describes it, and the UI names albums instead of tracks. Every artist
+    /// SELECT must carry it: they are six separate queries under three aliases,
+    /// so a field added to one silently does nothing in the others.
+    #[test]
+    fn test_album_artist_only_artist_reports_its_album_count() {
+        let db = Database::new_in_memory().unwrap();
+        db.ingest_scanned_files(
+            &[
+                file("comp/01.flac", "One", "Alpha", Some("Various Artists"), "Comp"),
+                file("comp/02.flac", "Two", "Beta", Some("Various Artists"), "Comp"),
+                // Alpha also has an album of its own, so it has both counts.
+                file("alpha/01.flac", "Own", "Alpha", None, "Alpha Album"),
+            ],
+            None,
+        )
+        .unwrap();
+        db.recompute_counts().unwrap();
+
+        let va = db.find_artist_by_name("Various Artists").unwrap().unwrap();
+        assert_eq!(va.track_count, 0, "owns the compilation, performs on nothing");
+        assert_eq!(va.album_count, 1);
+
+        // The same row through the other two non-search selects. (The three
+        // search selects need FTS rows, so they are asserted in
+        // `test_search_finds_a_compilation_and_its_album_artist`.)
+        assert_eq!(db.get_artist_by_id(va.id).unwrap().unwrap().album_count, 1);
+        let listed = db.get_artists_filtered(false, None, None).unwrap();
+        let listed_va = listed.iter().find(|a| a.name == "Various Artists").unwrap();
+        assert_eq!(listed_va.album_count, 1);
+
+        // A performing artist keeps a real track_count; album_count rides along
+        // and is simply not what the UI shows for it.
+        let alpha = db.find_artist_by_name("Alpha").unwrap().unwrap();
+        assert_eq!(alpha.track_count, 2, "one comp track plus its own");
+        assert_eq!(alpha.album_count, 1, "owns Alpha Album, not the compilation");
+    }
 }
