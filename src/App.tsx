@@ -2835,6 +2835,11 @@ function App() {
           // so the first paint lands at the right size (webview zoom doesn't
           // persist across restarts). hydrate() clamped these to the ladder.
           await applyWebviewZoom(wasMini ? zoom.miniZoomRef.current : zoom.uiZoomRef.current);
+          // Rust sized the mini window from hardcoded logical-px constants
+          // before this webview existed (lib.rs). Refit it against the page's
+          // own measured scale while still hidden, so a platform where CSS and
+          // logical pixels disagree doesn't come up clipped (issue #130).
+          if (wasMini) await mini.refitMiniWindow();
           await getCurrentWindow().show();
         });
       } catch (e) {

@@ -52,7 +52,7 @@ export function clampToNearestMonitor(
 
 export interface SearchPanelGeometryInput {
   logicalY: number;       // current window top, logical px
-  restingHeight: number;  // 52 (normal) or 24 (compact)
+  restingHeight: number;  // current resting height, already scaled (see cssToLogicalRatio)
   monitor: MonitorRect | null;
 }
 
@@ -64,8 +64,9 @@ export interface SearchPanelGeometry {
 
 // Decide the search-panel window geometry: prefer growing down; if the panel
 // would overflow the bottom of the monitor, grow up and shift the top edge.
-// `panelHeight` defaults to the unscaled constant; callers pass a zoom-scaled
-// height when the mini player runs at a non-1 zoom factor.
+// `panelHeight` defaults to the unscaled constant; callers pass the height
+// already scaled by the measured CSS→logical ratio (see `cssToLogicalRatio`),
+// which carries both the mini zoom and any platform pixel-unit disagreement.
 export function searchPanelGeometry(
   input: SearchPanelGeometryInput,
   panelHeight: number = MINI_SEARCH_PANEL_HEIGHT,
@@ -97,6 +98,39 @@ async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
     console.error("Failed to read monitor geometry:", e);
     return [];
   }
+}
+
+/**
+ * The mini layout is authored in **CSS pixels**; Tauri sizes windows in
+ * **logical pixels**. Those two units are only equal when the webview's own
+ * scale matches the window's scale factor — which is not a given. On Windows,
+ * WebView2 applies the monitor scale to the page on top of the scaling the
+ * window already does, so at 125% a 52-logical-px mini window lays its content
+ * out in a ~41.6-CSS-px viewport and clips a quarter of it off the bottom
+ * (issue #130: art measured 1.25x oversized against its own window).
+ *
+ * Rather than theorise about which layer double-applies what, measure it: the
+ * ratio between the window's logical height and the CSS viewport height is the
+ * factor every authored dimension must be multiplied by to survive the trip.
+ * It is exactly 1 wherever the units already agree (macOS today), which is what
+ * makes this safe to apply unconditionally.
+ *
+ * It also already carries the **webview zoom** — page zoom changes the CSS
+ * viewport by definition — so callers must NOT additionally multiply by
+ * `miniZoom`. Doing both scales twice at any non-default mini zoom.
+ *
+ * Wild values are rejected in favour of 1: the two inputs are read over
+ * separate IPC hops, so a sample taken mid-resize can tear.
+ */
+export function cssToLogicalRatio(
+  innerHeightPhysical: number,
+  scaleFactor: number,
+  cssViewportHeight: number,
+): number {
+  if (!(innerHeightPhysical > 0) || !(scaleFactor > 0) || !(cssViewportHeight > 0)) return 1;
+  const ratio = (innerHeightPhysical / scaleFactor) / cssViewportHeight;
+  if (!Number.isFinite(ratio) || ratio < 0.5 || ratio > 4) return 1;
+  return ratio;
 }
 
 export type MiniRestingSize = "normal" | "compact";
@@ -178,12 +212,46 @@ export function useMiniMode(
   const miniWidthSizeRef = useRef<MiniWidthSize>("medium");
   useEffect(() => { miniWidthSizeRef.current = miniWidthSize; }, [miniWidthSize]);
 
-  // The mini player is the same webview, so its zoom factor (`miniZoomRef`)
-  // scales the content; to keep that content fitting, every mini-window
-  // dimension is multiplied by the same factor. All geometry below routes
-  // through these scaled accessors so the window and the rendered content stay
-  // proportional at any zoom. (Default zoom 1 → unchanged dimensions.)
-  const sz = useCallback((px: number) => Math.round(px * (miniZoomRef.current ?? 1)), [miniZoomRef]);
+  // Latest measured CSS-px → logical-px factor for this webview on this
+  // monitor at this zoom (see `cssToLogicalRatio`). Sampled before every sizing
+  // decision rather than subscribed to a scale-change event, so dragging the
+  // mini player onto a differently-scaled monitor self-heals on the next
+  // interaction and there is no listener to leak.
+  const cssRatioRef = useRef(1);
+  // `applyWebviewZoom` resolves when the IPC returns, not when the webview has
+  // relaid out at the new zoom — sampling straight after it reads the old CSS
+  // viewport and bakes the previous zoom into the ratio.
+  //
+  // Raced against a timer, and that is not belt-and-braces: the mode transitions
+  // deliberately resize while the window is HIDDEN, and a hidden or occluded
+  // window's rAF is suspended. Awaiting frames alone would wedge the whole
+  // transition — the mini player would simply never appear.
+  const settleLayout = useCallback(
+    () => new Promise<void>(resolve => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      requestAnimationFrame(() => requestAnimationFrame(finish));
+      setTimeout(finish, 50);
+    }),
+    [],
+  );
+  const sampleCssRatio = useCallback(async () => {
+    try {
+      const win = getCurrentWindow();
+      const [size, factor] = await Promise.all([win.innerSize(), win.scaleFactor()]);
+      cssRatioRef.current = cssToLogicalRatio(size.height, factor, window.innerHeight);
+    } catch (e) {
+      console.error("Failed to sample mini scale ratio:", e);
+    }
+  }, []);
+
+  // The mini player is the same webview, so its zoom factor scales the content;
+  // to keep that content fitting, every mini-window dimension is multiplied by
+  // the measured ratio, which carries the zoom **and** any platform disagreement
+  // between CSS and logical pixels. All geometry below routes through these
+  // scaled accessors so the window and the rendered content stay proportional.
+  // (Ratio 1 — macOS at any zoom the webview reports — → unchanged dimensions.)
+  const sz = useCallback((px: number) => Math.round(px * cssRatioRef.current), []);
   const expandedH = useCallback(() => sz(MINI_EXPANDED_HEIGHT), [sz]);
   const searchH = useCallback(() => sz(MINI_SEARCH_PANEL_HEIGHT), [sz]);
   const minW = useCallback(() => sz(MINI_MIN_WIDTH), [sz]);
@@ -247,6 +315,7 @@ export function useMiniMode(
     if (!miniModeRef.current || expandingRef.current || draggingRef.current) return;
     expandingRef.current = true;
     try {
+      await sampleCssRatio();
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const pos = await win.outerPosition();
@@ -283,12 +352,13 @@ export function useMiniMode(
     } finally {
       expandingRef.current = false;
     }
-  }, [currentRestingHeight]);
+  }, [currentRestingHeight, expandedH, minW, sampleCssRatio]);
 
   const collapseMini = useCallback(async () => {
     if (!miniModeRef.current || expandingRef.current || draggingRef.current) return;
     expandingRef.current = true;
     try {
+      await sampleCssRatio();
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const pos = await win.outerPosition();
@@ -308,13 +378,14 @@ export function useMiniMode(
     } finally {
       expandingRef.current = false;
     }
-  }, [currentRestingHeight]);
+  }, [currentRestingHeight, expandedH, minW, sampleCssRatio]);
 
   const openSearchPanel = useCallback(async () => {
     if (!miniModeRef.current || searchOpenRef.current) return;
     cancelCollapseTimer();
     searchOpenRef.current = true;
     try {
+      await sampleCssRatio();
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const pos = await win.outerPosition();
@@ -339,12 +410,13 @@ export function useMiniMode(
     } catch (err) {
       console.error("openSearchPanel failed:", err);
     }
-  }, [cancelCollapseTimer, currentRestingHeight]);
+  }, [cancelCollapseTimer, minW, sampleCssRatio, searchH]);
 
   const closeSearchPanel = useCallback(async () => {
     if (!miniModeRef.current || !searchOpenRef.current) return;
     searchOpenRef.current = false;
     try {
+      await sampleCssRatio();
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const pos = await win.outerPosition();
@@ -368,7 +440,7 @@ export function useMiniMode(
     } catch (err) {
       console.error("closeSearchPanel failed:", err);
     }
-  }, [currentRestingHeight]);
+  }, [currentRestingHeight, expandedH, minW, sampleCssRatio, searchH]);
 
   const toggleMiniMode = useCallback(async () => {
     try {
@@ -377,7 +449,6 @@ export function useMiniMode(
       if (!miniModeRef.current) {
         cancelCollapseTimer();
         setMiniExpanded(false);
-        const restingHeight = currentRestingHeight();
         const size = await win.innerSize();
         const pos = await win.outerPosition();
         const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
@@ -393,6 +464,11 @@ export function useMiniMode(
         // Apply the mini player's own zoom (independent of the full-window zoom)
         // while hidden, before sizing, so content + window stay proportional.
         await applyWebviewZoom(miniZoomRef.current ?? 1);
+        // Measure only once the new zoom has actually relaid out, and before any
+        // dimension is computed — every `sz()` below reads the sampled ratio.
+        await settleLayout();
+        await sampleCssRatio();
+        const restingHeight = currentRestingHeight();
         const miniW = widthFor(miniWidthSizeRef.current);
         await win.setMinSize(new LogicalSize(minW(), restingHeight));
         await win.setSize(new LogicalSize(miniW, restingHeight));
@@ -466,7 +542,7 @@ export function useMiniMode(
     } catch (err) {
       console.error("toggleMiniMode failed:", err);
     }
-  }, [cancelCollapseTimer, currentRestingHeight]);
+  }, [cancelCollapseTimer, currentRestingHeight, minW, miniZoomRef, sampleCssRatio, settleLayout, uiZoomRef, widthFor]);
 
   // Save window size and position on resize/move
   useEffect(() => {
@@ -619,6 +695,7 @@ export function useMiniMode(
     });
     if (!miniModeRef.current) return;
     try {
+      await sampleCssRatio();
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const pos = await win.outerPosition();
@@ -635,7 +712,7 @@ export function useMiniMode(
     } catch (err) {
       console.error("Failed to resize mini window:", err);
     }
-  }, [widthFor, expandedH, currentRestingHeight]);
+  }, [widthFor, expandedH, currentRestingHeight, sampleCssRatio]);
 
   // Re-apply the mini zoom factor and re-fit the current mini window to the new
   // scaled dimensions. Called by App.tsx when the user changes the mini-player
@@ -644,6 +721,8 @@ export function useMiniMode(
   const applyMiniZoom = useCallback(async () => {
     if (!miniModeRef.current) return;
     await applyWebviewZoom(miniZoomRef.current ?? 1);
+    await settleLayout();
+    await sampleCssRatio();
     try {
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
@@ -662,12 +741,17 @@ export function useMiniMode(
     } catch (err) {
       console.error("Failed to apply mini zoom resize:", err);
     }
-  }, [widthFor, searchH, expandedH, currentRestingHeight, minW, miniZoomRef]);
+  }, [widthFor, searchH, expandedH, currentRestingHeight, minW, miniZoomRef, sampleCssRatio, settleLayout]);
 
   return {
     miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded,
     cancelCollapseTimer, miniRestingSize, setMiniRestingSize,
     miniWidthSize, setMiniWidthSize, applyMiniZoom,
+    // Same operation, named for its other caller: `lib.rs` sizes the mini window
+    // at startup from its own copy of the constants, before a webview exists to
+    // measure — so a restart into mini mode comes up in unmeasured logical px
+    // and must be refitted once the page can report its own scale.
+    refitMiniWindow: applyMiniZoom,
     openSearchPanel, closeSearchPanel, searchOpenRef, beginMiniDrag,
   };
 }
