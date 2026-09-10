@@ -43,8 +43,12 @@ export function useLyrics({ track, enabled = true, invokeInfoFetch, pluginNames 
       id: 0,
       artistName: track.artist_name ?? "",
       albumTitle: track.album_title ?? "",
+      // Hint for the core local-lyrics provider: a local queue entry that
+      // isn't a library row can't be found by the metadata lookup, but its
+      // own file can still be probed for embedded/sidecar lyrics.
+      path: track.path ?? undefined,
     };
-  }, [enabled, track?.title, track?.artist_name, track?.album_title]);
+  }, [enabled, track?.title, track?.artist_name, track?.album_title, track?.path]);
 
   const { sections } = useInformationTypes({
     entity,

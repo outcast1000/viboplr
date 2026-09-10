@@ -404,6 +404,8 @@ Cached values use **name-based keys** (not DB IDs), enabling cross-library metad
 
 Success TTL is per-type (e.g., 90 days for bios, 7 days for popularity). Error TTL is fixed 1 hour. Concurrent fetches for the same `typeId:entityKey` are deduplicated via `inFlightRef` Set.
 
+**Built-in local provider (lyrics):** the lyrics chain's first row is `core:local-lyrics` — a `core:` row in `information_types` (seeded by DB migration #13, exempt from `info_sync_types`' deactivate pass), mirroring the image chain's core rows. `invokeInfoFetch` answers it natively (`utils/localLyrics.ts` → `get_local_lyrics`: embedded tag / sidecar `.lrc`/`.txt` / `Lyrics` folder — see backend.md `local_lyrics.rs`) instead of asking a plugin; `not_found` falls through to lrclib as usual. Its results ride the ordinary cache — that is what makes local lyrics reachable by `search_information_values` (the lyrics full-text search) — and the row is orderable/disableable in Settings → Providers like any provider. **TTL is per-row, not per-type** (`cacheTtlForRow` in `utils/infoFetchChain.ts`, applied by `useInformationTypes` and the control API): a local row — and any *non-ok* row of a type that has a local provider — expires after **1 day** (the answer can change on the user's own disk: an `.lrc` added after "no lyrics found" must not be masked for 90 days), while ok web rows and manual edits keep the type's 90-day TTL so lrclib isn't re-asked daily. Local values carry `local: true`, which hides the section editor (a cache edit would be overwritten by the next file re-probe).
+
 ### Placement
 
 | Placement | Display Kinds |

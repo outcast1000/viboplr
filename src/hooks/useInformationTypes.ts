@@ -10,7 +10,7 @@ import type {
 import { buildEntityKey } from "../types/informationTypes";
 // The cache-decision rule and the provider-chain walk live in
 // utils/infoFetchChain.ts, shared with the control API's info verbs.
-import { decideCacheAction, fetchInfoThroughChain } from "../utils/infoFetchChain";
+import { cacheTtlForRow, decideCacheAction, fetchInfoThroughChain } from "../utils/infoFetchChain";
 
 const EMPTY_DELAY_MS = 3000; // show progress for 3s before switching to empty
 
@@ -107,15 +107,18 @@ export function useInformationTypes({
       if (excludeSet?.has(typeId)) continue;
       if (includeSet && !includeSet.has(typeId)) continue;
 
+      const desc = description || undefined;
+
       const entry = cacheMap.get(typeId);
+      // A row from a local `core:` provider — or a miss on a type that has
+      // one — expires after a day instead of the type's web TTL: the answer
+      // can change on the user's own disk. See cacheTtlForRow.
       const action = decideCacheAction(
         entry?.status ?? null,
         entry?.fetchedAt ?? null,
-        ttl,
+        entry ? cacheTtlForRow(providers, entry.integerId, entry.status, ttl) : ttl,
         now,
       );
-
-      const desc = description || undefined;
 
       if (action === "empty") {
         newSections.push({

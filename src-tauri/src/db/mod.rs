@@ -925,6 +925,41 @@ impl Database {
             )?;
         }
 
+        // 13. Built-in "Local files" lyrics provider — a `core:` row in
+        //     information_types, mirroring the image chain's core rows
+        //     (image_provider::CORE_IMAGE_PROVIDERS): local lyrics (embedded
+        //     tag / sidecar .lrc / Lyrics folder — `local_lyrics.rs`, answered
+        //     by the frontend's invokeInfoFetch core branch via
+        //     `get_local_lyrics`) are an ordinary provider in the lyrics
+        //     chain, not a privileged pre-cache probe. Being a cached row is
+        //     what makes local lyrics reachable by the lyrics full-text
+        //     search (`search_information_values`) — a live-only probe was
+        //     invisible to it. Priority 50 seeds it ahead of the bundled
+        //     plugins (lrclib 100, lyrics-ovh 300); the user can reorder or
+        //     disable it in Settings → Providers like any other row.
+        //
+        //     The ttl deliberately mirrors the plugin rows' 90 days:
+        //     `info_get_types_for_entity` exposes ONE ttl per type (the
+        //     highest-priority row's) and this row usually sits first, so a
+        //     1-day value here would put every WEB lyrics row — and manual
+        //     edits — on a daily refetch. The effective 1-day TTL for
+        //     locally-sourced cache rows is applied by the frontend
+        //     (`cacheTtlForRow` in utils/infoFetchChain.ts).
+        //
+        //     Idempotent via ON CONFLICT DO NOTHING (so a user's re-priority
+        //     or disable survives every restart) — never `db_version < N`.
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO information_types
+                     (type_id, name, entity, display_kind, plugin_id, ttl, sort_order, priority, active, description)
+                 VALUES ('lyrics', 'Lyrics', 'track', 'lyrics', 'core:local-lyrics', 7776000, 200, 50, 1,
+                         'Song lyrics, synced or plain text')
+                 ON CONFLICT(type_id, plugin_id) DO NOTHING",
+                [],
+            )?;
+        }
+
         Ok(())
     }
 }

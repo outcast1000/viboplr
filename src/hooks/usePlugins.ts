@@ -60,6 +60,8 @@ import type {
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
 import { buildEntityKey } from "../types/informationTypes";
+import { CORE_LOCAL_LYRICS_PROVIDER } from "../utils/infoFetchChain";
+import { fetchLocalLyrics } from "../utils/localLyrics";
 
 /** Backstop for a global-search handler that never settles. Deliberately far
  *  more generous than the 5s home-shelf budget: search runs only when the user
@@ -98,7 +100,10 @@ export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
 };
 
 export const DEFAULT_INFO_TYPE_PRIORITY: Record<string, Record<string, number>> = {
-  lyrics: { lrclib: 100, genius: 200, "lyrics-ovh": 300, google: 400 },
+  // "core:local-lyrics" (50, ahead of every web provider) is seeded by DB
+  // migration #13, not by this map — it has no manifest for the sync/reset
+  // loops to walk. Listed here as documentation of the full default chain.
+  lyrics: { "core:local-lyrics": 50, lrclib: 100, genius: 200, "lyrics-ovh": 300, google: 400 },
   artist_bio: { lastfm: 100, genius: 200 },
   album_wiki: { lastfm: 100, genius: 200 },
 };
@@ -2397,6 +2402,14 @@ export function usePlugins(
       entity: InfoEntity,
       onFetchUrl?: (url: string) => void,
     ): Promise<InfoFetchResult> => {
+      // The built-in local-lyrics provider (a `core:` row in the chain, like
+      // the image chain's core rows) is answered natively rather than by a
+      // plugin: embedded tag / sidecar .lrc / Lyrics folder, probed live by
+      // `get_local_lyrics`. not_found falls through to the next provider.
+      if (pluginId === CORE_LOCAL_LYRICS_PROVIDER) {
+        const value = await fetchLocalLyrics(entity, entity.path);
+        return value ? { status: "ok", value } : { status: "not_found" };
+      }
       const loaded = loadedPluginsRef.current.get(pluginId);
       if (!loaded) return { status: "error" };
       const handler = loaded.infoFetchHandlers.get(infoTypeId);
@@ -2763,7 +2776,13 @@ export function usePlugins(
   );
 
   const pluginNames = useMemo(
-    () => new Map(pluginStates.map((s) => [s.id, s.manifest.name])),
+    () =>
+      new Map([
+        // The built-in local-lyrics provider has no manifest to name it; without
+        // this the fetch-progress line and the Retrieve modal show the raw id.
+        [CORE_LOCAL_LYRICS_PROVIDER, "Local files"],
+        ...pluginStates.map((s): [string, string] => [s.id, s.manifest.name]),
+      ]),
     [pluginStates],
   );
 

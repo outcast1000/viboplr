@@ -718,6 +718,63 @@ pub fn get_audio_properties_by_path(
     })
 }
 
+/// Local lyrics for a track (issue #131): embedded tag lyrics, a sidecar
+/// `.lrc`/`.txt` named like the audio file, or the same inside a `Lyrics/`
+/// subfolder — probed in that order, first hit wins (`local_lyrics.rs`).
+///
+/// `path` (when the caller holds one — the playing queue entry, the selected
+/// library row) is probed first; after it, every **local** library copy of the
+/// metadata match is probed too, so a queue entry playing a remote copy still
+/// finds the lyrics sitting next to the user's own file. Metadata candidates
+/// are kept only when their artist matches the asked-for artist: the lookup's
+/// title-only fallback tier can land on a different artist's song of the same
+/// name, and silently wrong lyrics are worse than none.
+///
+/// Probed live on every call and never cached — the file is the source of
+/// truth, and a user who just saved an `.lrc` expects it on the next look
+/// (unlike the network providers, whose answers ride the info-value cache).
+///
+/// `async` + `spawn_blocking` like `read_file_tags`: a non-async command runs
+/// inline on the main thread, and this touches disk (possibly a network mount)
+/// plus a lofty parse per candidate.
+#[tauri::command]
+pub async fn get_local_lyrics(
+    state: State<'_, AppState>,
+    title: String,
+    artist_name: Option<String>,
+    album_name: Option<String>,
+    path: Option<String>,
+) -> Result<Option<crate::local_lyrics::LocalLyrics>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(bare) = path.as_deref().and_then(|p| p.strip_prefix("file://")) {
+            candidates.push(std::path::PathBuf::from(bare));
+        }
+        if let Ok(tracks) =
+            db.find_tracks_by_metadata(&title, artist_name.as_deref(), album_name.as_deref())
+        {
+            let wanted_artist = artist_name.as_deref().map(|a| crate::db::likes::norm_segment(Some(a)));
+            for t in tracks {
+                if let Some(wanted) = &wanted_artist {
+                    if &crate::db::likes::norm_segment(t.artist_name.as_deref()) != wanted {
+                        continue;
+                    }
+                }
+                if let Some(bare) = t.path.strip_prefix("file://") {
+                    let pb = std::path::PathBuf::from(bare);
+                    if !candidates.contains(&pb) {
+                        candidates.push(pb);
+                    }
+                }
+            }
+        }
+        candidates.iter().find_map(|p| crate::local_lyrics::probe_local_lyrics(p))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))
+}
+
 /// Read embedded tags for a batch of local files — one result per input path, in
 /// order, `None` for anything unreadable (missing file, or a container lofty
 /// can't parse).

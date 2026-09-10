@@ -1387,6 +1387,36 @@ fn test_info_sync_types_activates_and_deactivates() {
 }
 
 #[test]
+fn test_core_local_lyrics_row_is_seeded_and_survives_sync() {
+    let db = test_db();
+
+    // Migration #13 seeds the built-in local-lyrics provider on every fresh DB.
+    let types = db.info_get_types_for_entity("track").unwrap();
+    let lyrics = types.iter().find(|t| t.0 == "lyrics").expect("lyrics type seeded");
+    assert_eq!(lyrics.5[0].0, "core:local-lyrics", "core row leads the chain");
+    assert_eq!(lyrics.3, 7776000, "type ttl mirrors the web rows' — the 1-day local TTL is a frontend rule");
+
+    // A plugin sync (the reconcile that deactivates rows for missing plugins)
+    // must not switch the core row off — it comes from no manifest.
+    db.info_sync_types(&[
+        ("lyrics".into(), "Lyrics".into(), "track".into(), "lyrics".into(),
+         "lrclib".into(), 7776000, 200, 100, String::new()),
+    ]).unwrap();
+    let types = db.info_get_types_for_entity("track").unwrap();
+    let lyrics = types.iter().find(|t| t.0 == "lyrics").expect("lyrics type still active");
+    assert_eq!(
+        lyrics.5.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
+        vec!["core:local-lyrics", "lrclib"],
+        "core first (priority 50 < 100), plugin row appended"
+    );
+
+    // Even a sync carrying no types at all (every plugin gone) keeps it.
+    db.info_sync_types(&[]).unwrap();
+    let types = db.info_get_types_for_entity("track").unwrap();
+    assert!(types.iter().any(|t| t.0 == "lyrics" && t.5[0].0 == "core:local-lyrics"));
+}
+
+#[test]
 fn test_info_sync_updates_metadata() {
     let db = test_db();
 

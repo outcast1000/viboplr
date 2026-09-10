@@ -26,6 +26,10 @@ export interface InfoEntity {
   id: number;
   artistName?: string;
   albumTitle?: string;
+  /** Local file path hint (tracks only, may carry a `file://` prefix) for the
+   *  core local-lyrics provider. Not part of the entity key — a purely
+   *  advisory extra that plugin handlers may ignore. */
+  path?: string;
 }
 
 /** Result returned by plugin onFetch handlers */
@@ -99,6 +103,12 @@ export interface LyricsData {
   text: string;
   kind: "plain" | "synced";
   lines?: Array<{ time: number; text: string }>;
+  /** True when the lyrics came from the track's own files (embedded tag,
+   *  sidecar .lrc/.txt, Lyrics folder — the `core:local-lyrics` provider, see
+   *  utils/localLyrics.ts) rather than a web provider. The in-app editor
+   *  hides for these: a cache edit would be overwritten by the next re-probe
+   *  of the file it can't change. */
+  local?: boolean;
 }
 
 export interface TagListData {

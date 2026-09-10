@@ -10,10 +10,17 @@ impl Database {
     /// Deactivates all types, then upserts incoming types as active.
     /// Types from missing plugins remain with active = 0.
     /// On conflict, preserves user-customized sort_order and priority.
+    ///
+    /// `core:` rows (the built-in local-lyrics provider, seeded by migration
+    /// #13) are exempt from the deactivate pass: they come from no manifest,
+    /// so this reconcile-against-installed-plugins would otherwise switch
+    /// them off on every plugin reload. Same rule as `sync_image_providers`'
+    /// core exemption. A user's own disable (`info_set_active`) still sticks —
+    /// the upsert below only touches manifest rows.
     pub fn info_sync_types(&self, types: &[(String, String, String, String, String, i64, i64, i64, String)]) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch("BEGIN")?;
-        conn.execute("UPDATE information_types SET active = 0", [])?;
+        conn.execute("UPDATE information_types SET active = 0 WHERE plugin_id NOT LIKE 'core:%'", [])?;
         let mut stmt = conn.prepare(
             "INSERT INTO information_types (type_id, name, entity, display_kind, plugin_id, ttl, sort_order, priority, active, description)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9)

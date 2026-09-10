@@ -32,7 +32,7 @@ import type {
 import type { SkinInfo } from "../types/skin";
 import type { InfoEntity } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
-import { decideCacheAction, fetchInfoThroughChain, type InvokeInfoFetch } from "../utils/infoFetchChain";
+import { cacheTtlForRow, decideCacheAction, fetchInfoThroughChain, type InvokeInfoFetch } from "../utils/infoFetchChain";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { getPlaybackPosition } from "../playback/positionStore";
 import { applyTag, removeTag } from "./useTagActions";
@@ -440,12 +440,12 @@ export function useControlApi(deps: ControlApiDeps) {
         const entityKey = buildEntityKey(entity);
         const types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
         const cached = await invoke<InfoValueRow[]>("info_get_values_for_entity", { entityKey });
-        const cacheMap = new Map(cached.map(([, typeId, value, status, fetchedAt]) =>
-          [typeId, { value, status, fetchedAt }]));
+        const cacheMap = new Map(cached.map(([integerId, typeId, value, status, fetchedAt]) =>
+          [typeId, { integerId, value, status, fetchedAt }]));
         const now = Math.floor(Date.now() / 1000);
         return {
           entityKey,
-          sections: types.map(([typeId, name, displayKind, ttl]) => {
+          sections: types.map(([typeId, name, displayKind, ttl, , providers]) => {
             const c = cacheMap.get(typeId);
             return {
               typeId,
@@ -453,7 +453,9 @@ export function useControlApi(deps: ControlApiDeps) {
               displayKind,
               status: c?.status ?? null,
               fetchedAt: c?.fetchedAt ?? null,
-              fresh: c ? decideCacheAction(c.status, c.fetchedAt, ttl, now) === "render" : false,
+              fresh: c
+                ? decideCacheAction(c.status, c.fetchedAt, cacheTtlForRow(providers, c.integerId, c.status, ttl), now) === "render"
+                : false,
               value: c?.status === "ok" ? parseInfoValue(c.value) : null,
             };
           }),
@@ -476,7 +478,9 @@ export function useControlApi(deps: ControlApiDeps) {
         const cached = await invoke<InfoValueRow[]>("info_get_values_for_entity", { entityKey });
         const c = cached.find(([, id]) => id === typeId);
         const now = Math.floor(Date.now() / 1000);
-        if (c && decideCacheAction(c[3], c[4], ttl, now) === "render") {
+        // Local (`core:`) rows and misses on a type with a local provider
+        // expire daily — the answer can change on disk. See cacheTtlForRow.
+        if (c && decideCacheAction(c[3], c[4], cacheTtlForRow(providers, c[0], c[3], ttl), now) === "render") {
           return { typeId, name, displayKind, status: "ok", source: "cache", value: parseInfoValue(c[2]) };
         }
         if (providers.length === 0) bad(`no providers registered for "${typeId}" — is the plugin enabled?`);

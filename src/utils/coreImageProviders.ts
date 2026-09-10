@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { CORE_LOCAL_LYRICS_PROVIDER } from "./infoFetchChain";
 
 /**
  * The built-in image providers. They are rows in the same `image_providers`
@@ -20,12 +21,17 @@ export function isCoreImageProvider(providerId: string): boolean {
 const CORE_NAMES: Record<string, string> = {
   [CORE_FOLDER_PROVIDER]: "Folder image",
   [CORE_EMBEDDED_PROVIDER]: "Embedded artwork",
+  // Not an image provider — the info-type chain's core row (local lyrics) —
+  // but Settings → Providers labels both lists through imageProviderName, so
+  // its display name lives in the same map.
+  [CORE_LOCAL_LYRICS_PROVIDER]: "Local files",
 };
 
 /** Longer names for the Retrieve modal, which has room to say where art came from. */
 const CORE_LONG_NAMES: Record<string, string> = {
   [CORE_FOLDER_PROVIDER]: "Folder image (next to the tracks)",
   [CORE_EMBEDDED_PROVIDER]: "Embedded artwork (audio file)",
+  [CORE_LOCAL_LYRICS_PROVIDER]: "Local files (embedded tag / .lrc)",
 };
 
 /**

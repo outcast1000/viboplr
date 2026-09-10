@@ -9,6 +9,45 @@ import type { InfoEntity, InfoFetchResult, FetchProgressEntry } from "../types/i
 
 export const ERROR_TTL = 3600; // 1 hour in seconds
 
+/** How long a cache row that depends on the user's own disk stays fresh. */
+export const LOCAL_INFO_TTL = 86400; // 1 day in seconds
+
+/** The built-in local-lyrics provider row (seeded by DB migration #13; the
+ *  frontend answers it in usePlugins.invokeInfoFetch via `get_local_lyrics`).
+ *  Mirrors the image chain's `core:` rows — the prefix can never collide with
+ *  a plugin id, since `:` isn't legal in a manifest id. */
+export const CORE_LOCAL_LYRICS_PROVIDER = "core:local-lyrics";
+
+/**
+ * Effective TTL for ONE cached info row. The type's TTL (90 days for lyrics)
+ * is right for a web answer, but once a type has a `core:` local provider the
+ * answer can change on the user's own disk, so two kinds of row must expire
+ * daily instead:
+ *
+ * - a row the LOCAL provider produced (the .lrc may have been edited), and
+ * - any non-ok row (a chain-wide "no lyrics found" must not mask an .lrc the
+ *   user adds tomorrow — with the old 90-day miss, a track whose lyrics were
+ *   looked up once before the file existed stayed lyric-less for 3 months).
+ *
+ * Ok rows from web providers — including a user's manual edit, which is
+ * saved under the web row — keep the type TTL, so lrclib isn't re-asked
+ * daily and an edit isn't clobbered after a day.
+ */
+export function cacheTtlForRow(
+  providers: Array<[string, number]>,
+  integerId: number,
+  status: string | null,
+  typeTtl: number,
+): number {
+  const hasCore = providers.some(([pluginId]) => pluginId.startsWith("core:"));
+  if (!hasCore) return typeTtl;
+  const rowIsCore = providers.some(
+    ([pluginId, id]) => id === integerId && pluginId.startsWith("core:"),
+  );
+  if (rowIsCore || status !== "ok") return Math.min(typeTtl, LOCAL_INFO_TTL);
+  return typeTtl;
+}
+
 export type CacheAction = "render" | "render_and_refetch" | "loading" | "empty";
 
 /** What to do with a cached info value: render it, render-but-refresh (stale

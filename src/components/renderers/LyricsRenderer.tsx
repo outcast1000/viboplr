@@ -108,6 +108,7 @@ export function LyricsRenderer({ data, onAction, context }: RendererProps) {
         <span className={`lyrics-badge${d.kind === "synced" ? " lyrics-badge-synced" : ""}`}>
           {d.kind}
         </span>
+        {d.local && <span className="lyrics-badge" title="From the track's own files — edit the file to change them">local</span>}
         {lrcLines && positionSecs > 0 && (
           <button
             className={`lyrics-action-btn${syncEnabled ? " active" : ""}`}
@@ -115,7 +116,9 @@ export function LyricsRenderer({ data, onAction, context }: RendererProps) {
             title={syncEnabled ? "Disable synced scroll" : "Enable synced scroll"}
           >&#9201;</button>
         )}
-        <button className="lyrics-action-btn" onClick={startEdit} title="Edit lyrics">&#9998;</button>
+        {/* No editor for file-backed lyrics: a cache edit would be overwritten
+            by the next re-probe of the local file (issue #131). */}
+        {!d.local && <button className="lyrics-action-btn" onClick={startEdit} title="Edit lyrics">&#9998;</button>}
       </div>
       <div className="lyrics-body" ref={scrollRef} onScroll={handleScroll}>
         {lrcLines ? (

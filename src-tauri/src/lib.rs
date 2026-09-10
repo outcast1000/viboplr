@@ -7,6 +7,7 @@ pub mod dependencies;
 mod entity_image;
 mod error_chain;
 mod image_provider;
+mod local_lyrics;
 mod logging;
 mod models;
 mod profile_shortcuts;
@@ -208,6 +209,7 @@ macro_rules! invoke_handler {
             commands::get_track_audio_properties,
             commands::get_audio_properties_by_path,
             commands::read_file_tags,
+            commands::get_local_lyrics,
             commands::get_file_size,
             commands::get_replaygain_by_path,
             commands::get_track_extra_tags,

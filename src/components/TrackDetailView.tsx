@@ -345,7 +345,7 @@ export function TrackDetailView({
       {isLibrary && <EntityTagPanel tracks={[{ ...track, id: trackId }]} />}
       <div className="section-wide">
         <InformationSections
-          entity={track.artist_name ? { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name, albumTitle: track.album_title ?? undefined } : null}
+          entity={track.artist_name ? { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name, albumTitle: track.album_title ?? undefined, path: track.path ?? undefined } : null}
           exclude={["track_tags"]}
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}
