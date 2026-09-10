@@ -21,6 +21,31 @@ function activate(api) {
     return q.length > 0 && q === c;
   }
 
+  // Assistant tool: multi-candidate cover search — the chain provider below
+  // auto-picks one hit; a model choosing between editions wants the list.
+  if (api.assistant) {
+    api.assistant.onTool("search_album_art", async function (args) {
+      var query = typeof args.query === "string" ? args.query.trim() : "";
+      if (!query) throw new Error('"query" (string) is required');
+      var limit = Math.min(10, Math.max(1, parseInt(args.limit, 10) || 5));
+      var resp = await api.network.fetch(
+        "https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&entity=album&limit=" + limit
+      );
+      var data = await resp.json();
+      var hits = (data && data.results) || [];
+      return {
+        candidates: hits.filter(function (h) { return h.artworkUrl100; }).map(function (h) {
+          return {
+            album: h.collectionName,
+            artist: h.artistName,
+            year: h.releaseDate ? parseInt(h.releaseDate.slice(0, 4), 10) : null,
+            imageUrl: h.artworkUrl100.replace("100x100", "600x600"),
+          };
+        }),
+      };
+    });
+  }
+
   api.imageProviders.onFetch("album", async function (name, artistName) {
     var term = artistName
       ? encodeURIComponent(artistName) + "+" + encodeURIComponent(name)

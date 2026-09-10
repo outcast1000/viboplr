@@ -28,6 +28,7 @@ import type {
   PluginState, ExtensionUpdate, PluginSearchProvider, PluginSearchResult,
   PluginMenuItem, PluginContextMenuTarget, PluginTargetKind, PluginTrack,
   HomeShelfDisplayKind, HomeShelfItem, HomeShelfResult, GalleryPluginEntry,
+  PluginAssistantTool, ImageFetchResult,
 } from "../types/plugin";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import type { InfoEntity } from "../types/informationTypes";
@@ -51,6 +52,7 @@ import {
   describeContributes,
   annotateGalleryPlugins,
   annotateGallerySkins,
+  buildAssistantRoster,
   resolveSearchProvider,
   selectSearchTracks,
   resolveHomeShelf,
@@ -132,6 +134,20 @@ export interface ControlApiDeps {
     menuItems: PluginMenuItem[];
     dispatchContextMenuAction: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
     forwardDeepLink: (url: string) => void;
+    /** Plugin-declared AI tools (manifest + runtime, merged) + per-plugin
+     *  instructions — the plugin's own "small MCP server" surface. */
+    assistantTools: PluginAssistantTool[];
+    assistantInstructions: Map<string, string>;
+    invokeAssistantTool: (pluginId: string, name: string, args: Record<string, unknown>) => Promise<unknown>;
+    /** usePlugins.invokeImageFetch — one plugin's image provider, directly
+     *  (the targeted images.fetch path; the untargeted path runs the Rust
+     *  worker's whole chain). */
+    invokeImageFetch: (
+      pluginId: string,
+      entity: "artist" | "album" | "tag",
+      name: string,
+      artistName?: string,
+    ) => Promise<ImageFetchResult>;
     /** usePlugins.fetchPluginGallery — TTL-cached gallery index (read-only
      *  discovery; install stays a permanent non-goal, see extensions.list). */
     fetchPluginGallery: (force?: boolean) => Promise<GalleryPluginEntry[]>;
@@ -485,17 +501,31 @@ export function useControlApi(deps: ControlApiDeps) {
           ?? bad(`type "${typeId}" is not registered for ${entity.kind} entities (available: ${types.map((t) => t[0]).join(", ") || "none"})`);
         const [, name, displayKind, ttl, , providers] = row;
 
-        const cached = await invoke<InfoValueRow[]>("info_get_values_for_entity", { entityKey });
-        const c = cached.find(([, id]) => id === typeId);
-        const now = Math.floor(Date.now() / 1000);
-        // Local (`core:`) rows and misses on a type with a local provider
-        // expire daily — the answer can change on disk. See cacheTtlForRow.
-        if (c && decideCacheAction(c[3], c[4], cacheTtlForRow(providers, c[0], c[3], ttl), now) === "render") {
-          return { typeId, name, displayKind, status: "ok", source: "cache", value: parseInfoValue(c[2]) };
+        // Optional targeting: pin the fetch to one plugin's provider instead
+        // of walking the user-ordered chain. A pinned fetch also bypasses the
+        // fresh-cache serve — the cached value may have come from a different
+        // provider, and pinning means "I want THIS plugin's answer".
+        const targetPlugin = optionalString(payload.pluginId);
+        const chain = targetPlugin
+          ? providers.filter(([pid]) => pid === targetPlugin)
+          : providers;
+        if (targetPlugin && chain.length === 0) {
+          bad(`plugin "${targetPlugin}" is not a provider of "${typeId}" (providers: ${providers.map((p) => p[0]).join(", ") || "none"})`);
         }
-        if (providers.length === 0) bad(`no providers registered for "${typeId}" — is the plugin enabled?`);
+
+        if (!targetPlugin) {
+          const cached = await invoke<InfoValueRow[]>("info_get_values_for_entity", { entityKey });
+          const c = cached.find(([, id]) => id === typeId);
+          const now = Math.floor(Date.now() / 1000);
+          // Local (`core:`) rows and misses on a type with a local provider
+          // expire daily — the answer can change on disk. See cacheTtlForRow.
+          if (c && decideCacheAction(c[3], c[4], cacheTtlForRow(providers, c[0], c[3], ttl), now) === "render") {
+            return { typeId, name, displayKind, status: "ok", source: "cache", value: parseInfoValue(c[2]) };
+          }
+        }
+        if (chain.length === 0) bad(`no providers registered for "${typeId}" — is the plugin enabled?`);
         const { result } = await fetchInfoThroughChain({
-          typeId, providers, entity, entityKey,
+          typeId, providers: chain, entity, entityKey,
           invokeInfoFetch: d.plugins.invokeInfoFetch,
           pluginNames: d.plugins.pluginNames,
         });
@@ -523,20 +553,41 @@ export function useControlApi(deps: ControlApiDeps) {
         }
         return await dispatch("info.fetch", {
           kind: "track", title, artistName, albumTitle, typeId: "lyrics",
+          // Optional provider pin rides through (e.g. force LRCLIB vs local).
+          pluginId: payload.pluginId,
         });
       }
 
       case "images.fetch": {
-        // Kick the Rust image worker's provider-chain resolve — the same
-        // commands the UI's Retrieve buttons invoke. Async by nature (the
-        // worker emits *-image-ready events); the caller re-GETs the image.
         const kind = payload.kind;
         const name = optionalString(payload.name) ?? bad("name is required");
         const artistName = optionalString(payload.artistName);
+        if (kind !== "artist" && kind !== "album" && kind !== "tag") {
+          bad('kind must be "artist", "album" or "tag"');
+        }
+        // Optional targeting: ask ONE plugin's image provider directly and
+        // return its answer inline (url or base64 data) — synchronous and
+        // chain-free, but deliberately NOT written to the app's image cache
+        // (the cache belongs to the user-ordered chain).
+        const targetPlugin = optionalString(payload.pluginId);
+        if (targetPlugin) {
+          const res = await d.plugins.invokeImageFetch(targetPlugin, kind, name, artistName);
+          if (res.status !== "ok") {
+            bad(`plugin "${targetPlugin}" answered ${res.status}${"message" in res && res.message ? `: ${res.message}` : ""}`);
+          }
+          return {
+            pluginId: targetPlugin,
+            url: "url" in res ? res.url : null,
+            data: "data" in res ? res.data : null,
+            note: "fetched directly from the plugin — not stored in the app's image cache",
+          };
+        }
+        // Untargeted: kick the Rust image worker's provider-chain resolve —
+        // the same commands the UI's Retrieve buttons invoke. Async by nature
+        // (the worker emits *-image-ready events); the caller re-GETs.
         if (kind === "artist") await invoke("fetch_artist_image", { artistName: name });
         else if (kind === "album") await invoke("fetch_album_image", { albumTitle: name, artistName: artistName ?? null });
-        else if (kind === "tag") await invoke("fetch_tag_image", { tagName: name });
-        else bad('kind must be "artist", "album" or "tag"');
+        else await invoke("fetch_tag_image", { tagName: name });
         return { started: true, note: "resolving through the image provider chain — retry GET /v1/images/{kind} in a few seconds" };
       }
 
@@ -880,6 +931,45 @@ export function useControlApi(deps: ControlApiDeps) {
         return { delivered: true, url };
       }
 
+      // --- Plugin assistant tools ---
+      // The plugin-declared AI surface (api.assistant): each plugin publishes
+      // tools + instructions like a small MCP server, and the caller invokes
+      // them per plugin. Request/response, unlike actions.invoke — the tool's
+      // return value IS the payload.
+
+      case "assistant.tools":
+        return {
+          plugins: buildAssistantRoster(
+            d.plugins.assistantTools,
+            d.plugins.assistantInstructions,
+            d.plugins.pluginNames ?? new Map(),
+          ),
+        };
+
+      case "assistant.invoke": {
+        const pluginId = optionalString(payload.pluginId) ?? bad("pluginId is required");
+        const tool = optionalString(payload.tool) ?? bad("tool is required");
+        const plugin = d.plugins.pluginStates.find((p) => p.id === pluginId)
+          ?? bad(`plugin "${pluginId}" is not installed`);
+        if (!plugin.enabled) bad(`plugin "${pluginId}" is disabled`);
+        const known = d.plugins.assistantTools.some((t) => t.pluginId === pluginId && t.name === tool);
+        if (!known) {
+          const roster = d.plugins.assistantTools
+            .filter((t) => t.pluginId === pluginId)
+            .map((t) => t.name)
+            .join(", ");
+          bad(`plugin "${pluginId}" registers no tool "${tool}" (its tools: ${roster || "none"})`);
+        }
+        const args =
+          typeof payload.args === "object" && payload.args !== null && !Array.isArray(payload.args)
+            ? (payload.args as Record<string, unknown>)
+            : {};
+        // Rejections (handler throw, timeout, no live handler) propagate to
+        // the dispatcher's catch and land in the HTTP error body.
+        const result = await d.plugins.invokeAssistantTool(pluginId, tool, args);
+        return { result: result === undefined ? null : result };
+      }
+
       // --- Extensions & skins ---
       // Read + reversible controls only. Install and delete are deliberate
       // NON-goals: installing a plugin grants it everything the app can do
@@ -904,6 +994,7 @@ export function useControlApi(deps: ControlApiDeps) {
               searchProviders: d.plugins.searchProviders.filter((sp) => sp.pluginId === p.id).length,
               homeShelves: d.plugins.homeShelves.filter((s) => s.pluginId === p.id).length,
               contextMenuItems: d.plugins.menuItems.filter((m) => m.pluginId === p.id).length,
+              assistantTools: d.plugins.assistantTools.filter((t) => t.pluginId === p.id).length,
             }),
           })),
           skins: d.skins.installedSkins.map((s) => ({
@@ -1012,7 +1103,11 @@ export function useControlApi(deps: ControlApiDeps) {
             contextMenuItems: d.plugins.menuItems
               .filter((mi) => mi.pluginId === pluginId)
               .map((mi) => ({ id: mi.id, label: mi.label, targets: mi.targets })),
+            assistantTools: d.plugins.assistantTools
+              .filter((t) => t.pluginId === pluginId)
+              .map((t) => ({ name: t.name, description: t.description })),
           },
+          assistantInstructions: d.plugins.assistantInstructions.get(pluginId) ?? null,
           update: update
             ? { currentVersion: update.currentVersion, latestVersion: update.latestVersion, status: update.status }
             : null,

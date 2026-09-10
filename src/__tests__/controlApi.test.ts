@@ -24,6 +24,7 @@ import {
   describeContributes,
   annotateGalleryPlugins,
   annotateGallerySkins,
+  buildAssistantRoster,
 } from "../utils/controlApi";
 import type { QueueTrack, Track } from "../types";
 import type { PluginManifestContributes } from "../types/plugin";
@@ -326,11 +327,12 @@ describe("summarizeCapabilities", () => {
     // yt-dlp declares no searchProviders in its manifest (its provider is
     // runtime-registered, gated on the binary) — the live count must win.
     const out = summarizeCapabilities(YTDLP_CONTRIBUTES, {
-      searchProviders: 1, homeShelves: 0, contextMenuItems: 1,
+      searchProviders: 1, homeShelves: 0, contextMenuItems: 1, assistantTools: 2,
     });
     expect(out).toEqual({
       searchProviders: 1,
       contextMenuItems: 1,
+      assistantTools: 2,
       downloadProviders: 1,
       streamResolvers: 1,
       sidebarViews: 1,
@@ -339,9 +341,9 @@ describe("summarizeCapabilities", () => {
   });
 
   it("omits zero-valued keys entirely and tolerates a missing contributes block", () => {
-    expect(summarizeCapabilities(undefined, { searchProviders: 0, homeShelves: 0, contextMenuItems: 0 }))
+    expect(summarizeCapabilities(undefined, { searchProviders: 0, homeShelves: 0, contextMenuItems: 0, assistantTools: 0 }))
       .toEqual({});
-    expect(summarizeCapabilities({}, { searchProviders: 0, homeShelves: 2, contextMenuItems: 0 }))
+    expect(summarizeCapabilities({}, { searchProviders: 0, homeShelves: 2, contextMenuItems: 0, assistantTools: 0 }))
       .toEqual({ homeShelves: 2 });
   });
 });
@@ -357,6 +359,29 @@ describe("describeContributes", () => {
     expect(out.searchProviders).toEqual([]);
     expect(out.homeShelves).toEqual([]);
     expect(describeContributes(undefined).eventHooks).toEqual([]);
+  });
+});
+
+describe("buildAssistantRoster", () => {
+  it("groups tools per plugin and keeps an instructions-only plugin in the roster", () => {
+    const roster = buildAssistantRoster(
+      [
+        { pluginId: "mock-download", name: "search_catalog", description: "Search the fake catalog", inputSchema: { type: "object" } },
+        { pluginId: "mock-download", name: "get_state", description: "Simulation settings" },
+      ],
+      new Map([
+        ["mock-download", "Mock provider for testing."],
+        ["spotify-browse", "Browse Spotify via its sidebar view; there are no callable tools."],
+      ]),
+      new Map([["mock-download", "Mock Download"]]),
+    );
+    expect(roster.map((p) => p.pluginId)).toEqual(["mock-download", "spotify-browse"]);
+    expect(roster[0].name).toBe("Mock Download");
+    expect(roster[0].tools.map((t) => t.name)).toEqual(["search_catalog", "get_state"]);
+    expect(roster[0].tools[1].inputSchema).toBeNull();
+    // No manifest name known → the id stands in.
+    expect(roster[1]).toMatchObject({ name: "spotify-browse", tools: [] });
+    expect(roster[1].instructions).toContain("no callable tools");
   });
 });
 

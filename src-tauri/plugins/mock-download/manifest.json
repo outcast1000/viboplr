@@ -10,6 +10,20 @@
     "downloadProviders": [
       { "id": "mock-dl", "name": "Mock" }
     ],
+    "assistant": {
+      "instructions": "Mock provider for testing the assistant-tool path. search_catalog finds fake tracks by title/artist substring; get_state returns the failure-simulation knobs (set in Settings → Mock Download).",
+      "tools": [
+        {
+          "name": "search_catalog",
+          "description": "Search the fake 10-track catalog by title/artist substring",
+          "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] }
+        },
+        {
+          "name": "get_state",
+          "description": "The mock provider's current simulation settings (fail/error rates, delay)"
+        }
+      ]
+    },
     "settingsPanel": {
       "id": "mock-download-settings",
       "label": "Mock Download",

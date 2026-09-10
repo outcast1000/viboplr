@@ -11,6 +11,25 @@
     { "api": "library.setTrackLikesBatch", "reason": "Import your Last.fm loved tracks as likes" }
   ],
   "contributes": {
+    "assistant": {
+      "instructions": "Last.fm scrobbling + account data. Public data (artist bios, similar artists/tracks, top tracks, tags) is served through the info types — use POST /v1/info/fetch (or the get_entity_info tool), optionally with pluginId=lastfm. These tools cover the ACCOUNT half the local library can't know: cross-device listening from the user's Last.fm profile. All of them need the user to be connected (check account_status first).",
+      "tools": [
+        {
+          "name": "account_status",
+          "description": "Whether Last.fm is connected, and as which username"
+        },
+        {
+          "name": "recent_scrobbles",
+          "description": "The user's latest scrobbles from their Last.fm account — includes plays from OTHER devices/apps, unlike the local history",
+          "inputSchema": { "type": "object", "properties": { "limit": { "type": "number", "description": "1-200, default 20" } } }
+        },
+        {
+          "name": "top_charts",
+          "description": "The user's personal Last.fm charts (account-wide, cross-device)",
+          "inputSchema": { "type": "object", "properties": { "kind": { "type": "string", "enum": ["artists", "albums", "tracks"] }, "period": { "type": "string", "enum": ["overall", "7day", "1month", "3month", "6month", "12month"] }, "limit": { "type": "number", "description": "1-200, default 25" } }, "required": ["kind"] }
+        }
+      ]
+    },
     "informationTypes": [
       {
         "id": "artist_stats",

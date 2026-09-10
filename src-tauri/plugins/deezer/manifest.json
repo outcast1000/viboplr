@@ -6,6 +6,16 @@
   "description": "Artist and album images from Deezer",
   "icon": "M3 18v-6a9 9 0 0 1 18 0v6M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z",
   "contributes": {
+    "assistant": {
+      "instructions": "Artist portraits and album covers from Deezer. The chain path (POST /v1/images/{kind} with pluginId=deezer) returns one auto-picked image; search_art returns MULTIPLE candidates with names, so a model can pick the right one (reissues, common names) and hand the url to whatever needs it.",
+      "tools": [
+        {
+          "name": "search_art",
+          "description": "Search Deezer for artist portraits or album covers — returns up to `limit` candidates (name + image url) instead of one auto-pick",
+          "inputSchema": { "type": "object", "properties": { "kind": { "type": "string", "enum": ["artist", "album"] }, "query": { "type": "string" }, "limit": { "type": "number", "description": "1-10, default 5" } }, "required": ["kind", "query"] }
+        }
+      ]
+    },
     "imageProviders": [
       { "entity": "artist" },
       { "entity": "album" }

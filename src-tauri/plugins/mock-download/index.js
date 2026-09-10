@@ -60,6 +60,26 @@ function activate(api) {
     return new Promise(function(resolve) { setTimeout(resolve, ms); });
   }
 
+  // -- Assistant tools (api.assistant) --
+  // The in-repo reference for the plugin AI-tool surface: manifest-declared
+  // tools (see manifest.json contributes.assistant) wired to handlers here.
+  // debugOnly, so this ships no user-facing surface — it exists so the whole
+  // path (roster -> invoke -> result / thrown error) is exercisable in dev.
+  if (api.assistant) {
+    api.assistant.onTool("search_catalog", async function(args) {
+      var query = typeof args.query === "string" ? args.query.toLowerCase() : "";
+      if (!query) throw new Error('"query" (string) is required');
+      return {
+        matches: MOCK_CATALOG.filter(function(t) {
+          return (t.title + " " + t.artistName).toLowerCase().indexOf(query) !== -1;
+        }),
+      };
+    });
+    api.assistant.onTool("get_state", async function() {
+      return state;
+    });
+  }
+
   // -- Download provider: silent (queue-based) --
 
   api.downloads.onResolveByUri("mock-dl", async function(uri, format) {

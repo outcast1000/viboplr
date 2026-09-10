@@ -27,6 +27,34 @@ function activate(api) {
     return !!(m && m[1]);
   }
 
+  // Assistant tool: multi-candidate art search — the chain providers below
+  // auto-pick one hit; a model disambiguating a reissue or a common name
+  // wants the choices.
+  if (api.assistant) {
+    api.assistant.onTool("search_art", async function (args) {
+      var kind = args.kind;
+      if (kind !== "artist" && kind !== "album") throw new Error('"kind" must be "artist" or "album"');
+      var query = typeof args.query === "string" ? args.query.trim() : "";
+      if (!query) throw new Error('"query" (string) is required');
+      var limit = Math.min(10, Math.max(1, parseInt(args.limit, 10) || 5));
+      var resp = await api.network.fetch(
+        "https://api.deezer.com/search/" + kind + "?q=" + encodeURIComponent(query) + "&limit=" + limit
+      );
+      var data = await resp.json();
+      var hits = (data && data.data) || [];
+      return {
+        candidates: hits.map(function (h) {
+          var url = kind === "artist" ? h.picture_xl : h.cover_xl;
+          return {
+            name: h.name || h.title,
+            artist: (h.artist && h.artist.name) || null,
+            imageUrl: hasRealImage(url) ? url : null,
+          };
+        }).filter(function (c) { return c.imageUrl; }),
+      };
+    });
+  }
+
   api.imageProviders.onFetch("artist", async function (name) {
     var resp = await api.network.fetch(
       "https://api.deezer.com/search/artist?q=" + encodeURIComponent(name) + "&limit=1"

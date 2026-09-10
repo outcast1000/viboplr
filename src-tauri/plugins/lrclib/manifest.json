@@ -7,6 +7,16 @@
   "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   "minAppVersion": "0.9.5",
   "contributes": {
+    "assistant": {
+      "instructions": "Synced/plain lyrics from lrclib.net. For a KNOWN track use GET /v1/lyrics (add pluginId=lrclib to force this provider over local files). search_lyrics is for when exact metadata fails or is unknown: a free-text search returning candidate matches to disambiguate from.",
+      "tools": [
+        {
+          "name": "search_lyrics",
+          "description": "Free-text search of the LRCLIB catalog (title/artist keywords) — returns candidate tracks with whether synced lyrics exist. Use when an exact title+artist lookup came back empty",
+          "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "limit": { "type": "number", "description": "1-20, default 10" } }, "required": ["query"] }
+        }
+      ]
+    },
     "informationTypes": [
       {
         "id": "lyrics",

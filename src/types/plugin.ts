@@ -99,6 +99,19 @@ export interface PluginManifestSearchProvider {
   icon?: string;
 }
 
+/** Static declaration of the plugin's AI-assistant surface — see
+ *  `PluginAssistantAPI`. `instructions` is prose for the model (what the
+ *  plugin is for, how the tools compose); each tool still needs an
+ *  `api.assistant.onTool` handler at runtime. */
+export interface PluginManifestAssistant {
+  instructions?: string;
+  tools?: Array<{
+    name: string;
+    description: string;
+    inputSchema?: Record<string, unknown>;
+  }>;
+}
+
 export interface PluginManifestContributes {
   sidebarItems?: PluginManifestSidebarItem[];
   contextMenuItems?: PluginManifestContextMenuItem[];
@@ -112,6 +125,8 @@ export interface PluginManifestContributes {
   searchProviders?: PluginManifestSearchProvider[];
   /** Rich visuals that fill host-owned slots. See types/pluginVisualizer.ts. */
   visualizers?: PluginVisualizerDescriptor[];
+  /** Tools + instructions for AI assistants driving the control API. */
+  assistant?: PluginManifestAssistant;
 }
 
 export interface PluginApiUsage {
@@ -1117,6 +1132,50 @@ export interface PluginSearchAPI {
   unregisterProvider(providerId: string): void;
 }
 
+/**
+ * A plugin-declared tool an AI assistant can call through the control API
+ * (`POST /v1/assistant/invoke`) — the plugin's "small MCP server". `name` is
+ * the callable id, `description` tells the model when to reach for it, and
+ * `inputSchema` is a JSON Schema object passed through to the assistant
+ * verbatim (the host never validates against it — the handler must check its
+ * own arguments).
+ */
+export interface PluginAssistantToolDescriptor {
+  name: string;
+  description: string;
+  inputSchema?: Record<string, unknown>;
+}
+
+/** A registered assistant tool as the host tracks it (manifest + runtime merged). */
+export interface PluginAssistantTool extends PluginAssistantToolDescriptor {
+  pluginId: string;
+}
+
+/**
+ * Expose plugin capabilities to AI assistants driving the control API.
+ * Mirrors the api.search register/on pattern: declare tools statically in
+ * `contributes.assistant` (known before activation) and/or register at
+ * runtime when the capability is conditional; either way the handler is
+ * wired with `onTool`. Handlers get the caller's `args` (already-parsed
+ * JSON — validate it yourself), return any JSON-serializable value, and may
+ * take seconds (generous host-side timeout, same as catalog search). A throw
+ * becomes the assistant's error message, so throw something readable.
+ * Everything is dropped automatically on deactivate/reload — re-register in
+ * `activate` and guard the namespace (`api.assistant`) for older hosts.
+ */
+export interface PluginAssistantAPI {
+  registerTool(descriptor: PluginAssistantToolDescriptor): () => void;
+  unregisterTool(name: string): void;
+  onTool(
+    name: string,
+    handler: (args: Record<string, unknown>) => Promise<unknown>,
+  ): () => void;
+  /** Prose for the assistant: what this plugin is for and how its tools
+   *  compose (like an MCP server's instructions). Overrides the manifest's
+   *  `contributes.assistant.instructions` while the plugin is active. */
+  setInstructions(text: string): void;
+}
+
 /** Result of resolving a Now Playing info item for the current track.
  *  `empty` hides the item for that track (no error indicator); `error` is
  *  logged and also hides it. See `useNowPlayingInfo`. */
@@ -1436,6 +1495,8 @@ export interface ViboplrPluginAPI {
   /** Rich visuals in host-owned slots. Plugins render host state; they do not
    *  own it. See types/pluginVisualizer.ts for the contract. */
   visualizers: PluginVisualizerAPI;
+  /** Tools + instructions for AI assistants driving the control API. */
+  assistant: PluginAssistantAPI;
 }
 
 // -- Gallery types --

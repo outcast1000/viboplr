@@ -66,10 +66,11 @@ release from GitHub's `releases/latest` for `outcast1000/viboplr` and says
 whether the app is current; report-only, updates install from inside the app).
 
 `--tier=full` (or `VIBOPLR_MCP_TIER=full`) adds the power verbs: plugin
-context-menu actions, plugin deep links, extension/skin management (per-plugin
-capability summaries, one plugin's full detail, and read-only gallery browsing
-for recommendations — install/delete stays a permanent non-goal), window
-control, and log access.
+context-menu actions, plugin deep links, plugin assistant tools (each plugin
+can publish its own AI tools + instructions — list and invoke them via
+`plugin_tools`), extension/skin management (per-plugin capability summaries,
+one plugin's full detail, and read-only gallery browsing for recommendations —
+install/delete stays a permanent non-goal), window control, and log access.
 
 ```json
 "args": ["/path/to/viboplr/mcp/viboplr-mcp.mjs", "--tier=full"]

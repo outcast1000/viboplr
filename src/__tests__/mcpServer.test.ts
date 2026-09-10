@@ -19,6 +19,7 @@ const TEST_TOKEN = "tok_secret_test_1234567890";
 const FULL_ONLY = [
   "plugin_actions",
   "plugin_deep_link",
+  "plugin_tools",
   "manage_extensions",
   "window_control",
   "logs",
@@ -78,6 +79,24 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
         const q = JSON.parse(body);
         if (/collections|plugin_storage/i.test(q.sql)) return reply(400, { error: "off-limits" });
         reply(200, { columns: ["title"], rows: [["Jóga"]], rowCount: 1, truncated: false });
+      });
+      return;
+    }
+    if (req.url === "/v1/assistant/tools" && req.method === "GET")
+      return reply(200, {
+        plugins: [{
+          pluginId: "mock-download",
+          name: "Mock Download",
+          instructions: "Mock provider for testing.",
+          tools: [{ name: "search_catalog", description: "Search the fake catalog", inputSchema: null }],
+        }],
+      });
+    if (req.url === "/v1/assistant/invoke" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        reply(200, { result: { matches: [{ id: "mock-7" }] } });
       });
       return;
     }
@@ -464,6 +483,34 @@ describe("MCP server at --tier=full", () => {
 
     const res = await rpc.request("tools/call", { name: "app_version", arguments: {} });
     expect(JSON.parse(toolText(res.result)).mcp.tier).toBe("full");
+  });
+
+  it("lists and invokes plugin assistant tools", async () => {
+    const list = await rpc.request("tools/call", {
+      name: "plugin_tools",
+      arguments: { action: "list" },
+    });
+    const roster = JSON.parse(toolText(list.result));
+    expect(roster.plugins[0].tools[0].name).toBe("search_catalog");
+
+    const invoked = await rpc.request("tools/call", {
+      name: "plugin_tools",
+      arguments: { action: "invoke", pluginId: "mock-download", tool: "search_catalog", args: { query: "nirvana" } },
+    });
+    expect(JSON.parse(toolText(invoked.result)).result.matches[0].id).toBe("mock-7");
+    const posted = api.seen.find((r) => r.method === "POST" && r.url === "/v1/assistant/invoke");
+    expect(JSON.parse(posted!.body!)).toEqual({
+      pluginId: "mock-download",
+      tool: "search_catalog",
+      args: { query: "nirvana" },
+    });
+
+    // invoke without a target is a caller error, not a request.
+    const missing = await rpc.request("tools/call", {
+      name: "plugin_tools",
+      arguments: { action: "invoke", tool: "search_catalog" },
+    });
+    expect((missing.result as { isError?: boolean }).isError).toBe(true);
   });
 
   it("routes manage_extensions get and gallery to their read-only endpoints", async () => {

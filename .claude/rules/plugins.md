@@ -156,7 +156,15 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
       "id": "provider-id",
       "name": "Provider Name",
       "icon": "icon-name"
-    }]
+    }],
+    "assistant": {
+      "instructions": "Prose for an AI assistant: what this plugin is for and how its tools compose.",
+      "tools": [{
+        "name": "tool_name",
+        "description": "When a model should reach for this",
+        "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } } }
+      }]
+    }
   }
 }
 ```
@@ -572,6 +580,23 @@ The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSear
 **No plugin currently ships a provider.** yt-dlp was the only one (v1.15.0–v1.20.0) and **removed** its provider deliberately — its sidebar view searches better, and a second entry point only spent more yt-dlp searches against YouTube's bot gate. Do not cite it as the example, and do not re-add it. The host side of this API stays; it is still the right surface for a catalog whose search is cheap.
 
 **If you build one:** register at runtime (not in the manifest) whenever the capability is conditional, and reset the "already registered" flag in `deactivate` — the host drops the provider on unload, so a disable/enable cycle must register again.
+
+## Assistant Tools (api.assistant)
+
+Plugins expose their own callable surface to **AI assistants driving the control API** — each plugin is a small MCP server inside the app: named tools with descriptions + JSON Schema, plus per-plugin `instructions` prose telling a model what the plugin is for and how the tools compose. Served by `GET /v1/assistant/tools` (roster) and `POST /v1/assistant/invoke` (request/response — the tool's return value **is** the payload, unlike the fire-and-forget context-menu `actions.invoke`), and by the MCP server's full-tier `plugin_tools` tool.
+
+Same two paths as Home Shelves / Global Search:
+
+- **Static (manifest):** `contributes.assistant: { instructions?, tools: [{ name, description, inputSchema? }] }` — each tool still needs a handler via `api.assistant.onTool(name, handler)`.
+- **Runtime:** `api.assistant.registerTool({ name, description, inputSchema? })` when the capability is conditional (a missing binary means the tool can't answer and must not be offered); `api.assistant.setInstructions(text)` overrides the manifest prose while active (e.g. to reflect logged-in state).
+
+**Handler contract:** `handler(args: object) => Promise<any JSON-serializable value>`. The host never validates `args` against `inputSchema` — the schema is documentation passed through to the model; **the handler validates its own arguments** and should `throw new Error("readable message")` for bad input, since a throw becomes the assistant's error body verbatim. Handlers may run for tens of seconds (same 60s host budget as catalog search) — shelling out or hitting a network is fine. Everything is dropped on deactivate/reload; re-register in `activate`, and guard the whole namespace (`if (api.assistant)`) for older hosts.
+
+**Design the tools for a model, not a UI:** small, composable verbs with results a model can reason over (structured JSON, ids it can pass back), and instructions that say when *not* to use a tool. Don't duplicate what the host API already serves (library search, playback, info values) — expose what only the plugin knows or can do.
+
+**Reference:** the bundled `mock-download` plugin (debugOnly) declares `search_catalog` + `get_state` — the in-repo example of manifest declaration + `onTool` wiring.
+
+**Trust note:** invoking a plugin tool runs plugin code, which per the Trust Model can already do anything the app can — the assistant surface adds no escalation beyond installing the plugin. On the assistant's side, tool descriptions and instructions are plugin-authored text entering the model's context; the MCP server gates the whole surface at the full tier for that reason.
 
 ## Plugin View Rendering
 

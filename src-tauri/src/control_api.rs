@@ -359,6 +359,10 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/actions", get(|s, q| handle_bridge_query(s, "actions.list", q)))
         .route("/v1/actions/invoke", post(|s, b| handle_bridge_body(s, "actions.invoke", json!({}), b)))
         .route("/v1/plugins/{id}/deep-link", post(|s, p, b| handle_extension_bridge(s, p, "plugins.deepLink", b)))
+        .route("/v1/assistant/tools", get(|s| handle_bridge_get(s, "assistant.tools")))
+        // Slow: a plugin tool may legitimately shell out or hit a network
+        // (same budget as plugin catalog search).
+        .route("/v1/assistant/invoke", post(|s, b| handle_bridge_body_slow(s, "assistant.invoke", b)))
         .route("/v1/queue/play-search", post(|s, b| handle_bridge_body(s, "queue.playSearch", json!({}), b)))
         .route("/v1/queue", get(|s| handle_bridge_get(s, "queue.get")))
         .route("/v1/playback", post(|s, b| handle_bridge_body(s, "playback.set", json!({}), b)))
@@ -896,9 +900,15 @@ async fn handle_image_fetch(
     AxumPath(kind): AxumPath<String>,
     body: Bytes,
 ) -> Response {
-    let timeout = state.0.bridge_timeout;
     match parse_body(json!({}), &body) {
         Ok(mut payload) => {
+            // A pluginId-targeted fetch awaits that plugin's network fetch
+            // inline (the untargeted path just enqueues the Rust worker).
+            let timeout = if payload.get("pluginId").is_some() {
+                state.0.bridge_timeout.saturating_mul(7)
+            } else {
+                state.0.bridge_timeout
+            };
             payload["kind"] = json!(kind);
             bridge(&state.0, "images.fetch", payload, timeout).await
         }

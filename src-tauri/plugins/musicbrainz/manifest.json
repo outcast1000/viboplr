@@ -6,6 +6,9 @@
   "description": "Artist and album images from MusicBrainz and Cover Art Archive",
   "icon": "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z",
   "contributes": {
+    "assistant": {
+      "instructions": "Artist images (MusicBrainz relations/Wikimedia) and album covers (Cover Art Archive). Fetch one via POST /v1/images/{artist|album} with pluginId=musicbrainz (returns the url inline). Slow by design — MusicBrainz rate-limiting adds ~1-2s per lookup; prefer deezer/itunes for speed and this for coverage of obscure releases."
+    },
     "imageProviders": [
       { "entity": "artist" },
       { "entity": "album" }

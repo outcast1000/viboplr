@@ -12,6 +12,31 @@ function activate(api) {
     });
   }
 
+  // Assistant tool: free-text catalog search — for an AI resolving a track
+  // whose exact metadata missed (the info-type fetch above is exact-match).
+  if (api.assistant) {
+    api.assistant.onTool("search_lyrics", function (args) {
+      var query = typeof args.query === "string" ? args.query.trim() : "";
+      if (!query) return Promise.reject(new Error('"query" (string) is required'));
+      var limit = Math.min(20, Math.max(1, parseInt(args.limit, 10) || 10));
+      return lrclibFetch("https://lrclib.net/api/search?q=" + encodeURIComponent(query)).then(function (rows) {
+        rows = rows || [];
+        return {
+          matches: rows.slice(0, limit).map(function (r) {
+            return {
+              trackName: r.trackName,
+              artistName: r.artistName,
+              albumName: r.albumName || null,
+              durationSecs: r.duration || null,
+              hasSynced: !!(r.syncedLyrics && r.syncedLyrics.trim()),
+              hasPlain: !!(r.plainLyrics && r.plainLyrics.trim()),
+            };
+          }),
+        };
+      });
+    });
+  }
+
   api.informationTypes.onFetch("lyrics", function (entity) {
     if (!entity.name || !entity.artistName) {
       return Promise.resolve({ status: "not_found" });

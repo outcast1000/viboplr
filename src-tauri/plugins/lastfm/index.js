@@ -706,6 +706,80 @@ function activate(api) {
     }).catch(function () { return { status: "error" }; });
   });
 
+  // ===== Assistant tools (api.assistant) =====
+  // The ACCOUNT half of Last.fm — cross-device scrobbles and personal charts
+  // the local database can never know. The public-data half (bios, similar,
+  // top tracks) stays on the info types above, reachable via /v1/info/fetch.
+  // Never return the session key or api secret from a tool.
+
+  if (api.assistant) {
+    api.assistant.onTool("account_status", async function () {
+      return {
+        connected: !!state.sessionKey,
+        username: state.username || null,
+      };
+    });
+
+    api.assistant.onTool("recent_scrobbles", async function (args) {
+      if (!state.username) throw new Error("Last.fm is not connected (Settings → Last.fm)");
+      var limit = Math.min(200, Math.max(1, parseInt(args.limit, 10) || 20));
+      var data = await lastfmGet("user.getRecentTracks", [
+        ["user", state.username],
+        ["limit", String(limit)],
+      ]);
+      var raw = (data.recenttracks && data.recenttracks.track) || [];
+      var tracks = Array.isArray(raw) ? raw : [raw];
+      return {
+        tracks: tracks.map(function (t) {
+          return {
+            title: t.name,
+            artist: (t.artist && (t.artist.name || t.artist["#text"])) || null,
+            album: (t.album && t.album["#text"]) || null,
+            nowPlaying: !!(t["@attr"] && t["@attr"].nowplaying),
+            playedAt: t.date ? parseInt(t.date.uts, 10) : null,
+          };
+        }),
+      };
+    });
+
+    api.assistant.onTool("top_charts", async function (args) {
+      if (!state.username) throw new Error("Last.fm is not connected (Settings → Last.fm)");
+      var kind = args.kind;
+      var methods = {
+        artists: ["user.getTopArtists", "topartists", "artist"],
+        albums: ["user.getTopAlbums", "topalbums", "album"],
+        tracks: ["user.getTopTracks", "toptracks", "track"],
+      };
+      var m = methods[kind];
+      if (!m) throw new Error('"kind" must be "artists", "albums" or "tracks"');
+      var periods = ["overall", "7day", "1month", "3month", "6month", "12month"];
+      var period = args.period || "overall";
+      if (periods.indexOf(period) === -1) {
+        throw new Error('"period" must be one of: ' + periods.join(", "));
+      }
+      var limit = Math.min(200, Math.max(1, parseInt(args.limit, 10) || 25));
+      var data = await lastfmGet(m[0], [
+        ["user", state.username],
+        ["period", period],
+        ["limit", String(limit)],
+      ]);
+      var container = data[m[1]] || {};
+      var raw = container[m[2]] || [];
+      var rows = Array.isArray(raw) ? raw : [raw];
+      return {
+        period: period,
+        items: rows.map(function (r) {
+          return {
+            rank: r["@attr"] ? parseInt(r["@attr"].rank, 10) : null,
+            name: r.name,
+            artist: (r.artist && (r.artist.name || r.artist["#text"])) || null,
+            playCount: parseInt(r.playcount, 10) || 0,
+          };
+        }),
+      };
+    });
+  }
+
   // ===== History Import =====
 
   function importHistory(fromTs) {

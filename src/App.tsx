@@ -3622,6 +3622,10 @@ function App() {
       dispatchContextMenuAction: plugins.dispatchContextMenuAction,
       forwardDeepLink: plugins.forwardDeepLink,
       fetchPluginGallery: plugins.fetchPluginGallery,
+      assistantTools: plugins.assistantTools,
+      assistantInstructions: plugins.assistantInstructions,
+      invokeAssistantTool: plugins.invokeAssistantTool,
+      invokeImageFetch: plugins.invokeImageFetch,
     },
     skins: {
       installedSkins: skins.installedSkins,

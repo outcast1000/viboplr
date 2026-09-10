@@ -10,7 +10,8 @@
 import type { QueueTrack, QueueMode } from "../types";
 import type { Track } from "../types";
 import type {
-  GalleryPluginEntry, HomeShelfDisplayKind, HomeShelfItem, PluginManifestContributes, PluginState,
+  GalleryPluginEntry, HomeShelfDisplayKind, HomeShelfItem, PluginAssistantTool,
+  PluginManifestContributes, PluginState,
 } from "../types/plugin";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import { resolveShelfPlayAction } from "./homeShelfPlay";
@@ -276,6 +277,7 @@ export interface LiveCapabilityCounts {
   searchProviders: number;
   homeShelves: number;
   contextMenuItems: number;
+  assistantTools: number;
 }
 
 /** Compact per-plugin capability summary for `extensions.list`. Runtime-capable
@@ -292,6 +294,7 @@ export function summarizeCapabilities(
   set("searchProviders", live.searchProviders);
   set("homeShelves", live.homeShelves);
   set("contextMenuItems", live.contextMenuItems);
+  set("assistantTools", live.assistantTools);
   set("downloadProviders", contributes?.downloadProviders?.length);
   set("streamResolvers", contributes?.streamResolvers?.length);
   set("informationTypes", contributes?.informationTypes?.length);
@@ -323,7 +326,46 @@ export function describeContributes(contributes: PluginManifestContributes | und
     visualizers: (c?.visualizers ?? []).map((v) => ({ id: v.id, name: v.name })),
     eventHooks: c?.eventHooks ?? [],
     settingsPanel: c?.settingsPanel ? { id: c.settingsPanel.id, label: c.settingsPanel.label } : null,
+    assistant: c?.assistant
+      ? {
+          instructions: c.assistant.instructions ?? null,
+          tools: (c.assistant.tools ?? []).map((t) => ({ name: t.name, description: t.description })),
+        }
+      : null,
   };
+}
+
+/** The assistant-tool roster, grouped per plugin: every registered tool plus
+ *  the plugin's instructions (prose for the model). A plugin with
+ *  instructions but no tools still gets an entry — the instructions may
+ *  explain its other surfaces (search providers, actions, deep links). */
+export function buildAssistantRoster(
+  tools: PluginAssistantTool[],
+  instructions: Map<string, string>,
+  pluginNames: Map<string, string>,
+): Array<{
+  pluginId: string;
+  name: string;
+  instructions: string | null;
+  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null }>;
+}> {
+  const byPlugin = new Map<string, PluginAssistantTool[]>();
+  for (const t of tools) {
+    const list = byPlugin.get(t.pluginId) ?? [];
+    list.push(t);
+    byPlugin.set(t.pluginId, list);
+  }
+  const pluginIds = [...new Set([...byPlugin.keys(), ...instructions.keys()])].sort();
+  return pluginIds.map((pluginId) => ({
+    pluginId,
+    name: pluginNames.get(pluginId) ?? pluginId,
+    instructions: instructions.get(pluginId) ?? null,
+    tools: (byPlugin.get(pluginId) ?? []).map((t) => ({
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema ?? null,
+    })),
+  }));
 }
 
 /** Gallery plugin entries annotated against the installed set. Read-only

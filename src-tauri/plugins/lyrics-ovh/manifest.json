@@ -7,6 +7,9 @@
   "icon": "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   "minAppVersion": "0.9.5",
   "contributes": {
+    "assistant": {
+      "instructions": "Plain-text lyrics fallback from lyrics.ovh — exact artist+title lookups only, no search API. Fetch via GET /v1/lyrics with pluginId=lyrics-ovh to force this provider; prefer LRCLIB first (it also has synced lyrics and a search tool)."
+    },
     "informationTypes": [
       {
         "id": "lyrics",

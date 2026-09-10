@@ -6,6 +6,16 @@
   "description": "Album images from iTunes",
   "icon": "M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
   "contributes": {
+    "assistant": {
+      "instructions": "Album covers from the iTunes Search API (no artist photos — iTunes doesn't serve them). The chain path (POST /v1/images/album with pluginId=itunes) returns one auto-picked cover; search_album_art returns MULTIPLE candidates with album/artist names so a model can pick the right edition.",
+      "tools": [
+        {
+          "name": "search_album_art",
+          "description": "Search iTunes for album covers — returns up to `limit` candidates (album + artist + 600x600 url) instead of one auto-pick",
+          "inputSchema": { "type": "object", "properties": { "query": { "type": "string", "description": "Album and/or artist keywords" }, "limit": { "type": "number", "description": "1-10, default 5" } }, "required": ["query"] }
+        }
+      ]
+    },
     "imageProviders": [
       { "entity": "album" }
     ]

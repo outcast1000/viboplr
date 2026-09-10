@@ -49,6 +49,7 @@ import type {
   HomeShelfResult,
   NowPlayingInfoResult,
   PluginSearchProvider,
+  PluginAssistantTool,
   PluginVisualizer,
   PluginVisualizerDescriptor,
   PluginVisualizerRegistration,
@@ -373,6 +374,17 @@ export function usePlugins(
   );
   const dynamicSearchProvidersRef = useRef(new Map<string, PluginSearchProvider>());
   const [dynamicSearchProvidersVersion, setDynamicSearchProvidersVersion] = useState(0);
+  // Assistant tools (api.assistant): manifest declarations in state, runtime
+  // registrations/handlers/instructions in refs — merged like search providers.
+  // Handlers keyed `${pluginId}:${toolName}`.
+  const [manifestAssistantTools, setManifestAssistantTools] = useState<PluginAssistantTool[]>([]);
+  const [manifestAssistantInstructions, setManifestAssistantInstructions] = useState<Map<string, string>>(new Map());
+  const assistantToolHandlersRef = useRef(
+    new Map<string, (args: Record<string, unknown>) => Promise<unknown>>(),
+  );
+  const dynamicAssistantToolsRef = useRef(new Map<string, PluginAssistantTool>());
+  const runtimeAssistantInstructionsRef = useRef(new Map<string, string>());
+  const [assistantVersion, setAssistantVersion] = useState(0);
   // Runtime-registered context-menu items, keyed `${pluginId}:${itemId}`
   // (mirrors dynamicHomeShelvesRef). Merged with the static manifest items.
   const dynamicMenuItemsRef = useRef(new Map<string, PluginMenuItem>());
@@ -1318,6 +1330,50 @@ export function usePlugins(
           },
         },
 
+        assistant: {
+          registerTool(descriptor: { name: string; description: string; inputSchema?: Record<string, unknown> }): () => void {
+            const key = `${pluginId}:${descriptor.name}`;
+            dynamicAssistantToolsRef.current.set(key, {
+              pluginId,
+              name: descriptor.name,
+              description: descriptor.description,
+              inputSchema: descriptor.inputSchema,
+            });
+            setAssistantVersion((v) => v + 1);
+            const unsub = () => {
+              if (dynamicAssistantToolsRef.current.delete(key)) {
+                setAssistantVersion((v) => v + 1);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          unregisterTool(name: string): void {
+            const key = `${pluginId}:${name}`;
+            if (dynamicAssistantToolsRef.current.delete(key)) {
+              setAssistantVersion((v) => v + 1);
+            }
+          },
+          onTool(
+            name: string,
+            handler: (args: Record<string, unknown>) => Promise<unknown>,
+          ): () => void {
+            const key = `${pluginId}:${name}`;
+            assistantToolHandlersRef.current.set(key, handler);
+            const unsub = () => {
+              if (assistantToolHandlersRef.current.get(key) === handler) {
+                assistantToolHandlersRef.current.delete(key);
+              }
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          setInstructions(text: string): void {
+            runtimeAssistantInstructionsRef.current.set(pluginId, text);
+            setAssistantVersion((v) => v + 1);
+          },
+        },
+
         nowPlayingInfo: {
           registerItem(descriptor: { id: string; label: string; priority?: number; defaultEnabled?: boolean }): () => void {
             const key = `${pluginId}:${descriptor.id}`;
@@ -1680,6 +1736,25 @@ export function usePlugins(
     if (searchProvidersChanged) {
       setDynamicSearchProvidersVersion((v) => v + 1);
     }
+    // Clear assistant tool handlers + runtime registrations + instructions
+    let assistantChanged = false;
+    for (const key of Array.from(assistantToolHandlersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        assistantToolHandlersRef.current.delete(key);
+      }
+    }
+    for (const key of Array.from(dynamicAssistantToolsRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        dynamicAssistantToolsRef.current.delete(key);
+        assistantChanged = true;
+      }
+    }
+    if (runtimeAssistantInstructionsRef.current.delete(pluginId)) {
+      assistantChanged = true;
+    }
+    if (assistantChanged) {
+      setAssistantVersion((v) => v + 1);
+    }
 
     loadedPluginsRef.current.delete(pluginId);
   }, []);
@@ -1900,6 +1975,8 @@ export function usePlugins(
       }> = [];
       const searchers: PluginSearchProvider[] = [];
       const vizzes: PluginVisualizerRegistration[] = [];
+      const assistTools: PluginAssistantTool[] = [];
+      const assistInstructions: Array<[string, string]> = [];
       const allInfoTypes: Array<[string, string, string, string, string, number, number, number, string]> = [];
       const allImageProviders: [string, string, number][] = []; // [plugin_id, entity, priority]
 
@@ -2045,6 +2122,19 @@ export function usePlugins(
               vizzes.push({ pluginId: plugin.id, ...vz });
             }
           }
+          if (contrib.assistant) {
+            for (const tool of contrib.assistant.tools ?? []) {
+              assistTools.push({
+                pluginId: plugin.id,
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema,
+              });
+            }
+            if (contrib.assistant.instructions) {
+              assistInstructions.push([plugin.id, contrib.assistant.instructions]);
+            }
+          }
         }
       }
 
@@ -2113,6 +2203,8 @@ export function usePlugins(
       setHomeShelves(shelves);
       setSearchProviders(searchers);
       setVisualizers(vizzes);
+      setManifestAssistantTools(assistTools);
+      setManifestAssistantInstructions(new Map(assistInstructions));
     } catch (e) {
       console.error("Failed to load plugins:", e);
     } finally {
@@ -2799,6 +2891,54 @@ export function usePlugins(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchProviders, dynamicSearchProvidersVersion]);
 
+  // Assistant tools: manifest declarations + runtime registrations, runtime
+  // winning a name collision (a conditional re-registration refines the
+  // manifest's static claim). Same merge shape as allSearchProviders.
+  const allAssistantTools = useMemo(() => {
+    const byKey = new Map(manifestAssistantTools.map((t) => [`${t.pluginId}:${t.name}`, t]));
+    for (const entry of dynamicAssistantToolsRef.current.values()) {
+      byKey.set(`${entry.pluginId}:${entry.name}`, entry);
+    }
+    return [...byKey.values()];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifestAssistantTools, assistantVersion]);
+
+  // Per-plugin assistant instructions — runtime setInstructions() wins over
+  // the manifest's static text while the plugin is active.
+  const assistantInstructions = useMemo(() => {
+    const merged = new Map(manifestAssistantInstructions);
+    for (const [pluginId, text] of runtimeAssistantInstructionsRef.current) {
+      merged.set(pluginId, text);
+    }
+    return merged;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifestAssistantInstructions, assistantVersion]);
+
+  /** Invoke one plugin assistant tool. Rejects with the plugin's own error
+   *  message (or the timeout) — the control API turns that into the HTTP
+   *  error body, so throw something a model can act on. Same generous budget
+   *  as catalog search: a tool may legitimately shell out or hit a network. */
+  const invokeAssistantTool = useCallback(
+    async (pluginId: string, name: string, args: Record<string, unknown>): Promise<unknown> => {
+      const handler = assistantToolHandlersRef.current.get(`${pluginId}:${name}`);
+      if (!handler) {
+        throw new Error(
+          `plugin "${pluginId}" has no live handler for tool "${name}" — the plugin may be disabled, still loading, or the tool is declared but not wired with api.assistant.onTool`,
+        );
+      }
+      return Promise.race([
+        Promise.resolve().then(() => handler(args)),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`tool "${name}" timed out after ${PLUGIN_SEARCH_TIMEOUT_MS / 1000}s`)),
+            PLUGIN_SEARCH_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    },
+    [],
+  );
+
   /**
    * Build a fresh visualizer instance for a slot.
    *
@@ -2939,6 +3079,9 @@ export function usePlugins(
     invokeHomeShelfResolvePlay,
     searchProviders: visibleSearchProviders,
     invokePluginSearch,
+    assistantTools: allAssistantTools,
+    assistantInstructions,
+    invokeAssistantTool,
     visualizers: allVisualizers,
     createVisualizer,
     togglePlugin,
