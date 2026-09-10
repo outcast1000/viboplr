@@ -305,6 +305,8 @@ Multiple `useEffect` hooks check `restoredRef.current` before writing. This prev
 
 When `playNext` returns `false` (normal mode, end of queue), auto-continue takes over — it selects a new track via weighted strategy and calls `addToQueueAndPlay`. Auto-continue must not be confused with queue advancement. The queue hook only handles tracks already in the queue. Auto-continue extends the queue.
 
+**A pending backfill outranks auto-continue.** A queue that has run dry may only *look* finished — `playWithBackfill` plays a head (often a single seed track) while the rest resolves. Both entry points check for that first: the lead-time **prefetch** (`prefetchNextRef`) skips while `backfillPending`, and `handleNext` calls `holdForBackfillTail()` before running the end-of-queue decision. A hold makes the next `appendToPlaySession` set `queueIndex` to the tail's first entry and play it (`source: "auto"`); if the tail never lands, `settleBackfill` fires the hook's `onBackfillAbandoned` callback and the deferred auto-continue/stop runs then. The hold is cleared by every session boundary. Covered by `useQueueBackfillHold.test.tsx`.
+
 ### Interaction with Scrobble
 
 The `source` parameter (`"user"` vs `"auto"`) flows from `playNext`/`playPrevious` through `handlePlay` to scrobble logic. Scrobble threshold is evaluated regardless of source, but the distinction is used in plugin event dispatch. Queue code must always pass `source` through. Dropping it defaults to `"user"` which misattributes auto-advanced plays.

@@ -548,6 +548,11 @@ function App() {
   const audiblePlayingTrackRef = useRef<QueueTrack | null>(null);
   useAssignRef(audiblePlayingTrackRef, playback.playing ? playback.currentTrack : null);
 
+  // Assigned further down (it needs the end-of-queue handler, which needs the
+  // queue hook): what to do when playback was held for a backfill tail that
+  // never arrived.
+  const backfillAbandonedRef = useRef<() => void>(() => {});
+
   const queueHook = useQueue(restoredRef, playback.handlePlay, (tracks, startIndex, context) => {
     // Record the "Latest play" session for anything that replaces the queue.
     // Guarded so the startup queue-restore doesn't masquerade as a fresh play.
@@ -557,7 +562,7 @@ function App() {
     const next = recordPlaySession(recentPlaysRef.current, session);
     recentPlaysRef.current = next;
     store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
-  }, () => audiblePlayingTrackRef.current);
+  }, () => audiblePlayingTrackRef.current, () => backfillAbandonedRef.current());
   const autoContinue = useAutoContinue(restoredRef);
   const zoom = useUiZoom();
   const mini = useMiniMode(restoredRef, zoom.uiZoomRef, zoom.miniZoomRef);
@@ -3450,6 +3455,10 @@ function App() {
   useAssignRef(addToQueueAndPlayRef, queueHook.addToQueueAndPlay);
   const addToQueueRef = useRef(queueHook.addToQueue);
   useAssignRef(addToQueueRef, queueHook.addToQueue);
+  const holdForBackfillTailRef = useRef(queueHook.holdForBackfillTail);
+  useAssignRef(holdForBackfillTailRef, queueHook.holdForBackfillTail);
+  const backfillPendingRef = useRef(queueHook.backfillPending);
+  useAssignRef(backfillPendingRef, queueHook.backfillPending);
   const queueRef = useRef(queueHook.queue);
   useAssignRef(queueRef, queueHook.queue);
 
@@ -3519,6 +3528,14 @@ function App() {
     const ac = autoContinueRef.current;
     const track = currentTrackRef.current;
     if (!ac.enabled || !track) return;
+    // The queue only *looks* empty ahead: this session's tail is still
+    // resolving. Prefetching here is what used to hijack a plugin radio — the
+    // seed is one track long, so the lead-time prefetch fires mid-scrape and
+    // an unrelated song plays while the station lands behind it.
+    if (backfillPendingRef.current) {
+      console.debug("[prefetch] Skipped — the play session is still filling in its tail");
+      return;
+    }
     console.debug(`[prefetch] Fetching auto-continue track (current: "${track.title}")`);
     ac.fetchTrack(track).then(next => {
       if (next) {
@@ -3530,23 +3547,36 @@ function App() {
     });
   });
 
-  const handleNext = useCallback(async (source: "user" | "auto" = "user") => {
-    if (!playNextRef.current(source)) {
-      const ac = autoContinueRef.current;
-      const track = currentTrackRef.current;
-      // Auto-continue extends the queue only in Normal mode. In repeat-all /
-      // repeat-one, playNext never returns false, so this branch is unreachable
-      // there anyway — the explicit mode check is belt-and-suspenders + intent.
-      if (queueModeRef.current === "normal" && ac.enabled && track) {
-        const next = await ac.fetchTrack(track);
-        if (next) {
-          addToQueueAndPlayRef.current(next, source);
-          return;
-        }
+  // The queue ran out: extend it with auto-continue, else stop.
+  const endOfQueue = useCallback(async (source: "user" | "auto" = "user") => {
+    const ac = autoContinueRef.current;
+    const track = currentTrackRef.current;
+    // Auto-continue extends the queue only in Normal mode. In repeat-all /
+    // repeat-one, playNext never returns false, so this branch is unreachable
+    // there anyway — the explicit mode check is belt-and-suspenders + intent.
+    if (queueModeRef.current === "normal" && ac.enabled && track) {
+      const next = await ac.fetchTrack(track);
+      if (next) {
+        addToQueueAndPlayRef.current(next, source);
+        return;
       }
-      handleStopRef.current();
     }
+    handleStopRef.current();
   }, []);
+  // Handed to useQueue: a held-for tail that never arrived releases the
+  // end-of-queue decision we deferred below.
+  useAssignRef(backfillAbandonedRef, () => { void endOfQueue("auto"); });
+
+  const handleNext = useCallback(async (source: "user" | "auto" = "user") => {
+    if (playNextRef.current(source)) return;
+    // Nothing left to play, but this session is still resolving its tail (a
+    // plugin radio seeded from one track, a lazy Home card). Hold for it: the
+    // station's first track starts the music when it lands. Auto-continuing
+    // here would wander off to an unrelated song and leave the station queued
+    // behind it — which is what this fixes.
+    if (holdForBackfillTailRef.current()) return;
+    await endOfQueue(source);
+  }, [endOfQueue]);
 
   useAssignRef(mediaSessionNextRef, () => handleNext());
   // Engine-side "ended with nothing gapless-armed" — the native equivalent of

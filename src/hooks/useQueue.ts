@@ -30,6 +30,11 @@ export function useQueue(
   // read at call time. Lets playTracks keep the music running when the
   // replacing list opens on the same song — see the continuation note there.
   getPlayingTrack?: () => QueueTrack | null,
+  // The queue ran dry while a backfill was still resolving, we held playback
+  // for the tail (see `holdForBackfillTail`) — and the tail never arrived.
+  // Whatever the caller would have done at the end of the queue (auto-continue,
+  // stop) is now due. Read at call time.
+  onBackfillAbandoned?: () => void,
 ) {
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -216,6 +221,18 @@ export function useQueue(
   // generation (not a bare boolean) is what makes it self-cancelling: every
   // queue replacement clears it, so it can only ever describe the live session.
   const [pendingBackfillGen, setPendingBackfillGen] = useState<number | null>(null);
+  // Same value, readable at call time: the end-of-queue decision runs from
+  // event handlers (track ended, progress tick) that hold a stale render.
+  const pendingBackfillGenRef = useRef<number | null>(null);
+  useAssignRef(pendingBackfillGenRef, pendingBackfillGen);
+
+  // Set when the queue ran out *while* its tail was still resolving, so the
+  // tail's first track starts the music instead of merely landing behind a
+  // silent queue. Cleared by every session boundary — a held-for stop that
+  // outlives its own session must not hijack the next one.
+  const resumeOnTailRef = useRef(false);
+  const onBackfillAbandonedRef = useRef(onBackfillAbandoned);
+  useAssignRef(onBackfillAbandonedRef, onBackfillAbandoned);
 
   // Returns the play generation of the session it just started, for callers
   // that resolve the rest of the queue asynchronously (see appendToPlaySession).
@@ -265,19 +282,47 @@ export function useQueue(
     // A fresh session owns no tail yet — and this is what retires the indicator
     // when the user plays something else mid-resolve.
     setPendingBackfillGen(null);
+    pendingBackfillGenRef.current = null;
+    resumeOnTailRef.current = false;
     return playGenRef.current;
   }
 
   // Declare that the session `gen` is waiting on an async tail. Paired with
   // settleBackfill; both are driven by usePlayActions.playWithBackfill.
   function markBackfillPending(gen: number) {
-    if (gen === playGenRef.current) setPendingBackfillGen(gen);
+    if (gen === playGenRef.current) {
+      setPendingBackfillGen(gen);
+      pendingBackfillGenRef.current = gen;
+    }
   }
 
   // The tail arrived, failed, or turned out to be stale. Only retires its own
   // session's indicator, so a late tail can't clear a newer session's.
   function settleBackfill(gen: number) {
     setPendingBackfillGen(prev => (prev === gen ? null : prev));
+    if (pendingBackfillGenRef.current === gen) pendingBackfillGenRef.current = null;
+    // Still held means nothing was appended (the resolve failed, came back
+    // empty, or was dropped as stale) — release the end-of-queue decision we
+    // deferred, so the queue doesn't sit silent forever.
+    if (gen === playGenRef.current && resumeOnTailRef.current) {
+      resumeOnTailRef.current = false;
+      onBackfillAbandonedRef.current?.();
+    }
+  }
+
+  // The queue ran out while this session's tail is still resolving. Returns
+  // true when playback is now held for that tail — the caller must then do
+  // nothing (no auto-continue, no stop): `appendToPlaySession` starts the first
+  // track that lands, and `settleBackfill` hands the decision back if the tail
+  // never comes. Returns false when there is nothing to wait for.
+  //
+  // Without this the end of a one-track head (a plugin radio seed, a lazy Home
+  // card) races the station: auto-continue's prefetch fires ~20s before the
+  // seed ends, so an unrelated track starts and the station lands behind it.
+  function holdForBackfillTail(): boolean {
+    if (pendingBackfillGenRef.current !== playGenRef.current) return false;
+    resumeOnTailRef.current = true;
+    return true;
   }
 
   // Append the tail of a play session started by `playTracks`. Returns false
@@ -290,7 +335,18 @@ export function useQueue(
   // the one sanctioned exception (see conventions.md "Play With Backfill").
   function appendToPlaySession(gen: number, tracks: QueueTrack[]): boolean {
     if (gen !== playGenRef.current || tracks.length === 0) return false;
-    enqueueTracks(tracks);
+    // Prepared here rather than inside enqueueTracks so the resume below plays
+    // the *queued* object — withUniqueKeys may have re-keyed it, and handing
+    // handlePlay the pre-key copy would give the now-playing row an identity
+    // no queue entry has.
+    const prepared = withUniqueKeys(toQueueTracks(tracks));
+    const firstIndex = queueRef.current.length;
+    setQueue(prev => [...prev, ...prepared]);
+    if (resumeOnTailRef.current) {
+      resumeOnTailRef.current = false;
+      setQueueIndex(firstIndex);
+      handlePlay(prepared[0], "auto");
+    }
     return true;
   }
 
@@ -593,6 +649,8 @@ export function useQueue(
     // Ends the live play session: any in-flight backfill is now stale.
     playGenRef.current += 1;
     setPendingBackfillGen(null);
+    pendingBackfillGenRef.current = null;
+    resumeOnTailRef.current = false;
     invoke("main_playlist_clear").catch(console.error);
   }
 
@@ -710,6 +768,8 @@ export function useQueue(
       setPlaylistContext({ name: result.playlist_name });
       // Replaces the queue, so it starts a new play session (see playTracks).
       playGenRef.current += 1;
+      pendingBackfillGenRef.current = null;
+      resumeOnTailRef.current = false;
     }
   }
 
@@ -720,6 +780,7 @@ export function useQueue(
     queuePanelRef, dragIndexRef,
     playTracks, enqueueTracks, findDuplicates, appendToPlaySession,
     backfillPending: pendingBackfillGen !== null, markBackfillPending, settleBackfill,
+    holdForBackfillTail,
     playNext, playPrevious,
     removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
