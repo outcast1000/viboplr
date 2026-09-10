@@ -502,11 +502,23 @@ export function useMiniMode(
         const size = await win.innerSize();
         const pos = await win.outerPosition();
         const geo = { w: size.width / factor, h: size.height / factor, x: pos.x / factor, y: pos.y / factor };
-        fullSizeRef.current = geo;
-        store.set("fullWindowWidth", geo.w);
-        store.set("fullWindowHeight", geo.h);
-        store.set("fullWindowX", geo.x);
-        store.set("fullWindowY", geo.y);
+        // Same trap as the startup restore (#134): a maximized window's geometry is
+        // the screen's, so recording it here would make leaving mini mode restore a
+        // screen-sized *unmaximized* window at a negative position. Keep the last
+        // floating geometry as the restore-down bounds and re-maximize on the way
+        // back. Unmaximize before sizing, or the mini dimensions land on a window
+        // Windows still considers zoomed.
+        const wasMaximized = await win.isMaximized();
+        store.set("fullWindowMaximized", wasMaximized);
+        if (wasMaximized) {
+          await win.unmaximize();
+        } else {
+          fullSizeRef.current = geo;
+          store.set("fullWindowWidth", geo.w);
+          store.set("fullWindowHeight", geo.h);
+          store.set("fullWindowX", geo.x);
+          store.set("fullWindowY", geo.y);
+        }
         setMiniMode(true);
         miniModeRef.current = true;
         store.set("miniMode", true);
@@ -586,6 +598,8 @@ export function useMiniMode(
             }
           }
         }
+        // After the geometry, so it stays the restore-down bounds.
+        if (await store.get<boolean>("fullWindowMaximized")) await win.maximize();
         await win.show();
         await win.setFocus();
       }
@@ -610,6 +624,16 @@ export function useMiniMode(
           store.set("miniWindowX", pos.x / factor);
           store.set("miniWindowY", pos.y / factor);
         } else {
+          // A maximized or fullscreen window's geometry describes the *screen*, not
+          // a size to reopen at. Windows reports a maximized undecorated window at
+          // a negative outer position, which the startup restore rejects as
+          // off-screen, so the app reopened monitor-sized at whatever position the
+          // OS chose -- down and to the right, with its bottom-right corner behind
+          // the taskbar (#134). Persist the state instead and re-maximize on launch,
+          // keeping the last floating geometry as the restore-down bounds.
+          const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
+          store.set("windowMaximized", maximized || fullscreen);
+          if (maximized || fullscreen) return;
           const size = await win.innerSize();
           store.set("windowWidth", size.width / factor);
           store.set("windowHeight", size.height / factor);

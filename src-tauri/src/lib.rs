@@ -1349,6 +1349,7 @@ pub fn run() {
                                 }
                             }
 
+                            let mut positioned = false;
                             if let (Some(mut x), Some(mut y)) = (saved_x, saved_y) {
                                 if is_visible(x, y) {
                                     // Ensure the window doesn't extend beyond the monitor
@@ -1359,7 +1360,32 @@ pub fn run() {
                                         if y + h > my2 { y = (my2 - h).max(_my); }
                                     }
                                     let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
+                                    positioned = true;
                                 }
+                            }
+
+                            // Never hand placement back to the OS. With no position
+                            // applied Windows cascades the window down and to the
+                            // right of the top-left, which for a near-screen-sized
+                            // one leaves its bottom-right corner off-screen behind
+                            // the taskbar -- exactly what #134 reported, and what any
+                            // profile carrying a rejected (off-screen or maximized)
+                            // saved position still holds. Centre it instead.
+                            if !positioned {
+                                if let Some((mx, my, mx2, my2)) = target {
+                                    let w = saved_w.unwrap_or(1024.0).min(mx2 - mx);
+                                    let h = saved_h.unwrap_or(700.0).min(my2 - my);
+                                    let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                                        x: mx + ((mx2 - mx) - w) / 2.0,
+                                        y: my + ((my2 - my) - h) / 2.0,
+                                    }));
+                                }
+                            }
+
+                            // Applied last, so the geometry above stays the window's
+                            // restore-down bounds.
+                            if json.get("windowMaximized").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                let _ = window.maximize();
                             }
                         }
                     }
