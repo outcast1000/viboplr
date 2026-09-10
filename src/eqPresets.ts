@@ -11,6 +11,13 @@ export const NUM_BANDS = 10;
 // ~10 kHz (adds "air"/sparkle without touching the harsh 2-5 kHz presence band).
 // Gain range matches the graphic EQ for consistency. Shelves ignore Q in Web Audio.
 export type EqMode = "advanced" | "simple";
+// Clip protection for simple-mode boosts. "limiter": a master-bus limiter
+// catches the boosted peaks, so the boost stays loud — but a heavy boost on
+// dense material makes the limiter pump (each bass hit ducks the whole mix for
+// its release). "headroom": attenuate the master by the boost amount instead —
+// artifact-free, but the boost no longer reads as louder. Mirrored to the mpv
+// engine's af graph (src-tauri/src/mpv_engine/af.rs).
+export type EqClipProtection = "limiter" | "headroom";
 export const SHELF_BASS_FREQ = 100;
 export const SHELF_TREBLE_FREQ = 10000;
 export const SHELF_GAIN_MIN = -15;

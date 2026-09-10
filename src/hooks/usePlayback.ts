@@ -39,6 +39,7 @@ import {
   SHELF_BASS_FREQ,
   SHELF_TREBLE_FREQ,
   applyGainsToFilters,
+  type EqClipProtection,
   type EqMode,
 } from "../eqPresets";
 
@@ -232,6 +233,10 @@ export function usePlayback(
   // modes is non-destructive — each mode keeps its own settings.
   const [eqBassDb, setEqBassDb] = useState<number>(0);
   const [eqTrebleDb, setEqTrebleDb] = useState<number>(0);
+  // How a simple-mode boost is kept from clipping: "limiter" (loud; heavy
+  // boosts pump on dense material) or "headroom" (attenuate by the boost
+  // amount; clean but quieter). See EqClipProtection in eqPresets.ts.
+  const [eqClipProtection, setEqClipProtection] = useState<EqClipProtection>("limiter");
   // ReplayGain: per-track loudness normalization applied via a per-chain gain node.
   // Mode "off" | "track" | "album"; preamp dB is added on top; preventClip caps the
   // gain so the (normalized) peak stays <= 0 dBFS.
@@ -502,6 +507,7 @@ export function usePlayback(
   const eqPreGainDbRef = useRef<number>(eqPreGainDb);
   const eqBassDbRef = useRef<number>(eqBassDb);
   const eqTrebleDbRef = useRef<number>(eqTrebleDb);
+  const eqClipProtectionRef = useRef<EqClipProtection>(eqClipProtection);
   const rgModeRef = useRef(rgMode);
   const rgPreampDbRef = useRef(rgPreampDb);
   const rgPreventClipRef = useRef(rgPreventClip);
@@ -512,18 +518,27 @@ export function usePlayback(
   useAssignRef(eqPreGainDbRef, eqPreGainDb);
   useAssignRef(eqBassDbRef, eqBassDb);
   useAssignRef(eqTrebleDbRef, eqTrebleDb);
+  useAssignRef(eqClipProtectionRef, eqClipProtection);
   useAssignRef(rgModeRef, rgMode);
   useAssignRef(rgPreampDbRef, rgPreampDb);
   useAssignRef(rgPreventClipRef, rgPreventClip);
 
   function masterGainValue(): number {
-    // Advanced mode: the user sets pre-gain manually. Simple mode does NOT
-    // attenuate — dropping the whole signal to make room for a boost is heard as
-    // "quieter" (especially the bass on small speakers). Clip protection for
-    // simple-mode boosts is handled by the master-bus limiter instead.
-    const preGainDb = (eqEnabledRef.current && eqModeRef.current !== "simple")
-      ? eqPreGainDbRef.current
-      : 0;
+    // Advanced mode: the user sets pre-gain manually. Simple mode's default
+    // ("limiter" clip protection) does NOT attenuate — dropping the whole
+    // signal to make room for a boost is heard as "quieter" (especially the
+    // bass on small speakers); the master-bus limiter catches boosted peaks
+    // instead. In "headroom" clip protection that trade flips: attenuate by
+    // the boost amount and leave the limiter disengaged, so a heavy boost
+    // can't pump the mix.
+    let preGainDb = 0;
+    if (eqEnabledRef.current) {
+      if (eqModeRef.current !== "simple") {
+        preGainDb = eqPreGainDbRef.current;
+      } else if (eqClipProtectionRef.current === "headroom") {
+        preGainDb = -Math.max(eqBassDbRef.current, eqTrebleDbRef.current, 0);
+      }
+    }
     const linear = Math.pow(10, preGainDb / 20);
     return effectiveVolume() * linear;
   }
@@ -531,9 +546,12 @@ export function usePlayback(
   // The limiter only needs to act when a simple-mode boost can push peaks past
   // the ceiling; cuts and the flat state can't clip, so it stays disengaged
   // (threshold at 0 dB → effectively transparent) to keep the dry path clean.
+  // In "headroom" clip protection it stays disengaged even while boosting —
+  // masterGainValue() has already made the room.
   function limiterThresholdDb(): number {
     const boosting = eqEnabledRef.current
       && eqModeRef.current === "simple"
+      && eqClipProtectionRef.current !== "headroom"
       && Math.max(eqBassDbRef.current, eqTrebleDbRef.current) > 0;
     return boosting ? LIMITER_CEILING_DB : 0;
   }
@@ -817,6 +835,7 @@ export function usePlayback(
     eqPreGainDbRef.current = eqPreGainDb;
     eqBassDbRef.current = eqBassDb;
     eqTrebleDbRef.current = eqTrebleDb;
+    eqClipProtectionRef.current = eqClipProtection;
     // Lazily build the Web Audio graph the first time EQ is actually engaged.
     // Until then, audio plays through the native HTMLMediaElement path for
     // snappier play/pause/mute response.
@@ -833,8 +852,9 @@ export function usePlayback(
       preGainDb: eqPreGainDb,
       bassDb: eqBassDb,
       trebleDb: eqTrebleDb,
+      clipProtection: eqClipProtection,
     }).catch(console.error);
-  }, [eqEnabled, eqMode, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb]);
+  }, [eqEnabled, eqMode, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqClipProtection]);
 
   // Apply ReplayGain to the active chain when the current track changes or the RG
   // settings change. The inactive (preloaded) chain is handled in preloadNext.
@@ -2465,6 +2485,7 @@ export function usePlayback(
     eqPreGainDb, setEqPreGainDb,
     eqBassDb, setEqBassDb,
     eqTrebleDb, setEqTrebleDb,
+    eqClipProtection, setEqClipProtection,
     rgMode, setRgMode,
     rgPreampDb, setRgPreampDb,
     rgPreventClip, setRgPreventClip,

@@ -11,7 +11,7 @@ import {
 } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
 import { EqControlGroup, type EqControls } from "./EqButton";
-import type { EqMode } from "../eqPresets";
+import type { EqClipProtection, EqMode } from "../eqPresets";
 import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
 import { TransportButtons, QueueModeGroup, VolumeControl } from "./TransportControls";
 import { BufferingChip } from "./BufferingChip";
@@ -125,6 +125,7 @@ interface NowPlayingBarProps {
   eqPreGainDb: number;
   eqBassDb: number;
   eqTrebleDb: number;
+  eqClipProtection: EqClipProtection;
   eqCustomPresets: { id: string; name: string; gains: number[] }[];
   onEqEnabledChange: (v: boolean) => void;
   onEqModeChange: (mode: EqMode) => void;
@@ -133,6 +134,7 @@ interface NowPlayingBarProps {
   onEqPreGainChange: (db: number) => void;
   onEqBassChange: (db: number) => void;
   onEqTrebleChange: (db: number) => void;
+  onEqClipProtectionChange: (v: EqClipProtection) => void;
   onEqResetAll: () => void;
   onEqSaveAs: () => void;
   eqShowBarControl: boolean;
@@ -194,8 +196,8 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleFullscreen, canFullscreen,
-  eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqCustomPresets,
-  onEqEnabledChange, onEqModeChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqBassChange, onEqTrebleChange, onEqResetAll, onEqSaveAs,
+  eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqClipProtection, eqCustomPresets,
+  onEqEnabledChange, onEqModeChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqBassChange, onEqTrebleChange, onEqClipProtectionChange, onEqResetAll, onEqSaveAs,
   eqShowBarControl, onEqShowBarControlChange,
   onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
@@ -260,11 +262,13 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   const eqControls: EqControls = {
     enabled: eqEnabled, mode: eqMode, preset: eqPreset, gains: eqGains,
     preGainDb: eqPreGainDb, bassDb: eqBassDb, trebleDb: eqTrebleDb,
+    clipProtection: eqClipProtection,
     customPresets: eqCustomPresets,
     onEnabledChange: onEqEnabledChange, onModeChange: onEqModeChange,
     onPresetChange: onEqPresetChange, onGainChange: onEqGainChange,
     onPreGainChange: onEqPreGainChange, onBassChange: onEqBassChange,
-    onTrebleChange: onEqTrebleChange, onResetAll: onEqResetAll, onSaveAs: onEqSaveAs,
+    onTrebleChange: onEqTrebleChange, onClipProtectionChange: onEqClipProtectionChange,
+    onResetAll: onEqResetAll, onSaveAs: onEqSaveAs,
     showBarControl: eqShowBarControl, onShowBarControlChange: onEqShowBarControlChange,
   };
   // Tags for the current track, shown inline in the subtitle. The track is a

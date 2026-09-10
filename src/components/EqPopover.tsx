@@ -4,6 +4,7 @@ import {
   BUILTIN_PRESETS,
   SIMPLE_PRESETS,
   simplePresetFor,
+  type EqClipProtection,
   type EqMode,
   type EqPreset,
 } from "../eqPresets";
@@ -20,6 +21,7 @@ interface Props {
   preGainDb: number;
   bassDb: number;
   trebleDb: number;
+  clipProtection: EqClipProtection;
   customPresets: EqPreset[];
   onEnabledChange: (v: boolean) => void;
   onModeChange: (mode: EqMode) => void;
@@ -28,6 +30,7 @@ interface Props {
   onPreGainChange: (db: number) => void;
   onBassChange: (db: number) => void;
   onTrebleChange: (db: number) => void;
+  onClipProtectionChange: (v: EqClipProtection) => void;
   onResetAll: () => void;
   onSaveAs: () => void;
   showBarControl: boolean;
@@ -42,9 +45,9 @@ const CURVE_HEIGHT = 190;
 const ANCHOR_GAP_PX = 8;
 
 export function EqPopover({
-  enabled, mode, preset, gains, preGainDb, bassDb, trebleDb, customPresets,
+  enabled, mode, preset, gains, preGainDb, bassDb, trebleDb, clipProtection, customPresets,
   onEnabledChange, onModeChange, onPresetChange, onGainChange, onPreGainChange,
-  onBassChange, onTrebleChange, onResetAll, onSaveAs,
+  onBassChange, onTrebleChange, onClipProtectionChange, onResetAll, onSaveAs,
   showBarControl, onShowBarControlChange, onClose, anchorRef,
 }: Props) {
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -229,6 +232,37 @@ export function EqPopover({
           </button>
         )}
       </div>
+
+      {/* Clip protection (simple only) — how a Bass/Treble boost is kept from
+          clipping. Loudness = master-bus limiter (the boost stays loud, but a
+          heavy boost pumps on dense music); Fidelity = lower the volume by the
+          boost amount (artifact-free, quieter). Advanced mode has manual
+          pre-gain instead. */}
+      {simple && (
+        <div className="eq-barvis-row">
+          <span className="eq-barvis-label">Boost clip protection</span>
+          <div className="eq-mode-seg" role="radiogroup" aria-label="Boost clip protection">
+            <button
+              className={`eq-mode-seg-btn ${clipProtection !== "headroom" ? "active" : ""}`}
+              onClick={() => onClipProtectionChange("limiter")}
+              role="radio"
+              aria-checked={clipProtection !== "headroom"}
+              title="Limit boosted peaks — boosts stay loud, but a heavy boost can pump on dense music"
+            >
+              Loudness
+            </button>
+            <button
+              className={`eq-mode-seg-btn ${clipProtection === "headroom" ? "active" : ""}`}
+              onClick={() => onClipProtectionChange("headroom")}
+              role="radio"
+              aria-checked={clipProtection === "headroom"}
+              title="Lower the volume by the boost amount — no limiter artifacts, but quieter"
+            >
+              Fidelity
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Pre-gain (advanced only) — a master offset, not a per-band curve handle */}
       {!simple && (

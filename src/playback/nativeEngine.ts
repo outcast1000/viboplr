@@ -184,6 +184,8 @@ export const nativeEngine = {
     preGainDb: number;
     bassDb: number;
     trebleDb: number;
+    /** Simple-mode boost clip protection: "limiter" | "headroom". */
+    clipProtection: string;
   }): Promise<void> {
     return whenCapable(() => invoke("engine_set_eq", { params }));
   },

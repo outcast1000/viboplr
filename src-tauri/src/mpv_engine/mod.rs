@@ -1943,6 +1943,7 @@ mod tests {
                 pre_gain_db: -2.0,
                 bass_db: 0.0,
                 treble_db: 0.0,
+                clip_protection: String::new(),
             })
             .expect("advanced EQ af graph");
         engine
@@ -1963,6 +1964,7 @@ mod tests {
                 pre_gain_db: 0.0,
                 bass_db: 5.0,
                 treble_db: -2.0,
+                clip_protection: String::new(),
             })
             .expect("simple EQ af graph");
     }

@@ -2647,6 +2647,7 @@ function App() {
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
           eqEnabled: savedEqEnabled, eqMode: savedEqMode, eqPreset: savedEqPreset, eqGains: savedEqGains,
           eqCustomPresets: savedEqCustomPresets, eqPreGainDb: savedEqPreGainDb, eqBassDb: savedEqBassDb, eqTrebleDb: savedEqTrebleDb,
+          eqClipProtection: savedEqClipProtection,
           eqShowBarControlSimple: savedEqShowBarSimple, eqShowBarControlAdvanced: savedEqShowBarAdvanced,
           rgMode: savedRgMode, rgPreampDb: savedRgPreampDb, rgPreventClip: savedRgPreventClip,
           nowPlayingInfoSelection: savedNowPlayingInfo, visualizerSlots: savedVisualizerSlots,
@@ -2750,6 +2751,9 @@ function App() {
         }
         if (typeof savedEqTrebleDb === "number" && Number.isFinite(savedEqTrebleDb)) {
           playback.setEqTrebleDb(savedEqTrebleDb);
+        }
+        if (savedEqClipProtection === "limiter" || savedEqClipProtection === "headroom") {
+          playback.setEqClipProtection(savedEqClipProtection);
         }
         if (typeof savedEqShowBarSimple === "boolean") setEqShowBarControlSimple(savedEqShowBarSimple);
         if (typeof savedEqShowBarAdvanced === "boolean") setEqShowBarControlAdvanced(savedEqShowBarAdvanced);
@@ -3114,6 +3118,8 @@ function App() {
   usePersistMirror("eqBassDb", playback.eqBassDb, restoredRef);
 
   usePersistMirror("eqTrebleDb", playback.eqTrebleDb, restoredRef);
+
+  usePersistMirror("eqClipProtection", playback.eqClipProtection, restoredRef);
 
   usePersistMirror("rgMode", playback.rgMode, restoredRef);
 
@@ -4431,6 +4437,7 @@ function App() {
     onEqPreGainChange: playback.setEqPreGainDb,
     onEqBassChange: playback.setEqBassDb,
     onEqTrebleChange: playback.setEqTrebleDb,
+    onEqClipProtectionChange: playback.setEqClipProtection,
     onEqResetAll: () => {
       if (playback.eqMode === "simple") {
         playback.setEqBassDb(0);
@@ -4543,6 +4550,7 @@ function App() {
     preGainDb: playback.eqPreGainDb,
     bassDb: playback.eqBassDb,
     trebleDb: playback.eqTrebleDb,
+    clipProtection: playback.eqClipProtection,
     customPresets: eqCustomPresets,
     onEnabledChange: npBar.onEqEnabledChange,
     onModeChange: npBar.onEqModeChange,
@@ -4551,6 +4559,7 @@ function App() {
     onPreGainChange: npBar.onEqPreGainChange,
     onBassChange: npBar.onEqBassChange,
     onTrebleChange: npBar.onEqTrebleChange,
+    onClipProtectionChange: npBar.onEqClipProtectionChange,
     onResetAll: npBar.onEqResetAll,
     onSaveAs: npBar.onEqSaveAs,
     showBarControl: playback.eqMode === "simple" ? eqShowBarControlSimple : eqShowBarControlAdvanced,
@@ -6134,6 +6143,7 @@ function App() {
         eqPreGainDb={playback.eqPreGainDb}
         eqBassDb={playback.eqBassDb}
         eqTrebleDb={playback.eqTrebleDb}
+        eqClipProtection={playback.eqClipProtection}
         eqCustomPresets={eqCustomPresets}
         onEqEnabledChange={npBar.onEqEnabledChange}
         onEqModeChange={npBar.onEqModeChange}
@@ -6142,6 +6152,7 @@ function App() {
         onEqPreGainChange={npBar.onEqPreGainChange}
         onEqBassChange={npBar.onEqBassChange}
         onEqTrebleChange={npBar.onEqTrebleChange}
+        onEqClipProtectionChange={npBar.onEqClipProtectionChange}
         onEqResetAll={npBar.onEqResetAll}
         onEqSaveAs={npBar.onEqSaveAs}
         eqShowBarControl={playback.eqMode === "simple" ? eqShowBarControlSimple : eqShowBarControlAdvanced}

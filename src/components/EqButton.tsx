@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EqPopover } from "./EqPopover";
 import { EqBarControl } from "./EqBarControl";
-import type { EqMode, EqPreset } from "../eqPresets";
+import type { EqClipProtection, EqMode, EqPreset } from "../eqPresets";
 
 /**
  * Everything the EQ button + its popover need, as one bundle.
@@ -20,6 +20,7 @@ export interface EqControls {
   preGainDb: number;
   bassDb: number;
   trebleDb: number;
+  clipProtection: EqClipProtection;
   customPresets: EqPreset[];
   onEnabledChange: (v: boolean) => void;
   onModeChange: (mode: EqMode) => void;
@@ -28,6 +29,7 @@ export interface EqControls {
   onPreGainChange: (db: number) => void;
   onBassChange: (db: number) => void;
   onTrebleChange: (db: number) => void;
+  onClipProtectionChange: (v: EqClipProtection) => void;
   onResetAll: () => void;
   onSaveAs: () => void;
   showBarControl: boolean;
@@ -123,6 +125,7 @@ export function EqButton({ eq, available, onOpenChange }: EqGroupProps) {
           preGainDb={eq.preGainDb}
           bassDb={eq.bassDb}
           trebleDb={eq.trebleDb}
+          clipProtection={eq.clipProtection}
           customPresets={eq.customPresets}
           onEnabledChange={eq.onEnabledChange}
           onModeChange={eq.onModeChange}
@@ -131,6 +134,7 @@ export function EqButton({ eq, available, onOpenChange }: EqGroupProps) {
           onPreGainChange={eq.onPreGainChange}
           onBassChange={eq.onBassChange}
           onTrebleChange={eq.onTrebleChange}
+          onClipProtectionChange={eq.onClipProtectionChange}
           onResetAll={eq.onResetAll}
           onSaveAs={eq.onSaveAs}
           showBarControl={eq.showBarControl}

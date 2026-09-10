@@ -58,6 +58,7 @@ export interface PersistedSettings {
   eqPreGainDb: number | undefined;
   eqBassDb: number | undefined;
   eqTrebleDb: number | undefined;
+  eqClipProtection: string | undefined;
   eqShowBarControlSimple: boolean | undefined;
   eqShowBarControlAdvanced: boolean | undefined;
   rgMode: string | undefined;
@@ -143,6 +144,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     eqPreGainDb: read<number>("eqPreGainDb"),
     eqBassDb: read<number>("eqBassDb"),
     eqTrebleDb: read<number>("eqTrebleDb"),
+    eqClipProtection: read<string>("eqClipProtection"),
     eqShowBarControlSimple: read<boolean>("eqShowBarControlSimple"),
     eqShowBarControlAdvanced: read<boolean>("eqShowBarControlAdvanced"),
     rgMode: read<string>("rgMode"),

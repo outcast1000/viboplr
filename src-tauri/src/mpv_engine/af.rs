@@ -27,10 +27,17 @@ pub struct EqParams {
     pub mode: String,
     /// 10 per-band gains (dB), advanced mode.
     pub gains: Vec<f64>,
-    /// Advanced-mode pre-gain (dB). Simple mode never attenuates (limiter instead).
+    /// Advanced-mode pre-gain (dB). Simple-mode boosts are clip-protected per
+    /// `clip_protection` instead.
     pub pre_gain_db: f64,
     pub bass_db: f64,
     pub treble_db: f64,
+    /// Simple-mode boost clip protection — "headroom" attenuates by the boost
+    /// amount (clean but quieter); anything else means "limiter" (loud, but a
+    /// heavy boost pumps on dense material). Mirrors `eqClipProtection` in
+    /// usePlayback.ts; defaults to limiter so older frontends keep their sound.
+    #[serde(default)]
+    pub clip_protection: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -62,12 +69,20 @@ pub fn build_af_graph(eq: &EqParams) -> String {
         if eq.treble_db != 0.0 {
             parts.push(format!("treble=g={:.1}:f={}", eq.treble_db, SHELF_TREBLE_FREQ));
         }
-        // Limiter only when a boost can push peaks past the ceiling — cuts and
-        // flat can't clip, and the dry path stays clean (parity with
-        // limiterThresholdDb in usePlayback.ts).
-        if eq.bass_db.max(eq.treble_db) > 0.0 {
-            let limit = 10f64.powf(LIMITER_CEILING_DB / 20.0);
-            parts.push(format!("alimiter=limit={limit:.4}:attack=3:release=250:level=false"));
+        // Clip protection only when a boost can push peaks past full scale —
+        // cuts and flat can't clip, and the dry path stays clean (parity with
+        // limiterThresholdDb / masterGainValue in usePlayback.ts).
+        let max_boost = eq.bass_db.max(eq.treble_db);
+        if max_boost > 0.0 {
+            if eq.clip_protection == "headroom" {
+                // Headroom mode: make room for the boost by attenuating the
+                // whole signal instead of limiting — no limiter pumping, at the
+                // cost of the boost no longer being louder.
+                parts.push(format!("volume=-{max_boost:.1}dB"));
+            } else {
+                let limit = 10f64.powf(LIMITER_CEILING_DB / 20.0);
+                parts.push(format!("alimiter=limit={limit:.4}:attack=3:release=250:level=false"));
+            }
         }
     } else {
         for (i, g) in eq.gains.iter().take(BANDS.len()).enumerate() {
@@ -103,6 +118,7 @@ mod tests {
             pre_gain_db: 0.0,
             bass_db: 0.0,
             treble_db: 0.0,
+            clip_protection: String::new(),
         }
     }
 
@@ -150,6 +166,24 @@ mod tests {
             build_af_graph(&p),
             "bass=g=5.0:f=100,treble=g=-2.0:f=10000,alimiter=limit=0.8913:attack=3:release=250:level=false"
         );
+    }
+
+    #[test]
+    fn test_simple_headroom_attenuates_instead_of_limiting() {
+        let mut p = eq(true, "simple");
+        p.bass_db = 5.0;
+        p.treble_db = 2.0;
+        p.clip_protection = "headroom".into();
+        // Attenuate by the larger boost — no limiter in the graph.
+        assert_eq!(build_af_graph(&p), "bass=g=5.0:f=100,treble=g=2.0:f=10000,volume=-5.0dB");
+    }
+
+    #[test]
+    fn test_simple_headroom_cuts_skip_attenuation() {
+        let mut p = eq(true, "simple");
+        p.bass_db = -4.0;
+        p.clip_protection = "headroom".into();
+        assert_eq!(build_af_graph(&p), "bass=g=-4.0:f=100");
     }
 
     #[test]
