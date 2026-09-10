@@ -6,7 +6,8 @@ import { trackToQueueTrack } from "../queueEntry";
 import { track as trackTelemetry } from "../telemetry";
 
 interface PlayActionsArgs {
-  playTracks: (tracks: QueueTrack[], index: number, context?: PlaylistContext | null) => number;
+  // Raw `Track`s are fine — useQueue converts at the door (`toQueueTracks`).
+  playTracks: (tracks: Array<Track | QueueTrack>, index: number, context?: PlaylistContext | null) => number;
   enqueueTracks: (tracks: Track[]) => void;
   // Guarded append for the tail of a play session — no-ops once the queue has
   // been replaced. Must be the raw queue append, NOT the duplicate-banner

@@ -3039,6 +3039,94 @@ fn bench_search_performance() {
     }
 }
 
+/// The two SQL calls on the startup queue-restore critical path (App.tsx runs
+/// both BEFORE the window is shown): `get_track_like_states` (the like
+/// reconcile — N point reads on the entity_likes PK) and
+/// `find_track_ids_by_paths` (the libraryId reconcile — one full tracks scan
+/// per 500-path chunk, since PATH_EXPR is unindexable). Measured over a mixed
+/// queue — library file:// entries plus plugin-scheme/http entries with no row
+/// — because the scan costs the same whether a path matches or not. The
+/// per-path loop is benched as the baseline the bulk call replaced (the
+/// documented 740ms O(queue × library) shape).
+///
+/// Run: cargo test bench_queue_restore_lookups -- --ignored --nocapture
+#[test]
+#[ignore]
+fn bench_queue_restore_lookups() {
+    let db = test_db();
+
+    let seed_start = std::time::Instant::now();
+    seed_bench_db(&db, 2000, 4000, 20000, 0);
+    let seed_ms = seed_start.elapsed().as_secs_f64() * 1000.0;
+
+    // A realistic restored queue: 350 library tracks, 100 plugin-scheme
+    // entries, 50 direct-URL entries. Library URIs mirror seed_bench_db's
+    // paths under the "/test" local collection root.
+    let lib_uri = |i: usize| {
+        format!(
+            "file:///test/music/artist_{:04}/album_{:04}/track_{:05}.mp3",
+            i % 2000, i % 4000, i
+        )
+    };
+    let mut queue_paths: Vec<String> = (0..350).map(|i| lib_uri(i * 7 % 20000)).collect();
+    queue_paths.extend((0..100).map(|i| format!("ytdlp://https%3A%2F%2Fyoutu.be%2Fvid{i}")));
+    queue_paths.extend((0..50).map(|i| format!("https://example.com/stream/{i}.mp3")));
+
+    // Like reconcile input: (title, artist) pairs for the same 500 entries,
+    // with 100 of them holding a durable like row so the point reads hit both
+    // present and absent keys.
+    let like_inputs: Vec<(String, Option<String>)> = (0..500)
+        .map(|i| {
+            (
+                format!("Track {:05} Title", i * 7 % 20000),
+                Some(format!("Artist {:04}", (i * 7 % 20000) % 2000)),
+            )
+        })
+        .collect();
+    for (title, artist) in like_inputs.iter().take(100) {
+        let key = crate::db::likes::build_entity_key("track", title, artist.as_deref());
+        db.set_entity_like("track", &key, 1, None, 1_700_000_000).unwrap();
+    }
+
+    let mut results: Vec<BenchResult> = Vec::new();
+    results.push(BenchResult {
+        name: "seed_database(20k tracks)".into(),
+        iterations: 1,
+        rounds: 1,
+        avg_ms: seed_ms,
+        min_ms: seed_ms,
+        max_ms: seed_ms,
+    });
+
+    results.push(bench("find_track_ids_by_paths(500 mixed)", 20, || {
+        let got = db.find_track_ids_by_paths(&queue_paths).unwrap();
+        assert_eq!(got.len(), 350, "every library path must resolve, no others");
+    }));
+
+    let big_queue: Vec<String> = (0..2000).map(|i| lib_uri(i * 3 % 20000)).collect();
+    results.push(bench("find_track_ids_by_paths(2000 lib, 4 chunks)", 20, || {
+        let _ = db.find_track_ids_by_paths(&big_queue).unwrap();
+    }));
+
+    results.push(bench("get_track_like_states(500)", 20, || {
+        let states = db.get_track_like_states(&like_inputs).unwrap();
+        assert_eq!(states.len(), 500);
+    }));
+
+    // The pre-bulk baseline: one PATH_EXPR scan per queue entry.
+    results.push(bench("LOOP find_track_id_by_path x500 (old shape)", 2, || {
+        for p in &queue_paths {
+            let _ = db.find_track_id_by_path(p).unwrap();
+        }
+    }));
+
+    println!("\n{:<50} {:>5} {:>4} {:>10} {:>10} {:>10}", "Benchmark", "Iters", "Rnd", "Avg ms", "Min ms", "Max ms");
+    println!("{}", "-".repeat(93));
+    for r in &results {
+        println!("{:<50} {:>5} {:>4} {:>10.3} {:>10.3} {:>10.3}", r.name, r.iterations, r.rounds, r.avg_ms, r.min_ms, r.max_ms);
+    }
+}
+
 #[test]
 fn test_build_radio_returns_seed_first() {
     let db = test_db();

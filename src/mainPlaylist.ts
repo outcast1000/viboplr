@@ -1,6 +1,6 @@
 import type { QueueTrack, QueueMode } from "./types";
 import type { PlaylistContext } from "./hooks/useQueue";
-import { nextExternalKey } from "./queueEntry";
+import { nextQueueKey } from "./queueEntry";
 
 export interface ManifestTrack {
   title: string;
@@ -13,6 +13,13 @@ export interface ManifestTrack {
   file: string | null;
   thumb: string | null;
   format?: string | null;
+  /** The entry's own artwork reference — an http(s) URL or a plugin-supplied
+   *  local path. Distinct from `thumb` (the on-disk cache file, which the live
+   *  queue never sets: Rust names that from `file`). Optional so manifests
+   *  written before it existed restore unchanged. */
+  image_url?: string | null;
+  /** Bytes on disk, when known. Optional for the same reason. */
+  file_size?: number | null;
 }
 
 export interface Manifest {
@@ -153,6 +160,14 @@ export function buildManifest(queue: QueueTrack[], context: PlaylistContext | nu
       // shared MixtapeTrack type for mixtape export, which sets it itself.
       thumb: null,
       format: t.format,
+      // Persisted so a **path-less** entry keeps its art across a restart —
+      // that entry can have no cached thumb, because the thumb filename is
+      // derived from the file URI and there is no URI to key one under (see the
+      // `if (!t.path) continue` guard in useQueue's thumb effect). Library
+      // tracks carry no `image_url` at all, so this is null for them and the
+      // entity-image chain still owns their art.
+      image_url: t.image_url ?? null,
+      file_size: t.file_size ?? null,
     })),
   };
 }
@@ -187,14 +202,14 @@ export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
   return manifest.tracks.map((m): QueueTrack => ({
     // QueueEntry.key is an in-memory identity used for React rendering + multi-select.
     // It is not persisted. Generate fresh keys on restore from the SAME shared
-    // counter (nextExternalKey) that every other queue mutation uses — a private
-    // local counter here would restart at ext:1 and collide with keys minted later
-    // by nextExternalKey(), producing duplicate React keys that corrupt
+    // counter (nextQueueKey) that every other queue mutation uses — a private
+    // local counter here would restart at q:1 and collide with keys minted later
+    // by nextQueueKey(), producing duplicate React keys that corrupt
     // reconciliation (phantom rows that survive clear/remove). Thumbnail identity on
     // disk is keyed off the file URI (canonical_slug, backend-side), not this key,
     // so thumbs cached before restart are still found — seeded into thumbInfo
     // from main_playlist_read's existence-checked `thumbs` list, not the manifest.
-    key: nextExternalKey(),
+    key: nextQueueKey(),
     path: m.file,
     title: m.title,
     artist_name: m.artist || null,
@@ -206,11 +221,26 @@ export function tracksFromManifest(manifest: Manifest): QueueTrack[] {
     // dropping it would misclassify a restored video as audio after restart.
     format: m.format ?? null,
     liked: 0,
-    // image_url is intentionally NOT seeded from m.thumb: the queue thumbnail is
-    // resolved from thumbInfo (seeded from main_playlist_read on restore, and
-    // from main-playlist-thumb-ready during the session) so Rust remains the
-    // sole namer of the on-disk file. Library art still resolves via the entity
-    // cache in QueuePanel/App.
+    // Seeded from the entry's OWN `image_url`, never from `m.thumb`: the on-disk
+    // thumbnail is resolved separately through `thumbInfo` (seeded from
+    // `main_playlist_read` on restore, and from `main-playlist-thumb-ready`
+    // during the session) so Rust stays the sole namer of that file. QueuePanel
+    // prefers the thumb and only falls back to this, and `QueueItemThumb`
+    // records failed sources — so a plugin URL that has since expired degrades
+    // to the placeholder rather than sticking as a broken image.
+    //
+    // Library tracks have no `image_url`, so this is undefined for them and
+    // their art still resolves via the entity cache.
+    image_url: m.image_url ?? undefined,
+    file_size: m.file_size ?? null,
+    // libraryId is intentionally NOT persisted or seeded here. A stored rowid
+    // can go stale — SQLite reuses the ids of deleted rows — and a stale id is
+    // worse than none, because consumers stop falling back. It is also
+    // unnecessary: the only two writers of `libraryId` are `trackToQueueTrack`
+    // (from a `Track`, whose `path` is non-null in Rust) and the restore
+    // reconcile itself, so every entry that has an id also has a URI — and
+    // App.tsx re-resolves it from that URI via `find_track_ids_by_paths`,
+    // getting an answer that is correct *now* rather than remembered.
   }));
 }
 

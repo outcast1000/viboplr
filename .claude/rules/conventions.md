@@ -44,9 +44,9 @@ Each entry documents the gold standard implementation for a repeated user action
 ### Like/Unlike Track
 
 - **Canonical:** `useLikeActions.ts` -> `handleToggleLike()` / `handleToggleDislike()`
-- **Like flow:** Compute `newLiked` via `nextTriState(track.liked, "like")` -> `invoke("set_entity_like_state", { kind: "track", entity: trackLikePayload(track), likeState: newLiked })` (persists to the durable `entity_likes` store by metadata — see backend.md "Likes") -> mirror the new state into `library.tracks` (by key if the track has a `lib:N` key, else best-effort by title+artist) + `playback.currentTrack` + `queue` via the `sameSong()` predicate -> dispatch plugin event `track:liked` -> catch must `console.error`
+- **Like flow:** Compute `newLiked` via `nextTriState(track.liked, "like")` -> `invoke("set_entity_like_state", { kind: "track", entity: trackLikePayload(track), likeState: newLiked })` (persists to the durable `entity_likes` store by metadata — see backend.md "Likes") -> mirror the new state into `library.tracks` (by cached `libraryId` when present, else by normalized title+artist — `likeTargetsRow`; never by parsing a key) + `playback.currentTrack` + `queue` via the `sameSong()` predicate (key match, falling back to the same normalized metadata identity, `trackLikeId`) -> dispatch plugin event `track:liked` -> catch must `console.error`
 - **Dislike flow:** Same as Like but with `nextTriState(track.liked, "dislike")` and no plugin event (dislike does NOT dispatch `track:liked`)
-- **Propagation rule:** Likes propagate to same-song copies via `sameSong(a, b)` (key match, falling back to `title` + `artist_name`), so liking a song from any surface updates external/restored/duplicate copies that carry a different `ext:N`/`lib:N` key.
+- **Propagation rule:** Likes propagate to same-song copies via `sameSong(a, b)` (key match, falling back to `title` + `artist_name`), so liking a song from any surface updates external/restored/duplicate copies that carry a different key.
 - **No library lookup needed:** Because `entity_likes` is keyed by metadata, there is no `find_track_by_metadata` / "Track not in library" gate — any `QueueTrack` can be liked, library or not.
 
 ### Like/Unlike Artist, Album, Tag
@@ -114,7 +114,7 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `useQueue.ts` -> `savePlaylist()` / `loadPlaylist()`
 - **Save flow:** Prompt for filename -> write current queue to `.m3u8` via file dialog
-- **Load flow:** Open file dialog (`.m3u`, `.m3u8`, `.mixtape`) -> parse entries -> convert via `queueEntryToTrack` -> replace queue, set index to 0, play first track, set context to filename. `.mixtape` files delegate to `onOpenMixtape`.
+- **Load flow:** Open file dialog (`.m3u`, `.m3u8`, `.mixtape`) -> parse entries -> convert via `queueEntryToQueueTrack` -> replace queue, set index to 0, play first track, set context to filename. `.mixtape` files delegate to `onOpenMixtape`.
 - **Rule:** `loadPlaylist` does NOT call `stamp()` — playlist entries lack `album_id` so stamping is a no-op.
 
 ### Queue Management

@@ -60,7 +60,8 @@ function PluginIcon({ name }: { name: string }) {
 
 interface SidebarProps {
   view: View | `plugin:${string}`;
-  selectedTrack: string | null;
+  /** Only presence is read (`noDetail`) — the shape is the caller's. */
+  selectedTrack: unknown | null;
   /** Type of the current track, for the Now Playing icon (disc vs film reel). null = nothing loaded. */
   nowPlayingMedia?: "audio" | "video" | null;
   /** Whether playback is active — the icon spins when true, freezes when false. */

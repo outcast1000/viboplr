@@ -528,7 +528,7 @@ export function MusicQuizView({ onPauseMainPlayback, volume }: MusicQuizViewProp
 
             <div className="quiz-answers">
               {(question?.options ?? []).map((track, i) => (
-                <div className="quiz-wire-row" key={track.key}>
+                <div className="quiz-wire-row" key={track.id ?? i}>
                   <button
                     className={answerClass(i)}
                     onClick={() => selectAnswer(i)}

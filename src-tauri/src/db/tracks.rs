@@ -2,6 +2,12 @@
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
 
+/// How many paths `find_track_ids_by_paths` binds per statement. Each chunk
+/// costs one scan of `tracks` (see that fn), so bigger is cheaper — capped
+/// well under the oldest `SQLITE_MAX_VARIABLE_NUMBER` (999) rather than the
+/// 32766 modern builds allow, since the win is already flat by here.
+const PATH_LOOKUP_CHUNK: usize = 500;
+
 /// One statement for both insert and refresh, `RETURNING id` in either path —
 /// shared by the single-file `upsert_track` and the scanner's batched ingest
 /// so the two can't drift.
@@ -581,12 +587,75 @@ impl Database {
 
     pub fn find_track_id_by_path(&self, full_path: &str) -> SqlResult<Option<i64>> {
         let conn = self.conn.lock().unwrap();
+        // ORDER BY mirrors `find_track_ids_by_paths`' tie-break: the same
+        // computed URI can exist in two collections (two local collections
+        // sharing a root), and `PATH_EXPR` is a computed expression no index
+        // can serve — so a bare LIMIT 1 answers in rowid (scan) order, which
+        // is insertion order, not collection order. The two lookups stamp and
+        // consume the same `QueueTrack.libraryId` cache, so they must pick the
+        // same row or a restored entry and an on-demand fallback silently
+        // address different tracks.
         let sql = format!("SELECT t.id FROM tracks t \
             LEFT JOIN collections co ON t.collection_id = co.id \
             WHERE {PATH_EXPR} = ?1 \
             AND (t.collection_id IS NULL OR co.enabled = 1) \
+            ORDER BY t.collection_id \
             LIMIT 1");
         conn.query_row(&sql, params![full_path], |row| row.get(0)).optional()
+    }
+
+    /// Bulk `find_track_id_by_path`: resolves many paths in one call, returning
+    /// only the ones that matched, as `(path, track id)`.
+    ///
+    /// Exists for queue restore, which has to re-resolve `QueueTrack.libraryId`
+    /// for the whole restored queue (ids are deliberately not persisted — see
+    /// `QueueTrack.libraryId`).
+    ///
+    /// **Chunked `IN`, deliberately not a loop of single lookups.** `PATH_EXPR`
+    /// is a CASE expression over the `collections` join, so no index on
+    /// `t.path` can serve it and *every* equality lookup costs a scan of the
+    /// whole `tracks` table (`EXPLAIN QUERY PLAN`: `SCAN t`). Looping made
+    /// restore O(queue x library) — measured at **740ms for a 500-entry queue
+    /// over a 20k-track library, in release**, all of it on the startup
+    /// critical path. One scan per chunk brings the same case to single-digit
+    /// milliseconds. If you rewrite this, check the query plan first.
+    ///
+    /// Unmatched paths are simply absent from the result rather than mapping to
+    /// null — the caller keys by path, and "no row" and "no entry" mean the same
+    /// thing to it. Ties (the same computed URI in two collections, reachable
+    /// when two local collections share a root) break on lowest
+    /// `collection_id` via the explicit ORDER BY, which `find_track_id_by_path`
+    /// carries too — the autoindex can't impose it, since a WHERE on the
+    /// computed `PATH_EXPR` is always a full scan in rowid order. Both lookups
+    /// must order identically or they hand out different ids for the same path.
+    pub fn find_track_ids_by_paths(&self, full_paths: &[String]) -> SqlResult<Vec<(String, i64)>> {
+        if full_paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for chunk in full_paths.chunks(PATH_LOOKUP_CHUNK) {
+            let placeholders = std::iter::repeat_n("?", chunk.len()).collect::<Vec<_>>().join(",");
+            let sql = format!(
+                "SELECT {PATH_EXPR} AS uri, t.id FROM tracks t \
+                 LEFT JOIN collections co ON t.collection_id = co.id \
+                 WHERE {PATH_EXPR} IN ({placeholders}) \
+                 AND (t.collection_id IS NULL OR co.enabled = 1) \
+                 ORDER BY t.collection_id"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(chunk), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            for row in rows {
+                let (uri, id) = row?;
+                if seen.insert(uri.clone()) {
+                    out.push((uri, id));
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Returns the stored source format (file suffix, e.g. "mp3"/"flac") for a
@@ -1106,6 +1175,110 @@ mod tests {
         rows.collect::<SqlResult<Vec<_>>>().unwrap()
     }
 
+    /// The bulk lookup backs queue restore, which re-resolves every entry's
+    /// `libraryId` from its path. It must agree with the single-path lookup
+    /// exactly — restore is the only thing that reattaches provenance to a
+    /// restored queue, so a disagreement would silently leave entries id-less —
+    /// and it must omit paths with no row rather than guess.
+    #[test]
+    fn test_find_track_ids_by_paths_matches_the_single_lookup() {
+        let db = Database::new_in_memory().unwrap();
+        let local = db
+            .add_collection("local", "music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        // A second local collection rooted at the SAME path, holding the same
+        // relative path: both rows compute the identical URI, so both lookups
+        // have a tie to break and must break it the same way (lowest
+        // collection_id, via each query's explicit ORDER BY).
+        let dupe_root = db
+            .add_collection("local", "music-again", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        let artist = db.get_or_create_artist("The Gun Club").unwrap();
+        db.upsert_track("Fire Spirit.mp3", "Fire Spirit", Some(artist), None, None, None, Some("mp3"), None, None, Some(local.id), None)
+            .unwrap();
+        // The HIGHER-numbered collection's copy is inserted FIRST, so it holds
+        // the lower rowid. That is the adversarial order: a PATH_EXPR lookup is
+        // always a full scan, so an unordered LIMIT 1 answers in rowid order
+        // and would pick this row while the tie-break picks the other — the
+        // disagreement the ORDER BY on both lookups exists to prevent. (The
+        // old fixture inserted in ascending collection order, confounding
+        // rowid order with collection order, and could not catch it.)
+        db.upsert_track("Sex Beat.mp3", "Sex Beat", Some(artist), None, None, None, Some("mp3"), None, None, Some(dupe_root.id), None)
+            .unwrap();
+        let sex_beat_lowest_collection = db
+            .upsert_track("Sex Beat.mp3", "Sex Beat", Some(artist), None, None, None, Some("mp3"), None, None, Some(local.id), None)
+            .unwrap();
+
+        let present: Vec<String> = ["Fire Spirit.mp3", "Sex Beat.mp3"]
+            .iter()
+            .map(|f| format!("file:///music/{f}"))
+            .collect();
+        for p in &present {
+            assert!(db.find_track_id_by_path(p).unwrap().is_some(), "fixture must resolve {p}");
+        }
+        let missing = "file:///music/Ghost on the Highway.mp3".to_string();
+
+        let mut paths = present.clone();
+        paths.push(missing.clone());
+        let got = db.find_track_ids_by_paths(&paths).unwrap();
+
+        assert_eq!(got.len(), 2, "the unmatched path must be omitted, not nulled: {got:?}");
+        for (path, id) in &got {
+            assert_eq!(
+                Some(*id),
+                db.find_track_id_by_path(path).unwrap(),
+                "bulk and single lookups disagree for {path}",
+            );
+        }
+        assert!(!got.iter().any(|(p, _)| p == &missing));
+
+        // Not just "they agree" — they agree on the LOWEST collection_id's row,
+        // which is what the doc contract promises.
+        let sex_beat_uri = "file:///music/Sex Beat.mp3".to_string();
+        assert_eq!(
+            got.iter().find(|(p, _)| p == &sex_beat_uri).map(|(_, id)| *id),
+            Some(sex_beat_lowest_collection),
+            "the duplicate-URI tie must break on lowest collection_id",
+        );
+
+        assert!(db.find_track_ids_by_paths(&[]).unwrap().is_empty());
+    }
+
+    /// A plugin-registered collection's tracks store the whole scheme URI in
+    /// `t.path`, which `PATH_EXPR` returns verbatim through its `ELSE` arm — so
+    /// they resolve by path exactly like local and subsonic ones.
+    ///
+    /// This is what lets queue restore reattach a `libraryId` to a
+    /// plugin-sourced entry. Those entries carry an `ext:N` key, so while
+    /// provenance lived in the key they were permanently id-less no matter what
+    /// collection they belonged to. A plugin *search result* that was never
+    /// ingested still resolves to nothing, which is correct — it has no row.
+    #[test]
+    fn test_plugin_scheme_tracks_resolve_by_path() {
+        let db = Database::new_in_memory().unwrap();
+        let plugin = db
+            .add_collection("spotify", "Spotify", None, None, None, None, None, None)
+            .unwrap();
+        let artist = db.get_or_create_artist("Boards of Canada").unwrap();
+        db.upsert_track("spotify://4iV5W9uYEdYUVa79Axb7Rh", "Roygbiv", Some(artist), None, None, None, Some("ogg"), None, None, Some(plugin.id), None)
+            .unwrap();
+
+        let ingested = "spotify://4iV5W9uYEdYUVa79Axb7Rh".to_string();
+        let never_ingested = "spotify://0000000000000000000000".to_string();
+        let got = db
+            .find_track_ids_by_paths(&[ingested.clone(), never_ingested.clone()])
+            .unwrap();
+
+        assert_eq!(got.len(), 1, "only the ingested track has a row: {got:?}");
+        assert_eq!(got[0].0, ingested);
+        assert_eq!(
+            Some(got[0].1),
+            db.find_track_id_by_path(&ingested).unwrap(),
+            "bulk and single lookups must agree for a plugin scheme too",
+        );
+        assert!(db.find_track_id_by_path(&never_ingested).unwrap().is_none());
+    }
+
     /// The playback Library resolver walks EVERY copy of a match so it can
     /// verify each one (a local row whose file is gone falls through to the
     /// network copy). That only works if the plural lookup returns the whole
@@ -1279,3 +1452,4 @@ mod tests {
         );
     }
 }
+

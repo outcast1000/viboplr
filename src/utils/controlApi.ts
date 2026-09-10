@@ -10,7 +10,6 @@
 import type { QueueTrack, QueueMode } from "../types";
 import type { Track } from "../types";
 import type { HomeShelfDisplayKind, HomeShelfItem } from "../types/plugin";
-import { parseLibraryId } from "../queueEntry";
 import { resolveShelfPlayAction } from "./homeShelfPlay";
 
 /** Payload of the `control-api-request` Tauri event. */
@@ -92,8 +91,8 @@ export function partitionEnqueue(
 
 export interface SerializedQueueTrack {
   index: number;
-  /** Library track id when this entry came from the library (`lib:N` key) —
-   *  what /v1/tracks/{id}/tags etc. take. Null for external entries. */
+  /** The entry's cached library row id (`QueueTrack.libraryId`) — what
+   *  /v1/tracks/{id}/tags etc. take. Null for external entries. */
   libraryId: number | null;
   title: string;
   artistName: string | null;
@@ -114,7 +113,7 @@ export function serializeQueue(
     mode,
     tracks: queue.map((t, i) => ({
       index: i,
-      libraryId: parseLibraryId(t.key),
+      libraryId: t.libraryId ?? null,
       title: t.title,
       artistName: t.artist_name ?? null,
       albumTitle: t.album_title ?? null,
@@ -153,7 +152,7 @@ export function serializeStatus(input: StatusInput) {
     view: input.view,
     currentTrack: t
       ? {
-          libraryId: parseLibraryId(t.key),
+          libraryId: t.libraryId ?? null,
           title: t.title,
           artistName: t.artist_name ?? null,
           albumTitle: t.album_title ?? null,

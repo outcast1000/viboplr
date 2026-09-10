@@ -1,21 +1,23 @@
 import { useState } from "react";
-import type { QueueTrack } from "../types";
+import type { Track, QueueTrack } from "../types";
 
 /** Pending enqueue captured when a drop (or enqueue) hits duplicates already in
  * the queue. `position` is set only for drag-to-insert drops; a plain enqueue
  * leaves it undefined (append). Owned by `useContextMenuActions` because both the
- * enqueue path and this drag path populate it; the duplicate banner reads it. */
+ * enqueue path and this drag path populate it; the duplicate banner reads it.
+ * Raw library `Track`s ride through unconverted — the banner only counts them,
+ * and the eventual enqueue/insert converts at the queue's door (`toQueueTracks`). */
 export interface PendingEnqueue {
-  all: QueueTrack[];
-  duplicates: QueueTrack[];
-  unique: QueueTrack[];
+  all: Array<Track | QueueTrack>;
+  duplicates: Array<Track | QueueTrack>;
+  unique: Array<Track | QueueTrack>;
   position?: number;
 }
 
 interface UseQueueDragToInsertDeps {
   queueHook: {
-    findDuplicates: (tracks: QueueTrack[]) => { duplicates: QueueTrack[]; unique: QueueTrack[] };
-    insertAtPosition: (tracks: QueueTrack[], pos: number) => void;
+    findDuplicates: (tracks: Array<Track | QueueTrack>) => { duplicates: Array<Track | QueueTrack>; unique: Array<Track | QueueTrack> };
+    insertAtPosition: (tracks: Array<Track | QueueTrack>, pos: number) => void;
     queue: QueueTrack[];
   };
   queueCollapsed: boolean;
@@ -33,7 +35,7 @@ interface UseQueueDragToInsertDeps {
 export function useQueueDragToInsert({ queueHook, queueCollapsed, setQueueCollapsed, setPendingEnqueue }: UseQueueDragToInsertDeps) {
   const [externalDropTarget, setExternalDropTarget] = useState<number | null>(null);
 
-  function handleTrackDragStart(dragTracks: QueueTrack[]) {
+  function handleTrackDragStart(dragTracks: Array<Track | QueueTrack>) {
     let ghost: HTMLDivElement | null = null;
     const dropTargetRef = { current: null as number | null };
 

@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, ViewMode, SortField, QueueTrack } from "../types";
 import { formatDuration, isVideoTrack } from "../utils";
 import { store } from "../store";
-import { isLocalTrack } from "../queueEntry";
+import { isLocalTrack, isPlayingLibraryRow } from "../queueEntry";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { TrackList, computeSelection } from "./TrackList";
@@ -206,7 +206,7 @@ export function SearchView({
   const tagSortRef = useRef({ tagSortChain });
   useAssignRef(tagSortRef, { tagSortChain });
 
-  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
+  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<number | null>>(new Set());
   const [selectedArtistIds, setSelectedArtistIds] = useState<Set<number>>(new Set());
   const [selectedAlbumIds, setSelectedAlbumIds] = useState<Set<number>>(new Set());
   const [selectedTagIds, setSelectedTagIds] = useState<Set<number>>(new Set());
@@ -571,13 +571,13 @@ export function SearchView({
 
   const handleTrackLike = useCallback((track: Track) => {
     const newLiked = track.liked === 1 ? 0 : 1;
-    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.key === track.key ? { ...t, liked: newLiked } : t) }));
+    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.id === track.id ? { ...t, liked: newLiked } : t) }));
     onToggleLike(track);
   }, [onToggleLike]);
 
   const handleTrackDislike = useCallback((track: Track) => {
     const newLiked = track.liked === -1 ? 0 : -1;
-    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.key === track.key ? { ...t, liked: newLiked } : t) }));
+    setResults(prev => ({ ...prev, tracks: prev.tracks.map(t => t.id === track.id ? { ...t, liked: newLiked } : t) }));
     onToggleDislike(track);
   }, [onToggleDislike]);
 
@@ -631,12 +631,12 @@ export function SearchView({
   }
 
   function handleTrackItemContextMenu(e: React.MouseEvent, track: Track, index: number) {
-    if (!selectedTrackIds.has(track.key)) {
-      setSelectedTrackIds(new Set([track.key]));
+    if (!selectedTrackIds.has(track.id)) {
+      setSelectedTrackIds(new Set([track.id]));
       lastClickedTrackRef.current = index;
       onTrackContextMenu(e, track, [track]);
     } else {
-      onTrackContextMenu(e, track, selectedTrackIds.size > 1 ? results.tracks.filter(t => selectedTrackIds.has(t.key)) : [track]);
+      onTrackContextMenu(e, track, selectedTrackIds.size > 1 ? results.tracks.filter(t => selectedTrackIds.has(t.id)) : [track]);
     }
   }
 
@@ -653,8 +653,8 @@ export function SearchView({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
       let dragTracks: Track[];
-      if (selectedTrackIds.has(results.tracks[index].key) && selectedTrackIds.size > 1) {
-        dragTracks = results.tracks.filter(t => selectedTrackIds.has(t.key));
+      if (selectedTrackIds.has(results.tracks[index].id) && selectedTrackIds.size > 1) {
+        dragTracks = results.tracks.filter(t => selectedTrackIds.has(t.id));
       } else {
         dragTracks = [results.tracks[index]];
       }
@@ -684,7 +684,7 @@ export function SearchView({
         else if (activeTab === "albums" && selectedAlbumIds.size > 0) setSelectedAlbumIds(new Set());
         else if (activeTab === "tags" && selectedTagIds.size > 0) setSelectedTagIds(new Set());
       } else if (e.key === "a" && (e.metaKey || e.ctrlKey)) {
-        if (activeTab === "tracks" && results.tracks.length > 0) { e.preventDefault(); setSelectedTrackIds(new Set(results.tracks.map(t => t.key))); }
+        if (activeTab === "tracks" && results.tracks.length > 0) { e.preventDefault(); setSelectedTrackIds(new Set(results.tracks.map(t => t.id))); }
         else if (activeTab === "artists" && results.artists.length > 0) { e.preventDefault(); setSelectedArtistIds(new Set(results.artists.map(a => a.id))); }
         else if (activeTab === "albums" && results.albums.length > 0) { e.preventDefault(); setSelectedAlbumIds(new Set(results.albums.map(a => a.id))); }
         else if (activeTab === "tags" && results.tags.length > 0) { e.preventDefault(); setSelectedTagIds(new Set(results.tags.map(t => t.id))); }
@@ -732,8 +732,8 @@ export function SearchView({
 
     function applyLassoSelection(hits: Set<number>, meta: boolean) {
       if (tab === "tracks") {
-        const sel = new Set<string>();
-        for (const idx of hits) if (idx < results.tracks.length) sel.add(results.tracks[idx].key);
+        const sel = new Set<number | null>();
+        for (const idx of hits) if (idx < results.tracks.length) sel.add(results.tracks[idx].id);
         if (meta) { const merged = new Set(selectedTrackIds); for (const k of sel) merged.add(k); setSelectedTrackIds(merged); }
         else setSelectedTrackIds(sel);
       } else if (tab === "artists") {
@@ -1005,11 +1005,11 @@ export function SearchView({
                 }
                 return (
                   <TrackRow
-                    key={t.key}
+                    key={t.id}
                     thumb={thumb}
                     title={t.title}
-                    playing={currentTrack?.key === t.key}
-                    selected={selectedTrackIds.has(t.key)}
+                    playing={isPlayingLibraryRow(t, currentTrack)}
+                    selected={selectedTrackIds.has(t.id)}
                     onClick={(e) => handleTrackItemClick(e, i)}
                     onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
                     onMouseDown={(e) => handleTrackItemMouseDown(e, i)}
@@ -1061,13 +1061,13 @@ export function SearchView({
                     : { kind: "letter", text: t.title[0]?.toUpperCase() ?? "?" };
                   return (
                     <TrackCard
-                      key={t.key}
+                      key={t.id}
                       art={art}
                       title={t.title}
                       subtitle={<>{t.artist_name && <>{t.artist_name} {"·"} </>}{formatDuration(t.duration_secs)}</>}
                       liked={t.liked}
-                      playing={currentTrack?.key === t.key}
-                      selected={selectedTrackIds.has(t.key)}
+                      playing={isPlayingLibraryRow(t, currentTrack)}
+                      selected={selectedTrackIds.has(t.id)}
                       onClick={(e) => handleTrackItemClick(e, i)}
                       onDoubleClick={() => { setSelectedTrackIds(new Set()); onPlayTracks([t], 0); }}
                       onMouseDown={(e) => handleTrackItemMouseDown(e, i)}

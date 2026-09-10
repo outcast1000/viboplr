@@ -147,7 +147,7 @@ interface NowPlayingBarProps {
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   likeDisabled?: boolean;
-  onTrackClick: (trackKey: string) => void;
+  onTrackClick: (track: QueueTrack) => void;
   onNavigateToArtistByName?: (name: string) => void;
   onNavigateToAlbumByName?: (name: string, artistName?: string) => void;
   onNavigateToTagByName?: (name: string) => void;
@@ -611,7 +611,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                     className="now-title now-link"
                     enabled
                     restartKey={currentTrack.key}
-                    onClick={() => onTrackClick(currentTrack.key)}
+                    onClick={() => onTrackClick(currentTrack)}
                     title={currentTrack.title}
                   >
                     <SlideText text={currentTrack.title} />

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { Track } from "../types";
+import type { QueueTrack } from "../types";
 import {
   buildManifest,
   buildState,
@@ -13,16 +13,17 @@ import {
   tracksFromManifest,
   type Manifest,
 } from "../mainPlaylist";
-import { nextExternalKey } from "../queueEntry";
+import { nextQueueKey } from "../queueEntry";
 
-function makeTrack(overrides: Partial<Track> = {}): Track {
+// The live queue holds QueueTracks, so the manifest round-trip fixtures are
+// QueueTracks too (they used to be Tracks passing structurally, via the
+// since-removed `key` field).
+function makeTrack(overrides: Partial<QueueTrack> = {}): QueueTrack {
   return {
-    id: null, key: "ext:1", path: "file:///x.mp3", title: "T",
-    artist_id: null, artist_name: "A", album_id: null, album_title: "Al",
-    year: null, track_number: null, duration_secs: 200, format: "mp3",
-    file_size: null, collection_id: null, collection_name: null,
-    liked: 0, added_at: null, modified_at: null,
-    image_url: undefined, ...overrides,
+    key: "ext:1", path: "file:///x.mp3", title: "T",
+    artist_name: "A", album_title: "Al",
+    duration_secs: 200, format: "mp3",
+    liked: 0, image_url: undefined, ...overrides,
   };
 }
 
@@ -88,6 +89,60 @@ describe("buildManifest", () => {
       recipe: "daily-mix",
     });
     for (const v of Object.values(m.metadata ?? {})) expect(typeof v).toBe("string");
+  });
+});
+
+// A path-less plugin entry (a Spotify search result) is the case these two
+// fields exist for: it can have no cached thumb, because the thumb filename is
+// derived from the file URI and there is no URI to key one under — so before
+// this it came back from a restart with no artwork at all.
+describe("image_url / file_size round-trip", () => {
+  it("carries a path-less entry's own artwork through a restart", () => {
+    const entry = {
+      key: "ext:7", path: null, title: "Roygbiv", artist_name: "Boards of Canada",
+      album_title: "Music Has the Right to Children", duration_secs: 217,
+      format: null, liked: 0, image_url: "https://cdn.example/art.jpg",
+    };
+    const restored = tracksFromManifest(buildManifest([entry], null));
+    expect(restored[0].image_url).toBe("https://cdn.example/art.jpg");
+    expect(restored[0].path).toBeNull();
+  });
+
+  it("carries file_size, so a restored row keeps its size readout", () => {
+    const t = makeTrack({ file_size: 5_242_880 });
+    const restored = tracksFromManifest(buildManifest([t], null));
+    expect(restored[0].file_size).toBe(5_242_880);
+  });
+
+  it("leaves a library track's art to the entity cache", () => {
+    // Library tracks carry no `image_url`, so nothing is persisted and the
+    // restored entry stays unset — priority rule 1 must not short-circuit the
+    // album→artist chain for them.
+    const t = makeTrack({ image_url: undefined });
+    const m = buildManifest([t], null);
+    expect(m.tracks[0].image_url).toBeNull();
+    expect(tracksFromManifest(m)[0].image_url).toBeUndefined();
+  });
+
+  // A manifest written before these fields existed must restore unchanged.
+  it("tolerates a manifest with neither field", () => {
+    const legacy: Manifest = {
+      version: 1, title: "Old", type: "custom", created_at: "", created_by: null,
+      cover: null,
+      tracks: [{ title: "T", artist: "A", album: "Al", duration_secs: 1, file: "file:///x.mp3", thumb: null }],
+    };
+    const restored = tracksFromManifest(legacy);
+    expect(restored[0].image_url).toBeUndefined();
+    expect(restored[0].file_size).toBeNull();
+  });
+
+  // libraryId stays out of the manifest on purpose: SQLite reuses the rowids of
+  // deleted tracks, and every entry that has one also has a URI the restore
+  // reconcile can re-resolve it from.
+  it("never writes a libraryId", () => {
+    const m = buildManifest([{ ...makeTrack(), libraryId: 42 } as never], null);
+    expect(JSON.stringify(m)).not.toContain("libraryId");
+    expect(JSON.stringify(m)).not.toContain("library_id");
   });
 });
 
@@ -701,13 +756,13 @@ describe("tracksFromManifest key generation", () => {
   });
 
   // Regression: a private local counter in tracksFromManifest restarted at ext:1
-  // on every restore and collided with keys minted later by nextExternalKey()
+  // on every restore and collided with keys minted later by nextQueueKey()
   // (enqueue, play-next, plugin tracks). Duplicate React keys corrupted
   // reconciliation — phantom queue rows that survived clear/remove until restart.
-  it("does not collide with keys minted later by nextExternalKey", () => {
+  it("does not collide with keys minted later by nextQueueKey", () => {
     const restored = tracksFromManifest(manifest(2)).map(t => t.key);
     // Simulate subsequent queue mutations (enqueue etc.) that mint external keys.
-    const minted = [nextExternalKey(), nextExternalKey()];
+    const minted = [nextQueueKey(), nextQueueKey()];
     const all = [...restored, ...minted];
     expect(new Set(all).size).toBe(all.length);
   });

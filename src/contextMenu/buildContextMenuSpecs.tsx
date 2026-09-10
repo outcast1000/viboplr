@@ -8,7 +8,7 @@ import { toPluginTarget } from "../types/contextMenu";
 import { buildPluginMenuSpecs } from "./pluginMenuGroups";
 import { buildAddToPlaylistSubmenu } from "./addToPlaylistMenu";
 import type { UserPlaylist } from "../hooks/useUserPlaylists";
-import { isLocalTrack, parseLibraryId } from "../queueEntry";
+import { isLocalTrack, librarySelection } from "../queueEntry";
 import type { useContextMenuActions } from "../hooks/useContextMenuActions";
 import type { useLibrary } from "../hooks/useLibrary";
 import type { usePlugins } from "../hooks/usePlugins";
@@ -84,9 +84,9 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
           specs.push({ kind: "item", text: "Open Containing Folder", action: d.contextMenuActions.handleShowInFolder });
         }
         specs.push({ kind: "item", text: "Start radio from this track", action: () => d.contextMenuActions.startRadio({ title: t.title, artistName: t.artistName, coverPath: null }) });
-        const libId = parseLibraryId(t.key);
+        const libId = t.libraryId;
         if (libId != null) {
-          specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(`lib:${libId}`) });
+          specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(librarySelection(libId)) });
         }
         if (t.isLocal && d.contextMenuActions.handleDeleteRequest) {
           specs.push({ kind: "separator" });
@@ -119,7 +119,7 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
       }
 
       // Add to Playlist — queue entries are QueueTracks resolved in place, so
-      // this works for external (ext:) entries too, not just library rows.
+      // this works for id-less external entries too, not just library rows.
       specs.push({ kind: "separator" });
       specs.push(buildAddToPlaylistSubmenu(d.userPlaylists, {
         onPick: (id, name) => d.onAddToPlaylist(id, name, target),
@@ -169,15 +169,16 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
 
         // View Details — needs d.library ID
         if (target.trackIds[0] != null) {
-          specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(`lib:${target.trackIds[0]}`) });
+          specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(librarySelection(target.trackIds[0])) });
         }
       }
 
       // Move to Trash — local tracks only
       if (d.contextMenuActions.handleDeleteRequest) {
-        // Any local (file://) track is deletable: the library id is resolved from
-        // the path at action time (handleDeleteRequest), so ext: keys — restored,
-        // m3u-loaded, home-shelf — work too, not just fresh lib:N rows.
+        // Any local (file://) track is deletable: the library id is resolved
+        // from the path at action time (handleDeleteRequest), so id-less
+        // entries — restored, m3u-loaded, home-shelf — work too, not just
+        // entries with a cached libraryId.
         const localDeletable = selectedTracks.filter(t => isLocalTrack(t));
         if (localDeletable.length > 0) {
           specs.push({ kind: "separator" });
@@ -276,7 +277,11 @@ export function buildContextMenuSpecs(target: ContextMenuTarget, d: ContextMenuD
         }});
       }
       if (target.kind === "track" && target.trackId) {
-        specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(`lib:${target.trackId}`) });
+        // Captured, not read off `target` inside the closure: the guard's
+        // narrowing doesn't survive into a deferred callback. (The old template
+        // literal hid this — it would happily interpolate `undefined`.)
+        const trackId = target.trackId;
+        specs.push({ kind: "item", text: "View Details", action: () => d.library.handleTrackClick(librarySelection(trackId)) });
       }
       if (d.contextMenuActions.handleDeleteRequest && (target.kind === "track" && target.isLocal || target.kind === "multi-track")) {
         if (target.kind === "track") {

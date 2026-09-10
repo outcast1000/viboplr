@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useRef, useMemo, useId } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { computeSelection as computeSelectionGeneric } from "../utils/rowSelection";
-import { parseLibraryId } from "../queueEntry";
+import { isPlayingLibraryRow } from "../queueEntry";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { RowHoverActions } from "./RowHoverActions";
 import { SpinningDisc } from "./SpinningDisc";
@@ -76,17 +76,25 @@ function formatDate(epochSecs: number | null): string {
 
 
 // Thin adapter over the shared generic (src/utils/rowSelection.ts): maps the
-// Track[] to their `key`s. Kept as a named export so existing callers/tests
-// (SearchView, computeSelection.test.ts) stay unchanged.
+// Track[] to their row **ids**. Kept as a named export so existing callers
+// (SearchView, computeSelection.test.ts) share one algorithm.
+//
+// Keyed on `id` — the row's only identity (a library Track carries no key; the
+// old `lib:{id}` token merely restated this number as a string, so selecting by
+// it meant parsing the id back out). `id` is `number | null` on the type but never
+// null in a list — Rust's `Track.id` is a non-optional `i64`, and the only
+// id-less Tracks in the app are three synthetic literals that feed a detail
+// page, never a list. The generic is parameterised over the key type, so the
+// null rides through harmlessly rather than needing a sentinel.
 export function computeSelection(
-  current: Set<string>,
+  current: Set<number | null>,
   clickedIndex: number,
   tracks: Track[],
   lastIndex: number | null,
   meta: boolean,
   shift: boolean,
-): Set<string> {
-  return computeSelectionGeneric(current, clickedIndex, tracks.map(t => t.key), lastIndex, meta, shift);
+): Set<number | null> {
+  return computeSelectionGeneric(current, clickedIndex, tracks.map(t => t.id), lastIndex, meta, shift);
 }
 
 interface TrackListProps {
@@ -144,7 +152,7 @@ export function TrackList({
   const didDragRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const didDragRowRef = useRef(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<number | null>>(new Set());
   // Keyboard cursor for the listbox (aria-activedescendant). -1 = none yet.
   const [activeIndex, setActiveIndex] = useState(-1);
   const listId = useId();
@@ -167,16 +175,31 @@ export function TrackList({
     return () => observer.disconnect();
   }, [hasMore, onLoadMore]);
 
-  const prevTrackIdsRef = useRef<string>("");
+  // Drop the selection when the list becomes a different list (a new search, a
+  // filter, a different album, a reorder), keyed on the full id *sequence*.
+  //
+  // The sequence — not just the first row — is load-bearing: `selectedIds` is
+  // what Delete acts on, visible or not, so a selection that survives a filter
+  // which happens to keep row 0 (typing the first track's title prefix) would
+  // carry hidden rows into a trash delete — with no confirmation at all when
+  // `confirmTrashDelete` is off. Only an in-place patch (a like toggled on a
+  // row) keeps the ids identical and the selection with it; any membership or
+  // order change also invalidates `lastClickedIndexRef`, so both reset
+  // together. (An earlier `"<key>:<length>"` string compare was broken the
+  // other way — a key *contains* a colon, so it cleared on every change,
+  // including in-place patches.) `null` is the "no previous list" sentinel;
+  // row ids inside the array can legitimately be null.
+  const prevIdsRef = useRef<Array<number | null> | null>(null);
   useEffect(() => {
-    const currFirst = tracks[0]?.key ?? "";
-    const prevFirst = prevTrackIdsRef.current.split(":")[0];
-    if (prevTrackIdsRef.current && prevFirst !== currFirst) {
+    const ids = tracks.map(t => t.id);
+    const prev = prevIdsRef.current;
+    const sameList = prev !== null && prev.length === ids.length && prev.every((id, i) => id === ids[i]);
+    if (prev !== null && !sameList) {
       setSelectedIds(new Set());
       setActiveIndex(-1);
       lastClickedIndexRef.current = null;
     }
-    prevTrackIdsRef.current = currFirst + ":" + tracks.length;
+    prevIdsRef.current = ids;
   }, [tracks]);
 
   // Memoized: this array is a TrackRow prop, and a fresh identity per render
@@ -192,11 +215,14 @@ export function TrackList({
       } else if (e.key === "a" && (e.metaKey || e.ctrlKey) && tracks.length > 0) {
         if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
         e.preventDefault();
-        setSelectedIds(new Set(tracks.map(t => t.key)));
+        setSelectedIds(new Set(tracks.map(t => t.id)));
       } else if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0 && onDeleteTracks) {
         if ((e.target as HTMLElement)?.closest("input, textarea, [contenteditable]")) return;
         e.preventDefault();
-        onDeleteTracks([...selectedIds].map(k => parseLibraryId(k)).filter((id): id is number => id != null));
+        // The selection *is* the id set now, so this is a straight read — it
+        // used to parse each id back out of a `lib:N` key. Nulls are filtered
+        // because `Track.id` is nullable on the type (never in a list).
+        onDeleteTracks([...selectedIds].filter((id): id is number => id != null));
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -217,7 +243,7 @@ export function TrackList({
     if (extend) {
       setSelectedIds(computeSelection(selectedIds, clamped, tracks, lastClickedIndexRef.current, false, true));
     } else {
-      setSelectedIds(new Set([tracks[clamped].key]));
+      setSelectedIds(new Set([tracks[clamped].id]));
       lastClickedIndexRef.current = clamped;
     }
   }
@@ -286,8 +312,8 @@ export function TrackList({
 
       // Determine which tracks to drag
       let dragTracks: Track[];
-      if (selectedIds.has(tracks[index].key) && selectedIds.size > 1) {
-        dragTracks = tracks.filter(t => selectedIds.has(t.key));
+      if (selectedIds.has(tracks[index].id) && selectedIds.size > 1) {
+        dragTracks = tracks.filter(t => selectedIds.has(t.id));
       } else {
         dragTracks = [tracks[index]];
       }
@@ -439,12 +465,12 @@ export function TrackList({
     click: handleRowClick,
     doubleClick: (index: number) => { setSelectedIds(new Set()); onDoubleClick([tracks[index]], 0); },
     contextMenu: (e: React.MouseEvent, t: Track, index: number) => {
-      if (!selectedIds.has(t.key)) {
-        setSelectedIds(new Set([t.key]));
+      if (!selectedIds.has(t.id)) {
+        setSelectedIds(new Set([t.id]));
         lastClickedIndexRef.current = index;
         onContextMenu(e, t, [t]);
       } else {
-        onContextMenu(e, t, selectedIds.size > 1 ? tracks.filter(x => selectedIds.has(x.key)) : [t]);
+        onContextMenu(e, t, selectedIds.size > 1 ? tracks.filter(x => selectedIds.has(x.id)) : [t]);
       }
     },
     artistClick: onArtistClick,
@@ -491,10 +517,10 @@ export function TrackList({
         {visibleColumns.map(col => renderHeaderCell(col))}
       </div>
       {tracks.map((t, i) => {
-        const isCurrent = currentTrack?.key === t.key;
+        const isCurrent = isPlayingLibraryRow(t, currentTrack);
         return (
           <TrackRow
-            key={t.key}
+            key={t.id}
             track={t}
             index={i}
             optId={optionId(i)}
@@ -502,7 +528,7 @@ export function TrackList({
             spinning={isCurrent && playing != null ? playing : null}
             isHighlighted={highlightedIndex === i}
             isActive={activeIndex === i}
-            isSelected={selectedIds.has(t.key)}
+            isSelected={selectedIds.has(t.id)}
             visibleColumns={visibleColumns}
             presence={presence}
             popularity={t.id != null ? trackPopularity?.[t.id] : undefined}

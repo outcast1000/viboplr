@@ -230,6 +230,24 @@ pub fn find_track_id_by_path(
     state.db.find_track_id_by_path(&path).map_err(|e| e.to_string())
 }
 
+/// Bulk sibling of `find_track_id_by_path`, returning `(path, track id)` for
+/// the paths that matched. Backs queue restore's `libraryId` re-resolution.
+///
+/// async + spawn_blocking: a non-async command runs inline on the main thread,
+/// and this one runs a statement per path during startup.
+#[tauri::command]
+pub async fn find_track_ids_by_paths(
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<Vec<(String, i64)>, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.find_track_ids_by_paths(&paths).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Find duplicate tracks grouped by normalized title + artist, optionally
 /// constrained to copies that also match on duration and/or file size within
 /// the given tolerances. Returns one keeper-first group per duplicate set.

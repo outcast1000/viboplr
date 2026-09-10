@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { safeUnlisten } from "../utils/tauriEvents";
 import type { QueueTrack } from "../types";
-import { nextExternalKey } from "../queueEntry";
+import { nextQueueKey } from "../queueEntry";
 
 import { useAssignRef } from "./useLatestRef";
 /** One media file resolved from an OS file-manager drop (see the Rust
@@ -68,7 +68,7 @@ export function useFileDrop(deps: UseFileDropDeps) {
           return;
         }
         const tracks: QueueTrack[] = resolved.map((d) => ({
-          key: nextExternalKey(),
+          key: nextQueueKey(),
           path: d.path,
           title: d.title,
           artist_name: d.artist_name,

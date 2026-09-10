@@ -119,7 +119,6 @@ pub struct Tag {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub id: i64,
-    pub key: String,
     pub path: String,
     pub title: String,
     pub artist_id: Option<i64>,
@@ -525,6 +524,24 @@ pub struct BundleTrack {
     pub thumb: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    /// The entry's own artwork reference (an http(s) URL, or a local path a
+    /// plugin supplied) — NOT the on-disk thumb, which `thumb` never carries
+    /// for the live queue either (Rust names that file from `file`).
+    ///
+    /// Persisted so a **path-less** entry keeps its art across a restart. Such
+    /// an entry can have no thumb cached: the thumb filename is derived from
+    /// the file URI, so with no URI there is no key to write one under. Library
+    /// tracks carry no `image_url` at all (their art comes from the entity
+    /// cache), so this is empty for them and changes nothing.
+    ///
+    /// A stale value is safe: `QueueItemThumb` records failed sources and falls
+    /// through to the next candidate, then the placeholder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
+    /// Bytes on disk, when known. Restores the queue row's size/bitrate readout
+    /// without re-probing the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_size: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -715,5 +732,65 @@ mod tests {
         // Relative / empty are not shares.
         assert!(!is_network_path("song.mp3"));
         assert!(!is_network_path(""));
+    }
+}
+
+#[cfg(test)]
+mod bundle_track_wire_tests {
+    use super::*;
+
+    /// `BundleTrack` is shared by the **live queue manifest** and **`.mixtape`
+    /// export**, so a field added for the queue must not turn up in an exported
+    /// mixtape. `image_url` is a machine-local or expiring reference and
+    /// `file_size` describes a file the recipient does not have — neither
+    /// belongs in a portable archive.
+    ///
+    /// Safe by construction (the mixtape constructors set both to `None`) plus
+    /// `skip_serializing_if`, which is what this pins: `None` must serialize to
+    /// *absent*, not `null`.
+    #[test]
+    fn queue_only_fields_are_absent_from_a_mixtape_track() {
+        let exported = BundleTrack {
+            title: "Roygbiv".into(),
+            artist: "Boards of Canada".into(),
+            album_artist: None,
+            album: Some("Music Has the Right to Children".into()),
+            duration_secs: Some(217.0),
+            file: Some("tracks/01 Roygbiv.mp3".into()),
+            thumb: None,
+            format: None,
+            image_url: None,
+            file_size: None,
+        };
+        let json = serde_json::to_string(&exported).unwrap();
+        assert!(!json.contains("image_url"), "leaked image_url: {json}");
+        assert!(!json.contains("file_size"), "leaked file_size: {json}");
+    }
+
+    /// The live queue's own manifest does carry them, and a manifest written
+    /// before they existed must still deserialize (`serde(default)`).
+    #[test]
+    fn queue_fields_round_trip_and_legacy_manifests_still_parse() {
+        let queued = BundleTrack {
+            title: "T".into(),
+            artist: "A".into(),
+            album_artist: None,
+            album: None,
+            duration_secs: None,
+            file: None,
+            thumb: None,
+            format: None,
+            image_url: Some("https://cdn.example/art.jpg".into()),
+            file_size: Some(5_242_880),
+        };
+        let json = serde_json::to_string(&queued).unwrap();
+        let back: BundleTrack = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.image_url.as_deref(), Some("https://cdn.example/art.jpg"));
+        assert_eq!(back.file_size, Some(5_242_880));
+
+        let legacy: BundleTrack =
+            serde_json::from_str(r#"{"title":"T","artist":"A"}"#).unwrap();
+        assert_eq!(legacy.image_url, None);
+        assert_eq!(legacy.file_size, None);
     }
 }

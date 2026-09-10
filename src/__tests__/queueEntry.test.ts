@@ -3,7 +3,6 @@ import {
   trackToQueueEntry,
   trackToQueueTrack,
   pluginTrackToQueueTrack,
-  queueEntryToTrack,
   parseUrlScheme,
   isLocalTrack,
   effectiveLocalPath,
@@ -11,14 +10,12 @@ import {
   isNetworkSharePath,
   isRemoteScheme,
   remoteId,
-  type QueueEntry,
 } from "../queueEntry";
 import type { Track } from "../types";
 
 function makeTrack(overrides: Partial<Track> = {}): Track {
   return {
     id: 1,
-    key: "lib:1",
     path: "file:///test.mp3",
     title: "Test",
     artist_id: null,
@@ -182,7 +179,9 @@ describe("trackToQueueEntry", () => {
     const entry = trackToQueueEntry(track);
     expect(entry).toEqual({
       url: "file:///music/artist/album/track.mp3",
-      key: "lib:1",
+      // A library Track carries no render key; only a QueueTrack contributes one.
+      key: undefined,
+      album_artist_name: undefined,
       title: "My Song",
       artist_name: "Artist",
       album_title: "Album",
@@ -203,7 +202,8 @@ describe("trackToQueueEntry", () => {
     const entry = trackToQueueEntry(track);
     expect(entry).toEqual({
       url: "file:///unknown.mp3",
-      key: "lib:1",
+      key: undefined,
+      album_artist_name: undefined,
       title: "Unknown",
       artist_name: null,
       album_title: null,
@@ -238,144 +238,6 @@ describe("trackToQueueEntry", () => {
     const track = makeTrack({ liked: 1 });
     const entry = trackToQueueEntry(track);
     expect(entry.liked).toBe(1);
-  });
-});
-
-describe("queueEntryToTrack", () => {
-  it("converts file:// url to Track with null id and generated key", () => {
-    const entry: QueueEntry = {
-      url: "file:///music/song.mp3",
-      title: "Song",
-      artist_name: "Artist",
-      album_title: "Album",
-      duration_secs: 200,
-      track_number: 1,
-      year: 2021,
-      format: "mp3",
-    };
-    const track = queueEntryToTrack(entry);
-    expect(track.id).toBeNull();
-    expect(track.key).toMatch(/^ext:\d+$/);
-    expect(track.path).toBe("file:///music/song.mp3");
-    expect(track.title).toBe("Song");
-    expect(track.artist_name).toBe("Artist");
-    expect(track.album_title).toBe("Album");
-    expect(track.duration_secs).toBe(200);
-    expect(track.format).toBe("mp3");
-  });
-
-  it("converts plugin scheme url to Track with null id and generated key", () => {
-    const entry: QueueEntry = {
-      url: "tidal://12345",
-      title: "Plugin Song",
-      artist_name: "Plugin Artist",
-      album_title: null,
-      duration_secs: 240,
-      track_number: null,
-      year: null,
-      format: null,
-    };
-    const track = queueEntryToTrack(entry);
-    expect(track.id).toBeNull();
-    expect(track.key).toMatch(/^ext:\d+$/);
-    expect(track.path).toBe("tidal://12345");
-    expect(track.title).toBe("Plugin Song");
-    expect(track.artist_name).toBe("Plugin Artist");
-  });
-
-  it("assigns unique keys for multiple entries", () => {
-    const entry1: QueueEntry = {
-      url: "tidal://111",
-      title: "Song 1",
-      artist_name: null,
-      album_title: null,
-      duration_secs: null,
-      track_number: null,
-      year: null,
-      format: null,
-    };
-    const entry2: QueueEntry = {
-      url: "tidal://222",
-      title: "Song 2",
-      artist_name: null,
-      album_title: null,
-      duration_secs: null,
-      track_number: null,
-      year: null,
-      format: null,
-    };
-    const track1 = queueEntryToTrack(entry1);
-    const track2 = queueEntryToTrack(entry2);
-    expect(track1.key).not.toBe(track2.key);
-    expect(track1.id).toBeNull();
-    expect(track2.id).toBeNull();
-  });
-
-  it("converts subsonic:// url to Track with null id", () => {
-    const entry: QueueEntry = {
-      url: "subsonic://server.com/abc123",
-      title: "Server Song",
-      artist_name: "Server Artist",
-      album_title: "Server Album",
-      duration_secs: 300,
-      track_number: 5,
-      year: 2022,
-      format: "flac",
-    };
-    const track = queueEntryToTrack(entry);
-    expect(track.id).toBeNull();
-    expect(track.key).toMatch(/^ext:\d+$/);
-    expect(track.path).toBe("subsonic://server.com/abc123");
-    expect(track.title).toBe("Server Song");
-    expect(track.artist_name).toBe("Server Artist");
-  });
-
-  it("preserves key from QueueEntry when present", () => {
-    const entry: QueueEntry = {
-      url: "tidal://12345",
-      key: "ext:42",
-      title: "Song",
-      artist_name: null,
-      album_title: null,
-      duration_secs: null,
-      track_number: null,
-      year: null,
-      format: null,
-    };
-    const track = queueEntryToTrack(entry);
-    expect(track.key).toBe("ext:42");
-  });
-
-  it("preserves liked state from QueueEntry", () => {
-    const entry: QueueEntry = {
-      url: "tidal://99999",
-      key: "ext:99",
-      title: "Liked Plugin Song",
-      artist_name: null,
-      album_title: null,
-      duration_secs: null,
-      track_number: null,
-      year: null,
-      format: null,
-      liked: 1,
-    };
-    const track = queueEntryToTrack(entry);
-    expect(track.liked).toBe(1);
-  });
-
-  it("defaults liked to 0 when not present in QueueEntry", () => {
-    const entry: QueueEntry = {
-      url: "file:///music/song.mp3",
-      title: "Song",
-      artist_name: null,
-      album_title: null,
-      duration_secs: null,
-      track_number: null,
-      year: null,
-      format: null,
-    };
-    const track = queueEntryToTrack(entry);
-    expect(track.liked).toBe(0);
   });
 });
 
@@ -464,7 +326,6 @@ describe("trackToQueueTrack", () => {
   it("strips DB IDs and keeps metadata", () => {
     const track: Track = {
       id: 42,
-      key: "lib:42",
       path: "file:///music/song.mp3",
       title: "Test Song",
       artist_id: 5,
@@ -486,7 +347,11 @@ describe("trackToQueueTrack", () => {
 
     const qt = trackToQueueTrack(track);
 
-    expect(qt.key).toBe("lib:42");
+    // A fresh queue key, not the library row's: two copies of one track are
+    // two entries by construction, and nothing downstream may read the row id
+    // back out of a key. The id is carried as a number instead.
+    expect(qt.key).toMatch(/^q:\d+$/);
+    expect(qt.libraryId).toBe(42);
     expect(qt.path).toBe("file:///music/song.mp3");
     expect(qt.title).toBe("Test Song");
     expect(qt.artist_name).toBe("Artist");
@@ -545,7 +410,7 @@ describe("pluginTrackToQueueTrack", () => {
     const qt = pluginTrackToQueueTrack({ path: "qbt://aaa/3", title: "Clip", kind: "video" });
     expect(qt.format).toBe("mp4");
     expect(qt.path).toBe("qbt://aaa/3");
-    expect(qt.key).toMatch(/^ext:/);
+    expect(qt.key).toMatch(/^q:/);
   });
 
   it("declares nothing when the plugin declared nothing — the resolve decides", () => {

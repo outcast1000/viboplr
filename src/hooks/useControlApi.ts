@@ -37,7 +37,7 @@ import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { getPlaybackPosition } from "../playback/positionStore";
 import { applyTag, removeTag } from "./useTagActions";
 import { sameSong } from "./useLikeActions";
-import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextExternalKey, type PlaylistTrackRow } from "../queueEntry";
+import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { fetchLikeStates, applyLikeStates } from "../utils/likeReconcile";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
 import { errorText } from "../utils/errorKind";
@@ -397,7 +397,7 @@ export function useControlApi(deps: ControlApiDeps) {
         if (kind === "track") {
           const title = optionalString(payload.title) ?? bad("track likes need a title");
           const candidate: QueueTrack = {
-            key: nextExternalKey(),
+            key: nextQueueKey(),
             path: null,
             title,
             artist_name: optionalString(payload.artistName) ?? null,
@@ -589,7 +589,7 @@ export function useControlApi(deps: ControlApiDeps) {
         }
         // Fresh keys per use: playing the same cached result twice must not
         // collide two queue entries on one React key.
-        const tracks = selected.map((t) => ({ ...t, key: nextExternalKey() }));
+        const tracks = selected.map((t) => ({ ...t, key: nextQueueKey() }));
         if (mode === "play") {
           d.queueHook.playTracks(tracks, 0, { name: entry.label, source: "control-api" });
           return { queued: tracks.length, name: entry.label };

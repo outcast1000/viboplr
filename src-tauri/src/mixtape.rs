@@ -170,6 +170,8 @@ where
             file: Some(archive_path),
             thumb,
             format: None,
+            image_url: None,
+            file_size: None,
         });
     }
 
@@ -481,6 +483,8 @@ mod tests {
                 file: Some("tracks/01-track-1.flac".into()),
                 thumb: None,
                 format: None,
+                image_url: None,
+                file_size: None,
             }],
         );
         assert_eq!(manifest.version, 1);

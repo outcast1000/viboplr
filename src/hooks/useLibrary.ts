@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ColumnConfig, TrackColumnId } from "../types";
+import type { Artist, Album, Tag, Track, TrackSelection, Collection, CollectionStats, View, ViewMode, SortField, SortDir, ColumnConfig, TrackColumnId } from "../types";
 import { store } from "../store";
 import { normalizeForMatch } from "../utils/normalize";
+import { librarySelection } from "../queueEntry";
 
 const ALL_COLUMN_IDS: TrackColumnId[] = ["like", "num", "title", "artist", "album", "year", "quality", "duration", "popularity", "size", "collection", "added", "modified", "path"];
 
@@ -46,7 +47,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   const [selectedArtist, setSelectedArtist] = useState<number | null>(null);
   const [selectedAlbum, setSelectedAlbum] = useState<number | null>(null);
   const [selectedTag, setSelectedTag] = useState<number | null>(null);
-  const [selectedTrack, setSelectedTrack] = useState<string | null>(null);
+  const [selectedTrack, setSelectedTrack] = useState<TrackSelection | null>(null);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [highlightedListIndex, setHighlightedListIndex] = useState(-1);
   const pendingLocateRef = useRef<{ title: string; artistName: string | null } | null>(null);
@@ -79,7 +80,14 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
   useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
   useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);
-  useEffect(() => { if (restoredRef.current) store.set("selectedTrack", selectedTrack); }, [selectedTrack]);
+  // Written but never read back (startup always lands on Home), like its three
+  // sibling keys. Only the *entry* variant's key is stored — persisting a
+  // library id would put a **reusable** SQLite rowid on disk, the hazard
+  // `TrackSelection` and `QueueTrack.libraryId` both exist to avoid.
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    store.set("selectedTrack", selectedTrack?.kind === "entry" ? selectedTrack.key : null);
+  }, [selectedTrack]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
@@ -289,17 +297,20 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     if (idx >= 0) {
       setHighlightedIndex(idx);
       requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-track-id="${sortedTracks[idx].key}"]`) ??
-                   document.querySelector(`.track-row:nth-child(${idx + 1})`);
+        // Nothing renders `data-track-id`, so the selector that used to lead
+        // here always missed and this nth-child fallback was doing all the work.
+        const el = document.querySelector(`.track-row:nth-child(${idx + 1})`);
         el?.scrollIntoView({ block: "center", behavior: "smooth" });
       });
     }
   }, [sortedTracks]);
 
-  function handleTrackClick(trackKey: string) {
+  /** Open the Track-detail page. Build the argument with `librarySelection(id)`
+   *  for a library row or `entrySelection(key)` for an id-less queue entry. */
+  function handleTrackClick(selection: TrackSelection) {
     onBeforeNavigate?.();
     clearFallback();
-    setSelectedTrack(trackKey);
+    setSelectedTrack(selection);
   }
 
   function handleArtistClick(artistId: number, name?: string) {
@@ -433,7 +444,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   async function navigateToTrackByName(name: string, artistName?: string, albumTitle?: string) {
     const result = await invoke<Track | null>("find_track_by_metadata", { title: name, artistName: artistName ?? null, albumName: albumTitle ?? null });
     if (result) {
-      handleTrackClick(result.key);
+      if (result.id != null) handleTrackClick(librarySelection(result.id));
     } else {
       onBeforeNavigate?.();
       setSelectedArtist(null);

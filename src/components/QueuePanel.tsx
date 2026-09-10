@@ -18,11 +18,11 @@ import { buildQueueHeaderMenuSpecs } from "../contextMenu/buildQueueHeaderMenuSp
 import { useAssignRef } from "../hooks/useLatestRef";
 import "./QueuePanel.css";
 
-export interface PendingEnqueue {
-  all: QueueTrack[];
-  duplicates: QueueTrack[];
-  unique: QueueTrack[];
-}
+// The one PendingEnqueue definition lives with its producer; this component
+// only reads the counts. (A local duplicate of the shape used to live here and
+// drifted the moment the producer widened.)
+import type { PendingEnqueue } from "../hooks/useQueueDragToInsert";
+export type { PendingEnqueue };
 
 function formatTotalDuration(tracks: QueueTrack[]): string {
   const totalSecs = tracks.reduce((sum, t) => sum + (t.duration_secs ?? 0), 0);

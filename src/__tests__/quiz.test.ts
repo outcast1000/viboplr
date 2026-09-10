@@ -18,7 +18,6 @@ function makeTrack(overrides: Partial<Track> = {}): Track {
   const id = overrides.id !== undefined ? overrides.id : nextId++;
   return {
     id,
-    key: `lib:${id}`,
     path: "file:///music/song.mp3",
     title: `Song ${id}`,
     artist_id: 1,

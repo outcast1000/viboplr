@@ -18,11 +18,12 @@ The queue is the central playback pipeline. All tracks flow through `useQueue.ts
 
 ## QueueTrack Type
 
-Queue entries, the currently playing track (`currentTrack`), and playlist tracks use the `QueueTrack` type — a metadata-only object with **no DB IDs**. This type is defined in `types.ts`.
+Queue entries, the currently playing track (`currentTrack`), and playlist tracks use the `QueueTrack` type — a metadata-only object carrying **no DB IDs beyond an optional cached `libraryId`** (see below). This type is defined in `types.ts`.
 
 ```typescript
 interface QueueTrack {
-  key: string;              // In-memory identity (ext:N, lib:N)
+  key: string;              // In-memory render identity, unique per entry (q:N)
+  libraryId?: number | null; // Cached library row id, when known
   path: string | null;      // Scheme-prefixed URI (file://, subsonic://, custom://)
   title: string;
   artist_name: string | null;
@@ -34,11 +35,31 @@ interface QueueTrack {
 }
 ```
 
-**No DB IDs, no `collection_id`, no `youtube_url`.** These are either on the library `Track` type only, derivable from `path` (local vs remote), or resolved on-demand via `find_track_by_metadata`.
+**No `collection_id`, no `album_id`/`artist_id`, no `youtube_url`.** These are on the library `Track` type only, derivable from `path` (local vs remote), or resolved on-demand via `find_track_by_metadata`.
 
-**Conversion:** Use `trackToQueueTrack(track: Track): QueueTrack` when adding library tracks to the queue. This strips DB IDs and keeps only portable metadata.
+### `key` vs `libraryId` (do not merge them)
 
-**Why:** Queue tracks may not be in the library (external sources, plugin views, restored playlists). By removing DB ID dependencies, all queue/playback surfaces work uniformly regardless of track origin.
+They look redundant and are not: they have **opposite uniqueness requirements**, which is why they are separate fields.
+
+| | `key` | `libraryId` |
+|---|---|---|
+| What it is | Render/session identity | Cached library row id |
+| Uniqueness | **Unique per entry** — re-minted as `q:N` on collision (`withUniqueKeys`) | **Shared by every copy** of the same row |
+| Persisted | No (fresh `q:N` on restore) | No — **re-resolved from `path`** on restore (a stored rowid can go stale; every entry with an id has a URI, so there is nothing to gain) |
+| Read it with | nothing — it is opaque | `t.libraryId` directly |
+| Where it comes from | the one `nextQueueKey()` counter | `Track.id`, carried by `trackToQueueTrack` |
+
+- **Never parse a library id out of any key. There is no decoder.** `key` was the single field for both jobs, and the conflict was resolved by destroying provenance: enqueue a library track twice and copy #2 was re-keyed to `q:N`, so the same song in the same queue behaved differently under Delete / Download / View Details depending on which row you right-clicked. Every restored entry had the same problem. **`parseLibraryId` is gone** — ids travel as numbers only: `QueueTrack.libraryId`, `Track.id`, and `TrackSelection`'s `library` variant.
+- **`trackToQueueTrack` mints a fresh key**, it does not inherit the library row's. Inheriting `lib:N` is what let a *library list's* now-playing highlight compare `currentTrack.key === track.key` — coupling that list to the queue's key format two layers away. That comparison is now `isPlayingLibraryRow(row, currentTrack)`, on ids. Because every queue key comes from the one counter, `withUniqueKeys` has no collision to resolve on this path any more; it stays as the guard for same-session re-adds — enqueueing an entry that is already in the queue arrives carrying that copy's key.
+- **`libraryId` is a cache, not an identity.** The durable identity is the file URI. Absent/null means "no cached id", **not** "not a library track" — so every consumer keeps its fallback (`find_track_id_by_path`, or `find_track_by_metadata` per the Track Matching convention). A code path that treats null as "not in the library" is a bug.
+- **It is deliberately not persisted.** `tracks.id` is `INTEGER PRIMARY KEY` without `AUTOINCREMENT`, so SQLite reuses the rowids of deleted tracks; a persisted id could come back pointing at a *different* track, and a stale id is worse than none because consumers stop falling back. Queue restore (`App.tsx`) re-resolves the whole queue in one `find_track_ids_by_paths` call instead. Do not add a `library_id` to the main-playlist manifest.
+- Re-keying preserves it because the de-dupers replace only `key` and spread the rest. Pinned by `useQueueLibraryId.test.tsx` and `trackKey.test.ts`.
+
+**Conversion:** Use `trackToQueueTrack(track: Track): QueueTrack` when adding library tracks to the queue. This drops `album_id`/`artist_id`/`collection_id`, keeps portable metadata, and carries `track.id` across as `libraryId`. **`useQueue` also converts at the door**: every entry path (`playTracks`, `enqueueTracks`, `insertAtPosition`, `playNextInQueue`, `addToQueue`, `addToQueueAndPlay`) runs its input through `toQueueTracks`, which converts anything carrying an `id` field (i.e. a raw `Track`, which type-checks structurally) and passes real `QueueTrack`s through untouched — so a surface that forgets to convert still yields entries with `libraryId` stamped. Don't rely on the door for *new* code (convert at the source, where you know the type); the door exists so a missed conversion degrades to nothing instead of to id-less entries.
+
+**Staleness:** `useQueue.reconcileLibraryIds()` re-resolves every entry's cached id from its path in one `find_track_ids_by_paths` call (clearing ids whose path no longer resolves). App calls it from `notifyLibraryChanged` — scan-complete, sync-complete, collection enable/disable/remove — because `tracks.id` is a reusable SQLite rowid and a library mutation can leave a cached id addressing a different row (the same hazard that keeps `libraryId` unpersisted). It returns the path→id map so App also patches `playback.currentTrack` from the same lookup.
+
+**Why:** Queue tracks may not be in the library (external sources, plugin views, restored playlists). By making every DB-ID dependency optional-and-fallback-backed, all queue/playback surfaces work uniformly regardless of track origin.
 
 ### Image Resolution (Queue/NowPlaying)
 
@@ -84,11 +105,11 @@ Every way tracks enter the queue and what each must maintain.
 | **Add single** | `addToQueue(track)` | Appends one track. No index change. |
 | **Add and play** | `addToQueueAndPlay(track, source?)` | Appends one track, sets `queueIndex` to new last position, calls `handlePlay`. |
 | **Append play-session tail** | `appendToPlaySession(gen, tracks)` | Appends the asynchronously-resolved remainder of a play started by `playTracks` (which returns `gen`). No-op once the queue has been replaced or cleared — the generation check makes a stale resolve harmless. Does NOT change `queueIndex`, does NOT touch `playlistContext`, and deliberately skips `findDuplicates`. Only reachable through `usePlayActions.playWithBackfill` — see conventions.md "Play With Backfill". While such a tail is outstanding, `backfillPending` is true (from `pendingBackfillGen`, set by `markBackfillPending` and cleared by `settleBackfill` or by any queue replacement) and `QueuePanel` renders a trailing "Filling in the rest…" row. |
-| **Load playlist** | `loadPlaylist()` | Replaces entire queue from `.m3u`/`.m3u8` file. Converts entries via `queueEntryToTrack`. Sets index to 0, plays first track, sets context to filename. `.mixtape` files delegate to `onOpenMixtape`. |
+| **Load playlist** | `loadPlaylist()` | Replaces entire queue from `.m3u`/`.m3u8` file. Converts entries via `queueEntryToQueueTrack`. Sets index to 0, plays first track, sets context to filename. `.mixtape` files delegate to `onOpenMixtape`. |
 
 **Image resolution rule:** There is no synchronous image stamping. Image resolution happens asynchronously in `QueuePanel.tsx` (for queue thumbnails) and in the `currentTrack` effect in `App.tsx` (for now-playing art). Both use the same priority chain defined in "Image Resolution (Queue/NowPlaying)" above.
 
-**Key generation:** Library tracks get `lib:N` keys, external tracks get `ext:N` keys. The `key` field is the in-memory identity used for React rendering and multi-select — never persisted to disk.
+**Key generation:** every queue entry's key is minted as `q:N` by the one `nextQueueKey()` counter, whatever the track's origin (library, plugin, restored, m3u-loaded). Keys are **session-only by construction** — no persisted format carries one back in: the m3u writer emits only EXTINF+location, the main-playlist manifest has no key field, and `currentTrackEntry` (the one store write embedding a key) has no reader. The only keys not minted at the moment of addition are same-session reuses: `playTracks`' continuation adopting the playing copy's key, and re-adds of already-queued entries where `withUniqueKeys` keeps a collision-free key. The `key` field is the in-memory identity used for React rendering and multi-select. (The library `Track` type has **no** key field at all — its vestigial `lib:N` plugin-wire token was removed after an ecosystem audit found nothing reading it; see types.ts.)
 
 ## Playback Progression
 
@@ -158,9 +179,10 @@ How the queue survives app restarts.
 
 **Restore path:**
 - On startup, App.tsx calls `invoke("main_playlist_read")` to read the manifest and state from the backend's main-playlist folder (NOT from `tauri-plugin-store`).
-- Tracks are reconstructed via `tracksFromManifest()` (producing `id: null` tracks with fresh `ext:N` keys). Playlist context is reconstructed via `contextFromManifest()`.
+- Tracks are reconstructed via `tracksFromManifest()` (producing `id: null` tracks with fresh `q:N` keys). Playlist context is reconstructed via `contextFromManifest()`.
 - Queue mode is restored from the state object. Legacy persisted modes are normalized on read: `"loop"` → `"repeat-all"`, `"shuffle"` → `"normal"` (App.tsx restore path) so older stored state stays valid.
-- The queue and index are NOT set directly during restore — they are deferred via `pendingRestoreQueueRef` / `pendingRestoreTrackRef` and applied once `appRestoring` flips false, so the restored state can't race (or be clobbered by) the rest of startup. Restored tracks stay `ext:N` `QueueTrack`s permanently — there is **no** "upgrade to `lib:` " step, by design: the key is in-memory identity only, and everything that needs a library row resolves on demand (`find_track_by_metadata`, `find_track_id_by_path`). What IS reconciled after restore is per-track like state, via `get_track_like_states`.
+- The queue and index are NOT set directly during restore — they are deferred via `pendingRestoreQueueRef` / `pendingRestoreTrackRef` and applied once `appRestoring` flips false, so the restored state can't race (or be clobbered by) the rest of startup. Restored tracks keep their fresh `q:N` keys permanently — there is **no** "upgrade to `lib:` " step, by design: the key is in-memory render identity only. Two things ARE reconciled after restore, both keyed off durable facts and both best-effort: per-track like state via `get_track_like_states` (by metadata), and `libraryId` via a single `find_track_ids_by_paths` call (by file URI). Anything still id-less afterwards resolves on demand (`find_track_by_metadata`, `find_track_id_by_path`).
+- The manifest also carries **`image_url`** and **`file_size`** per entry. `image_url` is the entry's *own* artwork reference (not the on-disk thumb — Rust still names that from `file`), persisted for the **path-less** case: a metadata-only plugin entry can have no cached thumb, because the thumb filename is derived from the file URI, so before this it restored with no artwork at all. QueuePanel still prefers the on-disk thumb and `QueueItemThumb` records failed sources, so an expired plugin URL degrades to the placeholder. Library tracks carry no `image_url`, so nothing is persisted for them and the entity-image chain still owns their art. Both fields are optional, so older manifests restore unchanged. `BundleTrack` is shared with `.mixtape` export and neither field may leak there — pinned by `queue_only_fields_are_absent_from_a_mixtape_track` (`models.rs`).
 - Cached thumbnails are seeded synchronously into `thumbInfo` from the `thumbs` field of the `main_playlist_read` result (the backend existence-checks each queued track's thumb and returns its `canonical_slug`-derived filename), so restored queue rows paint their cached art on the first render — no separate async reconcile round-trip. Rust stays the sole namer of the on-disk file.
 - `restoredRef` is set to `true` only after all restore operations complete.
 - `invoke("main_playlist_gc")` runs fire-and-forget after restore to clean up orphaned cover/thumb files in the main-playlist folder.
@@ -302,4 +324,5 @@ Randomization is a one-shot reorder of the `queue` array (`randomizeQueue`), not
 5. Adding a new persistence effect without the `restoredRef` guard — overwrites saved state on startup
 6. Assuming `track.path` is a playable URL — it's a scheme-prefixed identifier
 7. Pre-stamping tracks with entity images before adding to queue — bypasses the async resolution priority chain (video frame → album → artist)
-8. Using `track.id`, `track.album_id`, or `track.artist_id` on queue/playlist/currentTrack — these are `QueueTrack` which has no DB IDs. Use name-based lookups or on-demand `find_track_by_metadata` instead.
+8. Using `track.id`, `track.album_id`, or `track.artist_id` on queue/playlist/currentTrack — these are `QueueTrack`, which has none of them. Use `libraryId` for the track's own row (with a fallback — it may be absent), and name-based lookups or on-demand `find_track_by_metadata` for the rest.
+9. Decoding a library id out of a key. There is no decoder, deliberately — a key reports `q:N` for every re-keyed copy and every restored entry, so decoding one silently claims "not a library track". Read `t.libraryId` (queue entry), `sel.libraryId` (`TrackSelection`), or `t.id` (library `Track`). See "`key` vs `libraryId`" above.

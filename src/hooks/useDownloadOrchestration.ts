@@ -4,7 +4,7 @@ import type { Track, QueueTrack } from "../types";
 import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
 import type { ContextMenuState } from "../types/contextMenu";
-import { parseLibraryId, classifyEffectiveSource } from "../queueEntry";
+import { classifyEffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
 import { withResolverLog } from "../utils/resolverLog";
 import { decideDownload, type DownloadPlan } from "../utils/downloadPlan";
@@ -128,7 +128,7 @@ export function useDownloadOrchestration({
       if (target.kind === "queue-multi" && target.indices.length === 1) {
         const t = queue[target.indices[0]];
         if (!t) return null;
-        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: parseLibraryId(t.key), format: t.format ?? null };
+        return { title: t.title, artist_name: t.artist_name ?? null, album_title: t.album_title ?? null, duration_secs: t.duration_secs ?? null, path: t.path ?? null, trackId: t.libraryId ?? null, format: t.format ?? null };
       }
       return null;
     },
@@ -192,7 +192,7 @@ export function useDownloadOrchestration({
         albumTitle: track.album_title ?? null,
         uri: plan.uri ?? track.path ?? null,
         durationSecs: track.duration_secs ?? null,
-        trackId: parseLibraryId(track.key),
+        trackId: track.libraryId ?? null,
         isVideo: isVideoTrack(track),
       }],
       providerId: plan.providerId,

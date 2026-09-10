@@ -425,6 +425,8 @@ mod tests {
                 file: Some(r"file://\\NAS\video/A.mp4".into()),
                 thumb: None,
                 format: None,
+                image_url: None,
+                file_size: None,
             },
             crate::models::BundleTrack {
                 title: "No file".into(),
@@ -435,6 +437,8 @@ mod tests {
                 file: None,
                 thumb: None,
                 format: None,
+                image_url: None,
+                file_size: None,
             },
         ];
         write(t.path(), Some(&m), None).unwrap();
@@ -526,6 +530,8 @@ mod tests {
             // be non-null for the track to count as referenced.
             thumb: Some(format!("thumbs/{}.jpg", canonical_slug(file))),
             format: None,
+            image_url: None,
+            file_size: None,
         }
     }
 
@@ -571,6 +577,8 @@ mod tests {
             file: Some(uri.into()),
             thumb: Some("thumbs/this-string-is-intentionally-wrong.jpg".into()),
             format: None,
+            image_url: None,
+            file_size: None,
         });
         write(t.path(), Some(&m), None).unwrap();
         gc(t.path()).unwrap();
@@ -603,6 +611,8 @@ mod tests {
             file: Some("spotify://keep".into()),
             thumb: None, // gc must NOT consult this; slug(file) is the truth
             format: None,
+            image_url: None,
+            file_size: None,
         });
         write(t.path(), Some(&m), None).unwrap();
         gc(t.path()).unwrap();

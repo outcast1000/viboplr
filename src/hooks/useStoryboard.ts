@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { QueueTrack } from "../types";
+import type { Track, QueueTrack } from "../types";
 import { isVideoTrack } from "../utils";
 import { schemeOf, type Storyboard } from "../utils/storyboard";
 
@@ -67,7 +67,9 @@ let nextRequestId = 0;
  * page can want the same sheet without either one's teardown killing it.
  */
 export function useStoryboard(
-  track: QueueTrack | null,
+  // Either shape: only `path`/`format` are read (the detail page holds a
+  // library `Track`, the now-playing bar a `QueueTrack`).
+  track: Track | QueueTrack | null,
   resolveByUri?: (scheme: string, id: string) => Promise<Storyboard | null>,
   /** Where the track's resolution actually landed on THIS disk
    *  (`effectiveLocalPath`), or null. Lets a plugin scheme whose file is local

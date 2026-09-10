@@ -2,10 +2,10 @@ import { useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, QueueTrack } from "../types";
 import type { PluginEventName } from "../types/plugin";
-import { parseLibraryId } from "../queueEntry";
 import { emitTrackPatch } from "../trackEvents";
 import { trackLikePayload, entityLikePayload, nextTriState } from "../likeKeys";
 import { normalizeForMatch } from "../utils/normalize";
+import { trackLikeId } from "../utils/likeReconcile";
 
 interface LibraryDeps {
   tracks: Track[];
@@ -42,21 +42,46 @@ interface UseLikeActionsDeps {
   notify: (message: string) => void;
 }
 
+// The metadata fallbacks below all compare `trackLikeId` (utils/likeReconcile)
+// — the SAME normalized title+artist identity the durable entity_likes key is
+// built from. One definition, deliberately: the invariant "optimistic matching
+// agrees with the key the backend wrote" was maintained in three hand-rolled
+// copies of the normalize-and-compare, and any drift would silently leave the
+// optimistic heart pointing at rows the durable store doesn't. Normalization
+// is diacritic-insensitive so a "Jóga"/"Joga" pair reads as one song, exactly
+// as the backend treats it.
+
+// Which library rows a like on `track` should optimistically patch.
+//
+// Prefer the entry's cached `libraryId` and match the row's **own id**. Do NOT
+// match on `key`: keys used to encode the id (`lib:N`) so comparing them
+// happened to work, but a queue key is re-minted as `q:N` whenever it would
+// collide and every restored entry gets a fresh one — so an entry can carry
+// `libraryId: 42` alongside a key that names nothing. Comparing keys then
+// matched no row *and*, because the id was non-null, skipped the metadata
+// fallback: liking a restored track or a second copy of one left the library
+// list's heart stale.
+//
+// With no cached id (a plugin search result, a metadata-only entry) fall back
+// to the metadata identity, which is also how a `subsonic://` or plugin-scheme
+// copy finds its local twin.
+export function likeTargetsRow(
+  row: { id: number | null; title: string; artist_name: string | null },
+  track: QueueTrack,
+): boolean {
+  const directId = track.libraryId ?? null;
+  if (directId != null) return row.id === directId;
+  return trackLikeId(row.title, row.artist_name) === trackLikeId(track.title, track.artist_name);
+}
+
 // A queue/now-playing entry is the same song as `track` when its in-memory key
 // matches, OR — for copies that came from a different surface (external source,
-// restored playlist, a duplicate add) and so carry a different `ext:N`/`lib:N`
-// key — when title + artist match. Without the metadata fallback, liking a song
+// restored playlist, a duplicate add) and so carry a different key — when the
+// metadata identity matches. Without the fallback, liking a song
 // from one surface would leave a same-song copy elsewhere in the queue stale.
-// Matching is diacritic-insensitive (normalizeForMatch) so it agrees with the
-// durable entity_likes key the write lands under — an exact comparison left a
-// "Jóga"/"Joga" pair looking like different songs to the optimistic patch
-// while the backend treated them as one.
 export function sameSong(a: QueueTrack, b: QueueTrack): boolean {
   if (a.key === b.key) return true;
-  return (
-    normalizeForMatch(a.title) === normalizeForMatch(b.title) &&
-    normalizeForMatch(a.artist_name ?? "") === normalizeForMatch(b.artist_name ?? "")
-  );
+  return trackLikeId(a.title, a.artist_name) === trackLikeId(b.title, b.artist_name);
 }
 
 export function useLikeActions(deps: UseLikeActionsDeps) {
@@ -69,27 +94,34 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   // clicks reading the same (pre-update) liked value can no longer both advance
   // the cycle and persist a rating the user never chose.
   const inFlightRef = useRef<Set<string>>(new Set());
-  const likeIdentity = (track: QueueTrack) =>
-    `${normalizeForMatch(track.title ?? "")}:${normalizeForMatch(track.artist_name ?? "")}`;
+  const likeIdentity = (track: Track | QueueTrack) => trackLikeId(track.title, track.artist_name);
 
   // Apply a track's liked value across every in-memory mirror: library list
-  // (by key, else best-effort by metadata for external tracks), currentTrack,
-  // and the queue (via sameSong). Used both for the optimistic update and to
-  // revert it on failure.
-  function mirrorTrackLike(track: QueueTrack, likedValue: number) {
-    const directId = parseLibraryId(track.key);
-    if (directId != null) {
-      library.setTracks(prev => prev.map(t => t.key === track.key ? { ...t, liked: likedValue } : t));
-      emitTrackPatch(directId, { liked: likedValue });
-    } else {
-      library.setTracks(prev => prev.map(t =>
-        t.title === track.title && (t.artist_name ?? null) === (track.artist_name ?? null)
-          ? { ...t, liked: likedValue } : t));
-    }
-    if (playback.currentTrack && sameSong(playback.currentTrack, track)) {
+  // (likeTargetsRow's rule), currentTrack, and the queue (sameSong's rule).
+  // Used both for the optimistic update and to revert it on failure. The
+  // clicked track's identity is normalized ONCE here and compared per row —
+  // the exported predicates re-derive it per call, which inside a setTracks
+  // map would cost 2×N normalizations per like click.
+  //
+  // Accepts both track shapes because both surfaces click hearts: a library
+  // list hands a `Track` (row handle = `id`, no render key), a queue/playback
+  // surface hands a `QueueTrack` (cached `libraryId` + `key` fast path).
+  function mirrorTrackLike(track: Track | QueueTrack, likedValue: number) {
+    const directId = "id" in track ? track.id : track.libraryId ?? null;
+    const trackKey = "key" in track ? track.key : null;
+    const ident = trackLikeId(track.title, track.artist_name);
+    const sameIdent = (t: { title: string; artist_name: string | null }) =>
+      trackLikeId(t.title, t.artist_name) === ident;
+    // = likeTargetsRow(t, track), with `ident` hoisted.
+    library.setTracks(prev => prev.map(t =>
+      (directId != null ? t.id === directId : sameIdent(t)) ? { ...t, liked: likedValue } : t));
+    if (directId != null) emitTrackPatch(directId, { liked: likedValue });
+    // = sameSong(t, track), with `ident` hoisted.
+    if (playback.currentTrack && (playback.currentTrack.key === trackKey || sameIdent(playback.currentTrack))) {
       playback.setCurrentTrack(prev => prev ? { ...prev, liked: likedValue } : prev);
     }
-    queueHook.setQueue(prev => prev.map(t => sameSong(t, track) ? { ...t, liked: likedValue } : t));
+    queueHook.setQueue(prev => prev.map(t =>
+      (t.key === trackKey || sameIdent(t)) ? { ...t, liked: likedValue } : t));
   }
 
   /** Set a track's rating to an absolute tri-state value. The toggle handlers
@@ -100,7 +132,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
    *  never does, and an absolute set dispatches only when the new state is a
    *  like. Returns whether the write succeeded. */
   async function setTrackRating(
-    track: QueueTrack,
+    track: Track | QueueTrack,
     likeState: number,
     source: "like" | "dislike" | "set" = "set",
   ): Promise<boolean> {
@@ -131,15 +163,15 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     }
   }
 
-  async function applyTrackRating(track: QueueTrack, action: "like" | "dislike") {
+  async function applyTrackRating(track: Track | QueueTrack, action: "like" | "dislike") {
     await setTrackRating(track, nextTriState(track.liked, action), action);
   }
 
-  async function handleToggleLike(track: QueueTrack) {
+  async function handleToggleLike(track: Track | QueueTrack) {
     await applyTrackRating(track, "like");
   }
 
-  async function handleToggleDislike(track: QueueTrack) {
+  async function handleToggleDislike(track: Track | QueueTrack) {
     await applyTrackRating(track, "dislike");
   }
 

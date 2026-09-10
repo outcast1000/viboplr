@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState } from "react";
-import type { View } from "../types";
+import type { View, TrackSelection } from "../types";
 
 import { useAssignRef } from "./useLatestRef";
 export interface NavState {
@@ -7,7 +7,7 @@ export interface NavState {
   selectedArtist: number | null;
   selectedAlbum: number | null;
   selectedTag: number | null;
-  selectedTrack?: string | null;
+  selectedTrack?: TrackSelection | null;
   fallbackArtistName?: string | null;
   fallbackAlbumName?: { name: string; artistName?: string } | null;
   fallbackTrackName?: { name: string; artistName?: string; albumTitle?: string } | null;

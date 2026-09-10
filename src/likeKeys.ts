@@ -1,4 +1,4 @@
-import type { QueueTrack } from "./types";
+import type { Track, QueueTrack } from "./types";
 
 /** Payload shape consumed by the `set_entity_like_state` Tauri command. */
 export interface EntityLikePayload {
@@ -10,8 +10,9 @@ export interface EntityLikePayload {
   imageUrl: string | null;
 }
 
-/** Build the entity payload for a track like/dislike. */
-export function trackLikePayload(track: QueueTrack): EntityLikePayload {
+/** Build the entity payload for a track like/dislike. Either track shape —
+ *  the durable key is metadata-based, so no id of any kind is involved. */
+export function trackLikePayload(track: Track | QueueTrack): EntityLikePayload {
   return {
     title: track.title,
     artistName: track.artist_name ?? null,

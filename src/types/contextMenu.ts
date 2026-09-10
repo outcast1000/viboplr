@@ -1,16 +1,18 @@
 import type { DockSide, FitMode } from "../hooks/useVideoLayout";
 import type { PluginContextMenuTarget } from "./plugin";
-import { parseLibraryId } from "../queueEntry";
 
 /**
  * Portable metadata for the currently-playing video track, carried on the
  * `video` context-menu target so the menu can offer the same track actions
  * (Open Containing Folder, Move to Trash, …) as any other track surface.
- * The video is always a `QueueTrack` (no DB id), so ids resolve on demand from
- * `key`/`path` at action time — same pattern as the queue context menu.
+ * The video is always a `QueueTrack`, so it carries the queue's cached
+ * `libraryId` (null when unknown) and actions fall back to a `path` lookup —
+ * same pattern as the queue context menu. It deliberately does NOT carry the
+ * queue `key`: that is a render identity, and parsing an id out of it loses the
+ * id for any copy that was re-keyed (see `QueueTrack.libraryId`).
  */
 export interface VideoMenuTrack {
-  key: string;
+  libraryId: number | null;
   path: string | null;
   title: string;
   artistName: string | null;
@@ -55,7 +57,7 @@ export function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarg
     case "queue-multi":
       // Single-vs-multi keys off `indices` (one selected queue row), NOT
       // `trackIds` — the latter is filtered to library ids and is empty for
-      // ID-less queue tracks (external/YouTube/restored ext:N), which would
+      // ID-less queue tracks (external/YouTube/restored — all q:N), which would
       // otherwise fall through to a metadata-less multi-track target and make a
       // metadata-only plugin action (e.g. "Watch YouTube video") a no-op. This
       // mirrors buildContextMenuSpecs' `count === 1` menu-item filter and the
@@ -66,7 +68,7 @@ export function toPluginTarget(target: ContextMenuTarget): PluginContextMenuTarg
       return { kind: "multi-track", trackIds: target.trackIds };
     case "video":
       return target.track
-        ? { kind: "track", trackId: parseLibraryId(target.track.key) ?? undefined, title: target.track.title, artistName: target.track.artistName ?? undefined, albumTitle: target.track.albumTitle ?? undefined, isLocal: target.track.isLocal }
+        ? { kind: "track", trackId: target.track.libraryId ?? undefined, title: target.track.title, artistName: target.track.artistName ?? undefined, albumTitle: target.track.albumTitle ?? undefined, isLocal: target.track.isLocal }
         : { kind: "track" };
     default: return { kind: "track" };
   }

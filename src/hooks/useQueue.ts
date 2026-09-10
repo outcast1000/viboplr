@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { subscribe } from "../utils/tauriEvents";
 import { save, open } from "@tauri-apps/plugin-dialog";
-import type { QueueTrack, PlaylistLoadResult, PlaylistEntry, QueueMode } from "../types";
-import { trackToQueueEntry, queueEntryToQueueTrack, nextExternalKey } from "../queueEntry";
+import type { Track, QueueTrack, PlaylistLoadResult, PlaylistEntry, QueueMode } from "../types";
+import { trackToQueueEntry, queueEntryToQueueTrack, nextQueueKey, toQueueTracks } from "../queueEntry";
 import { diffThumbs, flushMainPlaylist, type ThumbInfo } from "../mainPlaylist";
 import { stripImageVersion } from "../utils/resolveImageUrl";
 import { track as trackTelemetry } from "../telemetry";
@@ -36,6 +36,10 @@ export function useQueue(
   const [queueMode, setQueueMode] = useState<QueueMode>("normal");
   const [playlistContext, setPlaylistContext] = useState<PlaylistContext | null>(null);
   const [thumbInfo, setThumbInfo] = useState<Record<string, ThumbInfo>>({});
+  // Read by the thumb-diff effect below without being one of its deps — a
+  // thumb-ready event would otherwise re-run the whole diff.
+  const thumbInfoRef = useRef<Record<string, ThumbInfo>>({});
+  useAssignRef(thumbInfoRef, thumbInfo);
 
   useEffect(() => {
     return subscribe<{ key: string; filename: string }>("main-playlist-thumb-ready", (event) => {
@@ -163,6 +167,17 @@ export function useQueue(
     }
     for (const t of added) {
       if (!t.path) continue;
+      // Already cached on disk — skip. This is what keeps **restore** from
+      // firing one write per entry: `restoredRef` is set true just *before*
+      // `appRestoring` flips, so by the time the restored queue is applied this
+      // effect's early-return guard no longer holds and all N entries look
+      // "added". They used to be skipped only incidentally, because
+      // `image_url` wasn't persisted and so `source` came out null; persisting
+      // it removed that accident and left N round trips that each hit
+      // `set_thumb`'s `dest.exists()` early return. thumbInfo is seeded
+      // synchronously with the restored queue from `main_playlist_read`'s
+      // existence-checked list, so it is already populated here.
+      if (thumbInfoRef.current[t.path]) continue;
       // Strip plugin-appended `#v=N` cache-buster from local paths before
       // sending to the backend (it treats the string as a filesystem path).
       const raw = t.image_url;
@@ -204,19 +219,26 @@ export function useQueue(
 
   // Returns the play generation of the session it just started, for callers
   // that resolve the rest of the queue asynchronously (see appendToPlaySession).
-  function playTracks(tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null): number {
+  //
+  // Accepts raw library `Track`s too: every entry path converts at the door via
+  // `toQueueTracks`, so `libraryId` is stamped even when the caller (a list
+  // double-click, context-menu Play, play-all, the control API) didn't run
+  // `trackToQueueTrack` itself — see queue.md "`key` vs `libraryId`".
+  function playTracks(tracks: Array<Track | QueueTrack>, startIndex: number, context?: PlaylistContext | null): number {
+    const incoming = toQueueTracks(tracks);
     // Anonymous: an intentional play + its origin (album/artist/tag/radio/
     // playlist/plugin/…), distinct from track_played which fires per track start.
     // context.source is the logical origin surface; "none" = a bare single play.
-    trackTelemetry("play", { source: context?.source ?? "none", count: tracks.length });
+    trackTelemetry("play", { source: context?.source ?? "none", count: incoming.length });
     // Dedupe keys *within* the incoming batch so two copies of the same library
     // track don't collide as React keys (e.g. a playlist that contains a track
     // twice, or a plugin that re-emits the same item). Without this, React's
     // reconciliation produces stale DOM that looks like a "stuck" first item.
+    // As in `withUniqueKeys`, the re-keyed copy keeps its `libraryId`.
     const seen = new Set<string>();
-    const dedupedTracks = tracks.map(t => {
+    const dedupedTracks = incoming.map(t => {
       if (!seen.has(t.key)) { seen.add(t.key); return t; }
-      const fresh = nextExternalKey();
+      const fresh = nextQueueKey();
       seen.add(fresh);
       return { ...t, key: fresh };
     });
@@ -272,7 +294,7 @@ export function useQueue(
     return true;
   }
 
-  function findDuplicates(newTracks: QueueTrack[]): { duplicates: QueueTrack[]; unique: QueueTrack[] } {
+  function findDuplicates<T extends { path: string | null }>(newTracks: T[]): { duplicates: T[]; unique: T[] } {
     const existing = new Set(queueRef.current.map(t => t.path));
     const duplicates = newTracks.filter(t => existing.has(t.path));
     const unique = newTracks.filter(t => !existing.has(t.path));
@@ -284,8 +306,14 @@ export function useQueue(
   // that's already enqueued (or two copies of the same track in one batch)
   // would otherwise produce React key collisions, which break reconciliation
   // and leave stale DOM nodes — visible as "phantom" first items that can't
-  // be dragged. Reuse the original key when free; mint a fresh `ext:N` when
+  // be dragged. Reuse the original key when free; mint a fresh `q:N` when
   // it collides.
+  //
+  // Only the key is replaced — `libraryId` rides along in the spread, which is
+  // the whole point of it being a separate field. Back when provenance lived in
+  // the `lib:N` key, re-keying copy #2 silently downgraded it to an id-less
+  // entry: same song, same row, but Delete / Download / View Details behaved
+  // differently depending on which copy you right-clicked.
   function withUniqueKeys(newTracks: QueueTrack[]): QueueTrack[] {
     const used = new Set(queueRef.current.map(t => t.key));
     return newTracks.map(t => {
@@ -293,14 +321,14 @@ export function useQueue(
         used.add(t.key);
         return t;
       }
-      const fresh = nextExternalKey();
+      const fresh = nextQueueKey();
       used.add(fresh);
       return { ...t, key: fresh };
     });
   }
 
-  function enqueueTracks(newTracks: QueueTrack[]) {
-    const tracks = withUniqueKeys(newTracks);
+  function enqueueTracks(newTracks: Array<Track | QueueTrack>) {
+    const tracks = withUniqueKeys(toQueueTracks(newTracks));
     setQueue(prev => [...prev, ...tracks]);
   }
 
@@ -521,6 +549,43 @@ export function useQueue(
     });
   }
 
+  // Re-resolve every entry's cached `libraryId` from its (durable) file URI in
+  // one bulk lookup. The cache is stamped at enqueue and at restore, but
+  // `tracks.id` is a reusable SQLite rowid — a rescan, a sync prune, or a
+  // collection removal can delete the row behind a cached id, and a later
+  // insert can hand that rowid to an unrelated track, which the entry would
+  // then silently address (the id being non-null, no consumer falls back). So
+  // App calls this after every library mutation (scan/sync complete,
+  // collection add/remove/toggle). An entry whose path no longer resolves gets
+  // its id CLEARED, not kept — null means "fall back to path/metadata lookup",
+  // which is the honest answer. Returns the path → id map so the caller can
+  // reconcile its own copies (playback.currentTrack), or null when there was
+  // nothing to do or the lookup failed (best-effort, like the restore one).
+  const reconcileLibraryIds = useCallback(async (): Promise<Map<string, number> | null> => {
+    const q = queueRef.current;
+    const paths = [...new Set(q.map(t => t.path).filter((p): p is string => !!p))];
+    if (paths.length === 0) return null;
+    try {
+      const pairs = await invoke<[string, number][]>("find_track_ids_by_paths", { paths });
+      const idByPath = new Map(pairs);
+      setQueue(prev => {
+        let changed = false;
+        const next = prev.map(t => {
+          const id = t.path ? idByPath.get(t.path) ?? null : null;
+          if ((t.libraryId ?? null) === id) return t;
+          changed = true;
+          return { ...t, libraryId: id };
+        });
+        // Preserve array identity on a no-op pass so React bails out.
+        return changed ? next : prev;
+      });
+      return idByPath;
+    } catch (e) {
+      console.error("Failed to reconcile queue library ids:", e);
+      return null;
+    }
+  }, []);
+
   function clearQueue() {
     setQueue([]);
     setQueueIndex(-1);
@@ -568,8 +633,8 @@ export function useQueue(
     return true;
   }
 
-  function insertAtPosition(newTracks: QueueTrack[], position: number) {
-    const tracks = withUniqueKeys(newTracks);
+  function insertAtPosition(newTracks: Array<Track | QueueTrack>, position: number) {
+    const tracks = withUniqueKeys(toQueueTracks(newTracks));
     setQueue(prev => {
       const next = [...prev];
       next.splice(position, 0, ...tracks);
@@ -578,8 +643,8 @@ export function useQueue(
     setQueueIndex(prev => position <= prev ? prev + tracks.length : prev);
   }
 
-  function playNextInQueue(track: QueueTrack) {
-    const [unique] = withUniqueKeys([track]);
+  function playNextInQueue(track: Track | QueueTrack) {
+    const [unique] = withUniqueKeys(toQueueTracks([track]));
     const idx = queueIndexRef.current;
     setQueue(prev => {
       const next = [...prev];
@@ -588,13 +653,13 @@ export function useQueue(
     });
   }
 
-  function addToQueue(track: QueueTrack) {
-    const [unique] = withUniqueKeys([track]);
+  function addToQueue(track: Track | QueueTrack) {
+    const [unique] = withUniqueKeys(toQueueTracks([track]));
     setQueue(prev => [...prev, unique]);
   }
 
-  function addToQueueAndPlay(track: QueueTrack, source: "user" | "auto" = "user") {
-    const [unique] = withUniqueKeys([track]);
+  function addToQueueAndPlay(track: Track | QueueTrack, source: "user" | "auto" = "user") {
+    const [unique] = withUniqueKeys(toQueueTracks([track]));
     const newIndex = queueRef.current.length;
     setQueue(prev => [...prev, unique]);
     setQueueIndex(newIndex);
@@ -658,7 +723,7 @@ export function useQueue(
     playNext, playPrevious,
     removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
-    peekNext, advanceIndex,
+    peekNext, advanceIndex, reconcileLibraryIds,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
     thumbInfo, seedThumbInfo, flushNow,
   };

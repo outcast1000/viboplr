@@ -1,5 +1,5 @@
 import type { QueueTrack } from "../types";
-import { nextExternalKey } from "../queueEntry";
+import { nextQueueKey } from "../queueEntry";
 
 /**
  * Build a metadata-only external queue track (no path). At play time the
@@ -8,7 +8,7 @@ import { nextExternalKey } from "../queueEntry";
  */
 export function buildExternalQueueTrack(name: string, artist?: string | null): QueueTrack {
   return {
-    key: nextExternalKey(),
+    key: nextQueueKey(),
     path: null,
     title: name,
     artist_name: artist ? artist : null,

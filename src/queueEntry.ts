@@ -1,4 +1,4 @@
-import type { Track, QueueTrack } from "./types";
+import type { Track, QueueTrack, TrackSelection } from "./types";
 import type { PluginTrack } from "./types/plugin";
 
 export interface QueueEntry {
@@ -24,10 +24,25 @@ export type ParsedUrl =
   | { scheme: "subsonic"; url: string; id: string }
   | { scheme: "external" };
 
-let externalKeyCounter = 1;
+let queueKeyCounter = 1;
 
-export function nextExternalKey(): string {
-  return `ext:${externalKeyCounter++}`;
+/**
+ * Mint a queue-entry render key (`q:N`). The ONE counter behind every queue
+ * key — restore, plugin tracks, playlist rows, de-dupe re-mints — so two live
+ * entries can never collide. The prefix is opaque (nothing parses it; identity
+ * questions go through `libraryId`): it was renamed from `ext:` when library
+ * tracks started minting here too and "external" became a lie.
+ *
+ * Keys are session-only by construction: no persisted format carries one back
+ * in (the m3u writer emits only EXTINF+location, the main-playlist manifest
+ * has no key field, and `currentTrackEntry` — the one store write that embeds
+ * a key — has no reader). The only key not minted at the moment of addition is
+ * a SAME-SESSION reuse: `playTracks`' continuation adopting the playing copy's
+ * key, and re-adds of entries already in the queue (`withUniqueKeys` keeps a
+ * collision-free key).
+ */
+export function nextQueueKey(): string {
+  return `q:${queueKeyCounter++}`;
 }
 
 /**
@@ -46,7 +61,7 @@ export function nextExternalKey(): string {
  */
 export function pluginTrackToQueueTrack(info: PluginTrack): QueueTrack {
   return {
-    key: nextExternalKey(),
+    key: nextQueueKey(),
     path: info.path ?? null,
     title: info.title,
     artist_name: info.artist_name ?? null,
@@ -59,10 +74,71 @@ export function pluginTrackToQueueTrack(info: PluginTrack): QueueTrack {
   };
 }
 
-export function parseLibraryId(key: string | null | undefined): number | null {
-  if (!key) return null;
-  if (key.startsWith("lib:")) return parseInt(key.substring(4), 10);
-  return null;
+// Ids travel as numbers everywhere now — `Track.id`, `QueueTrack.libraryId`,
+// `TrackSelection`. There is deliberately no key→id decoder: `parseLibraryId`
+// used to be one, and every caller was a latent bug, because a queue key is a
+// render identity that gets re-minted as `q:N` on collision and on every
+// restore, so decoding one silently reported "not a library track" for a second
+// copy or a restored entry.
+
+/** Open the Track-detail page on a library row. */
+export function librarySelection(libraryId: number): TrackSelection {
+  return { kind: "library", libraryId };
+}
+
+/** Open the Track-detail page on an id-less queue entry, by its `QueueTrack.key`. */
+export function entrySelection(key: string): TrackSelection {
+  return { kind: "entry", key };
+}
+
+/** The selection for a queue entry: its library row when it knows one (so the
+ *  detail page gets the real record), else the entry itself. */
+export function queueTrackSelection(track: { key: string; libraryId?: number | null }): TrackSelection {
+  return track.libraryId != null ? librarySelection(track.libraryId) : entrySelection(track.key);
+}
+
+/** Best selection for a track-shaped object from ANY surface: the library row
+ *  by `id` when it has one, else — when the object is (or was built from) a
+ *  queue entry and still carries a render key — the entry itself. Returns null
+ *  when there is nothing to open (an id-less object with no key, e.g. a bare
+ *  metadata row); callers no-op on null. This is what the locate-track lambdas
+ *  use, since a library `Track` no longer carries any key at all. */
+export function trackSelection(t: { id?: number | null; key?: string | null }): TrackSelection | null {
+  if (t.id != null) return librarySelection(t.id);
+  return t.key ? entrySelection(t.key) : null;
+}
+
+/** Is the Track-detail page showing the track that's playing? Compares on
+ *  whichever axis the selection is expressed in, so it holds for a library row
+ *  and for an id-less entry alike. */
+export function isPlayingSelection(
+  selection: TrackSelection | null,
+  current: { key: string; libraryId?: number | null } | null | undefined,
+): boolean {
+  if (!selection || !current) return false;
+  return selection.kind === "library"
+    ? current.libraryId === selection.libraryId
+    : current.key === selection.key;
+}
+
+/**
+ * Is this library row the one currently playing?
+ *
+ * Compares the playing entry's cached `libraryId` against the row's `id`. The
+ * two list surfaces used to compare `currentTrack.key === track.key`, which
+ * worked only because `trackToQueueTrack` copied the library row's `lib:N` key
+ * onto the queue entry — a coupling that made the *queue's* key format
+ * load-bearing for a *library list's* highlight, two layers apart.
+ *
+ * Null-safe on both sides deliberately: an id-less playing entry (a plugin
+ * result) must not match an id-less row, which `==` on two nulls would.
+ */
+export function isPlayingLibraryRow(
+  row: { id: number | null },
+  current: { libraryId?: number | null } | null | undefined,
+): boolean {
+  const playingId = current?.libraryId ?? null;
+  return playingId != null && playingId === row.id;
 }
 
 export function isLibraryTrack(track: Track): boolean {
@@ -133,7 +209,8 @@ export function remoteId(track: Track): string | null {
 export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
   return {
     url: track.path ?? "",
-    key: track.key,
+    // Only a QueueTrack has a render key; a library Track carries none.
+    key: "key" in track ? track.key : undefined,
     title: track.title,
     artist_name: track.artist_name,
     album_title: track.album_title,
@@ -150,21 +227,56 @@ export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
 /**
  * Converts a Track to a QueueTrack, stripping DB IDs and keeping only
  * portable metadata needed for queue/playlist/now-playing contexts.
+ *
+ * **Mints a fresh key** rather than inheriting the library row's, which is why
+ * `withUniqueKeys` no longer has a collision to resolve on this path: two
+ * copies of one track are two entries with two keys by construction. Inheriting
+ * `lib:N` is what coupled a library list's now-playing highlight to the queue's
+ * key format (see `isPlayingLibraryRow`) and what made the id look like part of
+ * a queue entry's identity. Provenance rides in `libraryId` instead.
  */
 export function trackToQueueTrack(track: Track): QueueTrack {
+  // The `?? null` / `?? 0` defaults are load-bearing: some callers hand in a
+  // sparse `Track` (the mixtape "Just Play" event serializes only
+  // title/artist/album/duration/path/image_url), and QueueTrack's contract is
+  // `null`/`0`, never `undefined` — consumers do strict `=== 0` checks and
+  // `nextTriState` arithmetic on `liked`.
   return {
-    key: track.key,
-    path: track.path,
+    key: nextQueueKey(),
+    // The queue's one durable link back to the library row — shared by every
+    // copy of it, where `key` is unique per entry. Opposite requirements, which
+    // is why they are separate fields; the de-dupe in `withUniqueKeys` used to
+    // resolve the conflict by destroying the provenance.
+    libraryId: track.id ?? null,
+    path: track.path ?? null,
     title: track.title,
-    artist_name: track.artist_name,
-    album_title: track.album_title,
-    album_artist_name: track.album_artist_name,
-    duration_secs: track.duration_secs,
-    format: track.format,
+    artist_name: track.artist_name ?? null,
+    album_title: track.album_title ?? null,
+    album_artist_name: track.album_artist_name ?? null,
+    duration_secs: track.duration_secs ?? null,
+    format: track.format ?? null,
     image_url: track.image_url,
-    liked: track.liked,
+    liked: track.liked ?? 0,
     file_size: track.file_size,
   };
+}
+
+/**
+ * Normalize a mixed list at the queue's door. A library `Track` — discriminated
+ * by its `id` field, which a `QueueTrack` never carries — is converted via
+ * `trackToQueueTrack` (fresh key, `libraryId` stamped); a `QueueTrack` passes
+ * through untouched, key and all.
+ *
+ * `useQueue` runs every entry path through this so `libraryId` reaches the
+ * queue no matter which surface forgot to convert: the main play paths (list
+ * double-click, context-menu Play, play-all, the control API) all pass raw
+ * `Track[]`, which type-checks structurally — without the door conversion those
+ * entries carried `libraryId: undefined` and every id-based consumer (the
+ * now-playing row highlight, queue View Details, the like mirror) silently fell
+ * back or went dark.
+ */
+export function toQueueTracks(tracks: ReadonlyArray<Track | QueueTrack>): QueueTrack[] {
+  return tracks.map(t => ("id" in t ? trackToQueueTrack(t) : t));
 }
 
 /** One saved-playlist row as `get_playlist_tracks` returns it — the subset the
@@ -187,7 +299,7 @@ export interface PlaylistTrackRow {
  */
 export function playlistTrackToQueueTrack(t: PlaylistTrackRow): QueueTrack {
   return {
-    key: nextExternalKey(),
+    key: nextQueueKey(),
     path: t.source ?? null,
     title: t.title,
     artist_name: t.artist_name,
@@ -200,37 +312,6 @@ export function playlistTrackToQueueTrack(t: PlaylistTrackRow): QueueTrack {
 }
 
 /**
- * Converts a QueueEntry back to a Track.
- *
- * Non-library tracks get id: null. The key is preserved from the entry,
- * or a new external key is generated for backward compatibility.
- */
-export function queueEntryToTrack(entry: QueueEntry): Track {
-  return {
-    id: null,
-    key: entry.key ?? nextExternalKey(),
-    path: entry.url,
-    title: entry.title,
-    artist_id: null,
-    artist_name: entry.artist_name,
-    album_id: null,
-    album_title: entry.album_title,
-    album_artist_name: entry.album_artist_name ?? null,
-    year: entry.year,
-    track_number: entry.track_number,
-    duration_secs: entry.duration_secs,
-    format: entry.format,
-    file_size: null,
-    collection_id: null,
-    collection_name: null,
-    liked: entry.liked ?? 0,
-    added_at: null,
-    modified_at: null,
-    image_url: entry.image_url,
-  };
-}
-
-/**
  * Converts a QueueEntry back to a QueueTrack.
  *
  * Produces a lightweight queue-only track without DB IDs.
@@ -238,7 +319,7 @@ export function queueEntryToTrack(entry: QueueEntry): Track {
  */
 export function queueEntryToQueueTrack(entry: QueueEntry): QueueTrack {
   return {
-    key: entry.key ?? nextExternalKey(),
+    key: entry.key ?? nextQueueKey(),
     path: entry.url,
     title: entry.title,
     artist_name: entry.artist_name,

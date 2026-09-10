@@ -4,7 +4,7 @@ import type { ContextMenuTarget } from "../types/contextMenu";
 
 describe("toPluginTarget", () => {
   it("maps a single ID-less queue track to a track target with metadata", () => {
-    // External/YouTube/restored tracks have ext:N keys, so parseLibraryId
+    // External/YouTube/restored tracks have q:N keys, so parseLibraryId
     // filters them out and trackIds is empty even though one row is selected.
     // Regression: this used to fall through to a metadata-less multi-track
     // target, making metadata-only plugin actions (e.g. "Watch YouTube video")

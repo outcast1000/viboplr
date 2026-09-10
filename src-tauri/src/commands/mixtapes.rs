@@ -99,6 +99,8 @@ pub fn export_mixtape_playlist_only(
             file: None,
             thumb: None,
             format: None,
+            image_url: None,
+            file_size: None,
         }
     }).collect();
 

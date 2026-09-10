@@ -18,9 +18,10 @@ import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, nextExternalKey, parseLibraryId, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
+import { resolveLibraryIds } from "./utils/resolveLibraryIds";
 import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
 import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
@@ -249,13 +250,13 @@ function App() {
   const [savePlaylistDefaultCover, setSavePlaylistDefaultCover] = useState<string | null>(null);
   // Tracks staged for "Add to Playlist ▸ New playlist…" from a context-menu
   // selection. While set, the SavePlaylistModal saves these instead of the queue.
-  const [playlistDraft, setPlaylistDraft] = useState<QueueTrack[] | null>(null);
+  const [playlistDraft, setPlaylistDraft] = useState<Array<Track | QueueTrack> | null>(null);
   // Duplicates held back by an "Add to Playlist" append, awaiting the user's
   // "add anyway" confirmation. `added` is how many unique tracks already landed.
-  const [playlistDupConfirm, setPlaylistDupConfirm] = useState<{ playlistId: number; playlistName: string; duplicates: QueueTrack[]; added: number } | null>(null);
+  const [playlistDupConfirm, setPlaylistDupConfirm] = useState<{ playlistId: number; playlistName: string; duplicates: Array<Track | QueueTrack>; added: number } | null>(null);
   // Tracks staged for the searchable playlist picker ("All N playlists…" —
   // the long tail the capped native submenu can't list).
-  const [playlistPicker, setPlaylistPicker] = useState<{ tracks: QueueTrack[]; excludeId?: number } | null>(null);
+  const [playlistPicker, setPlaylistPicker] = useState<{ tracks: Array<Track | QueueTrack>; excludeId?: number } | null>(null);
   const [editQueueTrack, setEditQueueTrack] = useState<{ index: number; title: string; artist: string; album: string; info: TrackInfoEntry[] } | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
@@ -1453,10 +1454,24 @@ function App() {
 
   // The library's track population changed (scan, sync, collection
   // enable/disable/remove): re-run SearchView's active query (it holds its own
-  // results — see searchLibraryKey) and bump Home's revision.
+  // results — see searchLibraryKey), bump Home's revision, and re-resolve the
+  // queue's cached `libraryId`s. The last one is not an optimization:
+  // `tracks.id` is a reusable SQLite rowid, so any of these mutations can leave
+  // a cached id silently addressing a deleted — or worse, a *different* — row,
+  // and a non-null id means no consumer ever falls back to the path lookup.
+  // `currentTrack` is playback's own copy of its queue entry, so it's patched
+  // here from the same bulk lookup.
   const notifyLibraryChanged = () => {
     setSearchLibraryKey(k => k + 1);
     setLibraryRevision(k => k + 1);
+    void queueHook.reconcileLibraryIds().then(idByPath => {
+      if (!idByPath) return;
+      playback.setCurrentTrack(prev => {
+        if (!prev?.path) return prev;
+        const id = idByPath.get(prev.path) ?? null;
+        return (prev.libraryId ?? null) === id ? prev : { ...prev, libraryId: id };
+      });
+    });
   };
 
   // Collection actions
@@ -1716,7 +1731,7 @@ function App() {
   // ("add anyway?") that re-sends exactly them with allowDuplicates — so a
   // deliberate second copy is one click, never silent, and a mis-click adds
   // nothing twice. Also handed to PlaylistsView's detail-row submenu.
-  const appendTracksToPlaylist = useCallback(async (playlistId: number, playlistName: string, tracks: QueueTrack[]) => {
+  const appendTracksToPlaylist = useCallback(async (playlistId: number, playlistName: string, tracks: Array<Track | QueueTrack>) => {
     if (tracks.length === 0) return;
     try {
       const result = await invoke<{ added: number; skipped: number; skipped_indices: number[] }>("append_playlist_tracks", {
@@ -1761,7 +1776,7 @@ function App() {
 
   // "New playlist…" from a selection: stage the tracks as a draft and open the
   // same SavePlaylistModal the queue save uses.
-  const openNewPlaylistDraft = useCallback(async (tracks: QueueTrack[]) => {
+  const openNewPlaylistDraft = useCallback(async (tracks: Array<Track | QueueTrack>) => {
     if (tracks.length === 0) return;
     try {
       setPlaylistDraft(tracks);
@@ -1775,7 +1790,7 @@ function App() {
 
   // Open the searchable playlist picker for a resolved set of tracks. Also
   // handed to PlaylistsView (which passes its own excludeId).
-  const openPlaylistPicker = useCallback((tracks: QueueTrack[], excludeId?: number) => {
+  const openPlaylistPicker = useCallback((tracks: Array<Track | QueueTrack>, excludeId?: number) => {
     if (tracks.length === 0) return;
     setPlaylistPicker({ tracks, excludeId });
   }, []);
@@ -2384,7 +2399,7 @@ function App() {
     }
     queueHook.playTracks(
       wanted.map((d) => ({
-        key: nextExternalKey(),
+        key: nextQueueKey(),
         path: d.path,
         title: d.title,
         artist_name: d.artist_name,
@@ -2553,7 +2568,7 @@ function App() {
       if (mixtapePreviewPath) return;
       const { tracks, coverPath, title, metadata } = event.payload;
       const queueTracks: QueueTrack[] = tracks.map(t => ({
-        key: nextExternalKey(),
+        key: nextQueueKey(),
         path: t.path ?? null,
         title: t.title,
         artist_name: t.artist_name ?? null,
@@ -2777,6 +2792,27 @@ function App() {
                 }
               } catch (e) {
                 console.error("Failed to reconcile restored like states:", e);
+              }
+              // Re-resolve `libraryId` for the restored queue. The manifest
+              // deliberately does not persist it (SQLite reuses the rowids of
+              // deleted tracks, so a stale id would silently address the wrong
+              // row) — the durable identity is the file URI, so we ask the DB
+              // what each path maps to *now*. One bulk call, not one per track.
+              // Best-effort: on failure every entry keeps `libraryId` absent
+              // and its consumer falls back to a path/metadata lookup, exactly
+              // as an external track does.
+              try {
+                const paths = [...new Set(tracks.map(t => t.path).filter((p): p is string => !!p))];
+                const pairs = await invoke<[string, number][]>("find_track_ids_by_paths", { paths });
+                if (pairs.length > 0) {
+                  const idByPath = new Map(pairs);
+                  for (let i = 0; i < tracks.length; i++) {
+                    const id = tracks[i].path ? idByPath.get(tracks[i].path!) : undefined;
+                    if (id != null) tracks[i] = { ...tracks[i], libraryId: id };
+                  }
+                }
+              } catch (e) {
+                console.error("Failed to resolve restored queue library ids:", e);
               }
               const idx = mpState?.queueIndex != null && mpState.queueIndex >= 0 && mpState.queueIndex < tracks.length ? mpState.queueIndex : -1;
               pendingRestoreQueueRef.current = { tracks, index: idx };
@@ -3183,24 +3219,27 @@ function App() {
 
   // Resolve track for the detail view — try local lookups (sync), fall back to backend (async)
   const detailTrackLocal = useMemo(() => {
-    if (library.selectedTrack === null) return null;
-    return library.tracks.find(t => t.key === library.selectedTrack) ?? null;
+    const sel = library.selectedTrack;
+    // Only a library selection can be in the loaded page — an id-less entry
+    // lives in the queue and is resolved by the effect below.
+    if (sel?.kind !== "library") return null;
+    return library.tracks.find(t => t.id === sel.libraryId) ?? null;
   }, [library.selectedTrack, library.tracks]);
 
   useEffect(() => {
-    if (library.selectedTrack === null) { setDetailTrack(null); return; }
+    const sel = library.selectedTrack;
+    if (sel === null) { setDetailTrack(null); return; }
     if (detailTrackLocal) { setDetailTrack(detailTrackLocal); return; }
     // Fetch from backend as last resort
     let cancelled = false;
-    const libId = parseLibraryId(library.selectedTrack);
-    if (libId == null) {
-      // Non-library track (ext:N) — build synthetic Track from queue or currentTrack
-      const queueTrack = queueHook.queue.find(t => t.key === library.selectedTrack)
-        ?? (playback.currentTrack?.key === library.selectedTrack ? playback.currentTrack : null);
+    if (sel.kind === "entry") {
+      // Id-less entry — build a synthetic Track from the queue or currentTrack
+      const queueTrack = queueHook.queue.find(t => t.key === sel.key)
+        ?? (playback.currentTrack?.key === sel.key ? playback.currentTrack : null);
       if (queueTrack) {
         // Render a synthetic (id-less) track immediately so the hero shows without delay…
         setDetailTrack({
-          id: null, key: queueTrack.key, path: queueTrack.path,
+          id: null, path: queueTrack.path,
           title: queueTrack.title, artist_id: null, artist_name: queueTrack.artist_name,
           album_id: null, album_title: queueTrack.album_title,
           album_artist_name: queueTrack.album_artist_name ?? null, year: null,
@@ -3241,9 +3280,12 @@ function App() {
       } else {
         setDetailTrack(null);
       }
-      return;
+      // Same cleanup as the library branch below: without it this run's
+      // `cancelled` flag can never be set, so a slow path/metadata resolve
+      // could setDetailTrack() over a newer selection's page.
+      return () => { cancelled = true; };
     }
-    invoke<Track>("get_track_by_id", { trackId: libId })
+    invoke<Track>("get_track_by_id", { trackId: sel.libraryId })
       .then(t => { if (!cancelled) setDetailTrack(t); })
       .catch(e => {
         console.error("Failed to load track detail:", e);
@@ -3582,7 +3624,10 @@ function App() {
         async () => {
           const ac = autoContinueRef.current;
           const track = currentTrackRef.current;
-          return ac.enabled && track ? await ac.fetchTrack(track) : null;
+          const fetched = ac.enabled && track ? await ac.fetchTrack(track) : null;
+          // Auto-continue picks a library Track; the queue takes QueueTracks
+          // (and the conversion is what stamps `libraryId` on the new entry).
+          return fetched ? trackToQueueTrack(fetched) : null;
         },
         () => handleStopRef.current(),
       );
@@ -3879,7 +3924,11 @@ function App() {
     playExternal: (tracks) => queueHook.playTracks(tracks, 0),
     enqueueExternal: queueHook.enqueueTracks,
     startRadio: (t) => contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null }),
-    locateTrack: (t) => library.handleTrackClick(t.key),
+    // An id-less object that still carries a render key (a queue-derived track
+    // handed over by a plugin) opens the detail page as a synthetic entry —
+    // the pre-TrackSelection behavior. A library Track carries no key, so an
+    // id-less one has nothing to open and the action no-ops.
+    locateTrack: (t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); },
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
     toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
@@ -4150,22 +4199,14 @@ function App() {
       notify("The queue has no local tracks to share.");
       return;
     }
-    // Resolve a library id per local track: prefer the in-memory lib:N key, else
-    // look it up by its (durable) file path — mirrors the queue delete path so
-    // restored / m3u-loaded / external-keyed local tracks resolve too. Dedupe so
+    // Resolve a library id per local track: cached `libraryId`, else one bulk
+    // path lookup (resolveLibraryIds) — mirrors the queue delete path so
+    // restored / m3u-loaded / plugin-sourced local tracks resolve too. Dedupe so
     // a track queued twice isn't bundled twice.
+    const resolved = await resolveLibraryIds(localTracks);
     const ids: number[] = [];
     const seen = new Set<number>();
-    for (const t of localTracks) {
-      let id = parseLibraryId(t.key);
-      if (id == null && t.path) {
-        try {
-          id = await invoke<number | null>("find_track_id_by_path", { path: t.path });
-        } catch (e) {
-          console.error("Failed to resolve track id by path:", e);
-          id = null;
-        }
-      }
+    for (const id of resolved) {
       if (id != null && !seen.has(id)) { seen.add(id); ids.push(id); }
     }
     if (ids.length === 0) {
@@ -4179,7 +4220,7 @@ function App() {
     const tracks = queueHook.queue;
     if (tracks.length === 0) return;
     const exportTracks: ExportTrack[] = tracks.map(t => ({
-      id: parseLibraryId(t.key) ?? undefined,
+      id: t.libraryId ?? undefined,
       title: t.title,
       artistName: t.artist_name || undefined,
       albumTitle: t.album_title || undefined,
@@ -4279,17 +4320,12 @@ function App() {
 
   // Queue handler for mixtape "Just Play" mode — replaces the queue with mixtape tracks
   const handleMixtapeQueueTracks = useCallback((tracks: Track[], context: { name: string; imagePath?: string | null; metadata?: Record<string, string> | null }) => {
-    const queueTracks: QueueTrack[] = tracks.map(t => ({
-      key: t.key || nextExternalKey(),
-      path: t.path ?? null,
-      title: t.title,
-      artist_name: t.artist_name ?? null,
-      album_title: t.album_title ?? null,
-      duration_secs: t.duration_secs ?? null,
-      format: t.format ?? null,
-      image_url: t.image_url,
-      liked: t.liked ?? 0,
-    }));
+    // Via the canonical conversion, not a hand-rolled literal: this one had
+    // drifted, dropping `album_artist_name` (so a compilation's art/navigation
+    // resolved off the performer) and, once it existed, `libraryId`. The key
+    // guard it used to carry is gone too — `trackToQueueTrack` now mints its
+    // own key, so a mixtape row arriving without one is no longer a case.
+    const queueTracks: QueueTrack[] = tracks.map(trackToQueueTrack);
     queueHook.playTracks(queueTracks, 0, contextFromMixtapeMetadata(context.name, context.imagePath ?? null, context.metadata ?? null));
   }, [queueHook.playTracks]);
 
@@ -4434,7 +4470,7 @@ function App() {
       setLikeBusy(true);
       likeActions.handleToggleDislike(t).finally(() => setLikeBusy(false));
     },
-    onTrackClick: (trackId: string) => { library.handleTrackClick(trackId); },
+    onTrackClick: (track) => { library.handleTrackClick(queueTrackSelection(track)); },
     onNavigateToArtistByName: library.navigateToArtistByName,
     onNavigateToAlbumByName: library.navigateToAlbumByName,
     onNavigateToTagByName: library.navigateToTagByName,
@@ -4880,7 +4916,7 @@ function App() {
           {library.selectedTrack !== null && (() => {
             const track = detailTrackLocal ?? detailTrack;
             if (!track) return null;
-            const isCurrentTrack = playback.currentTrack?.key === library.selectedTrack;
+            const isCurrentTrack = isPlayingSelection(library.selectedTrack, playback.currentTrack);
             return (
               <TrackDetailView
                 trackId={track.id}
@@ -4912,7 +4948,6 @@ function App() {
           {library.fallbackTrackName && !library.selectedTrack && (() => {
             const syntheticTrack: Track = {
               id: null,
-              key: `fallback:${library.fallbackTrackName.name}:${library.fallbackTrackName.artistName ?? ""}`,
               path: null,
               title: library.fallbackTrackName.name,
               artist_id: null,
@@ -5046,7 +5081,7 @@ function App() {
             onPlayTracks={queueHook.playTracks}
             onEnqueueTrack={(t) => contextMenuActions.handleEnqueue([t])}
             onStartRadio={(t) => contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null })}
-            onLocateTrack={(t) => library.handleTrackClick(t.key)}
+            onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }}
             onPlayAlbum={playActions.playAlbum}
             onPlayArtist={playActions.playArtist}
             onPlayTag={playActions.playTag}
@@ -5121,7 +5156,7 @@ function App() {
                 placeholder="Search history..."
                 {...historySearchNav}
               />
-              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onLocateTrack={(t) => library.handleTrackClick(t.key)} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
+              <HistoryView ref={historyRef} searchQuery={viewSearch.getQuery("history")} highlightedIndex={highlightedListIndex} onPlayTrack={queueHook.playTracks} onEnqueueTrack={contextMenuActions.handleEnqueue} onLocateTrack={(t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); }} onArtistClick={library.handleArtistClick} onPlayArtist={playActions.playArtist} onEnqueueArtist={playActions.enqueueArtist} onStartRadio={contextMenuActions.startRadio} onShowContextMenu={(x, y, target) => buildAndShowNativeMenu({ x, y, target })} />
             </>
           )}
 
@@ -5246,7 +5281,7 @@ function App() {
                     image_url: it.imageUrl,
                     kind: it.kind,
                   }));
-                  if (qts.length > 0) contextMenuActions.handleTrackDragStart(qts as unknown as Track[]);
+                  if (qts.length > 0) contextMenuActions.handleTrackDragStart(qts);
                 }}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
@@ -5454,7 +5489,7 @@ function App() {
               dockSide: videoLayout.dockSide,
               fitMode: videoLayout.fitMode,
               track: ct ? {
-                key: ct.key,
+                libraryId: ct.libraryId ?? null,
                 path: ct.path,
                 title: ct.title,
                 artistName: ct.artist_name,
@@ -5615,7 +5650,12 @@ function App() {
           onTogglePlayPause={playback.handlePause}
           onRemove={queueHook.removeFromQueue}
           onLocateTrack={(track) => {
-            library.handleTrackClick(track.key);
+            // Prefers the entry's cached row so Track Details gets the real
+            // record. Passing only the queue key worked while that key encoded
+            // the id — a restored or duplicated entry carries `q:N`, and the
+            // page then showed a synthetic id-less Track (no scrobble history,
+            // no DB-backed sections) for a track plainly in the library.
+            library.handleTrackClick(queueTrackSelection(track));
           }}
           onStartRadio={(track) => contextMenuActions.startRadio({ title: track.title, artistName: track.artist_name, coverPath: track.image_url ?? null })}
           onMoveMultiple={queueHook.moveMultiple}
@@ -5634,7 +5674,7 @@ function App() {
             const first = tracks[0];
             buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: {
               kind: "queue-multi", indices,
-              trackIds: tracks.map(t => parseLibraryId(t.key)).filter((id): id is number => id != null),
+              trackIds: tracks.map(t => t.libraryId ?? null).filter((id): id is number => id != null),
               firstTrack: first ? { title: first.title, artistName: first.artist_name, albumTitle: first.album_title ?? null, isLocal: isLocalTrack(first) } : { title: "", artistName: null, albumTitle: null, isLocal: false },
             } });
           }}
@@ -5767,7 +5807,6 @@ function App() {
             }
             const fallback: Track = {
               id: null,
-              key: uri,
               path: uri,
               title: path.split("/").pop() ?? "Track",
               artist_id: null,

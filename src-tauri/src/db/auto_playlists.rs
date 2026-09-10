@@ -885,7 +885,6 @@ mod tests {
     fn test_top_featured_artists_ranks_by_count() {
         let mk = |artist: Option<&str>| Track {
             id: 0,
-            key: String::new(),
             path: String::new(),
             title: String::new(),
             artist_id: None,

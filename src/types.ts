@@ -29,8 +29,12 @@ export interface Tag {
 }
 
 export interface Track {
+  // There is deliberately no `key` field. It used to carry a `lib:{id}` row
+  // token, vestigial in-app (everything keys on `id`) and kept only for the
+  // plugin wire — removed after auditing every bundled plugin and every plugin
+  // repo: nothing read it. Queue entries mint their own `q:N` keys via
+  // `nextQueueKey` at conversion (`trackToQueueTrack`); a library row has none.
   id: number | null;
-  key: string;
   path: string | null;
   title: string;
   artist_id: number | null;
@@ -55,8 +59,43 @@ export interface Track {
   image_url?: string;
 }
 
+/**
+ * What the Track-detail page is showing.
+ *
+ * A discriminated union, because the two cases are resolved by different means
+ * and share nothing: a **library row** is fetched by id (`get_track_by_id`),
+ * while an **id-less entry** — a plugin result, an external track, a restored
+ * queue row — exists only in the queue and is found by matching its
+ * `QueueTrack.key`. An entry is never in `library.tracks`, so there was never a
+ * case where both an id and a key were meaningful at once.
+ *
+ * This replaced a `{ key, libraryId }` pair, which replaced smuggling the id
+ * inside the key as `lib:N` and parsing it back out. Each step removed a way
+ * for the two facts to disagree; the union removes the last one by making the
+ * irrelevant field unrepresentable rather than merely null.
+ *
+ * Session-only, never persisted: SQLite reuses the rowids of deleted tracks, so
+ * a stored id could reopen on a different track — the same reason
+ * `QueueTrack.libraryId` isn't persisted.
+ */
+export type TrackSelection =
+  | { kind: "library"; libraryId: number }
+  | { kind: "entry"; key: string };
+
 export interface QueueTrack {
+  /** In-memory render/session identity, unique across the queue. Two copies of
+   * the same song are two entries with two keys — see `withUniqueKeys`. Never
+   * parse a library id out of this; read `libraryId`. Not persisted. */
   key: string;
+  /** The library row this entry came from, when known. A **cache** of "what row
+   * does this path belong to", not an identity: it survives duplication (a
+   * second copy of a queued library track keeps it) and is re-resolved from
+   * `path` on restore, because `key` cannot carry either. Absent/null means
+   * "no cached id" — NOT "not a library track"; callers fall back to
+   * `find_track_id_by_path` / `find_track_by_metadata`. Never persisted: SQLite
+   * reuses the rowids of deleted tracks, so a stale id would silently address
+   * the wrong row. */
+  libraryId?: number | null;
   path: string | null;
   title: string;
   artist_name: string | null;

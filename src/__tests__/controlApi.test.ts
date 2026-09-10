@@ -137,15 +137,27 @@ describe("serializeQueue / serializeStatus", () => {
     expect(out.tracks[1]).toMatchObject({ index: 1, title: "Two", artistName: "Artist" });
   });
 
-  it("carries the library id for lib: entries and null for external ones", () => {
-    const out = serializeQueue([qt({ key: "lib:42" }), qt({ key: "ext:7" })], 0, "normal");
+  it("carries the entry's libraryId, and null when it has none", () => {
+    const out = serializeQueue([qt({ libraryId: 42 }), qt({})], 0, "normal");
     expect(out.tracks.map((t) => t.libraryId)).toEqual([42, null]);
     const status = serializeStatus({
       playing: false, positionSecs: 0, durationSecs: null, volume: 1, muted: false,
       queueLength: 1, queueIndex: 0, queueMode: "normal", view: "home",
-      currentTrack: qt({ key: "lib:42" }),
+      currentTrack: qt({ libraryId: 42 }),
     });
     expect(status.currentTrack?.libraryId).toBe(42);
+  });
+
+  // The id must come from the field, never from the key: a re-keyed copy of a
+  // library track (`withUniqueKeys`) keeps `libraryId` but carries a re-minted `q:N`
+  // key, and every restored entry does too.
+  it("reads the id from libraryId, not from a lib: key", () => {
+    const out = serializeQueue(
+      [qt({ key: "ext:7", libraryId: 42 }), qt({ key: "lib:9", libraryId: null })],
+      0,
+      "normal",
+    );
+    expect(out.tracks.map((t) => t.libraryId)).toEqual([42, null]);
   });
 
   it("serializes a null current track and a full one", () => {

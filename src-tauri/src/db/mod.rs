@@ -163,7 +163,6 @@ fn track_from_row(row: &rusqlite::Row) -> rusqlite::Result<Track> {
     let id: i64 = row.get(0)?;
     Ok(Track {
         id,
-        key: format!("lib:{}", id),
         path: row.get(1)?,
         title: row.get(2)?,
         artist_id: row.get(3)?,

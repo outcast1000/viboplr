@@ -93,6 +93,7 @@ macro_rules! invoke_handler {
             commands::find_track_by_metadata,
             commands::find_tracks_by_metadata,
             commands::find_track_id_by_path,
+            commands::find_track_ids_by_paths,
             commands::find_duplicate_tracks,
             commands::find_artist_by_name,
             commands::find_album_by_name,

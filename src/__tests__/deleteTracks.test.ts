@@ -5,7 +5,6 @@ import type { Track } from "../types";
 function t(id: number, path: string | null, title = `Track ${id}`): Track {
   return {
     id,
-    key: `lib:${id}`,
     path,
     title,
     artist_id: null,

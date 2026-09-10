@@ -1,12 +1,13 @@
 import { useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, QueueTrack } from "../types";
-import { parseLibraryId, isLocalTrack, isNetworkSharePath } from "../queueEntry";
+import { isLocalTrack, isNetworkSharePath } from "../queueEntry";
 import type { ContextMenuState, ContextMenuTarget } from "../types/contextMenu";
 import type { PlaylistContext } from "./useQueue";
 import { useQueueDragToInsert, type PendingEnqueue } from "./useQueueDragToInsert";
 import { trashLabel } from "../utils";
 import { emitTracksDeleted } from "../trackEvents";
+import { resolveLibraryIds } from "../utils/resolveLibraryIds";
 
 import { useAssignRef } from "./useLatestRef";
 interface UseContextMenuActionsDeps {
@@ -19,10 +20,12 @@ interface UseContextMenuActionsDeps {
     loadTracks: () => Promise<void>;
   };
   queueHook: {
-    playTracks: (tracks: QueueTrack[], index: number, context?: PlaylistContext | null) => void;
-    enqueueTracks: (tracks: QueueTrack[]) => void;
-    findDuplicates: (tracks: QueueTrack[]) => { duplicates: QueueTrack[]; unique: QueueTrack[] };
-    insertAtPosition: (tracks: QueueTrack[], pos: number) => void;
+    // Raw `Track`s are welcome on every entry path — useQueue converts at the
+    // door (`toQueueTracks`), which is what stamps `libraryId`.
+    playTracks: (tracks: Array<Track | QueueTrack>, index: number, context?: PlaylistContext | null) => void;
+    enqueueTracks: (tracks: Array<Track | QueueTrack>) => void;
+    findDuplicates: (tracks: Array<Track | QueueTrack>) => { duplicates: Array<Track | QueueTrack>; unique: Array<Track | QueueTrack> };
+    insertAtPosition: (tracks: Array<Track | QueueTrack>, pos: number) => void;
     removeMultiple: (indices: number[]) => void;
     moveToTop: (indices: number[]) => void;
     moveToBottom: (indices: number[]) => void;
@@ -190,7 +193,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     return results;
   }
 
-  function handleEnqueue(tracks: Track[]) {
+  function handleEnqueue(tracks: Array<Track | QueueTrack>) {
     if (tracks.length === 0) return;
     const { duplicates, unique } = queueHook.findDuplicates(tracks);
     if (duplicates.length > 0) {
@@ -230,7 +233,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     if (!cm) return;
     try {
       const tracks = await fetchTargetTracks(cm.target);
-      handleEnqueue(tracks as Track[]);
+      handleEnqueue(tracks);
     } catch (e) { console.error("Failed to enqueue tracks:", e); }
   }
 
@@ -282,7 +285,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (cm && cm.target.kind === "queue-multi" && cm.target.indices.length === 1) {
       const track = queueHook.queue[cm.target.indices[0]];
       try {
-        const libId = track ? parseLibraryId(track.key) : null;
+        const libId = track?.libraryId ?? null;
         if (track && libId != null) {
           await invoke("show_in_folder", { trackId: libId });
         } else if (track && track.path) {
@@ -296,7 +299,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     } else if (cm && cm.target.kind === "video" && cm.target.track) {
       const t = cm.target.track;
       try {
-        const libId = parseLibraryId(t.key);
+        const libId = t.libraryId ?? null;
         if (libId != null) {
           await invoke("show_in_folder", { trackId: libId });
         } else if (t.path) {
@@ -357,21 +360,11 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
       }
     } else if (target.kind === "queue-multi") {
       const localTracks = target.indices.map(i => queueHook.queue[i]).filter(Boolean).filter(isLocalTrack);
-      // Resolve a library id per local track: prefer the in-memory lib:N key, else
-      // look it up by its (durable) file path. This is what lets ext: queue tracks
-      // be deleted — restored, m3u-loaded, or home-shelf — not just fresh lib:N rows.
-      const ids: number[] = [];
-      for (const t of localTracks) {
-        const keyId = parseLibraryId(t.key);
-        if (keyId != null) { ids.push(keyId); continue; }
-        if (!t.path) continue;
-        try {
-          const resolved = await invoke<number | null>("find_track_id_by_path", { path: t.path });
-          if (resolved != null) ids.push(resolved);
-        } catch (e) {
-          console.error("Failed to resolve track id by path:", e);
-        }
-      }
+      // Resolve a library id per local track: cached `libraryId`, else one bulk
+      // path lookup (resolveLibraryIds). This is what lets id-less queue tracks
+      // be deleted — m3u-loaded, home-shelf, plugin-sourced — not just entries
+      // that came straight from a library list.
+      const ids = (await resolveLibraryIds(localTracks)).filter((id): id is number => id != null);
       if (ids.length > 0) {
         request = {
           trackIds: ids,
@@ -382,17 +375,11 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
         setDeleteError({ message: `Those tracks aren't in your library, so they can't be moved to the ${trashLabel}.`, failures: [] });
       }
     } else if (target.kind === "video" && target.track && target.track.isLocal) {
-      // The playing video is an id-less QueueTrack: resolve its library id from
-      // the lib:N key, falling back to a path lookup (restored/m3u/external keys).
+      // Resolve the playing video's library id from the queue's cached
+      // `libraryId`, falling back to a path lookup (an entry restored, loaded
+      // from an m3u, or handed over by a plugin carries no cached id).
       const t = target.track;
-      let id = parseLibraryId(t.key);
-      if (id == null && t.path) {
-        try {
-          id = await invoke<number | null>("find_track_id_by_path", { path: t.path });
-        } catch (e) {
-          console.error("Failed to resolve track id by path:", e);
-        }
-      }
+      const [id] = await resolveLibraryIds([t]);
       if (id != null) {
         request = { trackIds: [id], title: t.title, network: isNetworkSharePath(t.path) };
       } else {
