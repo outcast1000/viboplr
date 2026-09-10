@@ -1,6 +1,8 @@
 // Auto-split from db.rs. Shared types/helpers live in db/mod.rs;
 // these are inherent `impl Database` methods reachable via `use super::*`.
 use super::*;
+use std::collections::{HashMap, HashSet};
+use crate::db::likes::norm_segment;
 
 // The audio/video SQL clauses (VIDEO_FORMAT_CLAUSE / AUDIO_FORMAT_CLAUSE /
 // media_type_clause) live in db/mod.rs, shared by every surface that splits
@@ -11,6 +13,120 @@ fn is_video_format(format: Option<&str>) -> bool {
     format
         .map(|f| crate::scanner::VIDEO_EXTENSIONS.contains(&f.to_lowercase().as_str()))
         .unwrap_or(false)
+}
+
+/// The batched history album lookup, parameterized by how many normalized
+/// titles are in the IN list. Built by a function rather than inlined so the
+/// query-plan test can assert against the SQL that actually runs: the WHERE
+/// expression must stay character-identical to `idx_tracks_title_norm`'s, or
+/// SQLite silently falls back to a full scan.
+fn history_album_sql(title_count: usize) -> String {
+    let placeholders = std::iter::repeat("?").take(title_count).collect::<Vec<_>>().join(",");
+    format!(
+        "SELECT strip_diacritics(unicode_lower(t.title)), \
+                strip_diacritics(unicode_lower(ar.name)), \
+                al.title, alar.name, \
+                CASE WHEN co.kind = 'local' THEN 0 WHEN co.kind = 'subsonic' THEN 1 ELSE 2 END, \
+                al.id \
+           FROM tracks t \
+           JOIN artists ar ON t.artist_id = ar.id \
+           JOIN albums al ON t.album_id = al.id \
+           LEFT JOIN artists alar ON al.artist_id = alar.id \
+           LEFT JOIN collections co ON t.collection_id = co.id \
+          WHERE strip_diacritics(unicode_lower(t.title)) IN ({placeholders}) \
+            AND (t.collection_id IS NULL OR co.enabled = 1)"
+    )
+}
+
+/// Resolve a library album — and the album's own album artist — for a batch of
+/// history rows, keyed by normalized (title, artist).
+///
+/// History stores no album, yet every surface that renders a history row wants
+/// the album *cover*, and album art is keyed by album title + album artist (see
+/// CLAUDE.md -> "Album identity"): on a compilation the play's own artist is the
+/// performer and keys nothing. So both come back together, or neither.
+///
+/// The batch is looked up through the `idx_tracks_title_norm` expression index
+/// with a single IN-list query, making this O(rows) index seeks. That is the
+/// whole reason album resolution is affordable on every history query now: the
+/// first version ran a correlated subquery per row (O(rows x tracks)) and froze
+/// the History view for seconds, and its replacement scanned + normalized the
+/// entire library once per call, which was cheap enough for one Home shelf but
+/// not for a per-keystroke search.
+///
+/// Preference on multiple matches: local > subsonic > other, newest album
+/// (highest id) breaking ties — the same order as `find_tracks_by_metadata`.
+fn resolve_history_albums(
+    conn: &Connection,
+    keys: &[(String, String)],
+) -> SqlResult<HashMap<(String, String), (String, Option<String>)>> {
+    let mut out: HashMap<(String, String), (String, Option<String>)> = HashMap::new();
+    if keys.is_empty() {
+        return Ok(out);
+    }
+    let wanted: HashSet<&(String, String)> = keys.iter().collect();
+    let mut titles: Vec<&str> = keys.iter().map(|(t, _)| t.as_str()).collect();
+    titles.sort_unstable();
+    titles.dedup();
+
+    // Best match so far per key, carrying (priority, album id) for the tie-break.
+    let mut best: HashMap<(String, String), (i64, i64)> = HashMap::new();
+
+    // Chunked to stay well under SQLite's bound-parameter limit.
+    for chunk in titles.chunks(200) {
+        let mut stmt = conn.prepare(&history_album_sql(chunk.len()))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(chunk.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })?;
+        for row in rows {
+            let (norm_title, norm_artist, album, album_artist, prio, album_id) = row?;
+            let key = (norm_title, norm_artist);
+            // The IN list matches on title alone, so most rows here belong to a
+            // different artist's same-titled track.
+            if !wanted.contains(&key) {
+                continue;
+            }
+            let replace = match best.get(&key) {
+                None => true,
+                Some(&(cur_prio, cur_aid)) => prio < cur_prio || (prio == cur_prio && album_id > cur_aid),
+            };
+            if replace {
+                best.insert(key.clone(), (prio, album_id));
+                out.insert(key, (album, album_artist));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Fill in `display_album` / `display_album_artist` on a batch of most-played
+/// or searched history tracks. Wraps `resolve_history_albums` so the three
+/// queries returning `HistoryMostPlayed` stamp albums identically — the History
+/// view's Tracks tab, its search results and the Home "Most played" shelves all
+/// render art from these fields.
+fn stamp_history_albums(conn: &Connection, tracks: &mut [HistoryMostPlayed]) -> SqlResult<()> {
+    if tracks.is_empty() {
+        return Ok(());
+    }
+    let keys: Vec<(String, String)> = tracks
+        .iter()
+        .map(|t| (norm_segment(Some(&t.display_title)), norm_segment(t.display_artist.as_deref())))
+        .collect();
+    let albums = resolve_history_albums(conn, &keys)?;
+    for (t, key) in tracks.iter_mut().zip(keys) {
+        if let Some((album, album_artist)) = albums.get(&key) {
+            t.display_album = Some(album.clone());
+            t.display_album_artist = album_artist.clone();
+        }
+    }
+    Ok(())
 }
 
 impl Database {
@@ -545,17 +661,13 @@ impl Database {
         Ok((imported, skipped))
     }
 
-    pub fn get_history_recent(&self, limit: i64, resolve_albums: bool) -> SqlResult<Vec<HistoryEntry>> {
+    pub fn get_history_recent(&self, limit: i64) -> SqlResult<Vec<HistoryEntry>> {
         let conn = self.conn.lock().unwrap();
-        // Fast path: pull recent plays straight off the played_at index — no
-        // per-row work. History stores no album; callers that render one (the
-        // Home "Recently played" shelf, the plugin getHistory bridge) pass
-        // resolve_albums=true and pay a single O(library) resolution pass below.
-        // The History view doesn't show albums, so it passes false and skips that
-        // pass — this is what fixes the multi-second open-History freeze: the old
-        // code ran an album-matching correlated subquery for EVERY returned row
-        // (O(rows × tracks), each scan running diacritic normalization), holding
-        // the DB mutex for seconds.
+        // Recent plays come straight off the played_at index — no per-row work.
+        // The album is resolved afterwards in one batched, indexed lookup (see
+        // resolve_history_albums), which is why there is no longer a
+        // resolve_albums opt-out: every caller renders an album cover, and the
+        // resolution no longer costs a library scan.
         let mut stmt = conn.prepare(
             "SELECT hp.id, ht.id, hp.played_at, ht.display_title, ha.display_name, ht.play_count
              FROM history_plays hp
@@ -574,54 +686,21 @@ impl Database {
                     display_artist: row.get(4)?,
                     play_count: row.get(5)?,
                     display_album: None,
+                    display_album_artist: None,
                 })
             })?
             .collect::<SqlResult<Vec<_>>>()?;
 
-        if resolve_albums && !entries.is_empty() {
-            // Resolve a library album per entry by matching display title + artist
-            // (diacritic-insensitive, same as find_track_by_metadata). One scan of
-            // the enabled library builds a best-album map — local > subsonic >
-            // other, newest album (highest id) breaks ties — so this is O(library)
-            // once, not O(entries × library). Normalized in Rust via norm_segment
-            // to match the SQL strip_diacritics(unicode_lower(...)).
-            use std::collections::HashMap;
-            use crate::db::likes::norm_segment;
-            let mut amap = conn.prepare(
-                "SELECT t.title, ar.name, al.title,
-                        CASE WHEN co.kind = 'local' THEN 0 WHEN co.kind = 'subsonic' THEN 1 ELSE 2 END,
-                        al.id
-                   FROM tracks t
-                   JOIN artists ar ON t.artist_id = ar.id
-                   JOIN albums al ON t.album_id = al.id
-                   LEFT JOIN collections co ON t.collection_id = co.id
-                  WHERE t.collection_id IS NULL OR co.enabled = 1"
-            )?;
-            let mut best: HashMap<(String, String), (i64, i64, String)> = HashMap::new();
-            let rows = amap.query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, i64>(4)?,
-                ))
-            })?;
-            for row in rows {
-                let (title, artist, album, prio, album_id) = row?;
-                let key = (norm_segment(Some(&title)), norm_segment(Some(&artist)));
-                let replace = match best.get(&key) {
-                    None => true,
-                    Some(&(cur_prio, cur_aid, _)) => prio < cur_prio || (prio == cur_prio && album_id > cur_aid),
-                };
-                if replace {
-                    best.insert(key, (prio, album_id, album));
-                }
-            }
-            for e in entries.iter_mut() {
-                let key = (norm_segment(Some(&e.display_title)), norm_segment(e.display_artist.as_deref()));
-                if let Some((_, _, album)) = best.get(&key) {
+        if !entries.is_empty() {
+            let keys: Vec<(String, String)> = entries
+                .iter()
+                .map(|e| (norm_segment(Some(&e.display_title)), norm_segment(e.display_artist.as_deref())))
+                .collect();
+            let albums = resolve_history_albums(&conn, &keys)?;
+            for (e, key) in entries.iter_mut().zip(keys) {
+                if let Some((album, album_artist)) = albums.get(&key) {
                     e.display_album = Some(album.clone());
+                    e.display_album_artist = album_artist.clone();
                 }
             }
         }
@@ -636,8 +715,8 @@ impl Database {
     }
 
     /// One keyset-paginated page of raw plays, newest first, with NO album
-    /// resolution at all (contrast `get_history_recent`, which can opt into a
-    /// single O(library) album-resolution pass). All joins are on indexed keys, so a
+    /// resolution at all (contrast `get_history_recent`, which stamps albums via
+    /// one batched indexed lookup). All joins are on indexed keys, so a
     /// page is O(limit). Pass `before_ts`/`before_id` = the last row of the
     /// previous page to advance the cursor; pass both `None` for the first page.
     /// Both must be supplied together. Ordering is `(played_at DESC, id DESC)`,
@@ -689,9 +768,13 @@ impl Database {
                 display_title: row.get(2)?,
                 display_artist: row.get(3)?,
                 rank: row.get(4)?,
+                display_album: None,
+                display_album_artist: None,
             })
         })?;
-        rows.collect()
+        let mut tracks: Vec<HistoryMostPlayed> = rows.collect::<SqlResult<Vec<_>>>()?;
+        stamp_history_albums(&conn, &mut tracks)?;
+        Ok(tracks)
     }
 
     pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
@@ -714,9 +797,13 @@ impl Database {
                 display_title: row.get(2)?,
                 display_artist: row.get(3)?,
                 rank: row.get(4)?,
+                display_album: None,
+                display_album_artist: None,
             })
         })?;
-        rows.collect()
+        let mut tracks: Vec<HistoryMostPlayed> = rows.collect::<SqlResult<Vec<_>>>()?;
+        stamp_history_albums(&conn, &mut tracks)?;
+        Ok(tracks)
     }
 
     pub fn search_history_tracks(&self, query: &str, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
@@ -740,9 +827,13 @@ impl Database {
                 display_title: row.get(2)?,
                 display_artist: row.get(3)?,
                 rank: row.get(4)?,
+                display_album: None,
+                display_album_artist: None,
             })
         })?;
-        rows.collect()
+        let mut tracks: Vec<HistoryMostPlayed> = rows.collect::<SqlResult<Vec<_>>>()?;
+        stamp_history_albums(&conn, &mut tracks)?;
+        Ok(tracks)
     }
 
     pub fn get_history_most_played_artists_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryArtistStats>> {
@@ -1124,5 +1215,32 @@ mod tests {
                 );
             }
         }
+    }
+    /// The batched history album lookup must be served by the
+    /// `idx_tracks_title_norm` expression index (run_migrations #8). Without it
+    /// every History query — including the per-keystroke search — pays a full
+    /// tracks scan evaluating two UDFs per row, which is exactly the cost that
+    /// made album resolution unaffordable on this surface before. An expression
+    /// index only serves an exactly-matching expression, so this fails if the
+    /// query's WHERE drifts from the index's definition.
+    #[test]
+    fn test_history_album_lookup_uses_the_title_index() {
+        let db = test_db();
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", history_album_sql(3)))
+            .unwrap();
+        let nulls = vec![rusqlite::types::Value::Null; stmt.parameter_count()];
+        let refs: Vec<&dyn rusqlite::types::ToSql> =
+            nulls.iter().map(|v| v as &dyn rusqlite::types::ToSql).collect();
+        let details: Vec<String> = stmt
+            .query_map(refs.as_slice(), |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<SqlResult<Vec<_>>>()
+            .unwrap();
+        assert!(
+            details.iter().any(|d| d.contains("idx_tracks_title_norm")),
+            "history album lookup should use idx_tracks_title_norm, got: {details:?}"
+        );
     }
 }

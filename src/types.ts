@@ -200,6 +200,9 @@ export interface HistoryEntry {
   // Album resolved from the library by title+artist (history stores none).
   // Null when no matching library track exists.
   display_album: string | null;
+  // The resolved album's own album artist — what an album cover is keyed by
+  // (see CLAUDE.md "Album identity"). Null whenever display_album is.
+  display_album_artist: string | null;
 }
 
 // A single play row stripped to what bulk listening-pattern aggregation needs.
@@ -218,6 +221,10 @@ export interface HistoryMostPlayed {
   display_title: string;
   display_artist: string | null;
   rank: number;
+  // Library-resolved album + its album artist, same contract as HistoryEntry's
+  // pair — history stores no album and both are needed to key an album cover.
+  display_album: string | null;
+  display_album_artist: string | null;
 }
 
 // A liked entity (track/artist/album) read from the durable entity_likes table

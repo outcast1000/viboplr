@@ -324,13 +324,18 @@ pub struct HistoryEntry {
     // Resolved on read by matching display_title + display_artist against the
     // library (history itself stores no album). None when the play has no
     // matching library track. Powers album-cover lookup on the Home "Recently
-    // played" shelf.
+    // played" shelf and the History view's rows.
     pub display_album: Option<String>,
+    // The resolved album's OWN album artist, which is what album art is keyed
+    // by (see CLAUDE.md -> "Album identity"): on a compilation the play's
+    // display_artist is the performer and keys no album image. Rides along with
+    // display_album and is None whenever that is.
+    pub display_album_artist: Option<String>,
 }
 
 /// A single play row, stripped to only what bulk listening-pattern aggregation
 /// needs. Unlike `HistoryEntry`, this carries no album at all (not even the
-/// opt-in single-pass resolution `get_history_recent` does). Callers that need
+/// batched resolution `get_history_recent` performs). Callers that need
 /// album/duration resolve it client-side from an already-loaded library
 /// snapshot. Paginated by keyset (`played_at`, `id`) so the whole history streams
 /// without one giant query holding the DB lock. `id` is the play id (the keyset
@@ -350,6 +355,12 @@ pub struct HistoryMostPlayed {
     pub display_title: String,
     pub display_artist: Option<String>,
     pub rank: i64,
+    // Library-resolved album + its album artist, same contract as
+    // HistoryEntry's pair above: history stores no album, and both are needed
+    // to key an album cover. Always resolved (the lookup is O(rows) indexed
+    // seeks), so every history track surface can render album art.
+    pub display_album: Option<String>,
+    pub display_album_artist: Option<String>,
 }
 
 /// Lightweight liked-entity row read from the durable entity_likes table (the

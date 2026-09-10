@@ -450,6 +450,7 @@ export function useHome(opts: UseHomeOptions) {
                     // Library-resolved album (history stores none) → album cover
                     // via the shared chain, artist-image fallback when absent.
                     album_title: h.display_album ?? undefined,
+                    album_artist_name: h.display_album_artist ?? undefined,
                   },
                 });
                 if (items.length >= limit) break;
@@ -475,6 +476,10 @@ export function useHome(opts: UseHomeOptions) {
                   track: {
                     title: t.display_title,
                     artist_name: t.display_artist ?? undefined,
+                    // Library-resolved album (history stores none) → album cover
+                    // via the shared chain, artist-image fallback when absent.
+                    album_title: t.display_album ?? undefined,
+                    album_artist_name: t.display_album_artist ?? undefined,
                   },
                 })),
               };

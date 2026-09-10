@@ -659,7 +659,7 @@ async fn handle_history(
     match params.kind.as_deref().unwrap_or("recent") {
         "recent" => {
             db_read(state.db.clone(), move |db| {
-                db.get_history_recent(limit, true).map_err(|e| e.to_string())
+                db.get_history_recent(limit).map_err(|e| e.to_string())
             })
             .await
         }

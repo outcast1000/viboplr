@@ -263,6 +263,10 @@ const HISTORY_RECENT = TRACKS.slice(0, 12).map((t, i) => ({
   display_title: t.title,
   display_artist: t.artist_name,
   play_count: 5 + Math.floor(i * 1.5),
+  // History stores no album; the backend resolves one per row (plus the album's
+  // own album artist) and the row thumbnail is keyed by that pair.
+  display_album: t.album_title,
+  display_album_artist: t.artist_name,
   library_track_id: t.id,
 }));
 
@@ -271,6 +275,8 @@ const HISTORY_MOST_PLAYED = TRACKS.slice(0, 10).map((t, i) => ({
   play_count: 40 - i * 3,
   display_title: t.title,
   display_artist: t.artist_name,
+  display_album: t.album_title,
+  display_album_artist: t.artist_name,
   library_track_id: t.id,
   rank: i + 1,
 }));

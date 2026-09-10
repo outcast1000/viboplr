@@ -853,7 +853,7 @@ fn test_play_history() {
     db.record_play(t1).unwrap(); // deduplicated (same track within 30s)
     db.record_play(t2).unwrap();
 
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 2); // deduped: Song A once + Song B once
 
     let most = db.get_history_most_played(10).unwrap();
@@ -870,12 +870,12 @@ fn test_play_history_dedup() {
     // Same track twice in quick succession → deduplicated
     db.record_play(t1).unwrap();
     db.record_play(t1).unwrap();
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 1);
 
     // Different tracks are NOT deduplicated
     db.record_play(t2).unwrap();
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 2);
 }
 
@@ -890,13 +890,73 @@ fn test_history_recent_resolves_album_from_library() {
     db.record_play(with_album).unwrap();
     db.record_play(without_album).unwrap();
 
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     // History stores no album; get_history_recent resolves it by title+artist.
     let a = recent.iter().find(|e| e.display_title == "Song A").expect("Song A in history");
     assert_eq!(a.display_album.as_deref(), Some("Greatest Hits"));
     // A play whose library track has no album resolves to None (→ artist-image fallback).
     let b = recent.iter().find(|e| e.display_title == "Song B").expect("Song B in history");
     assert_eq!(b.display_album, None);
+}
+
+/// The album's OWN album artist rides along with the resolved album, because
+/// that is what an album cover is keyed by (CLAUDE.md → "Album identity"): on a
+/// compilation the play's artist is the performer and keys no album image.
+#[test]
+fn test_history_recent_reports_the_albums_album_artist() {
+    let db = test_db();
+    let performer = db.get_or_create_artist("Performer").unwrap();
+    let various = db.get_or_create_artist("Various Artists").unwrap();
+    let album = db.get_or_create_album("Big Compilation", Some(various), None).unwrap();
+    let track = insert_track(&db, "comp.mp3", "Solo Song", Some(performer), Some(album));
+    db.record_play(track).unwrap();
+
+    let recent = db.get_history_recent(10).unwrap();
+    let e = recent.iter().find(|e| e.display_title == "Solo Song").expect("in history");
+    assert_eq!(e.display_artist.as_deref(), Some("Performer"));
+    assert_eq!(e.display_album.as_deref(), Some("Big Compilation"));
+    assert_eq!(e.display_album_artist.as_deref(), Some("Various Artists"));
+}
+
+/// The Tracks tab, its search, and the Home "Most played" shelves all read
+/// HistoryMostPlayed — which carried no album at all, so every one of them fell
+/// back to the artist image (issue #133). All three queries stamp the same pair.
+#[test]
+fn test_history_most_played_and_search_resolve_albums() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("Artie").unwrap();
+    let album = db.get_or_create_album("Greatest Hits", Some(artist), None).unwrap();
+    let track = insert_track(&db, "a.mp3", "Song A", Some(artist), Some(album));
+    db.record_play(track).unwrap();
+
+    for rows in [
+        db.get_history_most_played(10).unwrap(),
+        db.get_history_most_played_since(0, 10).unwrap(),
+        db.search_history_tracks("song", 10).unwrap(),
+    ] {
+        let r = rows.iter().find(|r| r.display_title == "Song A").expect("Song A in history");
+        assert_eq!(r.display_album.as_deref(), Some("Greatest Hits"));
+        assert_eq!(r.display_album_artist.as_deref(), Some("Artie"));
+    }
+}
+
+/// A same-titled track by a *different* artist must not lend its album: the
+/// batched lookup narrows on title alone, so the artist half of the key is the
+/// only thing keeping the two apart.
+#[test]
+fn test_history_album_resolution_does_not_cross_artists() {
+    let db = test_db();
+    let a = db.get_or_create_artist("Artist A").unwrap();
+    let b = db.get_or_create_artist("Artist B").unwrap();
+    let album_a = db.get_or_create_album("Album A", Some(a), None).unwrap();
+    let album_b = db.get_or_create_album("Album B", Some(b), None).unwrap();
+    let mine = insert_track(&db, "a.mp3", "Shared Title", Some(a), Some(album_a));
+    insert_track(&db, "b.mp3", "Shared Title", Some(b), Some(album_b));
+    db.record_play(mine).unwrap();
+
+    let recent = db.get_history_recent(10).unwrap();
+    assert_eq!(recent[0].display_album.as_deref(), Some("Album A"));
+    assert_eq!(recent[0].display_album_artist.as_deref(), Some("Artist A"));
 }
 
 #[test]
@@ -959,7 +1019,7 @@ fn test_history_record_and_query() {
 
     db.record_history_play(track_id).unwrap();
 
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].display_title, "Creep");
     assert_eq!(recent[0].display_artist.as_deref(), Some("Radiohead"));
@@ -977,7 +1037,7 @@ fn test_history_ghost_entries() {
     // Soft-delete the track
     db.delete_tracks_by_ids(&[track_id]).unwrap();
 
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].display_title, "Smells Like Teen Spirit");
 }
@@ -992,7 +1052,7 @@ fn test_history_reconnect() {
     db.delete_tracks_by_ids(&[track_id]).unwrap();
 
     // Verify ghost
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 1);
 
     // Re-add with same artist+title but different path
@@ -1001,7 +1061,7 @@ fn test_history_reconnect() {
 
     // Reconnection happens when the track is played again
     db.record_history_play(track_id2).unwrap();
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent[0].play_count, 1); // deduped within 30s, count unchanged
 }
 
@@ -1012,7 +1072,7 @@ fn test_reconnect_history_track() {
     let track_id = insert_track(&db, "music/creep.mp3", "Creep", Some(artist_id), None);
 
     db.record_history_play(track_id).unwrap();
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     let ht_id = recent[0].history_track_id;
 
     // Delete track — becomes ghost
@@ -1035,7 +1095,7 @@ fn test_reconnect_history_track_not_found() {
     let track_id = insert_track(&db, "music/gone.mp3", "Gone Song", Some(artist_id), None);
 
     db.record_history_play(track_id).unwrap();
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     let ht_id = recent[0].history_track_id;
 
     db.delete_tracks_by_ids(&[track_id]).unwrap();
@@ -1096,7 +1156,7 @@ fn test_history_dedup() {
     // Second call within 30 seconds should be deduplicated
     db.record_history_play(track_id).unwrap();
 
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].play_count, 1);
 }
@@ -1211,7 +1271,7 @@ fn test_history_unicode_canonical() {
     let t1 = insert_track(&db, "music/greek.mp3", "Τραγούδι", Some(a1), None);
     db.record_history_play(t1).unwrap();
 
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].display_artist.as_deref(), Some("Σωκράτης"));
     assert_eq!(recent[0].display_title, "Τραγούδι");
@@ -1221,7 +1281,7 @@ fn test_history_unicode_canonical() {
     let t2 = insert_track(&db, "music/russian.mp3", "Группа крови", Some(a2), None);
     db.record_history_play(t2).unwrap();
 
-    let recent = db.get_history_recent(10, true).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
     assert_eq!(recent.len(), 2);
     assert_eq!(recent[0].display_artist.as_deref(), Some("Кино"));
 }

@@ -1181,7 +1181,7 @@ mod tests {
         state.db.record_play(t1).unwrap(); // deduplicated (same track within 30s)
         state.db.record_play(t2).unwrap();
 
-        let recent = state.db.get_history_recent(10, true).unwrap();
+        let recent = state.db.get_history_recent(10).unwrap();
         assert_eq!(recent.len(), 2); // deduped: Song A once + Song B once
 
         let most = state.db.get_history_most_played(10).unwrap();

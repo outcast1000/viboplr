@@ -5,6 +5,8 @@ import type { ContextMenuTarget } from "../types/contextMenu";
 import { isLocalTrack } from "../queueEntry";
 import { formatRelativeTime } from "../utils";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { useImageCache } from "../hooks/useImageCache";
+import { pickEntityImagePath, resolveTrackImage } from "../utils/trackImage";
 import { TrackRow } from "./TrackRow";
 // Index-based multi-select over the currently-visible rows (string keys so
 // tracks and artists can share one ordered list). The prefixed keys are built
@@ -37,18 +39,20 @@ interface HistoryViewProps {
 
 
 // A history entry — track OR artist — rendered via the shared TrackRow. The row
-// is entity-agnostic (rank in the leading slot, artist-only art with a blank
-// placeholder, plays/relative-time in the subtitle); selection/keyboard/ghost
-// logic stays in the parent, which passes `selected`/`active` + bound actions.
+// is entity-agnostic (rank in the leading slot, art with a blank placeholder,
+// plays/relative-time in the subtitle); selection/keyboard/ghost logic stays in
+// the parent, which passes `selected`/`active` + bound actions. `imageUrl` is
+// already resolved by the caller — track rows run the shared album→artist chain,
+// artist rows a plain artist lookup.
 function HistoryRow({
-  selected, active, dataIndex, rank, imagePath, title, subtitle,
+  selected, active, dataIndex, rank, imageUrl, title, subtitle,
   onClick, onContextMenu, onDoubleClick, onPlay, onEnqueue, onStartRadio, onDetails,
 }: {
   selected: boolean;
   active?: boolean;
   dataIndex?: number;
   rank?: number;
-  imagePath: string | null | undefined;
+  imageUrl: string | null;
   title: string;
   subtitle: React.ReactNode;
   onClick: (e: React.MouseEvent) => void;
@@ -65,7 +69,7 @@ function HistoryRow({
       active={active}
       dataAttrs={dataIndex != null ? { "data-history-index": dataIndex } : undefined}
       leading={rank != null ? <span className="history-rank">{rank}</span> : undefined}
-      thumb={imagePath ? { kind: "image", url: resolveImageUrl(imagePath) ?? "" } : { kind: "blank" }}
+      thumb={imageUrl ? { kind: "image", url: imageUrl } : { kind: "blank" }}
       title={title}
       subtitle={subtitle}
       onClick={onClick}
@@ -99,20 +103,49 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   const [tracksByTimespan, setTracksByTimespan] = useState<Partial<Record<Timespan, HistoryMostPlayed[]>>>({});
   const [artistsByTimespan, setArtistsByTimespan] = useState<Partial<Record<Timespan, HistoryArtistStats[]>>>({});
 
-  // Local artist image cache keyed by display name
-  const [artistImages, setArtistImages] = useState<Record<string, string | null>>({});
-  const artistImageFetched = useRef(new Set<string>());
+  // Images go through the shared entity caches, the same chain the queue, home
+  // shelves and playlists use: a track row prefers its ALBUM cover and falls
+  // back to the artist, an artist row is artist-only. This view used to keep its
+  // own artist-only cache, which is why every tab showed an artist photo even
+  // for track rows (issue #133) — and it also never fetched a missing image or
+  // refreshed when one landed, both of which useImageCache does.
+  const albumImages = useImageCache("album");
+  const artistImages = useImageCache("artist");
 
-  const fetchArtistImage = useCallback((name: string) => {
-    if (artistImages[name] !== undefined) return;
-    if (artistImageFetched.current.has(name)) return;
-    artistImageFetched.current = new Set(artistImageFetched.current).add(name);
-    invoke<string | null>("get_entity_image", { kind: "artist", name }).then((path) => {
-      if (path) {
-        setArtistImages((prev) => ({ ...prev, [name]: path }));
-      }
-    });
-  }, [artistImages]);
+  // The album/artist pair a history track row keys its cover by. History stores
+  // no album, so display_album is resolved from the library by the backend, and
+  // display_album_artist is the album's OWN artist (compilations).
+  const trackImageMeta = useCallback((t: {
+    display_title: string;
+    display_artist: string | null;
+    display_album: string | null;
+    display_album_artist: string | null;
+  }) => ({
+    title: t.display_title,
+    artist_name: t.display_artist,
+    album_title: t.display_album,
+    album_artist_name: t.display_album_artist,
+  }), []);
+
+  const entityLookups = useMemo(() => ({
+    albumImageFor: albumImages.getImage,
+    artistImageFor: artistImages.getImage,
+  }), [albumImages, artistImages]);
+
+  // Render-ready URL for a track row (album cover → artist photo).
+  const trackImageUrl = useCallback((t: Parameters<typeof trackImageMeta>[0]): string | null =>
+    resolveTrackImage(trackImageMeta(t), entityLookups),
+  [trackImageMeta, entityLookups]);
+
+  // The RAW path the same chain picks, for a radio seed's cover (the queue
+  // banner converts it itself — see pickEntityImagePath's contract).
+  const trackCoverPath = useCallback((t: Parameters<typeof trackImageMeta>[0]): string | null =>
+    pickEntityImagePath(trackImageMeta(t), entityLookups),
+  [trackImageMeta, entityLookups]);
+
+  const artistImageUrl = useCallback((name: string): string | null =>
+    resolveImageUrl(artistImages.getImage(name)) ?? null,
+  [artistImages]);
 
   const fetchTracks = useCallback((ts: Timespan) => {
     const sinceTs = timespanSinceTs(ts);
@@ -135,9 +168,10 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
   }, []);
 
   const fetchRecent = useCallback(() => {
-    // resolveAlbums:false — the History view never renders the album, so skip the
-    // O(library) album resolution that otherwise froze this query on open.
-    invoke<HistoryEntry[]>("get_history_recent", { limit: 100, resolveAlbums: false })
+    // Albums come back resolved (one batched, indexed lookup in the backend) and
+    // are what the row thumbnails are keyed by — the view renders the cover, not
+    // the album name.
+    invoke<HistoryEntry[]>("get_history_recent", { limit: 100 })
       .then(setRecentPlays)
       .catch((e) => console.error("Failed to load recent history:", e));
   }, []);
@@ -191,17 +225,6 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
 
   const currentTracks = tracksByTimespan[tracksTimespan];
   const currentArtists = artistsByTimespan[artistsTimespan];
-
-  // Fetch artist images for all unique artist names visible
-  useEffect(() => {
-    const names = new Set<string>();
-    if (searchedArtists) for (const a of searchedArtists) names.add(a.display_name);
-    if (searchedTracks) for (const t of searchedTracks) if (t.display_artist) names.add(t.display_artist);
-    if (currentArtists) for (const a of currentArtists) names.add(a.display_name);
-    if (currentTracks) for (const t of currentTracks) if (t.display_artist) names.add(t.display_artist);
-    for (const t of recentPlays) if (t.display_artist) names.add(t.display_artist);
-    for (const name of names) fetchArtistImage(name);
-  }, [searchedArtists, searchedTracks, currentArtists, currentTracks, recentPlays, fetchArtistImage]);
 
   // Determine what is visible
   const visibleTracks: HistoryMostPlayed[] | null = (() => {
@@ -480,7 +503,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   key={`artist-${a.history_artist_id}`}
                   selected={selectedKeys.has(selKey)}
                   rank={a.rank}
-                  imagePath={artistImages[a.display_name]}
+                  imageUrl={artistImageUrl(a.display_name)}
                   title={a.display_name}
                   subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
                   onClick={(e) => handleRowClick(e, selKey)}
@@ -511,7 +534,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     active={idx === highlightedIndex}
                     dataIndex={idx}
                     rank={t.rank}
-                    imagePath={t.display_artist ? artistImages[t.display_artist] : null}
+                    imageUrl={trackImageUrl(t)}
                     title={t.display_title}
                     subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
@@ -519,7 +542,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     onDoubleClick={() => playTrackById(t.history_track_id)}
                     onPlay={() => playTrackById(t.history_track_id)}
                     onEnqueue={() => enqueueTrackById(t.history_track_id)}
-                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: t.display_artist ? artistImages[t.display_artist] ?? null : null }) : undefined}
+                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: trackCoverPath(t) }) : undefined}
                     onDetails={() => detailsTrackById(t.history_track_id)}
                   />
                 );
@@ -541,7 +564,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     selected={selectedKeys.has(selKey)}
                     active={idx === highlightedIndex}
                     dataIndex={idx}
-                    imagePath={entry.display_artist ? artistImages[entry.display_artist] : null}
+                    imageUrl={trackImageUrl(entry)}
                     title={entry.display_title}
                     subtitle={<>{entry.display_artist ?? "Unknown"} &middot; {formatRelativeTime(entry.played_at)}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
@@ -549,7 +572,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     onDoubleClick={() => playTrackById(entry.history_track_id)}
                     onPlay={() => playTrackById(entry.history_track_id)}
                     onEnqueue={() => enqueueTrackById(entry.history_track_id)}
-                    onStartRadio={onStartRadio ? () => onStartRadio({ title: entry.display_title, artistName: entry.display_artist ?? null, coverPath: entry.display_artist ? artistImages[entry.display_artist] ?? null : null }) : undefined}
+                    onStartRadio={onStartRadio ? () => onStartRadio({ title: entry.display_title, artistName: entry.display_artist ?? null, coverPath: trackCoverPath(entry) }) : undefined}
                     onDetails={() => detailsTrackById(entry.history_track_id)}
                   />
                 );
@@ -575,7 +598,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     active={idx === highlightedIndex}
                     dataIndex={idx}
                     rank={t.rank}
-                    imagePath={t.display_artist ? artistImages[t.display_artist] : null}
+                    imageUrl={trackImageUrl(t)}
                     title={t.display_title}
                     subtitle={<>{t.display_artist ?? "Unknown"} &middot; {t.play_count} play{t.play_count !== 1 ? "s" : ""}</>}
                     onClick={(e) => handleRowClick(e, selKey)}
@@ -583,7 +606,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                     onDoubleClick={() => playTrackById(t.history_track_id)}
                     onPlay={() => playTrackById(t.history_track_id)}
                     onEnqueue={() => enqueueTrackById(t.history_track_id)}
-                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: t.display_artist ? artistImages[t.display_artist] ?? null : null }) : undefined}
+                    onStartRadio={onStartRadio ? () => onStartRadio({ title: t.display_title, artistName: t.display_artist ?? null, coverPath: trackCoverPath(t) }) : undefined}
                     onDetails={() => detailsTrackById(t.history_track_id)}
                   />
                 );
@@ -606,7 +629,7 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
                   key={`artists-${artistsTimespan}-${a.history_artist_id}`}
                   selected={selectedKeys.has(selKey)}
                   rank={a.rank}
-                  imagePath={artistImages[a.display_name]}
+                  imageUrl={artistImageUrl(a.display_name)}
                   title={a.display_name}
                   subtitle={<>{a.play_count} play{a.play_count !== 1 ? "s" : ""} &middot; {a.track_count} track{a.track_count !== 1 ? "s" : ""}</>}
                   onClick={(e) => handleRowClick(e, selKey)}
