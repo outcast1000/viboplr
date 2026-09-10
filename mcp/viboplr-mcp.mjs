@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const BUNDLE_ID = "com.alex.viboplr";
 const LATEST_PROTOCOL = "2025-06-18";
 const KNOWN_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
@@ -757,11 +757,11 @@ export const TOOLS = [
     name: "manage_extensions",
     tier: "full",
     description:
-      "List installed plugins/skins + pending updates, enable/disable a plugin, start a background update check (poll list after ~15s), or apply a skin by id or name. Installing/deleting extensions is a permanent non-goal of the API — never suggest working around it.",
+      "List installed plugins/skins with per-plugin capability summaries + pending updates; get one plugin's full detail (declared contributions vs what's live now, API usage, binary dependencies); browse the extension gallery (read-only discovery, entries marked installed); enable/disable a plugin; start a background update check (poll list after ~15s); or apply a skin by id or name. Installing/deleting extensions is a permanent non-goal of the API — recommend from the gallery and let the user install in the app's Extensions view; never suggest working around it.",
     inputSchema: obj(
       {
-        action: en(["list", "set_enabled", "check_updates", "apply_skin"], "What to do"),
-        id: str("Plugin id (set_enabled) or skin id (apply_skin)"),
+        action: en(["list", "get", "gallery", "set_enabled", "check_updates", "apply_skin"], "What to do"),
+        id: str("Plugin id (get, set_enabled) or skin id (apply_skin)"),
         enabled: bool("set_enabled: the new state"),
         name: str("Skin name, case-insensitive (apply_skin alternative to id)"),
       },
@@ -771,6 +771,12 @@ export const TOOLS = [
       switch (action) {
         case "list":
           return apiRequest("GET", "/v1/extensions");
+        case "get":
+          need({ id }, ["id"], "action=get");
+          return apiRequest("GET", `/v1/extensions/${id}`);
+        case "gallery":
+          // Cold cache = one network fetch per gallery; TTL-cached after.
+          return apiRequest("GET", "/v1/extensions/gallery", undefined, { timeoutMs: SLOW_MS });
         case "set_enabled":
           need({ id, enabled }, ["id", "enabled"], "action=set_enabled");
           return apiRequest("POST", `/v1/extensions/${id}/enabled`, { enabled });

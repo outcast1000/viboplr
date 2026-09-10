@@ -152,11 +152,13 @@ External results have no library ids — they are addressed only via `searchId` 
 
 Consent rule for logs: show the user before posting log contents anywhere public (an issue, a gist) — same model as the app's own "Report a problem".
 
-**Extensions + skins** (list, toggle, update-check, apply skin — never install/delete)
+**Extensions + skins** (list, capabilities, gallery, toggle, update-check, apply skin — never install/delete)
 
 | Endpoint | Body |
 |---|---|
-| `GET /extensions` | → `{plugins: [{id, name, version, enabled, status, builtin}], skins: [{id, name, type, active}], updates: [..], checking, updatesCheckedAt}` — `updates` reflects the last check |
+| `GET /extensions` | → `{plugins: [{id, name, version, enabled, status, builtin, capabilities}], skins: [{id, name, type, active}], updates: [..], checking, updatesCheckedAt}` — `capabilities` is a compact per-plugin summary (zeros omitted): `searchProviders`/`homeShelves`/`contextMenuItems` count what is registered and user-visible *right now*, the rest count the manifest declaration. Use it to find which plugin can search a catalog, resolve a scheme, or download |
+| `GET /extensions/{id}` | one plugin in full: `apiUsage` (declared API needs + reasons), `binaryDependencies` (with live installed/version from the host's cached probe), `contributes` (everything the manifest declares), `live` (what is registered and user-visible now — a declared capability missing here means disabled plugin, missing binary, or hidden by the user), and `update` (from the last check) |
+| `GET /extensions/gallery` | the curated plugin + skin galleries, entries annotated with `installed`/`installedVersion`/`enabled` (plugins) or `installed`/`active` (skins). **Read-only discovery** — use it to *recommend*; the user installs from the app's Extensions view. Cold cache costs a network fetch (use a 90s timeout); TTL-cached after |
 | `POST /extensions/{id}/enabled` | `{enabled: bool}` — enable/disable an installed plugin (reloads the plugin runtime; takes a moment) |
 | `POST /extensions/check-updates` | — starts a check in the background → `{started: true}`; poll `GET /extensions` after ~15s for results |
 | `POST /skins/apply` | `{id}` or `{name}` (case-insensitive) — switch the app's skin |
@@ -236,6 +238,11 @@ Consent rule for logs: show the user before posting log contents anywhere public
 **Shuffle and play a saved playlist**
 1. `GET /playlists` → pick the id
 2. `POST /playlists/{id}/play` then `POST /queue/randomize`
+
+**"Which of my plugins can do X?" / recommend one that can**
+1. `GET /extensions` → scan each plugin's `capabilities` (e.g. `searchProviders` + `downloadProviders` = can find *and* fetch music)
+2. Details on a candidate: `GET /extensions/{id}` — `live` says what works right now, `binaryDependencies` whether a required tool (e.g. yt-dlp) is actually installed
+3. Nothing installed fits? `GET /extensions/gallery` → recommend an entry by name and point the user at the app's Extensions view to install it. Never suggest a way to install it from here — that's a permanent non-goal.
 
 ## 5. Install (for the user)
 

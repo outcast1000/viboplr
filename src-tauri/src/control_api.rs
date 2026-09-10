@@ -372,7 +372,10 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         // Extensions & skins: list / enable-disable / update check / apply skin.
         // Install and delete are deliberate NON-goals — see the module doc.
         .route("/v1/extensions", get(|s| handle_bridge_get(s, "extensions.list")))
+        // Static before param: matchit gives "gallery" priority over "{id}".
+        .route("/v1/extensions/gallery", get(|s| handle_bridge_get_slow(s, "extensions.gallery")))
         .route("/v1/extensions/check-updates", post(|s, b| handle_bridge_body(s, "extensions.checkUpdates", json!({}), b)))
+        .route("/v1/extensions/{id}", get(|s, p| handle_extension_get(s, p, "extensions.get")))
         .route("/v1/extensions/{id}/enabled", post(|s, p, b| handle_extension_bridge(s, p, "extensions.setEnabled", b)))
         .route("/v1/skins/apply", post(|s, b| handle_bridge_body(s, "skins.apply", json!({}), b)))
         .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
@@ -715,6 +718,13 @@ async fn handle_bridge_get(state: AxumState<ServerState>, verb: &'static str) ->
     bridge(&state.0, verb, json!({}), timeout).await
 }
 
+/// GET bridge with the long wait — for verbs whose cold path is a network
+/// fetch (the extension galleries; TTL-cached, so usually instant).
+async fn handle_bridge_get_slow(state: AxumState<ServerState>, verb: &'static str) -> Response {
+    let timeout = state.0.bridge_timeout.saturating_mul(7);
+    bridge(&state.0, verb, json!({}), timeout).await
+}
+
 async fn handle_bridge_body(
     state: AxumState<ServerState>,
     verb: &'static str,
@@ -910,6 +920,20 @@ async fn handle_track_bridge(
 
 /// Plugin ids are directory names (strings); the dispatcher validates against
 /// the installed set, this only bounds the obvious junk.
+/// GET counterpart of `handle_extension_bridge` — the path parameter is the
+/// whole payload (`{pluginId}`), no body to parse.
+async fn handle_extension_get(
+    state: AxumState<ServerState>,
+    path: AxumPath<String>,
+    verb: &'static str,
+) -> Response {
+    if path.0.is_empty() || path.0.len() > 200 {
+        return error_response(StatusCode::BAD_REQUEST, "invalid extension id");
+    }
+    let timeout = state.0.bridge_timeout;
+    bridge(&state.0, verb, json!({ "pluginId": path.0 }), timeout).await
+}
+
 async fn handle_extension_bridge(
     state: AxumState<ServerState>,
     path: AxumPath<String>,

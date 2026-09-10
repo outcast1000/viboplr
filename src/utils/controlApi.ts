@@ -9,8 +9,12 @@
 
 import type { QueueTrack, QueueMode } from "../types";
 import type { Track } from "../types";
-import type { HomeShelfDisplayKind, HomeShelfItem } from "../types/plugin";
+import type {
+  GalleryPluginEntry, HomeShelfDisplayKind, HomeShelfItem, PluginManifestContributes, PluginState,
+} from "../types/plugin";
+import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import { resolveShelfPlayAction } from "./homeShelfPlay";
+import { stabilityTier } from "./pluginStability";
 
 /** Payload of the `control-api-request` Tauri event. */
 export interface ControlApiRequest {
@@ -259,6 +263,115 @@ export function resolveSkin<T extends { id: string; name: string }>(
   if (byId) return byId;
   const n = idOrName.toLowerCase();
   return installed.find((s) => s.name.toLowerCase() === n) ?? null;
+}
+
+// --- Extension capabilities + gallery ---------------------------------------
+
+/** Live (runtime-merged, user-visibility-filtered) counts for the contribution
+ *  kinds that can be registered at runtime — what the plugin can actually do
+ *  through this API *right now*, which may differ from the manifest in both
+ *  directions (yt-dlp registers its search provider only when its binary is
+ *  present; a user can hide an item in Extensions → Contributions). */
+export interface LiveCapabilityCounts {
+  searchProviders: number;
+  homeShelves: number;
+  contextMenuItems: number;
+}
+
+/** Compact per-plugin capability summary for `extensions.list`. Runtime-capable
+ *  kinds report the live count; manifest-only kinds report the declaration.
+ *  Zero-valued keys are omitted so an agent scans flags, not a matrix. */
+export function summarizeCapabilities(
+  contributes: PluginManifestContributes | undefined,
+  live: LiveCapabilityCounts,
+): Record<string, number | boolean> {
+  const out: Record<string, number | boolean> = {};
+  const set = (key: string, count: number | undefined) => {
+    if (count && count > 0) out[key] = count;
+  };
+  set("searchProviders", live.searchProviders);
+  set("homeShelves", live.homeShelves);
+  set("contextMenuItems", live.contextMenuItems);
+  set("downloadProviders", contributes?.downloadProviders?.length);
+  set("streamResolvers", contributes?.streamResolvers?.length);
+  set("informationTypes", contributes?.informationTypes?.length);
+  set("imageProviders", contributes?.imageProviders?.length);
+  set("sidebarViews", contributes?.sidebarItems?.length);
+  set("visualizers", contributes?.visualizers?.length);
+  set("eventHooks", contributes?.eventHooks?.length);
+  if (contributes?.settingsPanel) out.settingsPanel = true;
+  return out;
+}
+
+/** The manifest's `contributes` block reshaped for `extensions.get`: stable,
+ *  agent-relevant fields only (ids, names, targets, entities) — no icons,
+ *  orders or display detail. These are *declarations*; the `live` block on the
+ *  same response says what is registered and user-visible right now. */
+export function describeContributes(contributes: PluginManifestContributes | undefined) {
+  const c = contributes;
+  return {
+    searchProviders: (c?.searchProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
+    downloadProviders: (c?.downloadProviders ?? []).map((p) => ({ id: p.id, name: p.name })),
+    streamResolvers: (c?.streamResolvers ?? []).map((r) => ({ id: r.id, name: r.name })),
+    informationTypes: (c?.informationTypes ?? []).map((t) => ({
+      id: t.id, name: t.name, entity: t.entity, displayKind: t.displayKind,
+    })),
+    imageProviders: (c?.imageProviders ?? []).map((p) => ({ entity: p.entity })),
+    homeShelves: (c?.homeShelves ?? []).map((s) => ({ id: s.id, title: s.title, displayKind: s.displayKind })),
+    contextMenuItems: (c?.contextMenuItems ?? []).map((m) => ({ id: m.id, label: m.label, targets: m.targets })),
+    sidebarViews: (c?.sidebarItems ?? []).map((s) => ({ id: s.id, label: s.label })),
+    visualizers: (c?.visualizers ?? []).map((v) => ({ id: v.id, name: v.name })),
+    eventHooks: c?.eventHooks ?? [],
+    settingsPanel: c?.settingsPanel ? { id: c.settingsPanel.id, label: c.settingsPanel.label } : null,
+  };
+}
+
+/** Gallery plugin entries annotated against the installed set. Read-only
+ *  discovery: install/delete stays a permanent non-goal of the API, so this
+ *  exists for *recommendations* — the user installs from the Extensions view. */
+export function annotateGalleryPlugins(
+  entries: GalleryPluginEntry[],
+  pluginStates: Array<Pick<PluginState, "id" | "enabled"> & { manifest?: { version?: string } }>,
+) {
+  const installed = new Map(pluginStates.map((p) => [p.id, p]));
+  return entries.map((e) => {
+    const inst = installed.get(e.id);
+    return {
+      id: e.id,
+      name: e.name,
+      author: e.author,
+      description: e.description,
+      version: e.version ?? null,
+      minAppVersion: e.minAppVersion ?? null,
+      recommended: e.recommended === true,
+      stability: stabilityTier(e.stability),
+      installed: inst !== undefined,
+      installedVersion: inst?.manifest?.version ?? null,
+      enabled: inst?.enabled ?? null,
+    };
+  });
+}
+
+export function annotateGallerySkins(
+  entries: GallerySkinEntry[],
+  installedSkins: Array<Pick<SkinInfo, "id" | "name">>,
+  activeSkinId: string,
+) {
+  const byId = new Set(installedSkins.map((s) => s.id));
+  const byName = new Set(installedSkins.map((s) => s.name.toLowerCase()));
+  return entries.map((e) => {
+    const installed = byId.has(e.id) || byName.has(e.name.toLowerCase());
+    return {
+      id: e.id,
+      name: e.name,
+      author: e.author,
+      type: e.type,
+      version: e.version,
+      recommended: e.recommended === true,
+      installed,
+      active: installed && e.id === activeSkinId,
+    };
+  });
 }
 
 export type LikeState = -1 | 0 | 1;

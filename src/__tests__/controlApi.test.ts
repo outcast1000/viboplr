@@ -20,8 +20,13 @@ import {
   selectSearchTracks,
   resolveHomeShelf,
   serializeShelfItem,
+  summarizeCapabilities,
+  describeContributes,
+  annotateGalleryPlugins,
+  annotateGallerySkins,
 } from "../utils/controlApi";
 import type { QueueTrack, Track } from "../types";
+import type { PluginManifestContributes } from "../types/plugin";
 
 function qt(overrides: Partial<QueueTrack> = {}): QueueTrack {
   return {
@@ -303,5 +308,93 @@ describe("parsePlaybackSet", () => {
     expect(parsePlaybackSet({ mode: "normal" })).toEqual({ mode: "normal" });
     expect(typeof parsePlaybackSet({ mode: "shuffle" })).toBe("string");
     expect(typeof parsePlaybackSet({ mode: 1 })).toBe("string");
+  });
+});
+
+// --- Extension capabilities + gallery ---------------------------------------
+
+const YTDLP_CONTRIBUTES: PluginManifestContributes = {
+  sidebarItems: [{ id: "ytdlp-view", label: "yt-dlp", icon: "video" }],
+  contextMenuItems: [{ id: "watch-youtube", label: "Watch YouTube video", targets: ["track"] }],
+  streamResolvers: [{ id: "ytdlp-resolver", name: "yt-dlp" }],
+  downloadProviders: [{ id: "ytdlp-download", name: "yt-dlp" }],
+  settingsPanel: { id: "ytdlp-settings", label: "yt-dlp" },
+};
+
+describe("summarizeCapabilities", () => {
+  it("counts runtime-capable kinds from the live lists, manifest-only kinds from the declaration", () => {
+    // yt-dlp declares no searchProviders in its manifest (its provider is
+    // runtime-registered, gated on the binary) — the live count must win.
+    const out = summarizeCapabilities(YTDLP_CONTRIBUTES, {
+      searchProviders: 1, homeShelves: 0, contextMenuItems: 1,
+    });
+    expect(out).toEqual({
+      searchProviders: 1,
+      contextMenuItems: 1,
+      downloadProviders: 1,
+      streamResolvers: 1,
+      sidebarViews: 1,
+      settingsPanel: true,
+    });
+  });
+
+  it("omits zero-valued keys entirely and tolerates a missing contributes block", () => {
+    expect(summarizeCapabilities(undefined, { searchProviders: 0, homeShelves: 0, contextMenuItems: 0 }))
+      .toEqual({});
+    expect(summarizeCapabilities({}, { searchProviders: 0, homeShelves: 2, contextMenuItems: 0 }))
+      .toEqual({ homeShelves: 2 });
+  });
+});
+
+describe("describeContributes", () => {
+  it("reshapes declarations to agent-relevant fields and always emits every key", () => {
+    const out = describeContributes(YTDLP_CONTRIBUTES);
+    expect(out.contextMenuItems).toEqual([{ id: "watch-youtube", label: "Watch YouTube video", targets: ["track"] }]);
+    expect(out.downloadProviders).toEqual([{ id: "ytdlp-download", name: "yt-dlp" }]);
+    expect(out.settingsPanel).toEqual({ id: "ytdlp-settings", label: "yt-dlp" });
+    // Undeclared kinds are empty lists, not missing keys — an agent reads a
+    // stable shape.
+    expect(out.searchProviders).toEqual([]);
+    expect(out.homeShelves).toEqual([]);
+    expect(describeContributes(undefined).eventHooks).toEqual([]);
+  });
+});
+
+describe("annotateGalleryPlugins", () => {
+  const entries = [
+    { id: "ytdlp", name: "yt-dlp", author: "Viboplr", description: "1000+ sites", recommended: true },
+    { id: "qbittorrent", name: "qBittorrent", author: "Viboplr", description: "Torrents", stability: "experimental" },
+  ];
+
+  it("marks installed entries with their installed version and enabled state", () => {
+    const out = annotateGalleryPlugins(entries, [
+      { id: "ytdlp", enabled: true, manifest: { version: "1.7.0" } },
+    ]);
+    expect(out[0]).toMatchObject({ id: "ytdlp", installed: true, installedVersion: "1.7.0", enabled: true, recommended: true });
+    expect(out[1]).toMatchObject({ id: "qbittorrent", installed: false, installedVersion: null, enabled: null });
+  });
+
+  it("normalizes stability through the shared classifier (unrecognized = experimental)", () => {
+    const out = annotateGalleryPlugins(
+      [{ id: "a", name: "A", author: "x", description: "" },
+       { id: "b", name: "B", author: "x", description: "", stability: "weird" }],
+      [],
+    );
+    expect(out[0].stability).toBe("stable");
+    expect(out[1].stability).toBe("experimental");
+  });
+});
+
+describe("annotateGallerySkins", () => {
+  it("marks installed skins by id or case-insensitive name, and the active one", () => {
+    const entries = [
+      { id: "midnight", name: "Midnight", author: "x", type: "dark" as const, version: "1.0", file: "m.json", colors: ["#000", "#111", "#222", "#333"] as [string, string, string, string] },
+      { id: "paper", name: "Paper", author: "x", type: "light" as const, version: "1.0", file: "p.json", colors: ["#fff", "#eee", "#ddd", "#ccc"] as [string, string, string, string] },
+    ];
+    const out = annotateGallerySkins(entries, [{ id: "midnight", name: "Midnight" }], "midnight");
+    expect(out[0]).toMatchObject({ id: "midnight", installed: true, active: true });
+    expect(out[1]).toMatchObject({ id: "paper", installed: false, active: false });
+    // The raw gallery fields an agent can't use (file, colors) are dropped.
+    expect(out[0]).not.toHaveProperty("file");
   });
 });

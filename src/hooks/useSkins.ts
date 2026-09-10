@@ -133,7 +133,9 @@ export function useSkins() {
     }
   }, [activeSkinId, applySkin, refreshUserSkins]);
 
-  const fetchGallery = useCallback(async (force = false) => {
+  // Returns the entries so a non-React caller (the control API dispatcher)
+  // can use the result directly instead of racing the state update.
+  const fetchGallery = useCallback(async (force = false): Promise<GallerySkinEntry[]> => {
     // Within the TTL, keep the loaded index instead of re-hitting the network so
     // reopening the Skins tab is instant.
     if (
@@ -141,7 +143,7 @@ export function useSkins() {
       gallerySkinsRef.current.length > 0 &&
       Date.now() - lastGalleryFetchRef.current < GALLERY_TTL_MS
     ) {
-      return;
+      return gallerySkinsRef.current;
     }
     setGalleryLoading(true);
     setGalleryError(null);
@@ -154,8 +156,10 @@ export function useSkins() {
       store.set(GALLERY_CACHE_KEY, entries).catch((e) =>
         console.error("Failed to cache skin gallery:", e),
       );
+      return entries;
     } catch (e) {
       setGalleryError(String(e));
+      return gallerySkinsRef.current;
     } finally {
       setGalleryLoading(false);
     }

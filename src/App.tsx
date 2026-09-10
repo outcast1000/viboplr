@@ -3621,8 +3621,14 @@ function App() {
       menuItems: plugins.menuItems,
       dispatchContextMenuAction: plugins.dispatchContextMenuAction,
       forwardDeepLink: plugins.forwardDeepLink,
+      fetchPluginGallery: plugins.fetchPluginGallery,
     },
-    skins: { installedSkins: skins.installedSkins, activeSkinId: skins.activeSkinId, applySkin: skins.applySkin },
+    skins: {
+      installedSkins: skins.installedSkins,
+      activeSkinId: skins.activeSkinId,
+      applySkin: skins.applySkin,
+      fetchGallery: skins.fetchGallery,
+    },
     extensions: {
       updates: extensionsHook.updates,
       checking: extensionsHook.checking,

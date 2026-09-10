@@ -68,6 +68,18 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       });
       return;
     }
+    if (req.url === "/v1/extensions/gallery" && req.method === "GET")
+      return reply(200, {
+        plugins: [{ id: "ytdlp", name: "yt-dlp", installed: true }, { id: "qbittorrent", installed: false }],
+        skins: [],
+        note: "read-only",
+      });
+    if (req.url === "/v1/extensions/ytdlp" && req.method === "GET")
+      return reply(200, {
+        id: "ytdlp",
+        contributes: { downloadProviders: [{ id: "ytdlp-download", name: "yt-dlp" }] },
+        live: { searchProviders: [{ key: "ytdlp:youtube", name: "YouTube" }] },
+      });
     return reply(404, { error: `no fake route for ${req.url}` });
   });
   return new Promise((resolve) => {
@@ -411,6 +423,30 @@ describe("MCP server at --tier=full", () => {
 
     const res = await rpc.request("tools/call", { name: "app_version", arguments: {} });
     expect(JSON.parse(toolText(res.result)).mcp.tier).toBe("full");
+  });
+
+  it("routes manage_extensions get and gallery to their read-only endpoints", async () => {
+    const detail = await rpc.request("tools/call", {
+      name: "manage_extensions",
+      arguments: { action: "get", id: "ytdlp" },
+    });
+    expect(JSON.parse(toolText(detail.result)).live.searchProviders[0].key).toBe("ytdlp:youtube");
+    expect(api.seen.some((r) => r.method === "GET" && r.url === "/v1/extensions/ytdlp")).toBe(true);
+
+    const gallery = await rpc.request("tools/call", {
+      name: "manage_extensions",
+      arguments: { action: "gallery" },
+    });
+    const parsed = JSON.parse(toolText(gallery.result));
+    expect(parsed.plugins.map((p: { id: string }) => p.id)).toEqual(["ytdlp", "qbittorrent"]);
+    expect(api.seen.some((r) => r.method === "GET" && r.url === "/v1/extensions/gallery")).toBe(true);
+
+    // `get` without an id is a caller error, not a request.
+    const missing = await rpc.request("tools/call", {
+      name: "manage_extensions",
+      arguments: { action: "get" },
+    });
+    expect((missing.result as { isError?: boolean }).isError).toBe(true);
   });
 });
 

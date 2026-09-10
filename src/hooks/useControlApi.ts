@@ -27,9 +27,9 @@ import type { PlaylistContext } from "./useQueue";
 import type {
   PluginState, ExtensionUpdate, PluginSearchProvider, PluginSearchResult,
   PluginMenuItem, PluginContextMenuTarget, PluginTargetKind, PluginTrack,
-  HomeShelfDisplayKind, HomeShelfItem, HomeShelfResult,
+  HomeShelfDisplayKind, HomeShelfItem, HomeShelfResult, GalleryPluginEntry,
 } from "../types/plugin";
-import type { SkinInfo } from "../types/skin";
+import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import type { InfoEntity } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
 import { cacheTtlForRow, decideCacheAction, fetchInfoThroughChain, type InvokeInfoFetch } from "../utils/infoFetchChain";
@@ -41,11 +41,16 @@ import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, 
 import { fetchLikeStates, applyLikeStates } from "../utils/likeReconcile";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
 import { errorText } from "../utils/errorKind";
+import { stabilityTier } from "../utils/pluginStability";
 import {
   parseControlRequest,
   parsePlaybackSet,
   parseLikeState,
   resolveSkin,
+  summarizeCapabilities,
+  describeContributes,
+  annotateGalleryPlugins,
+  annotateGallerySkins,
   resolveSearchProvider,
   selectSearchTracks,
   resolveHomeShelf,
@@ -127,11 +132,16 @@ export interface ControlApiDeps {
     menuItems: PluginMenuItem[];
     dispatchContextMenuAction: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
     forwardDeepLink: (url: string) => void;
+    /** usePlugins.fetchPluginGallery — TTL-cached gallery index (read-only
+     *  discovery; install stays a permanent non-goal, see extensions.list). */
+    fetchPluginGallery: (force?: boolean) => Promise<GalleryPluginEntry[]>;
   };
   skins: {
     installedSkins: SkinInfo[];
     activeSkinId: string;
     applySkin: (id: string) => void;
+    /** useSkins.fetchGallery — same TTL-cached contract as the plugin gallery. */
+    fetchGallery: (force?: boolean) => Promise<GallerySkinEntry[]>;
   };
   extensions: {
     updates: ExtensionUpdate[];
@@ -887,6 +897,14 @@ export function useControlApi(deps: ControlApiDeps) {
             status: p.status,
             builtin: p.builtin === true,
             dev: p.dev === true,
+            // Runtime-capable kinds count what is registered and user-visible
+            // right now; manifest-only kinds count the declaration. Zeros are
+            // omitted. Full detail (and declared-vs-live): extensions.get.
+            capabilities: summarizeCapabilities(p.manifest?.contributes, {
+              searchProviders: d.plugins.searchProviders.filter((sp) => sp.pluginId === p.id).length,
+              homeShelves: d.plugins.homeShelves.filter((s) => s.pluginId === p.id).length,
+              contextMenuItems: d.plugins.menuItems.filter((m) => m.pluginId === p.id).length,
+            }),
           })),
           skins: d.skins.installedSkins.map((s) => ({
             id: s.id,
@@ -928,6 +946,93 @@ export function useControlApi(deps: ControlApiDeps) {
         void Promise.resolve(d.extensions.checkForUpdates({ silent: true }))
           .catch((e) => console.error("Control API: extension update check failed:", e));
         return { started: true };
+      }
+
+      case "extensions.get": {
+        const pluginId = optionalString(payload.pluginId) ?? bad("pluginId is required");
+        const plugin = d.plugins.pluginStates.find((p) => p.id === pluginId)
+          ?? bad(`plugin "${pluginId}" is not installed (installed: ${d.plugins.pluginStates.map((p) => p.id).join(", ")})`);
+        const m = plugin.manifest;
+        // Live probe of the declared binaries — cache-only (forceRefresh:
+        // false never hits the network), same contract as api.system.getDependency.
+        const declaredDeps = m?.binaryDependencies ?? [];
+        let probed: Array<{ name: string; status: string; version?: string; origin?: string; latestVersion?: string | null }> = [];
+        if (declaredDeps.length > 0) {
+          try {
+            probed = await invoke("check_dependencies", {
+              names: declaredDeps.map((b) => b.name), pluginDeps: null, forceRefresh: false,
+            });
+          } catch (e) {
+            console.error("Control API: dependency probe failed:", e);
+          }
+        }
+        const probeByName = new Map(probed.map((p) => [p.name, p]));
+        const update = d.extensions.updates.find((u) => u.id === pluginId && u.kind === "plugin") ?? null;
+        return {
+          id: plugin.id,
+          name: m?.name ?? plugin.id,
+          version: m?.version ?? null,
+          author: m?.author ?? null,
+          description: m?.description ?? null,
+          homepage: m?.homepage ?? null,
+          minAppVersion: m?.minAppVersion ?? null,
+          stability: stabilityTier(m?.stability),
+          enabled: plugin.enabled,
+          status: plugin.status,
+          error: plugin.error ?? null,
+          builtin: plugin.builtin === true,
+          dev: plugin.dev === true,
+          // The manifest's self-declared API usage — declarative only (shown to
+          // the user in Extensions), but the honest answer to "why does this
+          // plugin need network/exec".
+          apiUsage: m?.apiUsage ?? [],
+          binaryDependencies: declaredDeps.map((b) => {
+            const probe = probeByName.get(b.name);
+            return {
+              name: b.name,
+              required: b.required,
+              reason: b.reason,
+              installed: probe ? probe.status === "installed" : null,
+              version: probe?.version ?? null,
+            };
+          }),
+          // What the manifest declares. Runtime-registered capabilities (a
+          // conditional search provider, dynamic shelves/menu items) appear
+          // only under `live`; a declared capability missing from `live` is
+          // not registered right now (plugin disabled, binary missing, or
+          // hidden by the user in Extensions → Contributions).
+          contributes: describeContributes(m?.contributes),
+          live: {
+            searchProviders: d.plugins.searchProviders
+              .filter((sp) => sp.pluginId === pluginId)
+              .map((sp) => ({ key: `${sp.pluginId}:${sp.providerId}`, name: sp.name })),
+            homeShelves: d.plugins.homeShelves
+              .filter((s) => s.pluginId === pluginId)
+              .map((s) => ({ key: `${s.pluginId}:${s.shelfId}`, title: s.title, displayKind: s.displayKind })),
+            contextMenuItems: d.plugins.menuItems
+              .filter((mi) => mi.pluginId === pluginId)
+              .map((mi) => ({ id: mi.id, label: mi.label, targets: mi.targets })),
+          },
+          update: update
+            ? { currentVersion: update.currentVersion, latestVersion: update.latestVersion, status: update.status }
+            : null,
+        };
+      }
+
+      case "extensions.gallery": {
+        // Read-only discovery of the curated galleries (TTL-cached; a cold
+        // cache costs one network fetch each). Install/delete stays a
+        // permanent non-goal — an agent uses this to *recommend*; the user
+        // installs from the Extensions view.
+        const [galleryPlugins, gallerySkins] = await Promise.all([
+          d.plugins.fetchPluginGallery(),
+          d.skins.fetchGallery(),
+        ]);
+        return {
+          plugins: annotateGalleryPlugins(galleryPlugins, d.plugins.pluginStates),
+          skins: annotateGallerySkins(gallerySkins, d.skins.installedSkins, d.skins.activeSkinId),
+          note: "Read-only discovery. This API cannot install or delete extensions — recommend, and let the user install from the app's Extensions view.",
+        };
       }
 
       case "skins.apply": {
