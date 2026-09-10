@@ -168,7 +168,7 @@ export function cycleRestingSize(current: MiniRestingSize): MiniRestingSize {
 export const MINI_RESTING_SIZES = ["normal", "compact", "full"] as const;
 
 export const MINI_RESTING_SIZE_LABELS: Record<MiniRestingSize, string> = {
-  normal: "Normal",
+  normal: "Default",
   compact: "Compact",
   full: "Full",
 };

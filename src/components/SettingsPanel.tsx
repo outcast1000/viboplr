@@ -1795,7 +1795,7 @@ export function SettingsPanel({
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Mini player layout</span>
-                        <span className="settings-description">How much of the mini player stays visible at rest. Normal and Compact reveal the rest on hover; Full keeps every control on screen.</span>
+                        <span className="settings-description">How much of the mini player stays visible at rest. Default and Compact reveal the rest on hover; Full keeps every control on screen.</span>
                       </div>
                       <select
                         className="ds-select"
