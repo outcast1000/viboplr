@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback, type ReactNode } from "react";
+import { Fragment, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -17,6 +17,12 @@ import {
   type MiniRestingSize, type MiniWidthSize,
 } from "../hooks/useMiniMode";
 import { ARTWORK_VISUALIZER_NAME } from "../utils/visualizerSlots";
+import {
+  type McpSetupInfo,
+  buildMcpConfigSnippet,
+  buildMcpCliCommand,
+  mcpSetupProblem,
+} from "../utils/mcpConfig";
 import {
   CORE_FOLDER_PROVIDER,
   imageProviderName,
@@ -660,6 +666,11 @@ function ControlApiSection({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [mcp, setMcp] = useState<McpSetupInfo | null>(null);
+  // A ref, not state: nothing renders off "have we probed yet", and flipping
+  // state synchronously in the effect below would be a cascading-render hit
+  // (react-hooks/set-state-in-effect). A write inside an effect is fine.
+  const mcpProbedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -673,6 +684,18 @@ function ControlApiSection({
       .then(setStatus)
       .catch((e) => console.error("Failed to read control API status:", e));
   }, []);
+
+  // Probed lazily, and only once: it walks the filesystem and runs
+  // `node --version` per candidate, so it waits until the user has actually
+  // switched the server on rather than paying for it on every Settings open.
+  const serverRunning = enabled && status?.running === true;
+  useEffect(() => {
+    if (!serverRunning || mcpProbedRef.current) return;
+    mcpProbedRef.current = true;
+    invoke<McpSetupInfo>("mcp_setup_info")
+      .then(setMcp)
+      .catch((e) => console.error("Failed to inspect the MCP setup:", e));
+  }, [serverRunning]);
 
   async function handleToggle(on: boolean) {
     if (busy) return;
@@ -701,6 +724,12 @@ function ControlApiSection({
     setBusy(false);
   }
 
+  function revealScript(path: string) {
+    invoke("show_in_folder_path", { filePath: path }).catch((e) =>
+      console.error("Failed to reveal the MCP server script:", e),
+    );
+  }
+
   function copyValue(label: string, value: string) {
     navigator.clipboard.writeText(value).then(() => {
       setCopied(label);
@@ -708,7 +737,9 @@ function ControlApiSection({
     }).catch((e) => console.error("Clipboard write failed:", e));
   }
 
-  const running = enabled && status?.running === true;
+  const mcpSnippet = mcp ? buildMcpConfigSnippet(mcp) : null;
+  const mcpCli = mcp ? buildMcpCliCommand(mcp) : null;
+  const mcpProblem = mcp ? mcpSetupProblem(mcp) : null;
   return (
     <div className="settings-group" id="control-api">
       <div className="settings-group-title">AI remote control</div>
@@ -724,7 +755,7 @@ function ControlApiSection({
           </div>
           <ToggleSwitch checked={enabled} onChange={handleToggle} />
         </div>
-        {running && status && (
+        {serverRunning && status && (
           <>
             <div className="settings-row">
               <div className="settings-row-info">
@@ -767,6 +798,47 @@ function ControlApiSection({
               <div className="settings-row-actions">
                 <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => copyValue("path", status.discoveryPath)}>
                   {copied === "path" ? "Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-label">
+                  Connect an AI assistant
+                  <HelpLink anchor="mcp-server" topic="the MCP server" />
+                </span>
+                <span
+                  className="settings-description"
+                  style={mcpProblem ? { color: "var(--warning)" } : undefined}
+                >
+                  {mcpProblem ??
+                    (mcp
+                      ? `Copy the config into your client (Claude Desktop → Settings → Developer → Edit Config), then fully quit and relaunch it. Bundled server: ${mcp.scriptPath}`
+                      : "Looking for the bundled server and a Node runtime…")}
+                </span>
+              </div>
+              <div className="settings-row-actions">
+                <button
+                  className="ds-btn ds-btn--secondary ds-btn--sm"
+                  disabled={!mcpSnippet}
+                  onClick={() => mcpSnippet && copyValue("mcp-config", mcpSnippet)}
+                >
+                  {copied === "mcp-config" ? "Copied" : "Copy config"}
+                </button>
+                <button
+                  className="ds-btn ds-btn--secondary ds-btn--sm"
+                  title="For Claude Code: run this in a terminal, then start a new session"
+                  disabled={!mcpCli}
+                  onClick={() => mcpCli && copyValue("mcp-cli", mcpCli)}
+                >
+                  {copied === "mcp-cli" ? "Copied" : "Copy command"}
+                </button>
+                <button
+                  className="ds-btn ds-btn--secondary ds-btn--sm"
+                  disabled={!mcp?.scriptPath}
+                  onClick={() => mcp?.scriptPath && revealScript(mcp.scriptPath)}
+                >
+                  Show file
                 </button>
               </div>
             </div>

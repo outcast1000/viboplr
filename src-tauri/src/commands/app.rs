@@ -385,6 +385,27 @@ pub fn control_api_status(state: State<'_, AppState>) -> Result<ControlApiStatus
     Ok(control_api_status_of(&state))
 }
 
+/// Where the bundled MCP server script is and which `node` can run it, so
+/// Settings can hand the user a ready-to-paste client config. See
+/// `mcp_setup.rs` for why the host answers this rather than the help page.
+///
+/// `async` + `spawn_blocking` deliberately: Tauri runs a non-`async` command
+/// inline on the main thread, and this walks the filesystem and spawns a
+/// process per `node` candidate.
+#[tauri::command]
+pub async fn mcp_setup_info(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<crate::mcp_setup::McpSetupInfo, String> {
+    let resource_dir = app.path().resource_dir().ok();
+    let profile_name = state.profile_name.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::mcp_setup::collect(resource_dir.as_deref(), &profile_name)
+    })
+    .await
+    .map_err(|e| format!("Failed to inspect the MCP setup: {e}"))
+}
+
 /// Rotate the bearer token. Implemented as stop → clear → start so the running
 /// server and the discovery file can never disagree about the live token.
 #[tauri::command]

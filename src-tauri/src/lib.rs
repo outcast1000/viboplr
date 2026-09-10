@@ -9,6 +9,7 @@ mod error_chain;
 mod image_provider;
 mod local_lyrics;
 mod logging;
+mod mcp_setup;
 mod models;
 mod profile_shortcuts;
 mod profiles;
@@ -345,6 +346,7 @@ macro_rules! invoke_handler {
             commands::control_api_regenerate_token,
             commands::control_api_respond,
             commands::control_api_client_ready,
+            commands::mcp_setup_info,
             $($extra,)*
         ]
     };

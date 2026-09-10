@@ -13,20 +13,38 @@ Requires Node ≥ 18. No `npm install` — the script is self-contained.
 ## Setup
 
 1. In Viboplr: **Settings → General → AI remote control** — switch it on.
-2. Register the server with your client:
+2. Register the server with your client.
+
+**From the app (easiest).** This script **ships in the bundle**
+(`bundle.resources` in `tauri.conf.json` maps it to `Resources/mcp/`), so there
+is nothing to download. With the toggle on, the same settings card offers
+**Copy config** / **Copy command** / **Show file** — the copied block already
+carries the script's absolute path, the absolute path of a `node` that can run
+it, and `--profile=` when the app is on a named profile. Paste it into your
+client and relaunch.
+
+The absolute `node` path is the point rather than a nicety: GUI apps launch
+without the shell's PATH, so a bare `"command": "node"` often resolves to
+nothing and the server simply never appears. `src-tauri/src/mcp_setup.rs`
+resolves it (PATH, then the usual install dirs, then volta/asdf/nvm/fnm) and
+reports when Node is missing or older than 18.
+
+**By hand.** Point your client at the bundled copy (macOS:
+`/Applications/Viboplr.app/Contents/Resources/mcp/viboplr-mcp.mjs`), a checkout,
+or a downloaded copy of this file:
 
 **Claude Code**
 
 ```bash
-claude mcp add viboplr -- node /path/to/viboplr/mcp/viboplr-mcp.mjs
+claude mcp add viboplr -- /absolute/path/to/node /path/to/mcp/viboplr-mcp.mjs
 ```
 
 **Claude Desktop** (`claude_desktop_config.json` → `mcpServers`)
 
 ```json
 "viboplr": {
-  "command": "node",
-  "args": ["/path/to/viboplr/mcp/viboplr-mcp.mjs"]
+  "command": "/absolute/path/to/node",
+  "args": ["/path/to/mcp/viboplr-mcp.mjs"]
 }
 ```
 
