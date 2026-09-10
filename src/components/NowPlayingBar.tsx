@@ -5,7 +5,10 @@ import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { usePlaybackPosition } from "../playback/positionStore";
 import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode, ResolvedSource } from "../types";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
-import type { MiniRestingSize, MiniWidthSize } from "../hooks/useMiniMode";
+import {
+  cycleRestingSize, isAlwaysExpanded, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZE_LABELS,
+  type MiniRestingSize, type MiniWidthSize,
+} from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
 import { EqControlGroup, type EqControls } from "./EqButton";
 import type { EqMode } from "../eqPresets";
@@ -325,8 +328,12 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           }
         };
     const progress = durationSecs > 0 ? (positionSecs / durationSecs) * 100 : 0;
+    // The "full" resting size shows every row permanently, so the layout follows
+    // the resting size as well as the hover state — `miniExpanded` stays false
+    // there because hover has nothing left to expand (see useMiniMode.ts).
+    const showAllRows = miniExpanded || isAlwaysExpanded(miniRestingSize);
     return (
-      <footer className={`now-playing now-playing-mini${miniExpanded ? " mini-expanded" : ""}`} onMouseDown={handleDrag} onContextMenu={(e) => {
+      <footer className={`now-playing now-playing-mini${showAllRows ? " mini-expanded" : ""}`} onMouseDown={handleDrag} onContextMenu={(e) => {
           e.preventDefault();
           onContextMenu?.(e);
         }} onWheel={(e) => {
@@ -352,7 +359,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           />
         ) : (
           <>
-        {miniExpanded || miniRestingSize === "normal" ? (
+        {showAllRows || miniRestingSize === "normal" ? (
           <div className="mini-compact-row">
             <div className="now-info">
               <div className="now-mini-art-wrapper">
@@ -424,7 +431,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                 </button>
               </div>
             </div>
-            {!miniExpanded && <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} /></div>}
+            {!showAllRows && <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} /></div>}
           </div>
         ) : (
           <div className="mini-ultra-row">
@@ -450,7 +457,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             <div className="mini-progress"><div className="mini-progress-fill" style={{ transform: `scaleX(${progress / 100})` }} /></div>
           </div>
         )}
-        {miniExpanded && (
+        {showAllRows && (
           <>
             <div className="mini-seek-row" onMouseDown={(e) => e.stopPropagation()}>
               <span className="mini-seek-time">{formatDuration(positionSecs)}</span>
@@ -484,20 +491,23 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                 <button
                   className="g-btn g-btn-sm"
                   onClick={onCycleMiniWidth}
-                  title={`Width: ${miniWidthSize === "small" ? "Small" : miniWidthSize === "medium" ? "Medium" : "Large"}`}
+                  title={`Width: ${MINI_WIDTH_SIZE_LABELS[miniWidthSize]}`}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8l4 4-4 4"/><path d="M6 8l-4 4 4 4"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
                 </button>
                 <button
                   className="g-btn g-btn-rect mini-resting-size-btn"
                   onClick={onCycleRestingSize}
-                  title={miniRestingSize === "normal" ? "Switch to compact" : "Switch to normal"}
+                  title={`Switch to ${MINI_RESTING_SIZE_LABELS[cycleRestingSize(miniRestingSize)].toLowerCase()}`}
                 >
+                  {/* Three stacked bars, one per size, tallest first: the lit one
+                      is the current resting height. */}
                   <svg width="12" height="10" viewBox="0 0 24 16" fill="none">
-                    <rect x="2" y="2" width="20" height="4" rx="1.5" fill="currentColor" opacity={miniRestingSize === "normal" ? 1 : 0.25} />
-                    <rect x="5" y="11" width="14" height="2" rx="1" fill="currentColor" opacity={miniRestingSize === "compact" ? 1 : 0.25} />
+                    <rect x="2" y="1" width="20" height="6" rx="1.5" fill="currentColor" opacity={miniRestingSize === "full" ? 1 : 0.25} />
+                    <rect x="2" y="9" width="20" height="3" rx="1.5" fill="currentColor" opacity={miniRestingSize === "normal" ? 1 : 0.25} />
+                    <rect x="5" y="14" width="14" height="1.5" rx="0.75" fill="currentColor" opacity={miniRestingSize === "compact" ? 1 : 0.25} />
                   </svg>
-                  <span className="mini-resting-size-label">{miniRestingSize === "normal" ? "Normal" : "Compact"}</span>
+                  <span className="mini-resting-size-label">{MINI_RESTING_SIZE_LABELS[miniRestingSize]}</span>
                 </button>
                 <button className="g-btn mini-expand-btn" onClick={() => { onCancelCollapseTimer(); onToggleMiniMode(); }} title="Exit mini mode">
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>

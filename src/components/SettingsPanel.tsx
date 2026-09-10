@@ -12,6 +12,10 @@ import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
 import { trashLabel } from "../utils";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
+import {
+  MINI_RESTING_SIZES, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZES, MINI_WIDTH_SIZE_LABELS,
+  type MiniRestingSize, type MiniWidthSize,
+} from "../hooks/useMiniMode";
 import { ARTWORK_VISUALIZER_NAME } from "../utils/visualizerSlots";
 import {
   CORE_FOLDER_PROVIDER,
@@ -1280,6 +1284,10 @@ interface SettingsPanelProps {
   onUiZoomChange: (factor: number) => void;
   miniZoom: number;
   onMiniZoomChange: (factor: number) => void;
+  miniWidthSize: MiniWidthSize;
+  onMiniWidthSizeChange: (size: MiniWidthSize) => void;
+  miniRestingSize: MiniRestingSize;
+  onMiniRestingSizeChange: (size: MiniRestingSize) => void;
   appVersion: string;
   updateState: UpdateState;
   onCheckForUpdates: () => void;
@@ -1410,6 +1418,10 @@ export function SettingsPanel({
   onUiZoomChange,
   miniZoom,
   onMiniZoomChange,
+  miniWidthSize,
+  onMiniWidthSizeChange,
+  miniRestingSize,
+  onMiniRestingSizeChange,
   appVersion,
   updateState,
   onCheckForUpdates,
@@ -1680,8 +1692,8 @@ export function SettingsPanel({
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">Mini player size</span>
-                        <span className="settings-description">Scale the mini player independently of the main window</span>
+                        <span className="settings-label">Mini player scale</span>
+                        <span className="settings-description">Scale the mini player's text and controls — its own counterpart to Interface size, which the mini player ignores. The window grows with the content.</span>
                       </div>
                       <select
                         className="ds-select"
@@ -1690,6 +1702,36 @@ export function SettingsPanel({
                       >
                         {ZOOM_PRESET_OPTIONS.map(o => (
                           <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Mini player width</span>
+                        <span className="settings-description">How wide the mini player window sits — wider leaves more room for the title and artist</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={miniWidthSize}
+                        onChange={e => onMiniWidthSizeChange(e.target.value as MiniWidthSize)}
+                      >
+                        {MINI_WIDTH_SIZES.map(size => (
+                          <option key={size} value={size}>{MINI_WIDTH_SIZE_LABELS[size]}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Mini player layout</span>
+                        <span className="settings-description">How much of the mini player stays visible at rest. Normal and Compact reveal the rest on hover; Full keeps every control on screen.</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={miniRestingSize}
+                        onChange={e => onMiniRestingSizeChange(e.target.value as MiniRestingSize)}
+                      >
+                        {MINI_RESTING_SIZES.map(size => (
+                          <option key={size} value={size}>{MINI_RESTING_SIZE_LABELS[size]}</option>
                         ))}
                       </select>
                     </div>

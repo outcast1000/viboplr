@@ -1297,6 +1297,9 @@ pub fn run() {
                                 "ultra" => 24.0,
                                 "compact" if size_migrated => 24.0,
                                 "compact" => 52.0, // pre-migration: old "compact" = 52px
+                                // "full" rests at the hover-expanded height (52 + 54),
+                                // so every row stays on screen — see useMiniMode.ts.
+                                "full" => 106.0,
                                 _ => 52.0,
                             };
                             let mini_width = match json.get("miniWidthSize").and_then(|v| v.as_str()).unwrap_or("medium") {

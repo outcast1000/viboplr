@@ -68,7 +68,10 @@ import { useNavigationHistory, type NavState } from "./hooks/useNavigationHistor
 import { useAppUpdater, updateBadgeFor } from "./hooks/useAppUpdater";
 import { resolveUpdateNotice, dismissNotice, type UpdateNoticeDismissals } from "./utils/updateNotice";
 import { UpdateNoticeBanner } from "./components/UpdateNoticeBanner";
-import { useMiniMode, cycleRestingSize, cycleMiniWidth } from "./hooks/useMiniMode";
+import {
+  useMiniMode, cycleRestingSize, cycleMiniWidth,
+  MINI_RESTING_SIZES, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZES, MINI_WIDTH_SIZE_LABELS,
+} from "./hooks/useMiniMode";
 import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { usePersistedSetting, usePersistMirror } from "./hooks/usePersistedSetting";
 import { useUiZoom } from "./hooks/useUiZoom";
@@ -4460,17 +4463,19 @@ function App() {
           contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null });
         } });
       }
-      const widthItems: MenuItemSpec[] = (["small", "medium", "large"] as const).map(size => ({
+      const widthItems: MenuItemSpec[] = MINI_WIDTH_SIZES.map(size => ({
         kind: "check" as const,
-        text: size === "small" ? "Small" : size === "medium" ? "Medium" : "Large",
+        text: MINI_WIDTH_SIZE_LABELS[size],
         checked: mini.miniWidthSize === size,
         action: () => mini.setMiniWidthSize(size),
       }));
       specs.push({ kind: "submenu", text: "Width", items: widthItems });
-      const heightItems: MenuItemSpec[] = [
-        { kind: "check", text: "Normal", checked: mini.miniRestingSize === "normal", action: () => mini.setMiniRestingSize("normal") },
-        { kind: "check", text: "Compact", checked: mini.miniRestingSize === "compact", action: () => mini.setMiniRestingSize("compact") },
-      ];
+      const heightItems: MenuItemSpec[] = MINI_RESTING_SIZES.map(size => ({
+        kind: "check" as const,
+        text: MINI_RESTING_SIZE_LABELS[size],
+        checked: mini.miniRestingSize === size,
+        action: () => mini.setMiniRestingSize(size),
+      }));
       specs.push({ kind: "submenu", text: "Height", items: heightItems });
       // The info line is configured in Settings > Playback (drag to reorder,
       // dwell, on/off) — the menu just takes you there, leaving the main
@@ -5355,6 +5360,10 @@ function App() {
               onUiZoomChange={handleUiZoomChange}
               miniZoom={zoom.miniZoom}
               onMiniZoomChange={handleMiniZoomChange}
+              miniWidthSize={mini.miniWidthSize}
+              onMiniWidthSizeChange={mini.setMiniWidthSize}
+              miniRestingSize={mini.miniRestingSize}
+              onMiniRestingSizeChange={mini.setMiniRestingSize}
               nowPlayingInfo={nowPlayingInfoSettings}
               scrollToId={settingsScrollTarget}
               onScrolledToId={() => setSettingsScrollTarget(null)}

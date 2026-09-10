@@ -25,6 +25,16 @@ const MINI_WIDTHS: Record<MiniWidthSize, number> = {
   large: 550,
 };
 
+/** Menu/select order and labels for the width presets, shared by the mini
+ *  player's context menu and Settings — same reason as the resting sizes. */
+export const MINI_WIDTH_SIZES = ["small", "medium", "large"] as const;
+
+export const MINI_WIDTH_SIZE_LABELS: Record<MiniWidthSize, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
 type MonitorRect = { x: number; y: number; w: number; h: number };
 
 export function isPositionOnScreen(x: number, y: number, monitors: MonitorRect[]): boolean {
@@ -140,11 +150,28 @@ export function cssToLogicalRatio(
   return ratio;
 }
 
-export type MiniRestingSize = "normal" | "compact";
+export type MiniRestingSize = "normal" | "compact" | "full";
+
+/** True for the resting size that already shows every row, so hover has nothing
+ *  left to reveal (see `expandMini`). */
+export function isAlwaysExpanded(size: MiniRestingSize): boolean {
+  return size === "full";
+}
 
 export function cycleRestingSize(current: MiniRestingSize): MiniRestingSize {
-  return current === "normal" ? "compact" : "normal";
+  return current === "normal" ? "compact" : current === "compact" ? "full" : "normal";
 }
+
+/** Menu/select order and labels for the resting size — shared by the mini
+ *  player's own toggle, its context menu and Settings, so the three can't
+ *  disagree about what a size is called. */
+export const MINI_RESTING_SIZES = ["normal", "compact", "full"] as const;
+
+export const MINI_RESTING_SIZE_LABELS: Record<MiniRestingSize, string> = {
+  normal: "Normal",
+  compact: "Compact",
+  full: "Full",
+};
 
 export function cycleMiniWidth(current: MiniWidthSize): MiniWidthSize {
   return current === "small" ? "medium" : current === "medium" ? "large" : "small";
@@ -264,10 +291,21 @@ export function useMiniMode(
   const minW = useCallback(() => sz(MINI_MIN_WIDTH), [sz]);
   const widthFor = useCallback((s: MiniWidthSize) => sz(MINI_WIDTHS[s]), [sz]);
 
+  // "full" rests at the expanded height: every row stays on screen and hover
+  // has nothing to add, so its resting height IS the expanded one.
+  const heightFor = useCallback(
+    (size: MiniRestingSize) => sz(
+      size === "compact" ? MINI_COMPACT_HEIGHT
+        : size === "full" ? MINI_EXPANDED_HEIGHT
+        : MINI_NORMAL_HEIGHT,
+    ),
+    [sz],
+  );
+
   // Used in Task 3 for expand/collapse paths
   const currentRestingHeight = useCallback(
-    () => sz(miniRestingSizeRef.current === "compact" ? MINI_COMPACT_HEIGHT : MINI_NORMAL_HEIGHT),
-    [sz],
+    () => heightFor(miniRestingSizeRef.current),
+    [heightFor],
   );
 
   const expandDirectionRef = useRef<"down" | "up">("down");
@@ -287,6 +325,8 @@ export function useMiniMode(
   const draggingRef = useRef(false);
   const dragEndTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverControllerRef = useRef<HoverController | null>(null);
+  // Resolves once the persisted resting/width sizes have been read (see below).
+  const sizeLoadRef = useRef<Promise<void> | null>(null);
 
   const cancelCollapseTimer = useCallback(() => {
     if (collapseTimerRef.current) {
@@ -320,6 +360,8 @@ export function useMiniMode(
 
   const expandMini = useCallback(async () => {
     if (!miniModeRef.current || expandingRef.current || draggingRef.current) return;
+    // Already showing every row at rest — nothing to grow into.
+    if (isAlwaysExpanded(miniRestingSizeRef.current)) return;
     expandingRef.current = true;
     try {
       await sampleCssRatio();
@@ -363,6 +405,7 @@ export function useMiniMode(
 
   const collapseMini = useCallback(async () => {
     if (!miniModeRef.current || expandingRef.current || draggingRef.current) return;
+    if (isAlwaysExpanded(miniRestingSizeRef.current)) return;
     expandingRef.current = true;
     try {
       await sampleCssRatio();
@@ -607,7 +650,13 @@ export function useMiniMode(
   }, []);
 
   useEffect(() => {
-    (async () => {
+    // Published so `applyMiniZoom` can wait for it: the startup refit runs from
+    // App's own restore effect and would otherwise race this read and refit a
+    // restored mini window to the *default* resting height — clipping the bar
+    // exactly the way issue #130 did. This effect is registered first (the hook
+    // is called well above that effect), so the promise is always assigned by
+    // the time the refit can ask for it.
+    sizeLoadRef.current = (async () => {
       try {
         const saved = await store.get<string | null>("miniRestingSize");
         let value = saved;
@@ -629,8 +678,9 @@ export function useMiniMode(
             await store.set("miniSizeMigrated", true);
           }
         }
-        if (value === "normal" || value === "compact") {
+        if (value === "normal" || value === "compact" || value === "full") {
           setMiniRestingSizeState(value);
+          miniRestingSizeRef.current = value;
         }
         const savedWidth = await store.get<MiniWidthSize | null>("miniWidthSize");
         if (savedWidth === "small" || savedWidth === "medium" || savedWidth === "large") {
@@ -641,6 +691,7 @@ export function useMiniMode(
       }
     })();
   }, []);
+
 
   useEffect(() => {
     if (!miniMode) return;
@@ -690,10 +741,73 @@ export function useMiniMode(
 
   const setMiniRestingSize = useCallback((next: MiniRestingSize) => {
     setMiniRestingSizeState(next);
+    // Eagerly, not via the sync effect: the resize below reads this ref through
+    // `currentRestingHeight`, and so does a hover event arriving in between.
+    miniRestingSizeRef.current = next;
     store.set("miniRestingSize", next).catch((err: unknown) => {
       console.error("Failed to persist miniRestingSize:", err);
     });
-  }, []);
+    if (!miniModeRef.current || searchOpenRef.current) return;
+    // "full" has to grow the live window itself, and leaving "full" has to
+    // shrink it: hover expand/collapse is suppressed in that mode, so there is
+    // no later event to land the new height. A window that is *hover*-expanded
+    // right now keeps its height and lands on the new resting size when the
+    // cursor leaves, as it always has.
+    const target = isAlwaysExpanded(next) ? expandedH()
+      : miniExpandedRef.current ? null
+      : heightFor(next);
+    if (target == null) return;
+    (async () => {
+      if (expandingRef.current) return;
+      expandingRef.current = true;
+      try {
+        await sampleCssRatio();
+        const win = getCurrentWindow();
+        const factor = await win.scaleFactor();
+        const pos = await win.outerPosition();
+        const size = await win.innerSize();
+        const logicalW = size.width / factor;
+        const logicalX = pos.x / factor;
+        const logicalY = pos.y / factor;
+        const delta = target - size.height / factor;
+        if (delta === 0) return;
+        if (delta > 0) {
+          const bounds = await getLogicalMonitorBounds();
+          const monitor = bounds.find(m =>
+            logicalX >= m.x && logicalX < m.x + m.w &&
+            logicalY >= m.y && logicalY < m.y + m.h
+          ) || bounds[0];
+          const spaceBelow = monitor
+            ? (monitor.y + monitor.h) - (logicalY + size.height / factor)
+            : Infinity;
+          // Same rule as hover expand: grow down when there's room, otherwise
+          // pin the bottom edge and grow up. The direction is recorded so a
+          // later collapse or search panel unwinds the same way.
+          expandDirectionRef.current = spaceBelow >= delta ? "down" : "up";
+          await win.setMinSize(new LogicalSize(minW(), target));
+          if (expandDirectionRef.current === "up") {
+            await win.setPosition(new LogicalPosition(logicalX, logicalY - delta));
+          }
+          await win.setSize(new LogicalSize(logicalW, target));
+        } else {
+          await win.setSize(new LogicalSize(logicalW, target));
+          if (expandDirectionRef.current === "up") {
+            // Grew upward, so shrinking gives the height back at the top edge.
+            await win.setPosition(new LogicalPosition(logicalX, logicalY - delta));
+          }
+          await win.setMinSize(new LogicalSize(minW(), target));
+        }
+        // The window is now at its resting height either way, so no hover
+        // expansion is outstanding. In "full" the rendered layout follows the
+        // resting size, not this flag (see `NowPlayingBar`).
+        setMiniExpanded(false);
+      } catch (err) {
+        console.error("Failed to resize mini window for resting size:", err);
+      } finally {
+        expandingRef.current = false;
+      }
+    })();
+  }, [expandedH, heightFor, minW, sampleCssRatio]);
 
   const setMiniWidthSize = useCallback(async (next: MiniWidthSize) => {
     setMiniWidthSizeState(next);
@@ -727,6 +841,9 @@ export function useMiniMode(
   // in full mode — the new factor takes effect next time the mini player opens.
   const applyMiniZoom = useCallback(async () => {
     if (!miniModeRef.current) return;
+    // The startup refit must not fit the window to a size the store hasn't
+    // been read for yet — see `sizeLoadRef`.
+    await sizeLoadRef.current;
     await applyWebviewZoom(miniZoomRef.current ?? 1);
     await settleLayout();
     await sampleCssRatio();

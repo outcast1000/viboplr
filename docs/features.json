@@ -36,6 +36,7 @@
     "items": [
       "Always-on-top mode",
       "Draggable &amp; compact",
+      "Normal, compact or full layout &mdash; full keeps every control on screen",
       "Auto-resizing to fit content",
       "Full playback controls"
     ],
