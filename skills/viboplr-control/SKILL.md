@@ -56,6 +56,8 @@ A healthy answer is `{"ok":true, "version":…, "profile":…}`. Multiple files 
 | `GET /picks?kind=liked\|never_played\|forgotten_favorites&limit=50` | curated lists: the liked set, never-played tracks, often-played-but-not-lately favorites |
 | `GET /history?kind=recent\|most_played&limit=20` | listening history |
 | `GET /tags?limit=&offset=` | library tags with track counts |
+| `POST /query` | `{sql, params?, limit?}` — **ad-hoc read-only SQL** (SQLite) for analytics the endpoints can't express (plays per year, liked-but-never-played, joins over history). One SELECT per call; `?` placeholders bound from `params` (scalars only); rows capped (`limit` default 200, max 2000 — response is `{columns, rows, rowCount, truncated}`); 5s budget. Writes are refused by SQLite's own read-only verdict, and the credential tables (`collections`, `plugin_storage`) are refused by name — `GET /collections` is the safe view. Prefer the typed endpoints for simple lookups — the schema is internal and may change between versions |
+| `GET /query/schema` | the queryable tables' DDL **plus semantic notes the DDL can't teach** — read it before writing SQL. The notes matter: history joins by normalized name (`canonical_* = strip_diacritics(unicode_lower(text))`), never by track id or raw title equality; `tracks.path` is relative to its (unreachable) collection root; `entity_likes` keys are normalized `kind:{artist}:{title}` strings; timestamps are unix seconds. A query written without them runs fine and matches wrong |
 
 **Search responses** (raw library rows, snake_case — unlike the camelCase status/queue shapes):
 - `type=all` → `{artists: [..], albums: [..], tracks: [..]}` (no `total`)
@@ -238,6 +240,11 @@ Consent rule for logs: show the user before posting log contents anywhere public
 **Shuffle and play a saved playlist**
 1. `GET /playlists` → pick the id
 2. `POST /playlists/{id}/play` then `POST /queue/randomize`
+
+**Answer an analytics question ("what did I play most in 2024?")**
+1. `GET /query/schema` → the tables **and the semantic notes** (history is name-keyed via `canonical_*`; timestamps are unix seconds)
+2. `POST /query` with the real SELECT (join + aggregate as needed, bind values via `params`)
+3. Blocked-table error mentioning `collections`? You referenced it (or the word appeared in a literal) — rephrase; source facts come from `GET /collections` instead.
 
 **"Which of my plugins can do X?" / recommend one that can**
 1. `GET /extensions` → scan each plugin's `capabilities` (e.g. `searchProviders` + `downloadProviders` = can find *and* fetch music)

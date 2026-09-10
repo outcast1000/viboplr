@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const BUNDLE_ID = "com.alex.viboplr";
 const LATEST_PROTOCOL = "2025-06-18";
 const KNOWN_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
@@ -361,6 +361,22 @@ export const TOOLS = [
         default:
           throw new Error(`unknown browse kind: ${kind}`);
       }
+    },
+  },
+  {
+    name: "query_library",
+    description:
+      "Ad-hoc read-only SQL (SQLite) over the library database — for analytics the fixed tools can't express: plays per year, liked-but-never-played, joins over history. FIRST call with schema=true: it returns the table DDL plus semantic notes the DDL can't teach (history joins by normalized name, not track id; tracks.path is relative; like-key format) — queries written without them run fine and match wrong. Then one SELECT per call; positional ? params; rows capped (the response flags `truncated`); 5s budget. The credential-bearing tables (collections, plugin_storage) are refused — the collections tool serves the safe view. Prefer search_library/browse for simple lookups — the schema is internal and may change between app versions.",
+    inputSchema: obj({
+      sql: str("One read-only SELECT statement (SQLite dialect). Required unless schema=true"),
+      params: { type: "array", items: {}, description: "Positional values for ? placeholders (scalars only)" },
+      limit: num("Max rows (default 200, max 2000)"),
+      schema: bool("true: return the queryable schema + semantic notes instead of running sql"),
+    }),
+    run: ({ sql, params, limit, schema }) => {
+      if (schema) return apiRequest("GET", "/v1/query/schema");
+      need({ sql }, ["sql"], "query_library (or pass schema=true)");
+      return apiRequest("POST", "/v1/query", { sql, params, limit });
     },
   },
   {

@@ -58,7 +58,9 @@ so a launched app brings the API up on its own).
 By default the server exposes the music surface: search/browse, playback and
 queue control, playlists, likes, tags, lyrics/info, plugin catalogs
 (YouTube/Spotify/TIDAL search + play), plugin home shelves, collections
-(list + rescan — never add/remove), and the app
+(list + rescan — never add/remove), ad-hoc read-only SQL over the library
+database (`query_library` — writes and the credential tables are refused
+server-side), and the app
 version (`app_version` — with `checkLatest` it also reads the newest stable
 release from GitHub's `releases/latest` for `outcast1000/viboplr` and says
 whether the app is current; report-only, updates install from inside the app).

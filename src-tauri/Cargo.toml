@@ -21,7 +21,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 lofty = "0.24"
 
-rusqlite = { version = "0.39", features = ["bundled", "functions"] }
+# "hooks" is for progress_handler only — the control API's ad-hoc query
+# deadline (db/control_query.rs), so a runaway scan can't hold the app's
+# connection mutex indefinitely.
+rusqlite = { version = "0.39", features = ["bundled", "functions", "hooks"] }
 regex = "1"
 walkdir = "2"
 log = "0.4"

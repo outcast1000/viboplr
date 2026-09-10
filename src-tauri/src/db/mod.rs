@@ -309,6 +309,7 @@ mod albums;
 mod artists;
 mod auto_playlists;
 pub mod collections;
+pub mod control_query;
 mod history;
 mod image_failures;
 pub mod likes;

@@ -318,6 +318,8 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         // Backend-direct reads (pure DB).
         .route("/v1/health", get(handle_health))
         .route("/v1/search", get(handle_search))
+        .route("/v1/query", post(handle_query))
+        .route("/v1/query/schema", get(handle_query_schema))
         .route("/v1/tracks/{id}", get(handle_get_track))
         .route("/v1/playlists", get(handle_get_playlists).post(|s, b| handle_bridge_body(s, "playlists.create", json!({}), b)))
         .route("/v1/playlists/{id}/tracks", get(handle_get_playlist_tracks)
@@ -478,6 +480,40 @@ async fn handle_get_track(
         db.get_track_by_id(id).map_err(|e| e.to_string())
     })
     .await
+}
+
+#[derive(serde::Deserialize)]
+struct QueryBody {
+    sql: String,
+    #[serde(default)]
+    params: Vec<Value>,
+    limit: Option<usize>,
+}
+
+/// Ad-hoc read-only SQL (see `db/control_query.rs` for the enforcement:
+/// SQLite's own read-only verdict, one statement, credential tables refused,
+/// row cap + 5s deadline). Backend-direct — no webview round trip.
+async fn handle_query(AxumState(state): AxumState<ServerState>, body: Bytes) -> Response {
+    let parsed: QueryBody = match serde_json::from_slice(&body) {
+        Ok(p) => p,
+        Err(e) => {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                format!("invalid JSON body (expected {{sql, params?, limit?}}): {}", e),
+            )
+        }
+    };
+    let max_rows = parsed.limit.unwrap_or(200).clamp(1, 2000);
+    db_read(state.db.clone(), move |db| {
+        db.control_read_query(&parsed.sql, &parsed.params, max_rows)
+    })
+    .await
+}
+
+/// The queryable schema (DDL minus the blocked tables) plus the semantic
+/// notes raw DDL can't teach — an assistant primes on this before writing SQL.
+async fn handle_query_schema(AxumState(state): AxumState<ServerState>) -> Response {
+    db_read(state.db.clone(), |db| db.control_query_schema()).await
 }
 
 async fn handle_get_playlists(AxumState(state): AxumState<ServerState>) -> Response {
@@ -1018,6 +1054,16 @@ mod tests {
         builder.body(Body::empty()).unwrap()
     }
 
+    fn request_json(method: &str, path: &str, token: &str, body: &str) -> HttpRequest<Body> {
+        HttpRequest::builder()
+            .method(method)
+            .uri(path)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    }
+
     async fn body_json(response: Response) -> Value {
         let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         serde_json::from_slice(&bytes).unwrap()
@@ -1095,6 +1141,61 @@ mod tests {
         let tracks = json["tracks"].as_array().expect("tracks array");
         assert_eq!(tracks.len(), 1);
         assert_eq!(tracks[0]["title"], json!("Bridge Song"));
+    }
+
+    #[tokio::test]
+    async fn test_query_route_reads_and_refuses_writes_and_credentials() {
+        let state = test_state(noop_emit());
+        let artist_id = state.db.get_or_create_artist("Query Artist").unwrap();
+        let col = state
+            .db
+            .add_collection("local", "Test", Some("/test"), None, None, None, None, None)
+            .unwrap();
+        state
+            .db
+            .upsert_track(
+                "q.mp3", "Query Song", Some(artist_id), None, None,
+                Some(200.0), Some("mp3"), None, None, Some(col.id), None,
+            )
+            .unwrap();
+
+        let router = build_router(state);
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST", "/v1/query", TEST_TOKEN,
+                r#"{"sql": "SELECT title FROM tracks WHERE artist_id = ?", "params": [1]}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["columns"], json!(["title"]));
+        assert_eq!(json["rows"], json!([["Query Song"]]));
+        assert_eq!(json["truncated"], json!(false));
+
+        // A write is a 400, not a mutation.
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST", "/v1/query", TEST_TOKEN,
+                r#"{"sql": "DELETE FROM tracks"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // The credential tables are refused by name.
+        let res = router
+            .oneshot(request_json(
+                "POST", "/v1/query", TEST_TOKEN,
+                r#"{"sql": "SELECT username, password FROM collections"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        let json = body_json(res).await;
+        assert!(json["error"].as_str().unwrap().contains("off-limits"));
     }
 
     #[tokio::test]

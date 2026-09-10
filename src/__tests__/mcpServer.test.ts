@@ -68,6 +68,19 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       });
       return;
     }
+    if (req.url === "/v1/query/schema" && req.method === "GET")
+      return reply(200, { tables: [{ name: "tracks", sql: "CREATE TABLE tracks (...)" }], notes: ["history is name-keyed"] });
+    if (req.url === "/v1/query" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        const q = JSON.parse(body);
+        if (/collections|plugin_storage/i.test(q.sql)) return reply(400, { error: "off-limits" });
+        reply(200, { columns: ["title"], rows: [["Jóga"]], rowCount: 1, truncated: false });
+      });
+      return;
+    }
     if (req.url === "/v1/extensions/gallery" && req.method === "GET")
       return reply(200, {
         plugins: [{ id: "ytdlp", name: "yt-dlp", installed: true }, { id: "qbittorrent", installed: false }],
@@ -293,6 +306,34 @@ describe("MCP server over stdio", () => {
     expect(status.currentTrack.title).toBe("Jóga");
     const statusReq = api.seen.find((r) => r.url === "/v1/status");
     expect(statusReq?.auth).toBe(`Bearer ${TEST_TOKEN}`);
+  });
+
+  it("posts query_library SQL with params and surfaces the refusal for blocked tables", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "query_library",
+      arguments: { sql: "SELECT title FROM tracks WHERE id = ?", params: [7], limit: 5 },
+    });
+    expect(JSON.parse(toolText(res.result)).rows).toEqual([["Jóga"]]);
+    const posted = api.seen.find((r) => r.method === "POST" && r.url === "/v1/query");
+    expect(JSON.parse(posted!.body!)).toEqual({ sql: "SELECT title FROM tracks WHERE id = ?", params: [7], limit: 5 });
+
+    const blocked = await rpc.request("tools/call", {
+      name: "query_library",
+      arguments: { sql: "SELECT * FROM collections" },
+    });
+    expect((blocked.result as { isError?: boolean }).isError).toBe(true);
+    expect(toolText(blocked.result)).toContain("off-limits");
+
+    // schema=true fetches the DDL + semantic notes; no sql needed.
+    const schema = await rpc.request("tools/call", {
+      name: "query_library",
+      arguments: { schema: true },
+    });
+    expect(JSON.parse(toolText(schema.result)).notes).toEqual(["history is name-keyed"]);
+
+    // Neither sql nor schema is a caller error, not a request.
+    const neither = await rpc.request("tools/call", { name: "query_library", arguments: {} });
+    expect((neither.result as { isError?: boolean }).isError).toBe(true);
   });
 
   it("maps tool arguments onto query strings", async () => {
