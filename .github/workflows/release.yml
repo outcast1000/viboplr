@@ -153,3 +153,25 @@ jobs:
           prerelease: ${{ contains(needs.ci-and-release.outputs.tag, '-') }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+  deploy-site:
+    # Publish viboplr.com only after BOTH platform builds uploaded their
+    # installers. pages.yml deliberately skips the release commit's push event
+    # (see the `if` there), so this dispatch is what deploys a release's site
+    # update — the site never advertises assets that don't exist. Dispatching
+    # pages.yml (rather than inlining the deploy steps here) keeps a single
+    # deploy definition and runs it on `main`, which the github-pages
+    # environment's branch policy allows — this workflow runs on a tag ref,
+    # which it may not.
+    # Betas skip this: bump.mjs makes no site changes for hyphenated versions,
+    # so there is nothing to deploy.
+    needs: [ci-and-release, build]
+    if: needs.ci-and-release.outputs.tag != '' && !contains(needs.ci-and-release.outputs.tag, '-')
+    permissions:
+      actions: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Pages deploy
+        run: gh workflow run pages.yml --ref main --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}

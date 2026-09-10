@@ -19,6 +19,12 @@ concurrency:
 
 jobs:
   deploy:
+    # Release commits ("release: vX.Y.Z") are deployed by release.yml instead,
+    # AFTER both installers have built and uploaded — otherwise the site would
+    # advertise download URLs that don't exist yet (or never will, if a
+    # platform build fails). Ordinary docs edits and manual dispatches deploy
+    # immediately as before.
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'release:')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

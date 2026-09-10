@@ -445,6 +445,12 @@ if (autocommit) {
   run("Tagging release...", `git tag v${version}`);
   run("Pushing to origin...", pushCmd);
   console.log(`Done! Released v${version}${isBeta ? " (beta prerelease)" : ""}.`);
+  if (!isBeta) {
+    console.log(
+      "Note: viboplr.com deploys AFTER both installers build — release.yml's deploy-site job\n" +
+      "dispatches the Pages deploy once the macOS + Windows assets are uploaded."
+    );
+  }
   printSmokeReminder(version);
 } else {
   console.log(`\nFiles updated. To commit and tag manually:\n`);

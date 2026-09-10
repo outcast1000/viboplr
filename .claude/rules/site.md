@@ -7,6 +7,8 @@ paths:
 
 `docs/` is the public marketing + docs site served at **viboplr.com** (GitHub Pages; `docs/CNAME`). It is **separate from the Tauri app UI** — editing the site never changes the app, and vice versa. Plain HTML/CSS/JS, no build step, single font (Outfit) and a pink→magenta `gradient-text` wordmark as the established brand identity.
 
+**Deploy timing:** `pages.yml` deploys any `docs/**` push to main immediately — **except** release commits (`release: vX.Y.Z`), which it skips; for those, `release.yml`'s `deploy-site` job dispatches the Pages deploy only after **both** platform installers have built and uploaded, so the live site never links assets that don't exist yet. Don't remove the `if` guard in `pages.yml` or the `deploy-site` job without the other — each is half of that handshake.
+
 ## Pages
 
 - **`index.html`** — home page: hero + four feature cards + plugin spotlight (`feature-section feature-section--light`) + CTAs. **Hand-written.** `scripts/bump.mjs` only rewrites its version badge and download URLs at release; the copy is manual.
