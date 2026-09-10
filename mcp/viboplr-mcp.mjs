@@ -33,7 +33,7 @@ const SLOW_MS = 95_000; // plugin catalogs / info chains can shell out to yt-dlp
 const DEFAULT_MS = 30_000;
 
 const NOT_RUNNING =
-  'Viboplr is not reachable — the app may not be running, or "AI remote control" ' +
+  'Viboplr is not reachable — the app may not be running, or "AI control" ' +
   "is off. Call the launch_app tool to start it (the setting persists across " +
   "restarts), or ask the user to start Viboplr and enable it in Settings → General.";
 
@@ -43,7 +43,7 @@ const INSTRUCTIONS = [
   "Track ids from search_library/browse are library ids; playlist rows use a separate row-id space (browse kind=playlist_tracks) and those row ids are what edit_playlist remove/reorder take.",
   "Mutation commands return before UI state settles — read get_status afterwards for the truth.",
   "External/plugin tracks resolve their stream at play time; get_status can show the previous track for 10–20s after playing one. Wait and re-read before concluding a play failed.",
-  "If tools report the app unreachable, ask the user to start Viboplr and enable Settings → General → AI remote control.",
+  "If tools report the app unreachable, ask the user to start Viboplr and enable Settings → General → AI control.",
 ].join(" ");
 
 // ---------------------------------------------------------------------------
@@ -572,7 +572,7 @@ export const TOOLS = [
   {
     name: "launch_app",
     description:
-      "Start Viboplr when it isn't running: launches the installed app and waits (up to ~30s) for its control API to answer. Requires the user to have enabled Settings → General → AI remote control at least once — the setting persists, so a launched app brings the API up on its own. Already running? Returns immediately with alreadyRunning. Never quits or restarts the app.",
+      "Start Viboplr when it isn't running: launches the installed app and waits (up to ~30s) for its control API to answer. Requires the user to have enabled Settings → General → AI control at least once — the setting persists, so a launched app brings the API up on its own. Already running? Returns immediately with alreadyRunning. Never quits or restarts the app.",
     inputSchema: obj({}),
     run: async () => {
       const before = await healthOrNull();
@@ -601,7 +601,7 @@ export const TOOLS = [
       }
       throw new Error(
         `Launched the app (via ${launched.via}) but the control API didn't answer within ${Math.round(waitMs / 1000)}s. ` +
-          'Most likely "AI remote control" has never been enabled — ask the user to switch it on once in ' +
+          'Most likely "AI control" has never been enabled — ask the user to switch it on once in ' +
           "Viboplr → Settings → General; it persists from then on.",
       );
     },

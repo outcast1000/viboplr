@@ -1,4 +1,4 @@
-//! "Connect an AI assistant" support for Settings → General → AI remote control.
+//! "Connect an AI assistant" support for Settings → General → AI control.
 //!
 //! The MCP server (`mcp/viboplr-mcp.mjs`) ships **in the bundle** — see
 //! `bundle.resources` in `tauri.conf.json`. It is deliberately not downloaded

@@ -12,7 +12,7 @@ Requires Node ≥ 18. No `npm install` — the script is self-contained.
 
 ## Setup
 
-1. In Viboplr: **Settings → General → AI remote control** — switch it on.
+1. In Viboplr: **Settings → General → AI control** — switch it on.
 2. Register the server with your client.
 
 **From the app (easiest).** This script **ships in the bundle**

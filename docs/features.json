@@ -165,7 +165,7 @@
     "groupDescription": "Drive the whole player from an AI assistant &mdash; private, local, and off by default.",
     "label": "AI Assistant",
     "heading": "Tell your assistant to press play",
-    "description": "Turn on <strong>AI remote control</strong> and an assistant running on your computer &mdash; Claude Desktop, Claude Code, or any MCP client &mdash; can drive Viboplr like a listener: search your library, control playback, build and edit playlists, tag and like music, start radio stations, browse plugin catalogs, and rescan collections. A private control server runs on your machine only (<code>127.0.0.1</code>, token-protected), and the bundled MCP server presents it to assistants as typed tools. Deliberately bounded: it can never delete files, rewrite your audio files' tags, or install code.",
+    "description": "Turn on <strong>AI control</strong> and an assistant running on your computer &mdash; Claude Desktop, Claude Code, or any MCP client &mdash; can drive Viboplr like a listener: search your library, control playback, build and edit playlists, tag and like music, start radio stations, browse plugin catalogs, and rescan collections. A private control server runs on your machine only (<code>127.0.0.1</code>, token-protected), and the bundled MCP server presents it to assistants as typed tools. Deliberately bounded: it can never delete files, rewrite your audio files' tags, or install code.",
     "items": [
       "Works with Claude Desktop, Claude Code &amp; any MCP client",
       "Search, playback, queue, playlists, tags, likes &amp; radio",

@@ -651,7 +651,7 @@ interface ControlApiStatus {
 }
 
 /**
- * Settings → General → "AI remote control": the toggle plus, while running,
+ * Settings → General → "AI control": the toggle plus, while running,
  * the address / token / discovery-file rows an assistant needs to connect.
  * Failures render inline in the card (persistent), not as a toast.
  */
@@ -742,11 +742,11 @@ function ControlApiSection({
   const mcpProblem = mcp ? mcpSetupProblem(mcp) : null;
   return (
     <div className="settings-group" id="control-api">
-      <div className="settings-group-title">AI remote control</div>
+      <div className="settings-group-title">AI control</div>
       <div className="settings-card">
         <div className="settings-row">
           <div className="settings-row-info">
-            <span className="settings-label">Allow AI assistants to control Viboplr<HelpLink anchor="control-api" topic="AI remote control" /></span>
+            <span className="settings-label">Allow AI assistants to control Viboplr<HelpLink anchor="control-api" topic="AI control" /></span>
             <span className="settings-description">
               Runs a private control server on this computer only (127.0.0.1, token-protected).
               Assistants like Claude can then search your library, control playback, and edit
@@ -1371,7 +1371,7 @@ interface SettingsPanelProps {
   onFetchBackendTimings: () => void;
   // Plugins (for provider priority section)
   pluginStates?: PluginState[];
-  // AI remote control (localhost control API — see src-tauri/src/control_api.rs)
+  // AI control (localhost control API — see src-tauri/src/control_api.rs)
   controlApiEnabled: boolean;
   /** Persists the flag and starts/stops the server; rejects on failure so the
    *  section can surface the error inline. */

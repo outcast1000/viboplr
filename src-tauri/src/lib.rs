@@ -1458,7 +1458,7 @@ pub fn run() {
             let dep_updater_cache = Arc::clone(&dep_cache);
             let dep_updater_store_path = app_dir.join("app-state.json");
 
-            // Localhost control API (AI remote control). The state object always
+            // Localhost control API (AI control). The state object always
             // exists; the server starts only when the profile's store enables it.
             let control_api_state = Arc::new(control_api::ControlApi::default());
             let control_api_enabled = {

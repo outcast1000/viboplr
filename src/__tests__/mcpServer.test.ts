@@ -422,7 +422,7 @@ describe("MCP server without a reachable app", () => {
       const res = await rpc.request("tools/call", { name: "get_status", arguments: {} });
       const r = res.result as { isError?: boolean };
       expect(r.isError).toBe(true);
-      expect(toolText(res.result)).toContain("AI remote control");
+      expect(toolText(res.result)).toContain("AI control");
     } finally {
       rpc.kill();
     }

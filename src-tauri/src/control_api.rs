@@ -1,7 +1,7 @@
 //! Localhost control API for AI assistants (and any local automation).
 //!
 //! A small axum server bound to `127.0.0.1:0`, started only when the user
-//! enables Settings → General → "AI remote control" (`controlApiEnabled`).
+//! enables Settings → General → "AI control" (`controlApiEnabled`).
 //! Clients discover it through `control-api.json` in the profile directory
 //! (port + bearer token) and must probe `GET /v1/health` before trusting the
 //! file — a crash leaves a stale one behind.
