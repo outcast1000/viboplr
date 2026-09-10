@@ -142,11 +142,23 @@ interface VolumeControlProps {
   onDragEnd?: () => void;
 }
 
+/** One wheel notch over the volume cluster, matching the keyboard shortcut and
+ *  the mini bar's wheel step. */
+const VOLUME_WHEEL_STEP = 0.05;
+
 export function VolumeControl({
   volume, muted, onVolume, onMute, className, onDragStart, onDragEnd,
 }: VolumeControlProps) {
+  // Wheel anywhere over the cluster (icon included), not just the slider track —
+  // the track is a few pixels tall and aiming at it would make the gesture fussy.
+  // A horizontal trackpad swipe reports deltaX, so it drives the slider too.
+  const handleWheel = (e: React.WheelEvent) => {
+    const delta = e.deltaY !== 0 ? -e.deltaY : e.deltaX;
+    if (delta === 0) return;
+    onVolume(Math.min(1, Math.max(0, volume + (delta > 0 ? VOLUME_WHEEL_STEP : -VOLUME_WHEEL_STEP))));
+  };
   return (
-    <div className={className}>
+    <div className={className} onWheel={handleWheel}>
       <button className={`g-btn g-btn-sm${muted ? " is-muted" : ""}`} onClick={onMute} title={`Mute (${mod}M)`}>
         {muted || volume === 0
           ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
