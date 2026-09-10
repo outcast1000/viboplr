@@ -101,26 +101,33 @@ async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
 }
 
 /**
- * The mini layout is authored in **CSS pixels**; Tauri sizes windows in
- * **logical pixels**. Those two units are only equal when the webview's own
- * scale matches the window's scale factor — which is not a given. On Windows,
- * WebView2 applies the monitor scale to the page on top of the scaling the
- * window already does, so at 125% a 52-logical-px mini window lays its content
- * out in a ~41.6-CSS-px viewport and clips a quarter of it off the bottom
- * (issue #130: art measured 1.25x oversized against its own window).
+ * The mini layout is authored in **unzoomed CSS pixels**; Tauri sizes windows
+ * in **logical pixels**. The factor between them is the ratio of the window's
+ * logical height to the page's actual CSS viewport height — which every
+ * authored dimension must be multiplied by to survive the trip.
  *
- * Rather than theorise about which layer double-applies what, measure it: the
- * ratio between the window's logical height and the CSS viewport height is the
- * factor every authored dimension must be multiplied by to survive the trip.
- * It is exactly 1 wherever the units already agree (macOS today), which is what
- * makes this safe to apply unconditionally.
+ * In practice that factor is the **webview zoom**, and only the webview zoom:
+ * page zoom shrinks the CSS viewport by definition, so a 52-CSS-px design
+ * needs a 52 * zoom logical window. Callers must therefore NOT additionally
+ * multiply by `miniZoom` — doing both scales twice.
  *
- * It also already carries the **webview zoom** — page zoom changes the CSS
- * viewport by definition — so callers must NOT additionally multiply by
- * `miniZoom`. Doing both scales twice at any non-default mini zoom.
+ * **Display scale does not enter into it**, on either platform. Measured on
+ * Windows 11 / WebView2 at 125%: a 1320-physical-px window reports scaleFactor
+ * 1.25 and `window.innerHeight` 1056 — i.e. exactly the logical height. The
+ * monitor scale rides on `devicePixelRatio` and never reaches the CSS viewport.
+ * macOS retina agrees the same way. So this reads exactly 1 at any display
+ * scale with the page unzoomed, which is what makes it safe to apply
+ * unconditionally — and is why display scale was *not* the cause of #130
+ * (see the useMiniMode entry in `.claude/rules/frontend.md`).
+ *
+ * Measuring rather than deriving is still the right shape: the value is
+ * whatever the page actually got, so a zoom ladder that snaps 1.25 to 1.3
+ * yields 1.3 here, not the 1.25 that was asked for.
  *
  * Wild values are rejected in favour of 1: the two inputs are read over
- * separate IPC hops, so a sample taken mid-resize can tear.
+ * separate IPC hops, so a sample taken mid-resize can tear. A *mild* tear
+ * (~0.98) passes the range check and sizes a pixel short — see the test; the
+ * next sizing decision resamples and corrects it.
  */
 export function cssToLogicalRatio(
   innerHeightPhysical: number,
