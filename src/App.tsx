@@ -148,10 +148,8 @@ import { VisualizerSlot } from "./components/VisualizerSlot";
 import { AudioFullscreen } from "./components/AudioFullscreen";
 import {
   buildVisualizerMenuSpecs,
-  candidatesFor,
   resolveFullscreenSlot,
   resolveSlot,
-  visualizerKey,
   type VisualizerSlotSelection,
 } from "./utils/visualizerSlots";
 import type { PluginVisualizerPlacement } from "./types/pluginVisualizer";
@@ -5427,11 +5425,6 @@ function App() {
               onRgPreventClipChange={playback.setRgPreventClip}
               trackVideoHistory={trackVideoHistory}
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
-              playbackRate={playback.playbackRate}
-              onPlaybackRateChange={playback.setPlaybackRate}
-              nowPlayingVisualizers={candidatesFor(plugins.visualizers, "nowplaying").map(v => ({ key: visualizerKey(v), name: v.name }))}
-              nowPlayingVisualizer={nowPlayingVisualizer}
-              onNowPlayingVisualizerChange={(key) => setVisualizerSlots(prev => ({ ...prev, nowplaying: key }))}
               videoStoryboards={videoStoryboards}
               onVideoStoryboardsChange={handleVideoStoryboardsChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}

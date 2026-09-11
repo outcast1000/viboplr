@@ -16,7 +16,6 @@ import {
   MINI_RESTING_SIZES, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZES, MINI_WIDTH_SIZE_LABELS,
   type MiniRestingSize, type MiniWidthSize,
 } from "../hooks/useMiniMode";
-import { ARTWORK_VISUALIZER_NAME } from "../utils/visualizerSlots";
 import {
   type McpSetupInfo,
   buildMcpConfigSnippet,
@@ -1338,12 +1337,6 @@ interface SettingsPanelProps {
   onRgPreventClipChange: (enabled: boolean) => void;
   trackVideoHistory: boolean;
   onTrackVideoHistoryChange: (enabled: boolean) => void;
-  /** Visualizer candidates for the Now Playing slot + the current pick. */
-  playbackRate: number;
-  onPlaybackRateChange: (rate: number) => void;
-  nowPlayingVisualizers: { key: string; name: string }[];
-  nowPlayingVisualizer: string | null;
-  onNowPlayingVisualizerChange: (key: string | null) => void;
   videoStoryboards: boolean;
   onVideoStoryboardsChange: (enabled: boolean) => void;
   minimizeToMiniPlayer: boolean;
@@ -1473,11 +1466,6 @@ export function SettingsPanel({
   onRgPreventClipChange,
   trackVideoHistory,
   onTrackVideoHistoryChange,
-  playbackRate,
-  onPlaybackRateChange,
-  nowPlayingVisualizers,
-  nowPlayingVisualizer,
-  onNowPlayingVisualizerChange,
   videoStoryboards,
   onVideoStoryboardsChange,
   minimizeToMiniPlayer,
@@ -2015,52 +2003,6 @@ export function SettingsPanel({
                         />
                         <span className="settings-value">{crossfadeSecs === 0 ? "Off" : `${crossfadeSecs.toFixed(1)}s`}</span>
                       </div>
-                    </div>
-                    {/* The host-owned route back to normal speed. A visualizer can
-                        set the rate (the Vinyl Deck's 33/45 buttons do), so there
-                        has to be a way out that doesn't depend on the plugin still
-                        being installed. Rate also resets to 1× on every launch. */}
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Playback speed</span>
-                        <span className="settings-description">Plays everything faster or slower. Pitch follows the speed, the way a turntable does rather than the way a podcast app does — so this transposes the music, it doesn't just hurry it. Not remembered between launches.</span>
-                      </div>
-                      <div className="settings-row-control settings-row-slider">
-                        <select
-                          className="ds-select"
-                          value={String(playbackRate)}
-                          onChange={e => onPlaybackRateChange(parseFloat(e.target.value))}
-                        >
-                          <option value="1">Normal</option>
-                          <option value="1.35">45 on a 33 (1.35×)</option>
-                          <option value="2.34">78 on a 33 (2.34×)</option>
-                          <option value="0.74">33 on a 45 (0.74×)</option>
-                        </select>
-                        {playbackRate !== 1 && (
-                          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => onPlaybackRateChange(1)}>
-                            Reset
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Now Playing visualizer</span>
-                        <span className="settings-description">What fills the art column in the Now Playing view. {ARTWORK_VISUALIZER_NAME} is the track's own album or artist image; a plugin visual, such as the Vinyl Deck, replaces it. Whichever you pick grows to fill the view when lyrics are off, and Cmd/Ctrl+F puts it fullscreen. Also on the Now Playing view's own visualizer button.{nowPlayingVisualizers.length === 0 ? " Install and enable a visualizer plugin from Extensions for more options." : ""}</span>
-                      </div>
-                      {/* Never disabled: {ARTWORK_VISUALIZER_NAME} is a real choice, so with no
-                          plugin installed this is a one-option select rather than
-                          a greyed-out control that hides what's on screen. */}
-                      <select
-                        className="ds-select"
-                        value={nowPlayingVisualizer ?? ""}
-                        onChange={e => onNowPlayingVisualizerChange(e.target.value || null)}
-                      >
-                        <option value="">{ARTWORK_VISUALIZER_NAME}</option>
-                        {nowPlayingVisualizers.map(v => (
-                          <option key={v.key} value={v.key}>{v.name}</option>
-                        ))}
-                      </select>
                     </div>
                     <div className="settings-row">
                       <div className="settings-row-info">
