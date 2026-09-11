@@ -240,7 +240,7 @@ export function EqPopover({
           pre-gain instead. */}
       {simple && (
         <div className="eq-barvis-row">
-          <span className="eq-barvis-label">Boost clip protection</span>
+          <span className="eq-barvis-label">Boost clip protection<HelpLink anchor="clip-protection" topic="boost clip protection" /></span>
           <div className="eq-mode-seg" role="radiogroup" aria-label="Boost clip protection">
             <button
               className={`eq-mode-seg-btn ${clipProtection !== "headroom" ? "active" : ""}`}
