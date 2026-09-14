@@ -56,7 +56,9 @@ so a launched app brings the API up on its own).
 ## Tiers
 
 By default the server exposes the music surface: search/browse, playback and
-queue control, playlists, likes, tags, lyrics/info, plugin catalogs
+queue control, playlists, likes, tags, lyrics/info (incl. `search_info`, a
+substring search over the cached plugin info values — find a track by a lyric
+phrase, local file lyrics included), plugin catalogs
 (YouTube/Spotify/TIDAL search + play), plugin home shelves, collections
 (list + rescan — never add/remove), ad-hoc read-only SQL over the library
 database (`query_library` — writes and the credential tables are refused

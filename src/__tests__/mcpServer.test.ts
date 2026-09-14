@@ -58,6 +58,16 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       return reply(200, { index: 0, mode: "normal", tracks: [] });
     }
     if (req.url?.startsWith("/v1/search")) return reply(200, { tracks: [{ id: 7, title: "Jóga" }], total: 1 });
+    if (req.url?.startsWith("/v1/info/search"))
+      return reply(200, [
+        {
+          type_id: "lyrics",
+          entity: "track",
+          entity_key: "track:bjork:joga",
+          snippet: "…emotional landscapes…",
+          track: { id: 7, title: "Jóga" },
+        },
+      ]);
     if (req.url === "/v1/collections" && req.method === "GET")
       return reply(200, [{ id: 3, kind: "local", name: "Music", track_count: 42 }]);
     if (req.url === "/v1/collections/3/rescan" && req.method === "POST") {
@@ -360,6 +370,18 @@ describe("MCP server over stdio", () => {
     const req = api.seen.find((r) => r.url.startsWith("/v1/search"));
     expect(req?.url).toContain("type=track");
     expect(req?.url).toContain("limit=5");
+  });
+
+  it("searches the cached plugin info store with the filters mapped onto the query", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "search_info",
+      arguments: { query: "emotional landscapes", typeId: "lyrics", resolveTracks: true, limit: 10 },
+    });
+    expect(JSON.parse(toolText(res.result))[0].track.id).toBe(7);
+    const req = api.seen.find((r) => r.url.startsWith("/v1/info/search"));
+    expect(req?.url).toContain("typeId=lyrics");
+    expect(req?.url).toContain("resolveTracks=true");
+    expect(req?.url).toContain("limit=10");
   });
 
   it("lists collections and posts a rescan with the full flag", async () => {

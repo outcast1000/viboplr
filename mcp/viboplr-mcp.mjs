@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.4.0";
+const VERSION = "0.5.0";
 const BUNDLE_ID = "com.alex.viboplr";
 const LATEST_PROTOCOL = "2025-06-18";
 const KNOWN_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
@@ -43,6 +43,8 @@ const INSTRUCTIONS = [
   "Track ids from search_library/browse are library ids; playlist rows use a separate row-id space (browse kind=playlist_tracks) and those row ids are what edit_playlist remove/reorder take.",
   "Mutation commands return before UI state settles — read get_status afterwards for the truth.",
   "External/plugin tracks resolve their stream at play time; get_status can show the previous track for 10–20s after playing one. Wait and re-read before concluding a play failed.",
+  "Plugin-fetched info (lyrics — local file lyrics included — bios, reviews) is cached in the plugins' database storage; search_info searches that cache, e.g. to find which track contains a lyric phrase.",
+  "Bulk-tagging recipe (when asked to tag the library properly): work artist by artist, biggest first (query_library: artists ordered by track_count); fetch an artist's community tags once via get_entity_info (kind=track, typeId=track_tags, using any one track of theirs — artist-level tags return as artistTags), pick the top few, then apply them to every track of that artist with edit_track_tags.",
   "If tools report the app unreachable, ask the user to start Viboplr and enable Settings → General → AI control.",
 ].join(" ");
 
@@ -559,7 +561,7 @@ export const TOOLS = [
   {
     name: "get_lyrics",
     description:
-      "Lyrics for a track — omit title/artistName to use what's playing. Fresh cache is instant; otherwise the lyrics provider chain runs (can take a while). Synced lyrics carry per-line timestamps.",
+      "Lyrics for a track — omit title/artistName to use what's playing. Local lyrics (embedded file tags, sidecar .lrc/.txt, a Lyrics/ folder) arrive through this same call — the built-in local provider runs first in the chain. Fresh cache is instant; otherwise the provider chain runs (can take a while). Synced lyrics carry per-line timestamps. To search ACROSS lyrics (which track contains a phrase), use search_info instead of fetching track by track.",
     inputSchema: obj({
       title: str("Track title (omit to use the playing track)"),
       artistName: str("Artist (with title)"),
@@ -586,6 +588,23 @@ export const TOOLS = [
       typeId
         ? apiRequest("POST", "/v1/info/fetch", { kind, name, title, artistName, typeId, pluginId }, { timeoutMs: SLOW_MS })
         : apiRequest("GET", `/v1/info/entity${qs({ kind, name, title, artistName })}`),
+  },
+  {
+    name: "search_info",
+    description:
+      "Substring search across the CACHED plugin info values — the plugins' database storage of lyrics, bios, reviews, similar lists. This is how to find a track from a lyric phrase: typeId=lyrics + resolveTracks=true returns each hit with a snippet and the resolved library track (`track`). Cached-only and instant — a value is here once any surface has fetched it (local .lrc/embedded file lyrics included, via the built-in local provider); nothing triggers a live provider fetch, so absence means not-yet-fetched, not not-existing.",
+    inputSchema: obj(
+      {
+        query: str("Search text (matched accent/case-insensitively inside the stored values)"),
+        typeId: str('Restrict to one info type, e.g. "lyrics", "artist_bio" (ids from get_entity_info without typeId)'),
+        entity: en(["track", "artist", "album", "tag"], "Restrict to values about this entity kind"),
+        resolveTracks: bool("Resolve track-entity hits to playable library track rows"),
+        limit: num("Max matches (default 20, max 100)"),
+      },
+      ["query"],
+    ),
+    run: ({ query, typeId, entity, resolveTracks, limit }) =>
+      apiRequest("GET", `/v1/info/search${qs({ q: query, typeId, entity, resolveTracks, limit })}`),
   },
   {
     name: "launch_app",
