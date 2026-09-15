@@ -853,6 +853,19 @@ impl Engine {
         let crossfade = crossfade && !self.state.lock().unwrap().exclusive;
         self.clear_preload()?;
         if crossfade {
+            // A fade may still own the standby deck: a track shorter than the
+            // preload lead arms its successor moments after its own fade
+            // started, and that fade's completion `stop`s the standby deck —
+            // silently unloading the armed file, while `xfade_key` and the
+            // frontend's arm both stay set. The eventual promotion then
+            // unpauses an empty deck: track-changed and playing=true fire, but
+            // nothing plays and nothing ever ends. Finish the fade before
+            // arming, the same way `play_with_headers` does — an armed standby
+            // deck must never also be owned by a fade thread. (A ramp tick
+            // already past its staleness check can still write one stale
+            // volume here; harmless — the deck is paused and start_crossfade
+            // re-zeros the incoming volume before unpausing.)
+            self.snap_finish_fade();
             let standby = {
                 let mut st = self.state.lock().unwrap();
                 let standby = 1 - st.active;
@@ -1730,6 +1743,55 @@ mod tests {
         // Track B finishes with nothing armed -> ended.
         let ended = wait_for(&rx, "engine-ended", Duration::from_secs(10));
         assert_eq!(ended["trackKey"], "trk:b");
+    }
+
+    #[test]
+    fn test_arm_during_a_running_fade_survives_that_fades_cleanup() {
+        // A track shorter than the preload lead arms its successor moments
+        // after its own crossfade started. The fade thread's completion used to
+        // `stop` the standby deck unconditionally — unloading the just-armed
+        // file while `xfade_key` stayed set — so the eventual promotion
+        // unpaused an empty deck: `engine-track-changed` fired, then no
+        // time-pos, no EOF, no error, ever. `preload` now snap-finishes a
+        // running fade before arming.
+        let dir = tempfile::tempdir().unwrap();
+        let wav_a = dir.path().join("a.wav");
+        let wav_b = dir.path().join("b.wav");
+        let wav_c = dir.path().join("c.wav");
+        write_wav(&wav_a, 0.4);
+        write_wav(&wav_b, 3.0);
+        write_wav(&wav_c, 0.4);
+
+        let (sink, rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+
+        engine
+            .play(wav_a.to_str().unwrap(), None, "trk:a", None, 1.0, false, false)
+            .expect("play");
+        engine
+            .preload(wav_b.to_str().unwrap(), None, "trk:b", true)
+            .expect("arm b");
+        engine.start_crossfade(1.0).expect("fade into b");
+        let changed = wait_for(&rx, "engine-track-changed", Duration::from_secs(10));
+        assert_eq!(changed["trackKey"], "trk:b");
+        assert_eq!(changed["reason"], "crossfade");
+
+        // Arm the next track while that 1s fade is still ramping — the race.
+        engine
+            .preload(wav_c.to_str().unwrap(), None, "trk:c", true)
+            .expect("arm c mid-fade");
+        // Let the original fade window pass: this is when the old cleanup
+        // stopped the deck now holding C's arm.
+        std::thread::sleep(Duration::from_millis(1500));
+
+        engine.start_crossfade(0.1).expect("fade into c");
+        let changed = wait_for(&rx, "engine-track-changed", Duration::from_secs(10));
+        assert_eq!(changed["trackKey"], "trk:c");
+
+        // The promoted deck must actually be playing: C reaches EOF and ends.
+        // With the race, the deck is empty and this times out.
+        let ended = wait_for(&rx, "engine-ended", Duration::from_secs(10));
+        assert_eq!(ended["trackKey"], "trk:c");
     }
 
     /// Which demuxer does the buffer readout describe? Two shapes, back to
