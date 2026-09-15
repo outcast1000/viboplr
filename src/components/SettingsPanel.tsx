@@ -717,7 +717,10 @@ function AssistantPermissions() {
       {ASSISTANT_SCOPE_ROWS.map((row) => (
         <div className="settings-row" key={row.key}>
           <div className="settings-row-info">
-            <span className="settings-label">{row.label}</span>
+            <span className="settings-label">
+              {row.label}
+              <HelpLink anchor="assistant-permissions" topic="assistant permissions" />
+            </span>
             <span className="settings-description">{row.description}</span>
           </div>
           <ToggleSwitch

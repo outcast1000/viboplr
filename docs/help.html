@@ -352,14 +352,44 @@
         <p>Then <strong>fully quit</strong> Claude Desktop (not just the window) and relaunch &mdash; MCP servers connect at startup. The Viboplr tools appear under the tools icon beneath the message box.</p>
         <p><strong>Claude Code</strong> &mdash; one command in the terminal, then start a new session:</p>
         <div class="docs-code"><pre>claude mcp add viboplr -- node /Users/you/viboplr/viboplr-mcp.mjs</pre></div>
-        <p>Try it: <em>&ldquo;What's playing in Viboplr?&rdquo;</em>, <em>&ldquo;Play something mellow&rdquo;</em>, <em>&ldquo;Queue the rest of this album&rdquo;</em>, <em>&ldquo;Make a playlist of my forgotten favorites&rdquo;</em>.</p>
+        <p><strong>What can you ask for?</strong> Anything the app can do, in plain language. Some places to start:</p>
+        <ul class="docs-list">
+          <li><strong>Listening</strong> &mdash; <em>&ldquo;What's playing?&rdquo;</em>, <em>&ldquo;Play something mellow&rdquo;</em>, <em>&ldquo;Queue the rest of this album&rdquo;</em>, <em>&ldquo;Start a radio station from this track&rdquo;</em>, <em>&ldquo;Make a playlist of my forgotten favorites&rdquo;</em>.</li>
+          <li><strong>Knowing your library</strong> &mdash; <em>&ldquo;Which artists did I play most this year?&rdquo;</em>, <em>&ldquo;Find liked tracks I haven't heard in months&rdquo;</em>, <em>&ldquo;Which song has the lyric &hellip;?&rdquo;</em> The assistant can run read-only queries over your library and history, so it answers questions the app has no button for.</li>
+          <li><strong>Caring for the collection</strong> (behind the <a href="#assistant-permissions">assistant permissions</a>, off by default) &mdash; <em>&ldquo;Clean up the genre tags, artist by artist&rdquo;</em>, <em>&ldquo;File this compilation under Various Artists&rdquo;</em>, <em>&ldquo;Save synced lyrics next to my files&rdquo;</em>, <em>&ldquo;Add a cover.jpg to albums that are missing one&rdquo;</em>, <em>&ldquo;Reorganize this folder into Artist/Album&rdquo;</em> &mdash; file moves are planned first and shown to you before anything is touched.</li>
+          <li><strong>Getting music</strong> (same permissions) &mdash; <em>&ldquo;Download this track from my server into my Music folder&rdquo;</em>; with the yt-dlp plugin installed, <em>&ldquo;Find the music video for &hellip; and download it&rdquo;</em>.</li>
+        </ul>
         <ul class="docs-list">
           <li><strong>Two tool tiers.</strong> By default the assistant gets the music surface &mdash; search, playback, queue, playlists, tags, likes, radio, plugin catalogs, collections. Add <code>--tier=full</code> after the script path to also expose the power tools: extensions and skins, window control, logs, plugin actions and entity images. The default is deliberate &mdash; it bounds what web content flowing through the assistant could ever reach.</li>
           <li><strong>App not running?</strong> Just ask the assistant to start it &mdash; the <code>launch_app</code> tool launches the installed app and waits for it to answer. This works because the AI control setting persists: enable it once and every later launch brings the private server up on its own.</li>
           <li><strong>Nothing happens?</strong> Check that Viboplr is running and the AI control toggle is on &mdash; the tools answer with exactly that hint when they can't reach the app. In Claude Desktop, if the server never appears, the usual cause is a bare <code>"node"</code> that your client can't resolve &mdash; it launches outside your shell profile, so it doesn't see your PATH. <strong>Copy config</strong> above already writes the absolute path; wiring it by hand, use the full path from <code>which node</code> in your terminal.</li>
           <li><strong>Several profiles?</strong> The server picks your <code>default</code> profile (or the only running one); add <code>--profile=name</code> to target another.</li>
           <li><strong>Prefer no MCP at all?</strong> The control server is a plain HTTP API, and the repo ships a ready-made <a href="https://github.com/outcast1000/viboplr/tree/main/skills/viboplr-control" target="_blank" rel="noopener">Claude Code skill</a> that teaches an assistant to drive it directly &mdash; discovery, token handling and every endpoint documented. Power-user territory; the MCP server is the supported route.</li>
-          <li><strong>Privacy is unchanged.</strong> The MCP server adds no access the token doesn't already grant, and the hard limits hold: no file deletion, no audio-tag rewrites, no extension installs.</li>
+          <li><strong>Privacy is unchanged.</strong> The MCP server adds no access the token doesn't already grant. Reading and playback need nothing beyond the AI control toggle; anything that touches your files &mdash; tag rewrites, lyrics and cover files, moving files, downloads &mdash; sits behind its own <a href="#assistant-permissions">permission switch</a>, off by default. The hard limits hold: no file deletion, no extension installs.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- Assistant write permissions -->
+  <section class="section" id="assistant-permissions">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Assistant permissions</h2>
+        <p class="docs-lead">Three switches that let a connected AI assistant change things &mdash; not just read and play. All off by default, each one scoped, everything journaled.</p>
+        <p>With <strong>Settings &rarr; General &rarr; AI control</strong> on, the same card shows three permission rows. They gate what an assistant may <em>write</em>; searching, playback, queue and playlist edits, database tags and likes never need them.</p>
+        <ul class="docs-list">
+          <li><strong>Modify tags in files</strong> &mdash; write tag and metadata edits (genre tags, artist, album, album artist, year) into the audio files themselves, through the same bulk-edit path the app's own modal uses. Database-only tag edits are always allowed and never touch files.</li>
+          <li><strong>Manage files</strong> &mdash; create lyrics files (<code>.lrc</code>/<code>.txt</code>) and <code>cover.jpg</code> next to your music, and move or rename files inside a collection. Moves are <strong>two-step by design</strong>: the assistant first gets back an exact from&nbsp;&rarr;&nbsp;to plan (nothing touched), shows it to you, and only a second call carrying that plan's fingerprint applies it &mdash; if anything on disk changed in between, the plan is rejected. Moved tracks keep their identity: tags, likes, playlists and history all follow the file.</li>
+          <li><strong>Download tracks</strong> &mdash; save music into a local collection folder. Two shapes: a track's <em>own</em> source (your Subsonic/Navidrome server, or a direct web URL) downloaded as itself, or a plugin-sourced track (e.g. YouTube via the yt-dlp plugin) downloaded through the plugin that owns it. The assistant can never have the app pick a source on its behalf &mdash; it must name what to download and from where.</li>
+        </ul>
+        <p>Guardrails that hold no matter which switches are on:</p>
+        <ul class="docs-list">
+          <li><strong>Everything stays inside your collections.</strong> Destinations are validated against the collection's own folder &mdash; there is no way to write anywhere else on disk.</li>
+          <li><strong>Nothing is silently overwritten.</strong> Moves and downloads refuse existing files outright; replacing a lyrics or cover file requires an explicit overwrite, and the old file goes to the trash.</li>
+          <li><strong>Every change is journaled.</strong> <strong>Settings &rarr; Debug &rarr; Assistant changes</strong> lists what was written and when; the same log rides along in problem reports, so &ldquo;what did the assistant do?&rdquo; always has an answer.</li>
+          <li><strong>Switches apply instantly and fail closed.</strong> Flip one off and the very next request is refused; a missing or unreadable permissions file means <em>no</em>.</li>
+          <li><strong>Deletion stays impossible.</strong> There is no assistant verb that deletes a track, a playlist, or a file.</li>
         </ul>
       </div>
     </div>
