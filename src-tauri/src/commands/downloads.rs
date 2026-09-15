@@ -154,6 +154,66 @@ pub async fn check_path_conflict(dest_path: String) -> Result<ConflictCheck, Str
     }
 }
 
+/// Landing pad for an assistant plugin download — the backend half of the
+/// control API's `downloads.plugin` bridged verb. The frontend dispatcher runs
+/// the plugin's own resolve (the same machinery the DownloadModal uses) and
+/// hands the result here; this validates the destination against the
+/// collection root and indexes the file (`assistant_write::land_download`).
+///
+/// The Downloads write scope is re-checked HERE in Rust, not only in the HTTP
+/// handler: any JS in the webview (a plugin's included) can invoke a command,
+/// so the command itself must be no more powerful than the scoped API route
+/// that legitimately reaches it — same rule as `write_probe_dump`.
+#[tauri::command]
+pub async fn assistant_land_download(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    subdir: Option<String>,
+    artist_name: String,
+    title: String,
+    ext: Option<String>,
+    source_url: Option<String>,
+    source_path: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    metadata: Option<crate::assistant_write::LandTags>,
+) -> Result<serde_json::Value, String> {
+    use crate::assistant_write::{self, DownloadSource, Scope};
+    if !assistant_write::load_scopes(&state.app_dir).allows(Scope::Downloads) {
+        return Err(format!(
+            "the \"{}\" assistant permission is off — enable it in Settings → General → AI control",
+            Scope::Downloads.label()
+        ));
+    }
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = match (source_url, source_path) {
+            (Some(url), None) => {
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return Err("sourceUrl must be http(s)".to_string());
+                }
+                DownloadSource::Url(url, headers)
+            }
+            (None, Some(path)) => {
+                let bare = path.strip_prefix("file://").unwrap_or(&path);
+                DownloadSource::LocalFile(std::path::PathBuf::from(bare))
+            }
+            _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
+        };
+        assistant_write::land_download(
+            &db,
+            collection_id,
+            subdir.as_deref().unwrap_or(""),
+            &artist_name,
+            &title,
+            ext.as_deref().unwrap_or(""),
+            source,
+            metadata,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn cancel_direct_download(
     state: State<'_, AppState>,

@@ -386,6 +386,10 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/albums/{id}/cover-file", post(handle_cover_file))
         .route("/v1/files/move", post(handle_files_move))
         .route("/v1/tracks/{id}/download", post(handle_track_download))
+        // Plugin-resolved download: POST resolves through the OWNING plugin in
+        // the webview and lands the file (`assistant_land_download`); DELETE
+        // cancels the in-flight resolve (kills the provider's subprocess).
+        .route("/v1/downloads/plugin", post(handle_plugin_download).delete(handle_plugin_download_cancel))
         // Extensions & skins: list / enable-disable / update check / apply skin.
         // Install and delete are deliberate NON-goals — see the module doc.
         .route("/v1/extensions", get(|s| handle_bridge_get(s, "extensions.list")))
@@ -1258,6 +1262,60 @@ struct DownloadBody {
     subdir: Option<String>,
 }
 
+/// Plugin-resolved download, bridged: the dispatcher runs the owning plugin's
+/// resolve — the same machinery the DownloadModal uses, which may BE the whole
+/// download (yt-dlp fetches + merges for minutes, hence the long budget) —
+/// then lands the file via `assistant_land_download` (which re-checks the
+/// scope in Rust). The provider is never picked by the host: the payload must
+/// name a plugin-scheme uri, a plugin-scheme library track, or an explicit
+/// pluginId for a metadata resolve.
+async fn handle_plugin_download(state: AxumState<ServerState>, body: Bytes) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::Downloads) {
+        return resp;
+    }
+    let payload = match parse_body(json!({}), &body) {
+        Ok(p) => p,
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
+    };
+    // Quality discovery is a read riding the same verb: no destination, no
+    // addressing, nothing journaled.
+    let listing = payload.get("listQualities") == Some(&Value::Bool(true));
+    if !listing {
+        if !payload.get("collectionId").map(|v| v.is_number()).unwrap_or(false) {
+            return error_response(StatusCode::BAD_REQUEST, "collectionId (a local collection id) is required");
+        }
+        if payload.get("uri").is_none()
+            && payload.get("trackId").is_none()
+            && payload.get("title").is_none()
+            && payload.get("searchId").is_none()
+        {
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "address the track: searchId + index, trackId (library id), uri (plugin scheme), or title (+ pluginId)",
+            );
+        }
+    }
+    // 60× the base budget (10 min in production, still fast under test) — the
+    // resolve step is legitimately the whole download for some providers.
+    let timeout = state.0.bridge_timeout.saturating_mul(60);
+    let resp = bridge(&state.0, "downloads.plugin", payload, timeout).await;
+    if !listing && resp.status() == StatusCode::OK {
+        assistant_write::append_audit(&state.0.app_dir, "downloads.plugin", "downloaded a track via its plugin", None);
+    }
+    resp
+}
+
+/// Cancel the in-flight plugin download resolve. Unscoped by design: with no
+/// resolve running it is a no-op, and a caller that can start one can stop it.
+async fn handle_plugin_download_cancel(state: AxumState<ServerState>, body: Bytes) -> Response {
+    let payload = match parse_body(json!({}), &body) {
+        Ok(p) => p,
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
+    };
+    let timeout = state.0.bridge_timeout;
+    bridge(&state.0, "downloads.cancel", payload, timeout).await
+}
+
 /// Source-faithful download: the track's own subsonic:// or http(s) source,
 /// as itself, into a local collection — never resolved through a download
 /// provider (the mixtape-export rule). The file is indexed on landing.
@@ -1646,6 +1704,7 @@ mod tests {
             ("POST", "/v1/albums/1/cover-file", r#"{"fromCache":true}"#),
             ("POST", "/v1/files/move", r#"{"moves":[{"trackId":1}]}"#),
             ("POST", "/v1/tracks/1/download", r#"{"collectionId":1}"#),
+            ("POST", "/v1/downloads/plugin", r#"{"collectionId":1,"uri":"ytdlp://abc"}"#),
         ] {
             let res = router
                 .clone()
@@ -1826,6 +1885,73 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// The plugin-download route bridges into the webview once scoped — the
+    /// resolve machinery lives there — and validates addressing Rust-side.
+    #[tokio::test]
+    async fn test_plugin_download_bridges_when_scoped_and_validates_addressing() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { downloads: true, ..Default::default() });
+        let api_slot: Arc<Mutex<Option<Arc<ControlApi>>>> = Arc::new(Mutex::new(None));
+        let responder_slot = Arc::clone(&api_slot);
+        let state = test_state_in(
+            Arc::new(move |req: &ControlRequest| {
+                if let Some(api) = responder_slot.lock().unwrap().clone() {
+                    api.respond(req.id, true, json!({ "verb": req.verb, "payload": req.payload }));
+                }
+            }),
+            dir.path().to_path_buf(),
+        );
+        *api_slot.lock().unwrap() = Some(Arc::clone(&state.api));
+        let router = build_router(state);
+
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST",
+                "/v1/downloads/plugin",
+                TEST_TOKEN,
+                r#"{"collectionId":3,"uri":"ytdlp://abc","subdir":"Web"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["verb"], json!("downloads.plugin"));
+        assert_eq!(json["payload"]["collectionId"], json!(3));
+
+        // No collectionId / no addressing never reaches the bridge.
+        for body in [r#"{"uri":"ytdlp://abc"}"#, r#"{"collectionId":3}"#] {
+            let res = router
+                .clone()
+                .oneshot(request_json("POST", "/v1/downloads/plugin", TEST_TOKEN, body))
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::BAD_REQUEST, "body {} must be refused", body);
+        }
+
+        // Quality discovery bridges with neither a destination nor addressing.
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST",
+                "/v1/downloads/plugin",
+                TEST_TOKEN,
+                r#"{"listQualities":true,"pluginId":"ytdlp"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(body_json(res).await["verb"], json!("downloads.plugin"));
+
+        // Cancel is unscoped and bridges as downloads.cancel.
+        let res = router
+            .oneshot(request_json("DELETE", "/v1/downloads/plugin", TEST_TOKEN, "{}"))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(body_json(res).await["verb"], json!("downloads.cancel"));
     }
 
     #[test]

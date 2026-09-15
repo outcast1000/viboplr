@@ -617,11 +617,163 @@ fn sniff_audio_ext(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
+/// Where the bytes of a landing download come from.
+pub enum DownloadSource {
+    /// A URL this side fetches itself (subsonic stream/download URL, direct
+    /// http(s) source, or a plugin-resolved URL), with optional headers.
+    Url(String, Option<std::collections::HashMap<String, String>>),
+    /// A file already on disk — a plugin resolve that performed its own fetch
+    /// (yt-dlp downloads + merges into a temp file and reports its path). The
+    /// file is MOVED into the collection, so the temp copy doesn't linger.
+    LocalFile(PathBuf),
+}
+
+/// Tag metadata a plugin resolve reported (`DownloadResolveResult.metadata`) —
+/// written into the landed file best-effort, exactly as `download_to_path`
+/// does for the modal (a raw yt-dlp download carries no tags otherwise).
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LandTags {
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track_number: Option<u32>,
+    pub year: Option<i32>,
+    pub genre: Option<String>,
+    pub cover_url: Option<String>,
+}
+
+/// Land one download into a local collection: validate the destination
+/// (root-relative, symlink-checked), fetch/move the bytes, name the file
+/// `Artist - Title.ext`, refuse conflicts outright, and index the result so it
+/// becomes a library row. The shared tail of every assistant download —
+/// source-faithful and plugin-resolved alike.
+pub fn land_download(
+    db: &Arc<Database>,
+    collection_id: i64,
+    subdir: &str,
+    artist: &str,
+    title: &str,
+    ext_hint: &str,
+    source: DownloadSource,
+    tags: Option<LandTags>,
+) -> Result<Value, String> {
+    if title.trim().is_empty() {
+        return Err("title must not be empty".to_string());
+    }
+    let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
+    if collection.kind != "local" || collection.path.is_none() {
+        return Err(format!("collection \"{}\" is not a local folder", collection.name));
+    }
+    if !collection.enabled {
+        return Err(format!("collection \"{}\" is disabled", collection.name));
+    }
+    let root_str = collection.path.clone().unwrap();
+    let root = Path::new(&root_str);
+    let dir_rel = parse_relative_dir(subdir)?;
+    let dest_dir = root.join(&dir_rel);
+    ensure_within_root(root, &dest_dir)?;
+
+    let named_ext = match ext_hint {
+        "auto" | "" => String::new(),
+        e => e.trim_start_matches('.').to_ascii_lowercase(),
+    };
+
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("failed to create {}: {}", dest_dir.display(), e))?;
+    let temp = dest_dir.join(format!(".viboplr-dl-{}.tmp", std::process::id()));
+    match &source {
+        DownloadSource::Url(url, headers) => {
+            if let Err(e) = crate::downloader::download_file(url, headers.as_ref(), &temp, None, None) {
+                let _ = std::fs::remove_file(&temp);
+                return Err(format!("download failed: {}", e));
+            }
+        }
+        DownloadSource::LocalFile(path) => {
+            if !path.is_file() {
+                return Err(format!("resolved file {} does not exist", path.display()));
+            }
+            // Same-volume rename first; a plugin's temp dir can sit on another
+            // volume, where rename fails and a copy is the only way over.
+            if std::fs::rename(path, &temp).is_err() {
+                std::fs::copy(path, &temp).map_err(|e| {
+                    let _ = std::fs::remove_file(&temp);
+                    format!("failed to copy resolved file into the collection: {}", e)
+                })?;
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
+    // Settle the extension: the hint (or the local file's own), else sniff the
+    // bytes, else mp3.
+    let file_ext = if named_ext.is_empty() {
+        if let DownloadSource::LocalFile(path) = &source {
+            path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
+        } else {
+            String::new()
+        }
+    } else {
+        named_ext
+    };
+    let final_ext = if file_ext.is_empty() {
+        let mut head = [0u8; 16];
+        let read = std::fs::File::open(&temp)
+            .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
+            .unwrap_or(0);
+        sniff_audio_ext(&head[..read]).unwrap_or("mp3").to_string()
+    } else {
+        file_ext
+    };
+    let filename = crate::downloader::download_filename(artist, title, &final_ext);
+    let dest = dest_dir.join(&filename);
+    if dest.exists() {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("{} already exists — downloads never overwrite", dest.display()));
+    }
+    std::fs::rename(&temp, &dest).map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        format!("failed to move downloaded file into place: {}", e)
+    })?;
+
+    // Provider-reported metadata → file tags, best-effort (after the rename so
+    // lofty sees the real extension; a tag-write failure must not fail a
+    // completed download — same contract as the modal's download_to_path).
+    if let Some(t) = &tags {
+        if t.title.is_some() || t.artist.is_some() {
+            let _ = crate::downloader::write_tags(
+                &dest,
+                t.title.as_deref().unwrap_or("Unknown"),
+                t.artist.as_deref().unwrap_or("Unknown Artist"),
+                t.album.as_deref().unwrap_or("Unknown Album"),
+                t.track_number,
+                t.year,
+                t.genre.as_deref(),
+                t.cover_url.as_deref(),
+            );
+        }
+    }
+
+    let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+    let new_id = crate::scanner::process_media_file(db, &dest, Some(collection_id), Some(root_str.as_str()));
+    if let Some(id) = new_id {
+        let _ = db.refresh_track_after_ingest(id);
+    }
+    Ok(serde_json::json!({
+        "path": dest.to_string_lossy(),
+        "fileSize": file_size,
+        "libraryTrackId": new_id,
+        "indexed": new_id.is_some(),
+    }))
+}
+
 /// Download a track's *own* source — `subsonic://` or a direct `http(s)://`
 /// URL — into a local collection, then index the file so it becomes a library
 /// row. Source-faithful by rule: this never resolves through a download
 /// provider, never picks a different copy, and refuses every other scheme
 /// (see conventions.md "Mixtape export is source-faithful" — same contract).
+/// Plugin-scheme tracks download through `POST /v1/downloads/plugin`, where
+/// the OWNING plugin resolves them (never a provider picked on the user's
+/// behalf).
 pub fn download_track_source(
     db: &Arc<Database>,
     track_id: i64,
@@ -638,72 +790,19 @@ pub fn download_track_source(
         return Err("this track is already a local file — nothing to download".to_string());
     } else {
         return Err(format!(
-            "only a track's own subsonic:// or http(s):// source can be downloaded (source-faithful); \
-             a {} track is downloaded through its plugin in the app",
+            "only a track's own subsonic:// or http(s):// source can be downloaded here (source-faithful); \
+             a {} track is downloaded via POST /v1/downloads/plugin through its owning plugin",
             track.path.split("://").next().unwrap_or("plugin")
         ));
     };
 
-    let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
-    if collection.kind != "local" || collection.path.is_none() {
-        return Err(format!("collection \"{}\" is not a local folder", collection.name));
-    }
-    if !collection.enabled {
-        return Err(format!("collection \"{}\" is disabled", collection.name));
-    }
-    let root_str = collection.path.clone().unwrap();
-    let root = Path::new(&root_str);
-    let dir_rel = parse_relative_dir(subdir)?;
-    let dest_dir = root.join(&dir_rel);
-    ensure_within_root(root, &dest_dir)?;
-
     let artist = track.artist_name.as_deref().unwrap_or("Unknown Artist");
-    let named_ext = if ext == "auto" {
+    let ext_hint = if ext == "auto" {
         track.format.clone().unwrap_or_default().to_ascii_lowercase()
     } else {
         ext
     };
-
-    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("failed to create {}: {}", dest_dir.display(), e))?;
-    let temp = dest_dir.join(format!(".viboplr-dl-{}.tmp", std::process::id()));
-    let downloaded = crate::downloader::download_file(&url, None, &temp, None, None);
-    if let Err(e) = downloaded {
-        let _ = std::fs::remove_file(&temp);
-        return Err(format!("download failed: {}", e));
-    }
-
-    // Settle the extension: stored format, else sniff the bytes, else mp3.
-    let final_ext = if named_ext.is_empty() {
-        let mut head = [0u8; 16];
-        let read = std::fs::File::open(&temp)
-            .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
-            .unwrap_or(0);
-        sniff_audio_ext(&head[..read]).unwrap_or("mp3").to_string()
-    } else {
-        named_ext
-    };
-    let filename = crate::downloader::download_filename(artist, &track.title, &final_ext);
-    let dest = dest_dir.join(&filename);
-    if dest.exists() {
-        let _ = std::fs::remove_file(&temp);
-        return Err(format!("{} already exists — downloads never overwrite", dest.display()));
-    }
-    std::fs::rename(&temp, &dest).map_err(|e| {
-        let _ = std::fs::remove_file(&temp);
-        format!("failed to move downloaded file into place: {}", e)
-    })?;
-
-    let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-    let new_id = crate::scanner::process_media_file(db, &dest, Some(collection_id), Some(root_str.as_str()));
-    if let Some(id) = new_id {
-        let _ = db.refresh_track_after_ingest(id);
-    }
-    Ok(serde_json::json!({
-        "path": dest.to_string_lossy(),
-        "fileSize": file_size,
-        "libraryTrackId": new_id,
-        "indexed": new_id.is_some(),
-    }))
+    land_download(db, collection_id, subdir, artist, &track.title, &ext_hint, DownloadSource::Url(url, None), None)
 }
 
 #[cfg(test)]
@@ -955,6 +1054,43 @@ mod tests {
             .unwrap();
         let err = download_track_source(&db, remote, sub.id, "").unwrap_err();
         assert!(err.contains("not a local folder"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_land_download_moves_a_resolved_local_file_and_indexes_it() {
+        // The plugin-resolve path: the provider already fetched the file
+        // (yt-dlp's temp output); landing moves it in, names it, indexes it.
+        let staging = tempfile::tempdir().unwrap();
+        let resolved = staging.path().join("dl-output.mp3");
+        std::fs::write(&resolved, b"ID3fakebytes").unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let col = db
+            .add_collection("local", "Dest", Some(root.path().to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+
+        let out = land_download(
+            &db, col.id, "Web Artist/Singles", "Web Artist", "Web Song", "",
+            DownloadSource::LocalFile(resolved.clone()), None,
+        )
+        .unwrap();
+        let dest = root.path().join("Web Artist/Singles/Web Artist - Web Song.mp3");
+        assert!(dest.exists());
+        assert!(!resolved.exists(), "the temp file is moved, not copied and left behind");
+        assert_eq!(out["indexed"], json!(true));
+        let id = out["libraryTrackId"].as_i64().unwrap();
+        let track = db.get_track_by_id(id).unwrap();
+        assert!(track.path.ends_with("Web Artist - Web Song.mp3"));
+
+        // Landing the same name again is a conflict, never an overwrite.
+        std::fs::write(&resolved, b"ID3other").unwrap();
+        let err = land_download(
+            &db, col.id, "Web Artist/Singles", "Web Artist", "Web Song", "mp3",
+            DownloadSource::LocalFile(resolved), None,
+        )
+        .unwrap_err();
+        assert!(err.contains("never overwrite"));
     }
 
     #[test]

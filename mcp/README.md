@@ -92,12 +92,16 @@ ergonomics/injection boundary, not an authorization one.
 
 ## Write permissions
 
-Three tools can change the user's files, and they sit **outside the tier
+Four tools can change the user's files, and they sit **outside the tier
 system**: `write_file_tags` (tag/metadata edits written into the audio files —
 the app's canonical bulk edit), `manage_files` (lyrics/cover sidecar files;
 two-step plan-then-apply moves/renames within a collection; the change log),
-and `download_track` (a track's *own* subsonic/http source, as itself, into a
-local collection — never resolved through a download provider).
+`download_track` (a track's *own* subsonic/http source, as itself, into a
+local collection — never resolved through a download provider), and
+`download_plugin_track` (a plugin-sourced track through the plugin that OWNS
+it — a catalog_search result, a plugin-scheme library track/URI, or a
+metadata resolve with an explicit pluginId; the app never picks the provider.
+One at a time, cancellable — the resolve can *be* the whole download).
 
 Their authorization is not the tier but **per-category switches in Viboplr →
 Settings → General → AI control**, all off by default, enforced in Rust on
@@ -125,7 +129,8 @@ non-default profile? Pass `--profile=<name>` (or `VIBOPLR_MCP_PROFILE`).
 Same as the API: no file deletion, no playlist deletion, and no extension
 install/delete — an install verb would turn the token into arbitrary code
 execution, so it is a permanent non-goal. File-metadata writes, sidecar file
-creation, in-collection moves and source-faithful downloads exist but only
-behind the per-category write permissions above; there is no way to write
-outside a collection root, overwrite silently, or download through a provider
-on the user's behalf.
+creation, in-collection moves and downloads exist but only behind the
+per-category write permissions above; there is no way to write outside a
+collection root, overwrite silently, or have the host pick a download
+provider on the user's behalf (a plugin download always names its plugin —
+by scheme ownership or an explicit pluginId).

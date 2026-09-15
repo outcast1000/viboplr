@@ -71,6 +71,17 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       });
       return;
     }
+    if (req.url === "/v1/downloads/plugin" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        reply(200, { path: "/music/Web Artist - Web Song.m4a", indexed: true, provider: "yt-dlp" });
+      });
+      return;
+    }
+    if (req.url === "/v1/downloads/plugin" && req.method === "DELETE")
+      return reply(200, { cancelled: false, note: "no plugin download resolve in flight" });
     if (req.url?.startsWith("/v1/changes") && req.method === "GET")
       return reply(200, { entries: [{ ts: "2026-09-15T00:00:00Z", verb: "tags.writeFiles", summary: "wrote file tags on 2 track(s)" }] });
     if (req.url === "/v1/status")
@@ -463,6 +474,23 @@ describe("MCP server over stdio", () => {
     // move without moves is a caller error, not a request.
     const missing = await rpc.request("tools/call", { name: "manage_files", arguments: { action: "move" } });
     expect((missing.result as { isError?: boolean }).isError).toBe(true);
+  });
+
+  it("posts plugin downloads and routes cancel=true to DELETE", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "download_plugin_track",
+      arguments: { collectionId: 3, searchId: "s1", index: 2, subdir: "Web" },
+    });
+    expect(JSON.parse(toolText(res.result)).indexed).toBe(true);
+    const posted = api.seen.find((r) => r.method === "POST" && r.url === "/v1/downloads/plugin");
+    expect(JSON.parse(posted!.body!)).toEqual({ collectionId: 3, searchId: "s1", index: 2, subdir: "Web" });
+
+    const cancel = await rpc.request("tools/call", {
+      name: "download_plugin_track",
+      arguments: { cancel: true },
+    });
+    expect(JSON.parse(toolText(cancel.result)).cancelled).toBe(false);
+    expect(api.seen.some((r) => r.method === "DELETE" && r.url === "/v1/downloads/plugin")).toBe(true);
   });
 
   it("reads the assistant change log through manage_files action=changes", async () => {

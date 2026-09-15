@@ -28,8 +28,10 @@ import type {
   PluginState, ExtensionUpdate, PluginSearchProvider, PluginSearchResult,
   PluginMenuItem, PluginContextMenuTarget, PluginTargetKind, PluginTrack,
   HomeShelfDisplayKind, HomeShelfItem, HomeShelfResult, GalleryPluginEntry,
-  PluginAssistantTool, ImageFetchResult,
+  PluginAssistantTool, ImageFetchResult, DownloadProvider, DownloadQualityOption,
 } from "../types/plugin";
+import { classifyEffectiveSource } from "../queueEntry";
+import { decideDownload } from "../utils/downloadPlan";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import type { InfoEntity } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
@@ -194,6 +196,19 @@ export interface ControlApiDeps {
      *  BulkEditModal saves. Used by `tags.writeFiles`. */
     refreshAfterBulkEdit: () => void;
   };
+  downloads: {
+    /** useDownloadOrchestration.downloadProviders — the same ordered list the
+     *  DownloadModal resolves through (built-in Subsonic + per-plugin). */
+    providers: DownloadProvider[];
+    /** usePlugins.streamUriResolverOwner — scheme → owning plugin id, the same
+     *  mapping `classifyEffectiveSource` uses everywhere else. */
+    streamUriResolverOwner: (scheme: string) => string | null;
+    /** usePlugins.invokeGetQualities — a provider's declared quality options
+     *  (bare provider id, not the composite). Used only to pick a default. */
+    getQualities: (pluginId: string, providerId: string) => DownloadQualityOption[] | null;
+    /** usePlugins.cancelDownloadResolve — kills the provider's subprocess. */
+    cancelResolve: (pluginId: string) => void;
+  };
   likeActions: {
     setTrackRating: (track: QueueTrack, likeState: number, source?: "like" | "dislike" | "set") => Promise<boolean>;
     setArtistLike: (name: string, likeState: number) => Promise<{ ok: boolean; mirrored: boolean }>;
@@ -288,6 +303,12 @@ const SEARCH_CACHE_CAP = 8;
 
 export function useControlApi(deps: ControlApiDeps) {
   const depsRef = useLatestRef(deps);
+  /** The one in-flight plugin download resolve (`downloads.plugin`). One at a
+   *  time by design — the removed background download queue is not coming back
+   *  as an accidental side effect of concurrent API calls. `cancelled` is the
+   *  generation guard: a resolve that completes after `downloads.cancel` must
+   *  not land its file. */
+  const pluginDownloadRef = useRef<{ pluginId: string | null; cancelled: boolean } | null>(null);
   const searchCacheRef = useRef(new Map<string, { tracks: QueueTrack[]; label: string }>());
   const searchSeqRef = useRef(1);
   const shelfCacheRef = useRef(new Map<string, {
@@ -1211,6 +1232,148 @@ export function useControlApi(deps: ControlApiDeps) {
         const errors = await invoke<string[]>("bulk_update_tracks", { trackIds: ids, fields });
         d.library.refreshAfterBulkEdit();
         return { requested: ids.length, failed: errors.length, errors };
+      }
+
+      // Plugin-resolved download — the DownloadModal's resolve machinery run
+      // headless, then landed into a collection via `assistant_land_download`
+      // (which re-checks the Downloads scope in Rust). The provider is never
+      // picked here: a URI resolves through the plugin owning its scheme
+      // (`classifyEffectiveSource` + `decideDownload`, the modal's own
+      // mapping), and a metadata resolve requires an explicit pluginId.
+      case "downloads.plugin": {
+        // Quality discovery: a provider's declared options (yt-dlp: original /
+        // aac / mp3 / flac, plus video / video-<height> with `video: true`) —
+        // the AI must be able to see these to download a VIDEO, since the
+        // default below picks the first (audio) option.
+        if (payload.listQualities === true) {
+          const pid = optionalString(payload.pluginId);
+          if (!pid) bad("listQualities needs pluginId");
+          const entry = d.downloads.providers.find((p) => p.source === pid);
+          if (!entry) bad(`plugin "${pid}" contributes no download provider (or is disabled)`);
+          const bare = entry.id.startsWith(`${pid}:`) ? entry.id.slice(pid.length + 1) : entry.id;
+          return { provider: entry.name, qualities: d.downloads.getQualities(pid, bare) ?? [] };
+        }
+        const collectionId = payload.collectionId;
+        if (typeof collectionId !== "number") bad("collectionId must be a number");
+        if (pluginDownloadRef.current) {
+          bad("another plugin download is in flight — one at a time; wait for it or cancel it (DELETE /v1/downloads/plugin)");
+        }
+        const subdir = optionalString(payload.subdir) ?? null;
+
+        // -- Address the track: searchId+index (a catalog_search result),
+        //    trackId (a library row), uri, or bare metadata (+ pluginId).
+        let uri = optionalString(payload.uri) ?? null;
+        let meta = {
+          title: optionalString(payload.title) ?? null,
+          artist: optionalString(payload.artistName) ?? null,
+          album: optionalString(payload.albumTitle) ?? null,
+          duration: typeof payload.durationSecs === "number" ? payload.durationSecs : null,
+        };
+        if (typeof payload.searchId === "string") {
+          const cached = searchCacheRef.current.get(payload.searchId);
+          if (!cached) bad("unknown or expired searchId — re-run the catalog search");
+          const index = payload.index;
+          if (typeof index !== "number" || !cached.tracks[index]) bad("index is out of range for that search");
+          const t = cached.tracks[index];
+          uri = t.path;
+          meta = { title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null, duration: t.duration_secs ?? null };
+        } else if (typeof payload.trackId === "number") {
+          const rows = await invoke<Track[]>("get_tracks_by_ids", { ids: [payload.trackId] });
+          const t = rows[0];
+          if (!t) bad(`no library track with id ${payload.trackId}`);
+          uri = t.path;
+          meta = { title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null, duration: t.duration_secs ?? null };
+        }
+
+        // -- Pick the plan.
+        const providers = d.downloads.providers;
+        let pluginId: string | null;
+        let providerId: string;
+        let providerName: string;
+        let resolveRun: (quality: string) => ReturnType<DownloadProvider["resolveByUri"]>;
+        if (uri) {
+          const source = classifyEffectiveSource(uri, d.downloads.streamUriResolverOwner);
+          if (source.kind === "local") bad("that track is already a local file — nothing to download");
+          const plan = decideDownload(
+            source,
+            { title: meta.title ?? "", artist_name: meta.artist, album_title: meta.album, duration_secs: meta.duration },
+            providers,
+          );
+          if (!plan) {
+            bad(`no download provider owns this source (${uri.split("://")[0]}://) — is the owning plugin installed and enabled?`);
+          }
+          const entry = providers.find((p) => p.id === plan.providerId);
+          pluginId = entry && entry.source !== "__builtin" ? entry.source : null;
+          providerId = plan.providerId;
+          providerName = plan.providerName;
+          const planUri = plan.uri ?? uri;
+          resolveRun = (quality) => plan.resolveByUri(planUri, quality, undefined);
+        } else {
+          const pid = optionalString(payload.pluginId);
+          if (!pid) bad("a metadata download needs pluginId — the host never picks a provider on its own");
+          // artistName is optional: providers tolerate null (yt-dlp searches
+          // by title alone), and plenty of videos have no meaningful artist.
+          if (!meta.title) bad("title is required for a metadata download");
+          const entry = providers.find((p) => p.source === pid);
+          if (!entry) bad(`plugin "${pid}" contributes no download provider (or is disabled)`);
+          pluginId = pid;
+          providerId = entry.id;
+          providerName = entry.name;
+          resolveRun = (quality) =>
+            entry.resolveByMetadata(meta.title!, meta.artist, meta.album, meta.duration, quality, undefined);
+        }
+
+        // -- Quality: explicit, else the provider's first declared option,
+        //    else a neutral "original".
+        let quality = optionalString(payload.quality);
+        if (!quality && pluginId) {
+          const bare = providerId.startsWith(`${pluginId}:`) ? providerId.slice(pluginId.length + 1) : providerId;
+          quality = d.downloads.getQualities(pluginId, bare)?.[0]?.value;
+        }
+        quality ??= "original";
+
+        // -- Resolve. This can BE the whole download (yt-dlp fetches + merges
+        //    for minutes); the HTTP route carries the matching long budget.
+        const flight = { pluginId, cancelled: false };
+        pluginDownloadRef.current = flight;
+        let resolved;
+        try {
+          resolved = await resolveRun(quality);
+        } catch (e) {
+          console.error("Control API: plugin download resolve failed:", e);
+          bad(flight.cancelled ? "cancelled" : `the provider failed to resolve this download: ${errorText(e)}`);
+        } finally {
+          pluginDownloadRef.current = null;
+        }
+        if (flight.cancelled) bad("cancelled");
+        if (!resolved) bad("the provider could not resolve this track for download");
+
+        // -- Land it. A file:// url means the provider already downloaded the
+        //    bytes (its temp output is MOVED in); anything else is fetched.
+        const isFile = resolved.url.startsWith("file://");
+        const landTitle = resolved.metadata?.title ?? meta.title ?? "Unknown";
+        const landArtist = resolved.metadata?.artist ?? meta.artist ?? "Unknown Artist";
+        const landed = await invoke<Record<string, unknown>>("assistant_land_download", {
+          collectionId,
+          subdir,
+          artistName: landArtist,
+          title: landTitle,
+          ext: resolved.ext ?? null,
+          sourceUrl: isFile ? null : resolved.url,
+          sourcePath: isFile ? resolved.url : null,
+          headers: resolved.headers ?? null,
+          metadata: resolved.metadata ?? null,
+        });
+        d.library.refreshAfterBulkEdit();
+        return { ...landed, provider: providerName, pluginId, quality };
+      }
+
+      case "downloads.cancel": {
+        const flight = pluginDownloadRef.current;
+        if (!flight) return { cancelled: false, note: "no plugin download resolve in flight" };
+        flight.cancelled = true;
+        if (flight.pluginId) d.downloads.cancelResolve(flight.pluginId);
+        return { cancelled: true, pluginId: flight.pluginId };
       }
 
       case "collections.rescan": {

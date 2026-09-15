@@ -350,6 +350,7 @@ macro_rules! invoke_handler {
             commands::assistant_scopes_get,
             commands::assistant_scopes_set,
             commands::assistant_changes_tail,
+            commands::assistant_land_download,
             commands::mcp_setup_info,
             $($extra,)*
         ]

@@ -3645,6 +3645,12 @@ function App() {
         setSearchBulkEditKey((k) => k + 1);
       },
     },
+    downloads: {
+      providers: downloadProviders,
+      streamUriResolverOwner: plugins.streamUriResolverOwner,
+      getQualities: plugins.invokeGetQualities,
+      cancelResolve: plugins.cancelDownloadResolve,
+    },
     likeActions,
   });
   // Playback failure on an auto-advanced track: keep the music going — skip to
