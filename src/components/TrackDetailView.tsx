@@ -5,6 +5,7 @@ import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Track, QueueTrack } from "../types";
 import { formatDuration, formatDateTime, formatRelativeTime } from "../utils";
+import { formatAverage, formatCompactCount } from "../utils/formatCount";
 import { isLocalTrack } from "../queueEntry";
 import { useDetailActions } from "../contexts/DetailViewContext";
 import { IconFolder, IconLastfm } from "./Icons";
@@ -24,22 +25,6 @@ import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOver
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
-
-function formatCount(n: number): string {
-  if (n >= 1_000_000) {
-    const v = n / 1_000_000;
-    if (v >= 100) return `${Math.round(v)}M`;
-    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}M`;
-    return `${v.toFixed(2).replace(/\.?0+$/, "")}M`;
-  }
-  if (n >= 1_000) {
-    const v = n / 1_000;
-    if (v >= 100) return `${Math.round(v)}K`;
-    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}K`;
-    return `${v.toFixed(2).replace(/\.?0+$/, "")}K`;
-  }
-  return String(n);
-}
 
 
 
@@ -98,7 +83,7 @@ export function TrackDetailView({
   const [playHistory, setPlayHistory] = useState<Array<{ played_at: number }>>([]);
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [extraTags, setExtraTags] = useState<Record<string, string> | null>(null);
-  const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; url?: string } | null>(null);
+  const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; perListener?: string; url?: string } | null>(null);
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
@@ -161,16 +146,19 @@ export function TrackDetailView({
     if (typeId !== "track_info") return;
     const val = data as Record<string, unknown>;
     if (!val) return;
-    const items = val.items as Array<{ label: string; value: number }> | undefined;
-    const info: { listeners?: string; playcount?: string; url?: string } = {};
+    const items = val.items as Array<{ label: string; value: number | string }> | undefined;
+    const info: { listeners?: string; playcount?: string; perListener?: string; url?: string } = {};
     if (items) {
       for (const item of items) {
         if (item.label === "listeners") info.listeners = String(item.value);
+        // "scrobbles" is the pre-1.5.0 lastfm item shape, still present in
+        // cached info values until their TTL — kept only to derive the average.
         if (item.label === "scrobbles") info.playcount = String(item.value);
+        if (item.label === "plays / listener") info.perListener = String(item.value);
       }
     }
     if (val.url) info.url = val.url as string;
-    if (info.listeners || info.playcount) setTrackInfo(info);
+    if (info.listeners || info.playcount || info.perListener) setTrackInfo(info);
   }, []);
 
   const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
@@ -283,11 +271,19 @@ export function TrackDetailView({
   if (track.year) heroMeta.push(String(track.year));
   if (track.format) heroMeta.push(`${track.format.toUpperCase()}${audioProps?.bitrate ? ` · ${audioProps.bitrate} kbps` : ""}`);
 
-  const titleLine = trackInfo && (trackInfo.listeners || trackInfo.playcount) ? (
+  // Listeners (compact, exact on hover) plus the plays-per-listener average —
+  // the raw Last.fm playcount is deliberately not shown, the average carries
+  // it. The average arrives as the plugin's own item; a pre-1.5.0 cached value
+  // still holds the raw count instead, so it is derived as the fallback.
+  const lfmListeners = trackInfo?.listeners ? parseInt(trackInfo.listeners) : 0;
+  const lfmPlays = trackInfo?.playcount ? parseInt(trackInfo.playcount) : 0;
+  const lfmPerListener = trackInfo?.perListener
+    ?? (lfmListeners > 0 && lfmPlays > 0 ? formatAverage(lfmPlays / lfmListeners) : null);
+  const titleLine = trackInfo && (lfmListeners > 0 || lfmPerListener) ? (
     <span>
-      {trackInfo.listeners && <>{parseInt(trackInfo.listeners).toLocaleString()} listeners</>}
-      {trackInfo.playcount && (
-        <>{trackInfo.listeners ? <> &middot; </> : null}{parseInt(trackInfo.playcount).toLocaleString()} scrobbles</>
+      {lfmListeners > 0 && <span title={lfmListeners.toLocaleString()}>{formatCompactCount(lfmListeners)} listeners</span>}
+      {lfmPerListener && (
+        <>{lfmListeners > 0 ? <> &middot; </> : null}<span title="Average plays per listener on Last.fm">{lfmPerListener} plays / listener</span></>
       )}
       {trackInfo.url && (
         <> &middot; <a className="track-detail-lastfm-link" onClick={() => openUrl(trackInfo.url!)} title="View on Last.fm"><IconLastfm size={12} /></a></>
@@ -429,7 +425,7 @@ export function TrackDetailView({
             },
             {
               id: "play-history",
-              name: `Play History${playStats ? ` (${formatCount(playStats.play_count)})` : ""}`,
+              name: `Play History${playStats ? ` (${formatCompactCount(playStats.play_count)})` : ""}`,
               content: playHistory.length > 0 ? (
                 <div className="scrobble-list">
                   {(() => {

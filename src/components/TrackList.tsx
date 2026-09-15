@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useRef, useMemo, useId } from "react";
 import type { Track, QueueTrack, SortField, TrackColumnId, ColumnConfig } from "../types";
 import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
+import { formatCompactCount } from "../utils/formatCount";
 import { computeSelection as computeSelectionGeneric } from "../utils/rowSelection";
 import { isPlayingLibraryRow } from "../queueEntry";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
@@ -9,22 +10,6 @@ import { SpinningDisc } from "./SpinningDisc";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { useAssignRef } from "../hooks/useLatestRef";
 import "./TrackList.css";
-
-function formatCount(n: number): string {
-  if (n >= 1_000_000) {
-    const v = n / 1_000_000;
-    if (v >= 100) return `${Math.round(v)}M`;
-    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}M`;
-    return `${v.toFixed(2).replace(/\.?0+$/, "")}M`;
-  }
-  if (n >= 1_000) {
-    const v = n / 1_000;
-    if (v >= 100) return `${Math.round(v)}K`;
-    if (v >= 10) return `${v.toFixed(1).replace(/\.0$/, "")}K`;
-    return `${v.toFixed(2).replace(/\.?0+$/, "")}K`;
-  }
-  return String(n);
-}
 
 const COLUMN_DISPLAY_NAMES: Record<TrackColumnId, string> = {
   like: "Liked",
@@ -690,7 +675,7 @@ const TrackRow = memo(function TrackRow({
             {popularity != null ? (
               <>
                 <span className="popularity-fill" style={{ width: `${pct}%` }} />
-                <span className="popularity-count">{formatCount(popularity)}</span>
+                <span className="popularity-count">{formatCompactCount(popularity)}</span>
               </>
             ) : null}
           </span>

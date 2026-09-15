@@ -372,12 +372,41 @@ function activate(api) {
     });
   });
 
+  // Compact count for one-line surfaces ("10.4k", "2.2M") — mirrors the host's
+  // formatCompactCount (src/utils/formatCount.ts) so this plugin's own text
+  // (the Now Playing item) reads the same as the host-rendered title-line
+  // numbers. The 0.9995 gate promotes a value that would round into the next
+  // tier ("999,700" → "1M", never "1000k").
+  function compactCount(n) {
+    if (!isFinite(n) || n <= 0) return "0";
+    var tiers = [[1e9, "B"], [1e6, "M"], [1e3, "k"]];
+    for (var i = 0; i < tiers.length; i++) {
+      var scaled = n / tiers[i][0];
+      if (scaled < 0.9995) continue;
+      var digits = scaled >= 99.95 ? 0 : 1;
+      return scaled.toFixed(digits).replace(/\.0$/, "") + tiers[i][1];
+    }
+    return String(Math.round(n));
+  }
+
+  // Average scrobbles per listener ("12.3") — the engagement signal the two
+  // raw totals only imply. Null when either side is missing.
+  function perListener(plays, listeners) {
+    if (!(plays > 0) || !(listeners > 0)) return null;
+    var avg = plays / listeners;
+    return avg >= 99.95 ? String(Math.round(avg)) : avg.toFixed(1).replace(/\.0$/, "");
+  }
+
   // ===== Now Playing Info =====
-  // Contributes a single "Scrobbles · Listeners" item to the cycling now-playing
-  // section, showing the track's total Last.fm scrobbles and listeners together.
-  // Reads from the same cached track.getInfo response the track detail page uses,
-  // so the numbers match exactly between the two surfaces.
-  api.nowPlayingInfo.registerItem({ id: "scrobbles", label: "Scrobbles · Listeners (Last.fm)", priority: 100, defaultEnabled: true });
+  // Contributes a single "Listeners" item to the cycling now-playing section:
+  // the track's Last.fm listener count plus the plays-per-listener average.
+  // The raw playcount is deliberately not shown — the average carries it, and
+  // the app names Last.fm playcounts "plays" everywhere, never "scrobbles"
+  // ("scrobbling" stays the name of the act only).
+  // Reads from the same cached track.getInfo response the track detail page
+  // uses, so the numbers match exactly between the two surfaces.
+  // The item id stays "scrobbles": users' persisted selection/order key on it.
+  api.nowPlayingInfo.registerItem({ id: "scrobbles", label: "Listeners (Last.fm)", priority: 100, defaultEnabled: true });
   api.nowPlayingInfo.onFetch("scrobbles", function (track) {
     var artistName = track && track.artist_name;
     var title = track && track.title;
@@ -388,12 +417,13 @@ function activate(api) {
       var parts = [];
       var plays = Number(t.playcount || 0);
       var listeners = Number(t.listeners || 0);
-      if (plays > 0) parts.push(plays.toLocaleString() + " scrobbles");
-      if (listeners > 0) parts.push(listeners.toLocaleString() + " listeners");
+      if (listeners > 0) parts.push(compactCount(listeners) + " listeners");
+      var avg = perListener(plays, listeners);
+      if (avg) parts.push(avg + " plays / listener");
       if (parts.length === 0) return { status: "empty" };
       return { status: "ok", text: parts.join(" · ") };
     }).catch(function (err) {
-      console.error("[lastfm] now-playing scrobbles error:", err && err.message);
+      console.error("[lastfm] now-playing listeners error:", err && err.message);
       return { status: "error" };
     });
   });
@@ -485,7 +515,12 @@ function activate(api) {
       if (!data || !data.artist || !data.artist.stats) return { status: "not_found" };
       var items = [];
       if (data.artist.stats.listeners) items.push({ label: "listeners", value: Number(data.artist.stats.listeners) });
-      if (data.artist.stats.playcount) items.push({ label: "scrobbles", value: Number(data.artist.stats.playcount) });
+      // Listeners + the plays-per-listener average — the raw playcount is
+      // deliberately not an item (the average carries it). Pre-formatted
+      // string, so the host renders it verbatim ("78.1 plays / listener")
+      // instead of compacting it like the raw counts.
+      var artistAvg = perListener(Number(data.artist.stats.playcount || 0), Number(data.artist.stats.listeners || 0));
+      if (artistAvg) items.push({ label: "plays / listener", value: artistAvg });
       if (items.length === 0) return { status: "not_found" };
       return { status: "ok", value: { items: items, _meta: { providerName: "Last.fm", homepageUrl: "https://www.last.fm" } } };
     }).catch(function () { return { status: "error" }; });
@@ -616,7 +651,10 @@ function activate(api) {
       var t = data.track;
       var items = [];
       if (t.listeners) items.push({ label: "listeners", value: Number(t.listeners) });
-      if (t.playcount) items.push({ label: "scrobbles", value: Number(t.playcount) });
+      // Listeners + average only, no raw playcount — see artist_stats. (The
+      // track detail page renders its own line from these same items.)
+      var trackAvg = perListener(Number(t.playcount || 0), Number(t.listeners || 0));
+      if (trackAvg) items.push({ label: "plays / listener", value: trackAvg });
       if (items.length === 0) return { status: "not_found" };
       var trackUrl = t.url || ("https://www.last.fm/music/" + encodeURIComponent(artistName) + "/_/" + encodeURIComponent(entity.name));
       return {
