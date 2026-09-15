@@ -649,6 +649,149 @@ interface ControlApiStatus {
   discoveryPath: string;
 }
 
+// Shape of `assistant_scopes_get`/`_set` (assistant_write.rs WriteScopes). The
+// authoritative copy lives in the profile dir and is enforced in Rust on every
+// control-API write — this UI is only the switch panel over that file.
+interface AssistantScopes {
+  modifyTags: boolean;
+  manageFiles: boolean;
+  downloads: boolean;
+}
+
+const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; description: string }> = [
+  {
+    key: "modifyTags",
+    label: "Modify tags in files",
+    description:
+      "Write tag and metadata edits (genre tags, artist, album, album artist, year) into the audio files themselves. Database-only tag edits are always allowed.",
+  },
+  {
+    key: "manageFiles",
+    label: "Manage files",
+    description:
+      "Create lyrics (.lrc/.txt) and cover files next to your music, and move or rename files inside a collection. Moves are planned first and never overwrite anything.",
+  },
+  {
+    key: "downloads",
+    label: "Download tracks",
+    description:
+      "Save a track's own server or web source into a local collection folder. Only the exact source — never a different copy found elsewhere.",
+  },
+];
+
+/**
+ * Per-category write permissions for the AI assistant, shown while AI control
+ * is enabled. All off by default; every applied write lands in the assistant
+ * change log (Settings → Debug).
+ */
+function AssistantPermissions() {
+  const [scopes, setScopes] = useState<AssistantScopes | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<AssistantScopes>("assistant_scopes_get")
+      .then(setScopes)
+      .catch((e) => {
+        console.error("Failed to read assistant permissions:", e);
+        setError(String(e));
+      });
+  }, []);
+
+  async function toggle(key: keyof AssistantScopes, on: boolean) {
+    if (!scopes) return;
+    const previous = scopes;
+    const next = { ...scopes, [key]: on };
+    setScopes(next);
+    try {
+      setScopes(await invoke<AssistantScopes>("assistant_scopes_set", { scopes: next }));
+      setError(null);
+    } catch (e) {
+      console.error("Failed to save assistant permissions:", e);
+      setScopes(previous);
+      setError(String(e));
+    }
+  }
+
+  return (
+    <>
+      {ASSISTANT_SCOPE_ROWS.map((row) => (
+        <div className="settings-row" key={row.key}>
+          <div className="settings-row-info">
+            <span className="settings-label">{row.label}</span>
+            <span className="settings-description">{row.description}</span>
+          </div>
+          <ToggleSwitch
+            checked={scopes?.[row.key] ?? false}
+            onChange={(on) => toggle(row.key, on)}
+          />
+        </div>
+      ))}
+      {error && (
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-label" style={{ color: "var(--error)" }}>Couldn't save permissions</span>
+            <span className="settings-description">{error}</span>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// One row of the assistant write journal (assistant_write.rs AuditEntry).
+interface AssistantAuditEntry {
+  ts: string;
+  verb: string;
+  summary: string;
+}
+
+/** Settings → Debug: what the assistant changed, newest first. */
+function AssistantChangesSection() {
+  const [entries, setEntries] = useState<AssistantAuditEntry[] | null>(null);
+
+  const load = useCallback(() => {
+    invoke<AssistantAuditEntry[]>("assistant_changes_tail", { limit: 50 })
+      .then(setEntries)
+      .catch((e) => console.error("Failed to read the assistant change log:", e));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const newestFirst = entries ? [...entries].reverse() : [];
+  return (
+    <>
+      <div className="settings-group-title" style={{ marginTop: 20 }}>Assistant changes</div>
+      <div className="settings-card">
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-label">Change log</span>
+            <span className="settings-description">
+              Files and tags the AI assistant changed through its write permissions. Also included in problem reports.
+            </span>
+          </div>
+          <button className="ds-btn ds-btn--secondary" onClick={load}>Refresh</button>
+        </div>
+        {entries !== null && newestFirst.length === 0 && (
+          <div className="settings-row">
+            <div className="settings-row-info">
+              <span className="settings-description">No assistant changes recorded.</span>
+            </div>
+          </div>
+        )}
+        {newestFirst.map((e, i) => (
+          <div className="settings-row" key={`${e.ts}-${i}`}>
+            <div className="settings-row-info">
+              <span className="settings-label">{e.summary}</span>
+              <span className="settings-description">
+                {new Date(e.ts).toLocaleString()} · {e.verb}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /**
  * Settings → General → "AI control": the toggle plus, while running,
  * the address / token / discovery-file rows an assistant needs to connect.
@@ -754,6 +897,7 @@ function ControlApiSection({
           </div>
           <ToggleSwitch checked={enabled} onChange={handleToggle} />
         </div>
+        {enabled && <AssistantPermissions />}
         {serverRunning && status && (
           <>
             <div className="settings-row">
@@ -2115,6 +2259,7 @@ export function SettingsPanel({
                     <button className="ds-btn ds-btn--secondary" onClick={() => onReportProblem()}>Create report</button>
                   </div>
                 </div>
+                <AssistantChangesSection />
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Mode</div>
                 <div className="settings-card">
                   <div className="settings-row">

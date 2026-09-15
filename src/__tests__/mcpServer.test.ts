@@ -47,7 +47,32 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       res.end(text);
     };
     if (req.headers.authorization !== `Bearer ${TEST_TOKEN}`) return reply(401, { error: "unauthorized" });
-    if (req.url === "/v1/health") return reply(200, { ok: true, version: "1.0.57", profile: "default" });
+    if (req.url === "/v1/health")
+      return reply(200, {
+        ok: true, version: "1.0.57", profile: "default",
+        writeScopes: { modifyTags: true, manageFiles: false, downloads: false },
+      });
+    if (req.url === "/v1/tracks/file-tags" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        reply(200, { requested: JSON.parse(body).trackIds.length, failed: 0, errors: [] });
+      });
+      return;
+    }
+    if (req.url === "/v1/files/move" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        // The manage-files scope is off in this fixture — the app's answer.
+        reply(403, { error: 'the "Manage files" assistant permission is off — enable it in Settings' });
+      });
+      return;
+    }
+    if (req.url?.startsWith("/v1/changes") && req.method === "GET")
+      return reply(200, { entries: [{ ts: "2026-09-15T00:00:00Z", verb: "tags.writeFiles", summary: "wrote file tags on 2 track(s)" }] });
     if (req.url === "/v1/status")
       return reply(200, { playing: true, positionSecs: 12, queueIndex: 0, queueLength: 3, currentTrack: { title: "Jóga" } });
     if (req.url === "/v1/queue") {
@@ -404,8 +429,51 @@ describe("MCP server over stdio", () => {
     expect(info).toEqual({
       installed: "1.0.57",
       profile: "default",
+      writeScopes: { modifyTags: true, manageFiles: false, downloads: false },
       mcp: { version: expect.any(String), tier: "default" },
     });
+  });
+
+  it("exposes the write tools at the default tier — the app's permission switches gate them", async () => {
+    const res = await rpc.request("tools/list");
+    const names = (res.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+    for (const name of ["write_file_tags", "manage_files", "download_track"]) {
+      expect(names).toContain(name);
+    }
+  });
+
+  it("posts write_file_tags arguments verbatim to /v1/tracks/file-tags", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "write_file_tags",
+      arguments: { trackIds: [1, 2], tagNames: ["shoegaze"], tagMode: "add" },
+    });
+    expect(JSON.parse(toolText(res.result)).requested).toBe(2);
+    const posted = api.seen.find((r) => r.method === "POST" && r.url === "/v1/tracks/file-tags");
+    expect(JSON.parse(posted!.body!)).toEqual({ trackIds: [1, 2], tagNames: ["shoegaze"], tagMode: "add" });
+  });
+
+  it("surfaces the app's 403 for a switched-off write permission as a tool error naming Settings", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "manage_files",
+      arguments: { action: "move", moves: [{ trackId: 1, toDir: "A/B" }] },
+    });
+    expect((res.result as { isError?: boolean }).isError).toBe(true);
+    expect(toolText(res.result)).toContain("Manage files");
+
+    // move without moves is a caller error, not a request.
+    const missing = await rpc.request("tools/call", { name: "manage_files", arguments: { action: "move" } });
+    expect((missing.result as { isError?: boolean }).isError).toBe(true);
+  });
+
+  it("reads the assistant change log through manage_files action=changes", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "manage_files",
+      arguments: { action: "changes", limit: 5 },
+    });
+    const parsed = JSON.parse(toolText(res.result));
+    expect(parsed.entries[0].verb).toBe("tags.writeFiles");
+    const req = api.seen.find((r) => r.method === "GET" && r.url.startsWith("/v1/changes"));
+    expect(req?.url).toContain("limit=5");
   });
 
   it("declares its tier in the initialize instructions", async () => {

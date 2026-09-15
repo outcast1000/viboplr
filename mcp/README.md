@@ -90,6 +90,31 @@ injected instruction could reach. Turn on `full` per client, where you want it
 which tools the *model sees*, not what the token authorizes; it is an
 ergonomics/injection boundary, not an authorization one.
 
+## Write permissions
+
+Three tools can change the user's files, and they sit **outside the tier
+system**: `write_file_tags` (tag/metadata edits written into the audio files —
+the app's canonical bulk edit), `manage_files` (lyrics/cover sidecar files;
+two-step plan-then-apply moves/renames within a collection; the change log),
+and `download_track` (a track's *own* subsonic/http source, as itself, into a
+local collection — never resolved through a download provider).
+
+Their authorization is not the tier but **per-category switches in Viboplr →
+Settings → General → AI control**, all off by default, enforced in Rust on
+every request and re-read from disk each time (flipping a switch applies
+immediately; a missing/corrupt permissions file means *no*). A refused call is
+a 403 naming the switch. `app_version` reports the current switches
+(`writeScopes`), and every applied write is journaled to the app's assistant
+change log (Settings → Debug, `manage_files action=changes`, and problem
+reports).
+
+Structural guardrails, independent of the switches: destinations are always
+derived or collection-root-relative and validated in Rust (no absolute paths,
+no `..`, symlink-escape checked); nothing is ever silently overwritten
+(explicit `overwrite` trashes the old file; moves and downloads refuse
+conflicts outright); moves keep the library row (id, tags, likes, playlists)
+pointed at the file; batches are capped (100 tag writes, 50 moves).
+
 ## Multiple profiles
 
 The server picks the `default` profile (or the only running one). Running a
@@ -97,6 +122,10 @@ non-default profile? Pass `--profile=<name>` (or `VIBOPLR_MCP_PROFILE`).
 
 ## What it can never do
 
-Same as the API: no file deletion, no audio-file metadata writes, no downloads,
-no playlist deletion, and no extension install/delete — an install verb would
-turn the token into arbitrary code execution, so it is a permanent non-goal.
+Same as the API: no file deletion, no playlist deletion, and no extension
+install/delete — an install verb would turn the token into arbitrary code
+execution, so it is a permanent non-goal. File-metadata writes, sidecar file
+creation, in-collection moves and source-faithful downloads exist but only
+behind the per-category write permissions above; there is no way to write
+outside a collection root, overwrite silently, or download through a provider
+on the user's behalf.

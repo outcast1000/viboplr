@@ -63,6 +63,8 @@ export interface DiagnosticInput {
   resolverLog: ResolverLogEntry[];
   pluginLog: PluginLogEntry[];
   logTail: string[];
+  /** Recent assistant write-journal lines (pre-formatted by the backend). */
+  assistantChanges?: string[];
   context?: DiagnosticContext | null;
   homeDir?: string | null;
 }
@@ -205,6 +207,13 @@ export function buildDiagnosticReport(input: DiagnosticInput): string {
     );
   }
 
+  const assistantChanges = input.assistantChanges ?? [];
+  if (assistantChanges.length > 0) {
+    sections.push(
+      details(`Assistant changes (${assistantChanges.length})`, fence(assistantChanges)),
+    );
+  }
+
   if (input.logTail.length > 0) {
     sections.push(details(`Log tail (${input.logTail.length} lines)`, fence(input.logTail)));
   } else if (!env.loggingEnabled) {
@@ -226,6 +235,7 @@ interface DiagnosticFacts {
   loggingEnabled: boolean;
   homeDir: string | null;
   logTail: string[];
+  assistantChangesTail: string[];
 }
 
 export interface DiagnosticSources {
@@ -283,6 +293,7 @@ export async function collectDiagnosticReport(sources: DiagnosticSources): Promi
     resolverLog: resolverLogEntries(),
     pluginLog: pluginLogEntries(),
     logTail: facts?.logTail ?? [],
+    assistantChanges: facts?.assistantChangesTail ?? [],
     context: sources.context ?? null,
     homeDir: facts?.homeDir ?? null,
   });

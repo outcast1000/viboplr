@@ -375,6 +375,17 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/radio", post(|s, b| handle_bridge_body(s, "radio.start", json!({}), b)))
         .route("/v1/likes", post(|s, b| handle_bridge_body(s, "likes.set", json!({}), b)))
         .route("/v1/tracks/{id}/tags", post(|s, p, b| handle_track_bridge(s, p, "tags.edit", b)))
+        // Assistant write surface — every route below additionally requires a
+        // WRITE SCOPE (Settings → General → AI control), re-read from
+        // `assistant-permissions.json` per request and failing closed. Applied
+        // writes land in the `assistant-changes.jsonl` journal (`/v1/changes`).
+        // Static "file-tags" before "{id}": matchit prioritizes it.
+        .route("/v1/changes", get(handle_changes))
+        .route("/v1/tracks/file-tags", post(handle_file_tags))
+        .route("/v1/tracks/{id}/lyrics-file", post(handle_lyrics_file))
+        .route("/v1/albums/{id}/cover-file", post(handle_cover_file))
+        .route("/v1/files/move", post(handle_files_move))
+        .route("/v1/tracks/{id}/download", post(handle_track_download))
         // Extensions & skins: list / enable-disable / update check / apply skin.
         // Install and delete are deliberate NON-goals — see the module doc.
         .route("/v1/extensions", get(|s| handle_bridge_get(s, "extensions.list")))
@@ -429,11 +440,16 @@ where
 }
 
 async fn handle_health(AxumState(state): AxumState<ServerState>) -> Response {
+    // Scopes ride on health so a client can tell up front which write verbs
+    // the user has switched on — the tools exist regardless, but a 403 names
+    // the missing switch.
+    let scopes = crate::assistant_write::load_scopes(&state.app_dir);
     axum::Json(json!({
         "ok": true,
         "version": state.version,
         "profile": state.profile,
         "pid": std::process::id(),
+        "writeScopes": scopes,
     }))
     .into_response()
 }
@@ -999,6 +1015,274 @@ async fn handle_extension_bridge(
     }
 }
 
+// --- Assistant write handlers (scope-gated; see assistant_write.rs) ---
+
+use crate::assistant_write::{self, Scope};
+
+/// The write-scope gate. Scopes are re-read from disk on every call — the
+/// user flipping a Settings switch takes effect immediately, and there is no
+/// cached authorization to go stale. Fails closed.
+fn check_scope(state: &ServerState, scope: Scope) -> Result<(), Response> {
+    if assistant_write::load_scopes(&state.app_dir).allows(scope) {
+        Ok(())
+    } else {
+        Err(error_response(
+            StatusCode::FORBIDDEN,
+            format!(
+                "the \"{}\" assistant permission is off — the user can enable it in Viboplr → Settings → General → AI control",
+                scope.label()
+            ),
+        ))
+    }
+}
+
+/// Run one blocking write operation and journal it on success.
+async fn write_op<F>(state: &ServerState, verb: &'static str, f: F) -> Response
+where
+    F: FnOnce() -> Result<(Value, String), String> + Send + 'static,
+{
+    let app_dir = state.app_dir.clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        f().map(|(value, summary)| {
+            assistant_write::append_audit(&app_dir, verb, &summary, None);
+            value
+        })
+    })
+    .await;
+    match outcome {
+        Ok(Ok(value)) => axum::Json(value).into_response(),
+        Ok(Err(e)) => error_response(StatusCode::BAD_REQUEST, e),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+fn parse_typed<T: serde::de::DeserializeOwned>(body: &Bytes) -> Result<T, Response> {
+    serde_json::from_slice(body)
+        .map_err(|e| error_response(StatusCode::BAD_REQUEST, format!("invalid JSON body: {}", e)))
+}
+
+#[derive(serde::Deserialize)]
+struct ChangesParams {
+    limit: Option<usize>,
+}
+
+/// The assistant mutation journal — what every scoped write appended. Token
+/// only (it is a read); also surfaced in Settings → Debug and diagnostics.
+async fn handle_changes(
+    AxumState(state): AxumState<ServerState>,
+    Query(params): Query<ChangesParams>,
+) -> Response {
+    let limit = params.limit.unwrap_or(100).clamp(1, 500);
+    let app_dir = state.app_dir.clone();
+    match tokio::task::spawn_blocking(move || assistant_write::read_audit_tail(&app_dir, limit)).await {
+        Ok(entries) => axum::Json(json!({ "entries": entries })).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+/// File tag writes go through the FRONTEND bridge (`tags.writeFiles` →
+/// the canonical `bulk_update_tracks`), not a backend-direct call: file tag
+/// edits move albums/artists and the UI must follow, same reason every other
+/// mutation bridges. The scope gate and the track cap live here in Rust.
+async fn handle_file_tags(state: AxumState<ServerState>, body: Bytes) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::ModifyTags) {
+        return resp;
+    }
+    let payload = match parse_body(json!({}), &body) {
+        Ok(p) => p,
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
+    };
+    let n = payload.get("trackIds").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+    if n == 0 {
+        return error_response(StatusCode::BAD_REQUEST, "trackIds (non-empty number array) is required");
+    }
+    if n > assistant_write::MAX_TAG_TRACKS {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            format!("at most {} tracks per call", assistant_write::MAX_TAG_TRACKS),
+        );
+    }
+    // Slow bridge: writing tags into many files takes real time.
+    let timeout = state.0.bridge_timeout.saturating_mul(7);
+    let resp = bridge(&state.0, "tags.writeFiles", payload, timeout).await;
+    if resp.status() == StatusCode::OK {
+        assistant_write::append_audit(
+            &state.0.app_dir,
+            "tags.writeFiles",
+            &format!("wrote file tags on {} track(s)", n),
+            None,
+        );
+    }
+    resp
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LyricsFileBody {
+    content: String,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    overwrite: bool,
+}
+
+async fn handle_lyrics_file(
+    state: AxumState<ServerState>,
+    AxumPath(id): AxumPath<i64>,
+    body: Bytes,
+) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::ManageFiles) {
+        return resp;
+    }
+    let parsed: LyricsFileBody = match parse_typed(&body) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let db = state.0.db.clone();
+    write_op(&state.0, "lyrics.writeFile", move || {
+        let kind = parsed.kind.as_deref().unwrap_or("auto");
+        let value = assistant_write::write_lyrics_file(&db, id, &parsed.content, kind, parsed.overwrite)?;
+        let summary = format!(
+            "wrote {} lyrics for track {} → {}",
+            value["kind"].as_str().unwrap_or("?"),
+            id,
+            value["path"].as_str().unwrap_or("?")
+        );
+        Ok((value, summary))
+    })
+    .await
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CoverFileBody {
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    from_cache: bool,
+    #[serde(default)]
+    overwrite: bool,
+}
+
+async fn handle_cover_file(
+    state: AxumState<ServerState>,
+    AxumPath(id): AxumPath<i64>,
+    body: Bytes,
+) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::ManageFiles) {
+        return resp;
+    }
+    let parsed: CoverFileBody = match parse_typed(&body) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let db = state.0.db.clone();
+    let app_dir = state.0.app_dir.clone();
+    write_op(&state.0, "albums.writeCover", move || {
+        let value = assistant_write::write_album_cover(
+            &db,
+            &app_dir,
+            id,
+            parsed.url.as_deref(),
+            parsed.from_cache,
+            parsed.overwrite,
+        )?;
+        let summary = format!("wrote album cover → {}", value["path"].as_str().unwrap_or("?"));
+        Ok((value, summary))
+    })
+    .await
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MoveBody {
+    moves: Vec<assistant_write::MoveRequest>,
+    #[serde(default)]
+    plan_hash: Option<String>,
+}
+
+/// Two-phase move: a call without `planHash` only PLANS (validates every move
+/// and returns the exact rename list + its hash, touching nothing); the caller
+/// applies by re-sending the same request with that hash. The plan is
+/// recomputed at apply and the hashes must match, so what executes is exactly
+/// what was shown — a file appearing in between invalidates the plan.
+async fn handle_files_move(state: AxumState<ServerState>, body: Bytes) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::ManageFiles) {
+        return resp;
+    }
+    let parsed: MoveBody = match parse_typed(&body) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let db = state.0.db.clone();
+    let app_dir = state.0.app_dir.clone();
+    let outcome = tokio::task::spawn_blocking(move || -> Result<Value, String> {
+        let (plan, hash) = assistant_write::plan_moves(&db, &parsed.moves)?;
+        match parsed.plan_hash {
+            None => Ok(json!({
+                "applied": false,
+                "plan": plan,
+                "planHash": hash,
+                "note": "nothing was moved — review the plan and re-send the same request with planHash to apply",
+            })),
+            Some(supplied) if supplied != hash => Err(
+                "the plan changed since it was made (files moved or appeared) — re-plan and review again".to_string(),
+            ),
+            Some(_) => {
+                let result = assistant_write::apply_moves(&db, &plan);
+                let moved = result["moved"].as_array().map(|a| a.len()).unwrap_or(0);
+                let failed = result["failed"].as_array().map(|a| a.len()).unwrap_or(0);
+                assistant_write::append_audit(
+                    &app_dir,
+                    "files.move",
+                    &format!("moved {} file(s), {} failed", moved, failed),
+                    Some(result["moved"].clone()),
+                );
+                Ok(result)
+            }
+        }
+    })
+    .await;
+    match outcome {
+        Ok(Ok(value)) => axum::Json(value).into_response(),
+        Ok(Err(e)) => error_response(StatusCode::BAD_REQUEST, e),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadBody {
+    collection_id: i64,
+    #[serde(default)]
+    subdir: Option<String>,
+}
+
+/// Source-faithful download: the track's own subsonic:// or http(s) source,
+/// as itself, into a local collection — never resolved through a download
+/// provider (the mixtape-export rule). The file is indexed on landing.
+async fn handle_track_download(
+    state: AxumState<ServerState>,
+    AxumPath(id): AxumPath<i64>,
+    body: Bytes,
+) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::Downloads) {
+        return resp;
+    }
+    let parsed: DownloadBody = match parse_typed(&body) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let db = state.0.db.clone();
+    write_op(&state.0, "tracks.download", move || {
+        let subdir = parsed.subdir.as_deref().unwrap_or("");
+        let value = assistant_write::download_track_source(&db, id, parsed.collection_id, subdir)?;
+        let summary = format!("downloaded track {} → {}", id, value["path"].as_str().unwrap_or("?"));
+        Ok((value, summary))
+    })
+    .await
+}
+
 /// Round-trip one request through the webview dispatcher. `timeout` is the
 /// route's wait budget — `state.bridge_timeout` for everything except the
 /// long-running plugin search (see `handle_search_plugin`).
@@ -1038,6 +1322,13 @@ mod tests {
     const TEST_TOKEN: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn test_state(emit: Arc<dyn Fn(&ControlRequest) + Send + Sync>) -> ServerState {
+        test_state_in(emit, std::env::temp_dir())
+    }
+
+    /// Like `test_state` but with a caller-owned profile dir — the write-scope
+    /// tests need to control `assistant-permissions.json` without racing other
+    /// tests in the shared temp dir.
+    fn test_state_in(emit: Arc<dyn Fn(&ControlRequest) + Send + Sync>, app_dir: PathBuf) -> ServerState {
         let api = Arc::new(ControlApi::default());
         *api.token.lock().unwrap() = Some(TEST_TOKEN.to_string());
         api.mark_webview_ready();
@@ -1048,8 +1339,12 @@ mod tests {
             bridge_timeout: Duration::from_millis(50),
             version: "0.0.0-test".to_string(),
             profile: "test".to_string(),
-            app_dir: std::env::temp_dir(),
+            app_dir,
         }
+    }
+
+    fn grant_scopes(app_dir: &Path, scopes: crate::assistant_write::WriteScopes) {
+        crate::assistant_write::save_scopes(app_dir, &scopes).unwrap();
     }
 
     fn noop_emit() -> Arc<dyn Fn(&ControlRequest) + Send + Sync> {
@@ -1333,6 +1628,204 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
         assert_eq!(body_json(res).await, json!({ "error": "bad indices" }));
+    }
+
+    // --- Assistant write surface ---
+
+    use crate::assistant_write::WriteScopes;
+
+    /// Every write route answers 403 while its scope is off — no scopes file
+    /// at all is the fail-closed default a fresh profile starts from.
+    #[tokio::test]
+    async fn test_write_routes_are_403_without_their_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
+        for (method, path, body) in [
+            ("POST", "/v1/tracks/file-tags", r#"{"trackIds":[1],"tagNames":["rock"]}"#),
+            ("POST", "/v1/tracks/1/lyrics-file", r#"{"content":"la"}"#),
+            ("POST", "/v1/albums/1/cover-file", r#"{"fromCache":true}"#),
+            ("POST", "/v1/files/move", r#"{"moves":[{"trackId":1}]}"#),
+            ("POST", "/v1/tracks/1/download", r#"{"collectionId":1}"#),
+        ] {
+            let res = router
+                .clone()
+                .oneshot(request_json(method, path, TEST_TOKEN, body))
+                .await
+                .unwrap();
+            assert_eq!(res.status(), StatusCode::FORBIDDEN, "{} should be scope-gated", path);
+            let json = body_json(res).await;
+            assert!(
+                json["error"].as_str().unwrap().contains("Settings"),
+                "the 403 must name where to enable the permission"
+            );
+        }
+    }
+
+    /// One scope never unlocks another's routes.
+    #[tokio::test]
+    async fn test_scopes_do_not_cross_authorize() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: false, downloads: false });
+        let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
+        let res = router
+            .oneshot(request_json("POST", "/v1/files/move", TEST_TOKEN, r#"{"moves":[{"trackId":1}]}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn test_health_reports_write_scopes() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: false, downloads: false });
+        let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
+        let res = router.oneshot(request("GET", "/v1/health", Some(TEST_TOKEN))).await.unwrap();
+        let json = body_json(res).await;
+        assert_eq!(json["writeScopes"]["modifyTags"], json!(true));
+        assert_eq!(json["writeScopes"]["manageFiles"], json!(false));
+        assert_eq!(json["writeScopes"]["downloads"], json!(false));
+    }
+
+    /// Seed one local track whose file really exists under a temp collection
+    /// root, into an existing test state's DB.
+    fn seed_local_track(state: &ServerState, root: &Path) -> i64 {
+        std::fs::write(root.join("a.mp3"), b"x").unwrap();
+        let col = state
+            .db
+            .add_collection("local", "Test", Some(root.to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+        let artist = state.db.get_or_create_artist("Writer").unwrap();
+        state
+            .db
+            .upsert_track("a.mp3", "Song A", Some(artist), None, None, Some(100.0), Some("mp3"), None, None, Some(col.id), None)
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_lyrics_file_writes_and_journals() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { manage_files: true, ..Default::default() });
+        let state = test_state_in(noop_emit(), dir.path().to_path_buf());
+        let track_id = seed_local_track(&state, root.path());
+
+        let router = build_router(state);
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST",
+                &format!("/v1/tracks/{}/lyrics-file", track_id),
+                TEST_TOKEN,
+                r#"{"content":"[00:01.00] hi"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["kind"], json!("synced"));
+        assert!(root.path().join("a.lrc").exists());
+
+        // The write landed in the journal, readable over /v1/changes.
+        let res = router.oneshot(request("GET", "/v1/changes", Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        let entries = json["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["verb"], json!("lyrics.writeFile"));
+    }
+
+    #[tokio::test]
+    async fn test_files_move_is_two_phase_and_hash_pinned() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { manage_files: true, ..Default::default() });
+        let state = test_state_in(noop_emit(), dir.path().to_path_buf());
+        let track_id = seed_local_track(&state, root.path());
+        let router = build_router(state);
+
+        let move_body = format!(r#"{{"moves":[{{"trackId":{},"toDir":"Writer/Album"}}]}}"#, track_id);
+        // Phase 1: plan only — nothing moves.
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/files/move", TEST_TOKEN, &move_body))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["applied"], json!(false));
+        let hash = json["planHash"].as_str().unwrap().to_string();
+        assert!(root.path().join("a.mp3").exists(), "planning must not move anything");
+
+        // A wrong hash is refused.
+        let bad = format!(
+            r#"{{"moves":[{{"trackId":{},"toDir":"Writer/Album"}}],"planHash":"deadbeef"}}"#,
+            track_id
+        );
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/files/move", TEST_TOKEN, &bad))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+        // Phase 2: the matching hash applies the exact plan.
+        let apply = format!(
+            r#"{{"moves":[{{"trackId":{},"toDir":"Writer/Album"}}],"planHash":"{}"}}"#,
+            track_id, hash
+        );
+        let res = router
+            .oneshot(request_json("POST", "/v1/files/move", TEST_TOKEN, &apply))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["applied"], json!(true));
+        assert_eq!(json["moved"].as_array().unwrap().len(), 1);
+        assert!(root.path().join("Writer/Album/a.mp3").exists());
+    }
+
+    /// File-tag writes bridge to the frontend (the canonical bulk edit) once
+    /// the scope allows them; the cap is enforced Rust-side.
+    #[tokio::test]
+    async fn test_file_tags_bridges_when_scoped_and_caps_batch() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, ..Default::default() });
+        let api_slot: Arc<Mutex<Option<Arc<ControlApi>>>> = Arc::new(Mutex::new(None));
+        let responder_slot = Arc::clone(&api_slot);
+        let state = test_state_in(
+            Arc::new(move |req: &ControlRequest| {
+                if let Some(api) = responder_slot.lock().unwrap().clone() {
+                    api.respond(req.id, true, json!({ "verb": req.verb, "payload": req.payload }));
+                }
+            }),
+            dir.path().to_path_buf(),
+        );
+        *api_slot.lock().unwrap() = Some(Arc::clone(&state.api));
+        let router = build_router(state);
+
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST",
+                "/v1/tracks/file-tags",
+                TEST_TOKEN,
+                r#"{"trackIds":[1,2],"tagNames":["rock"],"tagMode":"add"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["verb"], json!("tags.writeFiles"));
+        assert_eq!(json["payload"]["trackIds"], json!([1, 2]));
+
+        // Over-cap batches never reach the bridge.
+        let ids: Vec<i64> = (0..101).collect();
+        let body = format!(r#"{{"trackIds":{},"tagNames":["rock"]}}"#, serde_json::to_string(&ids).unwrap());
+        let res = router
+            .oneshot(request_json("POST", "/v1/tracks/file-tags", TEST_TOKEN, &body))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

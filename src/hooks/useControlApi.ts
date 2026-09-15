@@ -188,6 +188,12 @@ export interface ControlApiDeps {
      *  in the background. */
     resync: (collectionId: number, full?: boolean) => Promise<string>;
   };
+  library: {
+    /** Reload the library lists and bump the bulk-edit key so open detail
+     *  pages refetch — the same refresh `handleBulkEditSaved` runs after the
+     *  BulkEditModal saves. Used by `tags.writeFiles`. */
+    refreshAfterBulkEdit: () => void;
+  };
   likeActions: {
     setTrackRating: (track: QueueTrack, likeState: number, source?: "like" | "dislike" | "set") => Promise<boolean>;
     setArtistLike: (name: string, likeState: number) => Promise<{ ok: boolean; mirrored: boolean }>;
@@ -1151,6 +1157,60 @@ export function useControlApi(deps: ControlApiDeps) {
         for (const name of remove) tags = await removeTag(trackId, tags, name);
         for (const name of add) tags = await applyTag(trackId, name);
         return { tags };
+      }
+
+      // File-writing bulk edit — the canonical `bulk_update_tracks` path (the
+      // only path that writes tags/metadata into audio files). Reached only
+      // through POST /v1/tracks/file-tags, whose Rust handler has already
+      // enforced the "Modify tags" write scope and the batch cap.
+      case "tags.writeFiles": {
+        const ids = asNumberArray(payload.trackIds);
+        if (!ids) bad("trackIds must be a non-empty array of numbers");
+        const fields: Record<string, unknown> = {};
+        // Presence with null (or "") clears the field; absence leaves it alone
+        // — the same double-option contract BulkUpdateFields deserializes.
+        const stringField = (key: string, target: string) => {
+          if (!(key in payload)) return;
+          const v = payload[key];
+          if (v !== null && typeof v !== "string") bad(`${key} must be a string or null`);
+          fields[target] = v === "" ? null : v;
+        };
+        stringField("artistName", "artist_name");
+        stringField("albumArtistName", "album_artist_name");
+        stringField("albumTitle", "album_title");
+        const numberField = (key: string, target: string) => {
+          if (!(key in payload)) return;
+          const v = payload[key];
+          if (v !== null && (typeof v !== "number" || !Number.isInteger(v))) bad(`${key} must be an integer or null`);
+          fields[target] = v;
+        };
+        numberField("year", "year");
+        numberField("trackNumber", "track_number");
+        if ("title" in payload) {
+          if (typeof payload.title !== "string" || payload.title.trim() === "") bad("title must be a non-empty string");
+          if (ids.length > 1) bad("title applies to a single track — send one trackId");
+          fields.title = payload.title;
+        }
+        if ("tagNames" in payload) {
+          if (!Array.isArray(payload.tagNames)) bad("tagNames must be an array of strings");
+          const tagNames = asStringArray(payload.tagNames);
+          const mode = payload.tagMode ?? "add";
+          if (mode !== "add" && mode !== "remove" && mode !== "replace") {
+            bad('tagMode must be "add", "remove" or "replace"');
+          }
+          if (tagNames.length === 0 && mode !== "replace") bad("tagNames is empty — only tagMode=replace may clear tags");
+          // tag_mode is set explicitly on purpose: the backend's from_opt
+          // treats anything unrecognized (including absent) as Replace, and
+          // an accidental replace is the destructive reading.
+          fields.tag_names = tagNames;
+          fields.tag_mode = mode;
+        }
+        if (Object.keys(fields).length === 0) {
+          bad("nothing to write — pass tagNames, artistName, albumArtistName, albumTitle, year, trackNumber or title");
+        }
+        const errors = await invoke<string[]>("bulk_update_tracks", { trackIds: ids, fields });
+        d.library.refreshAfterBulkEdit();
+        return { requested: ids.length, failed: errors.length, errors };
       }
 
       case "collections.rescan": {

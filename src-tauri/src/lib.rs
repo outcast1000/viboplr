@@ -1,3 +1,4 @@
+mod assistant_write;
 mod browse_window;
 mod commands;
 mod composite_image;
@@ -346,6 +347,9 @@ macro_rules! invoke_handler {
             commands::control_api_regenerate_token,
             commands::control_api_respond,
             commands::control_api_client_ready,
+            commands::assistant_scopes_get,
+            commands::assistant_scopes_set,
+            commands::assistant_changes_tail,
             commands::mcp_setup_info,
             $($extra,)*
         ]

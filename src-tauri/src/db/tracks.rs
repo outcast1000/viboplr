@@ -604,6 +604,23 @@ impl Database {
         conn.query_row(&sql, params![full_path], |row| row.get(0)).optional()
     }
 
+    /// Re-point a local track's stored (collection-relative) path after its
+    /// file was moved/renamed on disk — the assistant "manage files" flow.
+    /// Updates the row in place so the track keeps its id (and with it tags,
+    /// likes mirror, playlist references, history `added_at`), where the
+    /// scanner's delete+reinsert convergence would mint a fresh row and lose
+    /// them. `modified_at` is left alone: a rename preserves the file's mtime,
+    /// so the scanner's fast path stays valid. Refreshes the FTS row, which
+    /// indexes the path (filename search).
+    pub fn update_track_path(&self, track_id: i64, new_relative_path: &str) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tracks SET path = ?2 WHERE id = ?1",
+            params![track_id, new_relative_path],
+        )?;
+        Self::update_fts_for_track_inner(&conn, track_id)
+    }
+
     /// Bulk `find_track_id_by_path`: resolves many paths in one call, returning
     /// only the ones that matched, as `(path, track id)`.
     ///

@@ -3638,6 +3638,13 @@ function App() {
       checkForUpdates: extensionsHook.checkForUpdates,
     },
     collections: { resync: collectionActions.resyncCollection },
+    library: {
+      refreshAfterBulkEdit: () => {
+        library.loadLibrary();
+        library.loadTracks();
+        setSearchBulkEditKey((k) => k + 1);
+      },
+    },
     likeActions,
   });
   // Playback failure on an auto-advanced track: keep the music going — skip to

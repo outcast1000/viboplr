@@ -19,8 +19,10 @@ pub fn preview_mixtape(
 
 /// File extension named by a direct URL's own path (query/fragment stripped,
 /// host excluded), or the neutral "mp3" the old export used when the path
-/// names none. Mirrors the frontend's `extFromDirectUrl`.
-fn ext_from_direct_url(url: &str) -> String {
+/// names none. Mirrors the frontend's `extFromDirectUrl`. `pub(crate)` because
+/// the assistant download flow (`assistant_write.rs`) dispatches on the same
+/// source-faithful rules as this export.
+pub(crate) fn ext_from_direct_url(url: &str) -> String {
     let after_host = url
         .find("://")
         .map(|i| &url[i + 3..])

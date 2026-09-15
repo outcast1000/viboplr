@@ -221,6 +221,10 @@ pub struct DiagnosticFacts {
     /// pasted log and the one a user will never spot in a wall of text.
     pub home_dir: Option<String>,
     pub log_tail: Vec<String>,
+    /// Recent assistant write-journal entries (pre-formatted lines) — when a
+    /// user reports "my files changed", what the assistant did is a fact the
+    /// report must carry.
+    pub assistant_changes_tail: Vec<String>,
 }
 
 /// Cap the tail read so a long-running session's log can't balloon the report.
@@ -274,7 +278,47 @@ pub fn collect_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Result
         } else {
             Vec::new()
         },
+        assistant_changes_tail: crate::assistant_write::read_audit_tail(&state.app_dir, 30)
+            .into_iter()
+            .map(|e| format!("{} {} — {}", e.ts, e.verb, e.summary))
+            .collect(),
     })
+}
+
+// --- Assistant write permissions + journal (Settings UI) ---
+//
+// The authoritative copy of the permissions lives in
+// `assistant-permissions.json` in the profile dir, read fresh by every
+// control-API write handler (assistant_write.rs — fail closed). These
+// commands are only the Settings UI's get/set over that same file; the
+// frontend store never holds the scopes, so nothing the webview persists can
+// stand in for the Rust-side check.
+
+#[tauri::command]
+pub fn assistant_scopes_get(state: State<'_, AppState>) -> Result<crate::assistant_write::WriteScopes, String> {
+    Ok(crate::assistant_write::load_scopes(&state.app_dir))
+}
+
+#[tauri::command]
+pub fn assistant_scopes_set(
+    state: State<'_, AppState>,
+    scopes: crate::assistant_write::WriteScopes,
+) -> Result<crate::assistant_write::WriteScopes, String> {
+    crate::assistant_write::save_scopes(&state.app_dir, &scopes)?;
+    Ok(scopes)
+}
+
+/// Recent assistant mutations for Settings → Debug — same journal the control
+/// API serves at GET /v1/changes.
+#[tauri::command]
+pub fn assistant_changes_tail(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> Result<Vec<crate::assistant_write::AuditEntry>, String> {
+    Ok(crate::assistant_write::read_audit_tail(
+        &state.app_dir,
+        limit.unwrap_or(100).clamp(1, 500),
+    ))
 }
 
 #[cfg(test)]
