@@ -37,8 +37,11 @@ mod video_frames;
 mod storyboard;
 mod stream_relay;
 mod transcode_server;
+mod window_arrangement;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
+#[cfg(target_os = "macos")]
+mod display_watch;
 #[cfg(target_os = "windows")]
 mod cursor_tracker_win;
 #[cfg(target_os = "windows")]
@@ -1260,13 +1263,18 @@ pub fn run() {
                     }
                 }
 
+                // Tell the frontend when displays are plugged/unplugged/rearranged,
+                // so it can restore the geometry saved for the new arrangement.
+                #[cfg(target_os = "macos")]
+                display_watch::install(app.handle().clone());
+
                 // Read persisted window state from the store JSON file
                 let store_path = app_dir.join("app-state.json");
                 if let Ok(data) = std::fs::read_to_string(&store_path) {
                     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+                        let raw_monitors = window.available_monitors().unwrap_or_default();
                         // Collect monitor bounds for off-screen validation
-                        let monitors: Vec<(f64, f64, f64, f64)> = window.available_monitors()
-                            .unwrap_or_default()
+                        let monitors: Vec<(f64, f64, f64, f64)> = raw_monitors
                             .iter()
                             .filter_map(|m| {
                                 let pos = m.position();
@@ -1280,6 +1288,26 @@ pub fn run() {
                                 ))
                             })
                             .collect();
+                        // Geometry saved for THIS monitor arrangement wins over the flat
+                        // fallback keys — see window_arrangement.rs / useMiniMode.ts.
+                        let signature = window_arrangement::arrangement_signature(
+                            &raw_monitors
+                                .iter()
+                                .map(|m| window_arrangement::MonitorEntry {
+                                    x: m.position().x,
+                                    y: m.position().y,
+                                    width: m.size().width,
+                                    height: m.size().height,
+                                    scale_factor: m.scale_factor(),
+                                })
+                                .collect::<Vec<_>>(),
+                        );
+                        let arrangement_geom = |record_key: &str, field: &str| -> Option<f64> {
+                            json.get(record_key)
+                                .and_then(|r| r.get(&signature))
+                                .and_then(|g| g.get(field))
+                                .and_then(|v| v.as_f64())
+                        };
                         let is_visible = |x: f64, y: f64| -> bool {
                             if monitors.is_empty() { return true; }
                             monitors.iter().any(|(mx, my, mx2, my2)| {
@@ -1320,8 +1348,10 @@ pub fn run() {
                             let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize { width: 280.0, height: mini_height })));
                             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: mini_width, height: mini_height }));
                             if let (Some(x), Some(y)) = (
-                                json.get("miniWindowX").and_then(|v| v.as_f64()),
-                                json.get("miniWindowY").and_then(|v| v.as_f64()),
+                                arrangement_geom("miniGeomByArrangement", "x")
+                                    .or_else(|| json.get("miniWindowX").and_then(|v| v.as_f64())),
+                                arrangement_geom("miniGeomByArrangement", "y")
+                                    .or_else(|| json.get("miniWindowY").and_then(|v| v.as_f64())),
                             ) {
                                 if is_visible(x, y) {
                                     let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition { x, y }));
@@ -1331,10 +1361,14 @@ pub fn run() {
                             let _ = window.set_resizable(false);
                             let _ = window.set_decorations(false);
                         } else {
-                            let saved_w = json.get("windowWidth").and_then(|v| v.as_f64());
-                            let saved_h = json.get("windowHeight").and_then(|v| v.as_f64());
-                            let saved_x = json.get("windowX").and_then(|v| v.as_f64());
-                            let saved_y = json.get("windowY").and_then(|v| v.as_f64());
+                            let saved_w = arrangement_geom("windowGeomByArrangement", "w")
+                                .or_else(|| json.get("windowWidth").and_then(|v| v.as_f64()));
+                            let saved_h = arrangement_geom("windowGeomByArrangement", "h")
+                                .or_else(|| json.get("windowHeight").and_then(|v| v.as_f64()));
+                            let saved_x = arrangement_geom("windowGeomByArrangement", "x")
+                                .or_else(|| json.get("windowX").and_then(|v| v.as_f64()));
+                            let saved_y = arrangement_geom("windowGeomByArrangement", "y")
+                                .or_else(|| json.get("windowY").and_then(|v| v.as_f64()));
 
                             // Determine target monitor from saved position, or use first monitor
                             let target = saved_x.zip(saved_y)

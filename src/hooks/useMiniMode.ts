@@ -5,6 +5,12 @@ import { subscribe } from "../utils/tauriEvents";
 import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
 import { applyWebviewZoom } from "../utils/zoom";
+import {
+  arrangementSignature,
+  toMonitorInfo,
+  type FullWindowGeom,
+  type MiniWindowGeom,
+} from "../utils/windowArrangement";
 
 const MINI_NORMAL_HEIGHT = 52;
 const MINI_COMPACT_HEIGHT = 24;
@@ -148,6 +154,37 @@ export function cssToLogicalRatio(
   const ratio = (innerHeightPhysical / scaleFactor) / cssViewportHeight;
   if (!Number.isFinite(ratio) || ratio < 0.5 || ratio > 4) return 1;
   return ratio;
+}
+
+/**
+ * Signature of the current monitor set — the key under which geometry is
+ * saved per display arrangement (see `windowArrangement.ts`; the Rust
+ * startup restore computes the same string). `null` when monitors can't be
+ * read: callers fall back to the flat, arrangement-agnostic keys.
+ */
+async function currentArrangementSignature(): Promise<string | null> {
+  try {
+    const monitors = await availableMonitors();
+    return arrangementSignature(monitors.map(toMonitorInfo));
+  } catch (e) {
+    console.error("Failed to read monitor arrangement:", e);
+    return null;
+  }
+}
+
+async function saveGeomForArrangement<T>(key: string, geom: T): Promise<void> {
+  const sig = await currentArrangementSignature();
+  if (!sig) return;
+  const rec = (await store.get<Record<string, T>>(key)) ?? {};
+  rec[sig] = geom;
+  await store.set(key, rec);
+}
+
+async function geomForCurrentArrangement<T>(key: string): Promise<T | null> {
+  const sig = await currentArrangementSignature();
+  if (!sig) return null;
+  const rec = await store.get<Record<string, T>>(key);
+  return rec?.[sig] ?? null;
 }
 
 export type MiniRestingSize = "normal" | "compact" | "full";
@@ -327,6 +364,16 @@ export function useMiniMode(
   const hoverControllerRef = useRef<HoverController | null>(null);
   // Resolves once the persisted resting/width sizes have been read (see below).
   const sizeLoadRef = useRef<Promise<void> | null>(null);
+  // True from a `monitors-changed` event until the debounced arrangement
+  // restore has run. While set, geometry saves are skipped: the OS is moving
+  // the window itself (evacuating it off a disappearing display), and that
+  // position must not overwrite what was saved for the new arrangement
+  // before the restore gets to read it.
+  const arrangementSettlingRef = useRef(false);
+  // The arrangement `fullSizeRef` was captured on — after a display change,
+  // leaving mini mode prefers the geometry saved for the CURRENT arrangement
+  // over an in-session capture that described a different desk setup.
+  const fullSizeSigRef = useRef<string | null>(null);
 
   const cancelCollapseTimer = useCallback(() => {
     if (collapseTimerRef.current) {
@@ -514,10 +561,12 @@ export function useMiniMode(
           await win.unmaximize();
         } else {
           fullSizeRef.current = geo;
+          fullSizeSigRef.current = await currentArrangementSignature();
           store.set("fullWindowWidth", geo.w);
           store.set("fullWindowHeight", geo.h);
           store.set("fullWindowX", geo.x);
           store.set("fullWindowY", geo.y);
+          await saveGeomForArrangement<FullWindowGeom>("windowGeomByArrangement", geo);
         }
         setMiniMode(true);
         miniModeRef.current = true;
@@ -534,10 +583,13 @@ export function useMiniMode(
         const miniW = widthFor(miniWidthSizeRef.current);
         await win.setMinSize(new LogicalSize(minW(), restingHeight));
         await win.setSize(new LogicalSize(miniW, restingHeight));
-        const [mx, my] = await Promise.all([
+        const arrGeom = await geomForCurrentArrangement<MiniWindowGeom>("miniGeomByArrangement");
+        const [flatX, flatY] = await Promise.all([
           store.get<number | null>("miniWindowX"),
           store.get<number | null>("miniWindowY"),
         ]);
+        const mx = arrGeom?.x ?? flatX;
+        const my = arrGeom?.y ?? flatY;
         if (mx != null && my != null) {
           const bounds = await getLogicalMonitorBounds();
           if (isPositionOnScreen(mx, my, bounds)) {
@@ -556,8 +608,10 @@ export function useMiniMode(
         cancelCollapseTimer();
         miniModeRef.current = false;
         const pos = await win.outerPosition();
-        await store.set("miniWindowX", pos.x / factor);
-        await store.set("miniWindowY", pos.y / factor);
+        const miniGeom: MiniWindowGeom = { x: pos.x / factor, y: pos.y / factor };
+        await store.set("miniWindowX", miniGeom.x);
+        await store.set("miniWindowY", miniGeom.y);
+        await saveGeomForArrangement("miniGeomByArrangement", miniGeom);
         // Re-render to the full-mode layout, then hide the window before resizing
         // so the intermediate setMinSize/setSize/setPosition steps don't play as a
         // visible multi-step resize animation. Mirrors the enter-mini path above.
@@ -571,8 +625,16 @@ export function useMiniMode(
         await win.setAlwaysOnTop(false);
         await win.setResizable(true);
         await win.setMinSize(new LogicalSize(FULL_MIN_WIDTH, FULL_MIN_HEIGHT));
-        const geo = fullSizeRef.current;
         const bounds = await getLogicalMonitorBounds();
+        // The in-session capture is freshest, but it describes the arrangement
+        // it was taken on. If displays changed while in mini mode, the geometry
+        // saved for the CURRENT arrangement is what the user last had here.
+        let geo = fullSizeRef.current;
+        const sig = await currentArrangementSignature();
+        if (sig && sig !== fullSizeSigRef.current) {
+          const arrGeo = await geomForCurrentArrangement<FullWindowGeom>("windowGeomByArrangement");
+          if (arrGeo) geo = arrGeo;
+        }
         if (geo) {
           await win.setSize(new LogicalSize(geo.w, geo.h));
           if (isPositionOnScreen(geo.x, geo.y, bounds)) {
@@ -618,27 +680,44 @@ export function useMiniMode(
       clearTimeout(timer);
       timer = setTimeout(async () => {
         if (cancelled || !restoredRef.current || expandingRef.current) return;
-        const factor = await win.scaleFactor();
-        const pos = await win.outerPosition();
-        if (miniModeRef.current) {
-          store.set("miniWindowX", pos.x / factor);
-          store.set("miniWindowY", pos.y / factor);
-        } else {
-          // A maximized or fullscreen window's geometry describes the *screen*, not
-          // a size to reopen at. Windows reports a maximized undecorated window at
-          // a negative outer position, which the startup restore rejects as
-          // off-screen, so the app reopened monitor-sized at whatever position the
-          // OS chose -- down and to the right, with its bottom-right corner behind
-          // the taskbar (#134). Persist the state instead and re-maximize on launch,
-          // keeping the last floating geometry as the restore-down bounds.
-          const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
-          store.set("windowMaximized", maximized || fullscreen);
-          if (maximized || fullscreen) return;
-          const size = await win.innerSize();
-          store.set("windowWidth", size.width / factor);
-          store.set("windowHeight", size.height / factor);
-          store.set("windowX", pos.x / factor);
-          store.set("windowY", pos.y / factor);
+        // A display change is settling: the OS is moving the window itself, so
+        // recording this position would clobber the new arrangement's saved
+        // geometry before the arrangement restore below can read it.
+        if (arrangementSettlingRef.current) return;
+        try {
+          const factor = await win.scaleFactor();
+          const pos = await win.outerPosition();
+          if (miniModeRef.current) {
+            const geom: MiniWindowGeom = { x: pos.x / factor, y: pos.y / factor };
+            store.set("miniWindowX", geom.x);
+            store.set("miniWindowY", geom.y);
+            await saveGeomForArrangement("miniGeomByArrangement", geom);
+          } else {
+            // A maximized or fullscreen window's geometry describes the *screen*, not
+            // a size to reopen at. Windows reports a maximized undecorated window at
+            // a negative outer position, which the startup restore rejects as
+            // off-screen, so the app reopened monitor-sized at whatever position the
+            // OS chose -- down and to the right, with its bottom-right corner behind
+            // the taskbar (#134). Persist the state instead and re-maximize on launch,
+            // keeping the last floating geometry as the restore-down bounds.
+            const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
+            store.set("windowMaximized", maximized || fullscreen);
+            if (maximized || fullscreen) return;
+            const size = await win.innerSize();
+            const geom: FullWindowGeom = {
+              w: size.width / factor,
+              h: size.height / factor,
+              x: pos.x / factor,
+              y: pos.y / factor,
+            };
+            store.set("windowWidth", geom.w);
+            store.set("windowHeight", geom.h);
+            store.set("windowX", geom.x);
+            store.set("windowY", geom.y);
+            await saveGeomForArrangement("windowGeomByArrangement", geom);
+          }
+        } catch (e) {
+          console.error("Failed to save window geometry:", e);
         }
       }, 500);
     };
@@ -672,6 +751,58 @@ export function useMiniMode(
       cleanups.forEach(fn => fn());
     };
   }, []);
+
+  // Restore the geometry saved for the new display arrangement when monitors
+  // are plugged, unplugged or rearranged (`monitors-changed`, emitted by
+  // display_watch.rs on macOS). macOS evacuates windows off a disappearing
+  // display itself, and those moves are indistinguishable from user drags —
+  // so without this, docking back restored nothing and the evacuation
+  // position became the remembered one. Debounced: the OS callback fires once
+  // per display per change and the arrangement needs a moment to settle.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const stop = subscribe("monitors-changed", () => {
+      arrangementSettlingRef.current = true;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        timer = null;
+        try {
+          if (!restoredRef.current || draggingRef.current || expandingRef.current) return;
+          const win = getCurrentWindow();
+          const bounds = await getLogicalMonitorBounds();
+          if (miniModeRef.current) {
+            const g = await geomForCurrentArrangement<MiniWindowGeom>("miniGeomByArrangement");
+            if (g && isPositionOnScreen(g.x, g.y, bounds)) {
+              await win.setPosition(new LogicalPosition(g.x, g.y));
+            }
+          } else {
+            // A maximized/fullscreen window is the OS's to lay out.
+            const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
+            if (maximized || fullscreen) return;
+            const g = await geomForCurrentArrangement<FullWindowGeom>("windowGeomByArrangement");
+            if (g) {
+              const target = isPositionOnScreen(g.x, g.y, bounds)
+                ? { x: g.x, y: g.y }
+                : clampToNearestMonitor(g.x, g.y, g.w, g.h, bounds);
+              await win.setSize(new LogicalSize(g.w, g.h));
+              await win.setPosition(new LogicalPosition(target.x, target.y));
+            }
+          }
+        } catch (e) {
+          console.error("Failed to restore window for the new display arrangement:", e);
+        } finally {
+          // Saves resume either way — with no saved entry for this
+          // arrangement, the window stays where the OS put it and subsequent
+          // moves start recording under the new signature.
+          arrangementSettlingRef.current = false;
+        }
+      }, 1000);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      stop();
+    };
+  }, [restoredRef]);
 
   useEffect(() => {
     // Published so `applyMiniZoom` can wait for it: the startup refit runs from
