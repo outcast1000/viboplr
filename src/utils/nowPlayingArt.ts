@@ -58,3 +58,51 @@ export function resolveNowPlayingArt(
     && !(lookups.isArtistImageResolved?.(track.artist_name) ?? true);
   return { path: null, pending: albumOut || artistOut };
 }
+
+/** How long each slide holds before the Now Playing surface rotates to the
+    next one (issue #135). A constant, not a setting — tune here if feedback
+    asks for a different pace. */
+export const NOW_PLAYING_SLIDE_INTERVAL_MS = 20_000;
+
+export interface NowPlayingSlides {
+  /** Unresolved paths in slideshow order — primary (explicit `image_url`, else
+      the album cover) first, the artist image second. Length 0–2; entries are
+      distinct, so a track whose artist image IS its only image yields one slide
+      and the slideshow degrades to the static art it always was. */
+  paths: string[];
+  /** Same meaning as `NowPlayingArt.pending`, and only ever true while `paths`
+      is empty: no image has settled yet but a lookup is still in flight, so the
+      surface should hold the art regime rather than commit to "no art". */
+  pending: boolean;
+}
+
+/**
+ * The Now Playing slideshow's image list (issue #135): the same ladder as
+ * `resolveNowPlayingArt`, except the artist image is asked for **always** —
+ * there it is only a fallback for a missing album cover; here it is the second
+ * slide. The ask itself matters: `getArtistImage` is what triggers
+ * `useImageCache`'s on-demand fetch, and the settle re-renders the caller, so
+ * the list grows 1 → 2 when the artist image lands and rotation simply begins.
+ */
+export function resolveNowPlayingSlides(
+  track: QueueTrack,
+  lookups: NowPlayingArtLookups,
+): NowPlayingSlides {
+  const albumArtist = track.album_artist_name ?? track.artist_name;
+  const albumPath = !track.image_url && track.album_title
+    ? lookups.getAlbumImage(track.album_title, albumArtist)
+    : null;
+  const primary = track.image_url ?? albumPath;
+  const artistPath = track.artist_name ? lookups.getArtistImage(track.artist_name) : null;
+
+  const paths: string[] = [];
+  if (primary) paths.push(primary);
+  if (artistPath && artistPath !== primary) paths.push(artistPath);
+  if (paths.length > 0) return { paths, pending: false };
+
+  const albumOut = !track.image_url && !!track.album_title
+    && !(lookups.isAlbumImageResolved?.(track.album_title, albumArtist) ?? true);
+  const artistOut = !!track.artist_name
+    && !(lookups.isArtistImageResolved?.(track.artist_name) ?? true);
+  return { paths, pending: albumOut || artistOut };
+}

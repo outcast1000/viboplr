@@ -7,7 +7,8 @@ import type { LyricsData } from "../types/informationTypes";
 import type { UseLyricsResult } from "../hooks/useLyrics";
 import { parseLrc, currentSyncedLineIndex, lyricPosition, scrollLineToCenter } from "../utils/lyrics";
 import { LyricsOffsetControl } from "./LyricsOffsetControl";
-import { resolveNowPlayingArt } from "../utils/nowPlayingArt";
+import { resolveNowPlayingSlides, NOW_PLAYING_SLIDE_INTERVAL_MS } from "../utils/nowPlayingArt";
+import { isReducedMotion } from "../utils/reducedMotion";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { TrackArtFallback } from "./TrackArtFallback";
@@ -32,9 +33,15 @@ interface NowPlayingViewProps {
    */
   variant?: "view" | "fullscreen";
   track: QueueTrack | null;
+  /** Is audio actually running? Gates the art slideshow (issue #135) — a paused
+      surface is one the user is looking at, so it holds its current slide, the
+      same reasoning as `useIdleVisibility`'s `hold`. */
+  playing?: boolean;
   lyrics: UseLyricsResult;
-  /** Image-provider chain lookups (album → artist fallback). Called during render
-      so the async cache-resolve re-render is picked up, same as HomeShelf/cards. */
+  /** Image-provider chain lookups (album cover + artist image — the two slides
+      of the art slideshow, and the artist image doubles as the fallback when
+      there is no cover). Called during render so the async cache-resolve
+      re-render is picked up, same as HomeShelf/cards. */
   getAlbumImage: (name: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
   /** Has that lookup settled? The getters above return `null` for "no image" and
@@ -250,6 +257,7 @@ function CrossfadeLayer({ top, children }: { top: boolean; children: ReactNode }
 export function NowPlayingView({
   variant = "view",
   track,
+  playing = false,
   lyrics,
   getAlbumImage,
   getArtistImage,
@@ -278,19 +286,46 @@ export function NowPlayingView({
     getTarget: () => surfaceRef.current,
   });
 
-  // Resolve art via the image-provider plugin chain: explicit url → album →
-  // artist. `pending` distinguishes "no art" from "still looking", which this
-  // view has to act on — see resolveNowPlayingArt.
-  const art = track && !isVideo
-    ? resolveNowPlayingArt(track, {
+  // Resolve the slideshow's slides via the image-provider chain: the cover
+  // (explicit url → album image) plus the artist image when it exists and
+  // differs (issue #135). `pending` distinguishes "no art" from "still
+  // looking", which this view has to act on — see resolveNowPlayingSlides.
+  const slides = track && !isVideo
+    ? resolveNowPlayingSlides(track, {
         getAlbumImage,
         getArtistImage,
         isAlbumImageResolved,
         isArtistImageResolved,
       })
-    : { path: null, pending: false };
-  const albumImageSrc = resolveImageSrc(art.path);
-  const artPending = art.pending;
+    : { paths: [], pending: false };
+  const slideCount = slides.paths.length;
+
+  // Slideshow position, keyed to the track (previous-value-in-state rather
+  // than a reset effect) so every track opens on its cover — the reporter's
+  // "album first" — and an advance on the outgoing track can't leak in.
+  const trackKey = track?.key ?? null;
+  const [slide, setSlide] = useState<{ key: string | null; idx: number }>({ key: null, idx: 0 });
+  const slideIdx = slide.key === trackKey ? slide.idx : 0;
+  useEffect(() => {
+    // Rotation needs something to rotate and music running under it: a paused
+    // surface is one the user is looking at, so it holds (same reasoning as
+    // useIdleVisibility's `hold`). One image — or the artist lookup still out —
+    // means the static art this view always showed; the interval (re)starts
+    // when `slideCount` reaches 2, so the first flip is a full beat after the
+    // artist image is actually on offer.
+    if (!playing || slideCount < 2) return;
+    const id = window.setInterval(() => {
+      // An auto-advancing image is motion; under reduce-motion hold the slide.
+      // Checked at tick time (not a dep) so a mid-song toggle takes effect
+      // without restarting the interval.
+      if (isReducedMotion()) return;
+      setSlide((s) => ({ key: trackKey, idx: (s.key === trackKey ? s.idx : 0) + 1 }));
+    }, NOW_PLAYING_SLIDE_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [playing, slideCount, trackKey]);
+
+  const slideImageSrc = resolveImageSrc(slideCount > 0 ? slides.paths[slideIdx % slideCount] : null);
+  const artPending = slides.pending;
 
   // Sizing tier for the fullscreen variant (see NowPlayingView.css). Carried on
   // every branch so the empty/video states are laid out consistently too.
@@ -316,7 +351,7 @@ export function NowPlayingView({
 
   // Audio: blurred-art backdrop + sharp art + centered karaoke/plain lyrics,
   // with an up-next peek on the side.
-  const hasArt = !!albumImageSrc;
+  const hasArt = !!slideImageSrc;
   // The no-art surface is a commitment — skin gradient, skin text colors — so it
   // waits for a settled answer. While a lookup is out the art regime holds, and
   // `--np-backdrop-base` is the dark layer its light text sits on until the
@@ -426,7 +461,7 @@ export function NowPlayingView({
       )}
       {hasArt && (
         <Crossfade
-          src={albumImageSrc}
+          src={slideImageSrc}
           className="np-xfade--backdrop"
           render={(src) => (
             <div className="np-backdrop" style={{ backgroundImage: `url("${src}")` }} />
@@ -439,7 +474,7 @@ export function NowPlayingView({
             visualizerSlot
           ) : hasArt ? (
             <Crossfade
-              src={albumImageSrc}
+              src={slideImageSrc}
               className="np-xfade--art"
               render={(src) => <img className="np-art" src={src} alt="" />}
             />

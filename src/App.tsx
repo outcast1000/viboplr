@@ -5199,12 +5199,13 @@ function App() {
 
           {/* Now Playing view. Dropped entirely while the fullscreen overlay is
               up: that overlay renders this same component, and two live copies
-              would each run the tag lookup and each hold a visualizer instance —
-              the second painting behind an opaque surface, since the slot's
-              IntersectionObserver still counts it as on screen. */}
+              would each hold a visualizer instance — the second painting behind
+              an opaque surface, since the slot's IntersectionObserver still
+              counts it as on screen. */}
           {view === "nowplaying" && !audioFullscreen && (
             <NowPlayingView
               track={playback.currentTrack}
+              playing={playback.playing}
               lyrics={nowPlayingLyrics}
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}
@@ -6278,6 +6279,7 @@ function App() {
             <NowPlayingView
               variant="fullscreen"
               track={playback.currentTrack}
+              playing={playback.playing}
               lyrics={nowPlayingLyrics}
               getAlbumImage={albumImageCache.getImage}
               getArtistImage={artistImageCache.getImage}

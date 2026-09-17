@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveNowPlayingArt } from "../utils/nowPlayingArt";
+import { resolveNowPlayingArt, resolveNowPlayingSlides } from "../utils/nowPlayingArt";
 import type { QueueTrack } from "../types";
 
 function makeTrack(over: Partial<QueueTrack> = {}): QueueTrack {
@@ -125,5 +125,79 @@ describe("resolveNowPlayingArt", () => {
       getArtistImage: () => null,
     });
     expect(art).toEqual({ path: null, pending: false });
+  });
+});
+
+describe("resolveNowPlayingSlides", () => {
+  it("orders the cover first and the artist image second", () => {
+    const slides = resolveNowPlayingSlides(makeTrack(), {
+      ...allSettledEmpty,
+      getAlbumImage: () => "/covers/album.jpg",
+      getArtistImage: () => "/covers/artist.jpg",
+    });
+    expect(slides).toEqual({ paths: ["/covers/album.jpg", "/covers/artist.jpg"], pending: false });
+  });
+
+  it("asks for the artist image even when the album has a cover", () => {
+    // Unlike resolveNowPlayingArt's fallback-only ask — the ask is what
+    // triggers useImageCache's on-demand fetch of the second slide.
+    const getArtistImage = vi.fn(() => null);
+    resolveNowPlayingSlides(makeTrack(), {
+      ...allSettledEmpty,
+      getAlbumImage: () => "/covers/album.jpg",
+      getArtistImage,
+    });
+    expect(getArtistImage).toHaveBeenCalledWith("Artist");
+  });
+
+  it("puts an explicit image_url first and still offers the artist image", () => {
+    const slides = resolveNowPlayingSlides(
+      makeTrack({ image_url: "https://cdn.example/cover.jpg" }),
+      { ...allSettledEmpty, getArtistImage: () => "/covers/artist.jpg" },
+    );
+    expect(slides.paths).toEqual(["https://cdn.example/cover.jpg", "/covers/artist.jpg"]);
+  });
+
+  it("collapses to one slide when the artist image IS the cover", () => {
+    // No album cover → the artist image is the primary; a duplicate second
+    // slide would make the slideshow crossfade an image into itself.
+    const slides = resolveNowPlayingSlides(makeTrack(), {
+      ...allSettledEmpty,
+      getArtistImage: () => "/covers/artist.jpg",
+    });
+    expect(slides.paths).toEqual(["/covers/artist.jpg"]);
+  });
+
+  it("yields one slide while the artist lookup is still out, without pending", () => {
+    // The cover can show immediately; the list grows to 2 when the artist
+    // image settles. pending stays false — there is art on screen.
+    const slides = resolveNowPlayingSlides(makeTrack(), {
+      ...allPending,
+      getAlbumImage: () => "/covers/album.jpg",
+      isAlbumImageResolved: () => true,
+    });
+    expect(slides).toEqual({ paths: ["/covers/album.jpg"], pending: false });
+  });
+
+  it("reports pending only while nothing has settled", () => {
+    expect(resolveNowPlayingSlides(makeTrack(), allPending)).toEqual({
+      paths: [],
+      pending: true,
+    });
+    expect(resolveNowPlayingSlides(makeTrack(), allSettledEmpty)).toEqual({
+      paths: [],
+      pending: false,
+    });
+  });
+
+  it("keys the album lookup by the album artist, like resolveNowPlayingArt", () => {
+    const getAlbumImage = vi.fn((_name: string, artist?: string | null) =>
+      artist === "Various Artists" ? "/covers/comp.jpg" : null);
+    const slides = resolveNowPlayingSlides(
+      makeTrack({ album_artist_name: "Various Artists" }),
+      { ...allSettledEmpty, getAlbumImage },
+    );
+    expect(slides.paths).toEqual(["/covers/comp.jpg"]);
+    expect(getAlbumImage).toHaveBeenCalledWith("Album", "Various Artists");
   });
 });
