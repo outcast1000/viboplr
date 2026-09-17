@@ -1490,6 +1490,8 @@ interface SettingsPanelProps {
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
   confirmTrashDelete: boolean;
   onConfirmTrashDeleteChange: (enabled: boolean) => void;
+  openNowPlayingOnPlay: boolean;
+  onOpenNowPlayingOnPlayChange: (enabled: boolean) => void;
   reduceMotion: boolean;
   onReduceMotionChange: (enabled: boolean) => void;
   uiZoom: number;
@@ -1619,6 +1621,8 @@ export function SettingsPanel({
   onMinimizeToMiniPlayerChange,
   confirmTrashDelete,
   onConfirmTrashDeleteChange,
+  openNowPlayingOnPlay,
+  onOpenNowPlayingOnPlayChange,
   reduceMotion,
   onReduceMotionChange,
   uiZoom,
@@ -2202,6 +2206,13 @@ export function SettingsPanel({
                         </div>
                       </>
                     )}
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Open Now Playing when you play something</span>
+                        <span className="settings-description">Jump to the Now Playing view whenever you start playing a track, album, or playlist. Enqueuing and auto-continue never switch the view.</span>
+                      </div>
+                      <ToggleSwitch checked={openNowPlayingOnPlay} onChange={onOpenNowPlayingOnPlayChange} />
+                    </div>
                     {nowPlayingInfo && (
                       <div className="settings-row settings-row--stacked" id="now-playing-info">
                         <div className="settings-row-info">

@@ -233,15 +233,18 @@ test('leaving fullscreen forgets the open drawer', async ({ page }) => {
   await expect(page.locator('.app.fs-queue-revealed')).toHaveCount(0);
 });
 
-test('fullscreen does not draw the title twice', async ({ page }) => {
-  // The in-grid view draws its own identity block...
-  await expect(page.locator('.now-playing-view .np-meta')).toHaveCount(1);
+test('the view never draws its own identity block', async ({ page }) => {
+  // Neither variant renders a title/artist/album block of its own (issue #136):
+  // in-grid the now-playing bar carries it, so the view drawing it again was
+  // the same fact twice on one screen — worst on 1080p displays.
+  await expect(page.locator('.now-playing-view .np-meta')).toHaveCount(0);
+  await expect(page.locator('.now-playing-view .np-tags')).toHaveCount(0);
 
   await enterFullscreen(page);
   const overlay = page.locator('.audio-fs');
 
-  // ...but in fullscreen the control bar carries the title with clickable
-  // artist/album links, so the view's block is suppressed rather than stacked.
+  // In fullscreen the control bar is the identity: title with clickable
+  // artist/album links.
   await expect(overlay.locator('.np-meta')).toHaveCount(0);
   await expect(overlay.locator('.np-tags')).toHaveCount(0);
   await expect(overlay.locator('.fs-title')).toBeVisible();
@@ -252,8 +255,8 @@ test('only one copy of the view is live at a time', async ({ page }) => {
   await expect(page.locator('.now-playing-view')).toHaveCount(1);
   await enterFullscreen(page);
 
-  // Two mounts would each run the tag lookup and each hold a visualizer instance
-  // whose IntersectionObserver still reports it on screen — the second painting
+  // Two mounts would each hold a visualizer instance whose
+  // IntersectionObserver still reports it on screen — the second painting
   // behind an opaque overlay.
   await expect(page.locator('.now-playing-view')).toHaveCount(1);
   await expect(page.locator('.now-playing-view--fs')).toHaveCount(1);

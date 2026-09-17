@@ -47,14 +47,6 @@
      light: the surface is scrimmed album art, whatever the skin. The skin's own
      --bg-hover would be a pale block under a white glyph on a light skin. */
   --np-btn-hover-bg: rgba(var(--scrim-rgb), 0.45);
-  /* Identity type, scaled to the stage. Declared here rather than on `.np-meta`
-     because `.np-tags` is that block's *sibling*, and all three sizes derive
-     from this one so the group can't fall out of proportion as it grows.
-     Floored at the size the title was fixed at, so no window loses any.
-     Only the in-grid tier needs a value: the fullscreen variant doesn't render
-     this block at all (`showIdentity`), its identity coming from the control bar
-     — which scales its own the same way (`--fsbar-title-size`). */
-  --np-title-size: clamp(var(--fs-2xl), 1.6vh + 0.85vw, 52px);
 }
 .np-audio--noart {
   background: linear-gradient(160deg, var(--accent-dim), var(--bg-primary) 70%);
@@ -142,8 +134,8 @@
 }
 
 /* ── Entrance on track change / appearance ───── */
-/* Title, tags, and the no-art placeholder lift+fade in when their React key
-   changes (i.e. a new track), so the swap feels alive instead of snapping. */
+/* The no-art placeholder lifts+fades in when its React key changes (i.e. a new
+   track), so the swap feels alive instead of snapping. */
 .np-enter {
   animation: np-enter-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -335,14 +327,45 @@
    never shortens the scroll area (which would shift the karaoke centre line),
    and inside the column rather than in the corner action row because it belongs
    to what it adjusts — you reach for it while reading lyrics that are wrong.
-   Colour is inherited: the column carries the `--np-text-*` regime. */
-.np-lyrics-offset {
+   Colour is inherited: the column carries the `--np-text-*` regime.
+
+   Hidden at rest in THIS host (issue #136): it sits where lyric lines scroll
+   past, and even at the base component's quiet 0.42 the two overlapped into
+   mutual illegibility. Hovering the lyrics column — where you'd reach for it —
+   reveals it; a NON-ZERO offset stays visible regardless, because it is state
+   the user set that survives restarts, and a silently-shifted track would
+   otherwise be a mystery weeks later (same rule as the base `.is-active`).
+   The two-class selectors below out-specify the base `.lyric-offset` rules,
+   which the video overlay host still uses unchanged. */
+.np-lyrics-col .np-lyrics-offset {
   position: absolute;
   bottom: 4px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
   color: var(--np-text-secondary);
+  /* An opaque-enough chip that a line scrolling beneath never bleeds through.
+     `--np-btn-hover-bg` follows the surface regime (dark scrim chip over art,
+     the skin's own hover over the no-art gradient) — the base component's
+     `--overlay-inverse` wash flips on light skins and is too thin here. */
+  background: var(--np-btn-hover-bg);
+  opacity: 0;
+  pointer-events: none;
+}
+/* Revealed but still quiet while the pointer is merely in the column… */
+.np-lyrics-col:hover .np-lyrics-offset {
+  opacity: 0.6;
+  pointer-events: auto;
+}
+.np-lyrics-col .np-lyrics-offset.is-active {
+  opacity: 0.9;
+  pointer-events: auto;
+}
+/* …and fully lit only when it is what the pointer/keyboard is actually on. */
+.np-lyrics-col .np-lyrics-offset:hover,
+.np-lyrics-col .np-lyrics-offset:focus-within {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* Subtle loading placeholder — no text, just a faint pulse where lyrics will be. */
@@ -356,55 +379,6 @@
 @keyframes np-lyrics-hint-pulse {
   0%, 100% { opacity: 0.08; }
   50%      { opacity: 0.2; }
-}
-
-/* ── Shared metadata line ────────────────────── */
-.np-meta {
-  position: relative;
-  z-index: 2;
-  flex: 0 0 auto;
-  text-align: center;
-  margin-top: 20px;
-  max-width: 80%;
-}
-.np-title {
-  font-size: var(--np-title-size);
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
-  color: var(--np-text-primary);
-  text-shadow: var(--np-text-shadow);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Derived, not clamped again: the pair has to stay in proportion as it grows,
-   and 0.53 is the ratio it already had (16px under a 30px title). */
-.np-subtitle {
-  font-size: calc(var(--np-title-size) * 0.53);
-  color: var(--np-text-secondary);
-  text-shadow: var(--np-text-shadow-sm);
-  margin-top: 0.375em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.np-tags {
-  position: relative;
-  z-index: 2;
-  flex: 0 0 auto;
-  margin-top: 6px;
-  text-align: center;
-  max-width: 80%;
-  /* Derived like .np-subtitle — 0.44 is the ratio it already had (13px under a
-     30px title) — so the three identity lines grow together. */
-  font-size: calc(var(--np-title-size) * 0.44);
-  color: var(--np-text-tertiary);
-  text-shadow: var(--np-text-shadow-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* When there are no lyrics, center the art alone (no two-column split). The gap
@@ -464,12 +438,13 @@
 
    The height term subtracts a fixed px budget rather than taking a fraction of
    `vh`. `vh` is the whole window, but the stage only gets what the caption bar,
-   the now-playing bar, this view's padding and the title block leave behind
-   (~300px together). A plain `80vh` overshoots that on a 900px-tall window and
+   the now-playing bar and this view's padding leave behind (~220px together —
+   it was ~300px while the view still drew its own title block, removed in
+   issue #136). A plain `80vh` overshoots that on a 900px-tall window and
    the view's `overflow: hidden` silently crops the visual — which for a record
    means slicing off the outer bands. */
 .np-art-col--visualizer {
-  --np-vis-chrome: 300px;
+  --np-vis-chrome: 220px;
   --np-vis-size: min(calc(100vh - var(--np-vis-chrome)), 40vw, 720px);
 }
 /* No lyrics on screen (none for this track, or the user collapsed them): drop
@@ -496,8 +471,8 @@
 
 /* ── Fullscreen variant ──────────────────────── */
 /* The same surface inside AudioFullscreen. Only sizing changes: with the caption
-   bar, sidebar, now-playing bar and this view's own title block all gone, every
-   budget the in-grid tier reserves for them is wrong here.
+   bar, sidebar and now-playing bar all gone, every budget the in-grid tier
+   reserves for them is wrong here.
  *
  * `--np-vis-chrome` is the clearest case. In-grid it subtracts ~300px of app
  * furniture from the height; in fullscreen the only thing below the stage is the

@@ -46,6 +46,7 @@ const STORE_DEFAULTS = {
   mediaTypeFilter: "all",
   trackLikedFirst: false,
   confirmTrashDelete: true,
+  openNowPlayingOnPlay: false,
   trackVideoHistory: true,
   videoLyricsOverlay: true,
   preferVideoResolution: false,

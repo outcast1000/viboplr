@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { isVideoTrack } from "../utils";
 import type { QueueTrack } from "../types";
@@ -19,15 +18,17 @@ interface NowPlayingViewProps {
    * Which chrome surrounds this surface.
    *
    * `view` (default) is the `nowplaying` main-content view: the app's caption bar,
-   * sidebar and now-playing bar are all on screen around it, and this view owns
-   * the track's title/artist/album line.
+   * sidebar and now-playing bar are all on screen around it.
    *
    * `fullscreen` is the same surface inside `AudioFullscreen` — bigger, and with
-   * `FullscreenControls` underneath it. That bar already carries the title with
-   * clickable artist/album links, so the identity block here would be a second
-   * copy of it; and with the app chrome gone the stage has far more room to fill.
-   * Everything else — backdrop, art regime, lyrics, the corner action row — is
-   * deliberately identical, which is the point of there being one component.
+   * `FullscreenControls` underneath it. With the app chrome gone the stage has
+   * far more room to fill, so the variant's job is sizing (plus flipping the
+   * fullscreen button's glyph). Neither variant draws its own title/artist/album
+   * block: the chrome around each already carries it (the now-playing bar
+   * in-grid, the fullscreen bar's `.fs-title`), and drawing it again was the
+   * same fact twice on one screen (issue #136). Everything else — backdrop, art
+   * regime, lyrics, the corner action row — is deliberately identical, which is
+   * the point of there being one component.
    */
   variant?: "view" | "fullscreen";
   track: QueueTrack | null;
@@ -276,35 +277,6 @@ export function NowPlayingView({
   const { visible: actionsVisible, hide: hideActions } = useIdleVisibility({
     getTarget: () => surfaceRef.current,
   });
-  // Fullscreen's identity comes from the control bar under it, so this surface
-  // draws neither the title block nor the tags line there.
-  const showIdentity = !isFullscreen;
-
-  // Read-only tags for the metadata line. NowPlayingView operates on a
-  // QueueTrack (no DB id), so resolve to a library track by metadata; tags show
-  // only for tracks that exist in the library. Editing lives in the Now Playing
-  // bar's tag popover and the track detail page, not in this lean-back view.
-  const [trackTags, setTrackTags] = useState<string[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    // Two DB round-trips for a line fullscreen doesn't render.
-    if (!track || !showIdentity) { setTrackTags([]); return; }
-    invoke<{ id: number } | null>("find_track_by_metadata", {
-      title: track.title,
-      artistName: track.artist_name ?? null,
-      albumName: track.album_title ?? null,
-    })
-      .then((lib) => {
-        if (cancelled) return;
-        if (!lib) { setTrackTags([]); return; }
-        invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId: lib.id })
-          .then((rows) => { if (!cancelled) setTrackTags(rows.map((r) => r.name)); })
-          .catch((e) => console.error("Failed to load tags for now-playing track:", e));
-      })
-      .catch((e) => console.error("Failed to resolve now-playing track:", e));
-    return () => { cancelled = true; };
-  }, [track?.title, track?.artist_name, track?.album_title, showIdentity]);
 
   // Resolve art via the image-provider plugin chain: explicit url → album →
   // artist. `pending` distinguishes "no art" from "still looking", which this
@@ -319,19 +291,6 @@ export function NowPlayingView({
     : { path: null, pending: false };
   const albumImageSrc = resolveImageSrc(art.path);
   const artPending = art.pending;
-
-  // Keyed on the track identity so a track change remounts the line and replays
-  // the entrance animation (it stays put across position ticks).
-  const metaLine = useMemo(() => {
-    if (!track) return null;
-    const parts = [track.artist_name, track.album_title].filter(Boolean) as string[];
-    return (
-      <div className="np-meta np-enter" key={track.key}>
-        <div className="np-title">{track.title}</div>
-        {parts.length > 0 && <div className="np-subtitle">{parts.join(" · ")}</div>}
-      </div>
-    );
-  }, [track]);
 
   // Sizing tier for the fullscreen variant (see NowPlayingView.css). Carried on
   // every branch so the empty/video states are laid out consistently too.
@@ -521,13 +480,11 @@ export function NowPlayingView({
           </div>
         )}
       </div>
-      {/* Fullscreen's control bar already shows the title with clickable
-          artist/album links, so drawing them here too would be the same fact
-          twice on one screen. */}
-      {showIdentity && metaLine}
-      {showIdentity && trackTags.length > 0 && (
-        <div className="np-tags np-enter" key={`${track.key}-tags`}>{trackTags.join(" · ")}</div>
-      )}
+      {/* No identity block in either variant. The chrome around this surface
+          already carries the title/artist/album (the now-playing bar in-grid,
+          FullscreenControls in fullscreen), so drawing them here too was the
+          same fact twice on one screen — removed for the windowed view too in
+          issue #136 (it crowded 1080p displays). */}
     </div>
   );
 }

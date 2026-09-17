@@ -377,6 +377,7 @@ function App() {
   const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = usePersistedSetting("autoUpdateManagedDeps", true, restoredRef);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = usePersistedSetting("minimizeToMiniPlayer", false, restoredRef);
   const [confirmTrashDelete, setConfirmTrashDelete] = usePersistedSetting("confirmTrashDelete", true, restoredRef);
+  const [openNowPlayingOnPlay, setOpenNowPlayingOnPlay] = usePersistedSetting("openNowPlayingOnPlay", false, restoredRef);
   const [reduceMotion, setReduceMotion] = usePersistedSetting("reduceMotion", false, restoredRef);
   const [eqCustomPresets, setEqCustomPresets] = usePersistedSetting<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets", [], restoredRef);
   const [eqShowBarControlSimple, setEqShowBarControlSimple] = usePersistedSetting("eqShowBarControlSimple", true, restoredRef);
@@ -555,6 +556,17 @@ function App() {
     // Record the "Latest play" session for anything that replaces the queue.
     // Guarded so the startup queue-restore doesn't masquerade as a fresh play.
     if (!restoredRef.current) return;
+    // Opt-in (issue #136): jump to the Now Playing view on an explicit new play.
+    // This callback already fires only for queue-REPLACING plays — never enqueue,
+    // play-next, auto-continue, or the startup restore (guard above) — so it is
+    // exactly the "user pressed play on something" moment the setting names.
+    if (openNowPlayingOnPlay) {
+      library.setView("nowplaying");
+      library.setSelectedArtist(null);
+      library.setSelectedAlbum(null);
+      library.setSelectedTag(null);
+      library.setSelectedTrack(null);
+    }
     const session = buildPlaySession(tracks, startIndex, context, Date.now());
     if (!session) return;
     const next = recordPlaySession(recentPlaysRef.current, session);
@@ -2645,6 +2657,7 @@ function App() {
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
+          openNowPlayingOnPlay: savedOpenNowPlayingOnPlay,
           updateNoticeDismissed: savedUpdateNoticeDismissed,
           reduceMotion: savedReduceMotion,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
@@ -2728,6 +2741,7 @@ function App() {
         if (savedVideoSubtitles === false) setVideoSubtitlesOn(false);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
+        if (savedOpenNowPlayingOnPlay) setOpenNowPlayingOnPlay(true);
         if (savedVideoStoryboards === false) setVideoStoryboards(false);
         if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
@@ -3865,6 +3879,10 @@ function App() {
 
   function handleConfirmTrashDeleteChange(enabled: boolean) {
     setConfirmTrashDelete(enabled); // persistence: usePersistedSetting
+  }
+
+  function handleOpenNowPlayingOnPlayChange(enabled: boolean) {
+    setOpenNowPlayingOnPlay(enabled); // persistence: usePersistedSetting
   }
 
   function handleReduceMotionChange(enabled: boolean) {
@@ -5444,6 +5462,8 @@ function App() {
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
               confirmTrashDelete={confirmTrashDelete}
               onConfirmTrashDeleteChange={handleConfirmTrashDeleteChange}
+              openNowPlayingOnPlay={openNowPlayingOnPlay}
+              onOpenNowPlayingOnPlayChange={handleOpenNowPlayingOnPlayChange}
               reduceMotion={reduceMotion}
               onReduceMotionChange={handleReduceMotionChange}
               uiZoom={zoom.uiZoom}
