@@ -587,6 +587,17 @@ The merged list is exposed by `usePlugins` as `searchProviders`; `useCentralSear
 
 **If you build one:** register at runtime (not in the manifest) whenever the capability is conditional, and reset the "already registered" flag in `deactivate` — the host drops the provider on unload, so a disable/enable cycle must register again.
 
+### Handing the query to a plugin VIEW
+
+The other half of the surface, and the one plugins actually use: when no provider is registered, the dropdown offers each plugin sidebar view as a "try one of your sources" button, and clicking one **carries the typed query over**. Two ways it can land, in this order:
+
+1. **The reserved `host:search` action** (`HOST_SEARCH_ACTION` in `types/plugin.ts`). The host dispatches it as `{ viewId, query }` *before* switching views. Handling it is opt-in and the plugin then owns the whole gesture — raise the right surface and run the search.
+2. **Node-position seeding** (the default, needs no plugin code): the host fills the view's **first top-level `search-input`** and fires that node's action once with `{ query }`, exactly as if the user had typed and pressed Enter. Nonce-tracked, so revisiting the view never re-runs it.
+
+`dispatchUIAction` returns whether a handler existed, and App uses that to pick: a plugin that took the action does **not** also get the seed, or it would search twice.
+
+**Handle the action when your view is tabbed** — qBittorrent is the example (`api.ui.onAction("host:search", …)` → `runSearch`). Its search box lives on one tab of several, so on any other tab there is no top-level `search-input` to seed and the query would sit unconsumed until the user clicked that tab themselves, which is the retyping the handover exists to remove. A single-purpose view (yt-dlp's search) needs nothing.
+
 ## Assistant Tools (api.assistant)
 
 Plugins expose their own callable surface to **AI assistants driving the control API** — each plugin is a small MCP server inside the app: named tools with descriptions + JSON Schema, plus per-plugin `instructions` prose telling a model what the plugin is for and how the tools compose. Served by `GET /v1/assistant/tools` (roster) and `POST /v1/assistant/invoke` (request/response — the tool's return value **is** the payload, unlike the fire-and-forget context-menu `actions.invoke`), and by the MCP server's full-tier `plugin_tools` tool.
@@ -640,7 +651,7 @@ Plugins with sidebar items render UI via `PluginViewData` (separate from info ty
 | `select` | Dropdown with options |
 | `layout` | Vertical / horizontal container with children |
 | `spacer` | Layout spacer |
-| `search-input` / `text-input` | Text entry that fires an action on change. `search-input` extras: `buttonLabel` (submit-only + labeled button), `pasteButton` (a "Paste" button that fills the input from the clipboard and submits — backed by the host `read_clipboard_text` command), `stateKey` (per-key text memory, so one node multiplexed across tabs keeps each tab's typed text). The **first top-level** `search-input` doubles as the view's search bar: the host hoists it out of the scroll area and, when the Cmd+K no-match state opens the view, fills it with the query and fires its `action` once with `{ query }` — exactly as if the user had typed and pressed Enter, so a plugin needs nothing beyond its normal submit handler. `text-input` extras: `multiline`/`rows`, and `password` (masks the field for a service password or API secret; **wins over `multiline`**, since a textarea has no masked mode and silently falling back to a visible one would defeat the point) |
+| `search-input` / `text-input` | Text entry that fires an action on change. `search-input` extras: `buttonLabel` (submit-only + labeled button), `pasteButton` (a "Paste" button that fills the input from the clipboard and submits — backed by the host `read_clipboard_text` command), `stateKey` (per-key text memory, so one node multiplexed across tabs keeps each tab's typed text). The **first top-level** `search-input` doubles as the view's search bar: the host hoists it out of the scroll area and, when the Cmd+K no-match state opens the view, fills it with the query and fires its `action` once with `{ query }` — exactly as if the user had typed and pressed Enter, so a plugin needs nothing beyond its normal submit handler (a **tabbed** view has no such node on most tabs and should handle `host:search` instead — see "Handing the query to a plugin VIEW"). `text-input` extras: `multiline`/`rows`, and `password` (masks the field for a service password or API secret; **wins over `multiline`**, since a textarea has no masked mode and silently falling back to a visible one would defeat the point) |
 | `tabs` | Tab bar with `activeTab` |
 | `loading` | Loading spinner with optional message |
 | `progress-bar` | `{value, max, label?}` |

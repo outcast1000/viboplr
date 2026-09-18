@@ -2443,21 +2443,28 @@ export function usePlugins(
     [],
   );
 
+  /** Returns whether a handler for `actionId` existed and was called. Callers
+   *  that own a fallback need this: `HOST_SEARCH_ACTION` is offered to every
+   *  plugin view opened with a query and handled by almost none, and the
+   *  fallback (seeding the view's own search box) must not run for the one
+   *  plugin that took the query itself — it would search twice. A handler that
+   *  throws still counts as handled: it was that plugin's to answer, and the
+   *  fallback would be a second attempt at a gesture already in progress. */
   const dispatchUIAction = useCallback(
-    (pluginId: string, actionId: string, data?: unknown) => {
+    (pluginId: string, actionId: string, data?: unknown): boolean => {
       const loaded = loadedPluginsRef.current.get(pluginId);
-      if (!loaded) return;
+      if (!loaded) return false;
       const handler = loaded.uiActionHandlers.get(actionId);
-      if (handler) {
-        try {
-          handler(data);
-        } catch (e) {
-          console.error(
-            `[plugin:${pluginId}] UI action ${actionId} error:`,
-            e,
-          );
-        }
+      if (!handler) return false;
+      try {
+        handler(data);
+      } catch (e) {
+        console.error(
+          `[plugin:${pluginId}] UI action ${actionId} error:`,
+          e,
+        );
       }
+      return true;
     },
     [],
   );

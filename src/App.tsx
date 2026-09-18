@@ -96,6 +96,7 @@ import { useControlApi } from "./hooks/useControlApi";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
 import type { PluginTrack, PluginBadge, PluginPlayContext } from "./types/plugin";
+import { HOST_SEARCH_ACTION } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
 import { useMiniSearch } from "./hooks/useMiniSearch";
@@ -2133,7 +2134,15 @@ function App() {
   const handleOpenPluginView = useCallback((pluginId: string, viewId: string, query?: string) => {
     const viewKey: View = `plugin:${pluginId}:${viewId}`;
     const text = query?.trim() ?? "";
-    if (text) {
+    // A plugin whose view is TABBED can't be seeded by node position: the
+    // search box only exists while its search tab is the one showing, so the
+    // seed would sit unconsumed until the user clicked that tab themselves —
+    // which is the retyping this feature exists to remove. Such a plugin
+    // handles the reserved HOST_SEARCH_ACTION and routes the query itself.
+    // Nobody else has to: an unhandled action reports so, and the node-position
+    // seed below stays the default.
+    const routed = text ? plugins.dispatchUIAction(pluginId, HOST_SEARCH_ACTION, { viewId, query: text }) : false;
+    if (text && !routed) {
       pluginSearchSeedNonceRef.current += 1;
       setPluginSearchSeed({ view: viewKey, text, nonce: pluginSearchSeedNonceRef.current });
     } else {
@@ -2144,7 +2153,7 @@ function App() {
     library.setSelectedAlbum(null);
     library.setSelectedTag(null);
     library.setSelectedTrack(null);
-  }, [library]);
+  }, [library, plugins]);
   const handlePluginSearchSeedConsumed = useCallback((nonce: number) => {
     setPluginSearchSeed((s) => (s?.nonce === nonce ? null : s));
   }, []);

@@ -96,3 +96,49 @@ describe("plugin view search seed", () => {
     expect(onSeedConsumed).not.toHaveBeenCalled();
   });
 });
+
+// Why HOST_SEARCH_ACTION exists. A TABBED view only renders its search box
+// while that tab is the one showing, so on any other tab there is no
+// top-level search-input for the seed to land in and the query goes nowhere —
+// the user would have to click the tab themselves, which is the retyping this
+// whole feature removes. A plugin in that shape handles the reserved action
+// instead and routes the query itself; App then skips the seed entirely.
+describe("a tabbed plugin view", () => {
+  it("has nothing to seed while its search tab is not the one showing", () => {
+    const onAction = vi.fn();
+    const onSeedConsumed = vi.fn();
+    render(
+      <PluginViewRenderer
+        pluginName="qBittorrent"
+        currentTrack={null}
+        data={{
+          type: "layout",
+          direction: "vertical",
+          children: [
+            {
+              type: "tabs",
+              tabs: [{ id: "torrents", label: "Torrents" }, { id: "search", label: "Search" }],
+              activeTab: "torrents",
+              action: "qbt:tab",
+            },
+            // The torrents tab's filter box: a search-input, but nested inside
+            // the header row, so it is neither hoisted nor seedable — and it
+            // filters the local list rather than searching indexers, so
+            // handing it the query would answer a different question.
+            {
+              type: "layout",
+              direction: "horizontal",
+              children: [{ type: "search-input", action: "qbt:list-filter", placeholder: "Filter torrents" }],
+            },
+          ],
+        }}
+        onAction={onAction}
+        searchSeed={{ text: "the sound lions mouth", nonce: 1 }}
+        onSearchSeedConsumed={onSeedConsumed}
+      />,
+    );
+    expect(onAction).not.toHaveBeenCalled();
+    expect(onSeedConsumed).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText("Filter torrents") as HTMLInputElement).value).toBe("");
+  });
+});

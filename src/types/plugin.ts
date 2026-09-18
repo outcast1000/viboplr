@@ -878,6 +878,21 @@ export type PluginBadge =
   | { type: "dot"; variant: PluginBadgeVariant; tooltip?: string }
   | { type: "count"; value: number; variant: PluginBadgeVariant };
 
+/**
+ * Reserved UI action: "the user brought this query to your view".
+ *
+ * Sent by the host when a plugin view is opened from the Cmd+K no-match state
+ * with a query, as `{ viewId, query }`, BEFORE the view switches. Handling it
+ * is opt-in and only worth it for a view the host cannot seed by node position
+ * — a tabbed view, where the search box exists only while its own tab is
+ * showing. Handle it and you own the whole gesture: put the right tab up and
+ * run the search. Ignore it (the default, and what every plugin did before it
+ * existed) and the host fills the view's first top-level `search-input` and
+ * fires that node's action, exactly as if the user had typed and pressed
+ * Enter.
+ */
+export const HOST_SEARCH_ACTION = "host:search";
+
 export interface PluginUIAPI {
   setViewData(viewId: string, data: PluginViewData, opts?: { scrollKey?: string }): void;
   showNotification(message: string): void;
