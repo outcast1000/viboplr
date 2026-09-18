@@ -5,6 +5,7 @@
 // UI concerns (sections state, progress rendering, empty-delay); this module
 // owns the decision + the walk + the cache writes.
 import { invoke } from "@tauri-apps/api/core";
+import { buildEntityKey } from "../types/informationTypes";
 import type { InfoEntity, InfoFetchResult, FetchProgressEntry } from "../types/informationTypes";
 
 export const ERROR_TTL = 3600; // 1 hour in seconds
@@ -148,4 +149,137 @@ export async function fetchInfoThroughChain(
     }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: recording an error status; the error is already logged above
     return { result: { status: "error" }, usedIntegerId };
   }
+}
+
+// ---------------------------------------------------------------------------
+// One info type for one entity, cache-first — the operation behind the control
+// API's `info.fetch` AND a plugin's `api.informationTypes.fetch`. Both callers
+// must get the answer the detail page would render, so the type lookup, the
+// fresh-cache serve, the provider pinning and the chain walk live here.
+// ---------------------------------------------------------------------------
+
+// Info-type rows as the backend returns them (same tuples useInformationTypes reads):
+// [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][], description]
+export type InfoTypeRow = [string, string, string, number, number, Array<[string, number]>, string];
+// [integer_id, type_id, value, status, fetched_at]
+export type InfoValueRow = [number, string, string, string, number];
+
+/** A request the caller got wrong (unknown type, pinned plugin that isn't a
+ *  provider, …) — as opposed to a provider failing, which is reported as a
+ *  `status: "error"` outcome and never thrown. Callers surface the message
+ *  verbatim (a 400 body, a plugin promise rejection). */
+export class InfoFetchRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InfoFetchRequestError";
+  }
+}
+
+export interface FetchInfoValueOpts {
+  typeId: string;
+  entity: InfoEntity;
+  /** Pin the fetch to ONE plugin's provider instead of walking the user-ordered
+   *  chain. A pinned fetch also bypasses the fresh-cache serve — the cached
+   *  value may have come from a different provider, and pinning means "I want
+   *  THIS plugin's answer". */
+  pluginId?: string;
+  /** Re-run the chain even when the cache is fresh. */
+  force?: boolean;
+  invokeInfoFetch: InvokeInfoFetch;
+  pluginNames?: Map<string, string>;
+}
+
+export interface FetchInfoValueOutcome {
+  typeId: string;
+  /** The type's display name (e.g. "Review"). */
+  name: string;
+  displayKind: string;
+  status: "ok" | "not_found" | "error";
+  /** A fresh cache row, or a chain walk this call ran. */
+  source: "cache" | "fetch";
+  value: unknown;
+}
+
+function parseStoredValue(raw: string): unknown {
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+/** Best-effort library id for an entity built from metadata — some plugin
+ *  handlers key on `entity.id`; 0 = not in library, which every provider
+ *  already tolerates (restored queues fetch that way). Never throws. */
+export async function resolveInfoEntityId(entity: Omit<InfoEntity, "id">): Promise<number> {
+  const { kind, name, artistName, albumTitle } = entity;
+  try {
+    if (kind === "track") {
+      return (await invoke<{ id: number } | null>("find_track_by_metadata", {
+        title: name, artistName: artistName ?? null, albumName: albumTitle ?? null,
+      }))?.id ?? 0;
+    }
+    if (kind === "artist") {
+      return (await invoke<{ id: number } | null>("find_artist_by_name", { name }))?.id ?? 0;
+    }
+    if (kind === "album") {
+      return (await invoke<{ id: number } | null>("find_album_by_name", {
+        title: name, artistName: artistName ?? null,
+      }))?.id ?? 0;
+    }
+    return (await invoke<{ id: number } | null>("find_tag_by_name", { name }))?.id ?? 0;
+  } catch (e) {
+    console.error("Info entity id lookup failed:", e);
+    return 0;
+  }
+}
+
+/**
+ * Get one info type's value for one entity: a fresh cache row is served as-is
+ * (unless `force` / `pluginId`), anything else walks the SAME provider chain
+ * the detail pages run (`fetchInfoThroughChain`), so the result lands in the
+ * shared cache and the page renders it for free afterwards.
+ *
+ * Throws `InfoFetchRequestError` only for a malformed request; a provider
+ * failure comes back as `status: "error"`.
+ */
+export async function fetchInfoValue(opts: FetchInfoValueOpts): Promise<FetchInfoValueOutcome> {
+  const { typeId, entity, pluginId: targetPlugin, force, invokeInfoFetch, pluginNames } = opts;
+  const entityKey = buildEntityKey(entity);
+  const types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
+  const row = types.find(([id]) => id === typeId);
+  if (!row) {
+    throw new InfoFetchRequestError(
+      `type "${typeId}" is not registered for ${entity.kind} entities (available: ${types.map((t) => t[0]).join(", ") || "none"})`,
+    );
+  }
+  const [, name, displayKind, ttl, , providers] = row;
+
+  const chain = targetPlugin ? providers.filter(([pid]) => pid === targetPlugin) : providers;
+  if (targetPlugin && chain.length === 0) {
+    throw new InfoFetchRequestError(
+      `plugin "${targetPlugin}" is not a provider of "${typeId}" (providers: ${providers.map((p) => p[0]).join(", ") || "none"})`,
+    );
+  }
+
+  if (!targetPlugin && !force) {
+    const cached = await invoke<InfoValueRow[]>("info_get_values_for_entity", { entityKey });
+    const c = cached.find(([, id]) => id === typeId);
+    const now = Math.floor(Date.now() / 1000);
+    // Local (`core:`) rows and misses on a type with a local provider expire
+    // daily — the answer can change on disk. See cacheTtlForRow.
+    if (c && decideCacheAction(c[3], c[4], cacheTtlForRow(providers, c[0], c[3], ttl), now) === "render") {
+      return { typeId, name, displayKind, status: "ok", source: "cache", value: parseStoredValue(c[2]) };
+    }
+  }
+  if (chain.length === 0) {
+    throw new InfoFetchRequestError(`no providers registered for "${typeId}" — is the plugin enabled?`);
+  }
+  const { result } = await fetchInfoThroughChain({
+    typeId, providers: chain, entity, entityKey, invokeInfoFetch, pluginNames,
+  });
+  return {
+    typeId,
+    name,
+    displayKind,
+    status: result.status,
+    source: "fetch",
+    value: result.status === "ok" ? result.value : null,
+  };
 }

@@ -35,7 +35,10 @@ import { decideDownload } from "../utils/downloadPlan";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
 import type { InfoEntity } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
-import { cacheTtlForRow, decideCacheAction, fetchInfoThroughChain, type InvokeInfoFetch } from "../utils/infoFetchChain";
+import {
+  cacheTtlForRow, decideCacheAction, fetchInfoValue, resolveInfoEntityId, InfoFetchRequestError,
+  type InvokeInfoFetch, type InfoTypeRow, type InfoValueRow,
+} from "../utils/infoFetchChain";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { getPlaybackPosition } from "../playback/positionStore";
 import { applyTag, removeTag } from "./useTagActions";
@@ -235,15 +238,8 @@ async function resolveTracks(payload: Record<string, unknown>): Promise<Track[]>
   return ordered;
 }
 
-// Info-type rows as the backend returns them (same tuples useInformationTypes reads):
-// [type_id, name, display_kind, ttl, sort_order, providers: [plugin_id, integer_id][], description]
-type InfoTypeRow = [string, string, string, number, number, Array<[string, number]>, string];
-// [integer_id, type_id, value, status, fetched_at]
-type InfoValueRow = [number, string, string, string, number];
-
 /** Build an InfoEntity from verb payload fields, resolving the library id
- *  best-effort (some plugin handlers key on `entity.id`; 0 = not in library,
- *  which every provider already tolerates — restored queues fetch that way). */
+ *  best-effort via the shared `resolveInfoEntityId` (0 = not in library). */
 async function resolveInfoEntity(payload: Record<string, unknown>): Promise<InfoEntity> {
   const kind = payload.kind;
   if (kind !== "track" && kind !== "artist" && kind !== "album" && kind !== "tag") {
@@ -253,24 +249,7 @@ async function resolveInfoEntity(payload: Record<string, unknown>): Promise<Info
     ?? bad("name (or title) is required");
   const artistName = optionalString(payload.artistName);
   const albumTitle = optionalString(payload.albumTitle);
-  let id = 0;
-  try {
-    if (kind === "track") {
-      id = (await invoke<{ id: number } | null>("find_track_by_metadata", {
-        title: name, artistName: artistName ?? null, albumName: albumTitle ?? null,
-      }))?.id ?? 0;
-    } else if (kind === "artist") {
-      id = (await invoke<{ id: number } | null>("find_artist_by_name", { name }))?.id ?? 0;
-    } else if (kind === "album") {
-      id = (await invoke<{ id: number } | null>("find_album_by_name", {
-        title: name, artistName: artistName ?? null,
-      }))?.id ?? 0;
-    } else {
-      id = (await invoke<{ id: number } | null>("find_tag_by_name", { name }))?.id ?? 0;
-    }
-  } catch (e) {
-    console.error("Control API: entity id lookup failed:", e);
-  }
+  const id = await resolveInfoEntityId({ kind, name, artistName, albumTitle });
   return { kind, name, id, artistName, albumTitle };
 }
 
@@ -517,53 +496,28 @@ export function useControlApi(deps: ControlApiDeps) {
 
       case "info.fetch": {
         // One info type for one entity: fresh cache is served as-is, anything
-        // else walks the SAME provider chain the detail pages run
-        // (fetchInfoThroughChain), so the result lands in the shared cache.
+        // else walks the SAME provider chain the detail pages run, so the
+        // result lands in the shared cache. The operation itself is
+        // `fetchInfoValue` — shared with a plugin's api.informationTypes.fetch,
+        // so the two callers cannot drift. `pluginId` pins one provider (and
+        // bypasses the fresh-cache serve); see FetchInfoValueOpts.
         const typeId = optionalString(payload.typeId)
           ?? bad("typeId is required (GET /v1/info/entity lists the registered types)");
         const entity = await resolveInfoEntity(payload);
-        const entityKey = buildEntityKey(entity);
-        const types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
-        const row = types.find(([id]) => id === typeId)
-          ?? bad(`type "${typeId}" is not registered for ${entity.kind} entities (available: ${types.map((t) => t[0]).join(", ") || "none"})`);
-        const [, name, displayKind, ttl, , providers] = row;
-
-        // Optional targeting: pin the fetch to one plugin's provider instead
-        // of walking the user-ordered chain. A pinned fetch also bypasses the
-        // fresh-cache serve — the cached value may have come from a different
-        // provider, and pinning means "I want THIS plugin's answer".
-        const targetPlugin = optionalString(payload.pluginId);
-        const chain = targetPlugin
-          ? providers.filter(([pid]) => pid === targetPlugin)
-          : providers;
-        if (targetPlugin && chain.length === 0) {
-          bad(`plugin "${targetPlugin}" is not a provider of "${typeId}" (providers: ${providers.map((p) => p[0]).join(", ") || "none"})`);
+        try {
+          return await fetchInfoValue({
+            typeId,
+            entity,
+            pluginId: optionalString(payload.pluginId),
+            invokeInfoFetch: d.plugins.invokeInfoFetch,
+            pluginNames: d.plugins.pluginNames,
+          });
+        } catch (e) {
+          // A malformed request is the caller's 400; anything else propagates
+          // to the dispatcher's catch like every other handler.
+          if (e instanceof InfoFetchRequestError) bad(e.message);
+          throw e;
         }
-
-        if (!targetPlugin) {
-          const cached = await invoke<InfoValueRow[]>("info_get_values_for_entity", { entityKey });
-          const c = cached.find(([, id]) => id === typeId);
-          const now = Math.floor(Date.now() / 1000);
-          // Local (`core:`) rows and misses on a type with a local provider
-          // expire daily — the answer can change on disk. See cacheTtlForRow.
-          if (c && decideCacheAction(c[3], c[4], cacheTtlForRow(providers, c[0], c[3], ttl), now) === "render") {
-            return { typeId, name, displayKind, status: "ok", source: "cache", value: parseInfoValue(c[2]) };
-          }
-        }
-        if (chain.length === 0) bad(`no providers registered for "${typeId}" — is the plugin enabled?`);
-        const { result } = await fetchInfoThroughChain({
-          typeId, providers: chain, entity, entityKey,
-          invokeInfoFetch: d.plugins.invokeInfoFetch,
-          pluginNames: d.plugins.pluginNames,
-        });
-        return {
-          typeId,
-          name,
-          displayKind,
-          status: result.status,
-          source: "fetch",
-          value: result.status === "ok" ? result.value : null,
-        };
       }
 
       case "lyrics.get": {

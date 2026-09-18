@@ -1017,6 +1017,36 @@ export interface PluginInformationTypesAPI {
   getValuesForEntity(entity: import("./informationTypes").InfoEntity): Promise<InfoValueRead[]>;
   /** A single cached info value for an entity by info type, or null if absent. */
   getValue(typeId: string, entity: import("./informationTypes").InfoEntity): Promise<InfoValueRead | null>;
+  /**
+   * Get one info type's value for an entity, fetching it if needed: a fresh
+   * cached value is served as-is, otherwise the host walks the user-ordered
+   * provider chain exactly as the detail pages do and writes the result into
+   * the shared cache. `entity.id` may be omitted / 0 — the host resolves the
+   * library id best-effort from the metadata.
+   * - `opts.pluginId` pins the fetch to ONE provider (and skips the cache serve).
+   * - `opts.force` re-runs the chain even when the cache is fresh.
+   * Rejects only for a malformed request (unknown type, pinned plugin that is
+   * not a provider, no enabled provider); a provider failure resolves with
+   * `status: "error"`. Providers may take seconds — same budget as a detail page.
+   */
+  fetch(
+    typeId: string,
+    entity: Omit<import("./informationTypes").InfoEntity, "id"> & { id?: number },
+    opts?: { pluginId?: string; force?: boolean },
+  ): Promise<InfoValueFetched>;
+}
+
+/** What `api.informationTypes.fetch` resolves with. */
+export interface InfoValueFetched {
+  typeId: string;
+  /** The type's display name (e.g. "Review"). */
+  name: string;
+  displayKind: string;
+  status: "ok" | "not_found" | "error";
+  /** Whether the answer was a fresh cache row or a chain walk this call ran. */
+  source: "cache" | "fetch";
+  /** Parsed value when `status` is "ok", else null. */
+  value: unknown;
 }
 
 export type HomeShelfItem =
@@ -1130,6 +1160,51 @@ export interface PluginSearchAPI {
   ): () => void;
   registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void;
   unregisterProvider(providerId: string): void;
+  /**
+   * The catalog search providers a plugin may query — the user-visible list
+   * (Extensions → Contributions filter applied), i.e. exactly what Cmd+K and
+   * the control API offer. `key` is `pluginId:providerId`.
+   */
+  listProviders(): Array<{ key: string; pluginId: string; providerId: string; name: string }>;
+  /**
+   * Run ANOTHER plugin's catalog search and get its results back — the
+   * plugin-to-plugin counterpart of the control API's `POST /v1/search/plugin`.
+   * `providerKey` is a key from `listProviders()` (a bare providerId /
+   * pluginId / name is accepted when unambiguous). Resolves with the
+   * provider's `PluginSearchResult` verbatim: `empty` is a normal miss and a
+   * failing provider is `{ status: "error", message }`, never a rejection.
+   * Rejects only for a bad request: unknown provider, target plugin not
+   * installed / disabled / not active, or a call cycle (A → B → A). May take
+   * seconds (60s host budget). Guard for older hosts:
+   * `typeof api.search.query === "function"`.
+   */
+  query(providerKey: string, query: string, limit?: number): Promise<PluginSearchResult>;
+}
+
+/** What `api.plugins.list()` says about one installed plugin. */
+export interface PluginDescriptor {
+  id: string;
+  name: string;
+  version: string | null;
+  description: string | null;
+  enabled: boolean;
+  /** `enabled && status === "active"` is the "can I call it" check. */
+  status: PluginStatus;
+  /** Non-zero capability counts: live where the kind is runtime-registered
+   *  (searchProviders, homeShelves, contextMenuItems, assistantTools),
+   *  declared otherwise (downloadProviders, streamResolvers, informationTypes,
+   *  …). Same shape as the control API's extensions.list. */
+  capabilities: Record<string, number | boolean>;
+}
+
+/**
+ * Discovery for plugin-to-plugin composition: find out what else is installed
+ * before depending on it (`api.search.query`, `api.assistant.invoke`,
+ * `api.informationTypes.fetch` with a pinned `pluginId`). Read-only —
+ * install/enable stay with the user in the Extensions view.
+ */
+export interface PluginPluginsAPI {
+  list(): PluginDescriptor[];
 }
 
 /**
@@ -1174,6 +1249,32 @@ export interface PluginAssistantAPI {
    *  compose (like an MCP server's instructions). Overrides the manifest's
    *  `contributes.assistant.instructions` while the plugin is active. */
   setInstructions(text: string): void;
+  /**
+   * The tool roster other plugins publish — the same one `GET /v1/assistant/tools`
+   * serves, grouped per plugin with its instructions. Pass a `pluginId` to
+   * narrow to one plugin (an empty array means it publishes nothing or isn't
+   * installed). Filter on a well-known tool name (e.g. every plugin exposing
+   * `search`) to find capabilities without hardcoding plugin ids.
+   */
+  listTools(pluginId?: string): Array<{
+    pluginId: string;
+    name: string;
+    instructions: string | null;
+    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null }>;
+  }>;
+  /**
+   * Call ANOTHER plugin's assistant tool and get its return value — the
+   * generic plugin-to-plugin RPC, the counterpart of `POST /v1/assistant/invoke`.
+   * The tool's JSON return value is the result; a handler throw rejects with
+   * its message verbatim. Also rejects for: plugin not installed / disabled /
+   * not active, unknown tool (the message lists the plugin's tools), a call
+   * cycle (A → B → A), or the 60s host timeout. `args` is passed through
+   * unvalidated — the target validates, as it does for an AI caller. Tools
+   * have no progress or cancel scope, so use them for lookups and hand real
+   * downloads to `api.ui.requestAction("download-tracks", …)`. Guard for
+   * older hosts: `typeof api.assistant.invoke === "function"`.
+   */
+  invoke(pluginId: string, tool: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
 /** Result of resolving a Now Playing info item for the current track.
@@ -1495,8 +1596,11 @@ export interface ViboplrPluginAPI {
   /** Rich visuals in host-owned slots. Plugins render host state; they do not
    *  own it. See types/pluginVisualizer.ts for the contract. */
   visualizers: PluginVisualizerAPI;
-  /** Tools + instructions for AI assistants driving the control API. */
+  /** Tools + instructions for AI assistants driving the control API, and
+   *  the plugin-to-plugin RPC over the same roster (`invoke` / `listTools`). */
   assistant: PluginAssistantAPI;
+  /** Read-only discovery of the other installed plugins. */
+  plugins: PluginPluginsAPI;
 }
 
 // -- Gallery types --

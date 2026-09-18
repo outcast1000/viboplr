@@ -61,7 +61,11 @@ import type {
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
 import { buildEntityKey } from "../types/informationTypes";
-import { CORE_LOCAL_LYRICS_PROVIDER } from "../utils/infoFetchChain";
+import {
+  CORE_LOCAL_LYRICS_PROVIDER, fetchInfoValue, resolveInfoEntityId, type InvokeInfoFetch,
+} from "../utils/infoFetchChain";
+import { CallGraph, callableProblem, describePlugins } from "../utils/crossPluginCalls";
+import { buildAssistantRoster, resolveSearchProvider } from "../utils/controlApi";
 import { fetchLocalLyrics } from "../utils/localLyrics";
 
 /** Backstop for a global-search handler that never settles. Deliberately far
@@ -69,6 +73,19 @@ import { fetchLocalLyrics } from "../utils/localLyrics";
  *  explicitly asks for it, and the real providers shell out to a binary or drive
  *  a scrape window, which legitimately takes tens of seconds. */
 const PLUGIN_SEARCH_TIMEOUT_MS = 60000;
+
+/** The host registries a plugin may call into — see `hostRegistryRef`. */
+interface HostRegistry {
+  pluginStates: PluginState[];
+  searchProviders: PluginSearchProvider[];
+  invokePluginSearch: (pluginId: string, providerId: string, query: string, limit: number) => Promise<PluginSearchResult>;
+  assistantTools: PluginAssistantTool[];
+  assistantInstructions: Map<string, string>;
+  invokeAssistantTool: (pluginId: string, name: string, args: Record<string, unknown>) => Promise<unknown>;
+  homeShelves: Array<{ pluginId: string }>;
+  menuItems: Array<{ pluginId: string }>;
+  pluginNames: Map<string, string>;
+}
 
 /** Parse a stored info value (JSON string) for plugin consumers; passes through
  *  non-string / non-JSON values unchanged so callers never see a parse throw. */
@@ -326,6 +343,20 @@ export function usePlugins(
 
   const fetchUrlCallbackRef = useRef<((url: string) => void) | null>(null);
   const loadedPluginsRef = useRef<Map<string, LoadedPlugin>>(new Map());
+  // Forward refs for api.informationTypes.fetch: buildAPI is defined before
+  // invokeInfoFetch / pluginNames exist and must stay dependency-free, so it
+  // reads them through refs filled in below (see useLatestRef.ts).
+  const invokeInfoFetchRef = useRef<InvokeInfoFetch | null>(null);
+  const pluginNamesRef = useRef<Map<string, string>>(new Map());
+  // The host registries a plugin may call INTO (api.search.query,
+  // api.assistant.invoke, api.plugins.list) — the same lists and invokers the
+  // control API dispatches through, so user visibility/enable settings gate a
+  // plugin caller exactly as they gate an HTTP one. Filled by useAssignRef
+  // below once those memos exist.
+  const hostRegistryRef = useRef<HostRegistry | null>(null);
+  // In-flight plugin→plugin call edges, so A → B → A fails fast instead of
+  // spinning for the 60s tool timeout. See utils/crossPluginCalls.ts.
+  const crossCallGraphRef = useRef(new CallGraph());
   // --- Download-resolve scopes ---------------------------------------------
   // A scope is one resolve call the host is awaiting. It exists because a
   // provider that downloads the file itself (yt-dlp merging a video can run for
@@ -467,6 +498,32 @@ export function usePlugins(
       const invoke = tapInvoke;
       const trackUnsubscribe = (fn: () => void) => {
         loaded.unsubscribers.push(fn);
+      };
+
+      // One gate for every plugin→plugin call (search.query, assistant.invoke):
+      // the target must be installed + enabled + active, the call must not
+      // close a loop with what is already in flight, and the hop is written
+      // to the plugin log so yt-dlp activity started by another plugin reads
+      // as "completer → ytdlp:search" rather than as unexplained yt-dlp work.
+      const registry = (): HostRegistry => {
+        const r = hostRegistryRef.current;
+        if (!r) throw new Error("plugin registries are not ready yet");
+        return r;
+      };
+      const crossCall = async <T>(target: string, what: string, run: () => Promise<T>): Promise<T> => {
+        const problem = callableProblem(registry().pluginStates, target);
+        if (problem) throw new Error(problem);
+        const graph = crossCallGraphRef.current;
+        if (graph.wouldCycle(pluginId, target)) {
+          throw new Error(`cross-plugin call cycle: ${graph.describeCycle(pluginId, target)} (${what})`);
+        }
+        recordPluginLog("debug", `→ ${target}:${what}`, pluginId);
+        const leave = graph.enter(pluginId, target);
+        try {
+          return await run();
+        } finally {
+          leave();
+        }
       };
 
       const subscribeEvent = (
@@ -1191,6 +1248,36 @@ export function usePlugins(
             if (!hit) return null;
             return { typeId: hit[1], value: parsePluginJson(hit[2]), status: hit[3], fetchedAt: hit[4] };
           },
+          async fetch(typeId, entity, opts) {
+            // The control API's info.fetch, offered to plugins: cache-first,
+            // otherwise the user-ordered provider chain (fetchInfoValue), with
+            // the result written into the shared cache the detail pages read.
+            // Not an escape hatch — a plugin cannot reach a provider the user
+            // disabled, and the answer is the one the page would render.
+            const infoFetch = invokeInfoFetchRef.current;
+            if (!infoFetch) throw new Error("information types are not ready yet");
+            if (typeof typeId !== "string" || !typeId) throw new Error("typeId is required");
+            if (!entity || typeof entity !== "object" || typeof entity.name !== "string" || !entity.name) {
+              throw new Error("entity with a kind and a name is required");
+            }
+            if (!["track", "artist", "album", "tag"].includes(entity.kind)) {
+              throw new Error('entity.kind must be "track", "artist", "album" or "tag"');
+            }
+            // Plugins build entities from metadata; resolve the library id
+            // best-effort when they didn't (0 = not in library, tolerated by
+            // every provider), so handlers keyed on `entity.id` still work.
+            const id = typeof entity.id === "number" && entity.id > 0
+              ? entity.id
+              : await resolveInfoEntityId(entity);
+            return fetchInfoValue({
+              typeId,
+              entity: { ...entity, id },
+              pluginId: opts?.pluginId,
+              force: opts?.force,
+              invokeInfoFetch: infoFetch,
+              pluginNames: pluginNamesRef.current,
+            });
+          },
         },
 
         home: {
@@ -1328,6 +1415,40 @@ export function usePlugins(
               setDynamicSearchProvidersVersion((v) => v + 1);
             }
           },
+          listProviders() {
+            // The user-visible list (Extensions → Contributions filter applied),
+            // exactly what Cmd+K and the control API offer.
+            return registry().searchProviders.map((p) => ({
+              key: `${p.pluginId}:${p.providerId}`,
+              pluginId: p.pluginId,
+              providerId: p.providerId,
+              name: p.name,
+            }));
+          },
+          async query(providerKey, query, limit) {
+            if (typeof providerKey !== "string" || !providerKey) throw new Error("providerKey is required (see listProviders())");
+            if (typeof query !== "string" || !query) throw new Error("query is required");
+            const provider = resolveSearchProvider(registry().searchProviders, providerKey);
+            if (typeof provider === "string") throw new Error(provider);
+            const n = typeof limit === "number" && Number.isFinite(limit)
+              ? Math.min(100, Math.max(1, Math.floor(limit)))
+              : 30;
+            return crossCall(provider.pluginId, `search:${provider.providerId}`, () =>
+              registry().invokePluginSearch(provider.pluginId, provider.providerId, query, n),
+            );
+          },
+        },
+
+        plugins: {
+          list() {
+            const r = registry();
+            return describePlugins(r.pluginStates, {
+              searchProviders: r.searchProviders,
+              homeShelves: r.homeShelves,
+              menuItems: r.menuItems,
+              assistantTools: r.assistantTools,
+            });
+          },
         },
 
         assistant: {
@@ -1371,6 +1492,30 @@ export function usePlugins(
           setInstructions(text: string): void {
             runtimeAssistantInstructionsRef.current.set(pluginId, text);
             setAssistantVersion((v) => v + 1);
+          },
+          listTools(targetPluginId) {
+            const r = registry();
+            const roster = buildAssistantRoster(r.assistantTools, r.assistantInstructions, r.pluginNames);
+            return targetPluginId ? roster.filter((p) => p.pluginId === targetPluginId) : roster;
+          },
+          async invoke(targetPluginId, tool, args) {
+            if (typeof targetPluginId !== "string" || !targetPluginId) throw new Error("pluginId is required");
+            if (typeof tool !== "string" || !tool) throw new Error("tool is required");
+            const r = registry();
+            const known = r.assistantTools.some((t) => t.pluginId === targetPluginId && t.name === tool);
+            if (!known) {
+              // callableProblem first so "not installed" beats "no such tool".
+              const problem = callableProblem(r.pluginStates, targetPluginId);
+              if (problem) throw new Error(problem);
+              const names = r.assistantTools.filter((t) => t.pluginId === targetPluginId).map((t) => t.name).join(", ");
+              throw new Error(`plugin "${targetPluginId}" registers no tool "${tool}" (its tools: ${names || "none"})`);
+            }
+            const safeArgs = typeof args === "object" && args !== null && !Array.isArray(args)
+              ? (args as Record<string, unknown>)
+              : {};
+            return crossCall(targetPluginId, `tool:${tool}`, () =>
+              registry().invokeAssistantTool(targetPluginId, tool, safeArgs),
+            );
           },
         },
 
@@ -2516,6 +2661,7 @@ export function usePlugins(
     },
     [],
   );
+  useAssignRef(invokeInfoFetchRef, invokeInfoFetch);
 
   const invokeImageFetch = useCallback(
     async (pluginId: string, entity: "artist" | "album" | "tag", name: string, artistName?: string): Promise<ImageFetchResult> => {
@@ -2877,6 +3023,7 @@ export function usePlugins(
       ]),
     [pluginStates],
   );
+  useAssignRef(pluginNamesRef, pluginNames);
 
   const allSearchProviders = useMemo(() => {
     const seen = new Set(searchProviders.map((p) => `${p.pluginId}:${p.providerId}`));
@@ -3030,6 +3177,25 @@ export function usePlugins(
       ),
     [allSearchProviders, contributionVisibility],
   );
+
+  const hostRegistry = useMemo<HostRegistry>(
+    () => ({
+      pluginStates,
+      searchProviders: visibleSearchProviders,
+      invokePluginSearch,
+      assistantTools: allAssistantTools,
+      assistantInstructions,
+      invokeAssistantTool,
+      homeShelves: allHomeShelves,
+      menuItems: allMenuItems,
+      pluginNames,
+    }),
+    [
+      pluginStates, visibleSearchProviders, invokePluginSearch, allAssistantTools,
+      assistantInstructions, invokeAssistantTool, allHomeShelves, allMenuItems, pluginNames,
+    ],
+  );
+  useAssignRef(hostRegistryRef, hostRegistry);
 
   const contributions = useMemo(
     () =>

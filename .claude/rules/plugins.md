@@ -303,6 +303,8 @@ Contributes a searchable catalog to the global search (Cmd+K). Mirrors the `api.
 - `registerProvider({ id, name, icon? })` — add a provider at runtime. Returns an unsubscriber. Prefer this over the manifest when the capability is conditional (a missing binary means the provider can't answer and must not be offered).
 - `unregisterProvider(providerId)` — drop it.
 - `onQuery(providerId, handler)` — `handler(query: string, limit: number) => Promise<PluginSearchResult>`. Returns an unsubscriber.
+- `listProviders()` — the providers a plugin may query: `{ key: "pluginId:providerId", pluginId, providerId, name }[]`, the **user-visible** list (Contributions filter applied) — exactly what Cmd+K and `GET /v1/search/providers` offer.
+- `query(providerKey, query, limit?)` — run **another plugin's** catalog search and get its `PluginSearchResult` back (plugin-to-plugin counterpart of `POST /v1/search/plugin`; see "Plugin-to-plugin composition" below). `providerKey` is a `listProviders()` key (a bare id/name is accepted when unambiguous — `resolveSearchProvider`). The result is the provider's answer verbatim: `empty` is a normal miss and a failing provider is `{ status: "error", message }`, **never a rejection**. It rejects only for a bad request — unknown provider, target not installed / disabled / not active, or a call cycle. 60s host budget, `limit` clamped to 1–100 (default 30).
 
 `PluginSearchResult`: `{ status: "ok", tracks } | { status: "empty" } | { status: "error", message? }`. **The host never calls this while the user types** — it renders an offer row and queries only on activation — so a handler is allowed to take seconds (60s backstop). Return `PluginTrack`s carrying a resolvable `path`. Handlers and runtime providers are dropped automatically on deactivate/reload, so a plugin must re-register on activate (guard the whole namespace: `api.search` is absent on older hosts).
 
@@ -347,9 +349,10 @@ Nested file I/O rooted inside the plugin's data directory. `path` is a string ar
 - `onFetch(infoTypeId, handler)` — *provide* a value: handler receives an `InfoEntity`, returns `{ status: "ok", value } | { status: "not_found" } | { status: "error", message? }`.
 - `searchValues(query, opts?)` — *read* across the cached `information_values` store (any info type — lyrics, bios, reviews, similar lists, …). Case/diacritic-insensitive substring search. `opts` (all optional, AND-combined): `typeId` / `displayKind` / `entity` narrow by info type; `jsonPath` scopes matching **and** the returned `snippet` to one JSON field of the stored value (e.g. `"$.text"` for lyrics, `"$.summary"` for bios) — omit to search the whole value; `resolveTracks` populates `match.track` for `entity: "track"` matches; `limit`. Returns `InfoValueMatch[]`: `{ typeId, pluginId, entity, displayKind, entityKey, value (parsed JSON), status, fetchedAt, snippet, track }` where `track` is the resolved library `Track | null` (only for track entities when `resolveTracks` is set). This runs the scan in the host — the value store is keyed by metadata (`buildEntityKey`), not exposed as a queryable table to JS.
 - `getValuesForEntity(entity)` — read every cached value for an `InfoEntity`: `Array<{ typeId, value (parsed JSON), status, fetchedAt }>`.
-- `getValue(typeId, entity)` — read one cached value by info type for an `InfoEntity`, or `null`.
+- `getValue(typeId, entity)` — read one cached value by info type for an `InfoEntity`, or `null`. **Cache only** — never fetches.
+- `fetch(typeId, entity, opts?)` — *get* one info type's value for an entity, **fetching it if needed**: a fresh cached `ok` row is served as-is, anything else walks the **same user-ordered provider chain the detail pages run** (`fetchInfoValue` in `utils/infoFetchChain.ts`, shared verbatim with the control API's `POST /v1/info/fetch`) and writes the outcome into the shared cache — so the album page later renders the value for free, and a review the page already fetched costs the plugin nothing. `entity.id` is optional: the host resolves the library id best-effort from the metadata (0 = not in library, which every provider tolerates). `opts.pluginId` pins the fetch to **one** provider and skips the cache serve (pinning means "I want *this* plugin's answer", and the cached row may be another's); `opts.force` re-walks a fresh cache. Resolves with `{ typeId, name, displayKind, status: "ok" | "not_found" | "error", source: "cache" | "fetch", value }` — a **provider failure is `status: "error"`, never a rejection**; it rejects only for a malformed request (unknown type, a pinned plugin that isn't a provider, no enabled provider). Providers may take seconds. A cached `not_found` is *not* served: a miss re-asks the chain, same as the control API. Guard the whole method for older hosts (`typeof api.informationTypes.fetch === "function"`). Typical use: a plugin composing on another plugin's data — reading Last.fm's `album_track_popularity` to find the tracks an album is missing — rather than re-implementing that provider's HTTP calls behind `api.network`.
 
-There is still **no** `api.informationTypes.invoke` escape hatch — plugins read/provide info values through the typed methods above, not arbitrary Tauri commands. The **Lyrics Search** plugin (`src-tauri/plugins/lyrics-search/`) is the canonical `searchValues` consumer (`{ typeId: "lyrics", jsonPath: "$.text", resolveTracks: true }`).
+There is still **no** `api.informationTypes.invoke` escape hatch — plugins read/provide info values through the typed methods above, not arbitrary Tauri commands. `fetch` is deliberately *not* that hatch: it runs the chain the user configured in Settings → Providers, so a plugin cannot reach a provider the user disabled, and the answer is the one the page would render. The **Lyrics Search** plugin (`src-tauri/plugins/lyrics-search/`) is the canonical `searchValues` consumer (`{ typeId: "lyrics", jsonPath: "$.text", resolveTracks: true }`).
 
 ### api.imageProviders
 - `onFetch(entity, handler)` — entity is `"artist"`, `"album"`, or `"tag"` (matching the manifest's `imageProviders[].entity`). Handler receives `(name, artistName?)` — `artistName` only for albums — and returns `{ status: "ok", url, headers? } | { status: "ok", data } | { status: "not_found" } | { status: "error", message? }`.
@@ -379,6 +382,9 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 
 ### api.env
 - `get(key)` — read an environment variable
+
+### api.plugins
+- `list()` — read-only discovery of every installed plugin: `{ id, name, version, description, enabled, status, capabilities }[]`. `enabled && status === "active"` is the "can I call it" check. `capabilities` is the non-zero counts (live for runtime-registered kinds — searchProviders / homeShelves / contextMenuItems / assistantTools — declared for the rest), the same `summarizeCapabilities` shape the control API's `extensions.list` returns. Exists so a composing plugin can degrade gracefully instead of hardcoding "ytdlp" and failing opaquely; install/enable stay with the user in the Extensions view.
 
 ### api.p2p — removed
 
@@ -597,6 +603,26 @@ Same two paths as Home Shelves / Global Search:
 **Reference:** the bundled `mock-download` plugin (debugOnly) declares `search_catalog` + `get_state` — the in-repo example of manifest declaration + `onTool` wiring.
 
 **Trust note:** invoking a plugin tool runs plugin code, which per the Trust Model can already do anything the app can — the assistant surface adds no escalation beyond installing the plugin. On the assistant's side, tool descriptions and instructions are plugin-authored text entering the model's context; the MCP server gates the whole surface at the full tier for that reason.
+
+**Plugins can call these tools too.** `api.assistant.listTools(pluginId?)` returns the same roster `GET /v1/assistant/tools` serves, and `api.assistant.invoke(pluginId, tool, args?)` runs one and resolves with its return value — the generic plugin-to-plugin RPC. Same checks as the HTTP path (installed / enabled / active, tool registered — the rejection lists the plugin's tools), same 60s budget, plus the cycle guard described below. A tool has no progress or cancel scope, so use tools for lookups and hand real downloads to `api.ui.requestAction("download-tracks", …)`.
+
+## Plugin-to-plugin composition
+
+A plugin can build on other plugins — e.g. an album completer that reads Last.fm's track list, asks yt-dlp to search for the missing songs and opens the download modal for the hits. There is deliberately **no new bus or registry** for this: every plugin surface is already a registry of named handlers keyed `pluginId:name` that the host and the control API invoke, and these calls let a plugin stand where the control API stands. Three tiers:
+
+1. **Typed calls into registries with a fixed contract** — `api.informationTypes.fetch(typeId, entity)` for entity-keyed cached data, `api.search.query(providerKey, query)` for catalog searches (result is always `PluginSearchResult`, so a consumer can feed any catalog's tracks to `playTracks` / `download-tracks` without per-plugin adapters).
+2. **Generic RPC** — `api.assistant.invoke(pluginId, tool, args)` for everything else. Assistant tools are *the* service layer; do not add a parallel `api.services` registry, which would make authors publish twice.
+3. **Discovery** — `api.plugins.list()`, `api.search.listProviders()`, `api.assistant.listTools()`.
+
+Rules, all enforced in `usePlugins.buildAPI` (`crossCall`) with the pure parts in `utils/crossPluginCalls.ts`:
+
+- **User settings win.** Calls go through the *same filtered lists* the host uses — `visibleSearchProviders`, the enabled-plugin states — so a provider the user disabled in Settings or a contribution hidden in Extensions → Contributions is unreachable to plugins too. Never add a path that bypasses the filter.
+- **Cycles fail fast.** In-flight edges live in a `CallGraph`; a call whose target is already (transitively) waiting on the caller rejects with the path (`a → b → a`) instead of spinning to the 60s timeout. Independent concurrent calls into one plugin (two searches into yt-dlp) never collide — a plain stack would get that wrong.
+- **Errors, not silence.** Missing / disabled / inactive target, unknown provider or tool → a rejection naming the roster. A *provider* failure is the surface's own status (`{ status: "error" }`), never a rejection.
+- **Attribution.** Every hop is written to the plugin log as `→ target:what` under the caller's section, so yt-dlp activity started by another plugin reads as "completer → ytdlp:search" in Report a problem / `GET /v1/logs/frontend`.
+- **Readiness.** Plugins activate sequentially, so a call made from `activate()` may find the target's handlers not yet registered. Call from user gestures or defer; don't compose in `activate`.
+- **Conventions for composability:** track-shaped results are `PluginTrack[]` (under `tracks` for a tool); a plugin exposing a search as a tool names it `search` with `{ query, limit }` so consumers can find every searchable plugin via `listTools()` by name. Prefer a real `api.search` provider for catalogs, which yields the fixed contract for free.
+- **Not built, on purpose:** a pub/sub bus between plugins (hidden coupling, ordering bugs; request/response covers every case discussed) and access to another plugin's storage (the honor-system scoping is a hole, not a channel).
 
 ## Plugin View Rendering
 
