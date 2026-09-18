@@ -41,6 +41,7 @@ export interface PersistedSettings {
   trackLikedFirst: boolean | undefined;
   confirmTrashDelete: boolean | undefined;
   openNowPlayingOnPlay: boolean | undefined;
+  openNowPlayingOnVideoPlay: boolean | undefined;
   videoStoryboards: boolean | undefined;
   lastDownloadDest: string | null | undefined;
   searchViewModes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null | undefined;
@@ -130,6 +131,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     trackLikedFirst: read<boolean>("trackLikedFirst"),
     confirmTrashDelete: read<boolean>("confirmTrashDelete"),
     openNowPlayingOnPlay: read<boolean>("openNowPlayingOnPlay"),
+    openNowPlayingOnVideoPlay: read<boolean>("openNowPlayingOnVideoPlay"),
     videoStoryboards: read<boolean>("videoStoryboards"),
     lastDownloadDest: read<string | null>("lastDownloadDest"),
     searchViewModes: read<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),

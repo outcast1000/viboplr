@@ -1492,6 +1492,8 @@ interface SettingsPanelProps {
   onConfirmTrashDeleteChange: (enabled: boolean) => void;
   openNowPlayingOnPlay: boolean;
   onOpenNowPlayingOnPlayChange: (enabled: boolean) => void;
+  openNowPlayingOnVideoPlay: boolean;
+  onOpenNowPlayingOnVideoPlayChange: (enabled: boolean) => void;
   reduceMotion: boolean;
   onReduceMotionChange: (enabled: boolean) => void;
   uiZoom: number;
@@ -1623,6 +1625,8 @@ export function SettingsPanel({
   onConfirmTrashDeleteChange,
   openNowPlayingOnPlay,
   onOpenNowPlayingOnPlayChange,
+  openNowPlayingOnVideoPlay,
+  onOpenNowPlayingOnVideoPlayChange,
   reduceMotion,
   onReduceMotionChange,
   uiZoom,
@@ -2208,10 +2212,17 @@ export function SettingsPanel({
                     )}
                     <div className="settings-row">
                       <div className="settings-row-info">
-                        <span className="settings-label">Open Now Playing when you play something</span>
-                        <span className="settings-description">Jump to the Now Playing view whenever you start playing a track, album, or playlist. Enqueuing and auto-continue never switch the view.</span>
+                        <span className="settings-label">Open Now Playing when you play a song</span>
+                        <span className="settings-description">Jump to the Now Playing view whenever you start playing a song, album, or playlist. Enqueuing and auto-continue never switch the view.</span>
                       </div>
                       <ToggleSwitch checked={openNowPlayingOnPlay} onChange={onOpenNowPlayingOnPlayChange} />
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Open Now Playing when you play a video</span>
+                        <span className="settings-description">Same, when what you start is a video — watch it large instead of in its dock. Decided by the first track that plays.</span>
+                      </div>
+                      <ToggleSwitch checked={openNowPlayingOnVideoPlay} onChange={onOpenNowPlayingOnVideoPlayChange} />
                     </div>
                     {nowPlayingInfo && (
                       <div className="settings-row settings-row--stacked" id="now-playing-info">

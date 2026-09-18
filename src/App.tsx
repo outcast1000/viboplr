@@ -378,7 +378,11 @@ function App() {
   const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = usePersistedSetting("autoUpdateManagedDeps", true, restoredRef);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = usePersistedSetting("minimizeToMiniPlayer", false, restoredRef);
   const [confirmTrashDelete, setConfirmTrashDelete] = usePersistedSetting("confirmTrashDelete", true, restoredRef);
+  // Split by media: a song opening Now Playing is about lyrics + art, a video
+  // opening it is about watching large instead of in the dock — people want
+  // them independently. The audio key keeps the original name (no migration).
   const [openNowPlayingOnPlay, setOpenNowPlayingOnPlay] = usePersistedSetting("openNowPlayingOnPlay", false, restoredRef);
+  const [openNowPlayingOnVideoPlay, setOpenNowPlayingOnVideoPlay] = usePersistedSetting("openNowPlayingOnVideoPlay", false, restoredRef);
   const [reduceMotion, setReduceMotion] = usePersistedSetting("reduceMotion", false, restoredRef);
   const [eqCustomPresets, setEqCustomPresets] = usePersistedSetting<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets", [], restoredRef);
   const [eqShowBarControlSimple, setEqShowBarControlSimple] = usePersistedSetting("eqShowBarControlSimple", true, restoredRef);
@@ -561,7 +565,11 @@ function App() {
     // This callback already fires only for queue-REPLACING plays — never enqueue,
     // play-next, auto-continue, or the startup restore (guard above) — so it is
     // exactly the "user pressed play on something" moment the setting names.
-    if (openNowPlayingOnPlay) {
+    // Decided on the track that starts (the queue may mix media): a later
+    // auto-advance into the other kind never switches the view.
+    const starting = tracks[startIndex];
+    const startsVideo = !!starting && isVideoTrack(starting);
+    if (startsVideo ? openNowPlayingOnVideoPlay : openNowPlayingOnPlay) {
       library.setView("nowplaying");
       library.setSelectedArtist(null);
       library.setSelectedAlbum(null);
@@ -2675,7 +2683,7 @@ function App() {
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
-          openNowPlayingOnPlay: savedOpenNowPlayingOnPlay,
+          openNowPlayingOnPlay: savedOpenNowPlayingOnPlay, openNowPlayingOnVideoPlay: savedOpenNowPlayingOnVideoPlay,
           updateNoticeDismissed: savedUpdateNoticeDismissed,
           reduceMotion: savedReduceMotion,
           uiZoom: savedUiZoom, miniZoom: savedMiniZoom,
@@ -2760,6 +2768,7 @@ function App() {
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
         if (savedOpenNowPlayingOnPlay) setOpenNowPlayingOnPlay(true);
+        if (savedOpenNowPlayingOnVideoPlay) setOpenNowPlayingOnVideoPlay(true);
         if (savedVideoStoryboards === false) setVideoStoryboards(false);
         if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
@@ -3901,6 +3910,10 @@ function App() {
 
   function handleOpenNowPlayingOnPlayChange(enabled: boolean) {
     setOpenNowPlayingOnPlay(enabled); // persistence: usePersistedSetting
+  }
+
+  function handleOpenNowPlayingOnVideoPlayChange(enabled: boolean) {
+    setOpenNowPlayingOnVideoPlay(enabled); // persistence: usePersistedSetting
   }
 
   function handleReduceMotionChange(enabled: boolean) {
@@ -5485,6 +5498,8 @@ function App() {
               onConfirmTrashDeleteChange={handleConfirmTrashDeleteChange}
               openNowPlayingOnPlay={openNowPlayingOnPlay}
               onOpenNowPlayingOnPlayChange={handleOpenNowPlayingOnPlayChange}
+              openNowPlayingOnVideoPlay={openNowPlayingOnVideoPlay}
+              onOpenNowPlayingOnVideoPlayChange={handleOpenNowPlayingOnVideoPlayChange}
               reduceMotion={reduceMotion}
               onReduceMotionChange={handleReduceMotionChange}
               uiZoom={zoom.uiZoom}

@@ -47,6 +47,7 @@ const STORE_DEFAULTS = {
   trackLikedFirst: false,
   confirmTrashDelete: true,
   openNowPlayingOnPlay: false,
+  openNowPlayingOnVideoPlay: false,
   trackVideoHistory: true,
   videoLyricsOverlay: true,
   preferVideoResolution: false,
