@@ -21,7 +21,7 @@ interface CaptionBarProps {
   getArtistImage: (name: string) => string | null;
   /** Passed through to the search dropdown's no-match state. */
   pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
-  onOpenPluginView: (pluginId: string, viewId: string) => void;
+  onOpenPluginView: (pluginId: string, viewId: string, query?: string) => void;
   onToggleMiniMode: () => void;
   minimizeToMiniPlayer: boolean;
   resyncProgress: ResyncProgress | null;

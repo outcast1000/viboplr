@@ -45,7 +45,9 @@ interface CentralSearchDropdownProps {
    *  — for a streaming-only setup this search can never hit, and an empty box
    *  reads as a broken search rather than "your music isn't indexed here". */
   pluginViews: Array<{ pluginId: string; viewId: string; label: string }>;
-  onOpenPluginView: (pluginId: string, viewId: string) => void;
+  /** `query` is the text that found nothing here; the host runs it in the
+   *  view's own search box, so the user doesn't retype it after the switch. */
+  onOpenPluginView: (pluginId: string, viewId: string, query?: string) => void;
   /** Plugin-catalog sections, laid out by `buildPluginSearchSections`. Each row
    *  carries its own `itemIndex`, so this component never re-derives one. */
   pluginSections: PluginSearchSection[];
@@ -208,6 +210,30 @@ export function CentralSearchDropdown({
   // setup, where the library can never match. Say so, then let the plugin
   // sections below offer the catalogs that can.
   const showNoMatches = isOpen && libraryCount === 0 && query.trim() !== "";
+  // Only offer the plugin *views* when no plugin can be searched from here. A
+  // search provider is strictly better — its results land in this dropdown
+  // instead of sending the user off to another view — so when one exists, the
+  // plugin sections are the answer and these buttons would be noise. When
+  // offered, they show whether or not the library matched: a hit here doesn't
+  // mean the user wasn't after the source's version.
+  const showSourceButtons = isOpen && query.trim() !== "" && pluginSections.length === 0 && pluginViews.length > 0;
+  const sourceButtons = showSourceButtons ? (
+    <div className="central-search-nomatch-actions">
+      {pluginViews.map((v) => (
+        <button
+          key={`${v.pluginId}:${v.viewId}`}
+          className="ds-btn ds-btn--secondary ds-btn--sm"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onOpenPluginView(v.pluginId, v.viewId, query.trim());
+            onClose();
+          }}
+        >
+          {v.label}
+        </button>
+      ))}
+    </div>
+  ) : null;
   const showDropdown = isOpen && (items.length > 0 || showNoMatches);
   const showOverlay = focused || showDropdown;
 
@@ -385,34 +411,20 @@ export function CentralSearchDropdown({
                 <div className="central-search-nomatch-text">
                   Nothing in your library matches “{query.trim()}”.
                 </div>
-                {/* Only offer the plugin *views* when no plugin can be searched
-                    from here. A search provider is strictly better — its results
-                    land in this dropdown instead of sending the user off to
-                    retype the query somewhere else — so when one exists, the
-                    sections below are the answer and these buttons would be
-                    noise. */}
-                {pluginSections.length === 0 && pluginViews.length > 0 && (
+                {sourceButtons && (
                   <>
                     <div className="central-search-nomatch-hint">
                       This searches music on this machine — try one of your sources:
                     </div>
-                    <div className="central-search-nomatch-actions">
-                      {pluginViews.map((v) => (
-                        <button
-                          key={`${v.pluginId}:${v.viewId}`}
-                          className="ds-btn ds-btn--secondary ds-btn--sm"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            onOpenPluginView(v.pluginId, v.viewId);
-                            onClose();
-                          }}
-                        >
-                          {v.label}
-                        </button>
-                      ))}
-                    </div>
+                    {sourceButtons}
                   </>
                 )}
+              </div>
+            )}
+            {!showNoMatches && sourceButtons && (
+              <div className="central-search-sources">
+                <div className="central-search-nomatch-hint">Search “{query.trim()}” on:</div>
+                {sourceButtons}
               </div>
             )}
             {pluginSections.map((section) => (

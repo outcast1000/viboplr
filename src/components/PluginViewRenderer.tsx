@@ -19,6 +19,7 @@ import {
   PluginBarChart,
   PluginHeatmap,
   PluginLineChart,
+  type PluginSearchSeed,
 } from "./pluginViews/pluginViews";
 // Re-exported for existing consumers that import it from this module
 // (renderers/HtmlRenderer, AnnotatedTextRenderer, RichTextRenderer).
@@ -44,6 +45,13 @@ interface PluginViewRendererProps {
   onTrackRowsDragStart?: (items: TrackRowItem[]) => void;
   pluginMenuItems?: PluginMenuItem[];
   onPluginAction?: (pluginId: string, actionId: string, target: PluginContextMenuTarget) => void;
+  /** Host-supplied query for the view's own search box — the first top-level
+   *  `search-input`, which is the one that is hoisted as the view's search bar.
+   *  Filled in and submitted once; `onSearchSeedConsumed` reports the nonce
+   *  back so the host can drop it. Ignored when the view has no such box: a
+   *  browse-only source (a playlist scraper) has nothing to run the query on. */
+  searchSeed?: PluginSearchSeed;
+  onSearchSeedConsumed?: (nonce: number) => void;
 }
 
 export function PluginViewRenderer({
@@ -58,6 +66,8 @@ export function PluginViewRenderer({
   onTrackRowsDragStart,
   pluginMenuItems,
   onPluginAction,
+  searchSeed,
+  onSearchSeedConsumed,
 }: PluginViewRendererProps) {
   // Per-view scroll memory, keyed by scrollKey. Standard scroll-restoration
   // pattern: continuously record the CURRENT key's scrollTop via a scroll
@@ -116,9 +126,26 @@ export function PluginViewRenderer({
     }
   }
 
+  const seededIndex = searchSeed ? hoisted.findIndex((n) => n.type === "search-input") : -1;
+
   return (
     <>
       {hoisted.map((node, i) => (
+        i === seededIndex && node.type === "search-input" ? (
+          <PluginSearchInput
+            key={i}
+            placeholder={node.placeholder}
+            action={node.action}
+            value={node.value}
+            submitOnly={node.submitOnly}
+            buttonLabel={node.buttonLabel}
+            pasteButton={node.pasteButton}
+            stateKey={node.stateKey}
+            seed={searchSeed}
+            onSeedConsumed={onSearchSeedConsumed}
+            onAction={onAction}
+          />
+        ) : (
         <PluginViewNode
           key={i}
           node={node}
@@ -132,6 +159,7 @@ export function PluginViewRenderer({
           pluginMenuItems={pluginMenuItems}
           onPluginAction={onPluginAction}
         />
+        )
       ))}
       <div className="plugin-view" ref={scrollElRef}>
         <div className="plugin-view-content">

@@ -224,6 +224,17 @@ export function PluginStatsGrid({ items }: { items: StatItem[] }) {
 
 // -- Search Input --
 
+/** A query the host hands to a plugin view's search box to run as if the user
+ *  had typed it and pressed Enter — the Cmd+K no-match state offers "try this
+ *  source" buttons, and a button that only switched views made the user retype
+ *  the query they were already holding. `nonce` distinguishes two seeds with
+ *  the same text; the consumer reports back per nonce so a seed fires once
+ *  even when the input remounts under it. */
+export interface PluginSearchSeed {
+  text: string;
+  nonce: number;
+}
+
 export function PluginSearchInput({
   placeholder,
   action,
@@ -232,6 +243,8 @@ export function PluginSearchInput({
   buttonLabel,
   pasteButton,
   stateKey,
+  seed,
+  onSeedConsumed,
   onAction,
 }: {
   placeholder?: string;
@@ -241,9 +254,26 @@ export function PluginSearchInput({
   buttonLabel?: string;
   pasteButton?: boolean;
   stateKey?: string;
+  seed?: PluginSearchSeed;
+  onSeedConsumed?: (nonce: number) => void;
   onAction?: (actionId: string, data?: unknown) => void;
 }) {
-  const [query, setQuery] = useState(value ?? "");
+  const [query, setQuery] = useState(seed?.text ?? value ?? "");
+  // A new seed replaces the text (previous-value-in-state form, same as the
+  // stateKey resync below) — the submit itself is a side effect and fires from
+  // the effect further down.
+  const [prevSeedNonce, setPrevSeedNonce] = useState(seed?.nonce);
+  if (seed !== undefined && prevSeedNonce !== seed.nonce) {
+    setPrevSeedNonce(seed.nonce);
+    setQuery(seed.text);
+  }
+  const firedSeedRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (seed === undefined || firedSeedRef.current === seed.nonce) return;
+    firedSeedRef.current = seed.nonce;
+    onAction?.(action, { query: seed.text });
+    onSeedConsumed?.(seed.nonce);
+  }, [seed, action, onAction, onSeedConsumed]);
   // Per-stateKey text memory: the same live instance serves every tab of a
   // plugin view (the node keeps its element position across re-renders), so
   // without this the text typed on one tab bleeds into the next. On a key

@@ -12,7 +12,7 @@ import "./base.css";
 import "./design-system.css";
 import "./App.css";
 
-import type { Track, QueueTrack, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag } from "./types";
+import type { Track, QueueTrack, View, ViewMode, ColumnConfig, SortField, SortDir, Collection, ResolvedTrackSource, Album, Artist, Tag } from "./types";
 import { isVideoTrack, parseSubsonicUrl, trashLabel } from "./utils";
 import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from "./utils/lyrics";
 
@@ -144,6 +144,7 @@ import {
 } from "./components/modals/ConfirmModals";
 import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
+import type { PluginSearchSeed } from "./components/pluginViews/pluginViews";
 import { VisualizerSlot } from "./components/VisualizerSlot";
 import { AudioFullscreen } from "./components/AudioFullscreen";
 import {
@@ -2114,14 +2115,31 @@ function App() {
 
   // Open a plugin's sidebar view. Shared by the sidebar itself and the empty
   // states above, which offer these views as the way in for a setup whose only
-  // sources are plugins.
-  const handleOpenPluginView = useCallback((pluginId: string, viewId: string) => {
-    library.setView(`plugin:${pluginId}:${viewId}`);
+  // sources are plugins. With `query` (the Cmd+K no-match state), the view's
+  // own search box is filled in and submitted — the user came here holding a
+  // query, so a bare view switch just made them retype it. The seed is keyed
+  // to the view it targets and cleared once the box reports it ran, so a
+  // later visit to the same view never re-runs the search.
+  const [pluginSearchSeed, setPluginSearchSeed] = useState<(PluginSearchSeed & { view: string }) | null>(null);
+  const pluginSearchSeedNonceRef = useRef(0);
+  const handleOpenPluginView = useCallback((pluginId: string, viewId: string, query?: string) => {
+    const viewKey: View = `plugin:${pluginId}:${viewId}`;
+    const text = query?.trim() ?? "";
+    if (text) {
+      pluginSearchSeedNonceRef.current += 1;
+      setPluginSearchSeed({ view: viewKey, text, nonce: pluginSearchSeedNonceRef.current });
+    } else {
+      setPluginSearchSeed(null);
+    }
+    library.setView(viewKey);
     library.setSelectedArtist(null);
     library.setSelectedAlbum(null);
     library.setSelectedTag(null);
     library.setSelectedTrack(null);
   }, [library]);
+  const handlePluginSearchSeedConsumed = useCallback((nonce: number) => {
+    setPluginSearchSeed((s) => (s?.nonce === nonce ? null : s));
+  }, []);
 
   const handleHomeShelfItemPlay = useCallback((shelf: ResolvedShelf, item: HomeShelfItem) => {
     // "Latest play" tiles replay their session (the shipped `tracks` are empty).
@@ -5316,6 +5334,8 @@ function App() {
                 onAction={(actionId, actionData) => {
                   plugins.dispatchUIAction(pluginId, actionId, actionData);
                 }}
+                searchSeed={pluginSearchSeed?.view === view ? pluginSearchSeed : undefined}
+                onSearchSeedConsumed={handlePluginSearchSeedConsumed}
                 onTrackContextMenu={(e, track) => {
                   buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
                 }}
