@@ -124,12 +124,15 @@ pub async fn build_radio_for_track(
 pub async fn pick_radio_seeds(
     state: State<'_, AppState>,
     count: u32,
+    exclude: Option<Vec<i64>>,
 ) -> Result<Vec<Track>, String> {
     // async + spawn_blocking: a full-library GROUP BY with per-row
     // strip_diacritics joins — Home calls this on every shelf refresh.
+    // `exclude` is the shown-seed cooldown (see `Database::pick_radio_seeds`).
     let db = state.db.clone();
+    let exclude = exclude.unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || {
-        db.pick_radio_seeds(count).map_err(|e| e.to_string())
+        db.pick_radio_seeds(count, &exclude).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

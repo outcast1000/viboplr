@@ -378,7 +378,7 @@ impl Database {
         if specs.len() < need {
             // Overdraw: seeds without an artist name, and artists a daily mix
             // already covers, are skipped.
-            let seeds = self.pick_radio_seeds(((need - specs.len()) * 4).max(4) as u32)?;
+            let seeds = self.pick_radio_seeds(((need - specs.len()) * 4).max(4) as u32, &[])?;
             for seed in seeds {
                 if specs.len() >= need {
                     break;
@@ -552,7 +552,7 @@ impl Database {
             return Ok(artists.into_iter().map(|a| (a, None)).collect());
         }
         // Fallback: radio seeds give us (artist, concrete seed title) pairs.
-        let seeds = self.pick_radio_seeds(limit as u32)?;
+        let seeds = self.pick_radio_seeds(limit as u32, &[])?;
         Ok(seeds
             .into_iter()
             .filter_map(|t| t.artist_name.map(|a| (a, Some(t.title))))

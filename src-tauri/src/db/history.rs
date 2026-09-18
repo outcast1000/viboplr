@@ -8,6 +8,13 @@ use crate::db::likes::norm_segment;
 // media_type_clause) live in db/mod.rs, shared by every surface that splits
 // audio from video; the pinning test stays below.
 
+/// Radio-seed sampling weights (see `pick_radio_seeds`). Multiplicative, so a
+/// liked track with many recent plays is `LIKED × (1 + PER_PLAY × CAP)` = 9×
+/// as likely as an untouched one to be drawn — favoured, not guaranteed.
+const RADIO_SEED_LIKED_WEIGHT: f64 = 3.0;
+const RADIO_SEED_PER_PLAY_WEIGHT: f64 = 0.5;
+const RADIO_SEED_PLAY_CAP: u32 = 4;
+
 /// True when a `tracks.format` value names a video container.
 fn is_video_format(format: Option<&str>) -> bool {
     format
@@ -360,7 +367,30 @@ impl Database {
         conn.query_row(&sql, [], |row| track_from_row(row)).optional()
     }
 
-    pub fn pick_radio_seeds(&self, count: u32) -> SqlResult<Vec<Track>> {
+    /// Seeds for the Home radio carousel: a weighted random sample of the
+    /// library, then thinned to one track per artist.
+    ///
+    /// This used to rank by hard tiers (liked + recently played beat everything)
+    /// with a jitter of at most 0.1, so any library with more than `count × 4`
+    /// liked-and-recent tracks drew the carousel from that pool alone — every
+    /// refresh reshuffled the same songs, and clicking a station played its seed,
+    /// which kept it in the top tier. Now every eligible track carries a WEIGHT
+    /// and the sample is drawn by `weighted_sample_key` (see db/mod.rs):
+    /// favorites are proportionally more likely, never guaranteed, and a track
+    /// you have neither liked nor played recently still surfaces.
+    ///
+    /// Weights: base 1 · ×3 when liked · ×(1 + 0.5·min(plays₃₀ᵈ, 4)), so a
+    /// liked track played four or more times in the last 30 days weighs 9 and
+    /// an untouched one weighs 1.
+    ///
+    /// `exclude` is the **shown-seed cooldown**: the track ids the carousel
+    /// showed over its last few refreshes (`useHome` persists them as
+    /// `radioSeedCooldown`). They are skipped so a refresh cannot hand back
+    /// yesterday's cards — but only while the rest of the library can fill the
+    /// row. When it can't (a small library, or a cooldown longer than the
+    /// library), the shortfall is topped up FROM the excluded set rather than
+    /// returning fewer stations: a thin carousel is worse than a repeat.
+    pub fn pick_radio_seeds(&self, count: u32, exclude: &[i64]) -> SqlResult<Vec<Track>> {
         if count == 0 {
             return Ok(Vec::new());
         }
@@ -373,53 +403,76 @@ impl Database {
         let cutoff = now_ts - 30 * 24 * 60 * 60;
         let overfetch = (count as i64) * 4;
 
+        let mut chosen: Vec<Track> = Vec::with_capacity(count as usize);
+        let mut seen_artists: HashSet<i64> = HashSet::new();
+
+        // Pass 1: honour the cooldown. Pass 2 (only if the row is still short):
+        // drop the cooldown, skipping what pass 1 already picked.
+        let mut skip: Vec<i64> = exclude.to_vec();
+        for pass in 0..2 {
+            if (chosen.len() as u32) >= count { break; }
+            if pass == 1 {
+                if exclude.is_empty() { break; }
+                skip = chosen.iter().map(|t| t.id).collect();
+            }
+            let candidates = Self::radio_seed_candidates(&conn, cutoff, overfetch, &skip)?;
+
+            // Artist-distinct pass.
+            for t in &candidates {
+                if (chosen.len() as u32) >= count { break; }
+                if let Some(aid) = t.artist_id {
+                    if seen_artists.insert(aid) {
+                        chosen.push(t.clone());
+                    }
+                } else {
+                    chosen.push(t.clone());
+                }
+            }
+            // Fill remainder ignoring the distinct rule if needed.
+            if (chosen.len() as u32) < count {
+                let chosen_ids: HashSet<i64> = chosen.iter().map(|t| t.id).collect();
+                for t in candidates {
+                    if (chosen.len() as u32) >= count { break; }
+                    if !chosen_ids.contains(&t.id) {
+                        chosen.push(t);
+                    }
+                }
+            }
+        }
+
+        Ok(chosen)
+    }
+
+    /// One weighted draw of `limit` seed candidates (see `pick_radio_seeds` for
+    /// the weights), skipping `skip`.
+    fn radio_seed_candidates(conn: &Connection, cutoff: i64, limit: i64, skip: &[i64]) -> SqlResult<Vec<Track>> {
+        let exclude_clause = if skip.is_empty() {
+            String::new()
+        } else {
+            let ids: Vec<String> = skip.iter().map(|id| id.to_string()).collect();
+            format!(" AND t.id NOT IN ({})", ids.join(","))
+        };
         let sql = format!(
             "{} \
              LEFT JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
              LEFT JOIN history_tracks ht ON ht.history_artist_id = ha.id \
                   AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
              LEFT JOIN history_plays hp ON hp.history_track_id = ht.id AND hp.played_at >= ?1 \
-             WHERE t.liked != -1 {} \
+             WHERE t.liked != -1 {}{} \
              GROUP BY t.id \
-             ORDER BY (\
-                 CASE WHEN t.liked = 1 THEN 2 ELSE 0 END + \
-                 CASE WHEN COUNT(hp.id) > 0 THEN 3 ELSE 0 END + \
-                 (RANDOM() % 1000) * 0.0001 \
-             ) DESC \
+             ORDER BY weighted_sample_key(RANDOM(), \
+                 (CASE WHEN t.liked = 1 THEN {liked} ELSE 1.0 END) * \
+                 (1.0 + {per_play} * MIN(COUNT(hp.id), {play_cap})) \
+             ) ASC \
              LIMIT ?2",
-            TRACK_SELECT, ENABLED_COLLECTION_FILTER
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER, exclude_clause,
+            liked = RADIO_SEED_LIKED_WEIGHT,
+            per_play = RADIO_SEED_PER_PLAY_WEIGHT,
+            play_cap = RADIO_SEED_PLAY_CAP,
         );
-
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![cutoff, overfetch], |row| track_from_row(row))?;
-
-        let candidates: Vec<Track> = rows.collect::<SqlResult<Vec<_>>>()?;
-
-        // Artist-distinct pass.
-        let mut chosen: Vec<Track> = Vec::with_capacity(count as usize);
-        let mut seen_artists: std::collections::HashSet<i64> = std::collections::HashSet::new();
-        for t in &candidates {
-            if (chosen.len() as u32) >= count { break; }
-            if let Some(aid) = t.artist_id {
-                if seen_artists.insert(aid) {
-                    chosen.push(t.clone());
-                }
-            } else {
-                chosen.push(t.clone());
-            }
-        }
-        // Fill remainder ignoring distinct rule if needed.
-        if (chosen.len() as u32) < count {
-            let chosen_ids: std::collections::HashSet<i64> = chosen.iter().map(|t| t.id).collect();
-            for t in candidates {
-                if (chosen.len() as u32) >= count { break; }
-                if !chosen_ids.contains(&t.id) {
-                    chosen.push(t);
-                }
-            }
-        }
-
-        Ok(chosen)
+        let rows = stmt.query_map(params![cutoff, limit], |row| track_from_row(row))?;
+        rows.collect()
     }
 
     /// Library tracks that have never been played (no matching history play),

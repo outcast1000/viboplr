@@ -3337,7 +3337,7 @@ fn test_build_radio_video_seed_excludes_audio() {
 #[test]
 fn test_pick_radio_seeds_empty_library() {
     let db = test_db();
-    let result = db.pick_radio_seeds(5).unwrap();
+    let result = db.pick_radio_seeds(5, &[]).unwrap();
     assert_eq!(result.len(), 0);
 }
 
@@ -3407,7 +3407,7 @@ fn test_pick_radio_seeds_excludes_disliked() {
     let id2 = db.upsert_track("file://hated.mp3", "Hated", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
     db.toggle_liked("tracks", id2, -1).unwrap();
 
-    let result = db.pick_radio_seeds(10).unwrap();
+    let result = db.pick_radio_seeds(10, &[]).unwrap();
     let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
     assert!(ids.contains(&id1), "expected the OK track");
     assert!(!ids.contains(&id2), "disliked track must not appear");
@@ -3425,13 +3425,138 @@ fn test_pick_radio_seeds_distinct_artists() {
         }
     }
 
-    let result = db.pick_radio_seeds(5).unwrap();
+    let result = db.pick_radio_seeds(5, &[]).unwrap();
     assert_eq!(result.len(), 5);
     let mut returned_artists: Vec<i64> = result.iter().filter_map(|t| t.artist_id).collect();
     returned_artists.sort();
     let mut deduped = returned_artists.clone();
     deduped.dedup();
     assert_eq!(returned_artists.len(), deduped.len(), "expected distinct artists across 5 seeds");
+}
+
+#[test]
+fn test_weighted_sample_key_is_a_positive_finite_key_scaled_by_weight() {
+    // The same random draw under a larger weight must yield a smaller key
+    // (sorts earlier), and the key is always finite and positive.
+    for rand in [i64::MIN, -1, 0, 1, 12345678901234, i64::MAX] {
+        let k1 = weighted_sample_key(rand, 1.0);
+        let k3 = weighted_sample_key(rand, 3.0);
+        assert!(k1.is_finite() && k1 > 0.0, "key for {rand} must be finite and positive, got {k1}");
+        assert!((k3 - k1 / 3.0).abs() < 1e-9, "weight must scale the key: {k1} vs {k3}");
+    }
+    // Non-positive / non-finite weights sort last rather than dividing by zero.
+    assert_eq!(weighted_sample_key(42, 0.0), f64::MAX);
+    assert_eq!(weighted_sample_key(42, -1.0), f64::MAX);
+    assert_eq!(weighted_sample_key(42, f64::NAN), f64::MAX);
+    assert_eq!(weighted_sample_key(42, f64::INFINITY), f64::MAX);
+}
+
+#[test]
+fn test_pick_radio_seeds_favours_liked_and_played_tracks() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid_fav = db.get_or_create_artist("Fav").unwrap();
+    let aid_plain = db.get_or_create_artist("Plain").unwrap();
+    let alb_fav = db.get_or_create_album("Album", Some(aid_fav), None).unwrap();
+    let alb_plain = db.get_or_create_album("Album", Some(aid_plain), None).unwrap();
+    let fav = db.upsert_track("file://fav.mp3", "Fav Song", Some(aid_fav), Some(alb_fav), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let plain = db.upsert_track("file://plain.mp3", "Plain Song", Some(aid_plain), Some(alb_plain), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    db.toggle_liked("tracks", fav, 1).unwrap();
+    for _ in 0..4 {
+        db.record_history_play(fav).unwrap();
+    }
+
+    // fav weighs 3 × (1 + 0.5·4) = 9, plain weighs 1 → P(fav) = 0.9 per draw.
+    let runs = 400;
+    let mut fav_hits = 0;
+    let mut plain_hits = 0;
+    for _ in 0..runs {
+        let picked = db.pick_radio_seeds(1, &[]).unwrap();
+        assert_eq!(picked.len(), 1);
+        if picked[0].id == fav { fav_hits += 1; } else if picked[0].id == plain { plain_hits += 1; }
+    }
+    assert_eq!(fav_hits + plain_hits, runs);
+    // Expected ~360 / ~40. The bounds are loose enough (~10σ) not to flake.
+    assert!(fav_hits > 300, "liked+played track should dominate the draws, got {fav_hits}/{runs}");
+    assert!(plain_hits > 0, "an untouched track must still surface sometimes, got 0/{runs}");
+}
+
+#[test]
+fn test_pick_radio_seeds_untouched_tracks_surface_past_a_full_top_tier() {
+    // The old hard-tier ranking made this impossible: ten liked+played tracks
+    // more than filled the overfetch for count=1, so the plain track could never
+    // be a seed. With weighted sampling it is merely unlikely per draw.
+    let db = test_db();
+    let cid = test_collection(&db);
+    for i in 0..10 {
+        let aid = db.get_or_create_artist(&format!("Fav{i}")).unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        let id = db.upsert_track(&format!("file://fav{i}.mp3"), &format!("Fav Song {i}"), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.toggle_liked("tracks", id, 1).unwrap();
+        db.record_history_play(id).unwrap();
+    }
+    let aid_plain = db.get_or_create_artist("Plain").unwrap();
+    let alb_plain = db.get_or_create_album("Album", Some(aid_plain), None).unwrap();
+    let plain = db.upsert_track("file://plain.mp3", "Plain Song", Some(aid_plain), Some(alb_plain), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+    // Each fav weighs 3 × 1.5 = 4.5 → total 46; P(plain) ≈ 0.022 per draw, so
+    // 1000 draws miss it with probability ≈ 3e-10.
+    let mut plain_hits = 0;
+    for _ in 0..1000 {
+        if db.pick_radio_seeds(1, &[]).unwrap()[0].id == plain { plain_hits += 1; }
+    }
+    assert!(plain_hits > 0, "an unliked, unplayed track must be able to become a seed");
+}
+
+#[test]
+fn test_pick_radio_seeds_cooldown_skips_recently_shown_seeds() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let mut ids = Vec::new();
+    for i in 0..6 {
+        let aid = db.get_or_create_artist(&format!("A{i}")).unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        ids.push(db.upsert_track(&format!("file://{i}.mp3"), &format!("Song {i}"), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap());
+    }
+    // Cool down four of six; the two remaining can fill a row of two, so the
+    // cooled-down ones must never appear.
+    let cooldown = &ids[..4];
+    for _ in 0..50 {
+        let picked = db.pick_radio_seeds(2, cooldown).unwrap();
+        assert_eq!(picked.len(), 2);
+        for t in &picked {
+            assert!(!cooldown.contains(&t.id), "cooled-down seed {} came back", t.id);
+        }
+    }
+}
+
+#[test]
+fn test_pick_radio_seeds_cooldown_tops_up_from_excluded_when_library_is_small() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let mut ids = Vec::new();
+    for i in 0..3 {
+        let aid = db.get_or_create_artist(&format!("A{i}")).unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        ids.push(db.upsert_track(&format!("file://{i}.mp3"), &format!("Song {i}"), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap());
+    }
+    // Everything is cooled down: the row must still be full, not empty.
+    let picked = db.pick_radio_seeds(3, &ids).unwrap();
+    assert_eq!(picked.len(), 3, "a fully cooled-down library must still fill the row");
+
+    // Two of three cooled down, row of three: the fresh one is always in, and
+    // the shortfall comes from the excluded set rather than being dropped.
+    let cooldown = &ids[..2];
+    for _ in 0..20 {
+        let picked = db.pick_radio_seeds(3, cooldown).unwrap();
+        assert_eq!(picked.len(), 3);
+        assert_eq!(picked[0].id, ids[2], "the fresh track must be picked first");
+        let mut got: Vec<i64> = picked.iter().map(|t| t.id).collect();
+        got.sort();
+        let mut want = ids.clone();
+        want.sort();
+        assert_eq!(got, want, "no duplicates when topping up from the excluded set");
+    }
 }
 
 #[test]

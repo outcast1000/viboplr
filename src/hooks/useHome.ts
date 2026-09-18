@@ -13,12 +13,15 @@ import { isVideoTrack } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 
 import { useAssignRef } from "./useLatestRef";
+import { coerceSeedCooldown, rememberShownSeeds } from "../utils/radioSeedCooldown";
 const STALE_MS = 24 * 60 * 60 * 1000;
 const PLUGIN_TIMEOUT_MS = 5_000;
 // Coalesce a burst of library changes (e.g. several collections finishing a resync
 // back-to-back at startup) into a single background refresh.
 const LIBRARY_REFRESH_DEBOUNCE_MS = 1_200;
 const SNAPSHOT_KEY = "homeSnapshot";
+// Ring of radio seed ids shown over the last few refreshes (utils/radioSeedCooldown).
+const RADIO_SEED_COOLDOWN_KEY = "radioSeedCooldown";
 const RADIO_STATION_COUNT = 7;
 
 // Id of the radio shelf. Unlike the other built-ins it isn't a resolver — its
@@ -414,10 +417,26 @@ export function useHome(opts: UseHomeOptions) {
   // Pick the radio-station seeds for the hero carousel and resolve a cover image
   // for each (album image first, artist image as fallback). Covers resolve in
   // parallel; a missing cover just renders the letter fallback in the hero.
+  //
+  // Shown-seed cooldown: the ids shown over the last few refreshes are passed
+  // as `exclude` so a refresh cannot hand back the cards the user just saw,
+  // then the ring is advanced with what was drawn (see utils/radioSeedCooldown).
+  // The backend tops up from the excluded set when the library is too small, so
+  // the ring never thins the carousel. A failed store read/write costs only the
+  // cooldown, never the stations.
   const fetchRadioStations = useCallback(async (): Promise<RadioStation[]> => {
     try {
-      const seeds = (await invoke<Track[]>("pick_radio_seeds", { count: RADIO_STATION_COUNT })) ?? [];
+      let exclude: number[] = [];
+      try {
+        exclude = coerceSeedCooldown(await store.get<unknown>(RADIO_SEED_COOLDOWN_KEY));
+      } catch (e) {
+        console.error("Failed to read radio seed cooldown:", e);
+      }
+      const seeds = (await invoke<Track[]>("pick_radio_seeds", { count: RADIO_STATION_COUNT, exclude })) ?? [];
       if (seeds.length === 0) return [];
+      store
+        .set(RADIO_SEED_COOLDOWN_KEY, rememberShownSeeds(exclude, seeds.map((s) => s.id).filter((id): id is number => id != null), RADIO_STATION_COUNT))
+        .catch((e) => console.error("Failed to persist radio seed cooldown:", e));
       const covers = await Promise.all(seeds.map((seed) => resolveCover(seed.album_title, seed.album_artist_name ?? seed.artist_name)));
       return seeds.map((seed, i) => ({ seed, coverUrl: covers[i] }));
     } catch (e) {

@@ -322,6 +322,23 @@ mod tags;
 mod tracks;
 pub use tracks::ScannedFileMeta;
 
+/// `-ln(u) / weight` for a uniform `u` in (0, 1) derived from a 64-bit random
+/// value. Ordering rows ascending by this key yields a weighted random sample
+/// without replacement (Efraimidis & Spirakis, 2006). Non-positive or
+/// non-finite weights sort last, so a zero-weight row is picked only when
+/// nothing else is left.
+pub(crate) fn weighted_sample_key(rand: i64, weight: f64) -> f64 {
+    if !(weight > 0.0) || !weight.is_finite() {
+        return f64::MAX;
+    }
+    // Take the top 52 bits so `n + 0.5` is exactly representable (53-bit
+    // mantissa): u is then strictly inside (0, 1) and ln never sees 0 or 1.
+    // Using more bits rounded a draw near the top to u = 1.0, i.e. a key of
+    // -0 that sorted ahead of everything.
+    let u = (((rand as u64) >> 12) as f64 + 0.5) / 4_503_599_627_370_496.0;
+    -u.ln() / weight
+}
+
 impl Database {
     fn register_sql_functions(conn: &Connection) -> SqlResult<()> {
         conn.create_scalar_function(
@@ -364,6 +381,25 @@ impl Database {
             |ctx| {
                 let s: String = ctx.get(0)?;
                 Ok(s.to_lowercase())
+            },
+        )?;
+
+        // weighted_sample_key(RANDOM(), weight): the Efraimidis–Spirakis key
+        // `-ln(u) / weight`. `ORDER BY weighted_sample_key(RANDOM(), w) LIMIT n`
+        // is a weighted random sample WITHOUT replacement — a row with twice the
+        // weight is twice as likely to land in the sample, and every row with a
+        // positive weight keeps a chance. The random value is an argument rather
+        // than drawn inside so the function stays a pure function of its inputs.
+        // Registered here instead of using SQLite's own `ln()`, which exists
+        // only when the bundled build sets SQLITE_ENABLE_MATH_FUNCTIONS.
+        conn.create_scalar_function(
+            "weighted_sample_key",
+            2,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC | FunctionFlags::SQLITE_INNOCUOUS,
+            |ctx| {
+                let rand: i64 = ctx.get(0)?;
+                let weight: f64 = ctx.get(1)?;
+                Ok(weighted_sample_key(rand, weight))
             },
         )?;
 
