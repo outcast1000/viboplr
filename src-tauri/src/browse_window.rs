@@ -44,6 +44,42 @@ fn is_navigable(url: &str) -> bool {
     matches!(scheme.as_str(), "http" | "https" | "about" | "blob" | "data")
 }
 
+/// User agent for browse windows, or `None` to let the engine speak for itself.
+///
+/// **macOS** — an explicit Safari string. wry builds these on WKWebView, whose
+/// own default UA stops after `AppleWebKit/605.1.15 (KHTML, like Gecko)` and
+/// reads as a generic WebKit embedder rather than a browser; enough sites serve
+/// a degraded page to that string to be worth correcting. Claiming Safari is
+/// honest — the engine really is Safari's. (Real Safari freezes the OS token at
+/// `10_15_7`, so matching it is both current and one less thing that stands out.)
+///
+/// **Windows** — nothing, deliberately. A browse window is WebView2, whose
+/// default UA is already the installed Edge's byte for byte: same Chromium
+/// build, measured at 153.0.4234.32 for Edge, the WebView2 runtime and
+/// msedge.exe alike. An override can only make it worse, because it does not
+/// reach the `Sec-CH-UA` client hints Chromium sends on every request — so
+/// claiming Chrome pairs a Chrome UA with an Edge brand list, a combination no
+/// real browser produces and therefore *more* identifying than being Edge, which
+/// is an unremarkable browser here. The default also keeps the version correct
+/// for free as the runtime updates, where any pinned string rots.
+///
+/// What actually separates this from real Edge is out of reach from here: no
+/// browser chrome (`outerHeight - innerHeight` is ~0), Tauri's default
+/// `--disable-features=…` set, and our own injections — the `window.__viboplr`
+/// bridge and the autoplay gate's non-native `play`/`resume`. No UA string
+/// touches any of that.
+#[cfg(target_os = "macos")]
+fn browse_user_agent() -> Option<&'static str> {
+    Some(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn browse_user_agent() -> Option<&'static str> {
+    None
+}
+
 /// Open a secondary webview window that loads an external URL.
 /// An initialization script injects `window.__viboplr.send(type, data)` so
 /// injected scraping code can send results back to the main app via IPC.
@@ -175,15 +211,10 @@ pub async fn open_browse_window(
     let label_for_nav = label.clone();
     let app_for_nav = app.clone();
 
-    // Impersonate Safari so sites serve their normal web experience
-    let safari_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) \
-                     AppleWebKit/605.1.15 (KHTML, like Gecko) \
-                     Version/17.5 Safari/605.1.15";
-
     let label_for_close = label.clone();
     let app_for_close = app.clone();
 
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
         .title(title.unwrap_or_else(|| "Viboplr Browse".to_string()))
         .inner_size(width.unwrap_or(1200.0), height.unwrap_or(800.0))
         .visible(visible.unwrap_or(true))
@@ -191,7 +222,6 @@ pub async fn open_browse_window(
         // freezes the timer-driven scrape loop (it only resumes when the window
         // is shown). Disable throttling so background scraping keeps running.
         .background_throttling(BackgroundThrottlingPolicy::Disabled)
-        .user_agent(safari_ua)
         .initialization_script(&init_script)
         // Autoplay-gate shim runs in every frame (main-frame-only would miss
         // player iframes).
@@ -210,9 +240,14 @@ pub async fn open_browse_window(
                 },
             );
             true
-        })
-        .build()
-        .map_err(|e| e.to_string())?;
+        });
+
+    // Only override where we can say something truer than the engine default.
+    if let Some(ua) = browse_user_agent() {
+        builder = builder.user_agent(ua);
+    }
+
+    let window = builder.build().map_err(|e| e.to_string())?;
 
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {
