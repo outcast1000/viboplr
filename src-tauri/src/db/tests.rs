@@ -3462,7 +3462,26 @@ fn test_build_radio_favorites_taste_leans_toward_liked_and_played() {
     let fav = db.upsert_track("file://fav.mp3", "Favourite", Some(neighbours[0]), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
     db.add_track_tag(fav, tag).unwrap();
     db.toggle_liked("tracks", fav, 1).unwrap();
-    for _ in 0..4 { db.record_history_play(fav).unwrap(); }
+    // One real play creates the history rows; the other three are backdated
+    // by hand. `record_history_play` drops a repeat of the same track within
+    // 30 s, so four back-to-back calls would land ONE play and the favourite
+    // would weigh 3 × 1.5 = 4.5 instead of the 9 this test is about — which is
+    // exactly how it failed in CI (54/300) before the plays were spaced out.
+    db.record_history_play(fav).unwrap();
+    {
+        let conn = db.conn.lock().unwrap();
+        let ht: i64 = conn.query_row(
+            "SELECT id FROM history_tracks WHERE canonical_title = 'favourite'", [], |r| r.get(0),
+        ).unwrap();
+        for i in 1..4 {
+            conn.execute(
+                "INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, strftime('%s', 'now') - ?2)",
+                params![ht, i * 3600],
+            ).unwrap();
+        }
+        let plays: i64 = conn.query_row("SELECT COUNT(*) FROM history_plays WHERE history_track_id = ?1", params![ht], |r| r.get(0)).unwrap();
+        assert_eq!(plays, 4, "the favourite must carry four plays for the 9× weight this test assumes");
+    }
 
     let hits = |taste: RadioTaste| -> usize {
         let opts = RadioOptions { taste, ..RadioOptions::default() };
@@ -3472,7 +3491,7 @@ fn test_build_radio_favorites_taste_leans_toward_liked_and_played() {
         }).count()
     };
     let mixed = hits(RadioTaste::Mixed);        // ≈ 14 of 300
-    let favorites = hits(RadioTaste::Favorites); // ≈ 93 of 300
+    let favorites = hits(RadioTaste::Favorites); // ≈ 93 of 300 (σ ≈ 8; 55 is ~5σ below)
     assert!(mixed < 45, "Mixed should not favour the liked track, got {mixed}/300");
     assert!(favorites > 55, "Favorites should lean toward the liked, played track, got {favorites}/300");
 }
