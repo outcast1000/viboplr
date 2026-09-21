@@ -12,6 +12,7 @@ import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
 import { trashLabel } from "../utils";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
+import { RADIO_ARTIST_SHARE_CHOICES, RADIO_TASTE_CHOICES, type RadioOptions, type RadioTaste } from "../utils/radioOptions";
 import {
   MINI_RESTING_SIZES, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZES, MINI_WIDTH_SIZE_LABELS,
   type MiniRestingSize, type MiniWidthSize,
@@ -1486,6 +1487,8 @@ interface SettingsPanelProps {
   onTrackVideoHistoryChange: (enabled: boolean) => void;
   videoStoryboards: boolean;
   onVideoStoryboardsChange: (enabled: boolean) => void;
+  radioOptions: RadioOptions;
+  onRadioOptionsChange: (next: RadioOptions) => void;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
   confirmTrashDelete: boolean;
@@ -1583,6 +1586,7 @@ type SettingsTab = "general" | "playback" | "providers" | "debug";
  *  default (General) tab. Keep in step with the `id="…"` attributes below. */
 const SECTION_TABS: Record<string, SettingsTab> = {
   "now-playing-info": "playback",
+  "radio": "playback",
   // The update notice banner's "Details" lands here.
   "app-update": "general",
   "control-api": "general",
@@ -1619,6 +1623,8 @@ export function SettingsPanel({
   onTrackVideoHistoryChange,
   videoStoryboards,
   onVideoStoryboardsChange,
+  radioOptions,
+  onRadioOptionsChange,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
   confirmTrashDelete,
@@ -2223,6 +2229,43 @@ export function SettingsPanel({
                         <span className="settings-description">Same, when what you start is a video — watch it large instead of in its dock. Decided by the first track that plays.</span>
                       </div>
                       <ToggleSwitch checked={openNowPlayingOnVideoPlay} onChange={onOpenNowPlayingOnVideoPlayChange} />
+                    </div>
+                    <div className="settings-row" id="radio">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Radio · seed artist</span>
+                        <span className="settings-description">How much of a station comes from the artist you started it with. The rest is drawn from other artists that share tags with them. The seed song always plays first.</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={radioOptions.artistShare}
+                        onChange={e => onRadioOptionsChange({ ...radioOptions, artistShare: Number(e.target.value) })}
+                      >
+                        {RADIO_ARTIST_SHARE_CHOICES.map(c => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Radio · taste</span>
+                        <span className="settings-description">Favorites leans toward songs you've liked and play often. Mixed treats every song the same. Discovery leans toward songs you've never played.</span>
+                      </div>
+                      <select
+                        className="ds-select"
+                        value={radioOptions.taste}
+                        onChange={e => onRadioOptionsChange({ ...radioOptions, taste: e.target.value as RadioTaste })}
+                      >
+                        {RADIO_TASTE_CHOICES.map(c => (
+                          <option key={c.value} value={c.value}>{c.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="settings-row">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Radio · spread across artists</span>
+                        <span className="settings-description">Limit every other artist to a few songs per station, so one neighbour with a big catalogue can't take it over. The seed artist is never limited.</span>
+                      </div>
+                      <ToggleSwitch checked={radioOptions.spreadArtists} onChange={v => onRadioOptionsChange({ ...radioOptions, spreadArtists: v })} />
                     </div>
                     {nowPlayingInfo && (
                       <div className="settings-row settings-row--stacked" id="now-playing-info">

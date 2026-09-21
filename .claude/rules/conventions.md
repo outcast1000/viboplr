@@ -61,6 +61,14 @@ Each entry documents the gold standard implementation for a repeated user action
 - Enqueue checks for duplicates via `findDuplicates()` with user confirmation modal
 - `playTracks()` returns the **play generation** of the session it started — the token `appendToPlaySession()` needs. Ignore it for ordinary plays.
 
+### Start Radio
+
+- **Canonical:** `usePlayActions.ts` -> `startRadio(seed)` -> `invoke("build_radio_for_track", { seedTitle, seedArtist, targetCount: 30, options })` -> `playTracks(station, 0, { source: "radio" })`. Every radio entry point (context menus, detail heroes, Home carousel, the control API's `start_radio`) goes through it; none call the command directly.
+- **The user tunes the filler in Settings → Playback → Radio**, persisted as the single `radioOptions` store key (`utils/radioOptions.ts`, mirrored by `RadioOptions` / `RadioTaste` in `models.rs`). Three knobs, applied by `Database::build_radio_for_track` (`db/history.rs`): **seed artist share** (percent of non-seed slots the seed's own artist is offered first; `0` keeps that artist out entirely, the seed still opens the station), **taste** (`favorites` weights liked ×3 and plays up to ×3 like the carousel's familiar pool; `mixed` is a uniform draw with **no history join at all**, so the default stays cheap; `discovery` weights never-played, unliked tracks ×4) and **spread across artists** (cap every artist other than the seed's at `RADIO_SPREAD_MAX_PER_ARTIST` = 3). Defaults reproduce the pre-setting behaviour exactly so nothing changes for a user who never opens the section.
+- **Two pools, fetched once.** The station is the seed plus a per-slot coin between the **artist pool** (the seed artist's other tracks) and the **neighbour pool** (tracks by *other* artists sharing any tag the seed's artist ever carried — excluding the seed's artist is what keeps the share honest), each fetched as one `weighted_sample_key` sample and consumed in order, falling back to the other pool when one runs dry. Do not reintroduce a per-slot `ORDER BY RANDOM() LIMIT 1` — that shape froze the webview while a 30-track queue built.
+- **`options` is optional on the wire** (`Option<RadioOptions>`, every field defaulted) so an older caller or a hand-rolled control-API request gets the defaults. **System mixes** (`auto_playlists.rs` daily mix / seeded fallback) deliberately pass `RadioOptions::default()`: the setting describes the station *the user* starts, and the DB layer cannot read the store.
+- Both media-type coherence (an audio seed never queues video and vice versa) and the disliked-track exclusion are unconditional — no option relaxes them.
+
 ### Play With Backfill (optimistic head, async tail)
 
 - **Canonical:** `usePlayActions.ts` -> `playWithBackfill({ head, context, resolveTail, tailErrorMessage })`, on top of `useQueue.ts` -> `playTracks()` + `appendToPlaySession()`.

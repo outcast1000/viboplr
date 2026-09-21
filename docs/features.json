@@ -124,6 +124,7 @@
     "description": "Start an endless station from any track, artist, or tag and Viboplr builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.",
     "items": [
       "One-click radio from any track, artist, or tag",
+      "Tune stations: seed-artist share, favorites / mixed / discovery taste, spread across artists",
       "Auto-continue with weighted strategies",
       "Mix by same artist, tag, most-played, or liked",
       "Similar tracks, artists &amp; bios via Last.fm<span class=\"feature-tag\">plugin</span>"

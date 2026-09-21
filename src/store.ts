@@ -52,6 +52,7 @@ const STORE_DEFAULTS = {
   videoLyricsOverlay: true,
   preferVideoResolution: false,
   videoStoryboards: true,
+  radioOptions: { artistShare: 50, taste: "mixed", spreadArtists: false },
   videoLayout: { dockSide: "queue", fitMode: "contain", sizes: { top: 300, bottom: 300, left: 400, right: 400, queue: 260 }, isCollapsed: false },
   sidebarCollapsed: true,
   queueCollapsed: true,

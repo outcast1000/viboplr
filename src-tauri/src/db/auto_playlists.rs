@@ -142,7 +142,9 @@ impl Database {
             }
         };
         // build_radio_for_track acquires its own lock; the scope above has dropped ours.
-        self.build_radio_for_track(&title, Some(seed_artist), count)
+        // System mixes use the default radio options: the user's Settings → Radio
+        // knobs describe the station *they* start, and the store isn't reachable here.
+        self.build_radio_for_track(&title, Some(seed_artist), count, &RadioOptions::default())
     }
 
     /// Random sample of (non-disliked) tracks carrying a given tag.
@@ -459,7 +461,7 @@ impl Database {
             Recipe::Decade { start, end } => self.generate_decade_mix(*start, *end, MIX_LEN),
             Recipe::Discovery => self.generate_discovery_mix(MIX_LEN),
             Recipe::SeededFallback { artist, seed_title } => {
-                let mut tracks = self.build_radio_for_track(seed_title, Some(artist), MIX_LEN)?;
+                let mut tracks = self.build_radio_for_track(seed_title, Some(artist), MIX_LEN, &RadioOptions::default())?;
                 if tracks.len() < MIN_FALLBACK_LEN {
                     self.fill_with_random(&mut tracks, MIX_LEN)?;
                 }

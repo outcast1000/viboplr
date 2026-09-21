@@ -35,6 +35,7 @@ describe("readPersistedSettings", () => {
       ["trackColumns", [{ key: "title", visible: true }]],
       ["searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles" }],
       ["uiZoom", 1.25],
+      ["radioOptions", { taste: "discovery" }], // passed through raw; App coerces
       // Intentionally omitted: queueWidth, reduceMotion, lastDownloadDest, ...
     ]);
 
@@ -51,6 +52,7 @@ describe("readPersistedSettings", () => {
     expect(s.trackColumns).toEqual([{ key: "title", visible: true }]);
     expect(s.searchViewModes).toEqual({ tracks: "list", albums: "tiles", artists: "tiles" });
     expect(s.uiZoom).toBe(1.25);
+    expect(s.radioOptions).toEqual({ taste: "discovery" });
 
     // Absent → undefined (exactly what per-key `get` returned before)
     expect(s.queueWidth).toBeUndefined();

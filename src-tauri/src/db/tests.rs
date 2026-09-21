@@ -341,7 +341,7 @@ fn test_build_radio_sparse_seed_returns_only_seed() {
         insert_track(&db, &format!("other/{i}.mp3"), &format!("Song {i}"), Some(aid), None);
     }
 
-    let station = db.build_radio_for_track("Shadowplay", Some("Joy Division"), 10).unwrap();
+    let station = db.build_radio_for_track("Shadowplay", Some("Joy Division"), 10, &RadioOptions::default()).unwrap();
     assert_eq!(station.len(), 1, "sparse seed yields only the seed track");
     assert_eq!(station[0].title, "Shadowplay");
 }
@@ -3231,7 +3231,7 @@ fn test_build_radio_returns_seed_first() {
         db.upsert_track(&format!("file://artist-{}.mp3", i), &format!("Artist Track {}", i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
     }
 
-    let result = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 30).unwrap();
+    let result = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 30, &RadioOptions::default()).unwrap();
     assert!(!result.is_empty(), "expected at least the seed track");
     assert_eq!(result[0].title, "Seed Title", "seed must be at index 0");
 }
@@ -3247,7 +3247,7 @@ fn test_build_radio_excludes_already_picked() {
     db.upsert_track("file://c.mp3", "C", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
     db.upsert_track("file://d.mp3", "D", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
 
-    let result = db.build_radio_for_track("Seed", Some("Solo Artist"), 30).unwrap();
+    let result = db.build_radio_for_track("Seed", Some("Solo Artist"), 30, &RadioOptions::default()).unwrap();
     let mut ids: Vec<i64> = result.iter().map(|t| t.id).collect();
     ids.sort();
     let mut deduped = ids.clone();
@@ -3263,7 +3263,7 @@ fn test_build_radio_returns_partial_when_pool_small() {
     let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
     db.upsert_track("file://seed.mp3", "Only Track", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
 
-    let result = db.build_radio_for_track("Only Track", Some("Only"), 30).unwrap();
+    let result = db.build_radio_for_track("Only Track", Some("Only"), 30, &RadioOptions::default()).unwrap();
     assert!(result.len() <= 30, "must terminate, returned {}", result.len());
     assert_eq!(result[0].title, "Only Track");
 }
@@ -3294,7 +3294,7 @@ fn test_build_radio_uses_artist_aggregated_tag_pool() {
     // Sanity: seed itself has no tags.
     let _ = seed_id;
 
-    let result = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 30).unwrap();
+    let result = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 30, &RadioOptions::default()).unwrap();
     let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
     assert!(ids.contains(&cross_artist_jazz),
         "expected radio to include the cross-artist Jazz track via artist-aggregated tag pool, got ids: {:?}", ids);
@@ -3312,7 +3312,7 @@ fn test_build_radio_audio_seed_excludes_video() {
     let audio_sibling = db.upsert_track("file://sibling.flac", "Audio Sibling", Some(aid), Some(alb), None, Some(180.0), Some("flac"), Some(1024), None, Some(cid), None).unwrap();
     let video_sibling = db.upsert_track("file://clip.mp4", "Video Sibling", Some(aid), Some(alb), None, Some(180.0), Some("mp4"), Some(1024), None, Some(cid), None).unwrap();
 
-    let result = db.build_radio_for_track("Audio Seed", Some("Mixed Artist"), 30).unwrap();
+    let result = db.build_radio_for_track("Audio Seed", Some("Mixed Artist"), 30, &RadioOptions::default()).unwrap();
     let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
     assert!(ids.contains(&audio_sibling), "audio sibling should be in the station, got {:?}", ids);
     assert!(!ids.contains(&video_sibling), "video sibling must be excluded from an audio station, got {:?}", ids);
@@ -3329,10 +3329,190 @@ fn test_build_radio_video_seed_excludes_audio() {
     let video_sibling = db.upsert_track("file://clip2.mov", "Video Sibling", Some(aid), Some(alb), None, Some(180.0), Some("mov"), Some(1024), None, Some(cid), None).unwrap();
     let audio_sibling = db.upsert_track("file://song.mp3", "Audio Sibling", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
 
-    let result = db.build_radio_for_track("Video Seed", Some("Mixed Artist"), 30).unwrap();
+    let result = db.build_radio_for_track("Video Seed", Some("Mixed Artist"), 30, &RadioOptions::default()).unwrap();
     let ids: Vec<i64> = result.iter().map(|t| t.id).collect();
     assert!(ids.contains(&video_sibling), "video sibling should be in a video station, got {:?}", ids);
     assert!(!ids.contains(&audio_sibling), "audio sibling must be excluded from a video station, got {:?}", ids);
+}
+
+// --- build_radio_for_track options (Settings → Playback → Radio) ---
+
+/// A seed artist with `own` other tracks and `others` neighbour artists with
+/// `per_other` tracks each, all sharing one tag with the seed's artist.
+/// Returns (seed artist id, neighbour artist ids).
+fn seed_radio_neighbourhood(db: &Database, cid: i64, own: usize, others: usize, per_other: usize) -> (i64, Vec<i64>) {
+    let seed_artist = db.get_or_create_artist("Seed Artist").unwrap();
+    let seed_album = db.get_or_create_album("Seed Album", Some(seed_artist), None).unwrap();
+    let tag = db.get_or_create_tag("Shared").unwrap();
+    let seed = db.upsert_track("file://seed.mp3", "Seed Title", Some(seed_artist), Some(seed_album), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    db.add_track_tag(seed, tag).unwrap();
+    for i in 0..own {
+        db.upsert_track(&format!("file://own-{i}.mp3"), &format!("Own {i}"), Some(seed_artist), Some(seed_album), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    }
+    let mut neighbours = Vec::new();
+    for a in 0..others {
+        let aid = db.get_or_create_artist(&format!("Neighbour {a}")).unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        for i in 0..per_other {
+            let id = db.upsert_track(&format!("file://n{a}-{i}.mp3"), &format!("N{a} {i}"), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+            db.add_track_tag(id, tag).unwrap();
+        }
+        neighbours.push(aid);
+    }
+    (seed_artist, neighbours)
+}
+
+#[test]
+fn test_build_radio_artist_share_zero_keeps_seed_artist_out() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (seed_artist, _) = seed_radio_neighbourhood(&db, cid, 10, 4, 10);
+    let opts = RadioOptions { artist_share: 0, ..RadioOptions::default() };
+    for _ in 0..10 {
+        let station = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 20, &opts).unwrap();
+        assert_eq!(station.len(), 20);
+        assert_eq!(station[0].title, "Seed Title", "the seed still opens the station");
+        assert!(station[1..].iter().all(|t| t.artist_id != Some(seed_artist)),
+            "share 0 must not queue the seed's artist, got {:?}", station.iter().map(|t| &t.title).collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn test_build_radio_artist_share_governs_the_seed_artists_slots() {
+    // 30 own tracks and 30 neighbour tracks, so neither pool runs dry and the
+    // share is the only thing deciding where a slot comes from. Over 20
+    // stations × 29 slots, a 10% share must land well under a 50% one.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (seed_artist, _) = seed_radio_neighbourhood(&db, cid, 30, 3, 10);
+    let count_own = |share: u8| -> usize {
+        let opts = RadioOptions { artist_share: share, ..RadioOptions::default() };
+        (0..20).map(|_| {
+            let station = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 30, &opts).unwrap();
+            assert_eq!(station.len(), 30);
+            station[1..].iter().filter(|t| t.artist_id == Some(seed_artist)).count()
+        }).sum()
+    };
+    let taste = count_own(10);
+    let mostly = count_own(50);
+    // Expected ≈ 58 vs ≈ 290 of 580; the gap is far outside sampling noise.
+    assert!(taste < 130, "10% share gave the seed artist {taste} of 580 slots");
+    assert!(mostly > 220 && mostly < 360, "50% share gave the seed artist {mostly} of 580 slots");
+    assert!(taste * 2 < mostly, "10% share ({taste}) should be well under 50% ({mostly})");
+}
+
+#[test]
+fn test_build_radio_falls_back_to_the_other_pool_when_one_runs_dry() {
+    // Two own tracks only: a 50% share can't be honoured, and the neighbours
+    // must fill the rest rather than the station coming back short.
+    let db = test_db();
+    let cid = test_collection(&db);
+    seed_radio_neighbourhood(&db, cid, 2, 3, 10);
+    let station = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 20, &RadioOptions::default()).unwrap();
+    assert_eq!(station.len(), 20);
+    // And the reverse: no neighbours at all, the artist fills every slot.
+    let db = test_db();
+    let cid = test_collection(&db);
+    seed_radio_neighbourhood(&db, cid, 25, 0, 0);
+    let opts = RadioOptions { artist_share: 10, ..RadioOptions::default() };
+    let station = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 20, &opts).unwrap();
+    assert_eq!(station.len(), 20);
+}
+
+#[test]
+fn test_build_radio_spread_caps_each_neighbour_artist() {
+    // One neighbour artist with 40 tagged tracks: without the cap it fills the
+    // station; with it, at most RADIO_SPREAD_MAX_PER_ARTIST of its tracks
+    // appear and the station is shorter rather than repetitive.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (seed_artist, neighbours) = seed_radio_neighbourhood(&db, cid, 0, 1, 40);
+    let dominant = neighbours[0];
+    let uncapped = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 20, &RadioOptions::default()).unwrap();
+    assert_eq!(uncapped.len(), 20);
+    let opts = RadioOptions { spread_artists: true, ..RadioOptions::default() };
+    let capped = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 20, &opts).unwrap();
+    let from_dominant = capped.iter().filter(|t| t.artist_id == Some(dominant)).count();
+    assert_eq!(from_dominant, RADIO_SPREAD_MAX_PER_ARTIST, "cap must hold, got {from_dominant}");
+    assert!(capped.iter().all(|t| t.artist_id != Some(seed_artist) || t.title == "Seed Title"));
+}
+
+#[test]
+fn test_build_radio_spread_never_caps_the_seed_artist() {
+    // The seed's own artist is governed by the share, not the cap.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (seed_artist, _) = seed_radio_neighbourhood(&db, cid, 20, 0, 0);
+    let opts = RadioOptions { spread_artists: true, ..RadioOptions::default() };
+    let station = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 15, &opts).unwrap();
+    assert_eq!(station.len(), 15);
+    assert!(station.iter().all(|t| t.artist_id == Some(seed_artist)));
+}
+
+#[test]
+fn test_build_radio_favorites_taste_leans_toward_liked_and_played() {
+    // Neighbourhood of 20 strangers plus one liked, 4×-played favourite. Under
+    // Mixed every track is equally likely for the single slot (~1/21); under
+    // Favorites the favourite weighs 9 against 1 each → P ≈ 9/29 ≈ 0.31.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (_, neighbours) = seed_radio_neighbourhood(&db, cid, 0, 1, 20);
+    let alb = db.get_or_create_album("Album", Some(neighbours[0]), None).unwrap();
+    let tag = db.get_or_create_tag("Shared").unwrap();
+    let fav = db.upsert_track("file://fav.mp3", "Favourite", Some(neighbours[0]), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    db.add_track_tag(fav, tag).unwrap();
+    db.toggle_liked("tracks", fav, 1).unwrap();
+    for _ in 0..4 { db.record_history_play(fav).unwrap(); }
+
+    let hits = |taste: RadioTaste| -> usize {
+        let opts = RadioOptions { taste, ..RadioOptions::default() };
+        (0..300).filter(|_| {
+            let station = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 2, &opts).unwrap();
+            station.len() == 2 && station[1].id == fav
+        }).count()
+    };
+    let mixed = hits(RadioTaste::Mixed);        // ≈ 14 of 300
+    let favorites = hits(RadioTaste::Favorites); // ≈ 93 of 300
+    assert!(mixed < 45, "Mixed should not favour the liked track, got {mixed}/300");
+    assert!(favorites > 55, "Favorites should lean toward the liked, played track, got {favorites}/300");
+}
+
+#[test]
+fn test_build_radio_discovery_taste_leans_toward_unplayed() {
+    // 20 neighbours, all played once, plus one never-played stranger. Mixed
+    // gives it ~1/21; Discovery weighs it 4 against 20 → P = 4/24 ≈ 0.17.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (_, neighbours) = seed_radio_neighbourhood(&db, cid, 0, 1, 20);
+    let played: Vec<Track> = db.get_tracks_by_artist(neighbours[0]).unwrap();
+    for t in &played { db.record_history_play(t.id).unwrap(); }
+    let alb = db.get_or_create_album("Album", Some(neighbours[0]), None).unwrap();
+    let tag = db.get_or_create_tag("Shared").unwrap();
+    let fresh = db.upsert_track("file://fresh.mp3", "Fresh", Some(neighbours[0]), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    db.add_track_tag(fresh, tag).unwrap();
+
+    let hits = |taste: RadioTaste| -> usize {
+        let opts = RadioOptions { taste, ..RadioOptions::default() };
+        (0..300).filter(|_| {
+            let station = db.build_radio_for_track("Seed Title", Some("Seed Artist"), 2, &opts).unwrap();
+            station.len() == 2 && station[1].id == fresh
+        }).count()
+    };
+    let mixed = hits(RadioTaste::Mixed);          // ≈ 14 of 300
+    let discovery = hits(RadioTaste::Discovery);  // ≈ 50 of 300
+    assert!(mixed < 40, "Mixed should not favour the unplayed track, got {mixed}/300");
+    assert!(discovery > 28 && discovery > mixed, "Discovery should lean toward the unplayed track, got {discovery}/300 vs {mixed}");
+}
+
+#[test]
+fn test_build_radio_options_default_and_deserialize_partial() {
+    // An older frontend / the control API may send nothing or a subset.
+    let d = RadioOptions::default();
+    assert_eq!((d.artist_share, d.taste, d.spread_artists), (50, RadioTaste::Mixed, false));
+    let partial: RadioOptions = serde_json::from_str(r#"{"taste":"favorites"}"#).unwrap();
+    assert_eq!((partial.artist_share, partial.taste, partial.spread_artists), (50, RadioTaste::Favorites, false));
+    let full: RadioOptions = serde_json::from_str(r#"{"artistShare":10,"taste":"discovery","spreadArtists":true}"#).unwrap();
+    assert_eq!((full.artist_share, full.taste, full.spread_artists), (10, RadioTaste::Discovery, true));
 }
 
 #[test]

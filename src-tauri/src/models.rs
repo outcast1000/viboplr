@@ -116,6 +116,45 @@ pub struct Tag {
     pub liked: i32,
 }
 
+/// How a radio station weighs the tracks it can pick from. Mirrors the
+/// frontend `RadioTaste` (`utils/radioOptions.ts`); wire format is lowercase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum RadioTaste {
+    /// Liked and often-played tracks are drawn more often.
+    Favorites,
+    /// Uniform: every eligible track is as likely as any other.
+    #[default]
+    Mixed,
+    /// Tracks never played (and not liked) are drawn more often.
+    Discovery,
+}
+
+/// User-facing knobs for `Database::build_radio_for_track`. Every field has a
+/// default so an older frontend (or the control API) can omit the whole
+/// object and get today's behaviour. Mirrors `utils/radioOptions.ts`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RadioOptions {
+    /// Percent of non-seed slots offered to the seed's own artist first
+    /// (0–100). `0` keeps the seed's artist out of the station entirely
+    /// (the seed itself still opens it).
+    pub artist_share: u8,
+    pub taste: RadioTaste,
+    /// Cap every artist other than the seed's at
+    /// `RADIO_SPREAD_MAX_PER_ARTIST` tracks per station.
+    pub spread_artists: bool,
+}
+
+impl Default for RadioOptions {
+    fn default() -> Self {
+        Self { artist_share: 50, taste: RadioTaste::Mixed, spread_artists: false }
+    }
+}
+
+/// Per-artist cap applied by `RadioOptions::spread_artists`.
+pub const RADIO_SPREAD_MAX_PER_ARTIST: usize = 3;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
     pub id: i64,

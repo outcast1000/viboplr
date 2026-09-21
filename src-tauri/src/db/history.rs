@@ -39,6 +39,28 @@ const RADIO_SEED_ARTIST_PER_PLAY_WEIGHT: f64 = 0.25;
 const RADIO_SEED_ARTIST_PLAY_CAP: u32 = 20;
 const RADIO_SEED_ARTIST_PER_LIKE_WEIGHT: f64 = 1.0;
 const RADIO_SEED_ARTIST_LIKE_CAP: u32 = 5;
+/// `RadioTaste::Discovery`: an unplayed, unliked track's weight against 1.0
+/// for anything the user has already heard.
+const RADIO_DISCOVERY_UNPLAYED_WEIGHT: f64 = 4.0;
+
+/// Coin flips for `build_radio_for_track`, seeded from one SQLite `RANDOM()`
+/// so the station needs no `rand` crate and no per-slot round-trip.
+struct Xorshift64(u64);
+
+impl Xorshift64 {
+    fn new(seed: u64) -> Self {
+        // xorshift is stuck at zero forever; any other state is fine.
+        Self(if seed == 0 { 0x9E37_79B9_7F4A_7C15 } else { seed })
+    }
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+}
 
 /// Split a row of `count` seeds into (familiar, discovery) quotas: half each,
 /// the odd one going to familiar.
@@ -265,11 +287,27 @@ impl Database {
         }
     }
 
+    /// Build a station: the seed first, then `target_count - 1` tracks drawn
+    /// from two pools — the seed's **artist** (its other tracks) and the
+    /// seed's **tag neighbourhood** (tracks by *other* artists sharing any tag
+    /// the seed's artist ever carried). Each slot flips a coin weighted by
+    /// `opts.artist_share` to choose which pool to try first and falls back to
+    /// the other, so a thin pool never shortens the station while the other
+    /// still has tracks. `opts.taste` sets the sampling weight inside each
+    /// pool (`radio_pool_order`), and `opts.spread_artists` caps every
+    /// non-seed artist at `RADIO_SPREAD_MAX_PER_ARTIST`.
+    ///
+    /// Both pools are fetched **once** as weighted samples (the same
+    /// `weighted_sample_key` draw the carousel seeds use) and consumed in
+    /// order, so a station costs two scans instead of one `ORDER BY RANDOM()`
+    /// scan per slot — the per-slot version froze the webview on large
+    /// libraries. Never a disliked track; always the seed's media type.
     pub fn build_radio_for_track(
         &self,
         seed_title: &str,
         seed_artist: Option<&str>,
         target_count: u32,
+        opts: &RadioOptions,
     ) -> SqlResult<Vec<Track>> {
         if target_count == 0 {
             return Ok(Vec::new());
@@ -277,35 +315,37 @@ impl Database {
 
         let canonical_title = strip_diacritics(&seed_title.to_lowercase());
         let canonical_artist = strip_diacritics(&seed_artist.unwrap_or("").to_lowercase());
+        let share = opts.artist_share.min(100) as u64;
+        let slots = (target_count - 1) as i64;
 
-        // Resolve seed and the artist's full tag set in one connection scope.
-        let (seed, tag_pool): (Track, Vec<i64>) = {
-            let conn = self.conn.lock().unwrap();
-            let sql = format!(
-                "{} WHERE strip_diacritics(unicode_lower(t.title)) = ?1 \
-                 AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ?2 \
-                 {} LIMIT 1",
-                TRACK_SELECT, ENABLED_COLLECTION_FILTER
-            );
-            let seed: Option<Track> = conn.query_row(&sql, params![canonical_title, canonical_artist], |row| track_from_row(row)).optional()?;
-            let seed = match seed {
-                Some(t) => t,
-                None => return Ok(Vec::new()),
-            };
-            // Aggregate all tags ever applied to any track by this artist (not just the seed track).
-            // Falls through to artist-only picks if the artist has no tags.
-            let pool: Vec<i64> = if let Some(aid) = seed.artist_id {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "{} WHERE strip_diacritics(unicode_lower(t.title)) = ?1 \
+             AND strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) = ?2 \
+             {} LIMIT 1",
+            TRACK_SELECT, ENABLED_COLLECTION_FILTER
+        );
+        let seed: Track = match conn.query_row(&sql, params![canonical_title, canonical_artist], |row| track_from_row(row)).optional()? {
+            Some(t) => t,
+            None => return Ok(Vec::new()),
+        };
+        if slots == 0 {
+            return Ok(vec![seed]);
+        }
+
+        // Every tag ever applied to any track by this artist, not just the
+        // seed's own — a seed with no tags still reaches its neighbourhood.
+        let tag_pool: Vec<i64> = match seed.artist_id {
+            Some(aid) => {
                 let mut stmt = conn.prepare(
                     "SELECT DISTINCT tt.tag_id FROM track_tags tt \
                      JOIN tracks t2 ON tt.track_id = t2.id \
-                     WHERE t2.artist_id = ?1"
+                     WHERE t2.artist_id = ?1",
                 )?;
                 let rows = stmt.query_map(params![aid], |row| row.get::<_, i64>(0))?;
                 rows.collect::<SqlResult<Vec<_>>>()?
-            } else {
-                Vec::new()
-            };
-            (seed, pool)
+            }
+            None => Vec::new(),
         };
 
         // Keep the station coherent with the seed's media type — mirror
@@ -317,86 +357,161 @@ impl Database {
             AUDIO_FORMAT_CLAUSE.as_str()
         };
 
-        let mut result: Vec<Track> = vec![seed.clone()];
-        let mut excluded: Vec<i64> = vec![seed.id];
-        let mut stalls = 0u32;
+        let artist_pool: Vec<Track> = match seed.artist_id {
+            Some(aid) if share > 0 => Self::radio_artist_pool(&conn, &seed, aid, format_clause, opts.taste, slots)?,
+            _ => Vec::new(),
+        };
+        // The spread cap skips candidates, so over-fetch to keep the station
+        // full when one artist dominates the neighbourhood.
+        let tag_limit = if opts.spread_artists { slots * 3 } else { slots };
+        let neighbour_pool: Vec<Track> = if tag_pool.is_empty() {
+            Vec::new()
+        } else {
+            Self::radio_neighbour_pool(&conn, &seed, &tag_pool, format_clause, opts.taste, tag_limit)?
+        };
+        // One SQLite RANDOM() seeds the coin flips; no extra crate.
+        let rng_seed: i64 = conn.query_row("SELECT RANDOM()", [], |row| row.get(0))?;
+        drop(conn);
 
-        while (result.len() as u32) < target_count {
-            let coin: i64 = {
-                let conn = self.conn.lock().unwrap();
-                conn.query_row("SELECT ABS(RANDOM()) % 2", [], |row| row.get(0))?
-            };
-            let prefer_tag_first = coin == 1;
+        let mut rng = Xorshift64::new(rng_seed as u64);
+        let cap = if opts.spread_artists { Some(RADIO_SPREAD_MAX_PER_ARTIST) } else { None };
+        let mut result: Vec<Track> = Vec::with_capacity(target_count as usize);
+        let mut picked: HashSet<i64> = HashSet::new();
+        picked.insert(seed.id);
+        result.push(seed);
+        let mut per_artist: HashMap<i64, usize> = HashMap::new();
+        let mut artist_cursor = 0usize;
+        let mut neighbour_cursor = 0usize;
 
-            let try_artist = || self.pick_same_artist_radio(&seed, format_clause, &excluded);
-            let try_tag = || self.pick_same_tag_pool_radio(&seed, &tag_pool, format_clause, &excluded);
-
-            let pick = if prefer_tag_first {
-                match try_tag()? {
-                    Some(t) => Some(t),
-                    None => try_artist()?,
+        while result.len() < target_count as usize {
+            // The artist pool is the seed's own artist, which the share
+            // governs and the spread cap never touches; the neighbour pool
+            // excludes that artist, so the cap applies to all of it.
+            let prefer_artist = rng.next() % 100 < share;
+            let mut pick = None;
+            for try_artist in if prefer_artist { [true, false] } else { [false, true] } {
+                pick = if try_artist {
+                    Self::take_radio_candidate(&artist_pool, &mut artist_cursor, &picked, &mut per_artist, None)
+                } else {
+                    Self::take_radio_candidate(&neighbour_pool, &mut neighbour_cursor, &picked, &mut per_artist, cap)
+                };
+                if pick.is_some() {
+                    break;
                 }
-            } else {
-                match try_artist()? {
-                    Some(t) => Some(t),
-                    None => try_tag()?,
-                }
-            };
-
+            }
             match pick {
                 Some(t) => {
-                    excluded.push(t.id);
+                    picked.insert(t.id);
                     result.push(t);
-                    stalls = 0;
                 }
-                None => {
-                    stalls += 1;
-                    if stalls >= 4 { break; }
-                }
+                None => break,
             }
         }
 
         Ok(result)
     }
 
-    fn pick_same_artist_radio(&self, seed: &Track, format_clause: &str, excluded: &[i64]) -> SqlResult<Option<Track>> {
-        let aid = match seed.artist_id {
-            Some(id) => id,
-            None => return Ok(None),
-        };
-        let conn = self.conn.lock().unwrap();
-        let exclude_clause = if excluded.is_empty() {
-            String::new()
-        } else {
-            let ids: Vec<String> = excluded.iter().map(|id| id.to_string()).collect();
-            format!(" AND t.id NOT IN ({})", ids.join(","))
-        };
-        let sql = format!(
-            "{} WHERE t.artist_id = ?1 AND t.liked != -1 {}{}{} ORDER BY RANDOM() LIMIT 1",
-            TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, exclude_clause
-        );
-        conn.query_row(&sql, params![aid], |row| track_from_row(row)).optional()
+    /// Advance `cursor` through a pre-sampled pool to the next track that is
+    /// not already in the station and — when `cap` is set — whose artist has
+    /// not hit it. Records the pick's artist so the cap is shared across pools.
+    fn take_radio_candidate(
+        pool: &[Track],
+        cursor: &mut usize,
+        picked: &HashSet<i64>,
+        per_artist: &mut HashMap<i64, usize>,
+        cap: Option<usize>,
+    ) -> Option<Track> {
+        while *cursor < pool.len() {
+            let t = &pool[*cursor];
+            *cursor += 1;
+            if picked.contains(&t.id) {
+                continue;
+            }
+            if let (Some(aid), Some(max)) = (t.artist_id, cap) {
+                if per_artist.get(&aid).copied().unwrap_or(0) >= max {
+                    continue;
+                }
+            }
+            if let Some(aid) = t.artist_id {
+                *per_artist.entry(aid).or_insert(0) += 1;
+            }
+            return Some(t.clone());
+        }
+        None
     }
 
-    fn pick_same_tag_pool_radio(&self, _seed: &Track, tag_pool: &[i64], format_clause: &str, excluded: &[i64]) -> SqlResult<Option<Track>> {
-        if tag_pool.is_empty() {
-            return Ok(None);
+    /// The `taste` weighting as (extra JOIN, GROUP BY, ORDER BY) fragments.
+    /// `Mixed` is a plain `ORDER BY RANDOM()` with no history join at all —
+    /// the default must not pay for a weighting it doesn't use. The others
+    /// join each candidate to its all-time `history_plays` (not the
+    /// denormalised `play_count` columns, which a batch import leaves at 0)
+    /// and order by the Efraimidis–Spirakis key, so consuming the LIMITed
+    /// rows in order is a weighted sample without replacement.
+    fn radio_pool_order(taste: RadioTaste) -> (&'static str, &'static str, String) {
+        const PLAYS_JOIN: &str = "\
+             LEFT JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
+             LEFT JOIN history_tracks ht ON ht.history_artist_id = ha.id \
+                  AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
+             LEFT JOIN history_plays hp ON hp.history_track_id = ht.id ";
+        match taste {
+            RadioTaste::Mixed => ("", "", "ORDER BY RANDOM()".to_string()),
+            // Same shape as the carousel's familiar pool: liked ×3, plus half
+            // a point per play up to four — a liked favourite is 9× a stranger.
+            RadioTaste::Favorites => (
+                PLAYS_JOIN,
+                "GROUP BY t.id",
+                format!(
+                    "ORDER BY weighted_sample_key(RANDOM(), \
+                        (CASE WHEN t.liked = 1 THEN {liked} ELSE 1.0 END) * \
+                        (1.0 + {per_play} * MIN(COUNT(hp.id), {play_cap})))",
+                    liked = RADIO_SEED_LIKED_WEIGHT,
+                    per_play = RADIO_SEED_PER_PLAY_WEIGHT,
+                    play_cap = RADIO_SEED_PLAY_CAP,
+                ),
+            ),
+            RadioTaste::Discovery => (
+                PLAYS_JOIN,
+                "GROUP BY t.id",
+                format!(
+                    "ORDER BY weighted_sample_key(RANDOM(), \
+                        CASE WHEN COUNT(hp.id) = 0 AND t.liked = 0 THEN {w} ELSE 1.0 END)",
+                    w = RADIO_DISCOVERY_UNPLAYED_WEIGHT,
+                ),
+            ),
         }
-        let conn = self.conn.lock().unwrap();
-        let tag_list: Vec<String> = tag_pool.iter().map(|id| id.to_string()).collect();
-        let exclude_clause = if excluded.is_empty() {
-            String::new()
-        } else {
-            let ids: Vec<String> = excluded.iter().map(|id| id.to_string()).collect();
-            format!(" AND t.id NOT IN ({})", ids.join(","))
-        };
+    }
+
+    /// Up to `limit` other tracks by the seed's artist, best sample key first.
+    fn radio_artist_pool(conn: &Connection, seed: &Track, artist_id: i64, format_clause: &str, taste: RadioTaste, limit: i64) -> SqlResult<Vec<Track>> {
+        let (join, group, order) = Self::radio_pool_order(taste);
         let sql = format!(
-            "{} WHERE t.liked != -1 {}{}{} AND t.id IN (\
-                SELECT DISTINCT track_id FROM track_tags WHERE tag_id IN ({})\
-            ) ORDER BY RANDOM() LIMIT 1",
-            TRACK_SELECT, ENABLED_COLLECTION_FILTER, format_clause, exclude_clause, tag_list.join(",")
+            "{select} {join} WHERE t.artist_id = ?1 AND t.id != ?2 AND t.liked != -1 {enabled}{format} {group} {order} LIMIT ?3",
+            select = TRACK_SELECT, join = join, enabled = ENABLED_COLLECTION_FILTER, format = format_clause, group = group, order = order,
         );
-        conn.query_row(&sql, [], |row| track_from_row(row)).optional()
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![artist_id, seed.id, limit], |row| track_from_row(row))?;
+        rows.collect()
+    }
+
+    /// Up to `limit` tracks by artists *other than the seed's* carrying any
+    /// tag in `tag_pool`, best sample key first. Excluding the seed's artist
+    /// here is what makes `artist_share` honest: without it a tag hit could
+    /// hand the seed's artist a slot the coin had given to the neighbourhood.
+    fn radio_neighbour_pool(conn: &Connection, seed: &Track, tag_pool: &[i64], format_clause: &str, taste: RadioTaste, limit: i64) -> SqlResult<Vec<Track>> {
+        let (join, group, order) = Self::radio_pool_order(taste);
+        let tag_list: Vec<String> = tag_pool.iter().map(|id| id.to_string()).collect();
+        let sql = format!(
+            "{select} {join} WHERE t.liked != -1 AND t.id != ?1 \
+             AND (t.artist_id IS NULL OR ?2 IS NULL OR t.artist_id != ?2) \
+             {enabled}{format} AND t.id IN (\
+                SELECT DISTINCT track_id FROM track_tags WHERE tag_id IN ({tags})\
+             ) {group} {order} LIMIT ?3",
+            select = TRACK_SELECT, join = join, enabled = ENABLED_COLLECTION_FILTER, format = format_clause,
+            tags = tag_list.join(","), group = group, order = order,
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![seed.id, seed.artist_id, limit], |row| track_from_row(row))?;
+        rows.collect()
     }
 
     /// Pick `count` radio-station seeds: a familiar quota and a discovery quota
@@ -1768,7 +1883,7 @@ mod tests {
                 ).unwrap();
             }
 
-            let station = db.build_radio_for_track("Seed Concert", None, 5).unwrap();
+            let station = db.build_radio_for_track("Seed Concert", None, 5, &RadioOptions::default()).unwrap();
             assert!(!station.is_empty(), "{}: station came back empty", ext);
             for track in &station {
                 assert!(

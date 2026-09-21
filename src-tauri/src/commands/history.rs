@@ -108,12 +108,16 @@ pub async fn build_radio_for_track(
     seed_title: String,
     seed_artist: Option<String>,
     target_count: u32,
+    options: Option<RadioOptions>,
 ) -> Result<Vec<Track>, String> {
-    // async + spawn_blocking: builds the station with repeated ORDER BY
-    // RANDOM() scans — run inline it froze the webview while the queue built.
+    // async + spawn_blocking: two full-library sampled scans (per-row
+    // strip_diacritics joins for the non-default tastes) — run inline this
+    // froze the webview while the queue built. `options` is optional so an
+    // older caller (or the control API) gets the defaults.
     let db = state.db.clone();
+    let options = options.unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || {
-        db.build_radio_for_track(&seed_title, seed_artist.as_deref(), target_count)
+        db.build_radio_for_track(&seed_title, seed_artist.as_deref(), target_count, &options)
             .map_err(|e| e.to_string())
     })
     .await

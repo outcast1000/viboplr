@@ -43,6 +43,7 @@ export interface PersistedSettings {
   openNowPlayingOnPlay: boolean | undefined;
   openNowPlayingOnVideoPlay: boolean | undefined;
   videoStoryboards: boolean | undefined;
+  radioOptions: unknown;
   lastDownloadDest: string | null | undefined;
   searchViewModes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null | undefined;
   pluginViewMode: string | null | undefined;
@@ -133,6 +134,8 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     openNowPlayingOnPlay: read<boolean>("openNowPlayingOnPlay"),
     openNowPlayingOnVideoPlay: read<boolean>("openNowPlayingOnVideoPlay"),
     videoStoryboards: read<boolean>("videoStoryboards"),
+    // Coerced by App (`coerceRadioOptions`): an older build may have written a partial object.
+    radioOptions: read<unknown>("radioOptions"),
     lastDownloadDest: read<string | null>("lastDownloadDest"),
     searchViewModes: read<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
     pluginViewMode: read<string | null>("pluginViewMode"),

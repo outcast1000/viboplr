@@ -75,6 +75,7 @@ import {
 } from "./hooks/useMiniMode";
 import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { usePersistedSetting, usePersistMirror } from "./hooks/usePersistedSetting";
+import { coerceRadioOptions, DEFAULT_RADIO_OPTIONS, type RadioOptions } from "./utils/radioOptions";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
@@ -384,6 +385,8 @@ function App() {
   // them independently. The audio key keeps the original name (no migration).
   const [openNowPlayingOnPlay, setOpenNowPlayingOnPlay] = usePersistedSetting("openNowPlayingOnPlay", false, restoredRef);
   const [openNowPlayingOnVideoPlay, setOpenNowPlayingOnVideoPlay] = usePersistedSetting("openNowPlayingOnVideoPlay", false, restoredRef);
+  // Settings → Playback → Radio: how a station is filled (utils/radioOptions.ts).
+  const [radioOptions, setRadioOptions] = usePersistedSetting<RadioOptions>("radioOptions", DEFAULT_RADIO_OPTIONS, restoredRef);
   const [reduceMotion, setReduceMotion] = usePersistedSetting("reduceMotion", false, restoredRef);
   const [eqCustomPresets, setEqCustomPresets] = usePersistedSetting<{ id: string; name: string; gains: number[] }[]>("eqCustomPresets", [], restoredRef);
   const [eqShowBarControlSimple, setEqShowBarControlSimple] = usePersistedSetting("eqShowBarControlSimple", true, restoredRef);
@@ -1568,6 +1571,7 @@ function App() {
     getArtistImage: artistImageCache.getImage,
     getTagImage: tagImageCache.getImage,
     notify,
+    radioOptions,
   });
   useAssignRef(playWithBackfillRef, playActions.playWithBackfill);
 
@@ -2692,6 +2696,7 @@ function App() {
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
+          radioOptions: savedRadioOptions,
           openNowPlayingOnPlay: savedOpenNowPlayingOnPlay, openNowPlayingOnVideoPlay: savedOpenNowPlayingOnVideoPlay,
           updateNoticeDismissed: savedUpdateNoticeDismissed,
           reduceMotion: savedReduceMotion,
@@ -2779,6 +2784,7 @@ function App() {
         if (savedOpenNowPlayingOnPlay) setOpenNowPlayingOnPlay(true);
         if (savedOpenNowPlayingOnVideoPlay) setOpenNowPlayingOnVideoPlay(true);
         if (savedVideoStoryboards === false) setVideoStoryboards(false);
+        if (savedRadioOptions !== undefined) setRadioOptions(coerceRadioOptions(savedRadioOptions));
         if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
 
@@ -3907,6 +3913,10 @@ function App() {
     // No teardown needed here: useStoryboard re-runs on the flag and its cleanup
     // cancels whatever pass was in flight.
     setVideoStoryboards(enabled); // persistence: usePersistedSetting
+  }
+
+  function handleRadioOptionsChange(next: RadioOptions) {
+    setRadioOptions(next); // persistence: usePersistedSetting; usePlayActions reads it on the next station
   }
 
   function handleMinimizeToMiniPlayerChange(enabled: boolean) {
@@ -5501,6 +5511,8 @@ function App() {
               onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
               videoStoryboards={videoStoryboards}
               onVideoStoryboardsChange={handleVideoStoryboardsChange}
+              radioOptions={radioOptions}
+              onRadioOptionsChange={handleRadioOptionsChange}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
               confirmTrashDelete={confirmTrashDelete}

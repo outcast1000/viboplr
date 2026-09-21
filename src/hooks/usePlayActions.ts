@@ -4,6 +4,7 @@ import type { Track, Album, Artist, Tag, QueueTrack } from "../types";
 import type { PlaylistContext } from "./useQueue";
 import { trackToQueueTrack } from "../queueEntry";
 import { track as trackTelemetry } from "../telemetry";
+import type { RadioOptions } from "../utils/radioOptions";
 
 interface PlayActionsArgs {
   // Raw `Track`s are fine — useQueue converts at the door (`toQueueTracks`).
@@ -24,6 +25,8 @@ interface PlayActionsArgs {
   getArtistImage: (name: string) => string | null;
   getTagImage: (name: string) => string | null;
   notify: (message: string) => void;
+  /** Settings → Playback → Radio; forwarded verbatim to `build_radio_for_track`. */
+  radioOptions: RadioOptions;
 }
 
 export type InfoRow = [number, string, string, string, number];
@@ -188,6 +191,7 @@ export function usePlayActions({
   getArtistImage,
   getTagImage,
   notify,
+  radioOptions,
 }: PlayActionsArgs) {
   const playAlbum = useCallback(async (albumId: number, opts?: { tracks?: Track[]; startIndex?: number }) => {
     const tracks = opts?.tracks ?? await invoke<Track[]>("get_tracks", { opts: { albumId } });
@@ -303,6 +307,7 @@ export function usePlayActions({
         seedTitle: seed.title,
         seedArtist: seed.artistName,
         targetCount: 30,
+        options: radioOptions,
       });
       if (tracks.length === 0) {
         // Seed isn't in the library, so there's nothing to play or seed from.
@@ -341,7 +346,7 @@ export function usePlayActions({
       notify("Failed to start radio.");
       return null;
     }
-  }, [playTracks, setPlaylistContext, notify]);
+  }, [playTracks, setPlaylistContext, notify, radioOptions]);
 
   return { playAlbum, playArtist, playTag, enqueueAlbum, enqueueArtist, enqueueTag, startRadio, playWithBackfill };
 }
