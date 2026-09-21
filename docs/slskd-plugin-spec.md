@@ -1,5 +1,19 @@
 # Spec: Soulseek plugin (via slskd)
 
+> **Status (2026-09-21):** implemented as `outcast1000/viboplr-slskd`. v0.1.0
+> (2026-07-31) built this spec as written. v0.2.0 replaced the two host surfaces
+> that the app removed afterwards: `api.downloads.enqueue` and the
+> `download-resolve-request` bridge are gone (the downloader follows the source
+> since v1.0.32), so "Add to library" now opens the host modal through
+> `api.ui.requestAction("download-tracks")` with the plugin's `onResolveByUri`
+> as provider, and finished files inside a collection are rescanned with
+> `api.collections.resync` — the yt-dlp and qBittorrent plugins' patterns. It
+> also added assistant tools, `host:search` handling, `readAudioTags` and
+> cancel/remove. Where this document and the plugin's README disagree, the
+> README is current. Still unverified against a real Soulseek account: live
+> search results, a transfer's state progression, and the download → play →
+> add-to-library round trip.
+
 ## Summary
 
 Search and download from the **Soulseek** network inside Viboplr.
