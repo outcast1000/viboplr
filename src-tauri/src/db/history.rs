@@ -1097,6 +1097,217 @@ impl Database {
 
         Ok(maybe_artist_id)
     }
+
+    /// Rename or merge history records — the one write history has besides
+    /// recording a play.
+    ///
+    /// History is keyed by normalized name, deliberately decoupled from library
+    /// ids, so correcting a library tag (greeklish → Greek, a typo, a mojibake
+    /// artist) leaves every past play stranded under the old spelling. This
+    /// re-files those plays under the corrected name:
+    ///
+    /// - **Artist mode** (`from_title == None`): every history track of
+    ///   `from_artist` moves to `to_artist`. `to_title` is ignored.
+    /// - **Track mode** (`from_title == Some`): the one history track moves to
+    ///   `to_artist` (default: same artist) and/or `to_title` (default: same
+    ///   title). At least one must change or the call is a display-name touch.
+    ///
+    /// When the target name already exists in history the move is a **merge**:
+    /// `history_plays` are re-pointed at the surviving track, its counters are
+    /// recomputed from the plays, and the source row is deleted. An artist
+    /// left with no tracks is deleted too. Display names are always set to
+    /// the caller's spelling — the whole point of the call is that the caller
+    /// holds the correct one. Timestamps are never touched: a play stays a
+    /// play, on the day it happened.
+    ///
+    /// `dry_run` runs the same transaction and rolls it back, so the reported
+    /// counts and the merge flags are exactly what an apply would do.
+    ///
+    /// Returns `Ok(None)` when the source (artist, or artist+title) has no
+    /// history at all — a caller-facing "nothing to rename", not an error.
+    pub fn rename_history(
+        &self,
+        from_artist: &str,
+        from_title: Option<&str>,
+        to_artist: Option<&str>,
+        to_title: Option<&str>,
+        dry_run: bool,
+    ) -> SqlResult<Option<HistoryRenameResult>> {
+        let canon = |s: &str| strip_diacritics(&s.to_lowercase());
+        let conn = self.conn.lock().unwrap();
+        let tx = conn.unchecked_transaction()?;
+
+        let from_canon_artist = canon(from_artist);
+        let Some(src_artist_id) = tx
+            .query_row(
+                "SELECT id FROM history_artists WHERE canonical_name = ?1",
+                params![from_canon_artist],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+
+        // Resolve the target artist: the caller's, else the source itself.
+        // Same canonical name = a display-name touch, not a move.
+        let to_artist_name = to_artist.unwrap_or(from_artist);
+        let to_canon_artist = canon(to_artist_name);
+        let (target_artist_id, artist_merged) = if to_canon_artist == from_canon_artist {
+            (src_artist_id, false)
+        } else {
+            let existing: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM history_artists WHERE canonical_name = ?1",
+                    params![to_canon_artist],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            match existing {
+                Some(id) => (id, true),
+                None => {
+                    tx.execute(
+                        "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count)
+                         SELECT ?1, ?2, first_played_at, last_played_at, 0 FROM history_artists WHERE id = ?3",
+                        params![to_canon_artist, to_artist_name, src_artist_id],
+                    )?;
+                    (tx.last_insert_rowid(), false)
+                }
+            }
+        };
+        // The caller's spelling wins on the surviving artist row.
+        tx.execute(
+            "UPDATE history_artists SET display_name = ?1 WHERE id = ?2",
+            params![to_artist_name, target_artist_id],
+        )?;
+
+        // The tracks to move: (id, canonical_title) → target canonical title.
+        // Artist mode keeps every title; track mode may retitle the one track.
+        let moves: Vec<(i64, String, Option<&str>)> = match from_title {
+            None => {
+                let mut stmt = tx.prepare(
+                    "SELECT id, canonical_title FROM history_tracks WHERE history_artist_id = ?1",
+                )?;
+                let rows = stmt
+                    .query_map(params![src_artist_id], |row| {
+                        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<SqlResult<Vec<_>>>()?;
+                rows.into_iter().map(|(id, c)| (id, c, None)).collect()
+            }
+            Some(title) => {
+                let Some(track_id) = tx
+                    .query_row(
+                        "SELECT id FROM history_tracks WHERE history_artist_id = ?1 AND canonical_title = ?2",
+                        params![src_artist_id, canon(title)],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()?
+                else {
+                    return Ok(None);
+                };
+                let target_title = to_title.map(canon).unwrap_or_else(|| canon(title));
+                vec![(track_id, target_title, to_title)]
+            }
+        };
+
+        let mut tracks_moved: i64 = 0;
+        let mut plays_moved: i64 = 0;
+        let mut tracks_merged: i64 = 0;
+        for (track_id, target_canon_title, new_display_title) in &moves {
+            let collision: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM history_tracks
+                     WHERE history_artist_id = ?1 AND canonical_title = ?2 AND id != ?3",
+                    params![target_artist_id, target_canon_title, track_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            match collision {
+                Some(survivor) => {
+                    let n = tx.execute(
+                        "UPDATE history_plays SET history_track_id = ?1 WHERE history_track_id = ?2",
+                        params![survivor, track_id],
+                    )?;
+                    plays_moved += n as i64;
+                    tx.execute("DELETE FROM history_tracks WHERE id = ?1", params![track_id])?;
+                    tx.execute(
+                        "UPDATE history_tracks SET
+                            play_count      = (SELECT COUNT(*)        FROM history_plays WHERE history_track_id = ?1),
+                            first_played_at = (SELECT MIN(played_at)  FROM history_plays WHERE history_track_id = ?1),
+                            last_played_at  = (SELECT MAX(played_at)  FROM history_plays WHERE history_track_id = ?1),
+                            display_title   = COALESCE(?2, display_title)
+                         WHERE id = ?1",
+                        params![survivor, new_display_title],
+                    )?;
+                    tracks_merged += 1;
+                }
+                None => {
+                    let n: i64 = tx.query_row(
+                        "SELECT play_count FROM history_tracks WHERE id = ?1",
+                        params![track_id],
+                        |row| row.get(0),
+                    )?;
+                    plays_moved += n;
+                    tx.execute(
+                        "UPDATE history_tracks SET
+                            history_artist_id = ?1,
+                            canonical_title   = ?2,
+                            display_title     = COALESCE(?3, display_title)
+                         WHERE id = ?4",
+                        params![target_artist_id, target_canon_title, new_display_title, track_id],
+                    )?;
+                }
+            }
+            tracks_moved += 1;
+        }
+
+        // Re-derive both artists' counters from what is filed under them now,
+        // then drop the source if it emptied out.
+        for artist_id in [target_artist_id, src_artist_id] {
+            tx.execute(
+                "UPDATE history_artists SET
+                    play_count      = (SELECT COALESCE(SUM(play_count), 0) FROM history_tracks WHERE history_artist_id = ?1),
+                    first_played_at = (SELECT MIN(first_played_at)         FROM history_tracks WHERE history_artist_id = ?1),
+                    last_played_at  = (SELECT MAX(last_played_at)          FROM history_tracks WHERE history_artist_id = ?1)
+                 WHERE id = ?1",
+                params![artist_id],
+            )?;
+        }
+        let artist_removed = if src_artist_id != target_artist_id {
+            tx.execute(
+                "DELETE FROM history_artists
+                 WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM history_tracks WHERE history_artist_id = ?1)",
+                params![src_artist_id],
+            )? > 0
+        } else {
+            false
+        };
+
+        if dry_run {
+            tx.rollback()?;
+        } else {
+            tx.commit()?;
+        }
+
+        Ok(Some(HistoryRenameResult {
+            mode: if from_title.is_some() { "track" } else { "artist" }.to_string(),
+            from: HistoryName {
+                artist: from_artist.to_string(),
+                title: from_title.map(str::to_string),
+            },
+            to: HistoryName {
+                artist: to_artist_name.to_string(),
+                title: from_title.map(|t| to_title.unwrap_or(t).to_string()),
+            },
+            tracks_moved,
+            plays_moved,
+            tracks_merged,
+            artist_merged,
+            artist_removed,
+            dry_run,
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -1146,6 +1357,209 @@ mod tests {
         assert_eq!(db.get_history_play_count().unwrap(), 0);
         seed_plays(&db, &[("A", "t1", 100), ("A", "t2", 200), ("B", "t3", 300)]);
         assert_eq!(db.get_history_play_count().unwrap(), 3);
+    }
+
+    // (canonical_name, display_name, play_count, track_count) per history artist.
+    fn history_artists(db: &Database) -> Vec<(String, String, i64, i64)> {
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT a.canonical_name, a.display_name, a.play_count,
+                        (SELECT COUNT(*) FROM history_tracks t WHERE t.history_artist_id = a.id)
+                 FROM history_artists a ORDER BY a.canonical_name",
+            )
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<SqlResult<Vec<_>>>()
+            .unwrap()
+    }
+
+    // (canonical_title, display_title, play_count, first, last) for one artist.
+    fn history_tracks_of(db: &Database, canonical_artist: &str) -> Vec<(String, String, i64, i64, i64)> {
+        let conn = db.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.canonical_title, t.display_title, t.play_count, t.first_played_at, t.last_played_at
+                 FROM history_tracks t JOIN history_artists a ON a.id = t.history_artist_id
+                 WHERE a.canonical_name = ?1 ORDER BY t.canonical_title",
+            )
+            .unwrap();
+        stmt.query_map(params![canonical_artist], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+        })
+        .unwrap()
+        .collect::<SqlResult<Vec<_>>>()
+        .unwrap()
+    }
+
+    /// Artist mode onto a name history has never seen: a plain rename. Every
+    /// track follows, the artist row keeps its id-independent identity under
+    /// the new canonical name, and the caller's spelling becomes the display.
+    #[test]
+    fn test_rename_history_artist_to_new_name_moves_every_track() {
+        let db = test_db();
+        seed_plays(&db, &[
+            ("Stelios Kazantzidis", "Gialinos Kosmos", 100),
+            ("Stelios Kazantzidis", "Gialinos Kosmos", 200),
+            ("Stelios Kazantzidis", "Iparho", 300),
+            ("Other", "x", 400),
+        ]);
+
+        let r = db
+            .rename_history("stelios kazantzidis", None, Some("Στέλιος Καζαντζίδης"), None, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.mode, "artist");
+        assert_eq!((r.tracks_moved, r.plays_moved, r.tracks_merged), (2, 3, 0));
+        assert!(!r.artist_merged);
+        assert!(r.artist_removed);
+        assert!(!r.dry_run);
+        assert_eq!(r.to, HistoryName { artist: "Στέλιος Καζαντζίδης".into(), title: None });
+
+        let artists = history_artists(&db);
+        assert_eq!(artists, vec![
+            ("other".to_string(), "Other".to_string(), 1, 1),
+            ("στελιος καζαντζιδης".to_string(), "Στέλιος Καζαντζίδης".to_string(), 3, 2),
+        ]);
+        // Plays untouched: 3 seeded, 3 still counted, timestamps kept.
+        assert_eq!(db.get_history_play_count().unwrap(), 4);
+        let tracks = history_tracks_of(&db, "στελιος καζαντζιδης");
+        assert_eq!(tracks[0], ("gialinos kosmos".into(), "Gialinos Kosmos".into(), 2, 100, 200));
+        assert_eq!(tracks[1], ("iparho".into(), "Iparho".into(), 1, 300, 300));
+        // The reads that power Home/History see the new name.
+        let top = db.get_history_most_played_artists(5).unwrap();
+        assert_eq!(top[0].display_name, "Στέλιος Καζαντζίδης");
+        assert_eq!(top[0].play_count, 3);
+    }
+
+    /// Artist mode onto an artist that already has history: a merge. Titles
+    /// that exist on both sides fold their plays together and the counters
+    /// are re-derived from the plays, not summed from possibly-stale counts.
+    #[test]
+    fn test_rename_history_artist_merges_colliding_tracks() {
+        let db = test_db();
+        seed_plays(&db, &[
+            ("Vassilis Tsitsanis", "Sinnefiasmeni Kiriaki", 100),
+            ("Vassilis Tsitsanis", "Aspro Poukamiso", 150),
+            ("Βασίλης Τσιτσάνης", "Sinnefiasmeni Kiriaki", 500),
+            ("Βασίλης Τσιτσάνης", "Μπαξέ Τσιφλίκι", 600),
+        ]);
+
+        let r = db
+            .rename_history("Vassilis Tsitsanis", None, Some("Βασίλης Τσιτσάνης"), None, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.tracks_moved, r.plays_moved, r.tracks_merged), (2, 2, 1));
+        assert!(r.artist_merged);
+        assert!(r.artist_removed);
+
+        let artists = history_artists(&db);
+        assert_eq!(artists.len(), 1);
+        assert_eq!(artists[0].1, "Βασίλης Τσιτσάνης");
+        assert_eq!((artists[0].2, artists[0].3), (4, 3));
+        let tracks = history_tracks_of(&db, "βασιλης τσιτσανης");
+        let merged = tracks.iter().find(|t| t.0 == "sinnefiasmeni kiriaki").unwrap();
+        // 2 plays, spanning both sides' timestamps.
+        assert_eq!((merged.2, merged.3, merged.4), (2, 100, 500));
+        assert_eq!(db.get_history_play_count().unwrap(), 4);
+    }
+
+    /// Track mode: retitle one track, optionally re-filing it under another
+    /// artist in the same call. Sibling tracks stay put; the source artist
+    /// survives while it still has tracks.
+    #[test]
+    fn test_rename_history_track_retitles_and_can_move_artist() {
+        let db = test_db();
+        seed_plays(&db, &[
+            ("Active Member", "Mia Fora", 100),
+            ("Active Member", "Mia Fora", 200),
+            ("Active Member", "Pame", 300),
+            ("Some Band", "Μια φορά", 50),
+        ]);
+
+        // Title only.
+        let r = db
+            .rename_history("Active Member", Some("mia fora"), None, Some("Μια Φορά"), false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.mode, "track");
+        assert_eq!((r.tracks_moved, r.plays_moved, r.tracks_merged), (1, 2, 0));
+        assert!(!r.artist_removed);
+        assert_eq!(
+            r.to,
+            HistoryName { artist: "Active Member".into(), title: Some("Μια Φορά".into()) }
+        );
+        let tracks = history_tracks_of(&db, "active member");
+        assert_eq!(tracks.iter().map(|t| t.1.as_str()).collect::<Vec<_>>(), vec!["Pame", "Μια Φορά"]);
+
+        // Title + artist, colliding with Some Band's own copy → merge into it.
+        let r = db
+            .rename_history("Active Member", Some("Μια Φορά"), Some("Some Band"), Some("Μια φορά"), false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.tracks_moved, r.plays_moved, r.tracks_merged), (1, 2, 1));
+        assert!(r.artist_merged);
+        assert!(!r.artist_removed, "Active Member still has Pame");
+        let some_band = history_tracks_of(&db, "some band");
+        assert_eq!(some_band.len(), 1);
+        assert_eq!((some_band[0].2, some_band[0].3, some_band[0].4), (3, 50, 200));
+        let artists = history_artists(&db);
+        assert_eq!(artists, vec![
+            ("active member".to_string(), "Active Member".to_string(), 1, 1),
+            ("some band".to_string(), "Some Band".to_string(), 3, 1),
+        ]);
+    }
+
+    /// Same canonical name = the caller is fixing casing/accents only. Nothing
+    /// moves, no artist is created or removed, the display strings update.
+    #[test]
+    fn test_rename_history_same_canonical_name_only_touches_display() {
+        let db = test_db();
+        seed_plays(&db, &[("bjork", "joga", 100)]);
+        let r = db
+            .rename_history("BJORK", Some("JOGA"), Some("Björk"), Some("Jóga"), false)
+            .unwrap()
+            .unwrap();
+        assert_eq!((r.tracks_moved, r.plays_moved, r.tracks_merged), (1, 1, 0));
+        assert!(!r.artist_merged && !r.artist_removed);
+        assert_eq!(history_artists(&db), vec![("bjork".to_string(), "Björk".to_string(), 1, 1)]);
+        assert_eq!(history_tracks_of(&db, "bjork")[0].1, "Jóga");
+    }
+
+    /// A dry run reports exactly what an apply would and leaves no trace —
+    /// including no target artist row created on the way to the answer.
+    #[test]
+    fn test_rename_history_dry_run_changes_nothing() {
+        let db = test_db();
+        seed_plays(&db, &[("Old", "a", 100), ("Old", "b", 200), ("New", "a", 300)]);
+        let before_artists = history_artists(&db);
+        let before_old = history_tracks_of(&db, "old");
+
+        let dry = db.rename_history("Old", None, Some("New"), None, true).unwrap().unwrap();
+        assert!(dry.dry_run);
+        assert_eq!((dry.tracks_moved, dry.plays_moved, dry.tracks_merged), (2, 2, 1));
+        assert!(dry.artist_merged && dry.artist_removed);
+        assert_eq!(history_artists(&db), before_artists);
+        assert_eq!(history_tracks_of(&db, "old"), before_old);
+
+        let wet = db.rename_history("Old", None, Some("New"), None, false).unwrap().unwrap();
+        assert_eq!(
+            (wet.tracks_moved, wet.plays_moved, wet.tracks_merged, wet.artist_merged, wet.artist_removed),
+            (dry.tracks_moved, dry.plays_moved, dry.tracks_merged, dry.artist_merged, dry.artist_removed)
+        );
+        assert_eq!(history_artists(&db).len(), 1);
+    }
+
+    /// Unknown source → `None`, and a target artist probed on the way is not
+    /// left behind (the transaction rolls back).
+    #[test]
+    fn test_rename_history_unknown_source_is_none_and_leaves_nothing() {
+        let db = test_db();
+        seed_plays(&db, &[("A", "t", 100)]);
+        assert!(db.rename_history("Nobody", None, Some("B"), None, false).unwrap().is_none());
+        assert!(db.rename_history("A", Some("missing"), Some("B"), None, false).unwrap().is_none());
+        assert_eq!(history_artists(&db).len(), 1);
     }
 
     #[test]

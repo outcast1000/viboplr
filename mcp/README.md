@@ -119,6 +119,17 @@ no `..`, symlink-escape checked); nothing is ever silently overwritten
 conflicts outright); moves keep the library row (id, tags, likes, playlists)
 pointed at the file; batches are capped (100 tag writes, 50 moves).
 
+## Renaming history
+
+`rename_history` is the DB-only companion to `write_file_tags`. Listening
+history is keyed by name and never follows a tag edit, so correcting a
+transliterated or misspelled artist leaves every past play stranded under the
+old spelling; this tool re-files them (whole artist, or one track with a new
+title and/or artist). It needs no permission switch — no file is touched — but
+landing on a name that already has history **merges** into it, which cannot be
+undone, so the tool takes `dryRun: true` and reports the counts first. Applied
+renames land in the same change log as the file writes.
+
 ## Multiple profiles
 
 The server picks the `default` profile (or the only running one). Running a

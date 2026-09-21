@@ -416,6 +416,40 @@ pub struct TrackPlayStats {
     pub last_played_at: Option<i64>,
 }
 
+/// One side of a history rename — the name(s) a play record is filed under.
+/// `title` is `None` when the whole artist is addressed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryName {
+    pub artist: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Outcome of `Database::rename_history` — what moved where, and whether the
+/// target already existed (a merge) or was created (a plain rename).
+/// API-facing (the control API returns it verbatim), hence camelCase.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRenameResult {
+    /// "artist" (every track of the artist moved) or "track" (one track).
+    pub mode: String,
+    pub from: HistoryName,
+    pub to: HistoryName,
+    /// History tracks now filed under the new name (moved or merged).
+    pub tracks_moved: i64,
+    /// Plays now filed under the new name.
+    pub plays_moved: i64,
+    /// Tracks that collided with an existing track under the target name and
+    /// had their plays folded into it.
+    pub tracks_merged: i64,
+    /// The target artist already existed in history before the call.
+    pub artist_merged: bool,
+    /// The source artist row was dropped because nothing is left under it.
+    pub artist_removed: bool,
+    /// Nothing was written — the call only reported what would happen.
+    pub dry_run: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistEntry {
     pub url: String,

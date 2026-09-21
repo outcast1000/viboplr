@@ -61,6 +61,21 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       });
       return;
     }
+    if (req.url === "/v1/history/rename" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        const b = JSON.parse(body);
+        reply(200, {
+          mode: b.fromTitle ? "track" : "artist",
+          from: { artist: b.fromArtist, title: b.fromTitle },
+          to: { artist: b.toArtist ?? b.fromArtist, title: b.toTitle ?? b.fromTitle },
+          tracksMoved: 2, playsMoved: 5, tracksMerged: 1, artistMerged: true, artistRemoved: !b.dryRun, dryRun: !!b.dryRun,
+        });
+      });
+      return;
+    }
     if (req.url === "/v1/files/move" && req.method === "POST") {
       let body = "";
       req.on("data", (c) => (body += c));
@@ -451,6 +466,19 @@ describe("MCP server over stdio", () => {
     for (const name of ["write_file_tags", "manage_files", "download_track"]) {
       expect(names).toContain(name);
     }
+  });
+
+  it("posts rename_history arguments verbatim to /v1/history/rename and returns the merge report", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "rename_history",
+      arguments: { fromArtist: "Stelios Kazantzidis", toArtist: "Στέλιος Καζαντζίδης", dryRun: true },
+    });
+    const report = JSON.parse(toolText(res.result));
+    expect(report).toMatchObject({ mode: "artist", dryRun: true, artistMerged: true, playsMoved: 5 });
+    const posted = api.seen.find((r) => r.method === "POST" && r.url === "/v1/history/rename");
+    expect(JSON.parse(posted!.body!)).toEqual({
+      fromArtist: "Stelios Kazantzidis", toArtist: "Στέλιος Καζαντζίδης", dryRun: true,
+    });
   });
 
   it("posts write_file_tags arguments verbatim to /v1/tracks/file-tags", async () => {

@@ -332,6 +332,11 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/collections", get(handle_get_collections))
         .route("/v1/collections/{id}/rescan", post(|s, p, b| handle_collection_bridge(s, p, "collections.rescan", b)))
         .route("/v1/history", get(handle_history))
+        // Backend-direct WRITE: a pure DB re-file of name-keyed history rows.
+        // No React state mirrors history (Home/History re-query on their own
+        // cadence), so there is nothing for a bridge to keep in sync — and
+        // no file is touched, so no write scope. Journaled like every write.
+        .route("/v1/history/rename", post(handle_history_rename))
         .route("/v1/tags", get(handle_tags))
         .route("/v1/info/search", get(handle_info_search))
         .route("/v1/logs", get(handle_logs).post(|s, b| handle_bridge_body(s, "logs.set", json!({}), b)))
@@ -736,6 +741,102 @@ async fn handle_history(
             StatusCode::BAD_REQUEST,
             format!("unknown history kind \"{}\" (use recent|most_played)", other),
         ),
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HistoryRenameBody {
+    from_artist: String,
+    #[serde(default)]
+    from_title: Option<String>,
+    #[serde(default)]
+    to_artist: Option<String>,
+    #[serde(default)]
+    to_title: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// Re-file listening history under a corrected name (`db.rename_history`).
+/// History is name-keyed and never follows a library tag edit, so this is
+/// the companion to `/v1/tracks/file-tags`: fix the tags, then move the plays.
+///
+/// Artist mode (`fromTitle` absent) moves every track of `fromArtist` to
+/// `toArtist`; track mode moves the one track to `toArtist` and/or `toTitle`.
+/// Landing on a name that already has history is a merge — `dryRun: true`
+/// reports the effect (counts + merge flags) without writing, and a caller
+/// should offer that preview before a merge. 404 when the source has no
+/// history; the DB result is returned verbatim.
+async fn handle_history_rename(state: AxumState<ServerState>, body: Bytes) -> Response {
+    let parsed: HistoryRenameBody = match parse_typed(&body) {
+        Ok(p) => p,
+        Err(resp) => return resp,
+    };
+    let clean = |s: Option<String>| s.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+    let from_artist = parsed.from_artist.trim().to_string();
+    let from_title = clean(parsed.from_title);
+    let to_artist = clean(parsed.to_artist);
+    let to_title = clean(parsed.to_title);
+    if to_artist.is_none() && to_title.is_none() {
+        return error_response(StatusCode::BAD_REQUEST, "toArtist and/or toTitle is required");
+    }
+    if from_title.is_none() && to_title.is_some() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "toTitle needs fromTitle — without one the whole artist is renamed",
+        );
+    }
+
+    let db = state.0.db.clone();
+    let app_dir = state.0.app_dir.clone();
+    let dry_run = parsed.dry_run;
+    let outcome = tokio::task::spawn_blocking(move || {
+        let result = db
+            .rename_history(
+                &from_artist,
+                from_title.as_deref(),
+                to_artist.as_deref(),
+                to_title.as_deref(),
+                dry_run,
+            )
+            .map_err(|e| e.to_string())?;
+        if let Some(r) = &result {
+            if !dry_run {
+                let what = match &r.from.title {
+                    Some(t) => format!("\"{}\" by {}", t, r.from.artist),
+                    None => format!("artist {}", r.from.artist),
+                };
+                let to = match &r.to.title {
+                    Some(t) => format!("\"{}\" by {}", t, r.to.artist),
+                    None => r.to.artist.clone(),
+                };
+                assistant_write::append_audit(
+                    &app_dir,
+                    "history.rename",
+                    &format!(
+                        "renamed history {} → {} ({} track(s), {} play(s){})",
+                        what,
+                        to,
+                        r.tracks_moved,
+                        r.plays_moved,
+                        if r.tracks_merged > 0 || r.artist_merged { ", merged" } else { "" }
+                    ),
+                    serde_json::to_value(r).ok(),
+                );
+            }
+        }
+        Ok::<_, String>(result)
+    })
+    .await;
+    match outcome {
+        Ok(Ok(Some(result))) => axum::Json(result).into_response(),
+        Ok(Ok(None)) => error_response(
+            StatusCode::NOT_FOUND,
+            "no listening history under that name — check the spelling with GET /v1/history or /v1/query",
+        ),
+        Ok(Err(e)) => error_response(StatusCode::BAD_REQUEST, e),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
     }
 }
 
@@ -1841,6 +1942,95 @@ mod tests {
         assert_eq!(json["applied"], json!(true));
         assert_eq!(json["moved"].as_array().unwrap().len(), 1);
         assert!(root.path().join("Writer/Album/a.mp3").exists());
+    }
+
+    /// History rename is a backend-direct DB write: no scope, validated and
+    /// journaled here, a dry run leaves neither data nor a journal line.
+    #[tokio::test]
+    async fn test_history_rename_validates_previews_applies_and_journals() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state_in(noop_emit(), dir.path().to_path_buf());
+        state
+            .db
+            .record_history_plays_batch(&[
+                ("Stelios Kazantzidis".to_string(), "Iparho".to_string(), 100),
+                ("Stelios Kazantzidis".to_string(), "Iparho".to_string(), 200),
+                ("Στέλιος Καζαντζίδης".to_string(), "Iparho".to_string(), 300),
+            ])
+            .unwrap();
+        let router = build_router(state);
+
+        // Nothing to rename to.
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/history/rename", TEST_TOKEN, r#"{"fromArtist":"Stelios Kazantzidis"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // A title on the target side needs one on the source side.
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/history/rename", TEST_TOKEN, r#"{"fromArtist":"Stelios Kazantzidis","toTitle":"Υπάρχω"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        // Unknown source is a 404, not an empty success.
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/history/rename", TEST_TOKEN, r#"{"fromArtist":"Nobody","toArtist":"X"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
+
+        // Dry run: reports the merge, writes nothing, journals nothing.
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST",
+                "/v1/history/rename",
+                TEST_TOKEN,
+                r#"{"fromArtist":"Stelios Kazantzidis","toArtist":"Στέλιος Καζαντζίδης","dryRun":true}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["dryRun"], json!(true));
+        assert_eq!(json["mode"], json!("artist"));
+        assert_eq!(json["artistMerged"], json!(true));
+        assert_eq!(json["tracksMerged"], json!(1));
+        assert_eq!(json["playsMoved"], json!(2));
+        let res = router.clone().oneshot(request("GET", "/v1/changes", Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(body_json(res).await["entries"].as_array().unwrap().len(), 0);
+
+        // Apply: same numbers, one journal line carrying the result.
+        let res = router
+            .clone()
+            .oneshot(request_json(
+                "POST",
+                "/v1/history/rename",
+                TEST_TOKEN,
+                r#"{"fromArtist":"Stelios Kazantzidis","toArtist":"Στέλιος Καζαντζίδης"}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["dryRun"], json!(false));
+        assert_eq!(json["artistRemoved"], json!(true));
+        assert_eq!(json["playsMoved"], json!(2));
+        let res = router.clone().oneshot(request("GET", "/v1/changes", Some(TEST_TOKEN))).await.unwrap();
+        let entries = body_json(res).await["entries"].clone();
+        assert_eq!(entries.as_array().unwrap().len(), 1);
+        assert_eq!(entries[0]["verb"], json!("history.rename"));
+        assert_eq!(entries[0]["detail"]["to"]["artist"], json!("Στέλιος Καζαντζίδης"));
+
+        // The old name is gone from history; a second rename 404s.
+        let res = router
+            .oneshot(request_json("POST", "/v1/history/rename", TEST_TOKEN, r#"{"fromArtist":"Stelios Kazantzidis","toArtist":"X"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::NOT_FOUND);
     }
 
     /// File-tag writes bridge to the frontend (the canonical bulk edit) once

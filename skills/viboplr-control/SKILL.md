@@ -186,6 +186,7 @@ Consent rule for logs: show the user before posting log contents anywhere public
 |---|---|
 | `POST /tracks/{id}/tags` | `{add?: ["chill"], remove?: ["rock"]}` → `{tags: [..]}` (final set; database tags only, files untouched) |
 | `POST /likes` | `{kind: "track", likeState: -1\|0\|1, title, artistName?, albumTitle?}` or `{kind: "artist"\|"tag", name, likeState}` or `{kind: "album", title, artistName?, likeState}` |
+| `POST /history/rename` | `{fromArtist, fromTitle?, toArtist?, toTitle?, dryRun?}` — re-file listening history under a corrected name. History is name-keyed and never follows a tag edit, so after `/tracks/file-tags` the old plays stay stranded under the old spelling; this moves them. No `fromTitle` = every track of the artist moves to `toArtist`; with `fromTitle` = that one track moves to `toArtist` and/or `toTitle`. Accent/case-insensitive match; display names take your spelling. A target that already has history is **merged** (plays combined, timestamps kept) — send `dryRun: true` first and show the counts, a merge is permanent. Returns `{mode, from, to, tracksMoved, playsMoved, tracksMerged, artistMerged, artistRemoved, dryRun}`; 404 when the source has no history. Database only, journaled |
 
 **Writes** (each 403s until its permission is on — Settings → General → AI control; every applied write is journaled)
 
@@ -206,6 +207,12 @@ Consent rule for logs: show the user before posting log contents anywhere public
 1. `GET /search?q=mellow&type=tag` → tag hit (or search tracks directly)
 2. `GET /search?q=<tag name>&type=track&limit=30` → collect `id`s
 3. `POST /queue/play {"trackIds":[…], "contextName":"Mellow"}`
+
+**Fix a misspelled / transliterated artist everywhere**
+1. `POST /tracks/file-tags {"trackIds":[…], "artistName":"Στέλιος Καζαντζίδης"}` (needs Modify tags) — files + library
+2. `POST /history/rename {"fromArtist":"Stelios Kazantzidis","toArtist":"Στέλιος Καζαντζίδης","dryRun":true}` → show `playsMoved` / `artistMerged` to the user
+3. same body without `dryRun` → the plays follow; then per track `{"fromArtist":…,"fromTitle":"Iparho","toTitle":"Υπάρχω"}` for retitled songs
+4. `POST /likes` again for any liked track — likes are also name-keyed and do not move
 
 **Build a playlist from most-played**
 1. `GET /history?kind=most_played&limit=30` → titles/artists
