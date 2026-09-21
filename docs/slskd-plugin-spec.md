@@ -171,9 +171,16 @@ header is sufficient — no JWT login flow needed.
    at the root node with a full relative `fullName`, and lists nested directories
    as flat siblings that carry no files of their own. A walker must not assume
    files live inside their directory node.
-4. **`fullName` is relative, not absolute.** `FileService.cs:341` strips the root.
-   The absolute path is `options.directories.downloads + "/" + file.fullName` —
-   the only reason the plugin needs `GET /api/v0/options` at all.
+4. **`fullName` is relative to the directory you ASKED for, not to the downloads
+   root.** `FileService.cs:341` strips the *listed* directory, so the root listing
+   answers `viboplr/<batchId>/04. Track.flac` while a listing of
+   `viboplr/<batchId>` answers `04. Track.flac` for the same file. Verified
+   against slskd 0.26.0. Prepending `options.directories.downloads` to a targeted
+   listing's name therefore loses the intervening folders and yields a path that
+   never existed — rebase the name onto the root first. (An earlier draft of this
+   spec said "relative to the downloads root" and the plugin shipped that bug in
+   0.2.0.) Resolving the root is the only reason the plugin needs
+   `GET /api/v0/options` at all.
 5. **Failures return a bare JSON string**, not a problem-details object — e.g.
    `"The server connection must be connected and logged in to perform a search
    (currently: Disconnected)"`. Surface it; it is far better than the status code.
@@ -360,8 +367,10 @@ reads, not a derivation:
 
 1. `GET /api/v0/files/downloads/directories/{base64("viboplr/<batchId>")}?recursive=true`
    → `FilesystemFile[]`, each with `name`, `fullName`, `length`.
-2. Absolute path = `options.directories.downloads` + `/` + `file.fullName`
-   (`fullName` is relativized to the downloads root — `FileService.cs:341`).
+2. Rebase each `fullName` onto the downloads root — a targeted listing
+   relativizes to the directory it was handed, so prefix `viboplr/<batchId>/`
+   (see Q4 in "slskd API contract") — then
+   absolute path = `options.directories.downloads` + `/` + the rebased name.
 
 Match by `length` against the transfer's `size`, falling back to basename. This
 sidesteps the conflict strategies (`DestinationConflictStrategy` /
@@ -493,7 +502,8 @@ changed the design.
    local path at all, and slskd's destination pattern is user-configurable, so
    deriving it is not possible in general. Replaced with plugin-chosen
    `Options.Destination` at enqueue plus a Files API listing to read back the real
-   name. `fullName` is relative to the downloads root, hence Q2.
+   name. That name is relative to the listed directory, not to the downloads
+   root, and the root still has to come from Q2.
 4. **Search streaming** — counts stream live, response bodies don't. The wait now
    shows a real "N files from M users" counter instead of a bare spinner.
 5. **Shares etiquette** — **yes, warn, once, non-blocking.** `state.shares` is in
