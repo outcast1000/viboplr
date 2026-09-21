@@ -208,11 +208,13 @@ Consent rule for logs: show the user before posting log contents anywhere public
 2. `GET /search?q=<tag name>&type=track&limit=30` → collect `id`s
 3. `POST /queue/play {"trackIds":[…], "contextName":"Mellow"}`
 
-**Fix a misspelled / transliterated artist everywhere**
-1. `POST /tracks/file-tags {"trackIds":[…], "artistName":"Στέλιος Καζαντζίδης"}` (needs Modify tags) — files + library
-2. `POST /history/rename {"fromArtist":"Stelios Kazantzidis","toArtist":"Στέλιος Καζαντζίδης","dryRun":true}` → show `playsMoved` / `artistMerged` to the user
-3. same body without `dryRun` → the plays follow; then per track `{"fromArtist":…,"fromTitle":"Iparho","toTitle":"Υπάρχω"}` for retitled songs
-4. `POST /likes` again for any liked track — likes are also name-keyed and do not move
+**Fix a misspelled / transliterated artist everywhere** (a name lives in more places than the tags — order matters)
+1. Propose the corrected spelling and get a yes first — greeklish cannot be reversed mechanically, only from knowing the song
+2. BEFORE writing, note what is liked among the affected tracks/artists/albums (`POST /query` on `entity_likes`, or the track rows' `liked`) — likes are keyed by name and read as neutral after the rename
+3. `POST /tracks/file-tags {"trackIds":[…], "artistName":"Στέλιος Καζαντζίδης"}` (needs Modify tags) — files + library; the library merges into an existing artist/album automatically (accent/case-insensitive). Then per retitled track `{"trackIds":[id], "title":"Υπάρχω"}`
+4. `POST /history/rename {"fromArtist":"Stelios Kazantzidis","toArtist":"Στέλιος Καζαντζίδης","dryRun":true}` → show `playsMoved` / `artistMerged`; re-send without `dryRun`; then per track `{"fromArtist":…,"fromTitle":"Iparho","toTitle":"Υπάρχω"}`
+5. `POST /likes` under the new names for everything noted in step 2
+6. Say what does not follow: playlist entries keep their own copy of the names (no endpoint edits them yet); the live queue keeps its snapshot until the next play; cached lyrics/bios/images refetch under the new name on their own
 
 **Build a playlist from most-played**
 1. `GET /history?kind=most_played&limit=30` → titles/artists
