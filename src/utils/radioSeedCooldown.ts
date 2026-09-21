@@ -1,7 +1,8 @@
 // Shown-seed cooldown for the Home radio carousel.
 //
-// `pick_radio_seeds` draws a weighted random sample, which alone still lets
-// the same favorites recur across consecutive refreshes. The carousel therefore
+// `pick_radio_seeds` draws weighted random samples (a familiar half and a
+// discovery half), which alone still lets the same favorites recur across
+// consecutive refreshes. The carousel therefore
 // remembers the track ids it showed over its last few refreshes and passes them
 // as `exclude`, so a refresh cannot hand back the cards the user just saw. The
 // backend tops the row up from the excluded set when the library is too small

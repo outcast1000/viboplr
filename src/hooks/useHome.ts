@@ -22,7 +22,9 @@ const LIBRARY_REFRESH_DEBOUNCE_MS = 1_200;
 const SNAPSHOT_KEY = "homeSnapshot";
 // Ring of radio seed ids shown over the last few refreshes (utils/radioSeedCooldown).
 const RADIO_SEED_COOLDOWN_KEY = "radioSeedCooldown";
-const RADIO_STATION_COUNT = 7;
+// Five familiar + five discovery seeds (the backend splits `count` half/half —
+// see `radio_seed_quotas` in db/history.rs).
+const RADIO_STATION_COUNT = 10;
 
 // Id of the radio shelf. Unlike the other built-ins it isn't a resolver — its
 // items are the radio stations (see buildRadioShelf). Whichever shelf is first

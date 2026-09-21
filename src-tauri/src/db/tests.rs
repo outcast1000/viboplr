@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::db::collections::TagMode;
+use crate::db::history::{radio_seed_quotas, RadioSeedPool};
 use crate::models::FieldUpdate;
 
 fn test_db() -> Database {
@@ -3451,61 +3452,208 @@ fn test_weighted_sample_key_is_a_positive_finite_key_scaled_by_weight() {
     assert_eq!(weighted_sample_key(42, f64::INFINITY), f64::MAX);
 }
 
-#[test]
-fn test_pick_radio_seeds_favours_liked_and_played_tracks() {
-    let db = test_db();
-    let cid = test_collection(&db);
-    let aid_fav = db.get_or_create_artist("Fav").unwrap();
-    let aid_plain = db.get_or_create_artist("Plain").unwrap();
-    let alb_fav = db.get_or_create_album("Album", Some(aid_fav), None).unwrap();
-    let alb_plain = db.get_or_create_album("Album", Some(aid_plain), None).unwrap();
-    let fav = db.upsert_track("file://fav.mp3", "Fav Song", Some(aid_fav), Some(alb_fav), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
-    let plain = db.upsert_track("file://plain.mp3", "Plain Song", Some(aid_plain), Some(alb_plain), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
-    db.toggle_liked("tracks", fav, 1).unwrap();
-    for _ in 0..4 {
-        db.record_history_play(fav).unwrap();
-    }
-
-    // fav weighs 3 × (1 + 0.5·4) = 9, plain weighs 1 → P(fav) = 0.9 per draw.
-    let runs = 400;
-    let mut fav_hits = 0;
-    let mut plain_hits = 0;
-    for _ in 0..runs {
-        let picked = db.pick_radio_seeds(1, &[]).unwrap();
-        assert_eq!(picked.len(), 1);
-        if picked[0].id == fav { fav_hits += 1; } else if picked[0].id == plain { plain_hits += 1; }
-    }
-    assert_eq!(fav_hits + plain_hits, runs);
-    // Expected ~360 / ~40. The bounds are loose enough (~10σ) not to flake.
-    assert!(fav_hits > 300, "liked+played track should dominate the draws, got {fav_hits}/{runs}");
-    assert!(plain_hits > 0, "an untouched track must still surface sometimes, got 0/{runs}");
-}
-
-#[test]
-fn test_pick_radio_seeds_untouched_tracks_surface_past_a_full_top_tier() {
-    // The old hard-tier ranking made this impossible: ten liked+played tracks
-    // more than filled the overfetch for count=1, so the plain track could never
-    // be a seed. With weighted sampling it is merely unlikely per draw.
-    let db = test_db();
-    let cid = test_collection(&db);
-    for i in 0..10 {
+/// One liked+played track per `Fav{i}` artist and one untouched track per
+/// `Plain{i}` artist, each on its own album. Returns (fav ids, plain ids).
+fn seed_fav_and_plain(db: &Database, cid: i64, favs: usize, plains: usize) -> (Vec<i64>, Vec<i64>) {
+    let mut fav_ids = Vec::new();
+    for i in 0..favs {
         let aid = db.get_or_create_artist(&format!("Fav{i}")).unwrap();
         let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
         let id = db.upsert_track(&format!("file://fav{i}.mp3"), &format!("Fav Song {i}"), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
         db.toggle_liked("tracks", id, 1).unwrap();
         db.record_history_play(id).unwrap();
+        fav_ids.push(id);
     }
-    let aid_plain = db.get_or_create_artist("Plain").unwrap();
-    let alb_plain = db.get_or_create_album("Album", Some(aid_plain), None).unwrap();
-    let plain = db.upsert_track("file://plain.mp3", "Plain Song", Some(aid_plain), Some(alb_plain), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let mut plain_ids = Vec::new();
+    for i in 0..plains {
+        let aid = db.get_or_create_artist(&format!("Plain{i}")).unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        plain_ids.push(db.upsert_track(&format!("file://plain{i}.mp3"), &format!("Plain Song {i}"), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap());
+    }
+    (fav_ids, plain_ids)
+}
 
-    // Each fav weighs 3 × 1.5 = 4.5 → total 46; P(plain) ≈ 0.022 per draw, so
-    // 1000 draws miss it with probability ≈ 3e-10.
-    let mut plain_hits = 0;
-    for _ in 0..1000 {
-        if db.pick_radio_seeds(1, &[]).unwrap()[0].id == plain { plain_hits += 1; }
+#[test]
+fn test_radio_seed_quotas_split_half_and_half_odd_to_familiar() {
+    assert_eq!(radio_seed_quotas(10), (5, 5));
+    assert_eq!(radio_seed_quotas(7), (4, 3));
+    assert_eq!(radio_seed_quotas(1), (1, 0));
+    assert_eq!(radio_seed_quotas(0), (0, 0));
+}
+
+#[test]
+fn test_pick_radio_seeds_fills_familiar_and_discovery_quotas_and_interleaves() {
+    // Ten favourites and ten strangers: a proportional draw would hand out
+    // ~9:1 (favourites weigh 4.5 each); quotas make it exactly 5:5, alternating
+    // familiar / discovery from the first card.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (fav_ids, plain_ids) = seed_fav_and_plain(&db, cid, 10, 10);
+    for _ in 0..20 {
+        let picked = db.pick_radio_seeds(10, &[]).unwrap();
+        assert_eq!(picked.len(), 10);
+        for (i, t) in picked.iter().enumerate() {
+            let pool = if i % 2 == 0 { &fav_ids } else { &plain_ids };
+            assert!(pool.contains(&t.id), "slot {i} should come from the {} pool, got {}", if i % 2 == 0 { "familiar" } else { "discovery" }, t.title);
+        }
     }
-    assert!(plain_hits > 0, "an unliked, unplayed track must be able to become a seed");
+}
+
+#[test]
+fn test_pick_radio_seeds_untouched_tracks_get_the_discovery_half_even_when_favourites_abound() {
+    // The old hard-tier ranking made this impossible, and the proportional
+    // draw that replaced it only made it unlikely; the discovery quota makes
+    // it certain: one of two seeds is the sole untouched track.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (_, plain_ids) = seed_fav_and_plain(&db, cid, 10, 1);
+    for _ in 0..50 {
+        let picked = db.pick_radio_seeds(2, &[]).unwrap();
+        assert_eq!(picked.len(), 2);
+        assert_eq!(picked[1].id, plain_ids[0], "the discovery slot must hold the unliked, unplayed track");
+    }
+}
+
+#[test]
+fn test_pick_radio_seeds_familiar_pool_favours_liked_and_played_within_it() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid_fav = db.get_or_create_artist("Fav").unwrap();
+    let aid_once = db.get_or_create_artist("Once").unwrap();
+    let alb_fav = db.get_or_create_album("Album", Some(aid_fav), None).unwrap();
+    let alb_once = db.get_or_create_album("Album", Some(aid_once), None).unwrap();
+    let fav = db.upsert_track("file://fav.mp3", "Fav Song", Some(aid_fav), Some(alb_fav), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let once = db.upsert_track("file://once.mp3", "Once Song", Some(aid_once), Some(alb_once), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    db.toggle_liked("tracks", fav, 1).unwrap();
+    for _ in 0..4 {
+        db.record_history_play(fav).unwrap();
+    }
+    db.record_history_play(once).unwrap();
+
+    // Both are familiar. fav weighs 3 × (1 + 0.5·4) = 9, once weighs 1.5 →
+    // P(fav) ≈ 0.86 per single-slot draw (count=1 is one familiar slot).
+    let runs = 400;
+    let mut fav_hits = 0;
+    let mut once_hits = 0;
+    for _ in 0..runs {
+        let picked = db.pick_radio_seeds(1, &[]).unwrap();
+        assert_eq!(picked.len(), 1);
+        if picked[0].id == fav { fav_hits += 1; } else if picked[0].id == once { once_hits += 1; }
+    }
+    assert_eq!(fav_hits + once_hits, runs);
+    // Expected ~343 / ~57; bounds are ~8σ loose.
+    assert!(fav_hits > 280, "liked+played track should dominate the familiar draws, got {fav_hits}/{runs}");
+    assert!(once_hits > 0, "a once-played track must still surface sometimes, got 0/{runs}");
+}
+
+#[test]
+fn test_pick_radio_seeds_familiar_window_is_90_days() {
+    // A favourite played two months ago is still familiar (30 days read it as
+    // untouched); one played four months ago is not.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid = db.get_or_create_artist("A").unwrap();
+    let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+    let recent = db.upsert_track("file://recent.mp3", "Two Months", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let stale = db.upsert_track("file://stale.mp3", "Four Months", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let now: i64 = { let c = db.conn.lock().unwrap(); c.query_row("SELECT CAST(strftime('%s','now') AS INTEGER)", [], |r| r.get(0)).unwrap() };
+    db.record_history_plays_batch(&[
+        ("A".to_string(), "Two Months".to_string(), now - 60 * 24 * 60 * 60),
+        ("A".to_string(), "Four Months".to_string(), now - 120 * 24 * 60 * 60),
+    ]).unwrap();
+
+    let conn = db.conn.lock().unwrap();
+    let cutoff = now - 90 * 24 * 60 * 60;
+    let familiar = Database::radio_seed_candidates(&conn, RadioSeedPool::Familiar, cutoff, 10, &[]).unwrap();
+    let ids: Vec<i64> = familiar.iter().map(|t| t.id).collect();
+    assert_eq!(ids, vec![recent], "only the track played inside the window is familiar");
+    let discovery = Database::radio_seed_candidates(&conn, RadioSeedPool::Discovery, cutoff, 10, &[]).unwrap();
+    let ids: Vec<i64> = discovery.iter().map(|t| t.id).collect();
+    assert_eq!(ids, vec![stale], "a track whose plays fell out of the window counts as discovery");
+}
+
+#[test]
+fn test_pick_radio_seeds_discovery_pool_leans_toward_artists_the_user_plays_and_likes() {
+    // Two unheard tracks: one by an artist with liked, heavily played songs,
+    // one by an artist the user has never touched. Discovery should lean
+    // toward the loved artist's unheard track — up to 11× — without ever
+    // excluding the stranger.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid_loved = db.get_or_create_artist("Loved").unwrap();
+    let aid_stranger = db.get_or_create_artist("Stranger").unwrap();
+    let alb_loved = db.get_or_create_album("Album", Some(aid_loved), None).unwrap();
+    let alb_stranger = db.get_or_create_album("Album", Some(aid_stranger), None).unwrap();
+    for i in 0..5 {
+        let id = db.upsert_track(&format!("file://loved{i}.mp3"), &format!("Loved Hit {i}"), Some(aid_loved), Some(alb_loved), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.toggle_liked("tracks", id, 1).unwrap();
+        for _ in 0..4 { db.record_history_play(id).unwrap(); }
+    }
+    let unheard_loved = db.upsert_track("file://loved-new.mp3", "Loved Deep Cut", Some(aid_loved), Some(alb_loved), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let unheard_stranger = db.upsert_track("file://stranger.mp3", "Stranger Song", Some(aid_stranger), Some(alb_stranger), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+    let conn = db.conn.lock().unwrap();
+    let cutoff: i64 = conn.query_row("SELECT strftime('%s','now') - 90*24*60*60", [], |r| r.get(0)).unwrap();
+    // Loved's deep cut weighs 1 + 0.25·20 + 1·5 = 11, the stranger's 1 →
+    // P(loved) ≈ 0.92 per draw. Expected ~367 / ~33 over 400; ~8σ bounds.
+    let runs = 400;
+    let mut loved_hits = 0;
+    let mut stranger_hits = 0;
+    for _ in 0..runs {
+        let picked = Database::radio_seed_candidates(&conn, RadioSeedPool::Discovery, cutoff, 1, &[]).unwrap();
+        assert_eq!(picked.len(), 1);
+        if picked[0].id == unheard_loved { loved_hits += 1; } else if picked[0].id == unheard_stranger { stranger_hits += 1; }
+    }
+    assert_eq!(loved_hits + stranger_hits, runs, "the liked/played hits must never be discovery candidates");
+    assert!(loved_hits > 300, "an unheard track by a loved artist should dominate discovery, got {loved_hits}/{runs}");
+    assert!(stranger_hits > 0, "a stranger's track must still surface sometimes, got 0/{runs}");
+}
+
+#[test]
+fn test_pick_radio_seeds_keeps_artists_distinct_across_both_pools() {
+    // Loved has a favourite (familiar) and an unheard track (discovery). With
+    // one slot each, the discovery slot must not repeat Loved: it goes to the
+    // stranger, whatever the weights say.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid_loved = db.get_or_create_artist("Loved").unwrap();
+    let aid_stranger = db.get_or_create_artist("Stranger").unwrap();
+    let alb_loved = db.get_or_create_album("Album", Some(aid_loved), None).unwrap();
+    let alb_stranger = db.get_or_create_album("Album", Some(aid_stranger), None).unwrap();
+    let hit = db.upsert_track("file://hit.mp3", "Hit", Some(aid_loved), Some(alb_loved), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    db.toggle_liked("tracks", hit, 1).unwrap();
+    db.upsert_track("file://deep.mp3", "Deep Cut", Some(aid_loved), Some(alb_loved), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let stranger = db.upsert_track("file://stranger.mp3", "Stranger Song", Some(aid_stranger), Some(alb_stranger), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    for _ in 0..30 {
+        let picked = db.pick_radio_seeds(2, &[]).unwrap();
+        let ids: Vec<i64> = picked.iter().map(|t| t.id).collect();
+        assert_eq!(ids, vec![hit, stranger]);
+    }
+}
+
+#[test]
+fn test_pick_radio_seeds_tops_up_from_the_other_pool_when_one_is_short() {
+    // Only favourites: the discovery half has nothing, so the row is still
+    // full, all familiar. And the mirror image.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (fav_ids, _) = seed_fav_and_plain(&db, cid, 6, 0);
+    let picked = db.pick_radio_seeds(6, &[]).unwrap();
+    let mut got: Vec<i64> = picked.iter().map(|t| t.id).collect();
+    got.sort();
+    let mut want = fav_ids.clone();
+    want.sort();
+    assert_eq!(got, want, "an empty discovery pool must not thin the row");
+
+    let db = test_db();
+    let cid = test_collection(&db);
+    let (_, plain_ids) = seed_fav_and_plain(&db, cid, 0, 6);
+    let picked = db.pick_radio_seeds(6, &[]).unwrap();
+    let mut got: Vec<i64> = picked.iter().map(|t| t.id).collect();
+    got.sort();
+    let mut want = plain_ids.clone();
+    want.sort();
+    assert_eq!(got, want, "an empty familiar pool must not thin the row");
 }
 
 #[test]
