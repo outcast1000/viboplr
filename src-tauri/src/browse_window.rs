@@ -80,6 +80,98 @@ fn browse_user_agent() -> Option<&'static str> {
     None
 }
 
+/// Silence a browse window at the engine level.
+///
+/// The JS autoplay gate installed below is necessary but not sufficient, and it
+/// leaked audibly: a hidden Spotify scrape played several seconds of "Smells
+/// Like Teen Spirit". Two reasons. It only covers playback that goes through
+/// `HTMLMediaElement.prototype.play` / `AudioContext` from page JS — a DRM/EME
+/// pipeline or worker-driven audio never calls the overridden functions. And
+/// the Spotify radio flow *starts playback by design* ("Go to song radio" is
+/// a play action), so the page is entitled to make sound there and only the
+/// engine can keep it from reaching the speakers.
+///
+/// So mute where the browser's own "mute tab" does, on the web view itself:
+/// page-level, so it survives every navigation, and independent of anything the
+/// page's scripts do. The JS gate stays as the first line — it also keeps the
+/// page from *thinking* it is playing, which is what you want while scraping.
+///
+/// **macOS** — `-[WKWebView _setPageMuted:]` with the `_WKMediaMutedState` audio
+/// bit (`1 << 0`). Private, but unchanged since 2016 and what Safari's mute-tab
+/// uses. Guarded by `respondsToSelector:` so a WebKit that drops it degrades to
+/// the JS gate instead of crashing. `with_webview_configuration` can *not* do
+/// this: wry sets `mediaTypesRequiringUserActionForPlayback = none` on the
+/// configuration after ours whenever its `autoplay` attribute is set, which
+/// Tauri gives no knob to turn off.
+///
+/// **Windows** — the public `ICoreWebView2_8::IsMuted`. The alternative,
+/// `--autoplay-policy=user-gesture-required` via `additional_browser_args`, is
+/// a trap here: WebView2 refuses to create a second environment over the same
+/// user-data folder with different browser arguments, and browse windows share
+/// the app's folder — so the window would fail to open, or need its own folder
+/// and lose every stored login.
+///
+/// Failures are logged and swallowed: an unmuted window is the previous
+/// behaviour, not a reason to refuse the scrape.
+fn mute_webview(window: &tauri::WebviewWindow) {
+    let label = window.label().to_string();
+    #[cfg(target_os = "macos")]
+    {
+        let inner_label = label.clone();
+        let res = window.with_webview(move |wv| unsafe {
+            let label = inner_label;
+            use objc::runtime::{BOOL, NO};
+            use objc::{msg_send, sel, sel_impl};
+            let wk = wv.inner() as *mut objc::runtime::Object;
+            if wk.is_null() {
+                log::warn!("browse window {label}: no WKWebView handle, audio not muted");
+                return;
+            }
+            let responds: BOOL = msg_send![wk, respondsToSelector: sel!(_setPageMuted:)];
+            if responds == NO {
+                log::warn!(
+                    "browse window {label}: WKWebView lacks _setPageMuted:, relying on the JS autoplay gate"
+                );
+                return;
+            }
+            // _WKMediaAudioMuted = 1 << 0. The capture bits are left alone — this
+            // is about sound, not about what a login page may ask for.
+            let _: () = msg_send![wk, _setPageMuted: 1usize];
+        });
+        if let Err(e) = res {
+            log::warn!("browse window {label}: could not reach the webview to mute it: {e}");
+        }
+    }
+    #[cfg(windows)]
+    {
+        let inner_label = label.clone();
+        let res = window.with_webview(move |wv| unsafe {
+            let label = inner_label;
+            use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_8;
+            use windows_core::Interface;
+            let muted = wv
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.cast::<ICoreWebView2_8>())
+                .and_then(|v8| v8.SetIsMuted(true));
+            if let Err(e) = muted {
+                log::warn!(
+                    "browse window {label}: WebView2 refused IsMuted, relying on the JS autoplay gate: {e}"
+                );
+            }
+        });
+        if let Err(e) = res {
+            log::warn!("browse window {label}: could not reach the webview to mute it: {e}");
+        }
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        // Linux has no engine-level mute wired here yet; the JS gate is the only
+        // defense. Log so an audible leak there leaves a trail.
+        log::debug!("browse window {label}: engine-level mute unavailable on this platform");
+    }
+}
+
 /// Open a secondary webview window that loads an external URL.
 /// An initialization script injects `window.__viboplr.send(type, data)` so
 /// injected scraping code can send results back to the main app via IPC.
@@ -248,6 +340,8 @@ pub async fn open_browse_window(
     }
 
     let window = builder.build().map_err(|e| e.to_string())?;
+
+    mute_webview(&window);
 
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {

@@ -67,6 +67,11 @@ objc = "0.2"
 # Pure-Rust .lnk writer for per-profile desktop shortcuts (Windows only).
 [target.'cfg(windows)'.dependencies]
 mslnk = "0.1"
+# Browse-window mute (browse_window.rs `mute_webview`): ICoreWebView2_8::SetIsMuted
+# needs the WebView2 bindings + the `Interface` trait for the QI cast. Both are
+# already in the graph through tauri-runtime-wry; pinned to the same minors.
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [dev-dependencies]
 tempfile = "3"
