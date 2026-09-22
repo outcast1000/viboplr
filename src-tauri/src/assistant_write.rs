@@ -933,7 +933,12 @@ mod tests {
         let (plan, hash) = plan_moves(&db, &moves).unwrap();
         assert_eq!(plan.len(), 1);
         assert_eq!(hash, plan_hash(&plan));
-        assert!(plan[0].to.ends_with("Mover/Album/01 Song A.mp3"));
+        // `to` is a native path (backslashes on Windows) — compare by component.
+        assert!(
+            Path::new(&plan[0].to).ends_with(Path::new("Mover").join("Album").join("01 Song A.mp3")),
+            "to was {}",
+            plan[0].to
+        );
         // Planning touches nothing.
         assert!(root.path().join("a.mp3").exists());
 
