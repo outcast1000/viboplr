@@ -21,6 +21,7 @@ import { useStreamResolution } from "../hooks/useStreamResolution";
 import { createLibraryStreamResolver } from "../streamResolvers";
 import type { QueueTrack, ResolvedTrackSource } from "../types";
 import type { StreamCandidate } from "../types/plugin";
+import type { StreamResolver } from "../streamResolvers";
 
 const QBT_TRACK: QueueTrack = {
   key: "ext:4",
@@ -53,6 +54,8 @@ interface Opts {
   pathless?: boolean;
   /** The user's "Prefer video" toggle. */
   preferVideo?: boolean;
+  /** Metadata resolvers after the library one (a plugin's playback fallback). */
+  extraResolvers?: StreamResolver[];
 }
 
 function mountChain(opts: Opts = {}) {
@@ -63,6 +66,7 @@ function mountChain(opts: Opts = {}) {
     uriFails = false,
     pathless = false,
     preferVideo = false,
+    extraResolvers = [],
   } = opts;
 
   invoke.mockImplementation((cmd: string) => {
@@ -79,12 +83,12 @@ function mountChain(opts: Opts = {}) {
     : vi.fn().mockResolvedValue(uriResult);
   const notify = vi.fn();
 
-  renderHook(() =>
+  const { result } = renderHook(() =>
     useStreamResolution({
       resolveTrackSrcRef: resolveTrackSrcRef as never,
       transcodeSessionRef: { current: null } as never,
       resolveStreamByUriRef: { current: resolveStreamByUri } as never,
-      streamResolversRef: { current: [createLibraryStreamResolver()] },
+      streamResolversRef: { current: [createLibraryStreamResolver(), ...extraResolvers] },
       resolveStreamByUri,
       streamUriResolverOwner: (scheme: string) => (scheme === "qbt" ? "qbittorrent" : null),
       pluginNames: new Map([["qbittorrent", "qBittorrent"]]),
@@ -97,7 +101,7 @@ function mountChain(opts: Opts = {}) {
     }),
   );
 
-  return { resolve: () => resolveTrackSrcRef.current(track), resolveStreamByUri, notify };
+  return { resolve: () => resolveTrackSrcRef.current(track), resolveStreamByUri, notify, result };
 }
 
 beforeEach(() => {
@@ -261,5 +265,26 @@ describe("classifying a plugin scheme from the file it resolves to", () => {
     });
 
     expect((await resolve()).patch).toEqual({ format: "mkv" });
+  });
+});
+
+describe("attributing a metadata resolver's file:// answer", () => {
+  it("reports the file as the source, not the asset URL convertFileSrc made of it", async () => {
+    // A plugin playback fallback (Soulseek) answers by metadata with a local
+    // file and no sourceUrl. The source panel read the played src instead and
+    // showed "host: asset.localhost" with no path and no Open folder.
+    const soulseek: StreamResolver = {
+      id: "slskd-fallback",
+      name: "Soulseek",
+      source: "slskd",
+      resolve: vi.fn().mockResolvedValue({ url: "file://D:/slskd/viboplr/fallback/1-x/All Wrong.mp3" }),
+    };
+    const { resolve, result } = mountChain({ pathless: true, extraResolvers: [soulseek] });
+
+    const out = await resolve();
+
+    expect(out.engineSource).toEqual({ kind: "file", path: "D:/slskd/viboplr/fallback/1-x/All Wrong.mp3" });
+    await vi.waitFor(() => expect(result.current.resolvedSource?.name).toBe("Soulseek"));
+    expect(result.current.resolvedSource?.sourceUrl).toBe("file://D:/slskd/viboplr/fallback/1-x/All Wrong.mp3");
   });
 });

@@ -586,7 +586,17 @@ export function useStreamResolution({
             }
             // In the prefer-video pass we've confirmed a video result, so resolve
             // the URL as video (drives split-stream selection for the native engine).
-            return resolveUrlDetailed(result.url, asVideo, result.headers, fresh, ladderStep);
+            const resolved = await resolveUrlDetailed(result.url, asVideo, result.headers, fresh, ladderStep);
+            // Same attribution as the native-scheme entry: a resolver that
+            // answered with a `file://` and reported no sourceUrl is playing a
+            // real file, so the source panel shows its path + Open folder
+            // instead of the `asset.localhost` hostname convertFileSrc minted
+            // (the Soulseek playback fallback answers exactly this way).
+            if (!entry.sourceUrl) {
+              const attributed = attributedSourceUrl(undefined, resolved.engineSource);
+              if (attributed) entry.sourceUrl = attributed;
+            }
+            return resolved;
           },
         };
         return entry;
