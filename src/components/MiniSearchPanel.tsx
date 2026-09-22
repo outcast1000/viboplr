@@ -2,6 +2,8 @@ import { useRef, useEffect } from "react";
 import type { Track, Album, Artist, SearchAllResults, SearchResultItem } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { artistCountLabel } from "../utils/artistCount";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import type { SearchLikeHandlers } from "../utils/searchLikes";
 import "./MiniSearchPanel.css";
 
 interface MiniSearchPanelProps {
@@ -14,6 +16,18 @@ interface MiniSearchPanelProps {
   onResultClick: (item: SearchResultItem, enqueue: boolean) => void;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
+  /** Row hearts; absent → none rendered. */
+  likes?: SearchLikeHandlers;
+}
+
+/** Same guard as the caption-bar dropdown: the row's own mousedown plays or
+ *  enqueues, so the heart must stop it from reaching the row. */
+function RowLike(props: React.ComponentProps<typeof LikeDislikeButtons>) {
+  return (
+    <span className="mini-result-like" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+      <LikeDislikeButtons variant="inline" size={11} {...props} />
+    </span>
+  );
 }
 
 function ArtistImg({ artist, getArtistImage }: { artist: Artist; getArtistImage: (n: string) => string | null }) {
@@ -41,7 +55,7 @@ function TrackImg({ track, getAlbumImage, getArtistImage }: {
 
 export function MiniSearchPanel({
   query, onQueryChange, results, items, highlightedIndex,
-  onKeyDown, onResultClick, getAlbumImage, getArtistImage,
+  onKeyDown, onResultClick, getAlbumImage, getArtistImage, likes,
 }: MiniSearchPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -98,6 +112,14 @@ export function MiniSearchPanel({
               <div className="mini-result-title">{track.title}</div>
               <div className="mini-result-subtitle">{track.artist_name}{track.artist_name && track.album_title ? " · " : ""}{track.album_title}</div>
             </div>
+            {likes && (
+              <RowLike
+                liked={track.liked}
+                entityLabel="track"
+                onToggleLike={() => likes.toggleTrackLike(track)}
+                onToggleDislike={() => likes.toggleTrackDislike(track)}
+              />
+            )}
           </div>
         ))}
 
@@ -113,6 +135,14 @@ export function MiniSearchPanel({
               <div className="mini-result-title">{album.title}</div>
               <div className="mini-result-subtitle">{album.artist_name}{album.artist_name && album.year ? " · " : ""}{album.year ?? ""}</div>
             </div>
+            {likes && (
+              <RowLike
+                liked={album.liked}
+                entityLabel="album"
+                onToggleLike={() => likes.toggleAlbumLike(album.id)}
+                onToggleDislike={() => likes.toggleAlbumDislike(album.id)}
+              />
+            )}
           </div>
         ))}
 
@@ -128,6 +158,14 @@ export function MiniSearchPanel({
               <div className="mini-result-title">{artist.name}</div>
               <div className="mini-result-subtitle">Artist · {artistCountLabel(artist)}</div>
             </div>
+            {likes && (
+              <RowLike
+                liked={artist.liked}
+                entityLabel="artist"
+                onToggleLike={() => likes.toggleArtistLike(artist.id)}
+                onToggleDislike={() => likes.toggleArtistDislike(artist.id)}
+              />
+            )}
           </div>
         ))}
 

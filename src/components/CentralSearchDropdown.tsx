@@ -6,6 +6,8 @@ import { artistCountLabel } from "../utils/artistCount";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { ArtistCardArt } from "./ArtistCardArt";
 import { TrackArtFallback } from "./TrackArtFallback";
+import { LikeDislikeButtons } from "./LikeDislikeButtons";
+import type { SearchLikeHandlers } from "../utils/searchLikes";
 import "./CentralSearchDropdown.css";
 
 const mod = navigator.platform.includes("Mac") ? "\u2318" : "Ctrl+";
@@ -51,6 +53,21 @@ interface CentralSearchDropdownProps {
   /** Plugin-catalog sections, laid out by `buildPluginSearchSections`. Each row
    *  carries its own `itemIndex`, so this component never re-derives one. */
   pluginSections: PluginSearchSection[];
+  /** Row hearts. Absent → no like control is rendered (the rows already come
+   *  back liked-first from `search_all`; this only makes that visible). */
+  likes?: SearchLikeHandlers;
+}
+
+/** Hosts a like control inside a row whose `onMouseDown` activates it. The
+ *  wrapper swallows the mousedown so a heart click never also plays the track
+ *  or navigates, and prevents default so the input keeps focus — otherwise the
+ *  blur handler would close the dropdown 150ms later. */
+function RowLike(props: React.ComponentProps<typeof LikeDislikeButtons>) {
+  return (
+    <span className="result-like" onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+      <LikeDislikeButtons variant="inline" size={12} {...props} />
+    </span>
+  );
 }
 
 // Track art mirrors the queue's chain (queue.md "Image Resolution"): album image
@@ -194,6 +211,7 @@ export function CentralSearchDropdown({
   pluginViews,
   onOpenPluginView,
   pluginSections,
+  likes,
 }: CentralSearchDropdownProps) {
   const internalRef = useRef<HTMLInputElement>(null);
   const inputRef = externalInputRef ?? internalRef;
@@ -349,6 +367,14 @@ export function CentralSearchDropdown({
                         {track.album_title}
                       </div>
                     </div>
+                    {likes && (
+                      <RowLike
+                        liked={track.liked}
+                        entityLabel="track"
+                        onToggleLike={() => likes.toggleTrackLike(track)}
+                        onToggleDislike={() => likes.toggleTrackDislike(track)}
+                      />
+                    )}
                     <span className="result-play">▶</span>
                   </div>
                 ))}
@@ -377,6 +403,14 @@ export function CentralSearchDropdown({
                         {album.year}
                       </div>
                     </div>
+                    {likes && (
+                      <RowLike
+                        liked={album.liked}
+                        entityLabel="album"
+                        onToggleLike={() => likes.toggleAlbumLike(album.id)}
+                        onToggleDislike={() => likes.toggleAlbumDislike(album.id)}
+                      />
+                    )}
                     <span className="result-action">→</span>
                   </div>
                 ))}
@@ -401,6 +435,14 @@ export function CentralSearchDropdown({
                       <div className="result-title">{artist.name}</div>
                       <div className="result-subtitle">Artist · {artistCountLabel(artist)}</div>
                     </div>
+                    {likes && (
+                      <RowLike
+                        liked={artist.liked}
+                        entityLabel="artist"
+                        onToggleLike={() => likes.toggleArtistLike(artist.id)}
+                        onToggleDislike={() => likes.toggleArtistDislike(artist.id)}
+                      />
+                    )}
                     <span className="result-action">→</span>
                   </div>
                 ))}

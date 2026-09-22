@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { usePlaybackPosition } from "../playback/positionStore";
 import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode, ResolvedSource } from "../types";
+import type { SearchLikeHandlers } from "../utils/searchLikes";
 import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import {
   cycleRestingSize, isAlwaysExpanded, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZE_LABELS,
@@ -169,6 +170,7 @@ interface NowPlayingBarProps {
     onQueryChange: (q: string) => void;
     onKeyDown: (e: React.KeyboardEvent) => void;
     onResultClick: (item: SearchResultItem, enqueue: boolean) => void;
+    likeHandlers?: SearchLikeHandlers;
   };
   getAlbumImage?: (title: string, artistName?: string | null) => string | null;
   getArtistImage?: (name: string) => string | null;
@@ -360,6 +362,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             onResultClick={miniSearch.onResultClick}
             getAlbumImage={getAlbumImage}
             getArtistImage={getArtistImage}
+            likes={miniSearch.likeHandlers}
           />
         ) : (
           <>

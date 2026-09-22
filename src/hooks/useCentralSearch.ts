@@ -11,6 +11,8 @@ import {
 } from "../utils/centralSearchPlugins";
 
 import { useAssignRef } from "./useLatestRef";
+import type { SearchLikeDeps } from "../utils/searchLikes";
+import { useSearchLikeHandlers } from "./useSearchLikeHandlers";
 const DEBOUNCE_MS = 200;
 const PER_TYPE_LIMIT = 7; // fetch up to this many per type, trim client-side
 /** Results to ask a plugin catalog for. Small: these rows sit under the library
@@ -33,6 +35,9 @@ interface UseCentralSearchOptions {
   ) => Promise<PluginSearchResult>;
   onPlayPluginTrack: (track: PluginTrack) => void;
   onEnqueuePluginTrack: (track: PluginTrack) => void;
+  /** Canonical like handlers (`useLikeActions`). Optional so the hook can
+   *  mount without them; the dropdown then renders no hearts. */
+  likeActions?: SearchLikeDeps;
 }
 
 const EMPTY_RESULTS: SearchAllResults = { artists: [], albums: [], tracks: [] };
@@ -47,6 +52,7 @@ export function useCentralSearch({
   runProviderSearch,
   onPlayPluginTrack,
   onEnqueuePluginTrack,
+  likeActions,
 }: UseCentralSearchOptions) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchAllResults>(EMPTY_RESULTS);
@@ -66,6 +72,8 @@ export function useCentralSearch({
   useAssignRef(queryRef, query);
   const runProviderSearchRef = useRef(runProviderSearch);
   useAssignRef(runProviderSearchRef, runProviderSearch);
+  // Hearts on the result rows — see useSearchLikeHandlers.
+  const likeHandlers = useSearchLikeHandlers(likeActions, setResults);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -280,5 +288,6 @@ export function useCentralSearch({
     close,
     handleKeyDown,
     handleResultClick,
+    likeHandlers,
   };
 }

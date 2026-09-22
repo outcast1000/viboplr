@@ -1288,6 +1288,16 @@ function App() {
       queueHook.enqueueTracks(converted);
       reconcileAddedLikeStates(converted);
     },
+    // Row hearts in the dropdown. `likeActions` is declared further down; these
+    // closures only run on a click, long after it exists.
+    likeActions: {
+      onToggleTrackLike: (t) => { likeActions.handleToggleLike(t); },
+      onToggleTrackDislike: (t) => { likeActions.handleToggleDislike(t); },
+      onToggleArtistLike: (id) => { likeActions.handleToggleArtistLike(id); },
+      onToggleArtistDislike: (id) => { likeActions.handleToggleArtistDislike(id); },
+      onToggleAlbumLike: (id) => { likeActions.handleToggleAlbumLike(id); },
+      onToggleAlbumDislike: (id) => { likeActions.handleToggleAlbumDislike(id); },
+    },
   });
 
   useAssignRef(peekNextRef, queueHook.peekNext);
@@ -1586,6 +1596,14 @@ function App() {
     enqueueArtist: (artistId) => { playActions.enqueueArtist(artistId); },
     onOpenPanel: () => { mini.openSearchPanel(); },
     onClosePanel: () => { mini.closeSearchPanel(); },
+    likeActions: {
+      onToggleTrackLike: (t) => { likeActions.handleToggleLike(t); },
+      onToggleTrackDislike: (t) => { likeActions.handleToggleDislike(t); },
+      onToggleArtistLike: (id) => { likeActions.handleToggleArtistLike(id); },
+      onToggleArtistDislike: (id) => { likeActions.handleToggleArtistDislike(id); },
+      onToggleAlbumLike: (id) => { likeActions.handleToggleAlbumLike(id); },
+      onToggleAlbumDislike: (id) => { likeActions.handleToggleAlbumDislike(id); },
+    },
   });
 
   // Leaving mini mode must clear any open search panel, otherwise a stale
@@ -4752,7 +4770,8 @@ function App() {
     onQueryChange: npBar.onMiniSearchQueryChange,
     onKeyDown: npBar.onMiniSearchKeyDown,
     onResultClick: npBar.onMiniSearchResultClick,
-  }), [miniSearch.isOpen, miniSearch.query, miniSearch.results, miniSearch.items, miniSearch.highlightedIndex, npBar]);
+    likeHandlers: miniSearch.likeHandlers,
+  }), [miniSearch.isOpen, miniSearch.query, miniSearch.results, miniSearch.items, miniSearch.highlightedIndex, miniSearch.likeHandlers, npBar]);
 
   return (
     <VideoFrameQueueProvider>

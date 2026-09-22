@@ -142,6 +142,23 @@
   text-overflow: ellipsis;
 }
 
+/* Row heart: hidden until the row is hovered/highlighted unless it carries a
+   rating, so a liked result reads as liked at a glance and a neutral row stays
+   as quiet as before. */
+.central-search-result .result-like {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.central-search-result:hover .result-like,
+.central-search-result.highlighted .result-like,
+.central-search-result .result-like:has(.liked),
+.central-search-result .result-like:has(.disliked) {
+  opacity: 1;
+}
+
 .central-search-result .result-play {
   font-size: var(--fs-xs);
   color: var(--text-tertiary);

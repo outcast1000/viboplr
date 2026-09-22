@@ -2,19 +2,22 @@ import { WindowControls } from "./WindowControls";
 import { CentralSearchDropdown } from "./CentralSearchDropdown";
 import type { ResyncProgress, ResyncComplete } from "../hooks/useEventListeners";
 import type { PluginSearchSection } from "../utils/centralSearchPlugins";
+import type { SearchLikeHandlers } from "../utils/searchLikes";
+import type { SearchAllResults, SearchResultItem } from "../types";
 
 interface CaptionBarProps {
   centralSearch: {
     query: string;
     setQuery: (q: string) => void;
-    results: any;
-    items: any;
+    results: SearchAllResults;
+    items: SearchResultItem[];
     isOpen: boolean;
     highlightedIndex: number;
     handleKeyDown: (e: React.KeyboardEvent) => void;
-    handleResultClick: (item: any) => void;
+    handleResultClick: (item: SearchResultItem) => void;
     close: () => void;
     pluginSections: PluginSearchSection[];
+    likeHandlers?: SearchLikeHandlers;
   };
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
@@ -74,6 +77,7 @@ export function CaptionBar({
           pluginViews={pluginViews}
           onOpenPluginView={onOpenPluginView}
           pluginSections={centralSearch.pluginSections}
+          likes={centralSearch.likeHandlers}
         />
         {(resyncProgress || resyncComplete) && (
           <button

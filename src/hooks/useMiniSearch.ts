@@ -7,6 +7,8 @@ import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
 import { allocateSlotsTrackWeighted } from "../utils/searchSlots";
+import type { SearchLikeDeps } from "../utils/searchLikes";
+import { useSearchLikeHandlers } from "./useSearchLikeHandlers";
 
 import { useAssignRef } from "./useLatestRef";
 const DEBOUNCE_MS = 200;
@@ -48,6 +50,9 @@ interface UseMiniSearchOptions extends MiniSearchActionDeps {
   // Called whenever the panel should open/close so useMiniMode can resize the window.
   onOpenPanel: () => void;
   onClosePanel: () => void;
+  /** Canonical like handlers (`useLikeActions`). Optional; without them the
+   *  panel renders no hearts. */
+  likeActions?: SearchLikeDeps;
 }
 
 export function useMiniSearch(opts: UseMiniSearchOptions) {
@@ -60,6 +65,8 @@ export function useMiniSearch(opts: UseMiniSearchOptions) {
   // Keep the latest opts in a ref so callbacks stay stable.
   const optsRef = useRef(opts);
   useAssignRef(optsRef, opts);
+  // Hearts on the result rows — see useSearchLikeHandlers.
+  const likeHandlers = useSearchLikeHandlers(opts.likeActions, setResults);
 
   // Flatten results tracks-first (vs. central search's artists-first) — in mini
   // mode, direct track picks are more common than artist/album drilldown.
@@ -164,5 +171,5 @@ export function useMiniSearch(opts: UseMiniSearchOptions) {
     [close],
   );
 
-  return { query, setQuery, results, items, isOpen, highlightedIndex, open, close, handleKeyDown, handleResultClick };
+  return { query, setQuery, results, items, isOpen, highlightedIndex, open, close, handleKeyDown, handleResultClick, likeHandlers };
 }
