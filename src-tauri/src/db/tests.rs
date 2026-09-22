@@ -2068,6 +2068,28 @@ fn test_find_track_by_metadata_title_only() {
 }
 
 #[test]
+fn test_find_track_by_metadata_never_falls_back_to_title_only_when_artist_given() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("Radiohead").unwrap();
+    insert_track(&db, "music/creep.mp3", "Creep", Some(artist), None);
+
+    // Same title, different artist — a same-name song by someone else is not
+    // the track asked for (playback fallback, like mirror, tag editor).
+    let result = db.find_track_by_metadata("Creep", Some("TLC"), None).unwrap();
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_find_track_by_metadata_blank_artist_is_title_only() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("Radiohead").unwrap();
+    insert_track(&db, "music/creep.mp3", "Creep", Some(artist), None);
+
+    let result = db.find_track_by_metadata("Creep", Some("  "), None).unwrap();
+    assert_eq!(result.unwrap().title, "Creep");
+}
+
+#[test]
 fn test_find_track_by_metadata_no_match() {
     let db = test_db();
     insert_track(&db, "music/song.mp3", "Existing Song", None, None);

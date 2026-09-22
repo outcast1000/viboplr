@@ -500,7 +500,8 @@ impl Database {
     }
 
     /// Find a track by metadata (title, artist, album) with diacritic-insensitive matching.
-    /// Matching cascade: title+artist+album → title+artist → title only.
+    /// Matching cascade: title+artist+album → title+artist, or title only
+    /// when no artist is given (never as a fallback for a missed artist).
     /// When multiple matches exist, prefers local > subsonic > other.
     pub fn find_track_by_metadata(
         &self,
@@ -515,7 +516,8 @@ impl Database {
     }
 
     /// Every enabled-collection copy in the first cascade tier that matches
-    /// (title+artist+album → title+artist → title only), ordered local >
+    /// (title+artist+album → title+artist; title only when no artist is
+    /// given), ordered local >
     /// subsonic > other and capped at 10. The single-result
     /// `find_track_by_metadata` is the head of this list; callers that can
     /// *verify* a copy walk the whole list instead — the playback Library
@@ -547,6 +549,10 @@ impl Database {
             rows.collect()
         };
 
+        // A blank artist is no artist — treat it like `None` so it reaches the
+        // title-only tier instead of matching nothing.
+        let artist_name = artist_name.filter(|a| !a.trim().is_empty());
+
         if let Some(artist) = artist_name {
             // Try title + artist + album first
             if let Some(album) = album_name {
@@ -570,13 +576,14 @@ impl Database {
                  {} {}",
                 TRACK_SELECT, enabled_filter, order_clause
             );
-            let result = query_tier(&sql, params![title, artist])?;
-            if !result.is_empty() {
-                return Ok(result);
-            }
+            // With an artist in hand, a title-only match is a different
+            // artist's song of the same name ("Intro", "Creep") — never the
+            // track asked for. Stop here rather than hand that to playback,
+            // the like mirror or the tag editor.
+            return query_tier(&sql, params![title, artist]);
         }
 
-        // Last resort: title only
+        // No artist to go on: title only
         let sql = format!(
             "{} WHERE strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?1)) \
              {} {}",
