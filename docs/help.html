@@ -254,7 +254,7 @@
         <p>Viboplr is an orchestrator: most artwork, extra metadata, streaming, and downloading are done by plugins, and more than one plugin can often do the same job. This screen decides who goes first. Every list works the same way &mdash; <strong>drag a row by its handle to reorder it</strong> (higher = tried first), and use the switch to turn a provider on or off. When Viboplr needs something, it walks the list top-to-bottom and the <strong>first provider that succeeds wins</strong>; disabled providers are skipped entirely.</p>
         <ul class="docs-list">
           <li><strong>Images &amp; Information</strong> &mdash; where cover art and artist images come from, and which plugin fills each information tab (bios, lyrics, similar artists, and so on) when several offer the same one.</li>
-          <li><strong>Streaming</strong> &mdash; the fallback order used when a track's own source can't be played directly (for example a library file that's gone missing, or an external track with no direct URL). The first resolver that returns a playable stream wins.</li>
+          <li><strong>Playback fallback</strong> &mdash; used only when a track's own source can't be played directly (for example a library file that's gone missing, or an external track with no direct URL). Viboplr looks for another playable copy in this order &mdash; your own library first by default, then plugins such as YouTube &mdash; and the first one that answers wins.</li>
           <li><strong>Downloads</strong> &mdash; which provider resolves a download when you save a track.</li>
         </ul>
         <p>Your order and on/off choices are remembered across restarts. <strong>Reset to Defaults</strong> restores the built-in ordering at any time.</p>

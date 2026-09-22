@@ -568,12 +568,15 @@ function ProviderPrioritySection({
       )}
       {streamResolvers.length > 0 && (
         <div className="settings-group">
-          <div className="settings-group-title">Streaming<HelpLink anchor="providers" topic="provider priority" /></div>
+          <div className="settings-group-title">Playback fallback<HelpLink anchor="providers" topic="playback fallback" /></div>
+          <p className="settings-description provider-group-description">
+            Used only when a track can't play from its own source — a library file that has gone missing, or a track with no file behind it. Viboplr tries these in order and plays the first copy it finds.
+          </p>
           <div className="provider-priority-container">
             <div className="provider-entity-group">
               <div className="provider-entity-rows">
                 <div className="provider-priority-row">
-                  <span className="provider-priority-label">Source priority</span>
+                  <span className="provider-priority-label">Look for a playable copy in this order</span>
                   <div className="provider-vlist" data-vlist>
                     {streamResolvers.map((fp, idx) => {
                       const isMulti = streamResolvers.length > 1;

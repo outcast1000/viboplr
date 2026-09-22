@@ -398,6 +398,12 @@
 }
 
 /* Provider Priority section */
+.provider-group-description {
+  display: block;
+  margin: -4px 0 10px;
+  max-width: 60ch;
+}
+
 .provider-priority-container {
   display: flex;
   flex-direction: column;
