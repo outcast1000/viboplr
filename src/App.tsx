@@ -1944,26 +1944,53 @@ function App() {
         // single-track flow (direct-URI configure when a uri + provider resolver
         // exist); multiple tracks render the multi-track batch flow. Either way the
         // user gets a destination/quality step and per-track progress + errors.
-        const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null }>; providerId: string; providerName: string };
+        //
+        // A single track may name the library row it is meant to REPLACE
+        // (`libraryTrackId`, e.g. Soulseek's "Replace in library…" on a file it
+        // fetched as an upgrade). The modal's in-place upgrade flow keys off the
+        // library file's own `file://` uri (see `SingleTrackDownload.isUpgrade`),
+        // so the row is read first and, when it is a local file, stands in as
+        // the modal's track while the provider still resolves the plugin's uri —
+        // the same wrapper shape `decideDownload` uses for a stream-resolver
+        // win. A row that isn't local (or can't be read) falls back to the
+        // ordinary fresh download: `download_preview` needs a file on disk.
+        const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null; libraryTrackId?: number | null }>; providerId: string; providerName: string };
         if (p.providerId && p.tracks && p.tracks.length > 0) {
           const provider = downloadProviders.find(dp => dp.id === p.providerId);
           const isSingle = p.tracks.length === 1;
-          setDownloadModal({
-            tracks: p.tracks.map(t => ({
-              title: t.title,
-              artistName: t.artist_name ?? null,
-              albumTitle: t.album_title ?? null,
-              uri: t.uri ?? null,
-              durationSecs: t.durationSecs ?? null,
-              isVideo: isVideoTrack({ format: null, path: t.uri ?? null }),
-            })),
-            providerId: p.providerId,
-            providerName: p.providerName,
-            // Multi-track: skip the resolve/search step and resolve each uri directly.
-            confirmed: !isSingle,
-            // Single-track with a known uri: go straight to the configure step.
-            resolveByUri: isSingle && p.tracks[0].uri ? provider?.resolveByUri : undefined,
-          });
+          const open = (upgradeOf: Track | null) => {
+            const sourceUri = p.tracks[0].uri ?? null;
+            setDownloadModal({
+              tracks: p.tracks.map((t, i) => ({
+                title: t.title,
+                artistName: t.artist_name ?? null,
+                albumTitle: t.album_title ?? null,
+                uri: i === 0 && upgradeOf ? upgradeOf.path : (t.uri ?? null),
+                durationSecs: t.durationSecs ?? null,
+                trackId: i === 0 && upgradeOf ? upgradeOf.id : null,
+                isVideo: isVideoTrack({ format: null, path: t.uri ?? null }),
+              })),
+              providerId: p.providerId,
+              providerName: p.providerName,
+              // Multi-track: skip the resolve/search step and resolve each uri directly.
+              confirmed: !isSingle,
+              // Single-track with a known uri: go straight to the configure step.
+              resolveByUri: upgradeOf && sourceUri && provider
+                ? (_uri, format, onProgress) => provider.resolveByUri(sourceUri, format, onProgress)
+                : (isSingle && sourceUri ? provider?.resolveByUri : undefined),
+            });
+          };
+          const replaceId = isSingle ? p.tracks[0].libraryTrackId : null;
+          if (typeof replaceId === "number" && p.tracks[0].uri && provider) {
+            invoke<Track | null>("get_track_by_id", { trackId: replaceId })
+              .then((row) => open(row?.path?.startsWith("file://") ? row : null))
+              .catch((e) => {
+                console.error("Failed to read the library track a plugin asked to replace:", e);
+                open(null);
+              });
+          } else {
+            open(null);
+          }
         }
       } else if (action === "navigate-to-artist") {
         pushStateRef.current();
