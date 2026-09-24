@@ -38,6 +38,7 @@ import type {
   DownloadResolveResult,
   DownloadResolveProgress,
   ExecResult,
+  PluginExecHandle,
   PluginFileTags,
   InteractiveSearchHandler,
   InteractiveResolveHandler,
@@ -1121,6 +1122,11 @@ export function usePlugins(
             // via api.library.onScanComplete.
             await invoke("resync_collection", { collectionId });
           },
+          async trashPath(collectionId: number, relativePath: string): Promise<void> {
+            // The root and the traversal checks live in Rust — the frontend is
+            // not the trust boundary for a delete inside the user's music.
+            await invoke("plugin_trash_collection_path", { collectionId, relativePath });
+          },
         },
 
         playlists: {
@@ -1637,7 +1643,7 @@ export function usePlugins(
           async exec(
             program: string,
             args?: string[],
-            opts?: { cwd?: string; onOutput?: ExecOutputHandler },
+            opts?: { cwd?: string; onOutput?: ExecOutputHandler; onStart?: (handle: PluginExecHandle) => void },
           ) {
             const logFailedExec = (result: ExecResult): ExecResult => {
               if (result.exitCode !== 0) {
@@ -1649,10 +1655,11 @@ export function usePlugins(
             const scopes = resolveScopesRef.current.get(pluginId);
             const scope = scopes && scopes.length ? scopes[scopes.length - 1] : undefined;
             const onOutput = opts?.onOutput;
+            const onStart = opts?.onStart;
             // An exec id buys cancellability and line streaming, at the cost of
             // piping both channels through the host. Only take it when someone
             // can use it — a plain version probe keeps the original path.
-            if (!scope && !onOutput) {
+            if (!scope && !onOutput && !onStart) {
               return invoke<ExecResult>("plugin_exec", {
                 program, args: args ?? [], cwd: opts?.cwd ?? null,
               }).then(logFailedExec);
@@ -1660,6 +1667,18 @@ export function usePlugins(
             const execId = `${pluginId}:${++execSeqRef.current}`;
             scope?.execIds.add(execId);
             if (onOutput) execOutputHandlersRef.current.set(execId, onOutput);
+            // A plugin-owned long run (a torrent download started from the
+            // plugin's own view) has no resolve scope and so no host Cancel
+            // button; the handle is its way to stop the process itself. Handed
+            // over before the invoke so a cancel that lands before the spawn is
+            // still honoured — the backend registry records it against the id.
+            if (onStart) {
+              onStart({
+                cancel: () =>
+                  invoke<boolean>("plugin_exec_cancel", { execId })
+                    .catch((e) => { console.error(`[plugin:${pluginId}] failed to cancel ${program}:`, e); return false; }),
+              });
+            }
             try {
               const result = await invoke<ExecResult>("plugin_exec", {
                 program,

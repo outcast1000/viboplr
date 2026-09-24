@@ -30,7 +30,12 @@ pub struct ManagedSource {
     /// time (~16s per invocation); the zipapp is a stable on-disk file that
     /// starts in under a second.
     pub asset_zipapp: Option<&'static str>,
-    pub checksums_asset: &'static str,
+    /// The release's `<sha256>  <filename>` checksums file, when the project
+    /// publishes one. `None` means the install is verified by nothing beyond
+    /// the TLS connection to github.com — the same channel the checksums file
+    /// itself would arrive over, so what is lost is corruption detection, not
+    /// a signature. Prefer `Some` whenever upstream offers a file.
+    pub checksums_asset: Option<&'static str>,
 }
 
 impl ManagedSource {
@@ -124,6 +129,15 @@ fn parse_fictional_version(output: &str) -> Option<String> {
     output.lines().next().map(|l| l.trim().to_string())
 }
 
+/// `rqbit 9.0.1` → `9.0.1`.
+fn parse_rqbit_version(output: &str) -> Option<String> {
+    output.lines().next().and_then(|line| {
+        line.trim()
+            .strip_prefix("rqbit ")
+            .map(|rest| rest.split_whitespace().next().unwrap_or("unknown").to_string())
+    })
+}
+
 pub static REGISTRY: &[DependencyDef] = &[
     DependencyDef {
         name: "ffmpeg",
@@ -169,7 +183,32 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_x64: Some("yt-dlp_linux"),
             asset_linux_arm64: Some("yt-dlp_linux_aarch64"),
             asset_zipapp: Some("yt-dlp"),
-            checksums_asset: "SHA2-256SUMS",
+            checksums_asset: Some("SHA2-256SUMS"),
+        }),
+    },
+    DependencyDef {
+        name: "rqbit",
+        description: "BitTorrent downloads (one-shot, no client to configure)",
+        version_args: &["--version"],
+        parse_version: parse_rqbit_version,
+        install: InstallInstructions {
+            macos: "brew install rqbit",
+            windows: "cargo install rqbit",
+            linux: "cargo install rqbit",
+            url: "https://github.com/ikatson/rqbit/releases/latest",
+        },
+        internal_consumers: &[],
+        managed: Some(ManagedSource {
+            // Single static binaries per platform; the macOS one is a universal
+            // build. rqbit publishes no checksums file (asset list checked at
+            // v9.0.1), hence `None` — see the field's doc for what that costs.
+            repo: "ikatson/rqbit",
+            asset_macos: Some("rqbit-osx-universal"),
+            asset_windows: Some("rqbit.exe"),
+            asset_linux_x64: Some("rqbit-linux-amd64"),
+            asset_linux_arm64: Some("rqbit-linux-arm64"),
+            asset_zipapp: None,
+            checksums_asset: None,
         }),
     },
     #[cfg(debug_assertions)]
@@ -887,21 +926,29 @@ pub fn install_managed(
             progress(downloaded, total);
         }
 
-        // Verify against the published checksums from the same release.
-        let checksums = client
-            .get(format!("{}/{}", base, managed.checksums_asset))
-            .send()
-            .map_err(|e| format!("Checksums download error: {}", e))?
-            .text()
-            .map_err(|e| format!("Checksums read error: {}", e))?;
-        let expected = parse_checksum_line(&checksums, asset)
-            .ok_or_else(|| format!("No checksum entry for {}", asset))?;
-        let actual = sha256_hex(&data);
-        if actual != expected {
-            return Err(format!(
-                "Checksum mismatch for {} (expected {}, got {})",
-                asset, expected, actual
-            ));
+        // Verify against the published checksums from the same release, when
+        // the project publishes any (see `ManagedSource::checksums_asset`).
+        if let Some(checksums_asset) = managed.checksums_asset {
+            let checksums = client
+                .get(format!("{}/{}", base, checksums_asset))
+                .send()
+                .map_err(|e| format!("Checksums download error: {}", e))?
+                .text()
+                .map_err(|e| format!("Checksums read error: {}", e))?;
+            let expected = parse_checksum_line(&checksums, asset)
+                .ok_or_else(|| format!("No checksum entry for {}", asset))?;
+            let actual = sha256_hex(&data);
+            if actual != expected {
+                return Err(format!(
+                    "Checksum mismatch for {} (expected {}, got {})",
+                    asset, expected, actual
+                ));
+            }
+        } else {
+            log::warn!(
+                "{}: {} publishes no checksums file; installed {} ({} bytes, sha256 {}) unverified",
+                name, managed.repo, asset, data.len(), sha256_hex(&data)
+            );
         }
 
         std::fs::write(&temp_path, &data).map_err(|e| format!("Write error: {}", e))?;
@@ -1208,7 +1255,7 @@ mod tests {
             asset_linux_x64: Some("tool_linux"),
             asset_linux_arm64: Some("tool_linux_aarch64"),
             asset_zipapp: None,
-            checksums_asset: "SHA2-256SUMS",
+            checksums_asset: Some("SHA2-256SUMS"),
         };
         let shape = choose_install_shape("tool", &managed).unwrap();
         assert!(matches!(shape, InstallShape::Binary(_)));
@@ -1386,9 +1433,32 @@ mod tests {
         assert!(managed.asset_macos.is_some());
         assert!(managed.asset_windows.is_some());
         assert!(managed.asset_linux_x64.is_some());
-        assert!(!managed.checksums_asset.is_empty());
+        assert!(managed.checksums_asset.is_some());
         // Current platform resolves to an asset (all dev/CI platforms covered)
         assert!(managed.platform_asset().is_some());
+    }
+
+    #[test]
+    fn test_managed_source_rqbit_all_platforms() {
+        let def = get_def("rqbit").unwrap();
+        let managed = def.managed.as_ref().unwrap();
+        assert_eq!(managed.repo, "ikatson/rqbit");
+        assert!(managed.asset_macos.is_some());
+        assert!(managed.asset_windows.is_some());
+        assert!(managed.asset_linux_x64.is_some());
+        assert!(managed.asset_linux_arm64.is_some());
+        assert!(managed.asset_zipapp.is_none(), "rqbit is a native binary, never a zipapp");
+        assert!(managed.platform_asset().is_some());
+        // rqbit is also allow-listed for plugin exec by virtue of being here.
+        assert!(allowed_names().contains(&"rqbit"));
+    }
+
+    #[test]
+    fn test_parse_rqbit_version() {
+        assert_eq!(parse_rqbit_version("rqbit 9.0.1\n"), Some("9.0.1".to_string()));
+        assert_eq!(parse_rqbit_version("  rqbit 10.2.0-beta.1"), Some("10.2.0-beta.1".to_string()));
+        assert_eq!(parse_rqbit_version("not rqbit"), None);
+        assert_eq!(parse_rqbit_version(""), None);
     }
 
     #[test]

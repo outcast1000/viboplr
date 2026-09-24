@@ -844,6 +844,18 @@ export interface PluginCollectionsAPI {
    * Listen on `api.library.onScanComplete` for the finish.
    */
   resync(collectionId: number): Promise<void>;
+  /**
+   * Move a file or folder *that the plugin put inside a local collection* to
+   * the OS trash (permanent delete on a network share, which has no Recycle
+   * Bin), and drop any library rows under it. `relativePath` is relative to
+   * the collection root; the root itself, absolute paths and `..` are refused,
+   * and the target must exist. Exists for one job — cleaning up a download
+   * that failed or was cancelled: a torrent client preallocates every file to
+   * full size, so what a failed run leaves behind looks complete and would be
+   * scanned in as music. Plugin file storage is rooted in the plugin's own
+   * directory and cannot reach it. Feature-detect for older hosts.
+   */
+  trashPath(collectionId: number, relativePath: string): Promise<void>;
 }
 
 /**
@@ -1528,17 +1540,36 @@ export interface PluginDependencyStatus {
   latest: string | null;
 }
 
+/** Handle to a running `api.system.exec`, given to `opts.onStart`. */
+export interface PluginExecHandle {
+  /** Kill the process (its whole process group). The exec's promise then
+   *  rejects with "Cancelled". Resolves `true` when a live child was signalled,
+   *  `false` when it had already exited (or never spawned — the cancel is still
+   *  recorded, so an exec that hasn't started yet dies at spawn). Safe to call
+   *  more than once. */
+  cancel(): Promise<boolean>;
+}
+
 export interface PluginSystemAPI {
   /** Run a registry-allowed binary. `opts.onOutput` streams the child's output
    *  line by line as it is produced (split on `\n` **and** `\r`, so a CLI that
    *  redraws one progress line still reports) — pass it to drive a progress
    *  readout; the resolved `ExecResult` still carries the full text either way.
    *  An exec started inside a download resolve is killed when the user cancels
-   *  that download, and the promise then rejects with "Cancelled". */
+   *  that download, and the promise then rejects with "Cancelled".
+   *  `opts.onStart` receives a `PluginExecHandle` synchronously before the
+   *  process spawns — the plugin's own way to stop a long run it started
+   *  outside any resolve (a download from its own view), where there is no host
+   *  Cancel button. Feature-detect: an older host ignores the option and the
+   *  callback never fires. */
   exec(
     program: string,
     args?: string[],
-    opts?: { cwd?: string; onOutput?: (line: string, stream: "stdout" | "stderr") => void },
+    opts?: {
+      cwd?: string;
+      onOutput?: (line: string, stream: "stdout" | "stderr") => void;
+      onStart?: (handle: PluginExecHandle) => void;
+    },
   ): Promise<ExecResult>;
   /** Read the host's cached status for a registered dependency. Cache-only:
    *  never hits the network. `latest` is null until the host's background

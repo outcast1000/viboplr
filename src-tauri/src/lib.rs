@@ -80,6 +80,7 @@ macro_rules! invoke_handler {
             commands::get_collection_stats,
             commands::find_track_in_collection,
             commands::resync_collection,
+            commands::plugin_trash_collection_path,
             commands::export_music_source,
             commands::add_publish_server,
             commands::list_publish_servers,

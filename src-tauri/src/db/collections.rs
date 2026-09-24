@@ -433,6 +433,30 @@ impl Database {
         Ok(())
     }
 
+    /// Delete every track of `collection_id` whose file lives under `rel_dir`,
+    /// a directory path **relative to the collection root** — the form local
+    /// tracks store in `tracks.path` (see `PATH_EXPR`). Prefix-matched with a
+    /// trailing separator, so `Album` never sweeps `Album Deluxe`. Returns the
+    /// number of rows removed.
+    pub fn delete_tracks_under_dir(&self, collection_id: i64, rel_dir: &str) -> SqlResult<usize> {
+        let sep = if rel_dir.contains('\\') && !rel_dir.contains('/') { '\\' } else { std::path::MAIN_SEPARATOR };
+        let mut prefix = rel_dir.trim_end_matches(['/', '\\']).to_string();
+        prefix.push(sep);
+        let conn = self.conn.lock().unwrap();
+        let removed_ids: Vec<i64> = {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM tracks WHERE collection_id = ?1 AND substr(path, 1, ?2) = ?3",
+            )?;
+            let rows = stmt.query_map(params![collection_id, prefix.chars().count() as i64, prefix], |r| r.get(0))?;
+            rows.collect::<SqlResult<Vec<i64>>>()?
+        };
+        for id in &removed_ids {
+            conn.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![id])?;
+            conn.execute("DELETE FROM tracks WHERE id = ?1", params![id])?; // track_tags cascade via FK
+        }
+        Ok(removed_ids.len())
+    }
+
     pub fn delete_tracks_by_ids(&self, ids: &[i64]) -> SqlResult<()> {
         if ids.is_empty() {
             return Ok(());
@@ -919,5 +943,49 @@ impl Database {
         conn.query_row(&sql, params![collection_id, title, artist_name], |row| {
             track_from_row(row)
         }).optional()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::db::Database;
+
+    /// The plugin cleanup path drops the rows under a folder — and only under
+    /// it. A prefix without the trailing separator would also take
+    /// "Album Deluxe" when asked for "Album"; a scan that ran between the
+    /// failed download and the cleanup is exactly when this runs. Paths are
+    /// collection-relative, as local tracks store them.
+    #[test]
+    fn test_delete_tracks_under_dir_is_folder_scoped() {
+        let db = Database::new_in_memory().unwrap();
+        let local = db
+            .add_collection("local", "music", Some("/music"), None, None, None, None, None)
+            .unwrap();
+        let other = db
+            .add_collection("local", "more", Some("/more"), None, None, None, None, None)
+            .unwrap();
+        let artist = db.get_or_create_artist("Someone").unwrap();
+        let add = |rel: &str, col: i64| {
+            db.upsert_track(rel, rel, Some(artist), None, None, None, Some("mp3"), None, None, Some(col), None)
+                .unwrap()
+        };
+        let in_album_1 = add("Album/01.mp3", local.id);
+        let in_album_2 = add("Album/disc2/01.mp3", local.id);
+        let deluxe = add("Album Deluxe/01.mp3", local.id);
+        let sibling = add("Other/01.mp3", local.id);
+        let other_collection = add("Album/01.mp3", other.id);
+
+        let removed = db.delete_tracks_under_dir(local.id, "Album").unwrap();
+        assert_eq!(removed, 2);
+
+        let alive = |id: i64| db.get_tracks_by_ids(&[id]).unwrap().len() == 1;
+        assert!(!alive(in_album_1));
+        assert!(!alive(in_album_2));
+        assert!(alive(deluxe), "a folder sharing the prefix must survive");
+        assert!(alive(sibling));
+        assert!(alive(other_collection), "another collection's identical relative path must survive");
+
+        // A trailing separator on the input is tolerated, and a miss is zero.
+        assert_eq!(db.delete_tracks_under_dir(local.id, "Nothing/").unwrap(), 0);
     }
 }

@@ -3,6 +3,64 @@ use super::*;
 
 // --- Collection commands ---
 
+/// Plugin-side cleanup of something a plugin put inside a local collection —
+/// the leftovers of a failed or cancelled download. Trash (permanent delete on a
+/// network share, which has no Recycle Bin — same rule as `delete_tracks`), then
+/// drop any library rows under the path so a scan that already ran can't leave
+/// ghosts. The safety checks are the assistant write layer's: textual
+/// (`parse_relative_dir` — no absolute, no `..`) and filesystem (`ensure_within_root`
+/// — symlinks resolved). The collection root itself is refused outright.
+#[tauri::command]
+pub async fn plugin_trash_collection_path(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    relative_path: String,
+) -> Result<(), String> {
+    let db = state.db.clone();
+    // async + spawn_blocking: trash::delete round-trips through the OS.
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
+        if collection.kind != "local" {
+            return Err("only local collections have files to remove".to_string());
+        }
+        let root_str = collection.path.ok_or("collection has no folder")?;
+        let root = std::path::Path::new(&root_str);
+        let rel = crate::assistant_write::parse_relative_dir(&relative_path)?;
+        if rel.as_os_str().is_empty() {
+            return Err("refusing to remove the collection root itself".to_string());
+        }
+        let target = root.join(&rel);
+        crate::assistant_write::ensure_within_root(root, &target)?;
+        if !target.exists() {
+            return Err(format!("{} does not exist", target.display()));
+        }
+        let was_dir = target.is_dir();
+        if crate::models::is_network_path(&root_str) {
+            if was_dir {
+                std::fs::remove_dir_all(&target).map_err(|e| e.to_string())?;
+            } else {
+                std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+            }
+        } else {
+            trash::delete(&target).map_err(|e| format!("failed to move {} to trash: {}", target.display(), e))?;
+        }
+        // Local tracks store their path RELATIVE to the collection root (see
+        // `PATH_EXPR`), so the library side matches on `rel`, not the full path.
+        let rel_str = rel.to_string_lossy().to_string();
+        let removed = if was_dir {
+            db.delete_tracks_under_dir(collection_id, &rel_str).map_err(|e| e.to_string())?
+        } else {
+            db.delete_tracks_by_paths_in_collection(collection_id, &[rel_str.clone()])
+                .map_err(|e| e.to_string())?;
+            0
+        };
+        log::info!("plugin removed {} from collection {} ({} library rows dropped)", target.display(), collection_id, removed);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
 #[tauri::command]
 pub async fn add_collection(
     app: AppHandle,
