@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "opener:default",
+    { "identifier": "opener:allow-open-url", "allow": [{ "url": "roadie:*" }] },
     "dialog:default",
     "dialog:allow-open",
     "dialog:allow-save",
