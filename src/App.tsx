@@ -1013,7 +1013,7 @@ function App() {
   const storyboard = useMemo(() => {
     if (storyboardState.board) return storyboardState.board;
     const p = storyboardState.partial;
-    return p ? partialStoryboard(p.frames, p.intervalSecs, p.count, p.startIndex) : null;
+    return p ? partialStoryboard(p.frames, p.intervalSecs, p.count, p.startIndex, p.tileW, p.tileH) : null;
   }, [storyboardState.board, storyboardState.partial]);
 
   // Native (mpv) video session: punch the CSS hole (see App.css

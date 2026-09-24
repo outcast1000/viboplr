@@ -860,6 +860,11 @@ pub fn get_storyboard(
 /// `(start_index + i) * interval_secs`. It is 0 for a fresh pass and non-zero when
 /// resuming one that was cancelled part-way, where the frames on disk begin
 /// mid-video — read positionally they would be captioned with the wrong timestamps.
+///
+/// `tile_w`/`tile_h` are the pixel size of the extracted frames — i.e. the movie's
+/// display aspect, which the frontend cannot know until the finished sheet arrives.
+/// Without them the progressive board had to assume 16:9 and stretched every 4:3,
+/// scope or portrait video. `None` when the first frame's header can't be read yet.
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoryboardPartial {
@@ -868,6 +873,8 @@ pub struct StoryboardPartial {
     pub start_index: usize,
     pub interval_secs: f64,
     pub count: usize,
+    pub tile_w: Option<u32>,
+    pub tile_h: Option<u32>,
 }
 
 /// Generate the storyboard for a local video if it isn't cached yet. One ffmpeg pass;
@@ -908,6 +915,8 @@ pub async fn extract_storyboard(
         let video_path = std::path::Path::new(bare);
         let duration = crate::video_frames::get_video_duration(video_path)?;
         let g = crate::storyboard::geometry(duration);
+        // Every frame is scaled to the same size, so read it once (header only).
+        let mut tile_dims: Option<(u32, u32)> = None;
         let board = match crate::storyboard::generate_with_progress(
             &app_dir,
             &path,
@@ -915,12 +924,17 @@ pub async fn extract_storyboard(
             duration,
             Some(&request_id),
             |start_index, frames| {
+                if tile_dims.is_none() {
+                    tile_dims = frames.first().and_then(|f| image::image_dimensions(f).ok());
+                }
                 let _ = app.emit("storyboard-partial", StoryboardPartial {
                     path: path.clone(),
                     frame_paths: frames.to_vec(),
                     start_index,
                     interval_secs: g.interval_secs,
                     count: g.count,
+                    tile_w: tile_dims.map(|d| d.0),
+                    tile_h: tile_dims.map(|d| d.1),
                 });
             },
         ) {

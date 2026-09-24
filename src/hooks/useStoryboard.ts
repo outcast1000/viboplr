@@ -17,18 +17,24 @@ interface StoryboardPartialEvent {
   startIndex: number;
   intervalSecs: number;
   count: number;
+  tileW?: number | null;
+  tileH?: number | null;
 }
 
 /** Frames extracted so far while the storyboard generates — `frames[i]` is an
  *  image URL depicting `(startIndex + i) * intervalSecs`; `count` is how many the
  *  finished board will carry. `startIndex` is 0 for a fresh pass and non-zero while
  *  the backend resumes one that was cancelled part-way (its frames start mid-video).
+ *  `tileW`/`tileH` are the frames' real pixel size (the movie's display aspect), or
+ *  null until the backend could read one.
  *  Only ever non-null while `status` is "loading". */
 export interface PartialStoryboard {
   frames: string[];
   startIndex: number;
   intervalSecs: number;
   count: number;
+  tileW: number | null;
+  tileH: number | null;
 }
 
 export interface StoryboardState {
@@ -139,6 +145,8 @@ export function useStoryboard(
             startIndex: ev.payload.startIndex ?? 0,
             intervalSecs: ev.payload.intervalSecs,
             count: ev.payload.count,
+            tileW: ev.payload.tileW ?? null,
+            tileH: ev.payload.tileH ?? null,
           };
           setState(prev => (prev.status === "loading" ? { ...prev, partial } : prev));
         });

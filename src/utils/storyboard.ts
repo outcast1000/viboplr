@@ -46,9 +46,10 @@ export function schemeOf(path: string): { scheme: string; id: string } | null {
  * (cell plan, spread, timestamps) is final from the first frame, moments the
  * extraction hasn't reached yet resolve to no tile (the sheet-bounds check in
  * `tileIndexAt` / the style helpers), and frames fill in place as they land
- * instead of reflowing. Tile dims are nominal 16:9 — the real aspect is only
- * knowable from the finished sheet, and these only drive slot shape and bubble
- * sizing until it arrives.
+ * instead of reflowing. `tileW`/`tileH` are the extracted frames' real size, so
+ * slot shape and bubble sizing follow the movie's aspect from the first frame; they
+ * fall back to a nominal 16:9 only when the backend couldn't report one — a guess
+ * that stretches every non-16:9 video until the finished sheet arrives.
  *
  * `startIndex` is the tile `frames[0]` depicts. It is 0 for a fresh pass, and
  * non-zero when the backend is RESUMING a pass that was cancelled part-way: those
@@ -61,16 +62,19 @@ export function partialStoryboard(
   intervalSecs: number,
   count: number,
   startIndex = 0,
+  tileW?: number | null,
+  tileH?: number | null,
 ): Storyboard | null {
   if (frames.length === 0 || count <= 0 || !(intervalSecs > 0)) return null;
   if (startIndex < 0 || startIndex >= count) return null;
+  const known = !!tileW && !!tileH && tileW > 0 && tileH > 0;
   return {
     sheets: [...Array<string>(startIndex).fill(""), ...frames],
     cols: 1,
     rows: 1,
     count,
-    tileW: 400,
-    tileH: 225,
+    tileW: known ? tileW : 400,
+    tileH: known ? tileH : 225,
     startSecs: 0,
     intervalSecs,
   };

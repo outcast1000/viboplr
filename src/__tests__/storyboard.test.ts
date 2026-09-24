@@ -270,6 +270,19 @@ describe("partialStoryboard (frames extracted so far as a usable board)", () => 
     expect(tileFitStyle(b, 42)).toBeNull();
   });
 
+  // The seek bubble and filmstrip slots size themselves off tileW/tileH, so a
+  // hardcoded 16:9 stretched every 4:3 / scope / portrait movie while it generated.
+  it("carries the frames' real aspect, falling back to 16:9 only when unknown", () => {
+    const scope = partialStoryboard(["f0.jpg"], 48, 100, 0, 400, 168)!;
+    expect([scope.tileW, scope.tileH]).toEqual([400, 168]);
+    const portrait = partialStoryboard(["f0.jpg"], 48, 100, 0, 400, 712)!;
+    expect([portrait.tileW, portrait.tileH]).toEqual([400, 712]);
+    const unknown = partialStoryboard(["f0.jpg"], 48, 100, 0, null, null)!;
+    expect([unknown.tileW, unknown.tileH]).toEqual([400, 225]);
+    const bogus = partialStoryboard(["f0.jpg"], 48, 100, 0, 400, 0)!;
+    expect([bogus.tileW, bogus.tileH]).toEqual([400, 225]);
+  });
+
   it("rejects an offset that falls outside the finished board", () => {
     expect(partialStoryboard(["f0.jpg"], 48, 100, -1)).toBeNull();
     expect(partialStoryboard(["f0.jpg"], 48, 100, 100)).toBeNull();
