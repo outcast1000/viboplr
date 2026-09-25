@@ -372,6 +372,72 @@ function activate(api) {
     });
   });
 
+  // ===== Play the Full Album (track context menu) =====
+  //
+  // Replaces the queue with the clicked track's whole album, in Last.fm's
+  // tracklist order. The entries are metadata-only PluginTracks: the host's
+  // stream-resolver chain finds each one on play (the Library resolver first,
+  // so a locally-owned album plays from disk). A track with no album tag
+  // (a queue/search entry) is placed on its album via track.getInfo.
+
+  function lastfmImageUrl(images) {
+    if (!Array.isArray(images)) return undefined;
+    for (var i = images.length - 1; i >= 0; i--) {
+      if (images[i] && images[i]["#text"]) return images[i]["#text"];
+    }
+    return undefined;
+  }
+
+  function resolveAlbumName(artistName, title, albumTitle) {
+    if (albumTitle) return Promise.resolve(albumTitle);
+    if (!title) return Promise.resolve(null);
+    return fetchTrackInfo(artistName, title).then(function (data) {
+      return (data && data.track && data.track.album && data.track.album.title) || null;
+    });
+  }
+
+  api.contextMenu.onAction("play-full-album", function (target) {
+    var artistName = target && target.artistName;
+    if (!artistName) {
+      api.ui.showNotification("Play the Full Album: this track has no artist");
+      return;
+    }
+    resolveAlbumName(artistName, target.title, target.albumTitle).then(function (albumName) {
+      if (!albumName) throw new Error("no-album");
+      return fetchAlbumInfo(artistName, albumName);
+    }).then(function (data) {
+      var album = data && data.album;
+      var list = album && album.tracks && album.tracks.track;
+      if (!list) throw new Error("no-tracks");
+      if (!Array.isArray(list)) list = [list];
+      if (list.length === 0) throw new Error("no-tracks");
+      var albumTitle = album.name;
+      var albumArtist = album.artist || artistName;
+      var cover = lastfmImageUrl(album.image);
+      var tracks = [];
+      for (var i = 0; i < list.length; i++) {
+        var t = list[i];
+        var rank = t["@attr"] && parseInt(t["@attr"].rank, 10);
+        var duration = parseInt(t.duration || "0", 10);
+        tracks.push({
+          title: t.name,
+          artist_name: (t.artist && t.artist.name) || albumArtist,
+          album_title: albumTitle,
+          track_number: rank || i + 1,
+          duration_secs: duration > 0 ? duration : undefined,
+          image_url: cover,
+        });
+      }
+      api.playback.playTracks(tracks, 0, { name: albumTitle, coverUrl: cover, source: "album", metadata: { artist: albumArtist } });
+    }).catch(function (err) {
+      var notFound = err && (err.message === "no-album" || err.message === "no-tracks");
+      if (!notFound) console.error("[lastfm] Failed to load album tracklist:", err);
+      api.ui.showNotification(notFound
+        ? "Play the Full Album: Last.fm has no tracklist for this album"
+        : "Play the Full Album: couldn't reach Last.fm");
+    });
+  });
+
   // Compact count for one-line surfaces ("10.4k", "2.2M") — mirrors the host's
   // formatCompactCount (src/utils/formatCount.ts) so this plugin's own text
   // (the Now Playing item) reads the same as the host-rendered title-line
