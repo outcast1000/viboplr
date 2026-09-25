@@ -47,6 +47,10 @@ encoding_rs = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 arboard = "3"
 zip = { version = "8", default-features = false, features = ["deflate"] }
+# Unpacking managed dependencies shipped as .tar.gz (the Roadie CLI on macOS).
+# Both were already in the tree (tauri-plugin-updater, zip), so no new crates.
+flate2 = "1"
+tar = "0.4"
 axum = "0.8"
 # OS entropy for the control API's bearer token (control_api.rs) — the minimal
 # primitive (rand's own backend) rather than the full rand crate.

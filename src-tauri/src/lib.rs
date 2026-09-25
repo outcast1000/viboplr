@@ -1593,6 +1593,9 @@ pub fn run() {
                                 let _ = updater_app_handle.emit(event, payload);
                             },
                         );
+                        // Tool upkeep an embedding app is expected to run on
+                        // launch (Roadie's `maintain`), after any update above.
+                        dependencies::run_maintenance(&dep_updater_cache);
                         // Re-run daily; the latest-version TTL cache makes
                         // earlier wakeups free anyway.
                         std::thread::sleep(std::time::Duration::from_secs(24 * 60 * 60 - 30));

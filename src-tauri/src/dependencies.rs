@@ -36,9 +36,30 @@ pub struct ManagedSource {
     /// itself would arrive over, so what is lost is corruption detection, not
     /// a signature. Prefer `Some` whenever upstream offers a file.
     pub checksums_asset: Option<&'static str>,
+    /// Install from this release instead of `releases/latest`, and take its
+    /// version as the latest (no lookup). For upstreams whose "latest" is a
+    /// different product line (Roadie marks only its desktop app latest) or
+    /// that expect consumers to pin: moving on is a host release that bumps
+    /// the pin, which `auto_update_managed` then installs.
+    pub pinned: Option<ReleasePin>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReleasePin {
+    pub tag: &'static str,
+    /// The version the pinned binary reports (what `version_lt` compares).
+    pub version: &'static str,
 }
 
 impl ManagedSource {
+    /// Base URL the platform assets and checksums file download from.
+    fn download_base(&self) -> String {
+        match self.pinned {
+            Some(pin) => format!("https://github.com/{}/releases/download/{}", self.repo, pin.tag),
+            None => format!("https://github.com/{}/releases/latest/download", self.repo),
+        }
+    }
+
     pub fn platform_asset(&self) -> Option<&'static str> {
         #[cfg(target_os = "macos")]
         {
@@ -68,6 +89,14 @@ pub struct DependencyDef {
     pub install: InstallInstructions,
     pub internal_consumers: &'static [(&'static str, &'static str)],
     pub managed: Option<ManagedSource>,
+    /// The flag through which the binary takes a data directory. When set,
+    /// every spawn (probe, plugin exec, maintenance) passes
+    /// `{flag} {app_data_dir}/{name}`, so the tool's state is Viboplr's own
+    /// and never mixed with a standalone copy the user runs themselves.
+    pub data_dir_flag: Option<&'static str>,
+    /// Arguments the daily dependency pass runs once the tool has state (its
+    /// data dir exists): upkeep the tool expects its embedding app to trigger.
+    pub maintenance_args: Option<&'static [&'static str]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -138,6 +167,21 @@ fn parse_rqbit_version(output: &str) -> Option<String> {
     })
 }
 
+/// `roadie version` prints `{"version": "0.1.0", "release": "cli"}`.
+fn parse_roadie_version(output: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(output.trim()).ok()?;
+    v.get("version")?.as_str().map(str::to_string)
+}
+
+/// The Roadie CLI release Viboplr installs. Roadie never marks a CLI release
+/// "latest" (that is its desktop app) and its asset names carry the version,
+/// so both come from this one pin. Bump it deliberately, like libmpv.
+macro_rules! roadie_cli_version {
+    () => {
+        "0.1.0"
+    };
+}
+
 pub static REGISTRY: &[DependencyDef] = &[
     DependencyDef {
         name: "ffmpeg",
@@ -156,6 +200,8 @@ pub static REGISTRY: &[DependencyDef] = &[
             ("Audio format conversion", "Convert WebM downloads to M4A"),
         ],
         managed: None,
+        data_dir_flag: None,
+        maintenance_args: None,
     },
     DependencyDef {
         name: "yt-dlp",
@@ -184,7 +230,10 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_arm64: Some("yt-dlp_linux_aarch64"),
             asset_zipapp: Some("yt-dlp"),
             checksums_asset: Some("SHA2-256SUMS"),
+            pinned: None,
         }),
+        data_dir_flag: None,
+        maintenance_args: None,
     },
     DependencyDef {
         name: "rqbit",
@@ -209,7 +258,48 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_arm64: Some("rqbit-linux-arm64"),
             asset_zipapp: None,
             checksums_asset: None,
+            pinned: None,
         }),
+        data_dir_flag: None,
+        maintenance_args: None,
+    },
+    DependencyDef {
+        name: "roadie",
+        description: "Installs, runs and updates helper services such as slskd, each only after you approve it",
+        version_args: &["version"],
+        parse_version: parse_roadie_version,
+        install: InstallInstructions {
+            macos: "Viboplr can install Roadie for you",
+            windows: "Viboplr can install Roadie for you",
+            linux: "Roadie has no Linux build yet",
+            url: "https://github.com/outcast1000/roadie",
+        },
+        internal_consumers: &[],
+        managed: Some(ManagedSource {
+            // The standalone CLI release (no service, no window): every command
+            // runs in its own process and asks the user in a native dialog
+            // before it installs anything. One archive per platform.
+            repo: "outcast1000/roadie",
+            asset_macos: Some(if cfg!(target_arch = "aarch64") {
+                concat!("roadie-cli-", roadie_cli_version!(), "-darwin-arm64.tar.gz")
+            } else {
+                concat!("roadie-cli-", roadie_cli_version!(), "-darwin-x64.tar.gz")
+            }),
+            asset_windows: Some(concat!("roadie-cli-", roadie_cli_version!(), "-windows-x64.zip")),
+            asset_linux_x64: None,
+            asset_linux_arm64: None,
+            asset_zipapp: None,
+            checksums_asset: Some("SHA256SUMS"),
+            pinned: Some(ReleasePin {
+                tag: concat!("cli-v", roadie_cli_version!()),
+                version: roadie_cli_version!(),
+            }),
+        }),
+        // Roadie's contract for an app that bundles its CLI: pass our own data
+        // dir, and run `maintain` on launch (it starts the tools the user set to
+        // start at login and runs their daily update pass).
+        data_dir_flag: Some("--data-dir"),
+        maintenance_args: Some(&["maintain"]),
     },
     #[cfg(debug_assertions)]
     DependencyDef {
@@ -225,6 +315,8 @@ pub static REGISTRY: &[DependencyDef] = &[
         },
         internal_consumers: &[("Test feature", "Verifies the dependency modal works in dev mode")],
         managed: None,
+        data_dir_flag: None,
+        maintenance_args: None,
     },
 ];
 
@@ -372,6 +464,22 @@ pub fn augmented_path() -> std::ffi::OsString {
     new_path
 }
 
+/// Viboplr's own data dir for a tool that takes one (`data_dir_flag`):
+/// `{app_data_dir}/{name}`, beside the shared bin dir, so it is shared across
+/// profiles like the binary itself.
+pub fn tool_data_dir(name: &str) -> Option<PathBuf> {
+    get_def(name)?.data_dir_flag?;
+    Some(managed_bin_dir()?.parent()?.join(name))
+}
+
+/// The leading `{flag} {dir}` pair for a tool that takes a data dir.
+fn data_dir_args(program: &str) -> Vec<std::ffi::OsString> {
+    match (get_def(program).and_then(|d| d.data_dir_flag), tool_data_dir(program)) {
+        (Some(flag), Some(dir)) => vec![flag.into(), dir.into_os_string()],
+        _ => Vec::new(),
+    }
+}
+
 pub fn command_with_path(program: &str) -> std::process::Command {
     // PATH lookup happens in the child's environment, but resolve the managed
     // copy explicitly so it wins even on platforms where the spawn resolves
@@ -380,6 +488,7 @@ pub fn command_with_path(program: &str) -> std::process::Command {
         .map(|p| p.into_os_string())
         .unwrap_or_else(|| program.into());
     let mut cmd = std::process::Command::new(resolved);
+    cmd.args(data_dir_args(program));
     cmd.env("PATH", augmented_path());
     // Force Python UTF-8 Mode (see note below).
     cmd.env("PYTHONUTF8", "1");
@@ -405,6 +514,7 @@ pub fn tokio_command_with_path(program: &str) -> tokio::process::Command {
         .map(|p| p.into_os_string())
         .unwrap_or_else(|| program.into());
     let mut cmd = tokio::process::Command::new(resolved);
+    cmd.args(data_dir_args(program));
     cmd.env("PATH", augmented_path());
     cmd.env("PYTHONUTF8", "1");
     cmd.env("PYTHONIOENCODING", "utf-8");
@@ -730,6 +840,10 @@ pub fn latest_version(name: &str, cache: &DepCache) -> Result<String, String> {
         .managed
         .as_ref()
         .ok_or_else(|| format!("{} is not a managed dependency", name))?;
+    // A pinned dependency's latest is the pin: nothing to look up.
+    if let Some(pin) = managed.pinned {
+        return Ok(pin.version.to_string());
+    }
 
     let url = format!("https://github.com/{}/releases/latest", managed.repo);
     let result: Result<String, String> = (|| {
@@ -876,6 +990,58 @@ fn write_zipapp_wrapper(bin_dir: &Path, name: &str, python: &Path) -> Result<(),
         .map_err(|e| format!("Wrapper install error: {}", e))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArchiveKind {
+    TarGz,
+    Zip,
+}
+
+impl ArchiveKind {
+    /// Read off the asset name; `None` means the asset is the binary itself.
+    fn of(asset: &str) -> Option<Self> {
+        if asset.ends_with(".tar.gz") || asset.ends_with(".tgz") {
+            Some(Self::TarGz)
+        } else if asset.ends_with(".zip") {
+            Some(Self::Zip)
+        } else {
+            None
+        }
+    }
+}
+
+/// The bytes of the entry named `member` (at any depth) in an archive.
+fn extract_member(archive: &[u8], kind: ArchiveKind, member: &str) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let named = |path: &Path| path.file_name().is_some_and(|f| f == member);
+    let mut out = Vec::new();
+    match kind {
+        ArchiveKind::TarGz => {
+            let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive));
+            let entries = tar.entries().map_err(|e| format!("Archive read error: {}", e))?;
+            for entry in entries {
+                let mut entry = entry.map_err(|e| format!("Archive read error: {}", e))?;
+                let path = entry.path().map_err(|e| format!("Archive read error: {}", e))?.into_owned();
+                if entry.header().entry_type().is_file() && named(&path) {
+                    entry.read_to_end(&mut out).map_err(|e| format!("Archive read error: {}", e))?;
+                    return Ok(out);
+                }
+            }
+        }
+        ArchiveKind::Zip => {
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(archive))
+                .map_err(|e| format!("Archive read error: {}", e))?;
+            for i in 0..zip.len() {
+                let mut file = zip.by_index(i).map_err(|e| format!("Archive read error: {}", e))?;
+                if file.is_file() && named(Path::new(file.name())) {
+                    file.read_to_end(&mut out).map_err(|e| format!("Archive read error: {}", e))?;
+                    return Ok(out);
+                }
+            }
+        }
+    }
+    Err(format!("The downloaded archive has no {}", member))
+}
+
 /// Download + checksum-verify + atomically install the managed copy of `name`.
 /// `progress` is called with (downloaded, total) as the body streams in.
 /// Returns the installed version.
@@ -898,7 +1064,7 @@ pub fn install_managed(
     };
 
     let client = http_client()?;
-    let base = format!("https://github.com/{}/releases/latest/download", managed.repo);
+    let base = managed.download_base();
 
     // Stream the binary to a temp file next to the final location.
     let mut resp = client
@@ -950,6 +1116,13 @@ pub fn install_managed(
                 name, managed.repo, asset, data.len(), sha256_hex(&data)
             );
         }
+
+        // An archive asset carries the binary inside it (checked above as the
+        // archive, which is what the checksums file names).
+        let data = match ArchiveKind::of(asset) {
+            Some(kind) => extract_member(&data, kind, &binary_filename(name))?,
+            None => data,
+        };
 
         std::fs::write(&temp_path, &data).map_err(|e| format!("Write error: {}", e))?;
         #[cfg(unix)]
@@ -1022,6 +1195,41 @@ fn auto_update_enabled(store_path: &Path) -> bool {
         }
     }
     true
+}
+
+/// Upper bound for one maintenance run. It may update a tool (Roadie's daily
+/// pass downloads a new slskd), so it is generous; it only bounds a wedge.
+const MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
+/// Run each dependency's `maintenance_args` once, for the tools Viboplr has
+/// actually used (their data dir exists) and that are installed. Called from
+/// the same background thread as `auto_update_managed`, ~30s after launch and
+/// then daily. Not gated on `autoUpdateManagedDeps`: that setting is about
+/// replacing our copy of the binary, while this is the tool's own upkeep
+/// (Roadie has its own update toggle).
+pub fn run_maintenance(cache: &DepCache) {
+    for def in REGISTRY.iter() {
+        let Some(args) = def.maintenance_args else { continue };
+        if !tool_data_dir(def.name).is_some_and(|d| d.is_dir()) || !is_available(def.name, cache) {
+            continue;
+        }
+        let mut cmd = command_with_path(def.name);
+        cmd.args(args);
+        match output_with_timeout(&mut cmd, MAINTENANCE_TIMEOUT) {
+            Ok(Some(out)) if out.status.success() => {
+                log::info!("{} {}: {}", def.name, args.join(" "), String::from_utf8_lossy(&out.stdout).trim());
+            }
+            Ok(Some(out)) => log::warn!(
+                "{} {} exited {:?}: {}",
+                def.name,
+                args.join(" "),
+                out.status.code(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
+            Ok(None) => log::warn!("{} {} timed out", def.name, args.join(" ")),
+            Err(e) => log::warn!("{} {} failed to start: {}", def.name, args.join(" "), e),
+        }
+    }
 }
 
 /// One pass of the background auto-updater: for every managed dependency whose
@@ -1256,6 +1464,7 @@ mod tests {
             asset_linux_arm64: Some("tool_linux_aarch64"),
             asset_zipapp: None,
             checksums_asset: Some("SHA2-256SUMS"),
+            pinned: None,
         };
         let shape = choose_install_shape("tool", &managed).unwrap();
         assert!(matches!(shape, InstallShape::Binary(_)));
@@ -1471,6 +1680,126 @@ mod tests {
         let cache = DepCache::new();
         assert!(uninstall_managed("ffmpeg", &cache).is_err());
         assert!(uninstall_managed("nonexistent-xyz", &cache).is_err());
+    }
+
+    #[test]
+    fn test_parse_roadie_version() {
+        assert_eq!(
+            parse_roadie_version("{\n  \"version\": \"0.1.0\",\n  \"release\": \"cli\"\n}\n"),
+            Some("0.1.0".to_string())
+        );
+        assert_eq!(parse_roadie_version("roadie 0.1.0"), None);
+        assert_eq!(parse_roadie_version("{}"), None);
+    }
+
+    #[test]
+    fn test_managed_source_roadie_is_a_pinned_cli_release() {
+        let def = get_def("roadie").unwrap();
+        let managed = def.managed.as_ref().unwrap();
+        let pin = managed.pinned.expect("roadie installs a pinned CLI release");
+        assert_eq!(pin.tag, format!("cli-v{}", pin.version));
+        assert_eq!(
+            managed.download_base(),
+            format!("https://github.com/outcast1000/roadie/releases/download/{}", pin.tag)
+        );
+        // Asset names carry the pinned version, and the checksums file lists them.
+        let arm = format!("roadie-cli-{}-darwin-arm64.tar.gz", pin.version);
+        let x64 = format!("roadie-cli-{}-darwin-x64.tar.gz", pin.version);
+        let mac = managed.asset_macos.unwrap();
+        assert!(mac == arm || mac == x64, "{mac}");
+        assert_eq!(managed.asset_windows.unwrap(), format!("roadie-cli-{}-windows-x64.zip", pin.version));
+        assert!(managed.asset_linux_x64.is_none(), "Roadie ships no Linux CLI");
+        assert_eq!(managed.checksums_asset, Some("SHA256SUMS"));
+        assert_eq!(def.data_dir_flag, Some("--data-dir"));
+        assert_eq!(def.maintenance_args, Some(&["maintain"][..]));
+        assert!(allowed_names().contains(&"roadie"));
+    }
+
+    #[test]
+    fn test_latest_version_of_a_pinned_dep_is_the_pin_without_a_lookup() {
+        let cache = DepCache::new();
+        let pin = get_def("roadie").unwrap().managed.as_ref().unwrap().pinned.unwrap();
+        assert_eq!(latest_version("roadie", &cache), Ok(pin.version.to_string()));
+        assert!(cache.get_latest("roadie").is_none(), "nothing fetched, nothing cached");
+    }
+
+    #[test]
+    fn test_archive_kind_from_asset_name() {
+        assert_eq!(ArchiveKind::of("roadie-cli-0.1.0-darwin-arm64.tar.gz"), Some(ArchiveKind::TarGz));
+        assert_eq!(ArchiveKind::of("roadie-cli-0.1.0-windows-x64.zip"), Some(ArchiveKind::Zip));
+        assert_eq!(ArchiveKind::of("yt-dlp_macos"), None);
+        assert_eq!(ArchiveKind::of("rqbit.exe"), None);
+    }
+
+    #[test]
+    fn test_extract_member_from_tar_gz() {
+        let mut tar_bytes = Vec::new();
+        {
+            let gz = flate2::write::GzEncoder::new(&mut tar_bytes, flate2::Compression::fast());
+            let mut builder = tar::Builder::new(gz);
+            for (path, body) in [("README.txt", &b"read me"[..]), ("bin/roadie", &b"\x7fELF roadie"[..])] {
+                let mut header = tar::Header::new_gnu();
+                header.set_size(body.len() as u64);
+                header.set_mode(0o755);
+                header.set_cksum();
+                builder.append_data(&mut header, path, body).unwrap();
+            }
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+        assert_eq!(extract_member(&tar_bytes, ArchiveKind::TarGz, "roadie").unwrap(), b"\x7fELF roadie");
+        assert!(extract_member(&tar_bytes, ArchiveKind::TarGz, "roadie.exe").is_err());
+    }
+
+    #[test]
+    fn test_extract_member_from_zip() {
+        use std::io::Write;
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let opts = zip::write::SimpleFileOptions::default();
+            zip.start_file("roadie.exe", opts).unwrap();
+            zip.write_all(b"MZ roadie").unwrap();
+            zip.finish().unwrap();
+        }
+        let bytes = buf.into_inner();
+        assert_eq!(extract_member(&bytes, ArchiveKind::Zip, "roadie.exe").unwrap(), b"MZ roadie");
+        assert!(extract_member(&bytes, ArchiveKind::Zip, "roadie").is_err());
+    }
+
+    /// REAL install of the pinned Roadie CLI from GitHub: download, checksum
+    /// against the release's SHA256SUMS, unpack, run `version`. Needs network
+    /// and a published `cli-v<pin>` release. Sets the process-wide bin dir, so
+    /// run it alone:
+    /// `cargo test --lib dependencies::tests::probe_install_roadie_cli -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn probe_install_roadie_cli() {
+        let root = std::env::temp_dir().join(format!("viboplr-roadie-probe-{}", std::process::id()));
+        set_managed_bin_dir(root.join("bin"));
+        let cache = DepCache::new();
+        let version = install_managed("roadie", &cache, |_, _| {}).expect("install");
+        let pin = get_def("roadie").unwrap().managed.as_ref().unwrap().pinned.unwrap();
+        assert_eq!(version, pin.version);
+        // Every spawn carries our data dir, and the CLI answers with it.
+        let out = command_with_path("roadie").args(["tool", "status", "slskd"]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(root.join("roadie").is_dir(), "the CLI wrote its state under {{app_data_dir}}/roadie");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_data_dir_args_only_for_tools_that_take_one() {
+        // Without the managed bin dir initialised there is no dir to pass,
+        // and deps without a flag never get one either way.
+        assert!(data_dir_args("ffmpeg").is_empty());
+        assert!(data_dir_args("yt-dlp").is_empty());
+        if let Some(dir) = managed_bin_dir() {
+            let args = data_dir_args("roadie");
+            assert_eq!(args[0], "--data-dir");
+            assert_eq!(PathBuf::from(&args[1]), dir.parent().unwrap().join("roadie"));
+        } else {
+            assert!(data_dir_args("roadie").is_empty());
+        }
     }
 
     #[test]
