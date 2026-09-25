@@ -10,6 +10,8 @@ import "./EntityTagPanel.css";
 interface EntityTagPanelProps {
   /** The entity's tracks (album's tracks, or all of an artist's tracks). */
   tracks: Track[];
+  /** Render bare (no section wrapper or title) — for hosting inside a tab. */
+  embedded?: boolean;
 }
 
 /**
@@ -19,7 +21,7 @@ interface EntityTagPanelProps {
  * and optimistic. Reuses the shared TagEditor; refreshes library tag state after
  * each write so the Library tags tab and counts stay current.
  */
-export function EntityTagPanel({ tracks }: EntityTagPanelProps) {
+export function EntityTagPanel({ tracks, embedded }: EntityTagPanelProps) {
   const actions = useDetailActions();
   const libraryTrackCount = tracks.filter((t) => t.id != null).length;
   const hasTracks = libraryTrackCount > 0;
@@ -45,8 +47,8 @@ export function EntityTagPanel({ tracks }: EntityTagPanelProps) {
   );
 
   return (
-    <div className="section-wide entity-tag-panel">
-      <div className="section-title">Tags</div>
+    <div className={embedded ? "entity-tag-panel" : "section-wide entity-tag-panel"}>
+      {!embedded && <div className="section-title">Tags</div>}
       {!hasTracks ? (
         <span className="entity-tag-panel-hint">No library tracks to tag.</span>
       ) : loading ? (

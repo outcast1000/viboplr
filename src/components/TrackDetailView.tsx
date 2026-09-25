@@ -24,7 +24,7 @@ import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import "./TrackDetailView.css";
 
-const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "play-history"];
+const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "tags", "details", "play-history"];
 
 
 
@@ -338,7 +338,6 @@ export function TrackDetailView({
           <VideoFilmstrip storyboard={trackStoryboard} onFrameClick={onPlayAt} />
         </div>
       )}
-      {isLibrary && <EntityTagPanel tracks={[{ ...track, id: trackId }]} />}
       <div className="section-wide">
         <InformationSections
           entity={track.artist_name ? { kind: "track", name: track.title, id: trackId ?? 0, artistName: track.artist_name, albumTitle: track.album_title ?? undefined, path: track.path ?? undefined } : null}
@@ -351,6 +350,11 @@ export function TrackDetailView({
           onTitleData={handleTitleData}
           livePosition={isCurrentTrack}
           customTabs={[
+            ...(isLibrary ? [{
+              id: "tags",
+              name: "Tags",
+              content: <EntityTagPanel tracks={[{ ...track, id: trackId }]} embedded />,
+            }] : []),
             {
               id: "details",
               name: "Details",
