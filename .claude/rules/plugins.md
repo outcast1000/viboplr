@@ -426,7 +426,7 @@ Success TTL is per-type (e.g., 90 days for bios, 7 days for popularity). Error T
 
 | Placement | Display Kinds |
 |---|---|
-| **Title (inline in header)** | `title_line` — rendered by `TitleLineInfo.tsx`, never appears as a tab |
+| **Title (inline in header)** | `title_line` — rendered by `TitleLineInfo.tsx`, never appears as a tab. Several providers may each contribute one (Last.fm listeners, Spotify monthly listeners); they are joined with ` · `. The track detail page draws Last.fm's `track_info` itself (with its link) and appends every other `title_line` type after it via `TitleLineRenderer`, so a new provider shows up there without host changes |
 | **Right sidebar** | `ranked_list`, `tag_list`, `image_gallery` |
 | **Below (main tabs)** | All others: `rich_text`, `html`, `entity_list`, `entity_cards`, `stat_grid`, `lyrics`, `annotated_text`, `annotations`, `key_value` |
 

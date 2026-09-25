@@ -20,10 +20,16 @@ export function TitleLineInfo({ entity, invokeInfoFetch }: TitleLineInfoProps) {
 
   if (!titleLines.length) return null;
 
+  // Several providers can each contribute a line (Last.fm listeners, Spotify
+  // monthly listeners); join them with the same " · " the renderer puts
+  // between items, or they run together into one unreadable string.
   return (
     <>
-      {titleLines.map((s) => (
-        <TitleLineRenderer key={s.typeId} data={s.state.kind === "loaded" ? s.state.data : null} />
+      {titleLines.map((s, i) => (
+        <span key={s.typeId}>
+          {i > 0 && " · "}
+          <TitleLineRenderer data={s.state.kind === "loaded" ? s.state.data : null} />
+        </span>
       ))}
     </>
   );

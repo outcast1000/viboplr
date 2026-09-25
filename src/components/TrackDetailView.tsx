@@ -12,6 +12,7 @@ import { IconFolder, IconLastfm } from "./Icons";
 import { store } from "../store";
 
 import { InformationSections } from "./InformationSections";
+import { TitleLineRenderer } from "./renderers/TitleLineRenderer";
 import { useVideoFrames } from "../hooks/useVideoFrames";
 import { useStoryboard } from "../hooks/useStoryboard";
 import { isVideoTrack } from "../utils";
@@ -84,6 +85,9 @@ export function TrackDetailView({
   const [audioProps, setAudioProps] = useState<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number } | null>(null);
   const [extraTags, setExtraTags] = useState<Record<string, string> | null>(null);
   const [trackInfo, setTrackInfo] = useState<{ listeners?: string; playcount?: string; perListener?: string; url?: string } | null>(null);
+  // title_line values from providers other than Last.fm's track_info (e.g.
+  // Spotify plays), rendered after the Last.fm line. Keyed by info type id.
+  const [extraTitleLines, setExtraTitleLines] = useState<Record<string, unknown>>({});
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
   const trackIdRef = useRef(trackId);
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
@@ -130,6 +134,7 @@ export function TrackDetailView({
     setAudioProps(null);
     setExtraTags(null);
     setTrackInfo(null);
+    setExtraTitleLines({});
 
     if (isLibrary) {
       invoke<{ sample_rate?: number; bit_depth?: number; channels?: number; bitrate?: number }>("get_track_audio_properties", { trackId })
@@ -143,7 +148,12 @@ export function TrackDetailView({
 
   // Receive track_info data from InformationSections (via onTitleData callback)
   const handleTitleData = useCallback((typeId: string, data: unknown) => {
-    if (typeId !== "track_info") return;
+    if (typeId !== "track_info") {
+      // Called on every sections update — keep the previous object when the
+      // value is unchanged so this doesn't re-render in a loop.
+      if (data) setExtraTitleLines(prev => (prev[typeId] === data ? prev : { ...prev, [typeId]: data }));
+      return;
+    }
     const val = data as Record<string, unknown>;
     if (!val) return;
     const items = val.items as Array<{ label: string; value: number | string }> | undefined;
@@ -279,7 +289,7 @@ export function TrackDetailView({
   const lfmPlays = trackInfo?.playcount ? parseInt(trackInfo.playcount) : 0;
   const lfmPerListener = trackInfo?.perListener
     ?? (lfmListeners > 0 && lfmPlays > 0 ? formatAverage(lfmPlays / lfmListeners) : null);
-  const titleLine = trackInfo && (lfmListeners > 0 || lfmPerListener) ? (
+  const lastfmLine = trackInfo && (lfmListeners > 0 || lfmPerListener) ? (
     <span>
       {lfmListeners > 0 && <span title={lfmListeners.toLocaleString()}>{formatCompactCount(lfmListeners)} listeners</span>}
       {lfmPerListener && (
@@ -289,6 +299,18 @@ export function TrackDetailView({
         <> &middot; <a className="track-detail-lastfm-link" onClick={() => openUrl(trackInfo.url!)} title="View on Last.fm"><IconLastfm size={12} /></a></>
       )}
     </span>
+  ) : null;
+  const extraLines = Object.entries(extraTitleLines);
+  const titleLine = lastfmLine || extraLines.length > 0 ? (
+    <>
+      {lastfmLine}
+      {extraLines.map(([typeId, data], i) => (
+        <span key={typeId}>
+          {(lastfmLine || i > 0) && " · "}
+          <TitleLineRenderer data={data} />
+        </span>
+      ))}
+    </>
   ) : undefined;
 
   const handleEnqueueTrack = useCallback(() => {
