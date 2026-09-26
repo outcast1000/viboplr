@@ -1699,6 +1699,9 @@ export interface PluginMenuItem {
   /** When set, the host groups same-label items (per target) into one submenu. */
   submenuLabel?: string;
   order?: number;
+  /** Owning plugin's display name, stamped by `usePlugins` on the items every
+   *  menu surface consumes so the rendered label can name its plugin. */
+  pluginName?: string;
 }
 
 export interface PluginSettingsPanel {

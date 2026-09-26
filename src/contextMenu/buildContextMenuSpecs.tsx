@@ -56,8 +56,8 @@ export interface ContextMenuDeps {
 // queue). Download flows differ too much between providers to share one host
 // surface (a torrent hunt is nothing like a YouTube search), so a provider that
 // wants a menu presence contributes its own context-menu item (plugin-first —
-// e.g. qBittorrent's "Upgrade with qBittorrent…" opening its Music Search tab,
-// yt-dlp's "Download with yt-dlp…"). The one download entry the host owns is
+// e.g. qBittorrent's "qBittorrent: Upgrade…" opening its Music Search tab,
+// yt-dlp's "yt-dlp: Download…"). The one download entry the host owns is
 // "Download…" for a single track's OWN source (decideDownload → DownloadModal).
 
 /** Build the native context-menu specs for a target. Returns null if empty. */

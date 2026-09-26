@@ -3180,9 +3180,11 @@ export function usePlugins(
 
   // One filter here covers every menu surface — library, queue, playlists,
   // plugin views, Home — because they all consume `plugins.menuItems`.
+  // Stamped with the owning plugin's name so every menu can say whose action it is.
   const allMenuItems = useMemo(
-    () => filterContributions(mergedMenuItems, "menu", contributionVisibility),
-    [mergedMenuItems, contributionVisibility],
+    () => filterContributions(mergedMenuItems, "menu", contributionVisibility)
+      .map((m) => ({ ...m, pluginName: pluginNames.get(m.pluginId) ?? m.pluginId })),
+    [mergedMenuItems, contributionVisibility, pluginNames],
   );
 
   const visibleSidebarItems = useMemo(

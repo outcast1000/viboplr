@@ -39,6 +39,7 @@ import { SavePlaylistModal } from "./SavePlaylistModal";
 import { useImageCache } from "../hooks/useImageCache";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveTrackImage, pickEntityImagePath } from "../utils/trackImage";
+import { pluginMenuItemLabel } from "../contextMenu/pluginMenuGroups";
 import "./PlaylistsView.css";
 
 interface Playlist {
@@ -670,7 +671,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       if (matching.length > 0) {
         specs.push({ kind: "separator" });
         matching.forEach(item => {
-          specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined, albumTitle: t.album_name ?? undefined }) });
+          specs.push({ kind: "item", text: pluginMenuItemLabel(item), action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined, albumTitle: t.album_name ?? undefined }) });
         });
       }
     }
@@ -788,7 +789,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       if (matching.length > 0) {
         specs.push({ kind: "separator" });
         matching.forEach(item => {
-          specs.push({ kind: "item", text: item.label, action: () => onPluginAction?.(item.pluginId, item.id, { kind: "playlist", playlistId: pl.id, playlistName: pl.name }) });
+          specs.push({ kind: "item", text: pluginMenuItemLabel(item), action: () => onPluginAction?.(item.pluginId, item.id, { kind: "playlist", playlistId: pl.id, playlistName: pl.name }) });
         });
       }
     }
