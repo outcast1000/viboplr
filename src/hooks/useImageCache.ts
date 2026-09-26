@@ -58,6 +58,13 @@ function requestBackendFetch(
 export interface UseImageCacheReturn {
   getImage: (name: string, artistName?: string | null) => string | null;
   /**
+   * `getImage` without the fetch: an image already on disk is returned, a miss
+   * stays a miss. For surfaces whose names are guesses about things the user
+   * doesn't have (a plugin's search results), where asking the providers would
+   * download art for every row that happened to match.
+   */
+  peekImage: (name: string, artistName?: string | null) => string | null;
+  /**
    * Has this key's lookup finished? `getImage` returns `null` for both "there is
    * no image" and "the lookup is still in flight", which is fine for an <img>
    * that just appears late — but not for a consumer that changes its *layout or
@@ -91,7 +98,7 @@ export function useImageCache(
   // lands — a ref-reading, always-stable getter would leave it bailing on the
   // very update that makes the image available. Unmemoized consumers see no
   // difference (they re-render with their parent either way).
-  const getImage = useCallback((name: string, artistName?: string | null): string | null => {
+  const lookup = useCallback((name: string, artistName: string | null | undefined, fetchOnMiss: boolean): string | null => {
     const key = imageCacheKey(kind, name, artistName);
 
     if (key in cache) {
@@ -107,7 +114,7 @@ export function useImageCache(
     invoke<string | null>("get_entity_image", { kind, name, artistName: artistName ?? null })
       .then((path) => {
         setCache((prev) => ({ ...prev, [key]: path }));
-        if (path === null) {
+        if (path === null && fetchOnMiss) {
           // No image on disk — trigger a fetch. NOT forced: this is a surface
           // that wants a thumbnail, not a user asking to try again, so the
           // backend's 24h failure suppression must stay in effect. Forcing here
@@ -126,6 +133,18 @@ export function useImageCache(
 
     return null;
   }, [kind, cache, versions]);
+
+  const getImage = useCallback(
+    (name: string, artistName?: string | null) => lookup(name, artistName, true),
+    [lookup],
+  );
+  // Shares the cache with getImage: a peeked miss stays a settled miss in this
+  // instance, and an image a fetch elsewhere lands is picked up through the
+  // same *-image-ready path.
+  const peekImage = useCallback(
+    (name: string, artistName?: string | null) => lookup(name, artistName, false),
+    [lookup],
+  );
 
   const isResolved = useCallback((name: string, artistName?: string | null): boolean => {
     return imageCacheKey(kind, name, artistName) in cache;
@@ -211,7 +230,7 @@ export function useImageCache(
   // listener, QueuePanel's getTrackImage) re-run on cache changes instead of on
   // every parent render.
   return useMemo(
-    () => ({ getImage, isResolved, invalidate, requestFetch, clearAllFailures, cache }),
-    [getImage, isResolved, invalidate, requestFetch, clearAllFailures, cache],
+    () => ({ getImage, peekImage, isResolved, invalidate, requestFetch, clearAllFailures, cache }),
+    [getImage, peekImage, isResolved, invalidate, requestFetch, clearAllFailures, cache],
   );
 }

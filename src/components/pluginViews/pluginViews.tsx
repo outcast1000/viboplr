@@ -545,6 +545,8 @@ interface PluginTrackRowListProps {
   // "single" drops the selection toolbar and keeps one row current. See
   // isSingleSelect.
   selectionMode?: "single" | "multi";
+  // "cached" never asks the image providers. See the node type.
+  artwork?: "fetch" | "cached";
   actions?: { id: string; label: string; icon?: string }[];
   categories?: string[];
   numbered?: boolean;
@@ -715,6 +717,7 @@ function PluginTrackRowsSelectable({
   openOnClick,
   selectionPresets,
   selectionMode,
+  artwork,
   onAction,
   onContextMenu,
   onRowsDragStart,
@@ -739,22 +742,28 @@ function PluginTrackRowsSelectable({
   // rapidly (e.g. Library Statistics redrawing the Top list while it streams
   // play history). `getImage` returns the cached URL untouched and only kicks a
   // fetch on a genuine miss — so repeated redraws of an unchanged list are no-ops.
+  // `artwork: "cached"` swaps in `peekImage`, which never fetches: a search
+  // list's names are guesses, and each would otherwise download (and keep) art
+  // for an album or artist that merely appeared in a result.
+  const cachedOnly = artwork === "cached";
+  const albumImage = cachedOnly ? albumCache.peekImage : albumCache.getImage;
+  const artistImage = cachedOnly ? artistCache.peekImage : artistCache.getImage;
   useEffect(() => {
     for (const item of items) {
       if (item.imageUrl) continue;
-      if (item.albumTitle) albumCache.getImage(item.albumTitle, item.artistName ?? undefined);
-      else if (item.artistName) artistCache.getImage(item.artistName);
+      if (item.albumTitle) albumImage(item.albumTitle, item.artistName ?? undefined);
+      else if (item.artistName) artistImage(item.artistName);
     }
-    // getImage is stable (memoized on kind); re-run only when the item set changes.
+    // The getters track the cache; re-run only when the item set (or mode) changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]);
+  }, [items, cachedOnly]);
   const imageForRow = useCallback(
     (item: TrackRowItem): string | null =>
       resolveTrackImage(
         { title: item.title, artist_name: item.artistName, album_title: item.albumTitle, image_url: item.imageUrl },
-        { albumImageFor: albumCache.getImage, artistImageFor: artistCache.getImage },
+        { albumImageFor: albumImage, artistImageFor: artistImage },
       ),
-    [albumCache.getImage, artistCache.getImage],
+    [albumImage, artistImage],
   );
 
   // Reset selection when the item set changes (e.g. a new search) so stale ids

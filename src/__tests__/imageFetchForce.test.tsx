@@ -69,6 +69,30 @@ describe("entity image fetch force flag", () => {
     });
   });
 
+  it("peekImage reads the disk and never fetches on a miss", async () => {
+    const { result } = renderHook(() => useImageCache("album"));
+    await act(async () => {
+      result.current.peekImage("Guessed Album", "Guessed Artist");
+      await Promise.resolve();
+    });
+    expect(invoke.mock.calls.some((c) => c[0] === "get_entity_image")).toBe(true);
+    expect(fetchCall("fetch_album_image")).toBeUndefined();
+    expect(result.current.isResolved("Guessed Album", "Guessed Artist")).toBe(true);
+  });
+
+  it("peekImage still returns an image that is already on disk", async () => {
+    invoke.mockImplementation((cmd: string) =>
+      cmd === "get_entity_image" ? Promise.resolve("/imgs/a.jpg") : Promise.resolve(undefined),
+    );
+    const { result } = renderHook(() => useImageCache("artist"));
+    await act(async () => {
+      result.current.peekImage("Known Artist");
+      await Promise.resolve();
+    });
+    expect(result.current.peekImage("Known Artist")).toContain("/imgs/a.jpg");
+    expect(fetchCall("fetch_artist_image")).toBeUndefined();
+  });
+
   it("sends the tag path through the same split", async () => {
     const { result } = renderHook(() => useImageCache("tag"));
     await act(async () => {

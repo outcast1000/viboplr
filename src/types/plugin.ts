@@ -322,6 +322,15 @@ export type PluginViewData =
       // nothing to act on. `selectionPresets` are ignored in single mode, since
       // a preset's whole job is selecting several rows. Requires `selectable`.
       selectionMode?: "single" | "multi";
+      // How rows without an `imageUrl` get their thumbnail from
+      // `albumTitle` / `artistName`. `"fetch"` (the default) is the library's
+      // behaviour: an image already on disk, else ask the image providers.
+      // `"cached"` shows only what is already on disk and never fetches — for
+      // rows whose names are guesses about things the user doesn't have (a
+      // plugin's search results), where fetching would download art for every
+      // album or artist that merely appeared in a result. Older hosts ignore it
+      // and fetch.
+      artwork?: "fetch" | "cached";
       actions?: { id: string; label: string; icon?: string }[];
       categories?: string[];
       numbered?: boolean;
