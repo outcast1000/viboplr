@@ -36,28 +36,83 @@ pub struct ManagedSource {
     /// itself would arrive over, so what is lost is corruption detection, not
     /// a signature. Prefer `Some` whenever upstream offers a file.
     pub checksums_asset: Option<&'static str>,
-    /// Install from this release instead of `releases/latest`, and take its
-    /// version as the latest (no lookup). For upstreams whose "latest" is a
-    /// different product line (Roadie marks only its desktop app latest) or
-    /// that expect consumers to pin: moving on is a host release that bumps
-    /// the pin, which `auto_update_managed` then installs.
-    pub pinned: Option<ReleasePin>,
+    /// Follow a release manifest instead of `releases/latest`: a JSON file at
+    /// `github.com/{repo}/releases/download/{manifest}` naming the newest
+    /// version and, per platform, the asset's URL and sha256 (see
+    /// `ReleaseManifest`). For upstreams whose `releases/latest` is a different
+    /// product line — Roadie marks only its desktop app latest (its updater
+    /// reads `latest.json` there) and publishes the CLI's newest manifest at
+    /// the fixed `cli-latest` release. With a manifest, the `asset_*` fields
+    /// hold the manifest's **platform key** (`darwin-arm64`, `windows-x64`, …)
+    /// rather than a file name, so "is there a managed binary here?" still
+    /// reads `platform_asset().is_some()`; the file name, URL and checksum all
+    /// come from the manifest, and `checksums_asset` is not used.
+    pub manifest: Option<&'static str>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ReleasePin {
-    pub tag: &'static str,
-    /// The version the pinned binary reports (what `version_lt` compares).
-    pub version: &'static str,
+/// A release manifest, as Roadie's release workflow writes it:
+/// `{ "version": "0.2.0", "assets": { "darwin-arm64": { "file", "url",
+/// "sha256", … }, … } }`. Unknown fields are ignored.
+#[derive(Debug, Clone, Deserialize)]
+struct ReleaseManifest {
+    version: String,
+    assets: HashMap<String, ManifestAsset>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ManifestAsset {
+    file: String,
+    url: String,
+    sha256: String,
+}
+
+/// Parse a manifest and take the entry for `platform_key`. Its URL must point
+/// into this repo's own releases: the manifest is fetched from github.com over
+/// TLS like the assets are, and this keeps it from sending an install anywhere
+/// else. Pure, so the rules are asserted without a network.
+fn manifest_entry(body: &str, repo: &str, platform_key: &str) -> Result<(String, ManifestAsset), String> {
+    let m: ReleaseManifest = serde_json::from_str(body).map_err(|e| format!("Release manifest is malformed: {}", e))?;
+    let asset = m
+        .assets
+        .get(platform_key)
+        .cloned()
+        .ok_or_else(|| format!("The release manifest has no {} build", platform_key))?;
+    let prefix = format!("https://github.com/{}/releases/download/", repo);
+    if !asset.url.starts_with(&prefix) {
+        return Err(format!("The release manifest points outside {}'s releases: {}", repo, asset.url));
+    }
+    if asset.sha256.len() != 64 || !asset.sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("The release manifest's checksum for {} is not a sha256", asset.file));
+    }
+    Ok((m.version, asset))
+}
+
+fn manifest_version(body: &str) -> Result<String, String> {
+    let m: ReleaseManifest = serde_json::from_str(body).map_err(|e| format!("Release manifest is malformed: {}", e))?;
+    let v = m.version.trim().trim_start_matches('v').to_string();
+    if v.is_empty() {
+        return Err("The release manifest names no version".into());
+    }
+    Ok(v)
+}
+
+fn fetch_manifest(repo: &str, path: &str) -> Result<String, String> {
+    let url = format!("https://github.com/{}/releases/download/{}", repo, path);
+    let resp = http_client()?
+        .get(&url)
+        .send()
+        .map_err(|e| format!("Release manifest download error: {}", crate::error_chain::err_chain(&e)))?;
+    if !resp.status().is_success() {
+        return Err(format!("Release manifest download failed: HTTP {}", resp.status()));
+    }
+    resp.text().map_err(|e| format!("Release manifest read error: {}", e))
 }
 
 impl ManagedSource {
-    /// Base URL the platform assets and checksums file download from.
+    /// Base URL the platform assets and checksums file download from, for a
+    /// dependency that follows `releases/latest` (a manifest names its own).
     fn download_base(&self) -> String {
-        match self.pinned {
-            Some(pin) => format!("https://github.com/{}/releases/download/{}", self.repo, pin.tag),
-            None => format!("https://github.com/{}/releases/latest/download", self.repo),
-        }
+        format!("https://github.com/{}/releases/latest/download", self.repo)
     }
 
     pub fn platform_asset(&self) -> Option<&'static str> {
@@ -173,15 +228,6 @@ fn parse_roadie_version(output: &str) -> Option<String> {
     v.get("version")?.as_str().map(str::to_string)
 }
 
-/// The Roadie CLI release Viboplr installs. Roadie never marks a CLI release
-/// "latest" (that is its desktop app) and its asset names carry the version,
-/// so both come from this one pin. Bump it deliberately, like libmpv.
-macro_rules! roadie_cli_version {
-    () => {
-        "0.1.0"
-    };
-}
-
 pub static REGISTRY: &[DependencyDef] = &[
     DependencyDef {
         name: "ffmpeg",
@@ -230,7 +276,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_arm64: Some("yt-dlp_linux_aarch64"),
             asset_zipapp: Some("yt-dlp"),
             checksums_asset: Some("SHA2-256SUMS"),
-            pinned: None,
+            manifest: None,
         }),
         data_dir_flag: None,
         maintenance_args: None,
@@ -258,7 +304,7 @@ pub static REGISTRY: &[DependencyDef] = &[
             asset_linux_arm64: Some("rqbit-linux-arm64"),
             asset_zipapp: None,
             checksums_asset: None,
-            pinned: None,
+            manifest: None,
         }),
         data_dir_flag: None,
         maintenance_args: None,
@@ -280,20 +326,18 @@ pub static REGISTRY: &[DependencyDef] = &[
             // runs in its own process and asks the user in a native dialog
             // before it installs anything. One archive per platform.
             repo: "outcast1000/roadie",
-            asset_macos: Some(if cfg!(target_arch = "aarch64") {
-                concat!("roadie-cli-", roadie_cli_version!(), "-darwin-arm64.tar.gz")
-            } else {
-                concat!("roadie-cli-", roadie_cli_version!(), "-darwin-x64.tar.gz")
-            }),
-            asset_windows: Some(concat!("roadie-cli-", roadie_cli_version!(), "-windows-x64.zip")),
+            // Manifest platform keys, not file names (see `ManagedSource::manifest`).
+            asset_macos: Some(if cfg!(target_arch = "aarch64") { "darwin-arm64" } else { "darwin-x64" }),
+            asset_windows: Some("windows-x64"),
             asset_linux_x64: None,
             asset_linux_arm64: None,
             asset_zipapp: None,
-            checksums_asset: Some("SHA256SUMS"),
-            pinned: Some(ReleasePin {
-                tag: concat!("cli-v", roadie_cli_version!()),
-                version: roadie_cli_version!(),
-            }),
+            checksums_asset: None,
+            // The newest CLI, like every other managed dependency follows its
+            // upstream's newest release. Roadie keeps the CLI's output additive
+            // for exactly this (RELEASING.md), and the slskd plugin
+            // feature-detects anything newer than what it knows.
+            manifest: Some("cli-latest/manifest.json"),
         }),
         // Roadie's contract for an app that bundles its CLI: pass our own data
         // dir, and run `maintain` on launch (it starts the tools the user set to
@@ -840,9 +884,11 @@ pub fn latest_version(name: &str, cache: &DepCache) -> Result<String, String> {
         .managed
         .as_ref()
         .ok_or_else(|| format!("{} is not a managed dependency", name))?;
-    // A pinned dependency's latest is the pin: nothing to look up.
-    if let Some(pin) = managed.pinned {
-        return Ok(pin.version.to_string());
+    // A manifest names its own newest version; cached like the redirect answer.
+    if let Some(path) = managed.manifest {
+        let result = fetch_manifest(managed.repo, path).and_then(|body| manifest_version(&body));
+        cache.set_latest(name, result.as_ref().ok().cloned());
+        return result;
     }
 
     let url = format!("https://github.com/{}/releases/latest", managed.repo);
@@ -1065,10 +1111,21 @@ pub fn install_managed(
 
     let client = http_client()?;
     let base = managed.download_base();
+    // Where the bytes come from, the file name they carry (which says whether
+    // it is an archive) and, from a manifest, the checksum to hold them to.
+    let (download_url, asset_file, manifest_sha256) = match managed.manifest {
+        Some(path) => {
+            let body = fetch_manifest(managed.repo, path)?;
+            let (_, entry) = manifest_entry(&body, managed.repo, asset)?;
+            (entry.url, entry.file, Some(entry.sha256.to_ascii_lowercase()))
+        }
+        None => (format!("{}/{}", base, asset), asset.to_string(), None),
+    };
+    let asset = asset_file.as_str();
 
     // Stream the binary to a temp file next to the final location.
     let mut resp = client
-        .get(format!("{}/{}", base, asset))
+        .get(&download_url)
         .send()
         .map_err(|e| format!("Download error: {}", e))?;
     if !resp.status().is_success() {
@@ -1092,9 +1149,18 @@ pub fn install_managed(
             progress(downloaded, total);
         }
 
-        // Verify against the published checksums from the same release, when
-        // the project publishes any (see `ManagedSource::checksums_asset`).
-        if let Some(checksums_asset) = managed.checksums_asset {
+        // Verify against the manifest's checksum, else the published checksums
+        // from the same release when the project publishes any (see
+        // `ManagedSource::checksums_asset`).
+        if let Some(expected) = &manifest_sha256 {
+            let actual = sha256_hex(&data);
+            if &actual != expected {
+                return Err(format!(
+                    "Checksum mismatch for {} (expected {}, got {})",
+                    asset, expected, actual
+                ));
+            }
+        } else if let Some(checksums_asset) = managed.checksums_asset {
             let checksums = client
                 .get(format!("{}/{}", base, checksums_asset))
                 .send()
@@ -1464,7 +1530,7 @@ mod tests {
             asset_linux_arm64: Some("tool_linux_aarch64"),
             asset_zipapp: None,
             checksums_asset: Some("SHA2-256SUMS"),
-            pinned: None,
+            manifest: None,
         };
         let shape = choose_install_shape("tool", &managed).unwrap();
         assert!(matches!(shape, InstallShape::Binary(_)));
@@ -1693,34 +1759,49 @@ mod tests {
     }
 
     #[test]
-    fn test_managed_source_roadie_is_a_pinned_cli_release() {
+    fn test_managed_source_roadie_follows_the_cli_latest_manifest() {
         let def = get_def("roadie").unwrap();
         let managed = def.managed.as_ref().unwrap();
-        let pin = managed.pinned.expect("roadie installs a pinned CLI release");
-        assert_eq!(pin.tag, format!("cli-v{}", pin.version));
-        assert_eq!(
-            managed.download_base(),
-            format!("https://github.com/outcast1000/roadie/releases/download/{}", pin.tag)
-        );
-        // Asset names carry the pinned version, and the checksums file lists them.
-        let arm = format!("roadie-cli-{}-darwin-arm64.tar.gz", pin.version);
-        let x64 = format!("roadie-cli-{}-darwin-x64.tar.gz", pin.version);
+        assert_eq!(managed.manifest, Some("cli-latest/manifest.json"), "the newest CLI, never a pin");
+        // With a manifest the asset fields are its platform keys.
         let mac = managed.asset_macos.unwrap();
-        assert!(mac == arm || mac == x64, "{mac}");
-        assert_eq!(managed.asset_windows.unwrap(), format!("roadie-cli-{}-windows-x64.zip", pin.version));
+        assert!(mac == "darwin-arm64" || mac == "darwin-x64", "{mac}");
+        assert_eq!(managed.asset_windows, Some("windows-x64"));
         assert!(managed.asset_linux_x64.is_none(), "Roadie ships no Linux CLI");
-        assert_eq!(managed.checksums_asset, Some("SHA256SUMS"));
         assert_eq!(def.data_dir_flag, Some("--data-dir"));
         assert_eq!(def.maintenance_args, Some(&["maintain"][..]));
         assert!(allowed_names().contains(&"roadie"));
     }
 
+    const MANIFEST: &str = r#"{
+      "name": "roadie-cli", "version": "0.2.0", "tag": "cli-v0.2.0",
+      "assets": {
+        "darwin-arm64": { "file": "roadie-cli-0.2.0-darwin-arm64.tar.gz",
+          "url": "https://github.com/outcast1000/roadie/releases/download/cli-v0.2.0/roadie-cli-0.2.0-darwin-arm64.tar.gz",
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "binary": "roadie" }
+      }
+    }"#;
+
     #[test]
-    fn test_latest_version_of_a_pinned_dep_is_the_pin_without_a_lookup() {
-        let cache = DepCache::new();
-        let pin = get_def("roadie").unwrap().managed.as_ref().unwrap().pinned.unwrap();
-        assert_eq!(latest_version("roadie", &cache), Ok(pin.version.to_string()));
-        assert!(cache.get_latest("roadie").is_none(), "nothing fetched, nothing cached");
+    fn test_manifest_names_the_version_and_the_platform_build() {
+        assert_eq!(manifest_version(MANIFEST), Ok("0.2.0".to_string()));
+        let (version, entry) = manifest_entry(MANIFEST, "outcast1000/roadie", "darwin-arm64").unwrap();
+        assert_eq!(version, "0.2.0");
+        assert_eq!(entry.file, "roadie-cli-0.2.0-darwin-arm64.tar.gz");
+        assert!(entry.url.ends_with("/cli-v0.2.0/roadie-cli-0.2.0-darwin-arm64.tar.gz"));
+        assert!(manifest_entry(MANIFEST, "outcast1000/roadie", "windows-x64").unwrap_err().contains("no windows-x64 build"));
+    }
+
+    #[test]
+    fn test_manifest_may_not_send_an_install_elsewhere() {
+        let elsewhere = MANIFEST.replace("https://github.com/outcast1000/roadie/", "https://example.com/outcast1000/roadie/");
+        assert!(manifest_entry(&elsewhere, "outcast1000/roadie", "darwin-arm64").unwrap_err().contains("points outside"));
+        // Another repo's releases are "elsewhere" too.
+        assert!(manifest_entry(MANIFEST, "someone/else", "darwin-arm64").is_err());
+        let bad_sum = MANIFEST.replace("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "nope");
+        assert!(manifest_entry(&bad_sum, "outcast1000/roadie", "darwin-arm64").unwrap_err().contains("not a sha256"));
+        assert!(manifest_version("{}").is_err());
+        assert!(manifest_version(r#"{"version": "", "assets": {}}"#).is_err());
     }
 
     #[test]
@@ -1766,10 +1847,10 @@ mod tests {
         assert!(extract_member(&bytes, ArchiveKind::Zip, "roadie").is_err());
     }
 
-    /// REAL install of the pinned Roadie CLI from GitHub: download, checksum
-    /// against the release's SHA256SUMS, unpack, run `version`. Needs network
-    /// and a published `cli-v<pin>` release. Sets the process-wide bin dir, so
-    /// run it alone:
+    /// REAL install of the newest Roadie CLI from GitHub: read the cli-latest
+    /// manifest, download, check its sha256, unpack, run a command. Needs
+    /// network and a published cli-latest manifest. Sets the process-wide bin
+    /// dir, so run it alone:
     /// `cargo test --lib dependencies::tests::probe_install_roadie_cli -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -1778,8 +1859,7 @@ mod tests {
         set_managed_bin_dir(root.join("bin"));
         let cache = DepCache::new();
         let version = install_managed("roadie", &cache, |_, _| {}).expect("install");
-        let pin = get_def("roadie").unwrap().managed.as_ref().unwrap().pinned.unwrap();
-        assert_eq!(version, pin.version);
+        assert_eq!(Ok(version), latest_version("roadie", &cache), "installed what the manifest names");
         // Every spawn carries our data dir, and the CLI answers with it.
         let out = command_with_path("roadie").args(["tool", "status", "slskd"]).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
