@@ -916,7 +916,10 @@ export const HOST_SEARCH_ACTION = "host:search";
 
 export interface PluginUIAPI {
   setViewData(viewId: string, data: PluginViewData, opts?: { scrollKey?: string }): void;
-  showNotification(message: string): void;
+  /** A transient toast. `options.action` adds one button that runs this
+   *  plugin's own `onAction(id)` handler ("Start slskd"); a toast with one
+   *  stays up longer. Older hosts ignore `options` and show the text. */
+  showNotification(message: string, options?: { action?: { label: string; id: string } }): void;
   onAction(actionId: string, handler: (data: unknown) => void): void;
   navigateToView(viewId: string): void;
   requestAction(action: string, payload: Record<string, unknown>): void;

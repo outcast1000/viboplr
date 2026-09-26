@@ -2023,9 +2023,9 @@ function App() {
         }
       }
     },
-    showNotification: (message) => {
+    showNotification: (message, action) => {
       console.debug("[plugin]", message);
-      notify(message);
+      notify(message, action);
     },
   });
 

@@ -15,6 +15,7 @@ import { track as trackTelemetry } from "../telemetry";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
 import type { Track, QueueTrack, Collection } from "../types";
+import type { ToastAction } from "./useToasts";
 import type {
   InstalledPlugin,
   PluginManifest,
@@ -276,7 +277,7 @@ export interface PluginPlaybackCallbacks {
 export interface PluginHostCallbacks {
   navigateToPluginView: (pluginId: string, viewId: string) => void;
   requestAction: (pluginId: string, action: string, payload: Record<string, unknown>) => void;
-  showNotification: (message: string) => void;
+  showNotification: (message: string, action?: ToastAction) => void;
 }
 
 export function usePlugins(
@@ -871,13 +872,34 @@ export function usePlugins(
             }
             setViewData(new Map(viewDataRef.current));
           },
-          showNotification: (message) => {
+          showNotification: (message, options) => {
             // Was `showNotification(message) ?? console.log(...)`, which always
             // logged: showNotification returns void, so the `??` right-hand side
             // ran whether or not a host was attached. The console line is the
             // fallback for a host that has none (tests, an early activate).
             const notify = hostCallbacksRef?.current?.showNotification;
-            if (notify) notify(message);
+            // The button runs this plugin's own UI action — never another
+            // plugin's, and nothing when the plugin registered no such action.
+            const a = options?.action;
+            const action: ToastAction | undefined =
+              a && typeof a.label === "string" && a.label.trim() && typeof a.id === "string"
+                ? {
+                    label: a.label.trim().slice(0, 40),
+                    run: () => {
+                      const handler = loaded.uiActionHandlers.get(a.id);
+                      if (!handler) {
+                        console.error(`[plugin:${pluginId}] notification action ${a.id} has no handler`);
+                        return;
+                      }
+                      try {
+                        handler(undefined);
+                      } catch (e) {
+                        console.error(`[plugin:${pluginId}] notification action ${a.id} error:`, e);
+                      }
+                    },
+                  }
+                : undefined;
+            if (notify) notify(message, action);
             else console.info(`[plugin:${pluginId}]`, message);
           },
           navigateToView: (viewId) => {

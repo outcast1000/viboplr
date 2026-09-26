@@ -1117,6 +1117,31 @@
   background: var(--bg-hover);
 }
 
+/* A toast with one action button: message on the left, the button on the
+   right. The container isn't clickable itself — the two controls are. */
+.toast--action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: default;
+  text-align: left;
+}
+.toast--action:hover {
+  background: var(--bg-surface);
+}
+.toast-message {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.toast-action {
+  flex-shrink: 0;
+}
+
 .queue-duplicate-actions {
   display: flex;
   flex-direction: column;

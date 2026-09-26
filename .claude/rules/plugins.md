@@ -311,7 +311,8 @@ Contributes a searchable catalog to the global search (Cmd+K). Mirrors the `api.
 
 ### api.ui
 - `setViewData(viewId, data, opts?)` — render plugin views (see `PluginViewData` types). `opts.scrollKey?: string` enables per-view scroll memory: the host saves/restores the view's scroll position keyed by `scrollKey`. Change it on navigation (new sub-view → opens at top; returning to a prior key → scroll restored); keep it stable across in-place updates so the view doesn't jump.
-- `showNotification(message)` / `navigateToView(viewId)` / `requestAction(action, payload)`
+- `showNotification(message, options?)` — a transient toast. `options.action: { label, id }` adds **one button** that runs this plugin's own `onAction(id)` handler and dismisses the toast — for a warning whose fix is one click ("slskd isn't running." → **Start slskd**). A toast with an action stays up `ACTION_TOAST_MS` (12s) instead of 4.5s, since a button that vanishes before it's reached is no button. The button can only reach the calling plugin's own handlers; an id with no handler logs and does nothing. Older hosts ignore `options` and show the text, so no `minAppVersion` bump is needed — but word the message so it still makes sense without the button.
+- `navigateToView(viewId)` / `requestAction(action, payload)`
 - `onAction(actionId, handler)` — handle UI action events emitted from plugin views
 - `setBadge(viewId, badge)` — set a sidebar badge: `null | { type: "dot", variant, tooltip? } | { type: "count", value, variant }`. `variant` is one of `accent | error | success | warning | muted`.
 
