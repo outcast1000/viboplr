@@ -450,6 +450,12 @@ impl DepCache {
             .unwrap()
             .insert(name.to_string(), (Instant::now(), version));
     }
+
+    /// Forget every latest-version answer, failures included. Only for an
+    /// explicit user refresh: the automatic checks keep the 24h TTL.
+    pub fn clear_latest(&self) {
+        self.latest.lock().unwrap().clear();
+    }
 }
 
 /// Directory holding app-managed binary copies. Shared across profiles
@@ -1893,6 +1899,12 @@ mod tests {
         // Cached failure is distinct from "no entry"
         cache.set_latest("yt-dlp", None);
         assert_eq!(cache.get_latest("yt-dlp"), Some(None));
+
+        // A user refresh forgets answers and failures alike.
+        cache.set_latest("roadie", Some("0.3.0".to_string()));
+        cache.clear_latest();
+        assert!(cache.get_latest("yt-dlp").is_none());
+        assert!(cache.get_latest("roadie").is_none());
     }
 
     #[test]

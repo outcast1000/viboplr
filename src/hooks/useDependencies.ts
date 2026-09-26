@@ -103,7 +103,7 @@ export function useDependencies(pluginStates: PluginState[]) {
   // installed once and must re-probe the dep the background updater replaced.
   // Both are defined further down, hence the assign-later ref pattern.
   const checkDepRef = useRef<(name: string) => Promise<DependencyInfo | null>>(async () => null);
-  const checkUpdatesRef = useRef<() => Promise<DepUpdateInfo[]>>(async () => []);
+  const checkUpdatesRef = useRef<(force?: boolean) => Promise<DepUpdateInfo[]>>(async () => []);
   // Read by that listener to tell "the list is on screen, refresh this row"
   // from "nothing has ever run a check" — see the guard there.
   const depsRef = useLatestRef(deps);
@@ -241,9 +241,10 @@ export function useDependencies(pluginStates: PluginState[]) {
   );
 
   // Latest-vs-installed for all managed deps (network, 24h TTL-cached backend-side).
-  const checkUpdates = useCallback(async (): Promise<DepUpdateInfo[]> => {
+  // `force` (the user's Refresh click) skips that cache.
+  const checkUpdates = useCallback(async (force = false): Promise<DepUpdateInfo[]> => {
     try {
-      const results = (await invoke("dependency_check_updates")) as DepUpdateInfo[];
+      const results = (await invoke("dependency_check_updates", { force })) as DepUpdateInfo[];
       setUpdates(results);
       return results;
     } catch (e) {

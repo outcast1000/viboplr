@@ -1071,7 +1071,7 @@ function DependenciesSection({
   const handleRefresh = async () => {
     setLoading(true);
     await dependencies.checkAll(true);
-    await dependencies.checkUpdates();
+    await dependencies.checkUpdates(true);
     setLoading(false);
   };
 
@@ -1568,7 +1568,7 @@ interface SettingsPanelProps {
     }>;
     installing: Record<string, { downloaded: number; total: number | null }>;
     checkAll: (forceRefresh?: boolean) => Promise<unknown>;
-    checkUpdates: () => Promise<unknown>;
+    checkUpdates: (force?: boolean) => Promise<unknown>;
     installDep: (name: string) => Promise<string | null>;
     uninstallManaged: (name: string) => Promise<void>;
   };

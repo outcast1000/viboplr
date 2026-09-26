@@ -424,11 +424,17 @@ pub async fn dependency_uninstall_managed(
 /// Latest-vs-installed comparison for every managed dependency. One
 /// `releases/latest` redirect probe per dep per 24h (TTL-cached, failures
 /// included) — never the rate-limited GitHub API; see `latest_version`.
+/// `force` (Settings → Dependencies → Refresh) drops that cache first, so a
+/// release published since the last lookup shows up now, not tomorrow.
 #[tauri::command]
 pub async fn dependency_check_updates(
     state: State<'_, AppState>,
+    force: Option<bool>,
 ) -> Result<Vec<dependencies::DepUpdateInfo>, String> {
     let cache = Arc::clone(&state.dep_cache);
+    if force.unwrap_or(false) {
+        cache.clear_latest();
+    }
     Ok(tauri::async_runtime::spawn_blocking(move || {
         dependencies::REGISTRY
             .iter()
