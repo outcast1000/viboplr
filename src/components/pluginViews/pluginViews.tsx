@@ -13,6 +13,7 @@ import { TrackRow } from "../TrackRow";
 import { resolveImageUrl } from "../../utils/resolveImageUrl";
 import { resolveTrackImage } from "../../utils/trackImage";
 import { useImageCache } from "../../hooks/useImageCache";
+import { usePointerFocusGuard } from "../../hooks/usePointerFocusGuard";
 import { sanitizeHTML } from "./htmlSanitize";
 import { pluginMenuItemLabel } from "../../contextMenu/pluginMenuGroups";
 import {
@@ -727,6 +728,7 @@ function PluginTrackRowsSelectable({
   const [activeIndex, setActiveIndex] = useState(-1);
   const lastClickedIndexRef = useRef<number | null>(null);
   const didDragRef = useRef(false);
+  const focusGuard = usePointerFocusGuard();
   const listId = useId();
   const optionId = (i: number) => `${listId}opt${i}`;
 
@@ -919,7 +921,10 @@ function PluginTrackRowsSelectable({
     }
   }
 
+  // Tab seeds the cursor on row 0; a click must not (see usePointerFocusGuard —
+  // it scrolled the list to the top under a hover action's click).
   function handleListFocus(e: React.FocusEvent<HTMLDivElement>) {
+    if (focusGuard.isPointerFocus()) return;
     if (e.target === e.currentTarget && activeIndex < 0 && items.length > 0) setActiveIndex(0);
   }
 
@@ -1003,6 +1008,7 @@ function PluginTrackRowsSelectable({
         aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
         tabIndex={0}
         onKeyDown={handleListKeyDown}
+        onMouseDownCapture={focusGuard.onMouseDownCapture}
         onFocus={handleListFocus}
       >
         {items.map((item, i) => {

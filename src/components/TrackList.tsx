@@ -9,6 +9,7 @@ import { RowHoverActions } from "./RowHoverActions";
 import { SpinningDisc } from "./SpinningDisc";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { useAssignRef } from "../hooks/useLatestRef";
+import { usePointerFocusGuard } from "../hooks/usePointerFocusGuard";
 import "./TrackList.css";
 
 const COLUMN_DISPLAY_NAMES: Record<TrackColumnId, string> = {
@@ -143,6 +144,7 @@ export function TrackList({
   const listId = useId();
   const optionId = (i: number) => `${listId}opt${i}`;
   const lastClickedIndexRef = useRef<number | null>(null);
+  const focusGuard = usePointerFocusGuard();
 
   useEffect(() => {
     if (!hasMore || !onLoadMore) return;
@@ -259,8 +261,10 @@ export function TrackList({
     }
   }
 
-  // First focus on the list seeds the cursor so the active option is announced.
+  // First keyboard focus on the list seeds the cursor so the active option is
+  // announced. Not a click's focus: see usePointerFocusGuard.
   function handleListFocus(e: React.FocusEvent<HTMLDivElement>) {
+    if (focusGuard.isPointerFocus()) return;
     if (e.target === e.currentTarget && activeIndex < 0 && tracks.length > 0) setActiveIndex(0);
   }
 
@@ -496,6 +500,7 @@ export function TrackList({
       aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
       tabIndex={0}
       onKeyDown={handleListKeyDown}
+      onMouseDownCapture={focusGuard.onMouseDownCapture}
       onFocus={handleListFocus}
     >
       <div className="track-header" role="presentation" onContextMenu={handleHeaderContextMenu}>
