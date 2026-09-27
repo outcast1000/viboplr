@@ -59,6 +59,7 @@ Each entry documents the gold standard implementation for a repeated user action
 
 - **Canonical:** `useQueue.ts` -> `playTracks()` / `enqueueTracks()` / `playNextInQueue()`
 - Enqueue checks for duplicates via `findDuplicates()` with user confirmation modal
+- Callers outside the queue's own UI (plugin bridge, Cmd+K plugin results, control API) use `utils/queueOps.ts` → `playNow()` / `addToQueue()` / `playWithBackfill()`, which apply the duplicate policy and the like reconcile uniformly — see queue.md "Duplicate Detection".
 - `playTracks()` returns the **play generation** of the session it started — the token `appendToPlaySession()` needs. Ignore it for ordinary plays.
 
 ### Start Radio

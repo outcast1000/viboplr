@@ -53,6 +53,9 @@ import { useQueue } from "./hooks/useQueue";
 import type { PlaylistContext } from "./hooks/useQueue";
 import { usePlayActions } from "./hooks/usePlayActions";
 import type { BackfillPlay } from "./hooks/usePlayActions";
+import type { PendingEnqueue } from "./hooks/useQueueDragToInsert";
+import * as queueOps from "./utils/queueOps";
+import type { QueueOpsDeps } from "./utils/queueOps";
 import { useToasts } from "./hooks/useToasts";
 import { useUserPlaylists } from "./hooks/useUserPlaylists";
 import { toPlaylistTrackPayload } from "./utils/playlistPayload";
@@ -241,6 +244,7 @@ async function resolveFirstAlbumCover(
 function App() {
   const restoredRef = useRef(false);
   const handleEnqueueRef = useRef<(tracks: Track[]) => void>(() => {});
+  const askAboutDuplicatesRef = useRef<(pending: PendingEnqueue) => void>(() => {});
   // Late-bound so the plugin playback bridge (built above playActions) can reach
   // the canonical backfill action. Resolves with the tracks actually appended.
   const playWithBackfillRef = useRef<(opts: BackfillPlay) => Promise<QueueTrack[]>>(() => Promise.resolve([]));
@@ -647,62 +651,62 @@ function App() {
     };
   }, []);
 
+  // The one set of deps every outside-the-queue-UI entry point shares (plugin
+  // bridge, Cmd+K plugin results, control API) — see utils/queueOps.ts for the
+  // like-reconcile and duplicate rules it applies uniformly. The banner and
+  // backfill are reached through refs: both hooks are constructed further down.
+  const queueOpsDeps = useMemo<QueueOpsDeps>(() => ({
+    playTracks: queueHook.playTracks,
+    enqueueTracks: queueHook.enqueueTracks,
+    insertAtPosition: queueHook.insertAtPosition,
+    findDuplicates: queueHook.findDuplicates,
+    queueIndex: () => queueHook.queueIndex,
+    playWithBackfill: (opts) => playWithBackfillRef.current(opts),
+    askAboutDuplicates: (pending, onAdded) => askAboutDuplicatesRef.current({ ...pending, onAdded }),
+    reconcileLikes: (added) => { reconcileAddedLikeStates(added); },
+  }), [queueHook, reconcileAddedLikeStates]);
+
   const pluginPlaybackCallbacks = useMemo(() => ({
     playTrack: (track: PluginTrack) => {
-      const converted = [pluginTrackToQueueTrack(track)];
-      queueHook.playTracks(converted, 0);
-      reconcileAddedLikeStates(converted);
+      queueOps.playNow(queueOpsDeps, [pluginTrackToQueueTrack(track)]);
     },
     playTracks: (tracks: PluginTrack[], startIndex?: number, context?: PluginPlayContext) => {
-      const converted = tracks.map(pluginTrackToQueueTrack);
-      queueHook.playTracks(converted, startIndex ?? 0, pluginPlaylistContext(context));
-      reconcileAddedLikeStates(converted);
+      queueOps.playNow(queueOpsDeps, tracks.map(pluginTrackToQueueTrack), {
+        startIndex, context: pluginPlaylistContext(context),
+      });
     },
     // Play the plugin's known head now, append its resolved tail behind the
     // music. The host owns the staleness guard + head de-dupe (see
     // conventions.md "Play With Backfill"), so a plugin can't splice a late
-    // tail into a queue the user has since replaced. Routed through a ref
-    // because playActions is constructed further down.
-    playWithBackfill: (opts: { head: PluginTrack[]; context?: PluginPlayContext; resolveTail: () => Promise<PluginTrack[]> | PluginTrack[]; tailErrorMessage?: string }) => {
-      const head = opts.head.map(pluginTrackToQueueTrack);
-      if (head.length === 0) return Promise.resolve(0);
-      const appended = playWithBackfillRef.current({
-        head,
+    // tail into a queue the user has since replaced.
+    playWithBackfill: (opts: { head: PluginTrack[]; context?: PluginPlayContext; resolveTail: () => Promise<PluginTrack[]> | PluginTrack[]; tailErrorMessage?: string }) =>
+      queueOps.playWithBackfill(queueOpsDeps, {
+        head: opts.head.map(pluginTrackToQueueTrack),
         context: pluginPlaylistContext(opts.context),
         // Promise.resolve tolerates a plugin handing back a plain array.
         resolveTail: () => Promise.resolve(opts.resolveTail()).then(ts => (ts ?? []).map(pluginTrackToQueueTrack)),
         tailErrorMessage: opts.tailErrorMessage,
-      });
-      reconcileAddedLikeStates(head);
-      // Hand back the appended count so the plugin reports what actually landed
-      // rather than what it resolved — a tail dropped as stale appended nothing.
-      return appended.then(tracks => {
-        if (tracks.length > 0) reconcileAddedLikeStates(tracks);
-        return tracks.length;
-      }).catch(e => {
-        console.error("Plugin backfill play failed:", e);
-        return 0;
-      });
-    },
+      })
+        // Hand back the appended count so the plugin reports what actually
+        // landed rather than what it resolved — a stale tail appended nothing.
+        .then(tracks => tracks.length)
+        .catch(e => {
+          console.error("Plugin backfill play failed:", e);
+          return 0;
+        }),
+    // A plugin insert is a user gesture made in the plugin's own view, so a
+    // duplicate raises the same banner the context menu does. -1 = append.
     insertTrack: (track: PluginTrack, position: number) => {
-      const converted = [pluginTrackToQueueTrack(track)];
-      if (position === -1) {
-        queueHook.enqueueTracks(converted);
-      } else {
-        queueHook.insertAtPosition(converted, position);
-      }
-      reconcileAddedLikeStates(converted);
+      queueOps.addToQueue(queueOpsDeps, [pluginTrackToQueueTrack(track)], {
+        position: position === -1 ? "end" : position, duplicates: "ask",
+      });
     },
     insertTracks: (tracks: PluginTrack[], position: number) => {
-      const converted = tracks.map(pluginTrackToQueueTrack);
-      if (position === -1) {
-        queueHook.enqueueTracks(converted);
-      } else {
-        queueHook.insertAtPosition(converted, position);
-      }
-      reconcileAddedLikeStates(converted);
+      queueOps.addToQueue(queueOpsDeps, tracks.map(pluginTrackToQueueTrack), {
+        position: position === -1 ? "end" : position, duplicates: "ask",
+      });
     },
-  }), [queueHook, reconcileAddedLikeStates, pluginPlaylistContext]);
+  }), [queueOpsDeps, pluginPlaylistContext]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
   // Defer plugin loading until the cold-start critical path has settled
   // (window shown + state restored). `!appRestoring` flips true at that point;
@@ -1279,14 +1283,10 @@ function App() {
     // the durable metadata-keyed store (same as every other plugin-track entry
     // point — see the playback bridge).
     onPlayPluginTrack: (track) => {
-      const converted = [pluginTrackToQueueTrack(track)];
-      queueHook.playTracks(converted, 0);
-      reconcileAddedLikeStates(converted);
+      queueOps.playNow(queueOpsDeps, [pluginTrackToQueueTrack(track)]);
     },
     onEnqueuePluginTrack: (track) => {
-      const converted = [pluginTrackToQueueTrack(track)];
-      queueHook.enqueueTracks(converted);
-      reconcileAddedLikeStates(converted);
+      queueOps.addToQueue(queueOpsDeps, [pluginTrackToQueueTrack(track)], { duplicates: "ask" });
     },
     // Row hearts in the dropdown. `likeActions` is declared further down; these
     // closures only run on a click, long after it exists.
@@ -1715,6 +1715,7 @@ function App() {
   // playActions is constructed before contextMenuActions, so the enqueue-entity
   // actions reach the dedup-aware handleEnqueue through this ref (updated each render).
   useAssignRef(handleEnqueueRef, contextMenuActions.handleEnqueue);
+  useAssignRef(askAboutDuplicatesRef, contextMenuActions.askAboutDuplicates);
 
   // Drag files/folders from the OS file manager into the app to enqueue them.
   const { isDragging: fileDragOver } = useFileDrop({
@@ -3701,7 +3702,7 @@ function App() {
     next: () => handleNext(),
     previous: () => queueHook.playPrevious(),
     startRadio: playActions.startRadio,
-    playWithBackfill: playActions.playWithBackfill,
+    queueOps: queueOpsDeps,
     mini: { miniMode: mini.miniMode, toggleMiniMode: mini.toggleMiniMode },
     window: {
       setFullscreen: (on: boolean) => setProbeFullscreenRef.current(on),
@@ -5821,16 +5822,21 @@ function App() {
           playlistContext={queueHook.playlistContext}
           pendingEnqueue={contextMenuActions.pendingEnqueue}
           onAllowAll={() => {
-            if (contextMenuActions.pendingEnqueue) {
-              if (contextMenuActions.pendingEnqueue.position != null) queueHook.insertAtPosition(contextMenuActions.pendingEnqueue.all, contextMenuActions.pendingEnqueue.position);
-              else queueHook.enqueueTracks(contextMenuActions.pendingEnqueue.all);
+            const pe = contextMenuActions.pendingEnqueue;
+            if (pe) {
+              if (pe.position != null) queueHook.insertAtPosition(pe.all, pe.position);
+              else queueHook.enqueueTracks(pe.all);
+              // Only queueOps sets onAdded, and it only ever holds QueueTracks.
+              pe.onAdded?.(pe.all as QueueTrack[]);
             }
             contextMenuActions.setPendingEnqueue(null);
           }}
           onSkipDuplicates={() => {
-            if (contextMenuActions.pendingEnqueue) {
-              if (contextMenuActions.pendingEnqueue.position != null) queueHook.insertAtPosition(contextMenuActions.pendingEnqueue.unique, contextMenuActions.pendingEnqueue.position);
-              else queueHook.enqueueTracks(contextMenuActions.pendingEnqueue.unique);
+            const pe = contextMenuActions.pendingEnqueue;
+            if (pe) {
+              if (pe.position != null) queueHook.insertAtPosition(pe.unique, pe.position);
+              else queueHook.enqueueTracks(pe.unique);
+              if (pe.unique.length > 0) pe.onAdded?.(pe.unique as QueueTrack[]);
             }
             contextMenuActions.setPendingEnqueue(null);
           }}

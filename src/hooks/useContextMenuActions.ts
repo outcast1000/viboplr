@@ -193,12 +193,17 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     return results;
   }
 
+  /** Raise the duplicate banner (expanding the queue so it's visible). */
+  function askAboutDuplicates(pending: PendingEnqueue) {
+    setPendingEnqueue(pending);
+    if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
+  }
+
   function handleEnqueue(tracks: Array<Track | QueueTrack>) {
     if (tracks.length === 0) return;
     const { duplicates, unique } = queueHook.findDuplicates(tracks);
     if (duplicates.length > 0) {
-      setPendingEnqueue({ all: tracks, duplicates, unique });
-      if (queueCollapsed) setQueueCollapsed(false); // persistence: usePersistedSetting
+      askAboutDuplicates({ all: tracks, duplicates, unique });
     } else {
       queueHook.enqueueTracks(tracks);
     }
@@ -470,6 +475,7 @@ export function useContextMenuActions(deps: UseContextMenuActionsDeps) {
     setFolderError,
     pendingEnqueue,
     setPendingEnqueue,
+    askAboutDuplicates,
     externalDropTarget,
     handleTrackContextMenu,
     handleAlbumContextMenu,

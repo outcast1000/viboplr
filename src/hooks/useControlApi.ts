@@ -44,7 +44,6 @@ import { getPlaybackPosition } from "../playback/positionStore";
 import { applyTag, removeTag } from "./useTagActions";
 import { sameSong } from "./useLikeActions";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
-import { fetchLikeStates, applyLikeStates } from "../utils/likeReconcile";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
 import { errorText } from "../utils/errorKind";
 import { stabilityTier } from "../utils/pluginStability";
@@ -65,12 +64,12 @@ import {
   asNumberArray,
   asStringArray,
   orderTracksByIds,
-  partitionEnqueue,
   serializeQueue,
   serializeStatus,
   type ControlApiRequest,
 } from "../utils/controlApi";
 import { invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
+import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
 
 export interface ControlApiDeps {
   appRestoring: boolean;
@@ -81,10 +80,6 @@ export interface ControlApiDeps {
     queueMode: QueueMode;
     setQueueMode: (mode: QueueMode) => void;
     setQueueIndex: (index: number) => void;
-    playTracks: (tracks: QueueTrack[], startIndex: number, context?: PlaylistContext | null) => number;
-    enqueueTracks: (tracks: QueueTrack[]) => void;
-    findDuplicates: (tracks: QueueTrack[]) => { duplicates: QueueTrack[]; unique: QueueTrack[] };
-    insertAtPosition: (tracks: QueueTrack[], position: number) => void;
     removeMultiple: (indices: number[]) => void;
     clearQueue: () => void;
     randomizeQueue: () => void;
@@ -108,14 +103,10 @@ export interface ControlApiDeps {
   /** usePlayActions.startRadio — resolves with the station's track count,
    *  or null when nothing started. */
   startRadio: (seed: { title: string; artistName: string | null; coverPath: string | null }) => Promise<number | null>;
-  /** usePlayActions.playWithBackfill — play the known head now, append the
-   *  resolved tail behind the music (generation-guarded). */
-  playWithBackfill: (opts: {
-    head: QueueTrack[];
-    context?: PlaylistContext | null;
-    resolveTail: () => Promise<QueueTrack[]>;
-    tailErrorMessage?: string;
-  }) => Promise<QueueTrack[]>;
+  /** App's shared queue-entry deps (utils/queueOps.ts) — every verb that puts
+   *  tracks into the queue goes through them, so like reconcile and the
+   *  duplicate check are the same as for a plugin or the Cmd+K dropdown. */
+  queueOps: QueueOpsDeps;
   plugins: {
     pluginStates: PluginState[];
     /** usePlugins.togglePlugin — set semantics, persists + reloads. */
@@ -256,12 +247,10 @@ function parseInfoValue(raw: string): unknown {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-/** Convert plugin tracks for the queue and reconcile their like state against
- *  the durable store — the same pairing App's plugin-playback bridge runs. */
-async function toReconciledQueueTracks(tracks: PluginTrack[]): Promise<QueueTrack[]> {
-  const qts = tracks.map(pluginTrackToQueueTrack);
-  const states = await fetchLikeStates(qts);
-  return applyLikeStates(qts, states);
+/** The control API never shows the duplicate banner: duplicates are skipped
+ *  and counted, or added when the request says `allowDuplicates: true`. */
+function duplicatePolicy(payload: Record<string, unknown>): DuplicatePolicy {
+  return payload.allowDuplicates === true ? "allow" : "skip";
 }
 
 /** Playlist mutations apply only to user playlists — auto/system rows are
@@ -347,9 +336,8 @@ export function useControlApi(deps: ControlApiDeps) {
 
       case "queue.play": {
         const tracks = (await resolveTracks(payload)).map(trackToQueueTrack);
-        d.queueHook.playTracks(tracks, 0, {
-          name: optionalString(payload.contextName) ?? "Control API",
-          source: "control-api",
+        playNow(d.queueOps, tracks, {
+          context: { name: optionalString(payload.contextName) ?? "Control API", source: "control-api" },
         });
         return { queued: tracks.length };
       }
@@ -358,16 +346,12 @@ export function useControlApi(deps: ControlApiDeps) {
         const mode = payload.mode ?? "end";
         if (mode !== "end" && mode !== "next") bad('mode must be "end" or "next"');
         const tracks = (await resolveTracks(payload)).map(trackToQueueTrack);
-        // The findDuplicates check every enqueue entry point runs (queue.md);
-        // the API resolves the banner's question programmatically instead of
-        // popping a modal over a user who didn't act — skips are reported.
-        const dup = d.queueHook.findDuplicates(tracks);
-        const { toAdd, skipped } = partitionEnqueue(tracks, dup, payload.allowDuplicates === true);
-        if (toAdd.length > 0) {
-          if (mode === "next") d.queueHook.insertAtPosition(toAdd, d.queueHook.queueIndex + 1);
-          else d.queueHook.enqueueTracks(toAdd);
-        }
-        return { added: toAdd.length, skippedDuplicates: skipped };
+        // The API answers the duplicate banner's question programmatically
+        // instead of popping it over a user who didn't act — skips are reported.
+        const { added, skippedDuplicates } = addToQueue(d.queueOps, tracks, {
+          position: mode, duplicates: duplicatePolicy(payload),
+        });
+        return { added, skippedDuplicates };
       }
 
       case "queue.remove": {
@@ -624,16 +608,13 @@ export function useControlApi(deps: ControlApiDeps) {
         // collide two queue entries on one React key.
         const tracks = selected.map((t) => ({ ...t, key: nextQueueKey() }));
         if (mode === "play") {
-          d.queueHook.playTracks(tracks, 0, { name: entry.label, source: "control-api" });
+          playNow(d.queueOps, tracks, { context: { name: entry.label, source: "control-api" } });
           return { queued: tracks.length, name: entry.label };
         }
-        const dup = d.queueHook.findDuplicates(tracks);
-        const { toAdd, skipped } = partitionEnqueue(tracks, dup, payload.allowDuplicates === true);
-        if (toAdd.length > 0) {
-          if (mode === "next") d.queueHook.insertAtPosition(toAdd, d.queueHook.queueIndex + 1);
-          else d.queueHook.enqueueTracks(toAdd);
-        }
-        return { added: toAdd.length, skippedDuplicates: skipped, name: entry.label };
+        const { added, skippedDuplicates } = addToQueue(d.queueOps, tracks, {
+          position: mode, duplicates: duplicatePolicy(payload),
+        });
+        return { added, skippedDuplicates, name: entry.label };
       }
 
       // --- Window control ---
@@ -785,7 +766,7 @@ export function useControlApi(deps: ControlApiDeps) {
             : await invoke<Track[]>("get_tracks_by_artist", { artistId: action.id });
           if (tracks.length === 0) bad("that entity has no tracks");
           const name = (item as { name?: string }).name ?? entry.shelf.title;
-          d.queueHook.playTracks(tracks.map(trackToQueueTrack), 0, { name, source: "control-api" });
+          playNow(d.queueOps, tracks.map(trackToQueueTrack), { context: { name, source: "control-api" } });
           return { queued: tracks.length, name };
         }
         if (action.kind === "radio") {
@@ -807,27 +788,27 @@ export function useControlApi(deps: ControlApiDeps) {
         };
 
         if (action.kind === "tracks" && action.tracks.length > 0 && !action.partial) {
-          const tracks = await toReconciledQueueTracks(action.tracks);
-          d.queueHook.playTracks(tracks, 0, context);
+          const tracks = action.tracks.map(pluginTrackToQueueTrack);
+          playNow(d.queueOps, tracks, { context });
           return { queued: tracks.length, name: context.name };
         }
         // Lazy or partial card: the shelf's resolve-play handler owns the list.
         const resolve = d.plugins.invokeHomeShelfResolvePlay(pluginId, shelfId, item);
         if (action.kind === "tracks" && action.partial && action.tracks.length > 0) {
           // Play the shipped head now, backfill the remainder behind the music.
-          const head = await toReconciledQueueTracks(action.tracks);
-          const appended = await d.playWithBackfill({
+          const head = action.tracks.map(pluginTrackToQueueTrack);
+          const appended = await playWithBackfill(d.queueOps, {
             head,
             context,
-            resolveTail: async () => resolve ? toReconciledQueueTracks(await resolve) : [],
+            resolveTail: async () => resolve ? (await resolve).map(pluginTrackToQueueTrack) : [],
           });
           return { queued: head.length + appended.length, name: context.name, backfilled: appended.length };
         }
         if (!resolve) bad("this card ships no tracks and its shelf has no resolver");
         const resolved = await resolve;
         if (!resolved || resolved.length === 0) bad("the shelf resolved no tracks for this card");
-        const tracks = await toReconciledQueueTracks(resolved);
-        d.queueHook.playTracks(tracks, 0, context);
+        const tracks = resolved.map(pluginTrackToQueueTrack);
+        playNow(d.queueOps, tracks, { context });
         return { queued: tracks.length, name: context.name };
       }
 
@@ -1336,16 +1317,15 @@ export function useControlApi(deps: ControlApiDeps) {
         if (!playlist) bad(`playlist ${playlistId} not found`);
         const rows = await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId });
         if (rows.length === 0) bad("playlist is empty");
-        // Same conversion + like reconcile the Playlists view runs.
-        const likeStates = await fetchLikeStates(rows);
-        const tracks = applyLikeStates(rows.map(playlistTrackToQueueTrack), likeStates);
-        d.queueHook.playTracks(tracks, 0, {
-          name: playlist.name,
-          imagePath: playlist.image_path ?? null,
-          source: playlist.source ?? "playlist",
-          description: playlist.description ?? null,
+        playNow(d.queueOps, rows.map(playlistTrackToQueueTrack), {
+          context: {
+            name: playlist.name,
+            imagePath: playlist.image_path ?? null,
+            source: playlist.source ?? "playlist",
+            description: playlist.description ?? null,
+          },
         });
-        return { queued: tracks.length, name: playlist.name };
+        return { queued: rows.length, name: playlist.name };
       }
 
       case "playlists.enqueue": {
@@ -1359,17 +1339,11 @@ export function useControlApi(deps: ControlApiDeps) {
         if (!playlist) bad(`playlist ${playlistId} not found`);
         const rows = await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId });
         if (rows.length === 0) bad("playlist is empty");
-        const likeStates = await fetchLikeStates(rows);
-        const tracks = applyLikeStates(rows.map(playlistTrackToQueueTrack), likeStates);
-        // Same duplicate semantics as queue.add: the check runs, the answer is
-        // programmatic (skip + report, or allowDuplicates).
-        const dup = d.queueHook.findDuplicates(tracks);
-        const { toAdd, skipped } = partitionEnqueue(tracks, dup, payload.allowDuplicates === true);
-        if (toAdd.length > 0) {
-          if (mode === "next") d.queueHook.insertAtPosition(toAdd, d.queueHook.queueIndex + 1);
-          else d.queueHook.enqueueTracks(toAdd);
-        }
-        return { added: toAdd.length, skippedDuplicates: skipped, name: playlist.name };
+        // Same duplicate semantics as queue.add.
+        const { added, skippedDuplicates } = addToQueue(d.queueOps, rows.map(playlistTrackToQueueTrack), {
+          position: mode, duplicates: duplicatePolicy(payload),
+        });
+        return { added, skippedDuplicates, name: playlist.name };
       }
 
       case "playlists.append": {
