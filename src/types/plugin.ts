@@ -584,8 +584,17 @@ export interface PluginLibraryAPI {
     }>
   >;
   recordHistoryPlaysBatch(plays: { artist: string; track: string; playedAt: number }[]): Promise<{ imported: number; skipped: number }>;
+  /** Add tags to one track (DB-only, additive). Resolves with the tags this
+   *  call applied, as the library now spells them. */
   applyTags(trackId: number, tagNames: string[]): Promise<Array<{ id: number; name: string }>>;
+  /** Add tags to many tracks (DB-only, additive). Resolves with the number of
+   *  tracks that received at least one tag. */
   applyTagsBulk(assignments: Array<[number, string[]]>): Promise<number>;
+  /** Remove tags from tracks (DB-only), matched accent- and case-insensitively.
+   *  Feature-detect: older hosts don't have it. */
+  removeTags?(trackIds: number[], tagNames: string[]): Promise<void>;
+  /** Write metadata into the tracks' audio files (and library rows). Omitted
+   *  keys are left alone, `null` clears. Resolves with per-track error strings. */
   bulkUpdateTracks(trackIds: number[], fields: {
     artist_name?: string | null;
     /** ALBUMARTIST: which artist the tracks' album files under. `null` clears
@@ -593,7 +602,13 @@ export interface PluginLibraryAPI {
     album_artist_name?: string | null;
     album_title?: string | null;
     year?: number | null;
+    track_number?: number | null;
+    /** Single track only. */
+    title?: string;
     tag_names?: string[] | null;
+    /** How `tag_names` applies. Defaults to `"add"` — older hosts replaced
+     *  every existing tag instead, so pass it explicitly when that matters. */
+    tag_mode?: "add" | "remove" | "replace";
   }): Promise<string[]>;
   /**
    * Find duplicate tracks grouped by diacritic-normalized title + artist.

@@ -56,6 +56,8 @@ import type { BackfillPlay } from "./hooks/usePlayActions";
 import type { PendingEnqueue } from "./hooks/useQueueDragToInsert";
 import * as queueOps from "./utils/queueOps";
 import type { QueueOpsDeps } from "./utils/queueOps";
+import type { TagOpsDeps } from "./utils/tagOps";
+import { createCoalescedRefresh } from "./utils/coalescedRefresh";
 import { useToasts } from "./hooks/useToasts";
 import { useUserPlaylists } from "./hooks/useUserPlaylists";
 import { toPlaylistTrackPayload } from "./utils/playlistPayload";
@@ -1377,6 +1379,36 @@ function App() {
   const [searchDeletedTagBatch, setSearchDeletedTagBatch] = useState<{ ids: number[]; key: number }>({ ids: [], key: 0 });
   const [searchBulkEditKey, setSearchBulkEditKey] = useState(0);
 
+  // What the shared tag ops (utils/tagOps.ts) tell the app after a write, for
+  // the plugin API, the control API and in-app quick tags (TagOpsContext).
+  // Both kinds go through one coalescing scheduler (utils/coalescedRefresh.ts):
+  // a DB-only add doesn't recount, so "tags" runs the tags-only recount first;
+  // "files" reloads the track list too. A burst — the auto-tagger's
+  // full-library pass fires one bulkUpdateTracks per artist/album/year at once
+  // — costs one run, and a long scan still refreshes every few seconds.
+  const { loadLibrary, loadTracks } = library;
+  const libraryRefreshRef = useRef<{ loadLibrary: () => Promise<void> | void; loadTracks: () => Promise<void> | void }>({ loadLibrary, loadTracks });
+  useAssignRef(libraryRefreshRef, { loadLibrary, loadTracks });
+  const [libraryRefresh] = useState(() => createCoalescedRefresh(async ({ tags, files }) => {
+    if (tags) {
+      try {
+        await invoke("refresh_tag_counts");
+      } catch (e) {
+        console.error("Failed to recount tags:", e);
+      }
+    }
+    libraryRefreshRef.current.loadLibrary();
+    if (files) {
+      libraryRefreshRef.current.loadTracks();
+      setSearchBulkEditKey((k) => k + 1);
+    }
+  }, { delayMs: 750, maxWaitMs: 5000 }));
+  useEffect(() => () => libraryRefresh.cancel(), [libraryRefresh]);
+  const tagOpsDeps = useMemo<TagOpsDeps>(() => ({
+    tagsChanged: () => libraryRefresh.request("tags"),
+    filesWritten: () => libraryRefresh.request("files"),
+  }), [libraryRefresh]);
+
   // Updater
   const updater = useAppUpdater(betaUpdates ? "beta" : "stable", playback.handleStop, notify);
 
@@ -1899,6 +1931,7 @@ function App() {
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   useAssignRef(pluginHostCallbacksRef, {
+    tagOps: tagOpsDeps,
     navigateToPluginView: (pluginId, viewId) => {
       library.setView(`plugin:${pluginId}:${viewId}`);
       library.setSelectedArtist(null);
@@ -3747,12 +3780,9 @@ function App() {
     },
     collections: { resync: collectionActions.resyncCollection },
     library: {
-      refreshAfterBulkEdit: () => {
-        library.loadLibrary();
-        library.loadTracks();
-        setSearchBulkEditKey((k) => k + 1);
-      },
+      refreshAfterBulkEdit: tagOpsDeps.filesWritten,
     },
+    tagOps: tagOpsDeps,
     downloads: {
       providers: downloadProviders,
       streamUriResolverOwner: plugins.streamUriResolverOwner,

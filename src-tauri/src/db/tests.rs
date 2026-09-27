@@ -614,6 +614,26 @@ fn test_apply_tags_bulk_updates_fts_per_track() {
 }
 
 #[test]
+fn test_recompute_tag_counts_surfaces_bulk_added_tags() {
+    // apply_tags_bulk (the plugin / control-API add path) doesn't recount, and
+    // get_tags lists only track_count > 0 — so a tag it creates is invisible
+    // in the Library until recompute_tag_counts runs.
+    let db = test_db();
+    let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);
+    let t2 = insert_track(&db, "b.mp3", "Beta", None, None);
+    db.apply_tags_bulk(&[
+        (t1, vec!["shoegaze".to_string()]),
+        (t2, vec!["shoegaze".to_string()]),
+    ]).unwrap();
+    assert!(!db.get_tags(None, None).unwrap().iter().any(|t| t.name == "shoegaze"));
+
+    db.recompute_tag_counts().unwrap();
+    let tags = db.get_tags(None, None).unwrap();
+    let tag = tags.iter().find(|t| t.name == "shoegaze").expect("tag listed after recount");
+    assert_eq!(tag.track_count, 2);
+}
+
+#[test]
 fn test_get_tag_counts_for_tracks_full_and_partial() {
     let db = test_db();
     let t1 = insert_track(&db, "a.mp3", "Alpha", None, None);

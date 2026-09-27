@@ -41,7 +41,7 @@ import {
 } from "../utils/infoFetchChain";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { getPlaybackPosition } from "../playback/positionStore";
-import { applyTag, removeTag } from "./useTagActions";
+import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDeps } from "../utils/tagOps";
 import { sameSong } from "./useLikeActions";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
@@ -107,6 +107,9 @@ export interface ControlApiDeps {
    *  tracks into the queue goes through them, so like reconcile and the
    *  duplicate check are the same as for a plugin or the Cmd+K dropdown. */
   queueOps: QueueOpsDeps;
+  /** App's shared tag-refresh deps (utils/tagOps.ts) — the same ones the
+   *  plugin API's tag methods use. */
+  tagOps: TagOpsDeps;
   plugins: {
     pluginStates: PluginState[];
     /** usePlugins.togglePlugin — set semantics, persists + reloads. */
@@ -246,6 +249,12 @@ async function resolveInfoEntity(payload: Record<string, unknown>): Promise<Info
 function parseInfoValue(raw: string): unknown {
   try { return JSON.parse(raw); } catch { return null; }
 }
+
+/** The request keys tags.writeFiles forwards to tagOps (camelCase = the
+ *  HTTP body's own spelling). */
+const FILE_METADATA_KEYS = [
+  "artistName", "albumArtistName", "albumTitle", "year", "trackNumber", "title", "tagNames", "tagMode",
+] as const satisfies ReadonlyArray<keyof FileMetadataEdit>;
 
 /** The control API never shows the duplicate banner: duplicates are skipped
  *  and counted, or added when the request says `allowDuplicates: true`. */
@@ -1075,10 +1084,8 @@ export function useControlApi(deps: ControlApiDeps) {
         const add = asStringArray(payload.add);
         const remove = asStringArray(payload.remove);
         if (add.length === 0 && remove.length === 0) bad("tags.edit needs add and/or remove");
-        let tags = (await invoke<Array<{ name: string }>>("get_tags_for_track", { trackId })).map((t) => t.name);
-        for (const name of remove) tags = await removeTag(trackId, tags, name);
-        for (const name of add) tags = await applyTag(trackId, name);
-        return { tags };
+        const tags = await editTrackTags(d.tagOps, trackId, { add, remove });
+        return { tags: tags.map((t) => t.name) };
       }
 
       // File-writing bulk edit — the canonical `bulk_update_tracks` path (the
@@ -1088,50 +1095,15 @@ export function useControlApi(deps: ControlApiDeps) {
       case "tags.writeFiles": {
         const ids = asNumberArray(payload.trackIds);
         if (!ids) bad("trackIds must be a non-empty array of numbers");
-        const fields: Record<string, unknown> = {};
-        // Presence with null (or "") clears the field; absence leaves it alone
-        // — the same double-option contract BulkUpdateFields deserializes.
-        const stringField = (key: string, target: string) => {
-          if (!(key in payload)) return;
-          const v = payload[key];
-          if (v !== null && typeof v !== "string") bad(`${key} must be a string or null`);
-          fields[target] = v === "" ? null : v;
-        };
-        stringField("artistName", "artist_name");
-        stringField("albumArtistName", "album_artist_name");
-        stringField("albumTitle", "album_title");
-        const numberField = (key: string, target: string) => {
-          if (!(key in payload)) return;
-          const v = payload[key];
-          if (v !== null && (typeof v !== "number" || !Number.isInteger(v))) bad(`${key} must be an integer or null`);
-          fields[target] = v;
-        };
-        numberField("year", "year");
-        numberField("trackNumber", "track_number");
-        if ("title" in payload) {
-          if (typeof payload.title !== "string" || payload.title.trim() === "") bad("title must be a non-empty string");
-          if (ids.length > 1) bad("title applies to a single track — send one trackId");
-          fields.title = payload.title;
+        // Validation (presence-vs-null, tagMode defaulting to add, title only
+        // for one track) and the refresh afterwards live in tagOps — shared
+        // with the plugin API's bulkUpdateTracks. Only the keys the request
+        // actually carried are forwarded: absent means "leave alone".
+        const edit: FileMetadataEdit = {};
+        for (const key of FILE_METADATA_KEYS) {
+          if (key in payload) edit[key] = payload[key];
         }
-        if ("tagNames" in payload) {
-          if (!Array.isArray(payload.tagNames)) bad("tagNames must be an array of strings");
-          const tagNames = asStringArray(payload.tagNames);
-          const mode = payload.tagMode ?? "add";
-          if (mode !== "add" && mode !== "remove" && mode !== "replace") {
-            bad('tagMode must be "add", "remove" or "replace"');
-          }
-          if (tagNames.length === 0 && mode !== "replace") bad("tagNames is empty — only tagMode=replace may clear tags");
-          // tag_mode is set explicitly on purpose: the backend's from_opt
-          // treats anything unrecognized (including absent) as Replace, and
-          // an accidental replace is the destructive reading.
-          fields.tag_names = tagNames;
-          fields.tag_mode = mode;
-        }
-        if (Object.keys(fields).length === 0) {
-          bad("nothing to write — pass tagNames, artistName, albumArtistName, albumTitle, year, trackNumber or title");
-        }
-        const errors = await invoke<string[]>("bulk_update_tracks", { trackIds: ids, fields });
-        d.library.refreshAfterBulkEdit();
+        const errors = await writeFileMetadata(d.tagOps, ids, edit);
         return { requested: ids.length, failed: errors.length, errors };
       }
 

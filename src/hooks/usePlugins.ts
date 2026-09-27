@@ -67,6 +67,10 @@ import {
   CORE_LOCAL_LYRICS_PROVIDER, fetchInfoValue, resolveInfoEntityId, type InvokeInfoFetch,
 } from "../utils/infoFetchChain";
 import { CallGraph, callableProblem, describePlugins } from "../utils/crossPluginCalls";
+import {
+  addTags, editTrackTags, NO_TAG_REFRESH, removeTags, writeFileMetadata,
+  type FileMetadataEdit, type TagOpsDeps,
+} from "../utils/tagOps";
 import { invokeAssistantTool as invokeAssistantToolOp, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
 import { fetchLocalLyrics } from "../utils/localLyrics";
 
@@ -275,6 +279,8 @@ export interface PluginPlaybackCallbacks {
 }
 
 export interface PluginHostCallbacks {
+  /** Refresh hooks for the shared tag ops (utils/tagOps.ts). */
+  tagOps?: TagOpsDeps;
   navigateToPluginView: (pluginId: string, viewId: string) => void;
   requestAction: (pluginId: string, action: string, payload: Record<string, unknown>) => void;
   showNotification: (message: string, action?: ToastAction) => void;
@@ -682,24 +688,36 @@ export function usePlugins(
             const [imported, skipped] = await invoke<[number, number]>("plugin_record_history_plays_batch", { plays: tuples });
             return { imported, skipped };
           },
+          // Tag writes go through utils/tagOps.ts — the same code the control
+          // API runs, including the recount + library refresh afterwards.
           async applyTags(trackId, tagNames) {
-            return invoke<Array<{ id: number; name: string }>>("plugin_apply_tags", { trackId, tagNames });
+            const deps = hostCallbacksRef?.current?.tagOps ?? NO_TAG_REFRESH;
+            const wanted = new Set((tagNames ?? []).map((n) => String(n).trim().toLowerCase()).filter(Boolean));
+            if (wanted.size === 0) return [];
+            const all = await editTrackTags(deps, trackId, { add: tagNames });
+            // The tags this call applied, with their real ids (the backend
+            // canonicalises spelling, so match case-insensitively).
+            return all.filter((t) => wanted.has(t.name.toLowerCase()));
           },
           async applyTagsBulk(assignments) {
-            return invoke<number>("plugin_apply_tags_bulk", { assignments });
+            return addTags(hostCallbacksRef?.current?.tagOps ?? NO_TAG_REFRESH, assignments);
+          },
+          async removeTags(trackIds, tagNames) {
+            return removeTags(hostCallbacksRef?.current?.tagOps ?? NO_TAG_REFRESH, trackIds, tagNames);
           },
           async bulkUpdateTracks(trackIds, fields) {
-            // Forward only the keys the plugin actually provided. The backend
-            // treats an omitted key as "leave unchanged" and a present `null` as
-            // "clear to NULL", so coercing undefined → null here would wipe fields
-            // the plugin never meant to touch.
-            const out: Record<string, unknown> = {};
-            if (fields.artist_name !== undefined) out.artist_name = fields.artist_name;
-            if (fields.album_artist_name !== undefined) out.album_artist_name = fields.album_artist_name;
-            if (fields.album_title !== undefined) out.album_title = fields.album_title;
-            if (fields.year !== undefined) out.year = fields.year;
-            if (fields.tag_names !== undefined) out.tag_names = fields.tag_names;
-            return invoke<string[]>("bulk_update_tracks", { trackIds, fields: out });
+            // Forward only the keys the plugin actually provided: an omitted key
+            // leaves the field unchanged, a present `null` clears it.
+            const edit: FileMetadataEdit = {};
+            if (fields.artist_name !== undefined) edit.artistName = fields.artist_name;
+            if (fields.album_artist_name !== undefined) edit.albumArtistName = fields.album_artist_name;
+            if (fields.album_title !== undefined) edit.albumTitle = fields.album_title;
+            if (fields.year !== undefined) edit.year = fields.year;
+            if (fields.track_number !== undefined) edit.trackNumber = fields.track_number;
+            if (fields.title !== undefined) edit.title = fields.title;
+            if (fields.tag_names !== undefined) edit.tagNames = fields.tag_names;
+            if (fields.tag_mode !== undefined) edit.tagMode = fields.tag_mode;
+            return writeFileMetadata(hostCallbacksRef?.current?.tagOps ?? NO_TAG_REFRESH, trackIds, edit);
           },
           async findDuplicates(opts) {
             // Backend groups by diacritic-normalized title+artist (reusing the

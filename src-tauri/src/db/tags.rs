@@ -281,4 +281,22 @@ impl Database {
         self.recompute_counts()?;
         Ok(())
     }
+
+    /// Recount `tags.track_count` only — the tag third of `recompute_counts`,
+    /// without its artist/album recount or orphan reaping. For DB-only tag
+    /// adds that bypass `apply_tag_to_tracks` (`plugin_apply_tags[_bulk]`):
+    /// `get_tags` lists only `track_count > 0`, so without a recount a tag
+    /// they create never appears in the Library at all. Cheap enough for the
+    /// frontend to run once per burst of adds (utils/tagOps.ts debounces it).
+    pub fn recompute_tag_counts(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(&format!(
+            "UPDATE tags SET track_count = (
+               SELECT COUNT(*) FROM track_tags tt
+               JOIN tracks t ON t.id = tt.track_id
+               WHERE tt.tag_id = tags.id {cf}
+             );",
+            cf = ENABLED_COLLECTION_FILTER_STANDALONE
+        ))
+    }
 }
