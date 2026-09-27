@@ -162,7 +162,7 @@ export function visibleSteps(ctx: OnboardingStepContext): OnboardingStepId[] {
  * Dependencies worth a wizard step: not installed, and needed by at least one
  * enabled plugin (e.g. yt-dlp/ffmpeg after installing the YouTube plugin).
  * Internal-only consumers don't trigger the step — the app works without them
- * and Settings > Dependencies covers that case.
+ * and Extensions → Tools covers that case.
  */
 export function missingPluginDeps(deps: DependencyInfo[]): string[] {
   return deps

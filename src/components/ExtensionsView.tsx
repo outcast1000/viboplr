@@ -18,9 +18,12 @@ import type {
   PluginContribution,
 } from "../utils/pluginContributions";
 import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
+import { DependenciesPanel, dependencyAttentionCount, type DependenciesApi } from "./DependenciesPanel";
 import "./ExtensionsView.css";
 
-type ExtTab = "skins" | "plugins";
+// "tools" = external command-line dependencies (ffmpeg, yt-dlp, …), which
+// mostly exist to serve plugins, so they live next to them.
+export type ExtTab = "skins" | "plugins" | "tools";
 // Plugins tab layout: the default compact one-per-row list, or the card grid.
 // Persisted by App.tsx under the `pluginViewMode` store key.
 export type PluginViewMode = "list" | "cards";
@@ -77,6 +80,12 @@ interface ExtensionsViewProps {
   // Plugins tab layout (card grid vs. compact list). Owned + persisted by App.tsx.
   pluginViewMode?: PluginViewMode;
   onSetPluginViewMode?: (mode: PluginViewMode) => void;
+  // Tools tab (external binaries). Owned by useDependencies in App.tsx.
+  dependencies?: DependenciesApi;
+  autoUpdateManagedDeps?: boolean;
+  onAutoUpdateManagedDepsChange?: (enabled: boolean) => void;
+  /** One-shot tab switch from elsewhere (Settings' "Open Tools"); bump `seq` to re-fire. */
+  tabRequest?: { tab: ExtTab; seq: number } | null;
   style?: React.CSSProperties;
 }
 
@@ -697,6 +706,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
     pluginViewMode = "list", onSetPluginViewMode,
+    dependencies, autoUpdateManagedDeps = true, onAutoUpdateManagedDepsChange, tabRequest,
     isVisible = true, style,
   } = props;
 
@@ -758,6 +768,14 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   }, [isVisible, tab]);
 
   const switchTab = (next: ExtTab) => { setDetail(null); setTab(next); };
+
+  // Honour an external tab request once per `seq` — adjusted during render
+  // (React's "reset state on prop change" pattern), not via an effect.
+  const [seenTabRequest, setSeenTabRequest] = useState(tabRequest?.seq);
+  if (tabRequest && tabRequest.seq !== seenTabRequest) {
+    setSeenTabRequest(tabRequest.seq);
+    switchTab(tabRequest.tab);
+  }
 
   const kindFilter = tab === "skins" ? "skin" : "plugin";
 
@@ -823,6 +841,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
 
   const skinUpdateCount = allExtensions.filter((e) => e.kind === "skin" && e.updateAvailable?.status === "available").length;
   const pluginUpdateCount = allExtensions.filter((e) => e.kind === "plugin" && e.updateAvailable?.status === "available").length;
+  const toolsAttentionCount = dependencies ? dependencyAttentionCount(dependencies.deps, dependencies.updates) : 0;
 
   const galleryLoading = tab === "skins" ? skinGalleryLoading : pluginGalleryLoading;
   const galleryError = tab === "skins" ? skinGalleryError : pluginGalleryError;
@@ -968,18 +987,22 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           {tab === "skins" && onCreateSkin && (
             <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onCreateSkin}>+ New skin</button>
           )}
-          {updateCount > 0 && (
+          {tab !== "tools" && updateCount > 0 && (
             <>
               <span className="ext-update-count">{updateCount} update{updateCount !== 1 ? "s" : ""}</span>
               <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onUpdateAll}>Update all</button>
             </>
           )}
-          <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onCheckForUpdates} disabled={checking}>
-            {checking ? "Checking…" : "Check for updates"}
-          </button>
-          <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setShowUrlInput((v) => !v)}>
-            Install from URL
-          </button>
+          {tab !== "tools" && (
+            <>
+              <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onCheckForUpdates} disabled={checking}>
+                {checking ? "Checking…" : "Check for updates"}
+              </button>
+              <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setShowUrlInput((v) => !v)}>
+                Install from URL
+              </button>
+            </>
+          )}
           {tab === "plugins" && onSetPluginViewMode && (
             <div className="view-mode-toggle ext-view-toggle" role="group" aria-label="Plugin layout">
               <button
@@ -999,7 +1022,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
         </div>
       </div>
 
-      {showUrlInput && (
+      {showUrlInput && tab !== "tools" && (
         <div className="ext-url-bar">
           <input
             className="ds-input"
@@ -1025,9 +1048,23 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
           Skins
           {skinUpdateCount > 0 && <span className="ds-tab-badge">{skinUpdateCount}</span>}
         </button>
+        {dependencies && (
+          <button className={`ds-tab ${tab === "tools" ? "active" : ""}`} onClick={() => switchTab("tools")}>
+            Tools
+            {toolsAttentionCount > 0 && <span className="ds-tab-badge">{toolsAttentionCount}</span>}
+          </button>
+        )}
       </div>
 
-      {tab === "plugins" ? (
+      {tab === "tools" && dependencies ? (
+        <DependenciesPanel
+          dependencies={dependencies}
+          autoUpdateManagedDeps={autoUpdateManagedDeps}
+          onAutoUpdateManagedDepsChange={(v) => onAutoUpdateManagedDepsChange?.(v)}
+          searchQuery={searchQuery}
+          isVisible={isVisible}
+        />
+      ) : tab === "plugins" ? (
         detailExt ? (
           <div className="ext-detail-full">
             <button type="button" className="ext-back" onClick={closeDetail}>

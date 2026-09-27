@@ -536,7 +536,8 @@
 }
 
 /* ── Skins gallery grid ─────────────────────────────────────── */
-.ext-skins-pane {
+.ext-skins-pane,
+.ext-tools-pane {
   flex: 1;
   min-height: 0;
   overflow-y: auto;

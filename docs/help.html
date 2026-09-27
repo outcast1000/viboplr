@@ -168,13 +168,13 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>External dependencies</h2>
-        <p class="docs-lead">A few features rely on well-known command-line tools — currently <code>ffmpeg</code> and <code>yt-dlp</code>.</p>
-        <p>Some plugins and features (YouTube playback and downloads, video thumbnails, format conversion) shell out to these tools rather than reimplementing them. Settings &rarr; Dependencies shows what's needed, what's installed, and where each copy comes from:</p>
+        <p class="docs-lead">A few features rely on well-known command-line tools — such as <code>ffmpeg</code> and <code>yt-dlp</code>.</p>
+        <p>Some plugins and features (YouTube playback and downloads, video thumbnails, format conversion) shell out to these tools rather than reimplementing them. Extensions &rarr; Tools shows what's needed, what's installed, which features and plugins use each tool, and where each copy comes from:</p>
         <ul class="docs-list">
           <li><strong>Managed</strong> — Viboplr installed it for you ("Install for me") into its own folder, and can update or remove it. A managed copy always takes precedence over a system one.</li>
           <li><strong>System</strong> — found on your PATH, e.g. installed via Homebrew or winget. Viboplr never modifies these; update them with your package manager.</li>
         </ul>
-        <p><strong>Keep dependencies up to date automatically</strong> applies only to managed copies: Viboplr checks daily and silently installs new releases. This matters most for <code>yt-dlp</code>, where an outdated version is the usual reason YouTube stops working.</p>
+        <p><strong>Keep tools up to date automatically</strong> applies only to managed copies: Viboplr checks daily and silently installs new releases. This matters most for <code>yt-dlp</code>, where an outdated version is the usual reason YouTube stops working.</p>
       </div>
     </div>
   </section>

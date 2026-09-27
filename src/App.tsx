@@ -112,7 +112,7 @@ import { NowPlayingBar } from "./components/NowPlayingBar";
 import type { EqControls } from "./components/EqButton";
 import { QueuePanel } from "./components/QueuePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
-import ExtensionsView, { type PluginViewMode } from "./components/ExtensionsView";
+import ExtensionsView, { type ExtTab, type PluginViewMode } from "./components/ExtensionsView";
 import { FullscreenControls } from "./components/FullscreenControls";
 import { VideoAmbientOverlay } from "./components/VideoAmbientOverlay";
 import { VideoSubtitles } from "./components/VideoSubtitles";
@@ -928,7 +928,7 @@ function App() {
       if (!missing) continue;
       for (const item of plugins.sidebarItems) {
         if (item.pluginId === ps.id) {
-          m.set(`${item.pluginId}:${item.id}`, { type: "dot", variant: "error", tooltip: "Missing required dependency — open Settings → Dependencies" });
+          m.set(`${item.pluginId}:${item.id}`, { type: "dot", variant: "error", tooltip: "Missing required dependency — open Extensions → Tools" });
         }
       }
     }
@@ -1362,6 +1362,8 @@ function App() {
   }, [audioFullscreen]);
   const [searchViewModes, setSearchViewModes] = usePersistedSetting<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>("searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" }, restoredRef);
   const [pluginViewMode, setPluginViewMode] = usePersistedSetting<PluginViewMode>("pluginViewMode", "list", restoredRef);
+  // One-shot "open Extensions on this tab" (Settings → Dependencies → Open Tools).
+  const [extTabRequest, setExtTabRequest] = useState<{ tab: ExtTab; seq: number } | null>(null);
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
   // Bumped when a scan/sync changes the library's track population, so the
@@ -5520,6 +5522,10 @@ function App() {
               onSubmitSkin={(id) => skins.submitSkin(id)}
               pluginViewMode={pluginViewMode}
               onSetPluginViewMode={handlePluginViewModeChange}
+              dependencies={dependencies}
+              autoUpdateManagedDeps={autoUpdateManagedDeps}
+              onAutoUpdateManagedDepsChange={handleAutoUpdateManagedDepsChange}
+              tabRequest={extTabRequest}
             />
           </FreezeWhileHidden>
           {/* Settings view */}
@@ -5610,9 +5616,10 @@ function App() {
               onSwitchProfile={(name) => profileSwitch.switchToProfile(name)}
               onNotify={notify}
               onStreamResolverOrderChanged={() => setStreamResolverOrderVersion(v => v + 1)}
-              dependencies={dependencies}
-              autoUpdateManagedDeps={autoUpdateManagedDeps}
-              onAutoUpdateManagedDepsChange={handleAutoUpdateManagedDepsChange}
+              onOpenDependencies={() => {
+                setExtTabRequest((prev) => ({ tab: "tools", seq: (prev?.seq ?? 0) + 1 }));
+                library.setView("extensions");
+              }}
             />
           )}
           </>}

@@ -424,7 +424,7 @@ pub async fn dependency_uninstall_managed(
 /// Latest-vs-installed comparison for every managed dependency. One
 /// `releases/latest` redirect probe per dep per 24h (TTL-cached, failures
 /// included) — never the rate-limited GitHub API; see `latest_version`.
-/// `force` (Settings → Dependencies → Refresh) drops that cache first, so a
+/// `force` (Extensions → Tools → Refresh) drops that cache first, so a
 /// release published since the last lookup shows up now, not tomorrow.
 #[tauri::command]
 pub async fn dependency_check_updates(
@@ -509,7 +509,7 @@ pub async fn yt_dlp_stream_audio(
                     if dependencies::version_lt(&version, &latest) =>
                 {
                     format!(
-                        " Your yt-dlp is outdated (installed {}, latest {}) — update it in Settings > Dependencies.",
+                        " Your yt-dlp is outdated (installed {}, latest {}) — update it in Extensions → Tools.",
                         version, latest
                     )
                 }

@@ -813,7 +813,7 @@ function DependenciesStep({
       ) : (
         <p className="onboarding-step-desc">
           Some plugins rely on small companion tools. Install them now, or skip and
-          do it later from Settings → Dependencies.
+          do it later from Extensions → Tools.
         </p>
       )}
       {rows.map((dep) => {

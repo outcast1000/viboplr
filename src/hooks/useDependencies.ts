@@ -120,8 +120,8 @@ export function useDependencies(pluginStates: PluginState[]) {
     // shows the new version, and leave a log trail. It must be a re-probe, not
     // a removal: dropping the row was the whole state change here, and nothing
     // ever performed the "next look" it assumed, so a silently updated dep
-    // vanished from Settings until the user hit Refresh (SettingsPanel's mount
-    // effect is gated on `deps.length === 0`, and ffmpeg keeps it non-empty).
+    // vanished from the list until the user hit Refresh (DependenciesPanel's presence
+    // check is gated on `deps.length === 0`, and ffmpeg keeps it non-empty).
     const stopUpdated = subscribe<{ name: string; from: string; to: string }>(
       "dependency-updated",
       (event) => {
@@ -130,9 +130,9 @@ export function useDependencies(pluginStates: PluginState[]) {
         checkedRef.current.delete(name);
         // Only refresh a row that is already in the list. The updater fires 30s
         // after launch, typically before anything has run a check — probing here
-        // would then *create* a one-row `deps`, and SettingsPanel's mount effect
+        // would then *create* a one-row `deps`, and DependenciesPanel's presence check
         // (gated on `deps.length === 0`) would skip its full `checkAll`, leaving
-        // Settings showing yt-dlp and no ffmpeg.
+        // the Tools tab showing yt-dlp and no ffmpeg.
         if (depsRef.current.some((d) => d.name === name)) {
           checkDepRef.current(name).catch(console.error);
           // Clears the now-stale "Update available" line for this dep.
@@ -191,7 +191,7 @@ export function useDependencies(pluginStates: PluginState[]) {
   );
 
   // Re-probe when the enabled plugins' declared binary dependencies change.
-  // `pluginConsumers` (and everything derived from it: the Settings "needed by"
+  // `pluginConsumers` (and everything derived from it: the Tools tab "used by"
   // list, the onboarding wizard's missing-dependency step) comes from that
   // declaration set, not from the binaries themselves, so installing or enabling
   // a plugin mid-session otherwise leaves it describing the plugin set as it was
