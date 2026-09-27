@@ -108,9 +108,9 @@ Settings → General → AI control**, all off by default, enforced in Rust on
 every request and re-read from disk each time (flipping a switch applies
 immediately; a missing/corrupt permissions file means *no*). A refused call is
 a 403 naming the switch. `app_version` reports the current switches
-(`writeScopes`), and every applied write is journaled to the app's assistant
-change log (Settings → Debug, `manage_files action=changes`, and problem
-reports).
+(`writeScopes`), and every applied write is recorded in the app log as an
+`Assistant change [...]` line (the `logs` tool and problem reports, while
+logging is on).
 
 Structural guardrails, independent of the switches: destinations are always
 derived or collection-root-relative and validated in Rust (no absolute paths,

@@ -733,60 +733,6 @@ function AssistantPermissions() {
   );
 }
 
-// One row of the assistant write journal (assistant_write.rs AuditEntry).
-interface AssistantAuditEntry {
-  ts: string;
-  verb: string;
-  summary: string;
-}
-
-/** Settings → Debug: what the assistant changed, newest first. */
-function AssistantChangesSection() {
-  const [entries, setEntries] = useState<AssistantAuditEntry[] | null>(null);
-
-  const load = useCallback(() => {
-    invoke<AssistantAuditEntry[]>("assistant_changes_tail", { limit: 50 })
-      .then(setEntries)
-      .catch((e) => console.error("Failed to read the assistant change log:", e));
-  }, []);
-  useEffect(() => { load(); }, [load]);
-
-  const newestFirst = entries ? [...entries].reverse() : [];
-  return (
-    <>
-      <div className="settings-group-title" style={{ marginTop: 20 }}>Assistant changes</div>
-      <div className="settings-card">
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-label">Change log</span>
-            <span className="settings-description">
-              Files and tags the AI assistant changed through its write permissions. Also included in problem reports.
-            </span>
-          </div>
-          <button className="ds-btn ds-btn--secondary" onClick={load}>Refresh</button>
-        </div>
-        {entries !== null && newestFirst.length === 0 && (
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <span className="settings-description">No assistant changes recorded.</span>
-            </div>
-          </div>
-        )}
-        {newestFirst.map((e, i) => (
-          <div className="settings-row" key={`${e.ts}-${i}`}>
-            <div className="settings-row-info">
-              <span className="settings-label">{e.summary}</span>
-              <span className="settings-description">
-                {new Date(e.ts).toLocaleString()} · {e.verb}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
 /**
  * Settings → General → "AI control": the toggle plus, while running,
  * the address / token / discovery-file rows an assistant needs to connect.
@@ -2096,7 +2042,6 @@ export function SettingsPanel({
                     <button className="ds-btn ds-btn--secondary" onClick={() => onReportProblem()}>Create report</button>
                   </div>
                 </div>
-                <AssistantChangesSection />
                 <div className="settings-group-title" style={{ marginTop: 20 }}>Mode</div>
                 <div className="settings-card">
                   <div className="settings-row">

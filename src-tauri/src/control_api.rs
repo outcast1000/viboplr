@@ -383,9 +383,8 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         // Assistant write surface — every route below additionally requires a
         // WRITE SCOPE (Settings → General → AI control), re-read from
         // `assistant-permissions.json` per request and failing closed. Applied
-        // writes land in the `assistant-changes.jsonl` journal (`/v1/changes`).
+        // writes are logged as `Assistant change [...]` lines (`/v1/logs`).
         // Static "file-tags" before "{id}": matchit prioritizes it.
-        .route("/v1/changes", get(handle_changes))
         .route("/v1/tracks/file-tags", post(handle_file_tags))
         .route("/v1/tracks/{id}/lyrics-file", post(handle_lyrics_file))
         .route("/v1/albums/{id}/cover-file", post(handle_cover_file))
@@ -789,7 +788,6 @@ async fn handle_history_rename(state: AxumState<ServerState>, body: Bytes) -> Re
     }
 
     let db = state.0.db.clone();
-    let app_dir = state.0.app_dir.clone();
     let dry_run = parsed.dry_run;
     let outcome = tokio::task::spawn_blocking(move || {
         let result = db
@@ -811,8 +809,7 @@ async fn handle_history_rename(state: AxumState<ServerState>, body: Bytes) -> Re
                     Some(t) => format!("\"{}\" by {}", t, r.to.artist),
                     None => r.to.artist.clone(),
                 };
-                assistant_write::append_audit(
-                    &app_dir,
+                assistant_write::log_change(
                     "history.rename",
                     &format!(
                         "renamed history {} → {} ({} track(s), {} play(s){})",
@@ -822,7 +819,7 @@ async fn handle_history_rename(state: AxumState<ServerState>, body: Bytes) -> Re
                         r.plays_moved,
                         if r.tracks_merged > 0 || r.artist_merged { ", merged" } else { "" }
                     ),
-                    serde_json::to_value(r).ok(),
+                    &[], // database only — no file is touched
                 );
             }
         }
@@ -1141,15 +1138,14 @@ fn check_scope(state: &ServerState, scope: Scope) -> Result<(), Response> {
     }
 }
 
-/// Run one blocking write operation and journal it on success.
-async fn write_op<F>(state: &ServerState, verb: &'static str, f: F) -> Response
+/// Run one blocking write operation and log it on success.
+async fn write_op<F>(verb: &'static str, f: F) -> Response
 where
     F: FnOnce() -> Result<(Value, String), String> + Send + 'static,
 {
-    let app_dir = state.app_dir.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         f().map(|(value, summary)| {
-            assistant_write::append_audit(&app_dir, verb, &summary, None);
+            assistant_write::log_change(verb, &summary, &[]);
             value
         })
     })
@@ -1164,25 +1160,6 @@ where
 fn parse_typed<T: serde::de::DeserializeOwned>(body: &Bytes) -> Result<T, Response> {
     serde_json::from_slice(body)
         .map_err(|e| error_response(StatusCode::BAD_REQUEST, format!("invalid JSON body: {}", e)))
-}
-
-#[derive(serde::Deserialize)]
-struct ChangesParams {
-    limit: Option<usize>,
-}
-
-/// The assistant mutation journal — what every scoped write appended. Token
-/// only (it is a read); also surfaced in Settings → Debug and diagnostics.
-async fn handle_changes(
-    AxumState(state): AxumState<ServerState>,
-    Query(params): Query<ChangesParams>,
-) -> Response {
-    let limit = params.limit.unwrap_or(100).clamp(1, 500);
-    let app_dir = state.app_dir.clone();
-    match tokio::task::spawn_blocking(move || assistant_write::read_audit_tail(&app_dir, limit)).await {
-        Ok(entries) => axum::Json(json!({ "entries": entries })).into_response(),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-    }
 }
 
 /// File tag writes go through the FRONTEND bridge (`tags.writeFiles` →
@@ -1209,16 +1186,34 @@ async fn handle_file_tags(state: AxumState<ServerState>, body: Bytes) -> Respons
     }
     // Slow bridge: writing tags into many files takes real time.
     let timeout = state.0.bridge_timeout.saturating_mul(7);
-    let resp = bridge(&state.0, "tags.writeFiles", payload, timeout).await;
-    if resp.status() == StatusCode::OK {
-        assistant_write::append_audit(
-            &state.0.app_dir,
-            "tags.writeFiles",
-            &format!("wrote file tags on {} track(s)", n),
-            None,
-        );
+    let ids: Vec<i64> = payload["trackIds"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|v| v.as_i64()).collect())
+        .unwrap_or_default();
+    let result = match bridge_value(&state.0, "tags.writeFiles", payload, timeout).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    // Paths read after the write: a tag edit re-files the album in the DB but
+    // never moves the file, so these are the files that were rewritten.
+    let db = state.0.db.clone();
+    let files = tokio::task::spawn_blocking(move || db.get_tracks_by_ids(&ids))
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+        .map(|tracks| tracks.into_iter().map(|t| t.path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let failed = result["failed"].as_u64().unwrap_or(0);
+    let mut summary = format!("wrote file tags on {} track(s)", n);
+    if failed > 0 {
+        let errors: Vec<&str> = result["errors"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|e| e.as_str()).collect())
+            .unwrap_or_default();
+        summary.push_str(&format!(", {} failed: {}", failed, errors.join("; ")));
     }
-    resp
+    assistant_write::log_change("tags.writeFiles", &summary, &files);
+    axum::Json(result).into_response()
 }
 
 #[derive(serde::Deserialize)]
@@ -1244,14 +1239,15 @@ async fn handle_lyrics_file(
         Err(resp) => return resp,
     };
     let db = state.0.db.clone();
-    write_op(&state.0, "lyrics.writeFile", move || {
+    write_op("lyrics.writeFile", move || {
         let kind = parsed.kind.as_deref().unwrap_or("auto");
         let value = assistant_write::write_lyrics_file(&db, id, &parsed.content, kind, parsed.overwrite)?;
         let summary = format!(
-            "wrote {} lyrics for track {} → {}",
+            "wrote {} lyrics for track {} → {}{}",
             value["kind"].as_str().unwrap_or("?"),
             id,
-            value["path"].as_str().unwrap_or("?")
+            value["path"].as_str().unwrap_or("?"),
+            assistant_write::replaced_note(&value),
         );
         Ok((value, summary))
     })
@@ -1283,7 +1279,7 @@ async fn handle_cover_file(
     };
     let db = state.0.db.clone();
     let app_dir = state.0.app_dir.clone();
-    write_op(&state.0, "albums.writeCover", move || {
+    write_op("albums.writeCover", move || {
         let value = assistant_write::write_album_cover(
             &db,
             &app_dir,
@@ -1292,7 +1288,12 @@ async fn handle_cover_file(
             parsed.from_cache,
             parsed.overwrite,
         )?;
-        let summary = format!("wrote album cover → {}", value["path"].as_str().unwrap_or("?"));
+        let summary = format!(
+            "wrote cover for album {} → {}{}",
+            id,
+            value["path"].as_str().unwrap_or("?"),
+            assistant_write::replaced_note(&value),
+        );
         Ok((value, summary))
     })
     .await
@@ -1320,7 +1321,6 @@ async fn handle_files_move(state: AxumState<ServerState>, body: Bytes) -> Respon
         Err(resp) => return resp,
     };
     let db = state.0.db.clone();
-    let app_dir = state.0.app_dir.clone();
     let outcome = tokio::task::spawn_blocking(move || -> Result<Value, String> {
         let (plan, hash) = assistant_write::plan_moves(&db, &parsed.moves)?;
         match parsed.plan_hash {
@@ -1337,11 +1337,18 @@ async fn handle_files_move(state: AxumState<ServerState>, body: Bytes) -> Respon
                 let result = assistant_write::apply_moves(&db, &plan);
                 let moved = result["moved"].as_array().map(|a| a.len()).unwrap_or(0);
                 let failed = result["failed"].as_array().map(|a| a.len()).unwrap_or(0);
-                assistant_write::append_audit(
-                    &app_dir,
+                let files: Vec<String> = result["moved"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .map(|m| format!("{} → {}", m["from"].as_str().unwrap_or("?"), m["to"].as_str().unwrap_or("?")))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                assistant_write::log_change(
                     "files.move",
                     &format!("moved {} file(s), {} failed", moved, failed),
-                    Some(result["moved"].clone()),
+                    &files,
                 );
                 Ok(result)
             }
@@ -1379,7 +1386,7 @@ async fn handle_plugin_download(state: AxumState<ServerState>, body: Bytes) -> R
         Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
     };
     // Quality discovery is a read riding the same verb: no destination, no
-    // addressing, nothing journaled.
+    // addressing, nothing logged.
     let listing = payload.get("listQualities") == Some(&Value::Bool(true));
     if !listing {
         if !payload.get("collectionId").map(|v| v.is_number()).unwrap_or(false) {
@@ -1399,11 +1406,22 @@ async fn handle_plugin_download(state: AxumState<ServerState>, body: Bytes) -> R
     // 60× the base budget (10 min in production, still fast under test) — the
     // resolve step is legitimately the whole download for some providers.
     let timeout = state.0.bridge_timeout.saturating_mul(60);
-    let resp = bridge(&state.0, "downloads.plugin", payload, timeout).await;
-    if !listing && resp.status() == StatusCode::OK {
-        assistant_write::append_audit(&state.0.app_dir, "downloads.plugin", "downloaded a track via its plugin", None);
+    let result = match bridge_value(&state.0, "downloads.plugin", payload, timeout).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if !listing {
+        assistant_write::log_change(
+            "downloads.plugin",
+            &format!(
+                "downloaded a track via {} → {}",
+                result["pluginId"].as_str().or(result["provider"].as_str()).unwrap_or("its plugin"),
+                result["path"].as_str().unwrap_or("?"),
+            ),
+            &[],
+        );
     }
-    resp
+    axum::Json(result).into_response()
 }
 
 /// Cancel the in-flight plugin download resolve. Unscoped by design: with no
@@ -1433,7 +1451,7 @@ async fn handle_track_download(
         Err(resp) => return resp,
     };
     let db = state.0.db.clone();
-    write_op(&state.0, "tracks.download", move || {
+    write_op("tracks.download", move || {
         let subdir = parsed.subdir.as_deref().unwrap_or("");
         let value = assistant_write::download_track_source(&db, id, parsed.collection_id, subdir)?;
         let summary = format!("downloaded track {} → {}", id, value["path"].as_str().unwrap_or("?"));
@@ -1446,8 +1464,17 @@ async fn handle_track_download(
 /// route's wait budget — `state.bridge_timeout` for everything except the
 /// long-running plugin search (see `handle_search_plugin`).
 async fn bridge(state: &ServerState, verb: &str, payload: Value, timeout: Duration) -> Response {
+    match bridge_value(state, verb, payload, timeout).await {
+        Ok(result) => axum::Json(result).into_response(),
+        Err(resp) => resp,
+    }
+}
+
+/// `bridge`, but handing back the dispatcher's result for routes that need to
+/// read it (e.g. to log which files a write touched) before replying.
+async fn bridge_value(state: &ServerState, verb: &str, payload: Value, timeout: Duration) -> Result<Value, Response> {
     if !state.api.webview_ready.load(Ordering::Acquire) {
-        return error_response(StatusCode::SERVICE_UNAVAILABLE, "app still starting");
+        return Err(error_response(StatusCode::SERVICE_UNAVAILABLE, "app still starting"));
     }
     let id = state.api.next_id.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = oneshot::channel();
@@ -1460,13 +1487,13 @@ async fn bridge(state: &ServerState, verb: &str, payload: Value, timeout: Durati
     });
 
     match tokio::time::timeout(timeout, rx).await {
-        Ok(Ok(Ok(result))) => axum::Json(result).into_response(),
-        Ok(Ok(Err(message))) => error_response(StatusCode::BAD_REQUEST, message),
+        Ok(Ok(Ok(result))) => Ok(result),
+        Ok(Ok(Err(message))) => Err(error_response(StatusCode::BAD_REQUEST, message)),
         // Sender dropped without answering — shouldn't happen, but don't hang.
-        Ok(Err(_)) => error_response(StatusCode::INTERNAL_SERVER_ERROR, "dispatcher dropped the request"),
+        Ok(Err(_)) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, "dispatcher dropped the request")),
         Err(_) => {
             state.api.pending.lock().unwrap().remove(&id);
-            error_response(StatusCode::GATEWAY_TIMEOUT, "app did not respond")
+            Err(error_response(StatusCode::GATEWAY_TIMEOUT, "app did not respond"))
         }
     }
 }
@@ -1862,7 +1889,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_lyrics_file_writes_and_journals() {
+    async fn test_lyrics_file_writes() {
         let dir = tempfile::tempdir().unwrap();
         let root = tempfile::tempdir().unwrap();
         grant_scopes(dir.path(), WriteScopes { manage_files: true, ..Default::default() });
@@ -1884,14 +1911,6 @@ mod tests {
         let json = body_json(res).await;
         assert_eq!(json["kind"], json!("synced"));
         assert!(root.path().join("a.lrc").exists());
-
-        // The write landed in the journal, readable over /v1/changes.
-        let res = router.oneshot(request("GET", "/v1/changes", Some(TEST_TOKEN))).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let json = body_json(res).await;
-        let entries = json["entries"].as_array().unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0]["verb"], json!("lyrics.writeFile"));
     }
 
     #[tokio::test]
@@ -1945,9 +1964,9 @@ mod tests {
     }
 
     /// History rename is a backend-direct DB write: no scope, validated and
-    /// journaled here, a dry run leaves neither data nor a journal line.
+    /// logged here, a dry run changes nothing.
     #[tokio::test]
-    async fn test_history_rename_validates_previews_applies_and_journals() {
+    async fn test_history_rename_validates_previews_and_applies() {
         let dir = tempfile::tempdir().unwrap();
         let state = test_state_in(noop_emit(), dir.path().to_path_buf());
         state
@@ -1982,7 +2001,7 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::NOT_FOUND);
 
-        // Dry run: reports the merge, writes nothing, journals nothing.
+        // Dry run: reports the merge, writes nothing.
         let res = router
             .clone()
             .oneshot(request_json(
@@ -2000,10 +2019,8 @@ mod tests {
         assert_eq!(json["artistMerged"], json!(true));
         assert_eq!(json["tracksMerged"], json!(1));
         assert_eq!(json["playsMoved"], json!(2));
-        let res = router.clone().oneshot(request("GET", "/v1/changes", Some(TEST_TOKEN))).await.unwrap();
-        assert_eq!(body_json(res).await["entries"].as_array().unwrap().len(), 0);
 
-        // Apply: same numbers, one journal line carrying the result.
+        // Apply: same numbers.
         let res = router
             .clone()
             .oneshot(request_json(
@@ -2019,11 +2036,6 @@ mod tests {
         assert_eq!(json["dryRun"], json!(false));
         assert_eq!(json["artistRemoved"], json!(true));
         assert_eq!(json["playsMoved"], json!(2));
-        let res = router.clone().oneshot(request("GET", "/v1/changes", Some(TEST_TOKEN))).await.unwrap();
-        let entries = body_json(res).await["entries"].clone();
-        assert_eq!(entries.as_array().unwrap().len(), 1);
-        assert_eq!(entries[0]["verb"], json!("history.rename"));
-        assert_eq!(entries[0]["detail"]["to"]["artist"], json!("Στέλιος Καζαντζίδης"));
 
         // The old name is gone from history; a second rename 404s.
         let res = router

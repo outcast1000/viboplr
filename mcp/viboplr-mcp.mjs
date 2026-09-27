@@ -807,10 +807,10 @@ export const TOOLS = [
       "action=write_lyrics saves lyrics as a sidecar file next to a local track's audio file (.lrc when the content has LRC timestamps, .txt otherwise; existing files are refused unless overwrite=true, which trashes the old one). " +
       "action=save_cover writes cover.<ext> into an album's folder — from an http(s) url the APP fetches, or fromCache=true to copy the album image the app already resolved. " +
       "action=move moves/renames local files WITHIN their own collection and is TWO-STEP: the first call only returns a plan (exact from→to list + planHash, nothing touched) — show it to the user — then re-send the same call with planHash to apply. Extensions never change, nothing is ever overwritten, the library rows follow the files (ids/tags/likes/playlists kept). Max 50 moves. " +
-      "action=changes reads the assistant change log (what was written, when).",
+      "Every applied write is recorded in the app log as an \"Assistant change [...]\" line (the logs tool, while logging is on).",
     inputSchema: obj(
       {
-        action: en(["write_lyrics", "save_cover", "move", "changes"], "What to do"),
+        action: en(["write_lyrics", "save_cover", "move"], "What to do"),
         trackId: num("Library track id (write_lyrics)"),
         content: str("The lyrics text (write_lyrics)"),
         kind: en(["auto", "synced", "plain"], "Lyrics kind — auto detects LRC timestamps (write_lyrics)"),
@@ -831,11 +831,10 @@ export const TOOLS = [
           ),
         },
         planHash: str("From the planning call — sending it applies the plan (move)"),
-        limit: num("Max entries (changes, default 100)"),
       },
       ["action"],
     ),
-    run: ({ action, trackId, content, kind, albumId, url, fromCache, overwrite, moves, planHash, limit }) => {
+    run: ({ action, trackId, content, kind, albumId, url, fromCache, overwrite, moves, planHash }) => {
       switch (action) {
         case "write_lyrics":
           need({ trackId, content }, ["trackId", "content"], "action=write_lyrics");
@@ -846,8 +845,6 @@ export const TOOLS = [
         case "move":
           need({ moves }, ["moves"], "action=move");
           return apiRequest("POST", "/v1/files/move", { moves, planHash }, { timeoutMs: SLOW_MS });
-        case "changes":
-          return apiRequest("GET", `/v1/changes${qs({ limit })}`);
         default:
           throw new Error(`unknown manage_files action: ${action}`);
       }

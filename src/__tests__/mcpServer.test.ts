@@ -97,8 +97,6 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
     }
     if (req.url === "/v1/downloads/plugin" && req.method === "DELETE")
       return reply(200, { cancelled: false, note: "no plugin download resolve in flight" });
-    if (req.url?.startsWith("/v1/changes") && req.method === "GET")
-      return reply(200, { entries: [{ ts: "2026-09-15T00:00:00Z", verb: "tags.writeFiles", summary: "wrote file tags on 2 track(s)" }] });
     if (req.url === "/v1/status")
       return reply(200, { playing: true, positionSecs: 12, queueIndex: 0, queueLength: 3, currentTrack: { title: "Jóga" } });
     if (req.url === "/v1/queue") {
@@ -519,17 +517,6 @@ describe("MCP server over stdio", () => {
     });
     expect(JSON.parse(toolText(cancel.result)).cancelled).toBe(false);
     expect(api.seen.some((r) => r.method === "DELETE" && r.url === "/v1/downloads/plugin")).toBe(true);
-  });
-
-  it("reads the assistant change log through manage_files action=changes", async () => {
-    const res = await rpc.request("tools/call", {
-      name: "manage_files",
-      arguments: { action: "changes", limit: 5 },
-    });
-    const parsed = JSON.parse(toolText(res.result));
-    expect(parsed.entries[0].verb).toBe("tags.writeFiles");
-    const req = api.seen.find((r) => r.method === "GET" && r.url.startsWith("/v1/changes"));
-    expect(req?.url).toContain("limit=5");
   });
 
   it("declares its tier in the initialize instructions", async () => {

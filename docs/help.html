@@ -376,7 +376,7 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Assistant permissions</h2>
-        <p class="docs-lead">Three switches that let a connected AI assistant change things &mdash; not just read and play. All off by default, each one scoped, everything journaled.</p>
+        <p class="docs-lead">Three switches that let a connected AI assistant change things &mdash; not just read and play. All off by default, each one scoped, everything logged.</p>
         <p>With <strong>Settings &rarr; General &rarr; AI control</strong> on, the same card shows three permission rows. They gate what an assistant may <em>write</em>; searching, playback, queue and playlist edits, database tags and likes never need them.</p>
         <ul class="docs-list">
           <li><strong>Modify tags in files</strong> &mdash; write tag and metadata edits (genre tags, artist, album, album artist, year) into the audio files themselves, through the same bulk-edit path the app's own modal uses. Database-only tag edits are always allowed and never touch files.</li>
@@ -387,7 +387,7 @@
         <ul class="docs-list">
           <li><strong>Everything stays inside your collections.</strong> Destinations are validated against the collection's own folder &mdash; there is no way to write anywhere else on disk.</li>
           <li><strong>Nothing is silently overwritten.</strong> Moves and downloads refuse existing files outright; replacing a lyrics or cover file requires an explicit overwrite, and the old file goes to the trash.</li>
-          <li><strong>Every change is journaled.</strong> <strong>Settings &rarr; Debug &rarr; Assistant changes</strong> lists what was written and when; the same log rides along in problem reports, so &ldquo;what did the assistant do?&rdquo; always has an answer.</li>
+          <li><strong>Every change is logged.</strong> With <strong>Settings &rarr; Debug &rarr; Enable logging</strong> on, each applied write is recorded in the app log as an &ldquo;Assistant change&rdquo; line, which rides along in problem reports.</li>
           <li><strong>Switches apply instantly and fail closed.</strong> Flip one off and the very next request is refused; a missing or unreadable permissions file means <em>no</em>.</li>
           <li><strong>Deletion stays impossible.</strong> There is no assistant verb that deletes a track, a playlist, or a file.</li>
         </ul>

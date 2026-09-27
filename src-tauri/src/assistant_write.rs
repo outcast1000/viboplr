@@ -15,22 +15,16 @@
 //! same "the gate is re-checked in Rust, never trusted from the caller"
 //! pattern as `write_probe_dump`. Default is everything off.
 //!
-//! Every applied write is appended to `assistant-changes.jsonl` (same dir) so
-//! the user can always answer "what did the assistant change?" — surfaced in
-//! Settings → Debug and in the Report-a-problem diagnostics.
+//! Every applied write is recorded in the normal app log (`log_change`, an
+//! `Assistant change [verb]` line), so "what did the assistant change?" is
+//! answered by the log tail in Report-a-problem and the assistant's own
+//! `logs` tool — while logging is on.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::Write as _;
 use std::path::{Component, Path, PathBuf};
 
 pub const SCOPES_FILE: &str = "assistant-permissions.json";
-pub const AUDIT_FILE: &str = "assistant-changes.jsonl";
-
-/// Trim the audit file back to this many newest lines once it crosses
-/// `AUDIT_MAX_BYTES` — a journal, not a landfill.
-const AUDIT_KEEP_LINES: usize = 1000;
-const AUDIT_MAX_BYTES: u64 = 1024 * 1024;
 
 // --- Scopes ---
 
@@ -91,70 +85,27 @@ pub fn save_scopes(app_dir: &Path, scopes: &WriteScopes) -> Result<(), String> {
         .map_err(|e| format!("Failed to write {}: {}", path.display(), e))
 }
 
-// --- Audit journal ---
+// --- Change log ---
 
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuditEntry {
-    pub ts: String,
-    pub verb: String,
-    pub summary: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<Value>,
-}
-
-fn audit_path(app_dir: &Path) -> PathBuf {
-    app_dir.join(AUDIT_FILE)
-}
-
-/// Append one entry. Failures are logged, never propagated — a broken journal
-/// must not fail the mutation it records (the mutation already happened).
-pub fn append_audit(app_dir: &Path, verb: &str, summary: &str, detail: Option<Value>) {
-    let entry = AuditEntry {
-        ts: chrono::Utc::now().to_rfc3339(),
-        verb: verb.to_string(),
-        summary: summary.to_string(),
-        detail,
-    };
-    if let Err(e) = try_append(app_dir, &entry) {
-        log::error!("Assistant audit: failed to append entry: {}", e);
+/// Record one applied assistant write in the app log: the summary, then one
+/// line per file it touched, so "which files did it change?" is answerable
+/// from the log alone. Never fails the mutation it records (the mutation
+/// already happened).
+pub fn log_change(verb: &str, summary: &str, files: &[String]) {
+    log::info!("Assistant change [{}]: {}", verb, summary);
+    for file in files {
+        log::info!("Assistant change [{}]:   file: {}", verb, file);
     }
 }
 
-fn try_append(app_dir: &Path, entry: &AuditEntry) -> Result<(), String> {
-    let path = audit_path(app_dir);
-    let line = serde_json::to_string(entry).map_err(|e| e.to_string())?;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .map_err(|e| e.to_string())?;
-    writeln!(file, "{}", line).map_err(|e| e.to_string())?;
-    drop(file);
-    // Trim opportunistically once the file grows past the cap.
-    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > AUDIT_MAX_BYTES {
-        let contents = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let lines: Vec<&str> = contents.lines().collect();
-        let keep = lines.len().saturating_sub(AUDIT_KEEP_LINES);
-        let trimmed: String = lines[keep..].iter().map(|l| format!("{}\n", l)).collect();
-        std::fs::write(&path, trimmed).map_err(|e| e.to_string())?;
+/// `" (replaced — old file in the trash)"` when a write displaced an
+/// existing file (`displace_existing`), for the change-log summary.
+pub fn replaced_note(value: &Value) -> &'static str {
+    if value["replaced"].as_bool() == Some(true) {
+        " (replaced an existing file — the old one went to the trash)"
+    } else {
+        ""
     }
-    Ok(())
-}
-
-/// The newest `limit` entries, oldest first. Unparseable lines are skipped —
-/// the journal is best-effort evidence, not a ledger with integrity claims.
-pub fn read_audit_tail(app_dir: &Path, limit: usize) -> Vec<AuditEntry> {
-    let Ok(contents) = std::fs::read_to_string(audit_path(app_dir)) else {
-        return Vec::new();
-    };
-    let mut entries: Vec<AuditEntry> = contents
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect();
-    let skip = entries.len().saturating_sub(limit);
-    entries.drain(..skip);
-    entries
 }
 
 // --- Path safety ---
@@ -837,37 +788,6 @@ mod tests {
         assert!(loaded.allows(Scope::ModifyTags));
         assert!(!loaded.allows(Scope::ManageFiles));
         assert!(loaded.allows(Scope::Downloads));
-    }
-
-    #[test]
-    fn test_audit_appends_and_tails() {
-        let dir = tempfile::tempdir().unwrap();
-        append_audit(dir.path(), "files.move", "moved 2 files", Some(json!({"n": 2})));
-        append_audit(dir.path(), "tags.writeFiles", "tagged 5 tracks", None);
-        let tail = read_audit_tail(dir.path(), 10);
-        assert_eq!(tail.len(), 2);
-        assert_eq!(tail[0].verb, "files.move");
-        assert_eq!(tail[1].verb, "tags.writeFiles");
-        assert_eq!(tail[0].detail, Some(json!({"n": 2})));
-        // Tail limit keeps the newest.
-        let tail = read_audit_tail(dir.path(), 1);
-        assert_eq!(tail.len(), 1);
-        assert_eq!(tail[0].verb, "tags.writeFiles");
-    }
-
-    #[test]
-    fn test_audit_skips_unparseable_lines() {
-        let dir = tempfile::tempdir().unwrap();
-        append_audit(dir.path(), "a", "one", None);
-        std::fs::OpenOptions::new()
-            .append(true)
-            .open(dir.path().join(AUDIT_FILE))
-            .unwrap()
-            .write_all(b"corrupt line\n")
-            .unwrap();
-        append_audit(dir.path(), "b", "two", None);
-        let tail = read_audit_tail(dir.path(), 10);
-        assert_eq!(tail.len(), 2);
     }
 
     #[test]
