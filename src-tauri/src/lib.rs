@@ -1241,6 +1241,10 @@ pub fn run() {
                 //     so RunEvent::ExitRequested never fires.
                 window.on_window_event(|event| {
                     if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        // Marks a deliberate close in the log: without it a
+                        // session that ends here is indistinguishable from one
+                        // that hung or crashed.
+                        log::info!("Exit: main window closed");
                         std::process::exit(0);
                     }
                 });
@@ -1639,6 +1643,7 @@ pub fn run() {
         .run(|app, event| {
             match &event {
                 tauri::RunEvent::Exit => {
+                    log::info!("Exit: app exit requested");
                     // Courtesy cleanup: without it the discovery file merely goes
                     // stale, which consumers must handle anyway (health probe).
                     if let Some(state) = app.try_state::<AppState>() {
