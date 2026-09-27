@@ -57,8 +57,6 @@ import {
   describeContributes,
   annotateGalleryPlugins,
   annotateGallerySkins,
-  buildAssistantRoster,
-  resolveSearchProvider,
   selectSearchTracks,
   resolveHomeShelf,
   serializeShelfItem,
@@ -72,6 +70,7 @@ import {
   serializeStatus,
   type ControlApiRequest,
 } from "../utils/controlApi";
+import { invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
 
 export interface ControlApiDeps {
   appRestoring: boolean;
@@ -575,27 +574,15 @@ export function useControlApi(deps: ControlApiDeps) {
       // --- Plugin catalog search (Spotify, YouTube, …) ---
 
       case "search.providers":
-        return {
-          providers: d.plugins.searchProviders.map((p) => ({
-            key: `${p.pluginId}:${p.providerId}`,
-            pluginId: p.pluginId,
-            providerId: p.providerId,
-            name: p.name,
-          })),
-        };
+        return { providers: listSearchProviders(d.plugins) };
 
       case "search.plugin": {
         const query = optionalString(payload.query) ?? bad("query is required");
         const providerKey = optionalString(payload.provider)
           ?? bad('provider is required (a key from GET /v1/search/providers, e.g. "ytdlp:youtube")');
-        const limit = typeof payload.limit === "number"
-          ? Math.min(100, Math.max(1, Math.floor(payload.limit)))
-          : 30;
-        const provider = resolveSearchProvider(d.plugins.searchProviders, providerKey);
-        if (typeof provider === "string") bad(provider);
-        const result = await d.plugins.invokePluginSearch(
-          provider.pluginId, provider.providerId, query, limit,
-        );
+        const { provider, result } = await searchCatalog(d.plugins, {
+          providerKey, query, limit: payload.limit,
+        });
         if (result.status === "error") bad(result.message ?? "provider search failed");
         if (result.status === "empty" || result.tracks.length === 0) {
           return { searchId: null, provider: `${provider.pluginId}:${provider.providerId}`, tracks: [] };
@@ -919,35 +906,14 @@ export function useControlApi(deps: ControlApiDeps) {
       // return value IS the payload.
 
       case "assistant.tools":
-        return {
-          plugins: buildAssistantRoster(
-            d.plugins.assistantTools,
-            d.plugins.assistantInstructions,
-            d.plugins.pluginNames ?? new Map(),
-          ),
-        };
+        return { plugins: listAssistantTools(d.plugins) };
 
       case "assistant.invoke": {
         const pluginId = optionalString(payload.pluginId) ?? bad("pluginId is required");
         const tool = optionalString(payload.tool) ?? bad("tool is required");
-        const plugin = d.plugins.pluginStates.find((p) => p.id === pluginId)
-          ?? bad(`plugin "${pluginId}" is not installed`);
-        if (!plugin.enabled) bad(`plugin "${pluginId}" is disabled`);
-        const known = d.plugins.assistantTools.some((t) => t.pluginId === pluginId && t.name === tool);
-        if (!known) {
-          const roster = d.plugins.assistantTools
-            .filter((t) => t.pluginId === pluginId)
-            .map((t) => t.name)
-            .join(", ");
-          bad(`plugin "${pluginId}" registers no tool "${tool}" (its tools: ${roster || "none"})`);
-        }
-        const args =
-          typeof payload.args === "object" && payload.args !== null && !Array.isArray(payload.args)
-            ? (payload.args as Record<string, unknown>)
-            : {};
-        // Rejections (handler throw, timeout, no live handler) propagate to
-        // the dispatcher's catch and land in the HTTP error body.
-        const result = await d.plugins.invokeAssistantTool(pluginId, tool, args);
+        // Rejections (not callable, unknown tool, handler throw, timeout)
+        // propagate to the dispatcher's catch and land in the HTTP error body.
+        const result = await invokeAssistantTool(d.plugins, { pluginId, tool, args: payload.args });
         return { result: result === undefined ? null : result };
       }
 

@@ -67,7 +67,7 @@ import {
   CORE_LOCAL_LYRICS_PROVIDER, fetchInfoValue, resolveInfoEntityId, type InvokeInfoFetch,
 } from "../utils/infoFetchChain";
 import { CallGraph, callableProblem, describePlugins } from "../utils/crossPluginCalls";
-import { buildAssistantRoster, resolveSearchProvider } from "../utils/controlApi";
+import { invokeAssistantTool as invokeAssistantToolOp, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
 import { fetchLocalLyrics } from "../utils/localLyrics";
 
 /** Backstop for a global-search handler that never settles. Deliberately far
@@ -1446,24 +1446,13 @@ export function usePlugins(
           listProviders() {
             // The user-visible list (Extensions → Contributions filter applied),
             // exactly what Cmd+K and the control API offer.
-            return registry().searchProviders.map((p) => ({
-              key: `${p.pluginId}:${p.providerId}`,
-              pluginId: p.pluginId,
-              providerId: p.providerId,
-              name: p.name,
-            }));
+            return listSearchProviders(registry());
           },
           async query(providerKey, query, limit) {
             if (typeof providerKey !== "string" || !providerKey) throw new Error("providerKey is required (see listProviders())");
             if (typeof query !== "string" || !query) throw new Error("query is required");
-            const provider = resolveSearchProvider(registry().searchProviders, providerKey);
-            if (typeof provider === "string") throw new Error(provider);
-            const n = typeof limit === "number" && Number.isFinite(limit)
-              ? Math.min(100, Math.max(1, Math.floor(limit)))
-              : 30;
-            return crossCall(provider.pluginId, `search:${provider.providerId}`, () =>
-              registry().invokePluginSearch(provider.pluginId, provider.providerId, query, n),
-            );
+            const { result } = await searchCatalog(registry(), { providerKey, query, limit }, crossCall);
+            return result;
           },
         },
 
@@ -1522,28 +1511,12 @@ export function usePlugins(
             setAssistantVersion((v) => v + 1);
           },
           listTools(targetPluginId) {
-            const r = registry();
-            const roster = buildAssistantRoster(r.assistantTools, r.assistantInstructions, r.pluginNames);
-            return targetPluginId ? roster.filter((p) => p.pluginId === targetPluginId) : roster;
+            return listAssistantTools(registry(), targetPluginId);
           },
           async invoke(targetPluginId, tool, args) {
             if (typeof targetPluginId !== "string" || !targetPluginId) throw new Error("pluginId is required");
             if (typeof tool !== "string" || !tool) throw new Error("tool is required");
-            const r = registry();
-            const known = r.assistantTools.some((t) => t.pluginId === targetPluginId && t.name === tool);
-            if (!known) {
-              // callableProblem first so "not installed" beats "no such tool".
-              const problem = callableProblem(r.pluginStates, targetPluginId);
-              if (problem) throw new Error(problem);
-              const names = r.assistantTools.filter((t) => t.pluginId === targetPluginId).map((t) => t.name).join(", ");
-              throw new Error(`plugin "${targetPluginId}" registers no tool "${tool}" (its tools: ${names || "none"})`);
-            }
-            const safeArgs = typeof args === "object" && args !== null && !Array.isArray(args)
-              ? (args as Record<string, unknown>)
-              : {};
-            return crossCall(targetPluginId, `tool:${tool}`, () =>
-              registry().invokeAssistantTool(targetPluginId, tool, safeArgs),
-            );
+            return invokeAssistantToolOp(registry(), { pluginId: targetPluginId, tool, args }, crossCall);
           },
         },
 
