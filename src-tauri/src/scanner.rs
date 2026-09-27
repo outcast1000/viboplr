@@ -65,6 +65,29 @@ struct ParsedTags {
     extra_tags: Option<String>,
 }
 
+/// Whether a Latin-1-range string plausibly came from a non-Latin codepage.
+///
+/// Text written in Greek, Cyrillic, Hebrew etc. and mis-read as Latin-1 has
+/// *every* letter above U+007F, because those alphabets live entirely in the
+/// high half of their codepage — garbled samples score 1.00. A genuine Western
+/// name carries only a few accents among ASCII letters: "Björk" scores 0.20,
+/// "Crème Brûlée" 0.27, "Grüße" 0.40. A 0.5 cutoff separates the two with room
+/// to spare.
+///
+/// The extra `high >= 2` condition keeps a lone accented letter ("Ó") from
+/// tripping the ratio on a very short field.
+fn looks_like_codepage_text(s: &str) -> bool {
+    let letters = s.chars().filter(|c| c.is_alphabetic()).count();
+    if letters == 0 {
+        return false;
+    }
+    let high = s
+        .chars()
+        .filter(|c| c.is_alphabetic() && (*c as u32) > 0x7F)
+        .count();
+    high >= 2 && (high * 2) >= letters
+}
+
 /// Fix misencoded tag strings from ID3v1 or Latin-1-declared ID3v2 frames.
 ///
 /// Lofty reads non-Unicode tag strings as Latin-1 (ISO 8859-1). If the actual
@@ -74,6 +97,11 @@ struct ParsedTags {
 /// This function detects that case by checking if all characters are ≤ U+00FF
 /// with high-byte characters present, then tries UTF-8 and common Windows
 /// codepages. It picks the decoding that produces the most Unicode letters.
+///
+/// Codepage re-decoding is gated on [`looks_like_codepage_text`]: without that
+/// guard a correctly-encoded Latin-1 name ("Björk") would be "repaired" into
+/// Greek ("Bjφrk"), because the garbled reading scores 0 and *any* codepage
+/// reinterpretation scores at least 1.
 pub(crate) fn fix_encoding(s: &str) -> String {
     // If the string is pure ASCII, or already contains characters > U+00FF
     // (i.e. real Unicode from a properly encoded tag), return as-is.
@@ -94,6 +122,13 @@ pub(crate) fn fix_encoding(s: &str) -> String {
         if decoded.chars().any(|c| c as u32 > 0x7F) {
             return decoded.to_string();
         }
+    }
+
+    // Only re-decode when the text actually looks like mis-decoded non-Latin
+    // script. A real Latin-1 name has a few accents among ASCII letters and
+    // must be left alone.
+    if !looks_like_codepage_text(s) {
+        return s.to_string();
     }
 
     // Try common Windows codepages and pick the best result.
@@ -841,6 +876,65 @@ mod tests {
         let (encoded, _, _) = WINDOWS_1251.encode("Тест");
         let garbled: String = encoded.iter().map(|&b| b as char).collect();
         assert_eq!(fix_encoding(&garbled), "Тест");
+    }
+
+    /// Regression: correctly-encoded Latin-1 accents must survive a scan.
+    ///
+    /// Before the `looks_like_codepage_text` guard, every one of these was
+    /// rewritten into Greek on each rescan — "Björk" became "Bjφrk", "Ótta"
+    /// became "Σtta" — because the correct reading scores 0 and any codepage
+    /// reinterpretation scores higher. Writing the name back through the tag
+    /// editor then fed the same string in again, so the corruption was a loop.
+    #[test]
+    fn test_fix_encoding_latin1_accents_unchanged() {
+        for name in [
+            "Björk",
+            "Sólstafir",
+            "João Gilberto / Stan Getz",
+            "Gabriel Fauré",
+            "Hüsker Dü",
+            "Dälek",
+            "Niccolò Paganini",
+            "Cesária Evora",
+            "Bomba Estéreo",
+            "César Franck",
+            "Celina González",
+            "Ótta",
+            "Ænima",
+            "Crème Brûlée",
+            "Señor (Tales of Yankee Power)",
+            "Má Vlast - Vltava",
+            "Elävä kivi",
+            "Próxima Estación: Esperanza",
+            "Buying Truth (Tack & Förlåt)",
+            "Die Zauberflöte (K. 620) - Overture",
+            "Grüße",
+        ] {
+            assert_eq!(fix_encoding(name), name, "corrupted a valid Latin-1 name");
+        }
+    }
+
+    /// A short all-Greek field still has to be repaired: the ratio guard passes
+    /// it (every letter is high), unlike an accented Latin word.
+    #[test]
+    fn test_fix_encoding_short_greek_still_fixed() {
+        let (encoded, _, _) = WINDOWS_1253.encode("Ναι");
+        let garbled: String = encoded.iter().map(|&b| b as char).collect();
+        assert_eq!(fix_encoding(&garbled), "Ναι");
+    }
+
+    #[test]
+    fn test_looks_like_codepage_text_discriminates() {
+        // Garbled Greek: every letter above U+007F.
+        let (encoded, _, _) = WINDOWS_1253.encode("Στέλιος Καζαντζίδης");
+        let garbled: String = encoded.iter().map(|&b| b as char).collect();
+        assert!(looks_like_codepage_text(&garbled));
+        // Real Latin-1 names: a few accents among ASCII.
+        assert!(!looks_like_codepage_text("Björk"));
+        assert!(!looks_like_codepage_text("Crème Brûlée"));
+        assert!(!looks_like_codepage_text("Grüße"));
+        // A single accented letter must never qualify.
+        assert!(!looks_like_codepage_text("Ó"));
     }
 
     #[test]
