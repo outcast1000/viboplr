@@ -36,6 +36,7 @@ describe("readPersistedSettings", () => {
       ["searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles" }],
       ["uiZoom", 1.25],
       ["radioOptions", { taste: "discovery" }], // passed through raw; App coerces
+      ["controlApiEnabled", true],
       // Intentionally omitted: queueWidth, reduceMotion, lastDownloadDest, ...
     ]);
 
@@ -53,6 +54,7 @@ describe("readPersistedSettings", () => {
     expect(s.searchViewModes).toEqual({ tracks: "list", albums: "tiles", artists: "tiles" });
     expect(s.uiZoom).toBe(1.25);
     expect(s.radioOptions).toEqual({ taste: "discovery" });
+    expect(s.controlApiEnabled).toBe(true);
 
     // Absent → undefined (exactly what per-key `get` returned before)
     expect(s.queueWidth).toBeUndefined();

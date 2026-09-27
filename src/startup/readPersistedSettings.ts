@@ -80,6 +80,7 @@ export interface PersistedSettings {
   debugMode: boolean | undefined;
   devPluginPath: string | null | undefined;
   autoUpdateManagedDeps: boolean | undefined;
+  controlApiEnabled: boolean | undefined;
 }
 
 /**
@@ -167,5 +168,6 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     debugMode: read<boolean>("debugMode"),
     devPluginPath: read<string | null>("devPluginPath"),
     autoUpdateManagedDeps: read<boolean>("autoUpdateManagedDeps"),
+    controlApiEnabled: read<boolean>("controlApiEnabled"),
   };
 }

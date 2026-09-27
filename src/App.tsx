@@ -2758,6 +2758,7 @@ function App() {
           nowPlayingInfoOrder: savedNowPlayingInfoOrder,
           loggingEnabled: savedLoggingEnabled, debugLogging: savedDebugLogging, debugMode: savedDebugMode,
           devPluginPath: savedDevPluginPath, autoUpdateManagedDeps: savedAutoUpdateDeps,
+          controlApiEnabled: savedControlApiEnabled,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         zoom.hydrate(savedUiZoom, savedMiniZoom);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
@@ -2966,6 +2967,9 @@ function App() {
         }
         if (savedPluginViewMode && ["cards", "list"].includes(savedPluginViewMode)) setPluginViewMode(savedPluginViewMode as PluginViewMode);
         if (savedLoggingEnabled) setLoggingEnabled(true);
+        // Mirror only — lib.rs already started (or failed to start) the server
+        // from this same key before the webview existed.
+        if (savedControlApiEnabled) setControlApiEnabled(true);
         // Default ON: only disable when explicitly set to false.
         if (savedAutoUpdateDeps === false) setAutoUpdateManagedDeps(false);
         if (savedDebugLogging) { setDebugLogging(true); setDebugLoggingRef(true); }
