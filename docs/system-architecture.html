@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viboplr API Layers</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f6f5f1;
+    --surface: #ffffff;
+    --ink: #1d1f1c;
+    --muted: #6a6d66;
+    --line: #c9cbc3;
+    --line-soft: #e2e3dd;
+    --rust: #f3e9e0;
+    --web: #e7eef3;
+    --plugin: #fbf7ea;
+    --accent: #b8620a;
+    --accent-soft: #f7e6d0;
+    --compose: #0e7a6d;
+    --compose-soft: #d9efe9;
+    --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #17191a; --surface: #202325; --ink: #e8e8e3; --muted: #9a9e97;
+      --line: #4a4e4b; --line-soft: #34383a;
+      --rust: #2c2521; --web: #1f272d; --plugin: #2a2820;
+      --accent: #e39a45; --accent-soft: #3a2a17;
+      --compose: #4fc3b1; --compose-soft: #163530;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #17191a; --surface: #202325; --ink: #e8e8e3; --muted: #9a9e97;
+    --line: #4a4e4b; --line-soft: #34383a;
+    --rust: #2c2521; --web: #1f272d; --plugin: #2a2820;
+    --accent: #e39a45; --accent-soft: #3a2a17;
+    --compose: #4fc3b1; --compose-soft: #163530;
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5; }
+  .page { max-width: 1300px; margin: 0 auto; padding-block: 40px 64px; padding-inline: 20px; }
+  header { max-width: 72ch; margin-bottom: 28px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: 30px; font-weight: 600; line-height: 1.15; margin: 6px 0 12px; text-wrap: balance; }
+  h2 { font-size: 20px; font-weight: 600; margin: 44px 0 10px; text-wrap: balance; }
+  p { margin: 0 0 10px; max-width: 72ch; }
+  code { font-family: var(--mono); font-size: .88em; }
+  figure { margin: 0; }
+  .scroller { overflow-x: auto; background: var(--surface); border: 1px solid var(--line-soft); border-radius: 6px; padding: 12px; }
+  svg { display: block; min-width: 1100px; width: 100%; height: auto; font-family: var(--sans); color: var(--ink); }
+  svg text { fill: var(--ink); font-size: 12px; }
+  svg .t-title { font-size: 13px; font-weight: 600; }
+  svg .t-mono { font-family: var(--mono); font-size: 11px; }
+  svg .t-muted { fill: var(--muted); font-size: 11px; }
+  svg .t-gate { fill: var(--accent); font-size: 11px; font-weight: 500; }
+  svg .t-col { fill: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: .08em; }
+  svg .t-lab { font-family: var(--mono); font-size: 10.5px; fill: var(--ink); }
+  svg .t-lab-ev { font-family: var(--mono); font-size: 10.5px; fill: var(--accent); }
+  svg .t-comp { fill: var(--compose); }
+  svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1; }
+  svg .file { fill: var(--surface); stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 3; }
+  svg .reg-rust { fill: var(--rust); stroke: var(--line); stroke-dasharray: 4 3; }
+  svg .reg-web { fill: var(--web); stroke: var(--line); stroke-dasharray: 4 3; }
+  svg .ops { fill: var(--compose-soft); stroke: var(--compose); stroke-width: 1.2; }
+  svg .plug { fill: var(--plugin); stroke: var(--line); }
+  svg .ipc { fill: none; stroke: var(--line); stroke-dasharray: 2 4; }
+  svg .flow { stroke: var(--ink); stroke-width: 1.4; fill: none; }
+  svg .ev { stroke: var(--accent); stroke-width: 1.4; fill: none; stroke-dasharray: 5 3; }
+  svg .js { stroke: var(--compose); stroke-width: 1.6; fill: none; }
+  svg .mk-ink { fill: var(--ink); }
+  svg .mk-ev { fill: var(--accent); }
+  svg .mk-js { fill: var(--compose); }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; max-width: 90ch; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 26px; font-size: 13px; color: var(--muted); margin-top: 12px; }
+  .legend span::before { content: ""; display: inline-block; width: 24px; height: 0; border-top: 2px solid var(--ink); vertical-align: middle; margin-right: 8px; }
+  .legend .ev::before { border-top-style: dashed; border-color: var(--accent); }
+  .legend .js::before { border-color: var(--compose); }
+  .legend .gate::before { width: 10px; height: 10px; border: none; background: var(--accent); border-radius: 2px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13.5px; background: var(--surface); border: 1px solid var(--line-soft); }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  td code { font-size: 12px; }
+  td.gate { color: var(--accent); }
+
+  ol.steps { margin: 14px 0 0; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 8px; max-width: 90ch; }
+  ol.steps li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 10px; background: var(--surface); border: 1px solid var(--line-soft); border-radius: 6px; padding: 10px 14px; font-size: 14px; }
+  ol.steps li::before { content: counter(s); font-family: var(--mono); color: var(--accent); font-weight: 500; }
+  ol.steps .where { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  .three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+  .col { background: var(--surface); border: 1px solid var(--line-soft); border-radius: 6px; padding: 14px 16px 10px; }
+  .col h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .col .dir { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .col ul { list-style: none; margin: 0; padding: 0; }
+  .col li { padding: 6px 0; border-top: 1px solid var(--line-soft); font-size: 13px; }
+  .col li code { color: var(--ink); }
+  .col li span { color: var(--muted); }
+  .note { border-left: 3px solid var(--accent); padding: 4px 14px; margin-top: 28px; color: var(--muted); font-size: 14px; max-width: 90ch; }
+  @media (max-width: 800px) { .three { grid-template-columns: 1fr; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">Viboplr · Tauri 2 · v1.0.75 · 2026-09</div>
+    <h1>How the plugin API, control API and MCP server reach the Rust and JS layers</h1>
+    <p>Viboplr has one Rust process and one webview JS context. Plugins run inside that JS context and get an <code>api</code> object. AI assistants connect through the MCP server, which calls a localhost HTTP API in Rust. That API answers some requests from the database directly and sends the rest across IPC to the webview. Both paths end up in the same shared ops modules, which the UI uses too.</p>
+  </header>
+
+  <figure>
+    <div class="scroller">
+    <svg viewBox="0 0 1290 796" role="img" aria-label="Architecture: an AI assistant talks stdio to the MCP server, which reads control-api.json and calls the Rust control API over HTTP with a bearer token. The control API reads SQLite directly and bridges other requests to the webview's useControlApi via a Tauri event, answered by the control_api_respond command. In the webview, useControlApi, the React hooks and the plugin host all call the same shared ops. Plugins run in the same JS context and use the api object, which invokes plugin_* commands in Rust. Background threads and deep links reach the webview through Tauri events.">
+      <defs>
+        <marker id="a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-ink" d="M0 0 L10 5 L0 10 z"/></marker>
+        <marker id="a-ev" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-ev" d="M0 0 L10 5 L0 10 z"/></marker>
+        <marker id="a-js" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-js" d="M0 0 L10 5 L0 10 z"/></marker>
+      </defs>
+
+      <!-- Column headers -->
+      <text class="t-col" x="20" y="50">OUTSIDE THE APP</text>
+      <text class="t-col" x="300" y="50">RUST · src-tauri/src</text>
+      <text class="t-col" x="720" y="50" text-anchor="middle">TAURI IPC</text>
+      <text class="t-col" x="800" y="50">WEBVIEW · ONE JS CONTEXT · src/</text>
+
+      <!-- Regions -->
+      <rect class="reg-rust" x="300" y="70" width="340" height="706" rx="8"/>
+      <rect class="reg-web" x="800" y="70" width="480" height="706" rx="8"/>
+      <line class="ipc" x1="660" y1="70" x2="660" y2="776"/>
+      <line class="ipc" x1="780" y1="70" x2="780" y2="776"/>
+
+      <!-- ===== Outside ===== -->
+      <rect class="box" x="20" y="92" width="180" height="56" rx="6"/>
+      <text class="t-title" x="110" y="115" text-anchor="middle">AI assistant</text>
+      <text class="t-muted" x="110" y="133" text-anchor="middle">Claude Desktop / Claude Code</text>
+
+      <rect class="box" x="20" y="180" width="180" height="100" rx="6"/>
+      <text class="t-title" x="110" y="202" text-anchor="middle">MCP server</text>
+      <text class="t-mono" x="110" y="219" text-anchor="middle">mcp/viboplr-mcp.mjs</text>
+      <text class="t-muted" x="110" y="236" text-anchor="middle">Node · no dependencies</text>
+      <text class="t-muted" x="110" y="252" text-anchor="middle">34 tools</text>
+      <text class="t-gate" x="110" y="269" text-anchor="middle">--tier=full shows 7 more</text>
+
+      <rect class="box" x="20" y="700" width="180" height="48" rx="6"/>
+      <text class="t-title" x="110" y="720" text-anchor="middle">macOS / Windows</text>
+      <text class="t-muted" x="110" y="737" text-anchor="middle">viboplr:// links</text>
+
+      <!-- client -> MCP -->
+      <line class="flow" x1="110" y1="148" x2="110" y2="178" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="118" y="167">stdio JSON-RPC</text>
+      <!-- MCP -> json -->
+      <polyline class="flow" points="200,196 226,196 226,117 314,117" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="233" y="150">reads</text>
+      <text class="t-lab" x="233" y="163">port+token</text>
+      <!-- MCP -> control api -->
+      <line class="flow" x1="200" y1="244" x2="314" y2="244" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="257" y="237" text-anchor="middle">HTTP · Bearer</text>
+      <text class="t-lab" x="257" y="258" text-anchor="middle">127.0.0.1</text>
+      <!-- OS -> lib.rs -->
+      <line class="flow" x1="200" y1="724" x2="314" y2="724" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="257" y="717" text-anchor="middle">open URL</text>
+
+      <!-- ===== Rust ===== -->
+      <rect class="file" x="316" y="92" width="308" height="50" rx="4"/>
+      <text class="t-mono" x="470" y="113" text-anchor="middle">control-api.json</text>
+      <text class="t-muted" x="470" y="131" text-anchor="middle">port · token · profile, in the profile folder (0600)</text>
+
+      <rect class="box" x="316" y="180" width="308" height="100" rx="6"/>
+      <text class="t-title" x="470" y="202" text-anchor="middle">Control API · control_api.rs</text>
+      <text class="t-muted" x="470" y="220" text-anchor="middle">axum on 127.0.0.1, random port · 63 routes</text>
+      <text class="t-muted" x="470" y="236" text-anchor="middle">DB reads answered here;</text>
+      <text class="t-muted" x="470" y="252" text-anchor="middle">everything else bridged to the webview</text>
+      <text class="t-gate" x="470" y="270" text-anchor="middle">token · no CORS · off until AI control is on</text>
+      <!-- control api -> json -->
+      <line class="flow" x1="470" y1="180" x2="470" y2="144" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="478" y="166">writes on start</text>
+
+      <rect class="box" x="380" y="296" width="244" height="58" rx="6"/>
+      <text class="t-title" x="502" y="316" text-anchor="middle">Scoped writes</text>
+      <text class="t-mono" x="502" y="331" text-anchor="middle">assistant_write.rs</text>
+      <text class="t-gate" x="502" y="346" text-anchor="middle">per-category scope file, re-read per call</text>
+      <line class="flow" x1="502" y1="280" x2="502" y2="294" marker-end="url(#a-ink)"/>
+
+      <rect class="box" x="380" y="372" width="244" height="76" rx="6"/>
+      <text class="t-title" x="502" y="393" text-anchor="middle">App commands</text>
+      <text class="t-mono" x="502" y="410" text-anchor="middle">commands/* · ~288 handlers</text>
+      <text class="t-muted" x="502" y="426" text-anchor="middle">library · media · playlists · history</text>
+      <text class="t-muted" x="502" y="441" text-anchor="middle">mpv_engine · images · updates</text>
+
+      <!-- direct SQL lane -->
+      <line class="flow" x1="340" y1="280" x2="340" y2="466" marker-end="url(#a-ink)"/>
+      <text class="t-lab" transform="translate(356 374) rotate(-90)" text-anchor="middle">direct SQL reads</text>
+
+      <rect class="box" x="316" y="468" width="146" height="60" rx="6"/>
+      <text class="t-title" x="389" y="489" text-anchor="middle">SQLite · db/*</text>
+      <text class="t-muted" x="389" y="505" text-anchor="middle">FTS5 search · likes</text>
+      <text class="t-muted" x="389" y="519" text-anchor="middle">plugin storage</text>
+
+      <rect class="box" x="478" y="468" width="146" height="60" rx="6"/>
+      <text class="t-title" x="551" y="489" text-anchor="middle">mpv_engine/</text>
+      <text class="t-muted" x="551" y="505" text-anchor="middle">libmpv · two decks</text>
+      <text class="t-muted" x="551" y="519" text-anchor="middle">EQ · video layers</text>
+
+      <line class="flow" x1="430" y1="448" x2="430" y2="466" marker-end="url(#a-ink)"/>
+      <line class="flow" x1="560" y1="448" x2="560" y2="466" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="566" y="462">engine_*</text>
+
+      <rect class="box" x="380" y="548" width="244" height="58" rx="6"/>
+      <text class="t-title" x="502" y="568" text-anchor="middle">Plugin commands</text>
+      <text class="t-mono" x="502" y="584" text-anchor="middle">plugin_fetch · _exec · _files_*</text>
+      <text class="t-gate" x="502" y="599" text-anchor="middle">exec: dependencies.rs allow-list</text>
+      <line class="flow" x1="430" y1="548" x2="430" y2="530" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="394" y="542" text-anchor="end">storage</text>
+
+      <rect class="box" x="380" y="622" width="244" height="58" rx="6"/>
+      <text class="t-title" x="502" y="642" text-anchor="middle">Background threads</text>
+      <text class="t-muted" x="502" y="658" text-anchor="middle">image worker · plugin scheduler</text>
+      <text class="t-muted" x="502" y="672" text-anchor="middle">auto-update · dependency refresh</text>
+
+      <rect class="box" x="316" y="700" width="308" height="48" rx="6"/>
+      <text class="t-title" x="470" y="720" text-anchor="middle">Deep links · lib.rs</text>
+      <text class="t-muted" x="470" y="737" text-anchor="middle">deep_link plugin · single-instance argv</text>
+
+      <!-- ===== IPC crossings ===== -->
+      <line class="ev" x1="624" y1="212" x2="814" y2="212" marker-end="url(#a-ev)"/>
+      <text class="t-lab-ev" x="720" y="205" text-anchor="middle">control-api-request</text>
+      <line class="flow" x1="816" y1="252" x2="626" y2="252" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="720" y="245" text-anchor="middle">control_api_respond</text>
+
+      <line class="flow" x1="816" y1="410" x2="626" y2="410" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="720" y="403" text-anchor="middle">invoke(…)</text>
+      <line class="ev" x1="624" y1="498" x2="814" y2="498" marker-end="url(#a-ev)"/>
+      <text class="t-lab-ev" x="720" y="491" text-anchor="middle">engine-* · scan-* · …</text>
+
+      <line class="flow" x1="816" y1="577" x2="626" y2="577" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="720" y="570" text-anchor="middle">invoke(plugin_*)</text>
+      <line class="ev" x1="624" y1="650" x2="814" y2="650" marker-end="url(#a-ev)"/>
+      <text class="t-lab-ev" x="720" y="643" text-anchor="middle">image-resolve-request</text>
+      <text class="t-lab-ev" x="720" y="666" text-anchor="middle">plugin-scheduler-due</text>
+
+      <line class="ev" x1="624" y1="724" x2="814" y2="724" marker-end="url(#a-ev)"/>
+      <text class="t-lab-ev" x="720" y="717" text-anchor="middle">deep-link-received</text>
+
+      <!-- ===== Webview: callers ===== -->
+      <rect class="box" x="816" y="180" width="240" height="100" rx="6"/>
+      <text class="t-title" x="936" y="202" text-anchor="middle">Control bridge</text>
+      <text class="t-mono" x="936" y="219" text-anchor="middle">useControlApi.ts · 48 verbs</text>
+      <text class="t-muted" x="936" y="236" text-anchor="middle">runs each verb through the</text>
+      <text class="t-muted" x="936" y="251" text-anchor="middle">same hooks and ops as the UI</text>
+      <text class="t-muted" x="936" y="268" text-anchor="middle">10 s bridge timeout → 504</text>
+
+      <rect class="box" x="816" y="372" width="240" height="156" rx="6"/>
+      <text class="t-title" x="936" y="394" text-anchor="middle">App.tsx + hooks</text>
+      <text class="t-mono" x="936" y="414" text-anchor="middle">usePlayback · useQueue</text>
+      <text class="t-mono" x="936" y="430" text-anchor="middle">useLibrary · useLikeActions</text>
+      <text class="t-mono" x="936" y="446" text-anchor="middle">useTagActions · usePlayActions</text>
+      <text class="t-muted" x="936" y="468" text-anchor="middle">views, menus, Now Playing</text>
+      <text class="t-muted" x="936" y="484" text-anchor="middle">stream-resolver chain</text>
+      <text class="t-muted" x="936" y="500" text-anchor="middle">nativeEngine.ts → libmpv</text>
+
+      <rect class="box" x="816" y="548" width="240" height="132" rx="6"/>
+      <text class="t-title" x="936" y="570" text-anchor="middle">Plugin host · usePlugins.ts</text>
+      <text class="t-mono" x="936" y="588" text-anchor="middle">buildAPI(id) → api object</text>
+      <text class="t-muted" x="936" y="606" text-anchor="middle">21 namespaces: library, playback,</text>
+      <text class="t-muted" x="936" y="621" text-anchor="middle">storage, network, ui, home,</text>
+      <text class="t-muted" x="936" y="636" text-anchor="middle">search, assistant, plugins…</text>
+      <text class="t-muted" x="936" y="654" text-anchor="middle">useImageResolver answers</text>
+      <text class="t-muted" x="936" y="669" text-anchor="middle">Rust's image requests</text>
+
+      <rect class="box" x="816" y="700" width="240" height="48" rx="6"/>
+      <text class="t-title" x="936" y="720" text-anchor="middle">Deep-link router · App.tsx</text>
+      <text class="t-gate" x="936" y="737" text-anchor="middle">probe verbs: perf profile only</text>
+      <line class="flow" x1="936" y1="700" x2="936" y2="682" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="944" y="695">forwardDeepLink</text>
+
+      <!-- ===== Webview: shared ops ===== -->
+      <rect class="ops" x="1100" y="180" width="164" height="420" rx="6"/>
+      <text class="t-title t-comp" x="1182" y="204" text-anchor="middle">Shared ops</text>
+      <text class="t-mono" x="1182" y="221" text-anchor="middle">src/utils</text>
+      <text class="t-mono" x="1182" y="256" text-anchor="middle">hostOps</text>
+      <text class="t-muted" x="1182" y="271" text-anchor="middle">catalog search</text>
+      <text class="t-muted" x="1182" y="285" text-anchor="middle">assistant tools</text>
+      <text class="t-mono" x="1182" y="318" text-anchor="middle">queueOps</text>
+      <text class="t-muted" x="1182" y="333" text-anchor="middle">playNow · addToQueue</text>
+      <text class="t-muted" x="1182" y="347" text-anchor="middle">duplicate policy</text>
+      <text class="t-mono" x="1182" y="380" text-anchor="middle">tagOps</text>
+      <text class="t-muted" x="1182" y="395" text-anchor="middle">add / remove tags</text>
+      <text class="t-muted" x="1182" y="409" text-anchor="middle">file tag writes</text>
+      <text class="t-mono" x="1182" y="442" text-anchor="middle">infoFetchChain</text>
+      <text class="t-muted" x="1182" y="457" text-anchor="middle">info cache + TTL</text>
+      <text class="t-muted" x="1182" y="560" text-anchor="middle">one implementation,</text>
+      <text class="t-muted" x="1182" y="575" text-anchor="middle">three callers</text>
+
+      <line class="js" x1="1056" y1="230" x2="1098" y2="230" marker-end="url(#a-js)"/>
+      <line class="js" x1="1056" y1="450" x2="1098" y2="450" marker-end="url(#a-js)"/>
+      <line class="js" x1="1056" y1="580" x2="1098" y2="580" marker-end="url(#a-js)"/>
+
+      <!-- ===== Plugins ===== -->
+      <rect class="plug" x="1100" y="620" width="164" height="140" rx="6"/>
+      <text class="t-title" x="1182" y="642" text-anchor="middle">Plugin code</text>
+      <text class="t-mono" x="1182" y="659" text-anchor="middle">activate(api)</text>
+      <text class="t-muted" x="1182" y="676" text-anchor="middle">loaded via new Function</text>
+      <text class="t-muted" x="1182" y="691" text-anchor="middle">8 bundled + gallery</text>
+      <text class="t-gate" x="1182" y="714" text-anchor="middle">no sandbox: the</text>
+      <text class="t-gate" x="1182" y="729" text-anchor="middle">curated gallery is</text>
+      <text class="t-gate" x="1182" y="744" text-anchor="middle">the trust boundary</text>
+      <line class="flow" x1="1100" y1="660" x2="1058" y2="660" marker-end="url(#a-ink)"/>
+      <text class="t-lab" x="1079" y="653" text-anchor="middle">api.*</text>
+    </svg>
+    </div>
+    <figcaption>Rows line up with what they call across the IPC gap. The control API answers library reads straight from SQLite, and anything that needs app state goes through the webview as an event plus a response command. The UI, the control bridge and the plugin host all call the same shared ops. Plugins run in the app's own JS context.</figcaption>
+    <div class="legend">
+      <span>invoke / HTTP / stdio (request → handler)</span>
+      <span class="ev">Tauri event, Rust → webview</span>
+      <span class="js">plain JS call</span>
+      <span class="gate">security gate</span>
+    </div>
+  </figure>
+
+  <h2>Four ways in</h2>
+  <p>Each caller enters at a different layer. Once a request reaches the webview, all of them run through the same hooks and ops.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Caller</th><th>Enters at</th><th>Reaches the webview by</th><th>Gate</th></tr></thead>
+    <tbody>
+      <tr><td>User</td><td>React components → hooks</td><td>Already there. Calls Rust with <code>invoke</code>.</td><td>—</td></tr>
+      <tr><td>Plugin</td><td><code>api</code> object from <code>buildAPI(id)</code>: 21 namespaces</td><td>Already there, since it runs in the same JS context. Calls Rust with <code>invoke(plugin_*)</code>.</td><td class="gate">No in-process sandbox. The curated gallery, the exec allow-list and path-traversal checks are the controls. Rust trusts the <code>pluginId</code> the webview sends.</td></tr>
+      <tr><td>AI assistant</td><td>MCP server (34 tools) → <code>/v1/*</code> (63 routes)</td><td>The <code>control-api-request</code> event, answered with <code>control_api_respond</code>, correlated by request id through a oneshot channel</td><td class="gate">Off by default. Bearer token (digest compare), no CORS, per-category write scopes in <code>assistant-permissions.json</code>. The MCP tier only hides tools; it does not change what the token allows.</td></tr>
+      <tr><td>OS deep link</td><td><code>lib.rs</code> (deep_link plugin, single-instance argv)</td><td>The <code>deep-link-received</code> event → router in <code>App.tsx</code></td><td class="gate"><code>probe</code> verbs only work in <code>perf</code> profiles. <code>viboplr://plugin/&lt;id&gt;</code> goes only to that plugin.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2>One assistant request, end to end</h2>
+  <p>This walk-through is <code>play_tracks</code>, a bridged route. A read such as <code>search_library</code> stops at step 3, because Rust answers it from SQLite.</p>
+  <ol class="steps">
+    <li><div>The assistant calls the MCP tool <code>play_tracks</code> over stdio.<div class="where">mcp/viboplr-mcp.mjs</div></div></li>
+    <li><div>The MCP server re-reads <code>control-api.json</code> for the selected profile, then sends an HTTP request to <code>127.0.0.1:&lt;port&gt;/v1/queue/play</code> with the bearer token. It retries on 503 and 504.<div class="where">profile folder · 0600</div></div></li>
+    <li><div>axum checks the token. The route is bridged, so it registers a oneshot channel under a new request id and emits <code>control-api-request {id, verb, payload}</code>. It returns 503 until the webview has called <code>control_api_client_ready</code>.<div class="where">src-tauri/src/control_api.rs</div></div></li>
+    <li><div>The control bridge maps the verb to <code>queueOps.playNow</code>. Cmd+K plugin results and <code>api.playback</code> use this same function.<div class="where">src/hooks/useControlApi.ts → src/utils/queueOps.ts</div></div></li>
+    <li><div><code>playNow</code> applies the duplicate policy and like reconcile, then calls <code>useQueue.playTracks</code> → <code>usePlayback</code> → <code>invoke(engine_*)</code> → libmpv.<div class="where">useQueue.ts · nativeEngine.ts · mpv_engine/</div></div></li>
+    <li><div>The webview calls <code>control_api_respond {id, ok, result}</code>. That completes the oneshot, and the HTTP response becomes the tool result. With no answer within 10 s (longer for slow verbs), Rust returns 504.<div class="where">commands/app.rs</div></div></li>
+  </ol>
+
+  <h2>Where a plugin API call runs</h2>
+  <p>A plugin method either runs entirely in JS, calls into Rust, or answers a call that Rust started.</p>
+  <div class="three">
+    <div class="col">
+      <h3>Runs in JS only</h3>
+      <div class="dir">the host calls the plugin's handler directly</div>
+      <ul>
+        <li><code>streamResolvers</code> <span>· the resolver chain in App.tsx</span></li>
+        <li><code>downloadProviders</code> <span>· decideDownload → DownloadModal</span></li>
+        <li><code>informationTypes</code> <span>· infoFetchChain</span></li>
+        <li><code>home.registerShelf</code> <span>· useHome</span></li>
+        <li><code>search</code> / <code>assistant</code> <span>· hostOps</span></li>
+        <li><code>contextMenu</code> <span>· native menu specs</span></li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>Calls Rust</h3>
+      <div class="dir">invoke from inside buildAPI</div>
+      <ul>
+        <li><code>network.fetch</code> <span>· plugin_fetch, no CORS</span></li>
+        <li><code>storage</code> <span>· plugin_storage_* (SQLite)</span></li>
+        <li><code>storage.files</code> <span>· plugin_files_*, traversal-checked</span></li>
+        <li><code>system.exec</code> <span>· plugin_exec, allow-listed binaries</span></li>
+        <li><code>scheduler</code> <span>· plugin_scheduler_*</span></li>
+        <li><code>library</code> writes <span>· tags, likes, history batches</span></li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>Rust calls the plugin</h3>
+      <div class="dir">Tauri event, then an optional reply</div>
+      <ul>
+        <li><code>imageProviders</code> <span>· image-resolve-request → image_resolve_response (20 s per provider, 45 s total)</span></li>
+        <li><code>scheduler</code> tasks <span>· plugin-scheduler-due</span></li>
+        <li><code>system.exec</code> output <span>· plugin-exec-output stream</span></li>
+        <li>browse windows <span>· __viboplr.send → browse-window-message</span></li>
+        <li>deep links <span>· deep-link-received → forwardDeepLink</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Shared ops</h2>
+  <p>Each module makes its decision once. The UI, the control bridge and the plugin host only adapt arguments and response shapes.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Module</th><th>Owns</th><th>Called from</th></tr></thead>
+    <tbody>
+      <tr><td><code>hostOps.ts</code></td><td><code>listSearchProviders</code>, <code>searchCatalog</code>, <code>listAssistantTools</code>, <code>invokeAssistantTool</code></td><td>plugin API (wrapped in <code>crossCall</code> for cycle detection), control bridge</td></tr>
+      <tr><td><code>queueOps.ts</code></td><td><code>playNow</code>, <code>addToQueue</code> (duplicate policy ask / skip / allow, like reconcile), <code>playWithBackfill</code></td><td>plugin playback bridge, Cmd+K plugin results, control bridge, queue drag-insert</td></tr>
+      <tr><td><code>tagOps.ts</code></td><td><code>addTags</code>, <code>removeTags</code>, <code>editTrackTags</code>, <code>writeFileMetadata</code>, with refreshes batched by <code>coalescedRefresh</code></td><td>plugin <code>api.library</code>, control <code>tags.*</code>, <code>useTagActions</code> through <code>TagOpsContext</code></td></tr>
+      <tr><td><code>infoFetchChain.ts</code></td><td>info provider chain, cache TTL, <code>core:local-lyrics</code></td><td><code>api.informationTypes.fetch</code>, <code>POST /v1/info/fetch</code>, detail pages</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="note">This page was built from the code on 2026-09-27. Three docs are out of date: <code>backend.md</code> lists a <code>commands/youtube</code> module that no longer exists; <code>plugins.md</code> calls <code>lyrics-search</code> bundled, but it isn't in <code>src-tauri/plugins/</code>; and <code>plugin-architecture.html</code> names <code>invokePluginSearch</code> where the code has <code>hostOps.searchCatalog</code>.</p>
+</div>
+
+</body>
+</html>
