@@ -10,6 +10,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { EngineSource } from "../types";
+import type { DevicePin } from "../utils/bitPerfect";
 
 export interface EnginePositionEvent {
   trackKey: string;
@@ -217,6 +218,27 @@ export const nativeEngine = {
    * the engine forces gapless-only arming while it's on. */
   setAudioExclusive(enabled: boolean): Promise<void> {
     return whenCapable(() => invoke("engine_set_audio_exclusive", { enabled }));
+  },
+  /** Bit-perfect mode: pin the output to `pin` (exclusive, no DSP, full volume,
+   * source sample rate) or turn it off with null. The engine overlays neutral
+   * values and keeps the stored DSP settings, reopens the output at once, and
+   * while on emits `engine-output` (see utils/bitPerfect.ts `EngineOutput`). */
+  setBitPerfect(pin: DevicePin | null): Promise<void> {
+    return whenCapable(() => invoke("engine_set_bit_perfect", { pin }));
+  },
+  /** An output device's own hardware volume (0..1) — Viboplr's volume control
+   * while Bit-perfect mode holds mpv at full scale. Rejects when the device
+   * has no settable volume. */
+  setDeviceVolume(uid: string, volume: number): Promise<void> {
+    return invoke("engine_set_device_volume", { uid, volume });
+  },
+  deviceVolume(uid: string): Promise<number | null> {
+    return invoke<number | null>("engine_device_volume", { uid });
+  },
+  /** The system default output device — what Bit-perfect mode pins at enable
+   * time. Null where it can't be resolved (non-macOS, or no device). */
+  defaultOutputDevice(): Promise<DevicePin | null> {
+    return invoke<DevicePin | null>("engine_default_output_device");
   },
   /** Letterbox / uncovered-window fill for native video, matched to the active
    * skin's --bg-primary (mpv paints black there by default). `color` is an mpv

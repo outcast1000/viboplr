@@ -8,6 +8,8 @@ import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
 import { TransportButtons, QueueModeGroup, VolumeControl } from "./TransportControls";
 import { EqControlGroup, type EqControls } from "./EqButton";
+import { BitPerfectButton, type BitPerfectControl } from "./BitPerfectButton";
+import { BIT_PERFECT_EQ_REASON, BIT_PERFECT_VOLUME_REASON } from "../utils/bitPerfect";
 import { SourceIndicator } from "./SourceIndicator";
 import type { Storyboard } from "../utils/storyboard";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
@@ -68,6 +70,9 @@ interface FullscreenControlsProps {
       it on both surfaces, because "the controls are the same in every
       fullscreen" also means they're the same as the windowed bar's. */
   eq?: EqControls;
+  /** Bit-perfect toggle — the same control the docked bar shows. While on it
+      also suspends the EQ cluster and locks the volume. Omit to hide. */
+  bitPerfect?: BitPerfectControl | null;
   /** Whether mpv is driving the current video — the one case where video can be
       EQ'd. Mirrors the now-playing bar's availability rule. */
   nativeVideoActive?: boolean;
@@ -101,7 +106,7 @@ export function FullscreenControls({
   onSeek, onVolume, onMute, onToggleQueueMode,
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
-  eq, nativeVideoActive = false, resolvedSource = null,
+  eq, bitPerfect = null, nativeVideoActive = false, resolvedSource = null,
   active = false,
 }: FullscreenControlsProps) {
   // Subscribed here (not passed from App) so the ~4 Hz position tick — and the
@@ -276,7 +281,8 @@ export function FullscreenControls({
           {/* Last in this group, immediately before volume — the same slot the
               cluster occupies in the now-playing bar, and the same cluster:
               inline Bass/Treble slot (or curve preview) plus the popover button. */}
-          {eq && <EqControlGroup eq={eq} available={eqAvailable} onOpenChange={handleEqOpenChange} />}
+          {bitPerfect && <BitPerfectButton control={bitPerfect} />}
+          {eq && <EqControlGroup eq={eq} available={eqAvailable} onOpenChange={handleEqOpenChange} suspendedReason={bitPerfect?.on ? BIT_PERFECT_EQ_REASON : null} />}
           </div>
           <div className="fs-group">
           <VolumeControl
@@ -284,6 +290,8 @@ export function FullscreenControls({
             muted={muted}
             onVolume={onVolume}
             onMute={onMute}
+            lockedReason={bitPerfect?.volumeLocked ? BIT_PERFECT_VOLUME_REASON : null}
+            note={bitPerfect?.volumeNote ?? null}
             className="fs-volume"
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}

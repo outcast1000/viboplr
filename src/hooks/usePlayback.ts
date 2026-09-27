@@ -2160,7 +2160,18 @@ export function usePlayback(
     setFailedTrack(null);
   }
 
+  // Set while something else owns the volume (Bit-perfect mode routes it to
+  // the output device's own level, or explains that it's fixed): `handleVolume`
+  // hands the level over instead of changing the player's volume. Every volume
+  // input — slider, wheel, arrow keys, the control API — routes through
+  // `handleVolume`, so this one hook covers them all. App assigns it.
+  const volumeOverrideRef = useRef<((level: number) => void) | null>(null);
+
   function handleVolume(level: number) {
+    if (volumeOverrideRef.current) {
+      volumeOverrideRef.current(level);
+      return;
+    }
     setVolume(level);
   }
 
@@ -2462,7 +2473,7 @@ export function usePlayback(
     getMediaElement,
     handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop, loadPaused,
     loadRestoredVideoPreview,
-    handleVolume, handleSeek, seekBy,
+    handleVolume, volumeOverrideRef, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,
     onTimeUpdate, onLoadedMetadata, onPlay, onPause, onMediaError,
     onMediaProgress, onMediaWaiting, onMediaPlaying,

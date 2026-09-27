@@ -31,6 +31,7 @@
 
 mod af;
 mod api;
+pub mod output;
 pub mod component;
 pub mod ffi;
 mod http_headers;
@@ -82,6 +83,11 @@ struct DspSettings {
     /// `Default` and `f64::default()` is 0.0 — a speed of zero is not "unset",
     /// it's a stopped deck. None = never set, leave mpv's own default of 1.0.
     speed: Option<f64>,
+    /// Bit-perfect mode: pinned output device. While set, the engine overlays
+    /// neutral values (no EQ/ReplayGain, speed 1, volume 100%, exclusive) on
+    /// top of the settings above, which are kept so turning it off restores
+    /// them exactly. See `output.rs`.
+    bit_perfect: Option<output::DevicePin>,
 }
 
 /// Live media-stream facts read off the active deck — what's actually being
@@ -233,6 +239,9 @@ impl EngineHandle {
             }
             None => log::error!("mpv-engine: no CA bundle available; https sources will fail verification"),
         }
+        if let Some(ref pin) = dsp.bit_perfect {
+            engine.apply_bit_perfect(Some(pin), &dsp)?;
+        }
         *guard = Some(engine.clone());
         Ok(engine)
     }
@@ -269,6 +278,20 @@ impl EngineHandle {
         self.pending_dsp.lock().unwrap().exclusive = enabled;
         match self.get() {
             Some(engine) => engine.apply_audio_exclusive(enabled),
+            None => Ok(()),
+        }
+    }
+
+    /// Bit-perfect mode on (pinned to `pin`) or off. Cached like the other DSP
+    /// settings; applied at creation when the engine isn't running yet.
+    pub fn set_bit_perfect(&self, pin: Option<output::DevicePin>) -> Result<(), String> {
+        let dsp = {
+            let mut dsp = self.pending_dsp.lock().unwrap();
+            dsp.bit_perfect = pin.clone();
+            dsp.clone()
+        };
+        match self.get() {
+            Some(engine) => engine.apply_bit_perfect(pin.as_ref(), &dsp),
             None => Ok(()),
         }
     }
@@ -425,6 +448,10 @@ struct EngineState {
     /// Exclusive device access: a second deck can't open the device while the
     /// active one holds it, so preload arming is forced to same-deck gapless.
     exclusive: bool,
+    /// Bit-perfect mode's pinned device (see `DspSettings::bit_perfect`).
+    bit_perfect: Option<output::DevicePin>,
+    /// Bumped on every bit-perfect toggle; a watchdog whose generation is stale exits.
+    bit_perfect_gen: u64,
     fading: bool,
     /// Bumped when a fade starts or is snapped; a ramp whose generation is
     /// stale exits without touching the decks.
@@ -727,6 +754,18 @@ impl Engine {
         Self::mpv_volume(Self::out_gain(volume, muted))
     }
 
+    /// The user volume the decks actually play at: full scale in bit-perfect
+    /// mode (mpv's volume is softvol — any attenuation rewrites the samples),
+    /// the user's own otherwise. `st.volume` always keeps the user's value.
+    fn effective_volume(st: &EngineState) -> f64 {
+        if st.bit_perfect.is_some() { 1.0 } else { st.volume }
+    }
+
+    /// mpv `volume` for the current state (user volume, mute, bit-perfect).
+    fn deck_volume(st: &EngineState) -> f64 {
+        Self::out_volume(Self::effective_volume(st), st.muted)
+    }
+
     #[cfg(test)]
     pub fn play(
         self: &Arc<Self>,
@@ -760,10 +799,11 @@ impl Engine {
             return Err("native video is not supported on this platform".into());
         }
         self.snap_finish_fade();
-        let (active, drop_standby) = {
+        let (active, drop_standby, out) = {
             let mut st = self.state.lock().unwrap();
             st.volume = volume;
             st.muted = muted;
+            let out = Self::deck_volume(&st);
             st.current_key = Some(track_key.to_string());
             st.gapless_key = None;
             let had_xfade = st.xfade_key.take().is_some();
@@ -775,7 +815,7 @@ impl Engine {
             st.expecting_start[active] = true;
             st.pending_seek = seek_secs.filter(|s| *s > 0.1);
             st.duration = None;
-            (active, had_xfade || video)
+            (active, had_xfade || video, out)
         };
         let standby = 1 - active;
         if drop_standby {
@@ -789,7 +829,6 @@ impl Engine {
         deck.set_property("video", if video { "auto" } else { "no" })
             .map_err(|e| format!("mpv video selection failed: {e}"))?;
         self.set_video_layer_visible(video);
-        let out = Self::out_volume(volume, muted);
         deck.set_property("volume", out)
             .and_then(|_| deck.set_property("mute", muted))
             .and_then(|_| self.decks[standby].mpv.set_property("mute", muted))
@@ -976,7 +1015,7 @@ impl Engine {
                     let (gain, stale) = {
                         let st = engine.state.lock().unwrap();
                         (
-                            Self::out_gain(st.volume, st.muted),
+                            Self::out_gain(Self::effective_volume(&st), st.muted),
                             !st.fading || st.fade_gen != fade_gen_captured,
                         )
                     };
@@ -1007,7 +1046,7 @@ impl Engine {
                 }
                 let out = {
                     let st = engine.state.lock().unwrap();
-                    Self::out_volume(st.volume, st.muted)
+                    Self::deck_volume(&st)
                 };
                 let _ = engine.decks[old].mpv.set_property("volume", out);
             })
@@ -1025,7 +1064,7 @@ impl Engine {
             }
             st.fading = false;
             st.fade_gen += 1; // invalidate the ramp thread
-            (st.active, Self::out_volume(st.volume, st.muted))
+            (st.active, Self::deck_volume(&st))
         };
         let old = 1 - active;
         if let Err(e) = self.decks[old].mpv.command("stop", &[]) {
@@ -1048,7 +1087,7 @@ impl Engine {
             st.current_key = Some(key.clone());
             st.duration = None;
             st.pending_seek = None;
-            (new, key, Self::out_volume(st.volume, st.muted))
+            (new, key, Self::deck_volume(&st))
         };
         let deck = &self.decks[new].mpv;
         let _ = deck.set_property("volume", out);
@@ -1123,11 +1162,11 @@ impl Engine {
     }
 
     pub fn apply_volume(&self, volume: f64, muted: bool) -> Result<(), String> {
-        let (active, fading) = {
+        let (active, fading, out) = {
             let mut st = self.state.lock().unwrap();
             st.volume = volume;
             st.muted = muted;
-            (st.active, st.fading)
+            (st.active, st.fading, Self::deck_volume(&st))
         };
         for deck in &self.decks {
             deck.mpv
@@ -1139,14 +1178,14 @@ impl Engine {
         if !fading {
             self.decks[active]
                 .mpv
-                .set_property("volume", Self::out_volume(volume, muted))
+                .set_property("volume", out)
                 .map_err(|e| format!("mpv volume failed: {e}"))?;
         }
         Ok(())
     }
 
     pub fn apply_eq(&self, eq: &EqParams) -> Result<(), String> {
-        let graph = build_af_graph(eq);
+        let graph = if self.bit_perfect_on() { String::new() } else { build_af_graph(eq) };
         let af = if graph.is_empty() { String::new() } else { format!("lavfi=[{graph}]") };
         for deck in &self.decks {
             deck.mpv
@@ -1184,6 +1223,8 @@ impl Engine {
     /// faster AND higher. mpv would otherwise time-stretch and hold the pitch,
     /// which is a useful thing but a different one.
     pub fn apply_speed(&self, speed: f64) -> Result<(), String> {
+        // Speed resamples (pitch correction is off), so bit-perfect holds 1.0.
+        let speed = if self.bit_perfect_on() { 1.0 } else { speed };
         for deck in &self.decks {
             deck.mpv
                 .set_property("speed", speed)
@@ -1193,9 +1234,10 @@ impl Engine {
     }
 
     pub fn apply_replaygain(&self, rg: &ReplayGainParams) -> Result<(), String> {
+        let mode = if self.bit_perfect_on() { "no" } else { replaygain_mode_value(&rg.mode) };
         for deck in &self.decks {
             deck.mpv
-                .set_property("replaygain", replaygain_mode_value(&rg.mode))
+                .set_property("replaygain", mode)
                 .and_then(|_| deck.mpv.set_property("replaygain-preamp", rg.preamp_db))
                 .and_then(|_| deck.mpv.set_property("replaygain-clip", rg.prevent_clip))
                 .map_err(|e| format!("mpv replaygain failed: {e}"))?;
@@ -1222,11 +1264,98 @@ impl Engine {
     /// (i.e. from the next track). While on, preload arming is forced to
     /// same-deck gapless — the standby deck can't open the held device.
     pub fn apply_audio_exclusive(&self, enabled: bool) -> Result<(), String> {
-        self.state.lock().unwrap().exclusive = enabled;
+        let enabled = {
+            let mut st = self.state.lock().unwrap();
+            st.exclusive = enabled || st.bit_perfect.is_some();
+            st.exclusive
+        };
         for deck in &self.decks {
             deck.mpv
                 .set_property("audio-exclusive", enabled)
                 .map_err(|e| format!("mpv audio-exclusive failed: {e}"))?;
+        }
+        Ok(())
+    }
+
+    fn bit_perfect_on(&self) -> bool {
+        self.state.lock().unwrap().bit_perfect.is_some()
+    }
+
+    /// For the output watchdog: the pin, current track key and active deck —
+    /// or None once the mode is off or `generation` has been superseded.
+    fn bit_perfect_snapshot(&self, generation: u64) -> Option<(output::DevicePin, Option<String>, usize)> {
+        let st = self.state.lock().unwrap();
+        if st.bit_perfect_gen != generation {
+            return None;
+        }
+        st.bit_perfect.clone().map(|pin| (pin, st.current_key.clone(), st.active))
+    }
+
+    /// Turn bit-perfect mode on (pinned to `pin`) or off, and re-apply every
+    /// DSP setting from `dsp` through the overlay (see `DspSettings::bit_perfect`).
+    ///
+    /// - `audio-device` is pinned by UID: under `auto`, macOS moves the default
+    ///   away from a hogged device and the next AO open would follow it.
+    /// - `gapless-audio=weak`: with `yes` mpv keeps the AO in the first track's
+    ///   format and resamples every later track to it, exclusive or not. `weak`
+    ///   stays gapless between same-format tracks and reopens on a change.
+    /// - The AO is reloaded so the change applies to the playing track now,
+    ///   without replaying it (a replay would re-arm scrobbling).
+    fn apply_bit_perfect(
+        self: &Arc<Self>,
+        pin: Option<&output::DevicePin>,
+        dsp: &DspSettings,
+    ) -> Result<(), String> {
+        let (generation, dropped_xfade) = {
+            let mut st = self.state.lock().unwrap();
+            st.bit_perfect = pin.cloned();
+            st.bit_perfect_gen += 1;
+            // A crossfade arm holds the standby deck's AO open; a second deck
+            // can't share a device held in exclusive mode.
+            let dropped = pin.is_some() && st.xfade_key.take().is_some();
+            (st.bit_perfect_gen, dropped)
+        };
+        let standby = 1 - self.state.lock().unwrap().active;
+        if dropped_xfade {
+            if let Err(e) = self.decks[standby].mpv.command("stop", &[]) {
+                log::error!("mpv-engine: failed to drop crossfade arm for bit-perfect: {e}");
+            }
+        }
+        // Exclusive before the device: changing `audio-device` reloads the AO
+        // by itself, and it should reopen with the right exclusivity.
+        self.apply_audio_exclusive(dsp.exclusive)?;
+        let device = pin.map(|p| p.mpv_device()).unwrap_or_else(|| "auto".to_string());
+        let gapless = if pin.is_some() { "weak" } else { "yes" };
+        for deck in &self.decks {
+            deck.mpv
+                .set_property("gapless-audio", gapless)
+                .and_then(|_| deck.mpv.set_property("audio-device", device.as_str()))
+                .map_err(|e| format!("mpv bit-perfect output setup failed: {e}"))?;
+        }
+        self.apply_eq(&dsp.eq)?;
+        self.apply_replaygain(&dsp.rg)?;
+        self.apply_speed(dsp.speed.unwrap_or(1.0))?;
+        let (active, fading, out, playing) = {
+            let st = self.state.lock().unwrap();
+            (st.active, st.fading, Self::deck_volume(&st), st.current_key.is_some())
+        };
+        if !fading {
+            self.decks[active]
+                .mpv
+                .set_property("volume", out)
+                .map_err(|e| format!("mpv volume failed: {e}"))?;
+        }
+        if playing {
+            if let Err(e) = self.decks[active].mpv.command("ao-reload", &[]) {
+                log::error!("mpv-engine: ao-reload for bit-perfect failed: {e}");
+            }
+        }
+        log::info!(
+            "mpv-engine: bit-perfect {} (device={device}, gapless={gapless})",
+            if pin.is_some() { "on" } else { "off" }
+        );
+        if pin.is_some() {
+            output::spawn_watchdog(Arc::downgrade(self), generation);
         }
         Ok(())
     }
@@ -2029,6 +2158,67 @@ mod tests {
                 clip_protection: String::new(),
             })
             .expect("simple EQ af graph");
+    }
+
+    #[test]
+    fn test_bit_perfect_overlays_neutral_dsp_and_restores_it() {
+        let (sink, _rx) = collect_events();
+        let Some(engine) = try_test_engine(sink) else { return };
+        let dsp = DspSettings {
+            eq: EqParams {
+                enabled: true,
+                mode: "advanced".into(),
+                gains: vec![6.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -3.0],
+                ..Default::default()
+            },
+            rg: ReplayGainParams { mode: "track".into(), ..Default::default() },
+            exclusive: false,
+            speed: Some(1.5),
+            ..Default::default()
+        };
+        engine.apply_eq(&dsp.eq).unwrap();
+        engine.apply_replaygain(&dsp.rg).unwrap();
+        engine.apply_speed(1.5).unwrap();
+        engine.apply_volume(0.4, false).unwrap();
+        let deck = |i: usize| engine.decks[i].mpv.clone();
+        let s = |i: usize, p: &str| deck(i).get_property::<String>(p).unwrap_or_default();
+        assert!(!s(0, "af").is_empty(), "EQ graph applied before the mode");
+
+        let pin = output::DevicePin { uid: "TestDevice".into(), name: "Test".into(), has_volume: false };
+        engine.apply_bit_perfect(Some(&pin), &dsp).expect("bit-perfect on");
+        for i in 0..2 {
+            assert_eq!(s(i, "gapless-audio"), "weak", "deck {i}");
+            assert_eq!(s(i, "audio-device"), "coreaudio/TestDevice", "deck {i}");
+            assert_eq!(s(i, "af"), "", "deck {i}: EQ suspended");
+            assert_eq!(s(i, "replaygain"), "no", "deck {i}: ReplayGain suspended");
+            assert_eq!(deck(i).get_property::<f64>("speed").unwrap(), 1.0, "deck {i}: speed held");
+            assert!(deck(i).get_property::<bool>("audio-exclusive").unwrap(), "deck {i}: exclusive");
+        }
+        let active = engine.state.lock().unwrap().active;
+        assert_eq!(deck(active).get_property::<f64>("volume").unwrap(), 100.0, "full digital volume");
+        {
+            let st = engine.state.lock().unwrap();
+            assert_eq!(st.volume, 0.4, "the user's volume is kept, not overwritten");
+            assert!(st.exclusive, "arming treats bit-perfect as exclusive");
+        }
+        // Volume changes while on keep the user's value but never leave full scale.
+        engine.apply_volume(0.2, false).unwrap();
+        assert_eq!(deck(active).get_property::<f64>("volume").unwrap(), 100.0);
+
+        engine.apply_bit_perfect(None, &dsp).expect("bit-perfect off");
+        for i in 0..2 {
+            assert_eq!(s(i, "gapless-audio"), "yes", "deck {i}");
+            assert_eq!(s(i, "audio-device"), "auto", "deck {i}");
+            assert!(!s(i, "af").is_empty(), "deck {i}: EQ restored");
+            assert_eq!(s(i, "replaygain"), "track", "deck {i}: ReplayGain restored");
+            assert_eq!(deck(i).get_property::<f64>("speed").unwrap(), 1.5, "deck {i}: speed restored");
+            assert!(!deck(i).get_property::<bool>("audio-exclusive").unwrap(), "deck {i}: exclusive restored");
+        }
+        assert_eq!(
+            deck(active).get_property::<f64>("volume").unwrap(),
+            Engine::out_volume(0.2, false),
+            "the latest user volume comes back"
+        );
     }
 
     #[test]

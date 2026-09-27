@@ -1,0 +1,54 @@
+/* Bit-perfect toggle (NowPlayingBar + FullscreenControls). Colours come from the
+   skin's semantic tokens: the state it reports is success / warning, not accent. */
+.bit-perfect-btn {
+  position: relative;
+}
+
+.bit-perfect-btn.is-on.tone-neutral {
+  color: var(--accent);
+}
+
+.bit-perfect-btn.is-on.tone-ok {
+  color: var(--success);
+}
+
+.bit-perfect-btn.is-on.tone-warn {
+  color: var(--warning);
+}
+
+.bit-perfect-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Confirmation modal body (BitPerfectConfirmModal). */
+.bit-perfect-confirm-list {
+  margin: 10px 0 14px;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  line-height: 1.45;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.bit-perfect-confirm-list strong {
+  color: var(--text-primary);
+}
+
+.bit-perfect-confirm-note {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+/* Volume fixed by Bit-perfect mode: the slider reads 100% and stays put. */
+.is-locked .volume-slider {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

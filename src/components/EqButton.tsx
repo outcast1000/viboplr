@@ -45,6 +45,9 @@ interface EqGroupProps {
   /** Fired whenever the popover opens or closes, so a host with an idle
    *  auto-hide (the fullscreen bar) can hold itself open while it is up. */
   onOpenChange?: (open: boolean) => void;
+  /** Set while something overrides the EQ (Bit-perfect mode): the cluster is
+   *  disabled with this as its tooltip, and the user's settings are untouched. */
+  suspendedReason?: string | null;
 }
 
 /** Is the EQ doing anything audible? Drives the button's `active` styling. */
@@ -63,10 +66,10 @@ function isShaping(eq: EqControls): boolean {
  * Bass/Treble sliders and fullscreen showed a lone icon, so "the same EQ" was
  * two different controls depending on the chrome.
  */
-export function EqControlGroup({ eq, available, onOpenChange }: EqGroupProps) {
+export function EqControlGroup({ eq, available, onOpenChange, suspendedReason }: EqGroupProps) {
   return (
     <>
-      {available && eq.showBarControl && (
+      {available && !suspendedReason && eq.showBarControl && (
         <EqBarControl
           mode={eq.mode}
           enabled={eq.enabled}
@@ -79,12 +82,13 @@ export function EqControlGroup({ eq, available, onOpenChange }: EqGroupProps) {
           onEnsureEnabled={() => { if (!eq.enabled) eq.onEnabledChange(true); }}
         />
       )}
-      <EqButton eq={eq} available={available} onOpenChange={onOpenChange} />
+      <EqButton eq={eq} available={available} onOpenChange={onOpenChange} suspendedReason={suspendedReason} />
     </>
   );
 }
 
-export function EqButton({ eq, available, onOpenChange }: EqGroupProps) {
+export function EqButton({ eq, available: availableForTrack, onOpenChange, suspendedReason }: EqGroupProps) {
+  const available = availableForTrack && !suspendedReason;
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
 
@@ -104,10 +108,10 @@ export function EqButton({ eq, available, onOpenChange }: EqGroupProps) {
     <div className="eq-button-wrapper">
       <button
         ref={anchorRef}
-        className={`g-btn g-btn-sm now-playing-eq-btn${isShaping(eq) ? " active" : ""}`}
+        className={`g-btn g-btn-sm now-playing-eq-btn${available && isShaping(eq) ? " active" : ""}`}
         onClick={() => { if (available) setOpenState(!open); }}
         disabled={!available}
-        title={available ? "Equalizer" : "EQ unavailable for video on the browser engine"}
+        title={suspendedReason ?? (available ? "Equalizer" : "EQ unavailable for video on the browser engine")}
         aria-label="Equalizer"
       >
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">

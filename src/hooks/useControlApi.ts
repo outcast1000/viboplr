@@ -66,6 +66,7 @@ import {
   orderTracksByIds,
   serializeQueue,
   serializeStatus,
+  type BitPerfectStatusInput,
   type ControlApiRequest,
 } from "../utils/controlApi";
 import { invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
@@ -96,6 +97,9 @@ export interface ControlApiDeps {
     handleVolume: (level: number) => void;
     handlePlay: (track: QueueTrack, source?: "user" | "auto") => void;
   };
+  /** Bit-perfect mode (null where unsupported). While on, `playback.set`
+   *  refuses a volume — the mode holds it at 100%. */
+  bitPerfect: BitPerfectStatusInput | null;
   /** App's handleNext — the same path the media keys take, so `next` at the
    *  end of the queue gets auto-continue instead of silently stopping. */
   next: () => void;
@@ -320,6 +324,7 @@ export function useControlApi(deps: ControlApiDeps) {
           queueMode: d.queueHook.queueMode,
           view: d.view,
           currentTrack: d.playback.currentTrack,
+          bitPerfect: d.bitPerfect,
         });
 
       case "queue.get":
@@ -328,6 +333,11 @@ export function useControlApi(deps: ControlApiDeps) {
       case "playback.set": {
         const parsed = parsePlaybackSet(payload);
         if (typeof parsed === "string") bad(parsed);
+        // In Bit-perfect mode the volume drives the device's own level (via the
+        // same handleVolume override the UI uses) — unless it has none.
+        if (parsed.volume !== undefined && d.bitPerfect?.pin && d.bitPerfect.output?.deviceVolume == null) {
+          bad("Bit-perfect mode is on and this output device has no volume control");
+        }
         if (parsed.volume !== undefined) d.playback.handleVolume(parsed.volume);
         if (parsed.seekSecs !== undefined) d.playback.handleSeek(parsed.seekSecs);
         if (parsed.play !== undefined && decidePlayPause(parsed.play, d.playback.playing) === "toggle") {

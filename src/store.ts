@@ -46,6 +46,9 @@ const STORE_DEFAULTS = {
   mediaTypeFilter: "all",
   trackLikedFirst: false,
   confirmTrashDelete: true,
+  // Bit-perfect mode's confirmation "Don't ask again". The mode itself is
+  // session-only and never persisted.
+  bitPerfectSkipConfirm: false,
   openNowPlayingOnPlay: false,
   openNowPlayingOnVideoPlay: false,
   trackVideoHistory: true,

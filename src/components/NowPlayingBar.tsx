@@ -12,6 +12,8 @@ import {
 } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
 import { EqControlGroup, type EqControls } from "./EqButton";
+import { BitPerfectButton, type BitPerfectControl } from "./BitPerfectButton";
+import { BIT_PERFECT_EQ_REASON, BIT_PERFECT_VOLUME_REASON } from "../utils/bitPerfect";
 import type { EqClipProtection, EqMode } from "../eqPresets";
 import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
 import { TransportButtons, QueueModeGroup, VolumeControl } from "./TransportControls";
@@ -177,6 +179,9 @@ interface NowPlayingBarProps {
   tagSuggestions?: string[];
   invokeInfoFetch?: InvokeInfoFetch;
   pluginsLoaded?: boolean;
+  /** Bit-perfect toggle (native engine on macOS only — null hides it). While on
+   *  it also suspends the EQ cluster and locks the volume slider. Memoized by App. */
+  bitPerfect?: BitPerfectControl | null;
 }
 
 // memo'd: the bar renders on every App state change otherwise (App is its
@@ -205,7 +210,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, likeDisabled, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
-  playbackError, resolvedSource, loadingTrack, onSkipError,
+  playbackError, resolvedSource, loadingTrack, onSkipError, bitPerfect = null,
   onDownloadTrack,
   onContextMenu,
   nowPlayingInfo,
@@ -727,12 +732,15 @@ export const NowPlayingBar = memo(function NowPlayingBar({
 
         {/* Audio group: equalizer (+ inline knobs) · mute · volume */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">
-          <EqControlGroup eq={eqControls} available={eqAvailable} />
+          {bitPerfect && <BitPerfectButton control={bitPerfect} />}
+          <EqControlGroup eq={eqControls} available={eqAvailable} suspendedReason={bitPerfect?.on ? BIT_PERFECT_EQ_REASON : null} />
           <VolumeControl
             volume={volume}
             muted={muted}
             onVolume={onVolume}
             onMute={onMute}
+            lockedReason={bitPerfect?.volumeLocked ? BIT_PERFECT_VOLUME_REASON : null}
+            note={bitPerfect?.volumeNote ?? null}
             className="now-volume"
           />
         </div>

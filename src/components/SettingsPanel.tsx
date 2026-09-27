@@ -1206,6 +1206,10 @@ interface SettingsPanelProps {
   eqEnabled: boolean;
   /** Player volume, 0..1. */
   volume: number;
+  /** Playback rate — any speed but 1x resamples, so it's a bit-perfect blocker. */
+  playbackRate: number;
+  /** Bit-perfect mode is on: it overrides this row's settings engine-side. */
+  bitPerfectOn: boolean;
   betaUpdates: boolean;
   onBetaUpdatesChange: (enabled: boolean) => void;
   telemetryEnabled: boolean;
@@ -1316,6 +1320,8 @@ export function SettingsPanel({
   onAudioExclusiveChange,
   eqEnabled,
   volume,
+  playbackRate,
+  bitPerfectOn,
   betaUpdates,
   onBetaUpdatesChange,
   telemetryEnabled,
@@ -1840,14 +1846,18 @@ export function SettingsPanel({
                         <div className="settings-row-info">
                           <span className="settings-label">Exclusive audio access<HelpLink anchor="exclusive-audio" topic="exclusive audio access" /></span>
                           <span className="settings-description">Opens the output device exclusively for bit-perfect playback — other apps can't play audio while active. Disables crossfade; applies from the next track.</span>
-                          {audioExclusive && (
-                            isBitPerfect({ exclusive: audioExclusive, eqEnabled, rgMode, volume }) ? (
+                          {bitPerfectOn ? (
+                            <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)" }}>
+                              Bit-perfect mode is on — it holds exclusive access, EQ, ReplayGain, speed and volume for you until you turn it off in the now-playing bar.
+                            </span>
+                          ) : audioExclusive && (
+                            isBitPerfect({ exclusive: audioExclusive, eqEnabled, rgMode, volume, speed: playbackRate }) ? (
                               <span style={{ fontSize: "var(--fs-xs)", color: "var(--success)", fontWeight: 500 }}>
                                 ● Bit-perfect
                               </span>
                             ) : (
                               <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-tertiary)" }}>
-                                ○ Not bit-perfect: {bitPerfectBlockers({ exclusive: audioExclusive, eqEnabled, rgMode, volume }).join(" · ")}
+                                ○ Not bit-perfect: {bitPerfectBlockers({ exclusive: audioExclusive, eqEnabled, rgMode, volume, speed: playbackRate }).join(" · ")}
                               </span>
                             )
                           )}

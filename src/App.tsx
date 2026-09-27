@@ -141,6 +141,7 @@ import { CollectionsView } from "./components/CollectionsView";
 import { EditCollectionModal } from "./components/EditCollectionModal";
 import {
   DeleteTracksModal,
+  BitPerfectConfirmModal,
   DeleteTagsModal,
   DeleteErrorModal,
   FolderErrorModal,
@@ -192,6 +193,7 @@ import { classifyErrorKind, errorText } from "./utils/errorKind";
 
 
 import { useAssignRef } from "./hooks/useLatestRef";
+import { useBitPerfect } from "./hooks/useBitPerfect";
 function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
   const queue = useVideoFrameQueue();
   useEffect(() => { refOut.current = queue; }, [queue, refOut]);
@@ -243,6 +245,10 @@ async function resolveFirstAlbumCover(
   }
   return local;
 }
+
+/** Bit-perfect mode's device pinning and verification are CoreAudio-only for
+ *  now (Windows WASAPI exclusive exists in the engine but isn't verified). */
+const IS_MAC = navigator.platform.includes("Mac");
 
 function App() {
   const restoredRef = useRef(false);
@@ -387,6 +393,7 @@ function App() {
   const [autoUpdateManagedDeps, setAutoUpdateManagedDeps] = usePersistedSetting("autoUpdateManagedDeps", true, restoredRef);
   const [minimizeToMiniPlayer, setMinimizeToMiniPlayer] = usePersistedSetting("minimizeToMiniPlayer", false, restoredRef);
   const [confirmTrashDelete, setConfirmTrashDelete] = usePersistedSetting("confirmTrashDelete", true, restoredRef);
+  const [bitPerfectSkipConfirm, setBitPerfectSkipConfirm] = usePersistedSetting("bitPerfectSkipConfirm", false, restoredRef);
   // Split by media: a song opening Now Playing is about lyrics + art, a video
   // opening it is about watching large instead of in the dock — people want
   // them independently. The audio key keeps the original name (no migration).
@@ -966,6 +973,23 @@ function App() {
   // Toasts — created before stream resolution and the updater so their
   // failure/fallback paths can surface feedback.
   const { toasts, notify, dismiss: dismissToast } = useToasts();
+
+  // Bit-perfect mode (native engine, macOS): session-only overlay the engine
+  // applies — see useBitPerfect / mpv_engine/output.rs.
+  const bitPerfect = useBitPerfect({
+    available: IS_MAC && mpvCapable && playbackEngine === "native",
+    playing: playback.playing,
+    currentKey: playback.currentTrack?.key ?? null,
+    appVolume: playback.volume,
+    skipConfirm: bitPerfectSkipConfirm,
+    setSkipConfirm: setBitPerfectSkipConfirm,
+    notify,
+    onOutputChanged: playback.invalidatePreload,
+  });
+  useAssignRef(playback.volumeOverrideRef, bitPerfect.on ? bitPerfect.setVolumeWhileOn : null);
+  // What every volume control shows and steps from: the device's own level
+  // while Bit-perfect mode drives it, the player's volume otherwise.
+  const controlsVolume = bitPerfect.controlsVolume ?? playback.volume;
 
   const { resolvingStatus, resolveFailures, resolvedSource } = useStreamResolution({
     resolveTrackSrcRef,
@@ -2778,6 +2802,7 @@ function App() {
           pluginViewMode: savedPluginViewMode,
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
+          bitPerfectSkipConfirm: savedBitPerfectSkipConfirm,
           radioOptions: savedRadioOptions,
           openNowPlayingOnPlay: savedOpenNowPlayingOnPlay, openNowPlayingOnVideoPlay: savedOpenNowPlayingOnVideoPlay,
           updateNoticeDismissed: savedUpdateNoticeDismissed,
@@ -2864,6 +2889,7 @@ function App() {
         if (savedVideoSubtitles === false) setVideoSubtitlesOn(false);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
         if (savedConfirmTrashDelete === false) setConfirmTrashDelete(false);
+        if (savedBitPerfectSkipConfirm) setBitPerfectSkipConfirm(true);
         if (savedOpenNowPlayingOnPlay) setOpenNowPlayingOnPlay(true);
         if (savedOpenNowPlayingOnVideoPlay) setOpenNowPlayingOnVideoPlay(true);
         if (savedVideoStoryboards === false) setVideoStoryboards(false);
@@ -3560,7 +3586,7 @@ function App() {
   // separately by useGlobalShortcuts above.
   useInAppKeyboardShortcuts({
     library, playback, queueHook, mini,
-    volume: playback.volume,
+    volume: controlsVolume,
     getMediaElement: playback.getMediaElement,
     handleSeek: playback.handleSeek,
     handlePause: playback.handlePause,
@@ -3737,6 +3763,7 @@ function App() {
     previous: () => queueHook.playPrevious(),
     startRadio: playActions.startRadio,
     queueOps: queueOpsDeps,
+    bitPerfect: bitPerfect.control ? { pin: bitPerfect.pin, state: bitPerfect.state, output: bitPerfect.output } : null,
     mini: { miniMode: mini.miniMode, toggleMiniMode: mini.toggleMiniMode },
     window: {
       setFullscreen: (on: boolean) => setProbeFullscreenRef.current(on),
@@ -3916,6 +3943,8 @@ function App() {
     // Clean cut: no mid-track engine handoff. The user re-starts playback on
     // whichever engine they switched to.
     playback.handleStop();
+    // Bit-perfect mode belongs to the native engine; leaving it ends the mode.
+    if (engine !== "native" && bitPerfect.on) void bitPerfect.disable();
     setPlaybackEngine(engine);
     trackTelemetry("engine_selected", { engine });
     store.set("playbackEngine", engine).catch((e) => {
@@ -4784,7 +4813,7 @@ function App() {
     playing: playback.playing,
     durationSecs: playback.durationSecs,
     scrobbled: playback.scrobbled,
-    volume: playback.volume,
+    volume: controlsVolume,
     muted: playback.muted,
     queueMode: queueHook.queueMode,
     autoContinueEnabled: autoContinue.enabled,
@@ -4820,6 +4849,7 @@ function App() {
       library.navigateToAlbumByName(name, artistName ?? undefined),
     nativeVideoActive: playback.nativeVideoActive,
     eq: eqControls,
+    bitPerfect: bitPerfect.control,
     resolvedSource,
   };
 
@@ -5586,6 +5616,8 @@ function App() {
               onAudioExclusiveChange={handleAudioExclusiveChange}
               eqEnabled={playback.eqEnabled}
               volume={playback.volume}
+              playbackRate={playback.playbackRate}
+              bitPerfectOn={bitPerfect.on}
               betaUpdates={betaUpdates}
               onBetaUpdatesChange={handleBetaUpdatesChange}
               telemetryEnabled={telemetryEnabled}
@@ -6329,7 +6361,7 @@ function App() {
         scrobbled={playback.scrobbled}
         icyTitle={playback.icyTitle}
         trackRank={trackRank}
-        volume={playback.volume}
+        volume={controlsVolume}
         muted={playback.muted}
         queueMode={queueHook.queueMode}
         autoContinueEnabled={autoContinue.enabled}
@@ -6404,7 +6436,17 @@ function App() {
         tagSuggestions={tagSuggestionPool}
         invokeInfoFetch={plugins.invokeInfoFetch}
         pluginsLoaded={plugins.pluginsLoaded}
+        bitPerfect={bitPerfect.control}
       />
+
+      {bitPerfect.confirmPin && (
+        <BitPerfectConfirmModal
+          deviceName={bitPerfect.confirmPin.name}
+          hasVolume={bitPerfect.confirmPin.hasVolume === true}
+          onCancel={bitPerfect.cancelEnable}
+          onConfirm={bitPerfect.confirmEnable}
+        />
+      )}
 
       {retrieve.modal && (
         <RetrieveModal

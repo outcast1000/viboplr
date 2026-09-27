@@ -108,8 +108,19 @@
           <li>Turn the <strong>equalizer off</strong> — EQ reshapes the signal by design.</li>
           <li>Set <strong>ReplayGain to Off</strong> — volume normalization changes sample values.</li>
           <li>Keep the <strong>volume at 100%</strong> — any software attenuation rewrites samples.</li>
+          <li>Keep <strong>playback speed at 1×</strong> — any other speed resamples the audio.</li>
         </ul>
         <p>You don't have to keep that checklist in your head: while exclusive access is on, the settings row shows a live <strong>● Bit-perfect</strong> indicator, and when the stream isn't bit-perfect it names exactly what's in the way.</p>
+        <h3 id="bit-perfect-mode">Bit-perfect mode</h3>
+        <p>The <strong>Bit-perfect</strong> button in the now-playing bar does all of the above in one click, for the current session. It pins your current output device, takes exclusive access to it, suspends the equalizer, ReplayGain and speed, holds the volume at 100%, and lets the device follow each track's sample rate. Your own settings are left untouched, so turning the mode off (or quitting) puts everything back exactly as it was.</p>
+        <p>The button reports what it <em>verified</em>, not what it asked for: it turns green only when the device is confirmed held by Viboplr and the file, the output and the device all run at the same rate. Amber means something is in the way, and its tooltip says what:</p>
+        <ul class="docs-list">
+          <li><strong>Waiting for the device</strong> — another app holds it exclusively. Playback starts by itself once that app lets go; click the button to play through the shared mixer instead.</li>
+          <li><strong>Device limit</strong> — the device can't run at the file's sample rate (for example a 48 kHz headset playing a 96 kHz file), so that track is resampled.</li>
+          <li><strong>Browser engine</strong> — a track that can't play on the mpv engine goes through the shared mixer.</li>
+        </ul>
+        <p><strong>Volume while it's on.</strong> The audio leaves Viboplr at full digital level, so Viboplr's volume control sets the <em>device's own</em> volume instead — the samples stay untouched. Enabling the mode lowers the device to match your current volume, so it doesn't get louder, and turning it off puts the device back where it was. A device with no volume control of its own (many DACs) keeps Viboplr's volume fixed at 100%: set the level on the DAC or amplifier, and <strong>turn it down before enabling</strong>.</p>
+        <p>Your Mac's volume keys and the menu-bar slider <strong>can't reach the device while Viboplr holds it</strong>: macOS moves its system output to another device (you may see an unrelated device, such as a monitor, in the volume pop-up). Use Viboplr's volume control instead. If the pinned device is unplugged, the mode turns itself off. Bit-perfect mode is available on macOS.</p>
         <p>Trade-offs while it's active:</p>
         <ul class="docs-list">
           <li><strong>No other app can play sound</strong> — the device is yours alone, including system sounds.</li>

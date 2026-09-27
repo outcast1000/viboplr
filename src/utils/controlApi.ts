@@ -9,6 +9,7 @@
 
 import type { QueueTrack, QueueMode } from "../types";
 import type { Track } from "../types";
+import type { BitPerfectState, DevicePin, EngineOutput } from "./bitPerfect";
 import type {
   GalleryPluginEntry, HomeShelfDisplayKind, HomeShelfItem, PluginAssistantTool,
   PluginManifestContributes, PluginState,
@@ -141,6 +142,32 @@ export interface StatusInput {
   queueMode: QueueMode;
   view: string;
   currentTrack: QueueTrack | null;
+  /** Bit-perfect mode, when the build/platform supports it at all. */
+  bitPerfect?: BitPerfectStatusInput | null;
+}
+
+export interface BitPerfectStatusInput {
+  pin: DevicePin | null;
+  state: BitPerfectState | null;
+  output: EngineOutput | null;
+}
+
+/** Bit-perfect mode for GET /v1/status: whether it's on, the verified state
+ *  (`bit-perfect`, `waiting`, `device-limit`, …) and the rates behind it. */
+export function serializeBitPerfect(input: BitPerfectStatusInput) {
+  const { pin, state, output } = input;
+  return {
+    on: pin !== null,
+    state: state?.kind ?? null,
+    device: pin?.name ?? null,
+    heldExclusively: output?.hoggedByUs ?? null,
+    heldBy: output?.holderName ?? (output?.holderPid != null ? `pid ${output.holderPid}` : null),
+    sourceRate: output?.srcRate ?? null,
+    outputRate: output?.outRate ?? null,
+    deviceRate: output?.deviceRate ?? null,
+    /** The device's own level — what `volume` controls while the mode is on. */
+    deviceVolume: output?.deviceVolume ?? null,
+  };
 }
 
 export function serializeStatus(input: StatusInput) {
@@ -155,6 +182,7 @@ export function serializeStatus(input: StatusInput) {
     queueIndex: input.queueIndex,
     queueMode: input.queueMode,
     view: input.view,
+    bitPerfect: input.bitPerfect ? serializeBitPerfect(input.bitPerfect) : null,
     currentTrack: t
       ? {
           libraryId: t.libraryId ?? null,

@@ -140,6 +140,13 @@ interface VolumeControlProps {
    *  open for the duration; the docked bar has nothing to pin. */
   onDragStart?: () => void;
   onDragEnd?: () => void;
+  /** Set while the volume is fixed (Bit-perfect mode): the slider shows 100%
+   *  with this as its tooltip. Input still reaches `onVolume`, whose guard
+   *  explains why nothing moved. */
+  lockedReason?: string | null;
+  /** Tooltip for the cluster when it isn't locked (e.g. "controls the device's
+   *  own volume" in Bit-perfect mode). */
+  note?: string | null;
 }
 
 /** One wheel notch over the volume cluster, matching the keyboard shortcut and
@@ -147,8 +154,9 @@ interface VolumeControlProps {
 const VOLUME_WHEEL_STEP = 0.05;
 
 export function VolumeControl({
-  volume, muted, onVolume, onMute, className, onDragStart, onDragEnd,
+  volume: userVolume, muted, onVolume, onMute, className, onDragStart, onDragEnd, lockedReason, note,
 }: VolumeControlProps) {
+  const volume = lockedReason ? 1 : userVolume;
   // Wheel anywhere over the cluster (icon included), not just the slider track —
   // the track is a few pixels tall and aiming at it would make the gesture fussy.
   // A horizontal trackpad swipe reports deltaX, so it drives the slider too.
@@ -158,7 +166,7 @@ export function VolumeControl({
     onVolume(Math.min(1, Math.max(0, volume + (delta > 0 ? VOLUME_WHEEL_STEP : -VOLUME_WHEEL_STEP))));
   };
   return (
-    <div className={className} onWheel={handleWheel}>
+    <div className={`${className}${lockedReason ? " is-locked" : ""}`} onWheel={handleWheel} title={lockedReason ?? note ?? undefined}>
       <button className={`g-btn g-btn-sm${muted ? " is-muted" : ""}`} onClick={onMute} title={`Mute (${mod}M)`}>
         {muted || volume === 0
           ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>

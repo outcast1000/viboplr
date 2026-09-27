@@ -246,3 +246,45 @@ export function AddMusicSourceModal({ name, url, onCancel, onConfirm }: AddMusic
     </div>
   );
 }
+
+interface BitPerfectConfirmModalProps {
+  /** The output device the mode will pin and hold exclusively. */
+  deviceName: string;
+  /** The device has its own controllable volume (Viboplr's slider drives it). */
+  hasVolume: boolean;
+  onCancel: () => void;
+  /** `dontAskAgain` = the user ticked the checkbox (skip this modal next time). */
+  onConfirm: (dontAskAgain: boolean) => void;
+}
+
+/** Explains Bit-perfect mode before it takes the device. The volume warning is
+ *  the point: the mode jumps the player to full digital volume. */
+export function BitPerfectConfirmModal({ deviceName, hasVolume, onCancel, onConfirm }: BitPerfectConfirmModalProps) {
+  const [dontAsk, setDontAsk] = useState(false);
+  return (
+    <ConfirmModal
+      title="Bit-perfect playback"
+      message={<>Viboplr will send audio to <strong>{deviceName}</strong> exactly as it's stored in the file:</>}
+      confirmLabel="Enable"
+      autoFocusConfirm
+      onCancel={onCancel}
+      onConfirm={() => onConfirm(dontAsk)}
+    >
+      <ul className="bit-perfect-confirm-list">
+        <li><strong>Exclusive access</strong> — other apps (browser, calls, system sounds) can't play through this device until you turn it off.</li>
+        {hasVolume ? (
+          <li><strong>Viboplr's volume controls {deviceName} itself</strong> — the audio goes out at full digital level and the device sets the loudness. Your Mac's volume keys won't reach it while it's held. The level is lowered for you to match, but <strong>check your headphones before continuing.</strong></li>
+        ) : (
+          <li><strong>Volume fixed at 100%</strong> — this device has no volume control of its own, and your Mac's volume keys won't reach it. Set the level on your DAC or amplifier. <strong>Turn it down before continuing.</strong></li>
+        )}
+        <li><strong>EQ, ReplayGain and playback speed are suspended</strong>, and crossfade is replaced by gapless playback.</li>
+        <li>The device follows each track's sample rate; a rate change between tracks can leave a brief gap.</li>
+      </ul>
+      <p className="bit-perfect-confirm-note">Your settings aren't changed — turning it off restores everything. It also turns off when Viboplr quits.</p>
+      <label className="delete-confirm-dontask">
+        <input type="checkbox" checked={dontAsk} onChange={e => setDontAsk(e.target.checked)} />
+        <span>Don't ask again</span>
+      </label>
+    </ConfirmModal>
+  );
+}

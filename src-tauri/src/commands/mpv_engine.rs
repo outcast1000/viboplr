@@ -124,6 +124,39 @@ pub fn engine_set_audio_exclusive(
     state.mpv_engine.set_audio_exclusive(enabled)
 }
 
+/// Bit-perfect mode: pin the output to `pin` (exclusive, no DSP, full volume,
+/// source sample rate) or turn it off with `null`. The engine overlays neutral
+/// values without touching the stored DSP settings, and while on emits
+/// `engine-output` with the verified device state. Cached until the engine runs.
+#[tauri::command]
+pub fn engine_set_bit_perfect(
+    state: tauri::State<'_, super::AppState>,
+    pin: Option<crate::mpv_engine::output::DevicePin>,
+) -> Result<(), String> {
+    state.mpv_engine.set_bit_perfect(pin)
+}
+
+/// Set an output device's own hardware volume (0..1) — Viboplr's volume control
+/// while bit-perfect mode holds mpv at full digital scale. Errors when the device
+/// exposes no settable volume.
+#[tauri::command]
+pub fn engine_set_device_volume(uid: String, volume: f64) -> Result<(), String> {
+    crate::mpv_engine::output::set_device_volume(&uid, volume)
+}
+
+/// An output device's current hardware volume (0..1), or null when it has none.
+#[tauri::command]
+pub fn engine_device_volume(uid: String) -> Option<f64> {
+    crate::mpv_engine::output::device_status(&uid).volume
+}
+
+/// The system default output device (`{ uid, name, hasVolume }`), which bit-perfect mode
+/// pins at enable time. `null` where it can't be resolved (non-macOS).
+#[tauri::command]
+pub fn engine_default_output_device() -> Option<crate::mpv_engine::output::DevicePin> {
+    crate::mpv_engine::output::default_output_device()
+}
+
 /// Letterbox / uncovered-window fill for native video, so it matches the active
 /// skin's `--bg-primary` instead of mpv's default black. `color` is an mpv color
 /// string (e.g. `#RRGGBB`). Cached on the handle when the engine isn't running.

@@ -40,6 +40,7 @@ export interface PersistedSettings {
   mediaTypeFilter: string | undefined;
   trackLikedFirst: boolean | undefined;
   confirmTrashDelete: boolean | undefined;
+  bitPerfectSkipConfirm: boolean | undefined;
   openNowPlayingOnPlay: boolean | undefined;
   openNowPlayingOnVideoPlay: boolean | undefined;
   videoStoryboards: boolean | undefined;
@@ -132,6 +133,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     mediaTypeFilter: read<string>("mediaTypeFilter"),
     trackLikedFirst: read<boolean>("trackLikedFirst"),
     confirmTrashDelete: read<boolean>("confirmTrashDelete"),
+    bitPerfectSkipConfirm: read<boolean>("bitPerfectSkipConfirm"),
     openNowPlayingOnPlay: read<boolean>("openNowPlayingOnPlay"),
     openNowPlayingOnVideoPlay: read<boolean>("openNowPlayingOnVideoPlay"),
     videoStoryboards: read<boolean>("videoStoryboards"),
