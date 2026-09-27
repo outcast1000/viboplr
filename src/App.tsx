@@ -57,6 +57,7 @@ import type { PendingEnqueue } from "./hooks/useQueueDragToInsert";
 import * as queueOps from "./utils/queueOps";
 import type { QueueOpsDeps } from "./utils/queueOps";
 import type { TagOpsDeps } from "./utils/tagOps";
+import { TagOpsProvider } from "./contexts/TagOpsContext";
 import { createCoalescedRefresh } from "./utils/coalescedRefresh";
 import { useToasts } from "./hooks/useToasts";
 import { useUserPlaylists } from "./hooks/useUserPlaylists";
@@ -4838,6 +4839,7 @@ function App() {
   }), [miniSearch.isOpen, miniSearch.query, miniSearch.results, miniSearch.items, miniSearch.highlightedIndex, miniSearch.likeHandlers, npBar]);
 
   return (
+    <TagOpsProvider value={tagOpsDeps}>
     <VideoFrameQueueProvider>
     <VideoFrameQueueRefBridge refOut={videoFrameQueueRef} />
     <div className={`app ${appRestoring ? "app-restoring" : ""} ${playback.currentTrack && isVideoTrack(playback.currentTrack) ? "video-mode" : ""} ${playback.nativeVideoActive ? "mpv-video-hole" : ""} ${playback.nativeVideoActive && videoTheater ? "mpv-hole-theater" : ""} ${playback.nativeVideoActive && videoReady && playback.nativeVideoPresenting ? "mpv-video-ready" : ""} ${playback.nativeFullscreen ? "mpv-native-fs" : ""} queue-open ${queueCollapsed ? "queue-collapsed" : ""} ${mini.miniMode ? "mini-mode" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${videoInQueue ? "video-in-queue" : ""} ${audioFullscreen ? "audio-fs-open" : ""} ${audioFullscreen && fsQueueOpen ? "fs-queue-revealed" : ""}`} style={{ "--queue-width": `${queueWidth}px`, "--video-queue-size": `${videoLayout.sizes.queue}px` } as React.CSSProperties}>
@@ -6488,6 +6490,7 @@ function App() {
 
     </div>
     </VideoFrameQueueProvider>
+    </TagOpsProvider>
   );
 }
 
