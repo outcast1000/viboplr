@@ -24,7 +24,12 @@ Two-layer system:
 
 ## Trust Model
 
-**Installing a plugin grants it everything the app can do.** Plugin code runs in the host webview's own JS realm (`new Function`), not in an isolated one, so this is the model to design and review against:
+There are **two loaders**, chosen per plugin by the manifest's `runtime` field, and they have opposite trust models. Everything bundled in `src-tauri/plugins/` runs on the worker runtime; the main-realm loader stays for external plugins until they migrate (see "Worker Runtime & Permissions" below).
+
+- **`"runtime": "worker"`** — the plugin runs in its own Web Worker and can do only what its `permissions` grant, checked on every call. This is a real boundary.
+- **No `runtime` (main realm)** — everything below.
+
+**A main-realm plugin gets everything the app can do.** Its code runs in the host webview's own JS realm (`new Function`), not in an isolated one, so this is the model to design and review against:
 
 - **The sandbox is hygiene, not a security boundary.** `new Function("api", "window", "globalThis", "self", "document", code)` shadows those five *names* with a frozen stand-in (and `document` with `undefined`) — but a bare identifier resolves through the real global scope. `fetch`, `XMLHttpRequest`, `localStorage`, `location`, `top` (and via it the real DOM) are all reachable from any plugin, as is `Function("return window")()`. The sandbox's real job is discipline: it keeps a *well-behaved* plugin off ambient DOM and window state so its dependencies stay explicit in the contract.
 - **Per-plugin scoping is honor-system.** The `pluginId` in `plugin_storage_*` / `plugin_files_*` / `plugin_cache_*` calls is baked in by the JS API wrappers; the Rust commands trust whatever id arrives from the webview. Code that bypasses the wrappers can read another plugin's storage — or invoke any Tauri command at all.
@@ -32,7 +37,44 @@ Two-layer system:
 - **The actual controls are curation and consent:** the gallery is index-only and curated, plugins auto-update from their declared `updateUrl`, and side-loading (install from URL/zip, dev plugin folder) is an explicit user action. Treat adding a gallery entry as vouching for that repo's release pipeline.
 - **Deep links:** an unscoped `viboplr://` link forwarded to plugins is **broadcast to every installed plugin's** `onDeepLink` handler. A link carrying anything sensitive (an OAuth callback token) must use the scoped form `viboplr://plugin/<pluginId>/…`, which the host delivers only to the plugin whose id it names (see `api.network.onDeepLink`). `plugin` is a reserved deep-link host for this purpose.
 
-None of this means hardening is free to skip elsewhere — path-traversal checks, the exec allow-list and the profile gates still matter, because they keep *bugs* in benign plugins from escalating. It means a review of a new API surface should ask "does this make the cooperative path safer/clearer?", not "does this stop a malicious plugin?" — the latter is decided at install time.
+None of this means hardening is free to skip elsewhere — path-traversal checks, the exec allow-list and the profile gates still matter, because they keep *bugs* in benign plugins from escalating. For a **main-realm** plugin, a review of a new API surface should ask "does this make the cooperative path safer/clearer?", not "does this stop a malicious plugin?" — the latter is decided at install time. For the **worker runtime** the second question is the real one: every new API method needs a row in the permission table (see below).
+
+## Worker Runtime & Permissions
+
+Opt-in per plugin with `"runtime": "worker"` + `"permissions": [...]` in the manifest. Code: `src/pluginWorker/` (`rpc.ts` message layer, `runtime.ts` worker entry, `host.ts` bridge, `permissions.ts` vocabulary + gate), the branch in `usePlugins.activatePlugin`, and `src-tauri/src/plugin_worker.rs`.
+
+**How it isolates.** The plugin's source is evaluated inside a dedicated Web Worker. Tauri injects neither `__TAURI_INTERNALS__` nor its per-page invoke key into workers, so the plugin cannot reach any Tauri command; the only channel out is the MessagePort the host bridge owns. The runtime also deletes `fetch`, `XMLHttpRequest`, `WebSocket`, `WebTransport`, `EventSource`, `importScripts`, `Worker`, `SharedWorker`, `BroadcastChannel`, `indexedDB` and `caches` from the worker scope before running plugin code, and the worker script carries its **own CSP** (`src-tauri/plugin-worker-csp.txt`) so dynamic `import()` — syntax, not deletable — can't load code from anywhere (`connect-src 'none'`, `script-src 'self' 'unsafe-eval'`). Identity is the port, not a claim: the bridge knows which plugin is calling and adds the `pluginId` itself.
+
+**The API is not reimplemented.** The bridge wraps the very object `buildAPI` builds for main-realm plugins (`gateApi`), so both loaders run identical host code; the worker sees stubs. Functions crossing the boundary (handlers, `onOutput`/`onStart`, unsubscribers, browse-window handles) are swapped for refs and turned back into callable stubs on the far side; a GC'd stub releases its far-side function.
+
+**Permissions** — flat strings, fail-closed table in `permissions.ts` (`PERMISSION_TABLE`): `network:<host>`, `browse:<host>`, `exec:<binary>`, `library:read`, `library:write`, `files:read`, `files:trash`, `playback:read`, `playback:control`, `system:open`, `env:<NAME>`, `plugins:call`. `<host>` is exact, `*.example.com` (subdomains only) or `*`. Methods scoped to the plugin itself (its own storage, its own registrations, its own UI) need none. **An API method missing from the table is denied** — so adding a method to `ViboplrPluginAPI` means adding its row, or worker plugins simply can't call it. A denied call rejects with a `PermissionError` naming the permission, and is also written to the plugin log.
+
+**Network grants are enforced in Rust too.** The bridge checks the URL a plugin asks for, but reqwest follows redirects in Rust where that check can't see them. So `plugin_fetch`, `plugin_files_download` and `plugin_cache_image` take an `allowedHosts` list (the plugin's `network:` grants — `null` for main-realm plugins, unchanged behaviour) and `plugin_worker::NetworkScope` holds every hop to it. A redirect outside the scope is **not followed**: `plugin_fetch` hands back the 3xx itself (with `Location`, so a plugin can still see it was redirected); the two download commands fail with a message saying so. This caught a real case: `theaudiodb.com` 301s to `www.theaudiodb.com`, so the AudioDB plugin calls `www.` directly and declares only that host.
+
+**Consent — approve at activation, not at install.** A worker plugin activates only when every permission its manifest requests has been approved (`pluginPermissionGrants` store key: id → approved list); otherwise its status is **`needs-approval`** and it doesn't run. Checking at activation is what covers every way a plugin arrives (gallery, zip/URL, dev folder) and **an update that asks for more** — that version waits until the new permissions are approved; `pendingPermissions` shows just the new ones. The user reviews and approves in Extensions → plugin detail → **Permissions** (plain-language list from `describePermission`, sensitive ones badged) — **Allow and start** grants exactly the manifest's list (never a union with older approvals), **Revoke permissions** stops the plugin and puts it back to waiting. A waiting plugin is still *switched on* (its Disable button works). Rules:
+- **Built-ins are pre-approved.** They ship inside the app and carry its trust; asking would stop lyrics/artwork/bios on every fresh install. Their permissions are **still enforced** — that protects against their bugs. A user or dev copy overriding a built-in's id is not built-in, so it is asked.
+- **Undeclared means denied.** There is no grandfathering: a worker plugin that declares nothing can use only its own scope.
+- A manifest's list is the ceiling — an approval left over from an older version grants nothing the current manifest doesn't ask for.
+- **Uninstalling drops the approval.** Approvals are keyed by plugin id, and a different plugin installed later under the same id must be asked again rather than inherit consent for code the user never reviewed. An update keeps it (same plugin, and the ceiling rule above still applies).
+
+**Contract differences a plugin author meets:**
+- **Synchronous getters are a snapshot.** `playback.getCurrentTrack/isPlaying/getPosition/getQueue`, `search.listProviders`, `plugins.list` read a copy the host pushes on change (checked every 250ms), so they can be up to one interval stale — `getPosition()` advances in steps.
+- **`network.fetch` responses are read fully on the host** and rebuilt in the worker (same `status`/`headers`/`url`/`text()`/`json()`/`getSetCookie()` shape).
+- **Every other call is a round trip** and returns a promise — which every API method but the getters above already did. Registration calls still return an unsubscriber you can call directly (it's a callable promise).
+- **`downloads.onGetQualities` is read from a host cache**: the handler is called at registration and on every read, and a worker's answer lands one read later.
+- **`api.visualizers` is unavailable** (a visualizer is handed a live `ShadowRoot`; its worker model is undecided). A worker plugin that declares `contributes.visualizers` is **refused at activation** with that reason (status `error`, shown in the Extensions detail pane) — before this it reported `active` while its visualizer could never mount. Visualizer plugins stay on the main-realm loader for now.
+- **Failures inside the worker are reported to the host.** An unhandled rejection or uncaught error in the worker (a denied call the plugin didn't await, a throwing handler) would otherwise reach only the worker's own console; the runtime posts it to the host, which writes it to the plugin log (Report a problem, `GET /v1/logs/frontend`).
+- `window`/`self`/`globalThis` are the worker scope (timers, `console`, `Math`…); there is no `document`.
+
+**Cost** (measured 2026-09-28, embedded-asset debug build, 12.7k-track library): ~+30–100µs per call over the main realm, `getTracks(10000)` +15% (structured clone), identical parallel throughput (the IPC is the bottleneck), **~3.5 MB and ~1.5 ms activation per worker** — workers for every worker plugin are created up front (`prewarmPluginWorkers`) so their boot overlaps the sequential activation loop.
+
+**Tested against every known plugin (2026-09-28).** All 25 (8 bundled + 17 released external, TIDAL excluded from findings by owner decision) were run on both loaders through the same probes — control-API calls (status, live registrations, every info type, image provider, read-only assistant tool, search provider and home shelf) plus a sweep of every sidebar view (open, every tab, the view's own search). With every permission granted, the worker runtime matched the main-realm loader on every probe; with each plugin's derived permission list it matched again after three additions the denials named (`library:read` for lyrics-search and qbittorrent, `network:127.0.0.1` for slskd). The harness lives only in the session scratchpad; the approach (three modes: main / worker with everything / worker with the declared list, diffed) is the thing to repeat when the API grows.
+
+**Known limits, not yet closed:**
+- **User-configured hosts have no good permission.** A plugin that talks to a server the user types in (Subsonic Browse, qBittorrent's Web UI, slskd on `127.0.0.1`) can only declare `network:*` or guess the host. The vocabulary needs a grant the user makes when they configure the server.
+- **A stopped redirect changes what a plugin sees on a filtered network.** Where a network redirects to a block page, a scoped plugin now gets the 3xx instead of the block page's 200 — so detection keyed on the final URL (qBittorrent's "the site looks blocked") sees a different shape.
+- **Host-rendered URLs.** URLs a plugin *returns* — image-provider URLs the Rust image worker downloads, `imageUrl`s in view data the webview loads — are fetched by the host without the plugin's network scope. That is a read-only exfiltration channel (data in a query string) for a plugin granted `library:read`.
+- **Enforcement is in the JS bridge.** Rust commands other than the three above still trust their `plugin_id` argument. That only matters while main-realm plugins exist (they can call `invoke` directly anyway) or if the host page itself is compromised.
 
 ## Directory Structure
 
@@ -110,6 +152,8 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
   "homepage": "https://...",
   "updateUrl": "https://.../releases/latest/download/update.json",
   "viewHeader": { "subtitle": "One line", "logo": "assets/logo.png", "logoLight": "assets/logo-light.png", "banner": "assets/banner.jpg", "hidden": false },
+  "runtime": "worker",
+  "permissions": ["network:api.example.com", "library:read"],
   "apiUsage": [{ "api": "network.fetch", "reason": "Fetch metadata" }],
   "contributes": {
     "informationTypes": [{
@@ -174,6 +218,8 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
 `viewHeader` (optional, top-level) sets defaults for the header the host draws on every view of the plugin; a sidebar item's own `header` overrides it per view. See "View header" below.
 
 `debugOnly: true` hides the plugin unless the app is running in debug mode. Plugins reload automatically when the debug mode setting flips.
+
+`runtime` (optional, top-level) — `"worker"` runs the plugin in its own Web Worker behind the permission gate; absent = the main-realm loader. `permissions` lists what a worker plugin may do and is what the user approves (ignored by the main-realm loader). See "Worker Runtime & Permissions". `apiUsage` stays purely descriptive on both loaders.
 
 `autoEnable` (optional, top-level) is an **opt-out** flag for the first-launch auto-enable of **built-in** plugins. On first launch only (no saved `enabledPlugins` list yet), every built-in plugin is enabled automatically — *except* those with `autoEnable: false`, which start disabled. Absent/`true` = enabled on first launch (the default). Once the user has a saved enable/disable list, their choices are always respected. Has no effect on user/gallery-installed plugins.
 
@@ -392,7 +438,7 @@ There is still **no** `api.informationTypes.invoke` escape hatch — plugins rea
 - `readAudioTags(paths)` — read embedded tags for local files: one `{ title, artist, album_artist, album, track_number, disc_number, year, genre, duration_secs } | null` per input path, in order, `null` for anything unreadable. **Batch the whole set in one call** — the host probes on a worker thread (so a slow mount can't freeze the webview) and a per-file call is a per-file IPC round trip; a plugin queueing a finished release calls this once per user action. **There is no filename fallback** (unlike the library scanner, which falls through to its own regexes): a missing tag comes back `null` so the caller's own parse — which knows the folder, torrent or release the file came from — stands. Merge **per field**, tags winning, your parse filling the gaps; a release tagged with an artist but no track number should still take the number off `03 - `. Feature-detect (`typeof api.system.readAudioTags === "function"`) rather than raising `minAppVersion`, so older hosts keep the parsed values. The canonical consumer is the qBittorrent plugin, whose queue entries were otherwise pure filename guesswork.
 
 ### api.env
-- `get(key)` — read an environment variable
+- `get(key)` — read an environment variable (host allow-list: `LASTFM_API_KEY`, `LASTFM_API_SECRET`). A worker plugin needs `env:<KEY>` for each one — per variable, never a blanket grant.
 
 ### api.plugins
 - `list()` — read-only discovery of every installed plugin: `{ id, name, version, description, enabled, status, capabilities }[]`. `enabled && status === "active"` is the "can I call it" check. `capabilities` is the non-zero counts (live for runtime-registered kinds — searchProviders / homeShelves / contextMenuItems / assistantTools — declared for the rest), the same `summarizeCapabilities` shape the control API's `extensions.list` returns. Exists so a composing plugin can degrade gracefully instead of hardcoding "ytdlp" and failing opaquely; install/enable stay with the user in the Extensions view.

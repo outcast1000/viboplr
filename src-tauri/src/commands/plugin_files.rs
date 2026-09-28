@@ -1,6 +1,32 @@
 // Auto-split from commands.rs. See commands/mod.rs for shared types & helpers.
 use super::*;
 
+/// Client for downloading a plugin-supplied URL. With a scope (worker-runtime
+/// plugins) redirects are held to the plugin's network grant — see
+/// `plugin_worker::NetworkScope`; without one this is the old client exactly.
+fn plugin_download_client(scope: Option<crate::plugin_worker::NetworkScope>) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
+    if let Some(scope) = scope {
+        builder = builder.redirect(scope.redirect_policy());
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
+/// A download that ended on a non-success status. Under a scope a redirect
+/// means the scope stopped it (an unscoped client follows redirects itself),
+/// so say so rather than surfacing a bare "HTTP 302". Without one — a
+/// main-realm plugin — a 3xx is just the server's answer (304, a 300, a 302
+/// with no Location), and blaming a permission that doesn't exist would send
+/// the plugin's author looking in the wrong place.
+fn download_status_error(resp: &reqwest::Response, scoped: bool) -> String {
+    if scoped && resp.status().is_redirection() {
+        let to = resp.headers().get("location").and_then(|v| v.to_str().ok()).unwrap_or("?");
+        return format!("Redirected to {} — outside this plugin's network permission", to);
+    }
+    format!("HTTP {}", resp.status())
+}
+
 #[tauri::command]
 pub async fn plugin_cache_image(
     state: State<'_, AppState>,
@@ -8,11 +34,16 @@ pub async fn plugin_cache_image(
     subdir: String,
     filename: String,
     url: String,
+    allowed_hosts: Option<Vec<String>>,
 ) -> Result<String, String> {
     validate_plugin_cache_path(&plugin_id, &subdir, Some(&filename))?;
 
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("URL must start with http:// or https://".to_string());
+    }
+    let scope = crate::plugin_worker::NetworkScope::from_arg(allowed_hosts);
+    if let Some(scope) = &scope {
+        scope.check(&url)?;
     }
 
     let cache_dir = state.app_dir.join("plugin-cache").join(&plugin_id).join(&subdir);
@@ -29,15 +60,13 @@ pub async fn plugin_cache_image(
         return Err("Invalid path".to_string());
     }
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15")
-        .build()
-        .map_err(|e| e.to_string())?;
+    let scoped = scope.is_some();
+    let client = plugin_download_client(scope)?;
 
     let resp = client.get(&url).send().await.map_err(|e| format!("Download failed: {}", e))?;
 
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+        return Err(download_status_error(&resp, scoped));
     }
 
     let content_length = resp.content_length().unwrap_or(0);
@@ -184,9 +213,14 @@ pub async fn plugin_files_download(
     plugin_id: String,
     path: Vec<String>,
     url: String,
+    allowed_hosts: Option<Vec<String>>,
 ) -> Result<String, String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("URL must start with http:// or https://".to_string());
+    }
+    let scope = crate::plugin_worker::NetworkScope::from_arg(allowed_hosts);
+    if let Some(scope) = &scope {
+        scope.check(&url)?;
     }
     let (root, target) = resolve_plugin_path(&state.app_dir, &plugin_id, &path)?;
     if let Some(parent) = target.parent() {
@@ -194,13 +228,11 @@ pub async fn plugin_files_download(
     }
     ensure_within_root(&root, &target)?;
 
-    let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15")
-        .build()
-        .map_err(|e| e.to_string())?;
+    let scoped = scope.is_some();
+    let client = plugin_download_client(scope)?;
     let resp = client.get(&url).send().await.map_err(|e| format!("Download failed: {}", e))?;
     if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+        return Err(download_status_error(&resp, scoped));
     }
     let content_length = resp.content_length().unwrap_or(0);
     if content_length > 10 * 1024 * 1024 {

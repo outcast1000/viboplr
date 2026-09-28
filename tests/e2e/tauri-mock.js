@@ -108,13 +108,26 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     const storeDefaults = { queueCollapsed: false, sidebarCollapsed: false, view: 'search' };
     // Tests may seed persisted values via window.__E2E_STORE_SEED__ (opt-in).
     const storeSeed = (typeof window !== 'undefined' && window.__E2E_STORE_SEED__) || {};
-    const storeValues = { ...storeDefaults, ...storeSeed };
+    // Writes are dropped unless a spec opts in with __E2E_STORE_PERSIST__, in
+    // which case they overlay the seed for the rest of the page — needed where
+    // the app writes a key and then reloads state that re-reads it (plugin
+    // permission approval → loadPlugins). Opt-in so every other spec keeps the
+    // fixed store it was written against.
+    const persisted = (typeof window !== 'undefined' && window.__E2E_STORE_PERSIST__)
+      ? (window.__E2E_STORE_WRITES__ = window.__E2E_STORE_WRITES__ || {})
+      : {};
+    const storeValues = { ...storeDefaults, ...storeSeed, ...persisted };
     if (cmd === 'plugin:store|get') {
       const key = args && args.key;
       if (key && key in storeValues) return [storeValues[key], true];
       return [null, false];
     }
-    if (cmd === 'plugin:store|set') return null;
+    if (cmd === 'plugin:store|set') {
+      if (typeof window !== 'undefined' && window.__E2E_STORE_PERSIST__ && args && args.key) {
+        (window.__E2E_STORE_WRITES__ = window.__E2E_STORE_WRITES__ || {})[args.key] = args.value;
+      }
+      return null;
+    }
     if (cmd === 'plugin:store|load') return 1;
     if (cmd === 'plugin:store|save') return null;
     if (cmd === 'plugin:store|clear') return null;
@@ -259,11 +272,14 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'get_search_providers':
       return null;
     case 'write_frontend_log':
+      // Recorded so a spec can see a plugin's api.log lines (proof it ran).
+      (window.__TEST_LOG_LINES__ = window.__TEST_LOG_LINES__ || []).push(args);
       return null;
     case 'get_startup_timing':
       return [];
     case 'plugin_list_installed':
-      return [];
+      // Opt-in plugin fixtures: [{ id, manifest, code }]. Absent → no plugins.
+      return (typeof window !== 'undefined' && window.__E2E_PLUGINS__) || [];
     case 'lastfm_set_session':
       return null;
     case 'lastfm_start_auto_import':

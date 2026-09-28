@@ -108,6 +108,8 @@ function parsePluginJson(value: unknown): unknown {
 import { withResolverLog } from "../utils/resolverLog";
 
 import { useAssignRef } from "./useLatestRef";
+import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type WorkerPluginControl } from "../pluginWorker/host";
+import { networkHosts, pendingPermissions } from "../pluginWorker/permissions";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -207,6 +209,9 @@ interface ResolveScope {
 export function isExecCancelled(e: unknown): boolean {
   return String(e instanceof Error ? e.message : e).trim() === "Cancelled";
 }
+
+/** Store key: approved permissions per worker-runtime plugin (id → permission strings). */
+const PERMISSION_GRANTS_KEY = "pluginPermissionGrants";
 
 /** Max time a single plugin's activate() may block the sequential load before
  *  the host moves on. The plugin keeps initializing in the background; this
@@ -388,6 +393,7 @@ export function usePlugins(
     "scan:complete": [],
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
+  const permissionGrantsRef = useRef<Record<string, string[]>>({});
   const appVersionRef = useRef<string>("0.0.0");
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
   const viewScrollKeyRef = useRef<Map<string, string>>(new Map());
@@ -511,6 +517,11 @@ export function usePlugins(
       // Shadow the module `invoke` so all of this plugin's API IPC is routed
       // through the tap and attributed to it during its activate() window.
       const invoke = tapInvoke;
+      // A worker-runtime plugin's network grant, sent with every command that
+      // fetches a plugin-supplied URL so Rust holds redirects to it too
+      // (plugin_worker.rs → NetworkScope). null = main-realm plugin, unscoped.
+      const allowedHosts =
+        loaded.manifest.runtime === "worker" ? networkHosts(loaded.manifest.permissions ?? []) : null;
       const trackUnsubscribe = (fn: () => void) => {
         loaded.unsubscribers.push(fn);
       };
@@ -974,7 +985,7 @@ export function usePlugins(
             await invoke("plugin_storage_delete", { pluginId, key });
           },
           async cacheFile(subdir: string, filename: string, url: string): Promise<string> {
-            return invoke<string>("plugin_cache_image", { pluginId, subdir, filename, url });
+            return invoke<string>("plugin_cache_image", { pluginId, subdir, filename, url, allowedHosts });
           },
           async getCachePath(subdir: string, filename: string): Promise<string | null> {
             return invoke<string | null>("plugin_cache_get_path", { pluginId, subdir, filename });
@@ -1006,7 +1017,7 @@ export function usePlugins(
               return raw ?? null;
             },
             async download(path: string[], url: string): Promise<string> {
-              return invoke<string>("plugin_files_download", { pluginId, path, url });
+              return invoke<string>("plugin_files_download", { pluginId, path, url, allowedHosts });
             },
             async getPath(path: string[]): Promise<string | null> {
               return invoke<string | null>("plugin_files_get_path", { pluginId, path });
@@ -1042,6 +1053,7 @@ export function usePlugins(
                 body: init?.body ?? null,
                 insecure: init?.insecure ?? null,
                 timeoutMs: init?.timeoutMs ?? null,
+                allowedHosts,
               },
             );
             const bodyText = resp.body;
@@ -1643,7 +1655,33 @@ export function usePlugins(
             return unsub;
           },
           onGetQualities(providerId: string, handler: GetQualitiesHandler): () => void {
-            loaded.getQualitiesHandlers.set(providerId, handler);
+            // The contract is synchronous (the download modal reads it during
+            // render), but a worker-runtime plugin's handler can only answer
+            // asynchronously. So the host keeps the last answer: each call
+            // returns the freshest value it has — the current one for a
+            // main-realm plugin, the previous one for a worker — and refreshes
+            // the cache. Called once right here so the first read already has it.
+            let cached: DownloadQualityOption[] | null = null;
+            const read = (): DownloadQualityOption[] => {
+              const r = handler() as DownloadQualityOption[] | PromiseLike<DownloadQualityOption[]>;
+              if (r && typeof (r as PromiseLike<unknown>).then === "function") {
+                (r as PromiseLike<DownloadQualityOption[]>).then(
+                  (v) => { cached = Array.isArray(v) ? v : null; },
+                  (e) => console.error(`[plugin:${pluginId}] getQualities(${providerId}) failed:`, e),
+                );
+                return cached ?? [];
+              }
+              cached = r as DownloadQualityOption[];
+              return cached;
+            };
+            // The prime must not turn a handler that isn't ready yet (reads state
+            // activate() sets later) into an activation failure.
+            try {
+              read();
+            } catch (e) {
+              console.error(`[plugin:${pluginId}] getQualities(${providerId}) failed at registration:`, e);
+            }
+            loaded.getQualitiesHandlers.set(providerId, read);
             const unsub = () => { loaded.getQualitiesHandlers.delete(providerId); };
             trackUnsubscribe(unsub);
             return unsub;
@@ -1995,6 +2033,7 @@ export function usePlugins(
         visualizerFactories: new Map(),
       };
 
+      let workerControl: WorkerPluginControl | null = null;
       try {
         // Prefer code bundled with the manifest listing (saves an IPC round-trip).
         const tCode = performance.now();
@@ -2007,6 +2046,30 @@ export function usePlugins(
         codeMs = performance.now() - tCode;
 
         const api = buildAPI(id, loaded);
+        let pluginExports: { activate?: (api: ViboplrPluginAPI) => unknown; deactivate?: () => void } | undefined;
+        if (manifest.runtime === "worker") {
+          // Worker runtime: the same `api` object, but reached only through the
+          // permission-gated bridge. compileMs = worker boot + source evaluation.
+          const tCompile = performance.now();
+          const control = await startWorkerPlugin({
+            pluginId: id,
+            code,
+            permissions: manifest.permissions ?? [],
+            api: api as unknown as Record<string, unknown>,
+            onDenied: (e) => recordPluginLog("error", e.message, id),
+            onWorkerLog: (level, message) => {
+              recordPluginLog(level, message, id);
+              console.error(`[plugin:${id}]`, message);
+            },
+            bench: debugMode,
+          });
+          workerControl = control;
+          compileMs = performance.now() - tCompile;
+          pluginExports = {
+            activate: () => control.activate(),
+            deactivate: () => { void control.deactivate(); },
+          };
+        } else {
         const pluginSandbox = Object.create(null);
         pluginSandbox.setTimeout = window.setTimeout.bind(window);
         pluginSandbox.clearTimeout = window.clearTimeout.bind(window);
@@ -2039,8 +2102,9 @@ export function usePlugins(
 
         const tCompile = performance.now();
         const factory = new Function("api", "window", "globalThis", "self", "document", code);
-        const pluginExports = factory(api, pluginSandbox, pluginSandbox, pluginSandbox, undefined);
+        pluginExports = factory(api, pluginSandbox, pluginSandbox, pluginSandbox, undefined);
         compileMs = performance.now() - tCompile;
+        }
 
         const tActivate = performance.now();
         // Attribute IPC made during activate() to this plugin (debug only).
@@ -2098,6 +2162,8 @@ export function usePlugins(
           timing: { plugin: id, totalMs: performance.now() - t0, codeMs, compileMs, activateMs, ipcMs, ipcCount, bundled },
         };
       } catch (e) {
+        // A worker that started but whose activate() threw must not keep running.
+        workerControl?.terminate();
         const error = e instanceof Error ? e.message : String(e);
         console.error(`[plugin:${id}] activation error:`, error);
         return {
@@ -2124,6 +2190,11 @@ export function usePlugins(
       // builtin's code without a second IPC round-trip.
       const storedEnabled =
         (await store.get<string[]>("enabledPlugins")) ?? null;
+      // The permissions the user approved for each worker-runtime plugin. A
+      // worker plugin whose manifest asks for anything not in here does not
+      // activate — see the approval gate below.
+      permissionGrantsRef.current =
+        (await store.get<Record<string, string[]>>(PERMISSION_GRANTS_KEY)) ?? {};
       // search-providers is now an external gallery plugin (no longer bundled),
       // so there's no built-in copy to auto-enable here — users install it from
       // the gallery like any other plugin.
@@ -2231,6 +2302,51 @@ export function usePlugins(
           continue;
         }
 
+        // Worker-runtime plugins run only with every requested permission
+        // approved. Checking here, at activation, is what covers every way a
+        // plugin arrives — gallery install, zip/URL install, the dev folder,
+        // and an update whose new version asks for more than the last one.
+        // Built-ins are the exception: they ship inside the app and carry its
+        // trust, and asking would stop lyrics, artwork and bios on every fresh
+        // install until the user clicked through each one. Their permissions
+        // are still enforced — that part protects against their bugs, not the
+        // user's consent. A user or dev copy overriding a built-in's id is not
+        // built-in, so it is asked.
+        // A visualizer is handed a live ShadowRoot, which a worker has no DOM
+        // for — its worker model is still undecided. Starting such a plugin
+        // anyway made it report "active" while its visualizer could never
+        // mount, so say so instead.
+        if (m.runtime === "worker" && (m.contributes?.visualizers?.length ?? 0) > 0) {
+          states.push({
+            id: plugin.id,
+            manifest: m,
+            status: "error",
+            error: "Visualizers can't run in the worker runtime yet. Remove \"runtime\": \"worker\" from this plugin's manifest to use it.",
+            enabled: true,
+            builtin: plugin.builtin,
+            dev: plugin.dev,
+            devPath: plugin.devPath,
+          });
+          continue;
+        }
+
+        if (m.runtime === "worker" && !plugin.builtin) {
+          const pending = pendingPermissions(m.permissions ?? [], permissionGrantsRef.current[plugin.id] ?? []);
+          if (pending.length > 0) {
+            states.push({
+              id: plugin.id,
+              manifest: m,
+              status: "needs-approval",
+              enabled: true,
+              pendingPermissions: pending,
+              builtin: plugin.builtin,
+              dev: plugin.dev,
+              devPath: plugin.devPath,
+            });
+            continue;
+          }
+        }
+
         toActivate.push(plugin);
       }
 
@@ -2244,6 +2360,9 @@ export function usePlugins(
       // which removes one IPC per plugin even on the sequential path.
       const timings: PluginActivationTiming[] = [];
       const loopStart = performance.now();
+      // Boot every worker-runtime plugin's worker up front so their startup
+      // overlaps; each activation below then claims its own already-warm one.
+      prewarmPluginWorkers(toActivate.filter((p) => p.manifest.runtime === "worker").map((p) => p.id));
       for (const plugin of toActivate) {
         const { state, timing } = await activatePlugin(plugin);
         states.push(state);
@@ -2336,6 +2455,9 @@ export function usePlugins(
           }
         }
       }
+      // Every worker plugin has claimed its worker by now; any left over belong
+      // to activations that failed before reaching startWorkerPlugin.
+      dropPrewarmedWorkers();
 
       if (debugMode && timings.length > 0) {
         const wallMs = performance.now() - loopStart;
@@ -2359,10 +2481,13 @@ export function usePlugins(
         const lines = [...timings]
           .sort((a, b) => b.totalMs - a.totalMs)
           .map((t) => cols.map((c, i) => pad(c.v(t), c.w, i === 0)).join("  "));
-        console.debug(
+        const table =
           `[plugin-timing] activated ${timings.length} plugins sequentially in ${r1(wallMs)}ms (sum of activations ${r1(sumMs)}ms)\n` +
-            [header, ...lines].join("\n"),
-        );
+          [header, ...lines].join("\n");
+        console.debug(table);
+        // Debug-only copy into the backend log so the table is readable from a
+        // `tauri dev` terminal.
+        invoke("write_frontend_log", { level: "info", message: table, section: "plugin-timing" }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: a lost debug timing line has no user impact
       }
 
       if (allInfoTypes.length > 0) {
@@ -2549,6 +2674,31 @@ export function usePlugins(
     [deactivatePlugin, loadPlugins],
   );
 
+  // Approve everything a worker plugin's current manifest asks for, then load
+  // it. The approval is exactly the requested list — not a union with older
+  // approvals — so revoking a permission in a later version really drops it.
+  const approvePermissions = useCallback(
+    async (pluginId: string) => {
+      const requested = pluginStates.find((s) => s.id === pluginId)?.manifest.permissions ?? [];
+      permissionGrantsRef.current = { ...permissionGrantsRef.current, [pluginId]: Array.from(new Set(requested)) };
+      await store.set(PERMISSION_GRANTS_KEY, permissionGrantsRef.current);
+      await loadPlugins();
+    },
+    [pluginStates, loadPlugins],
+  );
+
+  // Withdraw every approval: the plugin stops now and waits for approval again.
+  const revokePermissions = useCallback(
+    async (pluginId: string) => {
+      const { [pluginId]: _revoked, ...rest } = permissionGrantsRef.current;
+      permissionGrantsRef.current = rest;
+      await store.set(PERMISSION_GRANTS_KEY, rest);
+      deactivatePlugin(pluginId);
+      await loadPlugins();
+    },
+    [deactivatePlugin, loadPlugins],
+  );
+
   const reloadAllPlugins = useCallback(async () => {
     for (const id of loadedPluginsRef.current.keys()) {
       deactivatePlugin(id);
@@ -2650,6 +2800,14 @@ export function usePlugins(
         // backend confirms removal, so a failed delete (e.g. it's a built-in, not
         // a user plugin) leaves the plugin's enabled state and activation intact.
         await invoke("delete_user_plugin", { pluginId });
+        // An approval belongs to what the user reviewed, not to an id: a
+        // different plugin installed later under the same id must be asked
+        // again, so uninstalling drops it.
+        if (pluginId in permissionGrantsRef.current) {
+          const { [pluginId]: _dropped, ...rest } = permissionGrantsRef.current;
+          permissionGrantsRef.current = rest;
+          await store.set(PERMISSION_GRANTS_KEY, rest);
+        }
         if (enabledPluginsRef.current.has(pluginId)) {
           enabledPluginsRef.current.delete(pluginId);
           deactivatePlugin(pluginId);
@@ -3323,6 +3481,8 @@ export function usePlugins(
     createVisualizer,
     togglePlugin,
     reloadPlugin,
+    approvePermissions,
+    revokePermissions,
     reloadAllPlugins,
     forwardDeepLink,
     galleryPlugins,

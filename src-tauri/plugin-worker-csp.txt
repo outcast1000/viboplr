@@ -1,0 +1,1 @@
+default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src 'none'; worker-src 'self'; img-src 'none'; font-src 'none'; media-src 'none'

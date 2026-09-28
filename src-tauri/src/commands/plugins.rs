@@ -523,9 +523,14 @@ fn flatten_response_headers(headers: &reqwest::header::HeaderMap) -> Vec<(String
 }
 
 #[tauri::command]
-pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>, timeout_ms: Option<u64>) -> Result<serde_json::Value, String> {
+pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>, timeout_ms: Option<u64>, allowed_hosts: Option<Vec<String>>) -> Result<serde_json::Value, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
+    // Worker-runtime plugins send their network grant; hold every hop to it.
+    if let Some(scope) = crate::plugin_worker::NetworkScope::from_arg(allowed_hosts) {
+        scope.check(&url)?;
+        builder = builder.redirect(scope.redirect_policy());
+    }
     if insecure.unwrap_or(false) {
         builder = builder.danger_accept_invalid_certs(true);
     }

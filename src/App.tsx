@@ -1452,7 +1452,10 @@ function App() {
     onTogglePlugin: (id: string) => {
       const plugin = plugins.pluginStates.find(p => p.id === id);
       if (plugin) {
-        return plugins.togglePlugin(id, plugin.status !== "active");
+        // A plugin waiting on permission approval is switched on, just not
+        // running yet — pressing the toggle must turn it off, not "enable" it again.
+        const switchedOn = plugin.status === "active" || plugin.status === "needs-approval";
+        return plugins.togglePlugin(id, !switchedOn);
       }
     },
     onReloadPlugin: plugins.reloadPlugin,
@@ -5583,6 +5586,8 @@ function App() {
               contributions={plugins.contributions}
               contributionVisibility={plugins.contributionVisibility}
               onSetContributionEnabled={plugins.setContributionEnabled}
+              onApprovePermissions={plugins.approvePermissions}
+              onRevokePermissions={plugins.revokePermissions}
               pluginGalleryLoading={plugins.galleryLoading}
               pluginGalleryError={plugins.galleryError}
               skinGalleryLoading={skins.galleryLoading}

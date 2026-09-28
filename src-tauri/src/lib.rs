@@ -38,6 +38,7 @@ mod storyboard;
 mod stream_relay;
 mod transcode_server;
 mod window_arrangement;
+mod plugin_worker;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
 #[cfg(target_os = "macos")]
@@ -930,8 +931,26 @@ pub fn run() {
 
     builder
         .setup(move |app| {
-            // First line of setup: record how long .build() took to reach here
-            // (webview creation + plugin setup init). duration = now - build_start.
+            // The main window is built here rather than by config (`"create":
+            // false` in tauri.conf.json) so its webview can carry
+            // `on_web_resource_request`: that hook is the only way to put a
+            // Content-Security-Policy on the worker plugin runtime's script
+            // alone — see plugin_worker.rs. Every window option still comes from
+            // the config entry, so nothing about the window itself changes.
+            let main_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .expect("tauri.conf.json must declare the main window");
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &main_config)?
+                .on_web_resource_request(plugin_worker::apply_csp)
+                .build()?;
+            // Record how long .build() + the main webview took to get here
+            // (plugin setup init + webview creation, which used to happen
+            // inside .build()). duration = now - build_start.
             timing::timer().record("tauri_build_webview", build_start);
 
             // Register Rust-side deep link handler to ensure URLs reach the frontend

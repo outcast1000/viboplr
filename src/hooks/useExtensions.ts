@@ -361,8 +361,8 @@ export function useExtensions(props: UseExtensionsProps) {
       // (deactivate-all → re-activate sequentially), which can take a moment
       // with no on-screen change. Block with the shared modal until it settles
       // so the button press has visible, awaited feedback.
-      const enabling =
-        pluginStates.find((p) => p.id === id)?.status !== "active";
+      const status = pluginStates.find((p) => p.id === id)?.status;
+      const enabling = status !== "active" && status !== "needs-approval";
       setBusyMessage(enabling ? "Enabling plugin…" : "Disabling plugin…");
       try {
         await onTogglePlugin(id);
@@ -427,13 +427,19 @@ export function useExtensions(props: UseExtensionsProps) {
               ? "incompatible"
               : ps.status === "error"
                 ? "error"
-                : "disabled",
+                : ps.status === "needs-approval"
+                  ? "needs-approval"
+                  : "disabled",
+        error: ps.error,
         updateAvailable: update,
         source: ps.dev ? "dev" : ps.builtin ? "builtin" : "user",
         devPath: ps.devPath,
         icon: ps.manifest.icon,
         contributes: ps.manifest.contributes,
         apiUsage: ps.manifest.apiUsage,
+        runtime: ps.manifest.runtime,
+        permissions: ps.manifest.permissions,
+        pendingPermissions: ps.pendingPermissions,
         homepage: ps.manifest.homepage,
         minAppVersion: ps.manifest.minAppVersion,
         updateUrl: ps.manifest.updateUrl,

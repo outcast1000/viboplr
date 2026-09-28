@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { describePermission } from "../pluginWorker/permissions";
 import type {
   ExtensionItem,
   ExtensionUpdate,
@@ -60,6 +61,10 @@ interface ExtensionsViewProps {
   contributions?: PluginContribution[];
   contributionVisibility?: ContributionVisibility;
   onSetContributionEnabled?: (key: string, enabled: boolean) => void;
+  // Worker-runtime plugins: approve what the manifest asks for (the plugin then
+  // starts), or withdraw it (the plugin stops and waits again). Owned by usePlugins.
+  onApprovePermissions?: (pluginId: string) => Promise<void>;
+  onRevokePermissions?: (pluginId: string) => Promise<void>;
   // Gallery network state — drives skeletons + error/retry so the panel never
   // shows a silent gap while installable items load.
   pluginGalleryLoading?: boolean;
@@ -106,11 +111,18 @@ function PluginIcon({ name, icon, large }: { name: string; icon?: string; large?
   return <div className={`ext-icon ext-icon--plugin${large ? " ext-icon--lg" : ""}`}>{letter}</div>;
 }
 
+/** Enabled by the user. A plugin waiting on permission approval counts: the
+ *  switch is on, the plugin just isn't running until the user approves. */
+function isSwitchedOn(status: ExtensionItem["status"]): boolean {
+  return status === "active" || status === "needs-approval";
+}
+
 function StatusBadge({ status, update }: { status: string; update?: ExtensionUpdate }) {
   if (update) return <span className="ext-badge ext-badge--update">update</span>;
   switch (status) {
     case "active": return <span className="ext-badge ext-badge--active">on</span>;
     case "incompatible": return <span className="ext-badge ext-badge--error">incompatible</span>;
+    case "needs-approval": return <span className="ext-badge ext-badge--attention">needs approval</span>;
     case "error": return <span className="ext-badge ext-badge--error">error</span>;
     case "disabled": return <span className="ext-badge ext-badge--disabled">off</span>;
     default: return null;
@@ -191,7 +203,7 @@ function PluginCard({
   onUpdate?: () => void; onUninstall?: () => void;
 }) {
   const installed = ext.status !== "not_installed";
-  const isOn = ext.status === "active";
+  const isOn = isSwitchedOn(ext.status);
   const hasConfig = ext.status === "active" && !!ext.contributes?.settingsPanel?.id;
   // Built-in plugins ship with the app and can't be removed (matches the detail pane).
   const canUninstall = installed && ext.source !== "builtin" && !!onUninstall;
@@ -291,7 +303,7 @@ function PluginRow({
   onUpdate?: () => void; onUninstall?: () => void;
 }) {
   const installed = ext.status !== "not_installed";
-  const isOn = ext.status === "active";
+  const isOn = isSwitchedOn(ext.status);
   const hasConfig = ext.status === "active" && !!ext.contributes?.settingsPanel?.id;
   const canUninstall = installed && ext.source !== "builtin" && !!onUninstall;
   const canUpdate = installed && ext.updateAvailable?.status === "available" && !!onUpdate;
@@ -371,10 +383,103 @@ function PluginRowSkeleton() {
 
 /* ── Plugin detail pane ───────────────────────────────────────────────── */
 
+// What a worker-runtime plugin may do, and the approval it waits on. This is
+// the consent step: the list the user reads is the list the Allow button grants.
+function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
+  ext: ExtensionItem;
+  onApprove?: (pluginId: string) => Promise<void>;
+  onRevoke?: (pluginId: string) => Promise<void>;
+  onNotify?: (message: string) => void;
+}) {
+  const [working, setWorking] = useState(false);
+  const requested = ext.permissions ?? [];
+  const pending = new Set(ext.pendingPermissions ?? []);
+  const waiting = ext.status === "needs-approval";
+  // Built-ins ship with the app and are allowed without asking (see the gate in
+  // usePlugins); they still can't do anything outside this list.
+  const builtin = ext.source === "builtin";
+
+  const run = async (fn: ((id: string) => Promise<void>) | undefined, what: string) => {
+    if (!fn) return;
+    setWorking(true);
+    try {
+      await fn(ext.id);
+    } catch (e) {
+      console.error(`Failed to ${what} permissions for ${ext.id}:`, e);
+      onNotify?.(`Couldn't ${what} permissions — ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div className={`ext-detail-section ext-perms${waiting ? " ext-perms--waiting" : ""}`}>
+      <div className="ext-detail-section-title">Permissions</div>
+      {requested.length === 0 ? (
+        <div className="ext-detail-section-hint">
+          This plugin asks for no permissions. It can keep its own data and add views,
+          menu items and information to the app, and nothing else.
+        </div>
+      ) : (
+        <>
+          <div className="ext-detail-section-hint">
+            {waiting
+              ? pending.size < requested.length
+                ? "This version asks for more than you allowed before. It won't run until you allow the new permissions."
+                : "This plugin won't run until you allow what it asks for. It can't do anything outside this list."
+              : builtin
+                ? "Included with Viboplr, so these are allowed automatically. It can't do anything outside this list."
+                : "What you allowed this plugin to do. It can't do anything outside this list."}
+          </div>
+          <ul className="ext-perms-list">
+            {requested.map((perm) => {
+              const d = describePermission(perm);
+              return (
+                <li key={perm} className={`ext-perms-item${pending.has(perm) ? " is-pending" : ""}`}>
+                  <div className="ext-perms-label">
+                    {d.label}
+                    {d.sensitive && <span className="ext-badge ext-badge--attention">sensitive</span>}
+                    {waiting && pending.has(perm) && pending.size < requested.length && (
+                      <span className="ext-badge ext-badge--update">new</span>
+                    )}
+                  </div>
+                  <div className="ext-perms-detail">{d.detail}</div>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="ext-perms-actions">
+            {waiting ? (
+              <button
+                type="button"
+                className="ds-btn ds-btn--primary ds-btn--sm"
+                disabled={working || !onApprove}
+                onClick={() => run(onApprove, "allow")}
+              >
+                {working ? "Starting…" : "Allow and start"}
+              </button>
+            ) : builtin ? null : (
+              <button
+                type="button"
+                className="ds-btn ds-btn--ghost ds-btn--sm"
+                disabled={working || !onRevoke}
+                onClick={() => run(onRevoke, "revoke")}
+              >
+                {working ? "Stopping…" : "Revoke permissions"}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PluginDetail({
   ext, installing, busy, onUpdate, onUninstall, onToggleEnabled, onInstall,
   getPluginViewData, onPluginAction, autoScrollToConfig,
   contributions, contributionVisibility, onSetContributionEnabled,
+  onApprovePermissions, onRevokePermissions, onNotify,
 }: {
   ext: ExtensionItem; installing: boolean; onUpdate: () => void; onUninstall: () => void;
   busy?: boolean;
@@ -385,6 +490,9 @@ function PluginDetail({
   contributions?: PluginContribution[];
   contributionVisibility?: ContributionVisibility;
   onSetContributionEnabled?: (key: string, enabled: boolean) => void;
+  onApprovePermissions?: (pluginId: string) => Promise<void>;
+  onRevokePermissions?: (pluginId: string) => Promise<void>;
+  onNotify?: (message: string) => void;
 }) {
   const isInstalled = ext.status !== "not_installed";
   const settingsPanelId = ext.status === "active" && ext.contributes?.settingsPanel?.id;
@@ -419,7 +527,12 @@ function PluginDetail({
           <div className="ext-detail-desc">{ext.description}</div>
           <div className="ext-detail-meta">
             By <strong>{ext.author}</strong>{ext.version ? <> {"·"} v{ext.version}</> : null} {"·"} Plugin
-            {isInstalled && (<>{" · "}{ext.status === "active" ? "Enabled" : "Disabled"}</>)}
+            {isInstalled && (
+              <>
+                {" · "}
+                {ext.status === "active" ? "Enabled" : ext.status === "needs-approval" ? "Waiting for your approval" : "Disabled"}
+              </>
+            )}
             {ext.source === "dev" && <span className="ext-dev-badge">DEV</span>}
           </div>
           {ext.source === "dev" && (
@@ -442,7 +555,7 @@ function PluginDetail({
             {isInstalled && (
               <>
                 <button className="ds-btn ds-btn--secondary ds-btn--sm" disabled={busy || installing} onClick={onToggleEnabled}>
-                  {ext.status === "active" ? "Disable" : "Enable"}
+                  {isSwitchedOn(ext.status) ? "Disable" : "Enable"}
                 </button>
                 {ext.source !== "builtin" && (
                   <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onUninstall}>Uninstall</button>
@@ -464,11 +577,31 @@ function PluginDetail({
         </div>
       </div>
 
+      {/* The badge alone says "error" and nothing else — a plugin that can't
+          start has to say why, or the user has no way to act on it. */}
+      {isInstalled && ext.error && (ext.status === "error" || ext.status === "incompatible") && (
+        <div className="ext-detail-error" role="alert">
+          <div className="ext-detail-error-title">
+            {ext.status === "incompatible" ? "This plugin needs a newer Viboplr" : "This plugin couldn't start"}
+          </div>
+          <div className="ext-detail-error-text">{ext.error}</div>
+        </div>
+      )}
+
       {ext.updateAvailable && ext.updateAvailable.changelog && (
         <div className="ext-detail-update-box">
           <div className="ext-detail-update-title">Update available · v{ext.updateAvailable.latestVersion}</div>
           <div className="ext-detail-update-changelog">{ext.updateAvailable.changelog}</div>
         </div>
+      )}
+
+      {isInstalled && ext.runtime === "worker" && (
+        <PluginPermissions
+          ext={ext}
+          onApprove={onApprovePermissions}
+          onRevoke={onRevokePermissions}
+          onNotify={onNotify}
+        />
       )}
 
       {settingsPanelId && (
@@ -703,6 +836,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onUninstall, onToggleEnabled, onFetchPluginGallery, onFetchSkinGallery,
     onInstallFromUrl, onNotify, busy, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
     contributions, contributionVisibility, onSetContributionEnabled,
+    onApprovePermissions, onRevokePermissions,
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
     pluginViewMode = "list", onSetPluginViewMode,
@@ -1082,6 +1216,9 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
               contributions={contributions}
               contributionVisibility={contributionVisibility}
               onSetContributionEnabled={onSetContributionEnabled}
+              onApprovePermissions={onApprovePermissions}
+              onRevokePermissions={onRevokePermissions}
+              onNotify={onNotify}
               getPluginViewData={getPluginViewData}
               onPluginAction={onPluginAction}
             />

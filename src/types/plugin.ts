@@ -182,6 +182,12 @@ export interface PluginManifest {
   stability?: string;
   /** Defaults for the host-drawn header on every view of this plugin. */
   viewHeader?: PluginManifestViewHeader;
+  /** "worker" runs the plugin in its own Web Worker behind the permission gate
+   *  (prototype — see src/pluginWorker/host.ts). Absent = the main-realm loader. */
+  runtime?: "worker";
+  /** What a worker-runtime plugin may do — see src/pluginWorker/permissions.ts
+   *  for the vocabulary. Ignored by the main-realm loader. */
+  permissions?: string[];
 }
 
 // -- Installed plugin from backend --
@@ -201,7 +207,13 @@ export interface InstalledPlugin {
 
 // -- Plugin status --
 
-export type PluginStatus = "active" | "error" | "incompatible" | "disabled";
+export type PluginStatus =
+  | "active"
+  | "error"
+  | "incompatible"
+  | "disabled"
+  /** A worker-runtime plugin asking for permissions the user hasn't approved. */
+  | "needs-approval";
 
 export interface PluginState {
   id: string;
@@ -212,6 +224,8 @@ export interface PluginState {
   builtin?: boolean;
   dev?: boolean;
   devPath?: string;
+  /** For `needs-approval`: the requested permissions not yet approved. */
+  pendingPermissions?: string[];
 }
 
 // -- Plugin-facing context menu target --
@@ -1816,7 +1830,9 @@ export interface ExtensionItem {
    *  (installed plugins always carry their manifest version). */
   version?: string;
   description: string;
-  status: "active" | "disabled" | "incompatible" | "error" | "not_installed";
+  status: "active" | "disabled" | "incompatible" | "error" | "needs-approval" | "not_installed";
+  /** Why an installed plugin isn't running (`error` / `incompatible`). */
+  error?: string;
   updateAvailable?: ExtensionUpdate;
   source: "builtin" | "user" | "gallery" | "dev";
   // Absolute path to the dev plugin folder when source === "dev".
@@ -1824,6 +1840,11 @@ export interface ExtensionItem {
   icon?: string;
   contributes?: PluginManifestContributes;
   apiUsage?: PluginApiUsage[];
+  /** Worker-runtime plugins only: what the manifest asks for, and what of it
+   *  still awaits the user's approval. */
+  runtime?: "worker";
+  permissions?: string[];
+  pendingPermissions?: string[];
   homepage?: string;
   minAppVersion?: string;
   skinColors?: [string, string, string, string];

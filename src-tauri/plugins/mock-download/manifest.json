@@ -5,6 +5,8 @@
   "author": "Viboplr",
   "description": "Mock download provider for testing. Returns fake search results and downloads free MP3 files.",
   "minAppVersion": "0.9.4",
+  "runtime": "worker",
+  "permissions": [],
   "debugOnly": true,
   "contributes": {
     "downloadProviders": [
