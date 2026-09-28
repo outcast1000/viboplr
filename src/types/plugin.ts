@@ -22,6 +22,28 @@ export interface PluginManifestSidebarItem {
   id: string;
   label: string;
   icon: string;
+  /** This view's header, overriding the manifest-level `viewHeader`. */
+  header?: PluginManifestViewHeader;
+}
+
+/**
+ * The strip the host draws at the top of a plugin's view (icon · name ·
+ * subtitle · status · buttons, optionally a logo or banner image). Every field
+ * is optional; with none the header shows the manifest `icon` and `name`.
+ * Image paths are relative to the plugin's own folder (shipped in its zip).
+ * See plugins.md "View header".
+ */
+export interface PluginManifestViewHeader {
+  title?: string;
+  subtitle?: string;
+  /** Square image replacing the icon glyph. */
+  logo?: string;
+  /** Variant of `logo` used on light skins. */
+  logoLight?: string;
+  /** Image behind the whole strip, drawn under the host's dark scrim. */
+  banner?: string;
+  /** Don't draw the header (the view has its own). */
+  hidden?: boolean;
 }
 
 export interface PluginManifestContextMenuItem {
@@ -158,6 +180,8 @@ export interface PluginManifest {
   /** Plugin maturity ("experimental" | "stable"). Absent = stable; unrecognized
    *  values are treated as experimental-tier (fail-safe). See utils/pluginStability.ts. */
   stability?: string;
+  /** Defaults for the host-drawn header on every view of this plugin. */
+  viewHeader?: PluginManifestViewHeader;
 }
 
 // -- Installed plugin from backend --
@@ -914,6 +938,25 @@ export type PluginBadge =
   | { type: "dot"; variant: PluginBadgeVariant; tooltip?: string }
   | { type: "count"; value: number; variant: PluginBadgeVariant };
 
+export type PluginViewHeaderStatusVariant = "success" | "warning" | "error" | "muted";
+
+/**
+ * Runtime overrides for a view's header (`api.ui.setViewHeader`). Fields left
+ * out keep the manifest value. Runtime images may also be a URL, a `data:` URI
+ * or an absolute path to a file in the plugin's own storage.
+ */
+export interface PluginViewHeader {
+  title?: string;
+  subtitle?: string;
+  status?: { variant: PluginViewHeaderStatusVariant; label: string } | null;
+  /** At most two; each runs this plugin's own `onAction(action)` handler. */
+  actions?: Array<{ label: string; action: string; variant?: "accent" | "secondary"; disabled?: boolean }>;
+  logo?: string;
+  logoLight?: string;
+  banner?: string;
+  hidden?: boolean;
+}
+
 /**
  * Reserved UI action: "the user brought this query to your view".
  *
@@ -939,6 +982,9 @@ export interface PluginUIAPI {
   navigateToView(viewId: string): void;
   requestAction(action: string, payload: Record<string, unknown>): void;
   setBadge(viewId: string, badge: PluginBadge): void;
+  /** Set this view's header (merged over the manifest's); `null` restores the
+   *  manifest defaults. Absent on older hosts — feature-detect. */
+  setViewHeader?(viewId: string, header: PluginViewHeader | null): void;
 }
 
 export interface PluginStorageAPI {

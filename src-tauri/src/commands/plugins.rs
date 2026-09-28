@@ -145,6 +145,90 @@ pub fn plugin_read_file(state: State<'_, AppState>, plugin_id: String, path: Str
     Err(format!("Plugin file not found: {}/{}", plugin_id, path))
 }
 
+/// Largest image a plugin may ship for its view header. Matches
+/// `VIEW_HEADER_LIMITS.imageBytes` in `src/utils/pluginViewHeader.ts`.
+pub const PLUGIN_ASSET_MAX_BYTES: u64 = 512 * 1024;
+const PLUGIN_ASSET_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "svg"];
+
+/// Resolve `rel` (a path from a plugin's manifest, e.g. `assets/logo.png`)
+/// against each candidate plugin folder in order and return the first file
+/// found. Every rule a header image must satisfy lives here, not in the
+/// webview: the path stays inside that plugin's own folder (checked after
+/// canonicalising, so a symlink can't lead out), it is an image by extension,
+/// and it is no larger than `PLUGIN_ASSET_MAX_BYTES`.
+fn resolve_plugin_asset(roots: &[std::path::PathBuf], rel: &str) -> Result<std::path::PathBuf, String> {
+    let rel = rel.trim().replace('\\', "/");
+    if rel.is_empty()
+        || rel.starts_with('/')
+        || rel.contains(':')
+        || rel.split('/').any(|seg| seg == ".." || seg.is_empty())
+    {
+        return Err(format!("Invalid plugin asset path: {}", rel));
+    }
+    let ext = std::path::Path::new(&rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !PLUGIN_ASSET_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!("Not an image: {}", rel));
+    }
+    for root in roots {
+        let candidate = root.join(&rel);
+        if !candidate.is_file() {
+            continue;
+        }
+        let canonical = candidate.canonicalize().map_err(|e| e.to_string())?;
+        let canonical_root = root.canonicalize().map_err(|e| e.to_string())?;
+        if !canonical.starts_with(&canonical_root) {
+            return Err(format!("Invalid plugin asset path: {}", rel));
+        }
+        let size = std::fs::metadata(&canonical).map_err(|e| e.to_string())?.len();
+        if size > PLUGIN_ASSET_MAX_BYTES {
+            return Err(format!(
+                "Plugin image {} is {} KB; the limit is {} KB",
+                rel,
+                size / 1024,
+                PLUGIN_ASSET_MAX_BYTES / 1024
+            ));
+        }
+        return Ok(canonical);
+    }
+    Err(format!("Plugin asset not found: {}", rel))
+}
+
+/// The absolute path of an image a plugin ships in its own folder, for the
+/// view header's `logo` / `logoLight` / `banner` manifest fields. The frontend
+/// turns the answer into an asset URL. Folder order matches
+/// `plugin_list_installed`: the dev folder (only when its manifest really is
+/// this plugin's), then the user plugins dir, then the bundled ones.
+#[tauri::command]
+pub fn plugin_asset_path(
+    state: State<'_, AppState>,
+    plugin_id: String,
+    path: String,
+    dev_path: Option<String>,
+) -> Result<String, String> {
+    if plugin_id.is_empty() || plugin_id.contains("..") || plugin_id.contains('/') || plugin_id.contains('\\') {
+        return Err("Invalid plugin ID".to_string());
+    }
+    let mut roots = Vec::new();
+    if let Some(dev) = dev_path.as_deref().filter(|p| !p.is_empty()) {
+        let dir = std::path::PathBuf::from(dev);
+        let is_this_plugin = scan_dev_plugin(&dir)
+            .and_then(|p| p.get("id").and_then(|v| v.as_str()).map(|id| id == plugin_id))
+            .unwrap_or(false);
+        if is_this_plugin {
+            roots.push(dir);
+        }
+    }
+    roots.push(state.app_dir.join("plugins").join(&plugin_id));
+    if let Some(ref native) = state.native_plugins_dir {
+        roots.push(native.join(&plugin_id));
+    }
+    resolve_plugin_asset(&roots, &path).map(|p| p.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 pub fn plugin_storage_get(state: State<'_, AppState>, plugin_id: String, key: String) -> Result<Option<String>, String> {
     state.db.plugin_storage_get(&plugin_id, &key)
@@ -675,7 +759,7 @@ pub fn plugin_scheduler_complete(state: State<'_, AppState>, plugin_id: String, 
 
 #[cfg(test)]
 mod tests {
-    use super::flatten_response_headers;
+    use super::{flatten_response_headers, resolve_plugin_asset, PLUGIN_ASSET_MAX_BYTES};
     use reqwest::header::{HeaderMap, HeaderValue, SET_COOKIE};
 
     #[test]
@@ -717,5 +801,62 @@ mod tests {
         let flat = flatten_response_headers(&headers);
 
         assert_eq!(flat, vec![("x-ok".to_string(), "fine".to_string())]);
+    }
+
+    fn plugin_dir_with(files: &[(&str, usize)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for (name, size) in files {
+            let path = dir.path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, vec![0u8; *size]).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn test_plugin_asset_resolves_inside_the_plugin_folder() {
+        let dir = plugin_dir_with(&[("assets/logo.png", 10)]);
+        let found = resolve_plugin_asset(&[dir.path().to_path_buf()], "assets/logo.png").unwrap();
+        assert!(found.ends_with("assets/logo.png"));
+        assert!(found.is_absolute());
+    }
+
+    #[test]
+    fn test_plugin_asset_refuses_paths_that_leave_the_folder() {
+        let dir = plugin_dir_with(&[("logo.png", 10)]);
+        let roots = [dir.path().join("inner")];
+        for bad in ["../logo.png", "/etc/hosts.png", "C:/x.png", "a//b.png", "https://x/y.png", ""] {
+            assert!(resolve_plugin_asset(&roots, bad).is_err(), "{bad} must be refused");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_plugin_asset_refuses_a_symlink_out_of_the_folder() {
+        let outside = plugin_dir_with(&[("secret.png", 10)]);
+        let plugin = plugin_dir_with(&[]);
+        std::os::unix::fs::symlink(outside.path().join("secret.png"), plugin.path().join("logo.png")).unwrap();
+        assert!(resolve_plugin_asset(&[plugin.path().to_path_buf()], "logo.png").is_err());
+    }
+
+    #[test]
+    fn test_plugin_asset_must_be_a_small_image() {
+        let dir = plugin_dir_with(&[("notes.txt", 10), ("big.jpg", PLUGIN_ASSET_MAX_BYTES as usize + 1), ("ok.JPG", 10)]);
+        let roots = [dir.path().to_path_buf()];
+        assert!(resolve_plugin_asset(&roots, "notes.txt").unwrap_err().contains("Not an image"));
+        assert!(resolve_plugin_asset(&roots, "big.jpg").unwrap_err().contains("limit"));
+        assert!(resolve_plugin_asset(&roots, "ok.JPG").is_ok(), "the extension check ignores case");
+    }
+
+    #[test]
+    fn test_plugin_asset_takes_the_first_folder_that_has_it() {
+        let dev = plugin_dir_with(&[("logo.png", 10)]);
+        let installed = plugin_dir_with(&[("logo.png", 20), ("banner.jpg", 10)]);
+        let roots = [dev.path().to_path_buf(), installed.path().to_path_buf()];
+        let logo = resolve_plugin_asset(&roots, "logo.png").unwrap();
+        assert!(logo.starts_with(dev.path().canonicalize().unwrap()), "the dev copy wins");
+        let banner = resolve_plugin_asset(&roots, "banner.jpg").unwrap();
+        assert!(banner.starts_with(installed.path().canonicalize().unwrap()), "falls through when the first folder lacks it");
+        assert!(resolve_plugin_asset(&roots, "missing.png").unwrap_err().contains("not found"));
     }
 }

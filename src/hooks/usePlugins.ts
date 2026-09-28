@@ -27,6 +27,7 @@ import type {
   PluginViewData,
   PluginContextMenuTarget,
   PluginBadge,
+  PluginViewHeader,
   ViboplrPluginAPI,
   PluginEventName,
   PluginTrack,
@@ -73,6 +74,7 @@ import {
 } from "../utils/tagOps";
 import { invokeAssistantTool as invokeAssistantToolOp, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
 import { fetchLocalLyrics } from "../utils/localLyrics";
+import { sanitizeViewHeader } from "../utils/pluginViewHeader";
 
 /** Backstop for a global-search handler that never settles. Deliberately far
  *  more generous than the 5s home-shelf budget: search runs only when the user
@@ -391,6 +393,11 @@ export function usePlugins(
   const viewScrollKeyRef = useRef<Map<string, string>>(new Map());
   const badgeMapRef = useRef<Map<string, PluginBadge>>(new Map());
   const [badgeMap, setBadgeMap] = useState<Map<string, PluginBadge>>(new Map());
+  // Runtime view-header overrides (`api.ui.setViewHeader`), keyed like
+  // viewData. Already sanitized; merged over the manifest by
+  // `resolvePluginViewHeader` at render time.
+  const viewHeadersRef = useRef<Map<string, PluginViewHeader>>(new Map());
+  const [viewHeaders, setViewHeaders] = useState<Map<string, PluginViewHeader>>(new Map());
   const homeShelfHandlersRef = useRef(new Map<string, (limit: number) => Promise<HomeShelfResult>>());
   // shelf key -> plugin-provided click handler that takes over card body-clicks
   const homeShelfClickHandlersRef = useRef(new Map<string, (item: HomeShelfItem) => void | Promise<void>>());
@@ -937,6 +944,13 @@ export function usePlugins(
               badgeMapRef.current.set(key, badge);
             }
             setBadgeMap(new Map(badgeMapRef.current));
+          },
+          setViewHeader: (viewId: string, header: PluginViewHeader | null) => {
+            const key = `${pluginId}:${viewId}`;
+            const clean = sanitizeViewHeader(header);
+            if (clean === null) viewHeadersRef.current.delete(key);
+            else viewHeadersRef.current.set(key, clean);
+            setViewHeaders(new Map(viewHeadersRef.current));
           },
         },
 
@@ -1833,6 +1847,14 @@ export function usePlugins(
     }
     setViewData(new Map(viewDataRef.current));
 
+    // Clear runtime view headers for this plugin (a reload re-sets them)
+    for (const key of Array.from(viewHeadersRef.current.keys())) {
+      if (key.startsWith(`${pluginId}:`)) {
+        viewHeadersRef.current.delete(key);
+      }
+    }
+    setViewHeaders(new Map(viewHeadersRef.current));
+
     // Clear badges for this plugin
     for (const key of badgeMapRef.current.keys()) {
       if (key.startsWith(`${pluginId}:`)) {
@@ -2539,6 +2561,13 @@ export function usePlugins(
       return viewData.get(`${pluginId}:${viewId}`);
     },
     [viewData],
+  );
+
+  const getViewHeader = useCallback(
+    (pluginId: string, viewId: string): PluginViewHeader | null => {
+      return viewHeaders.get(`${pluginId}:${viewId}`) ?? null;
+    },
+    [viewHeaders],
   );
 
   const getViewScrollKey = useCallback(
@@ -3277,6 +3306,7 @@ export function usePlugins(
     pluginsLoaded,
     viewData,
     getViewData,
+    getViewHeader,
     getViewScrollKey,
     badgeMap,
     dispatchEvent,

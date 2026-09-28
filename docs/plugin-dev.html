@@ -162,6 +162,7 @@ return { activate: activate, deactivate: deactivate };</pre>
               <tr><td>downloadProviders</td><td>Download sources for the unified download modal: by URI scheme, by metadata, or interactive search.</td></tr>
               <tr><td>contextMenuItems</td><td>Right-click actions on tracks, albums, artists, playlists, and multi-track selections — on every surface.</td></tr>
               <tr><td>sidebarItems</td><td>Full custom views in the sidebar, rendered from declarative view data (lists, cards, charts, settings rows…).</td></tr>
+              <tr><td>viewHeader <em>(top level)</em></td><td>The header strip the app draws on your views: a subtitle, your own logo, or a banner image. See <a href="#design">Designing your view</a>.</td></tr>
               <tr><td>homeShelves</td><td>Horizontal shelves on the Home page — album cards, artist cards, playlist cards, or track rows.</td></tr>
               <tr><td>settingsPanel</td><td>A tab of your own inside the app's Settings.</td></tr>
               <tr><td>eventHooks</td><td>Reactions to app events: <code>track:started</code>, <code>track:scrobbled</code>, <code>track:liked</code>, <code>track:added</code>, <code>track:removed</code>, <code>scan:complete</code>.</td></tr>
@@ -173,8 +174,64 @@ return { activate: activate, deactivate: deactivate };</pre>
     </div>
   </section>
 
+  <!-- Designing your view -->
+  <section class="section section-alt" id="design">
+    <div class="container">
+      <div class="docs-body reveal">
+        <h2>Designing your view</h2>
+        <p class="docs-lead">The app draws a header at the top of every plugin view: your plugin's icon and name, taken from the manifest. You can add to it, but the look always comes from the user's skin, so your view looks right on all of them.</p>
+
+        <h3>The header</h3>
+        <p>Set defaults in the manifest. <code>viewHeader</code> applies to all your views, and a sidebar item's own <code>header</code> overrides it for that view.</p>
+        <div class="docs-code">
+          <span class="docs-code-label">manifest.json</span>
+          <pre>"viewHeader": {
+  "subtitle": "YouTube, SoundCloud, Bandcamp and 1,000+ sites",
+  "logo": "assets/logo-dark.png",
+  "logoLight": "assets/logo-light.png",
+  "banner": "assets/banner.jpg"
+},
+"contributes": {
+  "sidebarItems": [
+    { "id": "search", "label": "Search", "icon": "search" },
+    { "id": "deck", "label": "Deck", "icon": "music", "header": { "hidden": true } }
+  ]
+}</pre>
+        </div>
+        <p>Change it while your plugin runs with <code>api.ui.setViewHeader</code>. Fields you leave out keep the manifest value, and <code>null</code> puts the manifest back.</p>
+        <div class="docs-code">
+          <span class="docs-code-label">index.js</span>
+          <pre>if (typeof api.ui.setViewHeader === "function") {
+  api.ui.setViewHeader("browse", {
+    subtitle: "Connected as " + user,
+    status: { variant: "success", label: "Ready" },
+    actions: [{ label: "Refresh", action: "refresh" }]
+  });
+}</pre>
+        </div>
+        <ul class="docs-list">
+          <li><strong>Text only.</strong> Title up to 60 characters, subtitle 160, status label 32, at most two buttons. No HTML, colours or CSS.</li>
+          <li><strong>Status</strong> is a dot and a word: <code>success</code>, <code>warning</code>, <code>error</code> or <code>muted</code>, in the skin's own colours.</li>
+          <li><strong>Buttons</strong> run your own <code>api.ui.onAction</code> handlers, like buttons inside your view.</li>
+          <li><strong>Images in the manifest</strong> are paths inside your plugin folder (PNG, JPEG, WebP, GIF or SVG, up to 512 KB). Ship them in your zip. At runtime you can also pass a web URL, a <code>data:image/…</code> URI, or a file you saved with <code>api.storage.files</code>.</li>
+          <li><strong>A logo</strong> replaces the icon. Add <code>logoLight</code> if your logo disappears on light skins.</li>
+          <li><strong>A banner</strong> fills the whole header. The app always darkens it and draws the text in white, so choose an image that still reads when dimmed.</li>
+          <li><strong>Turn it off</strong> with <code>"hidden": true</code> only when your view draws a large header of its own.</li>
+        </ul>
+
+        <h3>Telling the user something</h3>
+        <ul class="docs-list">
+          <li><strong>When your plugin can't work</strong> (a service is down, a login expired, a program isn't running), keep the view usable and put one line at the top of it, with the button that fixes it. Use a <code>layout</code> row with <code>className: "ds-banner ds-banner--warning"</code> (or <code>--error</code>). Set a sidebar dot with <code>setBadge</code> so it shows outside your view too.</li>
+          <li><strong>Don't use a notification for a state.</strong> <code>showNotification</code> is for the result of something the user just did ("Added 12 tracks"). A popup at every launch because something isn't running is noise, and it's gone before anyone can act on it.</li>
+          <li><strong>The header shows state, the banner shows problems.</strong> A short status word in the header ("Ready", "Not running") answers "is it working?". The explanation and the fix go in the banner.</li>
+          <li><strong>Don't repeat the header.</strong> Your view doesn't need its own title row; start with your tabs, search box or content.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
   <!-- API reference -->
-  <section class="section section-alt" id="api">
+  <section class="section" id="api">
     <div class="container">
       <div class="docs-body">
         <h2>API reference</h2>
@@ -310,7 +367,8 @@ return { activate: activate, deactivate: deactivate };</pre>
             <table class="api-table">
               <tbody>
                 <tr><td>setViewData(viewId, data, opts?)</td><td>Render or update a plugin view; <code>opts.scrollKey</code> gives it per-view scroll memory.</td></tr>
-                <tr><td>showNotification(message)</td><td>Show a toast.</td></tr>
+                <tr><td>showNotification(message, options?)</td><td>Show a toast for the result of something the user just did. <code>options.action: { label, id }</code> adds one button that runs your <code>onAction(id)</code> handler. Not for ongoing states; see <a href="#design">Designing your view</a>.</td></tr>
+                <tr><td>setViewHeader(viewId, header)</td><td>Change a view's header at runtime: <code>{ title?, subtitle?, status?, actions?, logo?, logoLight?, banner?, hidden? }</code>, or <code>null</code> for the manifest defaults. Feature-detect it; older apps don't have it.</td></tr>
                 <tr><td>navigateToView(viewId)</td><td>Navigate to one of your views.</td></tr>
                 <tr><td>requestAction(action, payload)</td><td>Request a host-level action (play with context, navigate to an entity, downloads…).</td></tr>
                 <tr><td>onAction(actionId, handler)</td><td>Handle button / toggle / input events fired from your views.</td></tr>
@@ -461,7 +519,7 @@ return { activate: activate, deactivate: deactivate };</pre>
   </section>
 
   <!-- Sandbox & permissions -->
-  <section class="section" id="sandbox">
+  <section class="section section-alt" id="sandbox">
     <div class="container">
       <div class="docs-body reveal">
         <h2>The sandbox</h2>
@@ -469,7 +527,7 @@ return { activate: activate, deactivate: deactivate };</pre>
         <ul class="docs-list">
           <li><strong>No DOM, no direct network.</strong> There is no <code>window</code>, <code>document</code>, or <code>fetch</code>. You get <code>console</code>, timers, and the standard built-ins (<code>JSON</code>, <code>Math</code>, <code>Promise</code>, …); HTTP goes through <code>api.network.fetch</code>, files through <code>api.storage</code>.</li>
           <li><strong>Scoped storage.</strong> Key-value data and files are namespaced to your plugin — you can't read another plugin's data or arbitrary paths.</li>
-          <li><strong>Allow-listed subprocesses.</strong> <code>api.system.exec</code> only runs binaries the host registers (currently <code>yt-dlp</code> and <code>ffmpeg</code>).</li>
+          <li><strong>Allow-listed subprocesses.</strong> <code>api.system.exec</code> only runs binaries the host registers (currently <code>yt-dlp</code>, <code>ffmpeg</code>, <code>rqbit</code> and <code>roadie</code>).</li>
           <li><strong>Declared API usage.</strong> The optional <code>apiUsage</code> manifest field (<code>[{ "api": "network.fetch", "reason": "…" }]</code>) tells users what your plugin touches and why — shown in the Extensions view.</li>
           <li><strong>Version gates.</strong> <code>minAppVersion</code> blocks install and update on older apps. Bumping your plugin's <code>version</code> clears its cached information values, forcing a clean re-fetch.</li>
           <li><strong>Maturity flags.</strong> <code>"stability": "experimental"</code> badges the plugin and keeps it out of onboarding recommendations; <code>debugOnly: true</code> hides it outside debug mode.</li>
@@ -479,13 +537,13 @@ return { activate: activate, deactivate: deactivate };</pre>
   </section>
 
   <!-- Package & publish -->
-  <section class="section section-alt" id="publish">
+  <section class="section" id="publish">
     <div class="container">
       <div class="docs-body reveal">
         <h2>Package &amp; publish</h2>
         <p class="docs-lead">Plugins live in their own GitHub repos. The gallery is just an index that points at your releases — you ship updates by publishing a release, and installed copies auto-update within a day.</p>
         <ol class="docs-list">
-          <li><strong>Zip it.</strong> Create <code>my-plugin.zip</code> with <code>manifest.json</code> and <code>index.js</code> at the <em>zip root</em> (no wrapper folder).</li>
+          <li><strong>Zip it.</strong> Create <code>my-plugin.zip</code> with <code>manifest.json</code> and <code>index.js</code> at the <em>zip root</em> (no wrapper folder), plus any images your manifest names, at the same paths.</li>
           <li><strong>Describe it.</strong> Add an <code>update.json</code> next to the zip in the same release:</li>
         </ol>
         <div class="docs-code">
@@ -502,7 +560,7 @@ return { activate: activate, deactivate: deactivate };</pre>
           <li><strong>Submit it.</strong> Paste that <code>update.json</code> URL into the <a href="https://github.com/outcast1000/viboplr-plugins/issues/new?template=submit-plugin.yml" target="_blank" rel="noopener">gallery submission form</a>. A bot validates your release and opens a PR; a maintainer merges it, and your plugin appears in the <a href="plugins.html">gallery</a> and in the app's Extensions view.</li>
         </ol>
         <div class="docs-note">
-          Full submission details are in the <a href="https://github.com/outcast1000/viboplr-plugins#submitting-a-plugin" target="_blank" rel="noopener">gallery repo's guide</a>. For a working release pipeline (package script + CI), see the <a href="https://github.com/outcast1000/viboplr-youtube" target="_blank" rel="noopener">YouTube plugin repo</a>.
+          Full submission details are in the <a href="https://github.com/outcast1000/viboplr-plugins#submitting-a-plugin" target="_blank" rel="noopener">gallery repo's guide</a>. For a working release pipeline (package script + CI), see the <a href="https://github.com/outcast1000/viboplr-ytdlp" target="_blank" rel="noopener">yt-dlp plugin repo</a>.
         </div>
       </div>
     </div>

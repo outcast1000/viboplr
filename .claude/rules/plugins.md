@@ -109,6 +109,7 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
   "icon": "M...",
   "homepage": "https://...",
   "updateUrl": "https://.../releases/latest/download/update.json",
+  "viewHeader": { "subtitle": "One line", "logo": "assets/logo.png", "logoLight": "assets/logo-light.png", "banner": "assets/banner.jpg", "hidden": false },
   "apiUsage": [{ "api": "network.fetch", "reason": "Fetch metadata" }],
   "contributes": {
     "informationTypes": [{
@@ -137,7 +138,8 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
     "sidebarItems": [{
       "id": "view-id",
       "label": "Sidebar Label",
-      "icon": "icon-name"
+      "icon": "icon-name",
+      "header": { "subtitle": "Per-view header override" }
     }],
     "eventHooks": ["track:started", "track:scrobbled", "track:liked", "track:added", "track:removed", "queue:changed", "scan:complete"],
     "settingsPanel": {
@@ -168,6 +170,8 @@ At install, `install_gallery_plugin_by_update_url` reads the entry's `updateUrl`
   }
 }
 ```
+
+`viewHeader` (optional, top-level) sets defaults for the header the host draws on every view of the plugin; a sidebar item's own `header` overrides it per view. See "View header" below.
 
 `debugOnly: true` hides the plugin unless the app is running in debug mode. Plugins reload automatically when the debug mode setting flips.
 
@@ -313,7 +317,8 @@ Contributes a searchable catalog to the global search (Cmd+K). Mirrors the `api.
 
 ### api.ui
 - `setViewData(viewId, data, opts?)` — render plugin views (see `PluginViewData` types). `opts.scrollKey?: string` enables per-view scroll memory: the host saves/restores the view's scroll position keyed by `scrollKey`. Change it on navigation (new sub-view → opens at top; returning to a prior key → scroll restored); keep it stable across in-place updates so the view doesn't jump.
-- `showNotification(message, options?)` — a transient toast. `options.action: { label, id }` adds **one button** that runs this plugin's own `onAction(id)` handler and dismisses the toast — for a warning whose fix is one click ("slskd isn't running." → **Start slskd**). A toast with an action stays up `ACTION_TOAST_MS` (12s) instead of 4.5s, since a button that vanishes before it's reached is no button. The button can only reach the calling plugin's own handlers; an id with no handler logs and does nothing. Older hosts ignore `options` and show the text, so no `minAppVersion` bump is needed — but word the message so it still makes sense without the button.
+- `showNotification(message, options?)` — a transient toast, for the **result of something the user just did** ("Added 12 tracks", "Couldn't start the download"). `options.action: { label, id }` adds **one button** that runs this plugin's own `onAction(id)` handler and dismisses the toast — a follow-up to that result ("Upgrade ready" → **Compare & replace**). A toast with an action stays up `ACTION_TOAST_MS` (12s) instead of 4.5s, since a button that vanishes before it's reached is no button. The button can only reach the calling plugin's own handlers; an id with no handler logs and does nothing. Older hosts ignore `options` and show the text, so no `minAppVersion` bump is needed — but word the message so it still makes sense without the button. **Not for ongoing states** (a service down, a daemon stopped, a login expired): those are an in-view banner — see "View design guidelines". The Soulseek plugin used a launch toast for "slskd isn't running" and it was replaced for being exactly that noise.
+- `setViewHeader(viewId, header | null)` — change a view's host-drawn header at runtime (subtitle, status, up to two buttons, logo / banner image, hidden). Fields left out keep the manifest value; `null` restores it. Sanitized host-side (`sanitizeViewHeader`). Feature-detect with `typeof api.ui.setViewHeader === "function"`. See "View header".
 - `navigateToView(viewId)` / `requestAction(action, payload)`
 - `onAction(actionId, handler)` — handle UI action events emitted from plugin views
 - `setBadge(viewId, badge)` — set a sidebar badge: `null | { type: "dot", variant, tooltip? } | { type: "count", value, variant }`. `variant` is one of `accent | error | success | warning | muted`.
@@ -642,6 +647,38 @@ Rules, all enforced in `usePlugins.buildAPI` (`crossCall`) with the pure parts i
 - **Readiness.** Plugins activate sequentially, so a call made from `activate()` may find the target's handlers not yet registered. Call from user gestures or defer; don't compose in `activate`.
 - **Conventions for composability:** track-shaped results are `PluginTrack[]` (under `tracks` for a tool); a plugin exposing a search as a tool names it `search` with `{ query, limit }` so consumers can find every searchable plugin via `listTools()` by name. Prefer a real `api.search` provider for catalogs, which yields the fixed contract for free.
 - **Not built, on purpose:** a pub/sub bus between plugins (hidden coupling, ordering bugs; request/response covers every case discussed) and access to another plugin's storage (the honor-system scoping is a hole, not a channel).
+
+## View header
+
+The host draws one strip at the top of **every** plugin view (`components/PluginViewHeader.tsx`, rendered by App.tsx above `PluginViewRenderer`), so the user can always tell which plugin they are in. With no plugin cooperation it shows the manifest `icon` (the accent-tinted glyph the sidebar also uses — `utils/pluginIconPath.ts` is shared by both) and `name`, plus the view's sidebar label when the plugin has more than one view.
+
+**Three layers, later wins per field** (`utils/pluginViewHeader.ts` → `resolvePluginViewHeader`, pure + unit-tested in `__tests__/pluginViewHeader.test.tsx`): the manifest's top-level `viewHeader`, the sidebar item's `header`, then the runtime `api.ui.setViewHeader(viewId, …)`. Runtime state is dropped on deactivate/reload like view data, so a plugin re-sets it after activating.
+
+| Field | Manifest | Runtime | Notes |
+|---|---|---|---|
+| `title` | ✓ | ✓ | Defaults to the manifest `name`. ≤ 60 chars. |
+| `subtitle` | ✓ | ✓ | One line, ≤ 160 chars. A runtime `""` clears the manifest's. |
+| `status` | — | ✓ | `{ variant: "success" \| "warning" \| "error" \| "muted", label }`, label ≤ 32. A dot + word in the skin's semantic colours. |
+| `actions` | — | ✓ | ≤ 2 `{ label, action, variant?: "accent" \| "secondary", disabled? }`; a click runs the plugin's own `onAction(action)`. |
+| `logo` / `logoLight` | ✓ | ✓ | Square image replacing the glyph; `logoLight` is shown on light skins (`:root[data-skin-type="light"]`, pure CSS — no React subscription). |
+| `banner` | ✓ | ✓ | Image behind the whole strip. |
+| `hidden` | ✓ | ✓ | For a view that draws its own header (e.g. a `detail-header` hero). |
+
+**What a plugin cannot set, on purpose:** colours, fonts, CSS, HTML, height or position. The strip is skin-token-driven; skins restyle it through `.plugin-view-header` in `customCSS`. Letting a plugin pick a colour is how a light skin ends up with dark-on-dark text.
+
+**Images.** A **manifest** image is only a path inside the plugin's folder (`manifestImage`: no `..`, no absolute path, no scheme — a URL there would make every view load hit the network before the plugin runs). It is resolved by the Rust command **`plugin_asset_path`** (`commands/plugins.rs`), which owns every rule: folder order dev (only when that folder's manifest is this plugin) → user plugins dir → bundled, canonicalised so a symlink can't lead out, image extension (png/jpg/jpeg/webp/gif/svg), and **≤ 512 KB** (`PLUGIN_ASSET_MAX_BYTES`, mirrored as `VIEW_HEADER_LIMITS.imageBytes`). A **runtime** image may additionally be `http(s)`, `data:image/…`, or an absolute path into the plugin's own storage (`runtimeImage`). Any failure — refused, missing, undecodable — logs once and leaves the plain strip; a header image can never break a view. The installer already unpacks every file in a plugin zip, so shipping an image is a packaging change only (each plugin's `scripts/package.sh` must include it).
+
+**The banner is always under the scrim.** `.plugin-view-header--banner` draws the same always-dark `--scrim-rgb` layer + always-light `--hero-text-*` pair the detail heroes use, so no image and no skin can make the header text unreadable. Don't add a "no scrim" option.
+
+## View design guidelines
+
+Rules for how a plugin view presents itself. Mirrored for outside authors in `docs/plugin-dev.html#design`.
+
+- **Not ready is shown in the view, never as a toast.** When the plugin can't work (daemon stopped, service down, login expired, binary missing), keep the view usable and put one `ds-banner` row under the tabs (`{ type: "layout", direction: "horizontal", className: "ds-banner ds-banner--warning", … }`) with the one button that fixes it, and set a sidebar dot with `setBadge` for the outside-the-view signal. yt-dlp's missing-binary banner and Soulseek ≥ 0.9.6's `readinessBanner` are the references. A toast at launch or on a state change is the pattern that was removed.
+- **Toasts are results.** `showNotification` answers something the user just did. Background work that finishes may announce once (Soulseek's "upgrade ready"), never a recurring state.
+- **The header shows state; the banner shows problems.** A short `status` word in the header ("Ready", "Not running") says whether it works; the explanation and the fix stay in the banner, which is larger and harder to miss.
+- **Don't repeat the header.** A view shouldn't draw its own title row under the host's. Start with tabs, the search box or content; turn the header off (`hidden`) only when the view has a large header of its own.
+- **Brand lives in images only.** Text and controls take the skin's colours; a plugin's own look goes in `logo` / `banner`, and a banner always sits under the scrim.
 
 ## Plugin View Rendering
 

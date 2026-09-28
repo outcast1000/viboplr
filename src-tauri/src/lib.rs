@@ -247,6 +247,7 @@ macro_rules! invoke_handler {
             commands::plugin_get_dir,
             commands::plugin_list_installed,
             commands::plugin_read_file,
+            commands::plugin_asset_path,
             commands::plugin_storage_get,
             commands::plugin_storage_set,
             commands::plugin_storage_delete,

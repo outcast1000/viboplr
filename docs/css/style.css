@@ -1680,6 +1680,11 @@ p {
   margin-bottom: var(--space-sm);
 }
 
+.docs-body h3 {
+  font-size: 1.15rem;
+  margin: var(--space-md) 0 var(--space-xs);
+}
+
 .docs-body h2 + p,
 .docs-body .docs-lead {
   color: var(--color-text-muted);

@@ -152,7 +152,7 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 | `collections` | `CollectionsView` | — |
 | `extensions` | extensions panel | — |
 | `settings` | settings panel | — |
-| `plugin:*` | `PluginViewRenderer` | — |
+| `plugin:*` | `PluginViewHeader` + `PluginViewRenderer` (the header names the plugin on every view — see plugins.md "View header") | — |
 
 ### Update notice banner
 

@@ -153,6 +153,8 @@ import {
 } from "./components/modals/ConfirmModals";
 import { AlertModal } from "./components/AlertModal";
 import { PluginViewRenderer } from "./components/PluginViewRenderer";
+import { PluginViewHeader } from "./components/PluginViewHeader";
+import { resolvePluginViewHeader } from "./utils/pluginViewHeader";
 import type { PluginSearchSeed } from "./components/pluginViews/pluginViews";
 import { VisualizerSlot } from "./components/VisualizerSlot";
 import { AudioFullscreen } from "./components/AudioFullscreen";
@@ -5469,7 +5471,19 @@ function App() {
             const pluginState = plugins.pluginStates.find(p => p.id === pluginId);
             const data = plugins.getViewData(pluginId, viewId);
             const scrollKey = plugins.getViewScrollKey(pluginId, viewId);
+            const viewHeader = pluginState
+              ? resolvePluginViewHeader({ manifest: pluginState.manifest, viewId, runtime: plugins.getViewHeader(pluginId, viewId) })
+              : null;
             return (
+              <>
+              {viewHeader && (
+                <PluginViewHeader
+                  pluginId={pluginId}
+                  devPath={pluginState?.devPath}
+                  header={viewHeader}
+                  onAction={(actionId) => plugins.dispatchUIAction(pluginId, actionId, undefined)}
+                />
+              )}
               <PluginViewRenderer
                 pluginName={pluginState?.manifest.name ?? pluginId}
                 data={data}
@@ -5533,6 +5547,7 @@ function App() {
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
               />
+              </>
             );
           })()}
           {/* Extensions view */}
