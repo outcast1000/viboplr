@@ -750,10 +750,9 @@ function ControlApiSection({
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [mcp, setMcp] = useState<McpSetupInfo | null>(null);
-  // A ref, not state: nothing renders off "have we probed yet", and flipping
-  // state synchronously in the effect below would be a cascading-render hit
-  // (react-hooks/set-state-in-effect). A write inside an effect is fine.
-  const mcpProbedRef = useRef(false);
+  // The in-flight (or settled) probe, so rapid clicks on different buttons
+  // share one backend call. Cleared on failure so the next click retries.
+  const mcpProbeRef = useRef<Promise<McpSetupInfo> | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -768,17 +767,58 @@ function ControlApiSection({
       .catch((e) => console.error("Failed to read control API status:", e));
   }, []);
 
-  // Probed lazily, and only once: it walks the filesystem and runs
-  // `node --version` per candidate, so it waits until the user has actually
-  // switched the server on rather than paying for it on every Settings open.
   const serverRunning = enabled && status?.running === true;
-  useEffect(() => {
-    if (!serverRunning || mcpProbedRef.current) return;
-    mcpProbedRef.current = true;
-    invoke<McpSetupInfo>("mcp_setup_info")
-      .then(setMcp)
+
+  // Probed on demand — only when the user clicks one of the connect buttons —
+  // because it walks the filesystem and runs `node --version` per candidate.
+  // The backend caches a usable answer for the app run (`mcp_setup.rs`), so
+  // later clicks and later Settings opens are cheap.
+  function probeMcp(): Promise<McpSetupInfo> {
+    if (!mcpProbeRef.current) {
+      mcpProbeRef.current = invoke<McpSetupInfo>("mcp_setup_info").then(
+        (info) => {
+          setMcp(info);
+          return info;
+        },
+        (e) => {
+          mcpProbeRef.current = null;
+          throw e;
+        },
+      );
+    }
+    return mcpProbeRef.current;
+  }
+
+  /**
+   * Copy a value that is only known after the probe. The clipboard is handed a
+   * *promise* inside the click, so the write keeps the click's user activation
+   * however long the probe takes — WKWebView rejects a plain `writeText` issued
+   * after an await.
+   */
+  function copyMcpValue(label: string, build: (info: McpSetupInfo) => string | null) {
+    const text = probeMcp().then((info) => {
+      const value = build(info);
+      // Nothing to copy (bundled script missing): the subtitle now says why.
+      if (value == null) throw new Error(mcpSetupProblem(info) ?? "Nothing to copy");
+      return value;
+    });
+    const write =
+      typeof ClipboardItem !== "undefined"
+        ? navigator.clipboard.write([
+            new ClipboardItem({ "text/plain": text.then((t) => new Blob([t], { type: "text/plain" })) }),
+          ])
+        : text.then((t) => navigator.clipboard.writeText(t));
+    write.then(() => {
+      setCopied(label);
+      setTimeout(() => setCopied((c) => (c === label ? null : c)), 1500);
+    }).catch((e) => console.error("Failed to copy the MCP setup:", e));
+  }
+
+  function handleShowScript() {
+    probeMcp()
+      .then((info) => info.scriptPath && revealScript(info.scriptPath))
       .catch((e) => console.error("Failed to inspect the MCP setup:", e));
-  }, [serverRunning]);
+  }
 
   async function handleToggle(on: boolean) {
     if (busy) return;
@@ -820,8 +860,6 @@ function ControlApiSection({
     }).catch((e) => console.error("Clipboard write failed:", e));
   }
 
-  const mcpSnippet = mcp ? buildMcpConfigSnippet(mcp) : null;
-  const mcpCli = mcp ? buildMcpCliCommand(mcp) : null;
   const mcpProblem = mcp ? mcpSetupProblem(mcp) : null;
   return (
     <div className="settings-group" id="control-api">
@@ -896,31 +934,29 @@ function ControlApiSection({
                   style={mcpProblem ? { color: "var(--warning)" } : undefined}
                 >
                   {mcpProblem ??
-                    (mcp
-                      ? `Copy the config into your client (Claude Desktop → Settings → Developer → Edit Config), then fully quit and relaunch it. Bundled server: ${mcp.scriptPath}`
-                      : "Looking for the bundled server and a Node runtime…")}
+                    `Copy the config into your client (Claude Desktop → Settings → Developer → Edit Config), then fully quit and relaunch it.${mcp?.scriptPath ? ` Bundled server: ${mcp.scriptPath}` : ""}`}
                 </span>
               </div>
               <div className="settings-row-actions">
                 <button
                   className="ds-btn ds-btn--secondary ds-btn--sm"
-                  disabled={!mcpSnippet}
-                  onClick={() => mcpSnippet && copyValue("mcp-config", mcpSnippet)}
+                  disabled={mcp != null && !mcp.scriptPath}
+                  onClick={() => copyMcpValue("mcp-config", buildMcpConfigSnippet)}
                 >
                   {copied === "mcp-config" ? "Copied" : "Copy config"}
                 </button>
                 <button
                   className="ds-btn ds-btn--secondary ds-btn--sm"
                   title="For Claude Code: run this in a terminal, then start a new session"
-                  disabled={!mcpCli}
-                  onClick={() => mcpCli && copyValue("mcp-cli", mcpCli)}
+                  disabled={mcp != null && !mcp.scriptPath}
+                  onClick={() => copyMcpValue("mcp-cli", buildMcpCliCommand)}
                 >
                   {copied === "mcp-cli" ? "Copied" : "Copy command"}
                 </button>
                 <button
                   className="ds-btn ds-btn--secondary ds-btn--sm"
-                  disabled={!mcp?.scriptPath}
-                  onClick={() => mcp?.scriptPath && revealScript(mcp.scriptPath)}
+                  disabled={mcp != null && !mcp.scriptPath}
+                  onClick={handleShowScript}
                 >
                   Show file
                 </button>

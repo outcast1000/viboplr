@@ -175,7 +175,16 @@ fn probe_node(path: &Path) -> Option<String> {
     if !path.is_file() {
         return None;
     }
-    let out = Command::new(path).arg("--version").output().ok()?;
+    let mut cmd = Command::new(path);
+    cmd.arg("--version");
+    // node.exe is a console app: without this, every probe flashes a console
+    // window over Settings on Windows.
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let out = cmd.output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -202,12 +211,35 @@ pub fn resolve_node(candidates: &[PathBuf]) -> Option<(PathBuf, String, bool)> {
     too_old.map(|(p, v)| (p, v, false))
 }
 
+/// Last good [`resolve_node`] answer for this app run.
+static NODE_CACHE: std::sync::Mutex<Option<(PathBuf, String, bool)>> = std::sync::Mutex::new(None);
+
+/// [`resolve_node`] over [`node_candidates`], remembered for the app run so
+/// reopening Settings doesn't spawn a `node` per candidate every time.
+///
+/// Only a *usable* answer is cached, and only while its binary is still on
+/// disk: "no Node" / "too old" are exactly what the user fixes by installing
+/// or upgrading, so those re-probe on every call and clear themselves without
+/// an app restart. An in-place upgrade at the same path keeps the stale
+/// version string until restart — harmless, since the path is all the config
+/// block uses.
+fn resolve_node_cached() -> Option<(PathBuf, String, bool)> {
+    let mut cache = NODE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(hit) = cache.as_ref().filter(|(p, _, ok)| *ok && p.is_file()) {
+        return Some(hit.clone());
+    }
+    let fresh = resolve_node(&node_candidates());
+    *cache = fresh.clone().filter(|(_, _, ok)| *ok);
+    fresh
+}
+
 /// Gather everything Settings needs. Blocking (filesystem walks plus a
-/// subprocess per candidate), so callers must keep it off the main thread.
+/// subprocess per candidate on a cache miss), so callers must keep it off the
+/// main thread.
 pub fn collect(resource_dir: Option<&Path>, profile_name: &str) -> McpSetupInfo {
     let script_path = pick_existing(&script_candidates(resource_dir))
         .map(|p| p.to_string_lossy().into_owned());
-    let node = resolve_node(&node_candidates());
+    let node = resolve_node_cached();
 
     McpSetupInfo {
         script_path,
