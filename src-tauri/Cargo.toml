@@ -67,6 +67,9 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"
 objc = "0.2"
+# Trust-settings walk for trust_store.rs. Already in the build through
+# native-tls / rustls-platform-verifier — declared, not added.
+security-framework = { version = "3.7", default-features = false }
 
 # Pure-Rust .lnk writer for per-profile desktop shortcuts (Windows only).
 [target.'cfg(windows)'.dependencies]

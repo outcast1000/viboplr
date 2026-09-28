@@ -39,6 +39,7 @@ mod stream_relay;
 mod transcode_server;
 mod window_arrangement;
 mod plugin_worker;
+mod trust_store;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;
 #[cfg(target_os = "macos")]
@@ -980,6 +981,21 @@ pub fn run() {
             dependencies::set_managed_bin_dir(app_data_dir.join("bin"));
             // The downloadable libmpv engine component lives beside them.
             mpv_engine::set_component_dir(app_data_dir.join("engine"));
+
+            // Export the OS trust store (yt-dlp + mpv, see trust_store.rs) in
+            // the background shortly after launch, so its ~0.2s never lands on
+            // a caller: `engine_play` is a sync command and runs on the main
+            // thread, where a first-play export would freeze the UI. Delayed
+            // to stay off the startup path; a caller that arrives mid-export
+            // waits for this one rather than starting a second.
+            #[cfg(target_os = "macos")]
+            {
+                let dir = app_data_dir.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(5));
+                    let _ = trust_store::pem_path(&dir);
+                });
+            }
 
             // Migrate legacy data from root app_data_dir to profiles/default/.
             // Gated by a sentinel file so this is a true one-shot — once the

@@ -305,46 +305,35 @@ impl EngineHandle {
     }
 }
 
-/// A PEM CA bundle for mpv's statically-linked OpenSSL, exported from the
-/// macOS system trust store (`/usr/bin/security`) and cached in the app data
-/// dir for 30 days. Returns None (and https stays fail-closed) on any error.
+/// A PEM CA bundle for mpv's statically-linked OpenSSL. Returns None (and
+/// https stays fail-closed) on any error.
+///
+/// macOS: the OS trust store with its trust settings applied, shared with
+/// yt-dlp and rebuilt each run (`trust_store`). It used to be Apple's roots
+/// only (`SystemRootCertificates.keychain`), which leaves out the root a
+/// network that inspects HTTPS signs with — its administrator installs that
+/// into the admin trust settings — so every https stream failed there.
+/// Windows: the LocalMachine Root store, exported once and cached 30 days.
 fn ensure_ca_bundle(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     use tauri::Manager;
     let dir = app.path().app_data_dir().ok()?;
-    let path = dir.join("mpv-cacert.pem");
-    let fresh = path
-        .metadata()
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.elapsed().ok())
-        .map(|age| age < Duration::from_secs(30 * 24 * 3600))
-        .unwrap_or(false);
-    if fresh {
-        return Some(path);
-    }
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("/usr/bin/security")
-            .args([
-                "find-certificate",
-                "-a",
-                "-p",
-                "/System/Library/Keychains/SystemRootCertificates.keychain",
-            ])
-            .output()
-            .ok()?;
-        if !out.status.success() || out.stdout.is_empty() {
-            log::error!("mpv-engine: exporting the system CA store failed");
-            return None;
-        }
-        if let Err(e) = std::fs::write(&path, &out.stdout) {
-            log::error!("mpv-engine: writing CA bundle failed: {e}");
-            return None;
-        }
-        return Some(path);
+        return crate::trust_store::pem_path(&dir);
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let path = dir.join("mpv-cacert.pem");
+        let fresh = path
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|age| age < Duration::from_secs(30 * 24 * 3600))
+            .unwrap_or(false);
+        if fresh {
+            return Some(path);
+        }
         #[cfg(windows)]
         {
             if path.exists() {

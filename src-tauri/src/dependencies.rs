@@ -152,6 +152,35 @@ pub struct DependencyDef {
     /// Arguments the daily dependency pass runs once the tool has state (its
     /// data dir exists): upkeep the tool expects its embedding app to trigger.
     pub maintenance_args: Option<&'static [&'static str]>,
+    /// How to make the tool verify TLS against the operating system's trust
+    /// store instead of a certificate list it bundles. `None` = it already
+    /// does, or makes no TLS connections of its own. See `OsTrust`.
+    pub os_trust: Option<OsTrust>,
+}
+
+/// Making a tool trust what the OS trusts (`DependencyDef::os_trust`).
+///
+/// A network that inspects HTTPS re-signs every site with a root its
+/// administrator installed into the OS trust store. A tool that verifies
+/// against its own bundled list (yt-dlp: Python + certifi) then rejects every
+/// connection — `CERTIFICATE_VERIFY_FAILED` — while the browser, which reads
+/// the OS store, works. Applied to every spawn by `command_with_path` /
+/// `tokio_command_with_path`:
+///
+/// - **macOS**: `args` plus `ca_file_env` = the exported OS trust store
+///   (`trust_store::pem_path`). If the export fails, nothing is applied and the
+///   tool keeps its own list — never worse than before.
+/// - **Windows**: `args` only; Python then loads the Windows store itself.
+/// - **Linux**: nothing; the distribution bundle is what the tool falls back to
+///   anyway, and a system without one would break under `args`.
+#[derive(Debug, Clone, Copy)]
+pub struct OsTrust {
+    /// Leading arguments that switch the tool to the platform's default CA
+    /// source (for yt-dlp, `--compat-options no-certifi`; repeated
+    /// `--compat-options` accumulate, so a caller's own can't undo it).
+    pub args: &'static [&'static str],
+    /// Environment variable naming a CA file, set to the exported store on macOS.
+    pub ca_file_env: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -248,6 +277,7 @@ pub static REGISTRY: &[DependencyDef] = &[
         managed: None,
         data_dir_flag: None,
         maintenance_args: None,
+        os_trust: None,
     },
     DependencyDef {
         name: "yt-dlp",
@@ -280,6 +310,10 @@ pub static REGISTRY: &[DependencyDef] = &[
         }),
         data_dir_flag: None,
         maintenance_args: None,
+        os_trust: Some(OsTrust {
+            args: &["--compat-options", "no-certifi"],
+            ca_file_env: Some("SSL_CERT_FILE"),
+        }),
     },
     DependencyDef {
         name: "rqbit",
@@ -308,6 +342,7 @@ pub static REGISTRY: &[DependencyDef] = &[
         }),
         data_dir_flag: None,
         maintenance_args: None,
+        os_trust: None,
     },
     DependencyDef {
         name: "roadie",
@@ -344,6 +379,7 @@ pub static REGISTRY: &[DependencyDef] = &[
         // start at login and runs their daily update pass).
         data_dir_flag: Some("--data-dir"),
         maintenance_args: Some(&["maintain"]),
+        os_trust: None,
     },
     #[cfg(debug_assertions)]
     DependencyDef {
@@ -361,6 +397,7 @@ pub static REGISTRY: &[DependencyDef] = &[
         managed: None,
         data_dir_flag: None,
         maintenance_args: None,
+        os_trust: None,
     },
 ];
 
@@ -530,6 +567,57 @@ fn data_dir_args(program: &str) -> Vec<std::ffi::OsString> {
     }
 }
 
+/// The leading arguments and CA-file variable that make `program` verify TLS
+/// against the OS trust store — see `OsTrust` for the per-platform rule.
+fn os_trust_setup(program: &str) -> (Vec<&'static str>, Option<(&'static str, PathBuf)>) {
+    os_trust_setup_in(program, managed_bin_dir().and_then(|b| b.parent()))
+}
+
+fn os_trust_setup_in(
+    program: &str,
+    app_data_dir: Option<&Path>,
+) -> (Vec<&'static str>, Option<(&'static str, PathBuf)>) {
+    let Some(trust) = get_def(program).and_then(|d| d.os_trust) else {
+        return (Vec::new(), None);
+    };
+    #[cfg(target_os = "macos")]
+    {
+        let Some(app_data_dir) = app_data_dir else {
+            return (Vec::new(), None);
+        };
+        match crate::trust_store::pem_path(app_data_dir) {
+            Some(pem) => (trust.args.to_vec(), trust.ca_file_env.map(|var| (var, pem))),
+            None => (Vec::new(), None),
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = app_data_dir;
+        (trust.args.to_vec(), None)
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        let _ = (trust, app_data_dir);
+        (Vec::new(), None)
+    }
+}
+
+/// A tool with `os_trust` still failed certificate verification: say what
+/// that means, and re-export the trust store so a certificate installed since
+/// the last export is picked up by the next attempt. The failure itself is the
+/// tool's own output and reaches the caller unchanged.
+pub fn note_tls_failure(program: &str, stderr: &str) {
+    if get_def(program).and_then(|d| d.os_trust).is_none() || !stderr.contains("CERTIFICATE_VERIFY_FAILED") {
+        return;
+    }
+    log::warn!(
+        "{program} could not verify a site's certificate even against this computer's trust store. \
+         The network is intercepting HTTPS with a certificate the computer doesn't trust, or the \
+         connection is being tampered with. The trust store will be re-exported for the next attempt."
+    );
+    crate::trust_store::invalidate();
+}
+
 pub fn command_with_path(program: &str) -> std::process::Command {
     // PATH lookup happens in the child's environment, but resolve the managed
     // copy explicitly so it wins even on platforms where the spawn resolves
@@ -539,6 +627,11 @@ pub fn command_with_path(program: &str) -> std::process::Command {
         .unwrap_or_else(|| program.into());
     let mut cmd = std::process::Command::new(resolved);
     cmd.args(data_dir_args(program));
+    let (trust_args, ca_file) = os_trust_setup(program);
+    cmd.args(trust_args);
+    if let Some((var, pem)) = ca_file {
+        cmd.env(var, pem);
+    }
     cmd.env("PATH", augmented_path());
     // Force Python UTF-8 Mode (see note below).
     cmd.env("PYTHONUTF8", "1");
@@ -565,6 +658,11 @@ pub fn tokio_command_with_path(program: &str) -> tokio::process::Command {
         .unwrap_or_else(|| program.into());
     let mut cmd = tokio::process::Command::new(resolved);
     cmd.args(data_dir_args(program));
+    let (trust_args, ca_file) = os_trust_setup(program);
+    cmd.args(trust_args);
+    if let Some((var, pem)) = ca_file {
+        cmd.env(var, pem);
+    }
     cmd.env("PATH", augmented_path());
     cmd.env("PYTHONUTF8", "1");
     cmd.env("PYTHONIOENCODING", "utf-8");
@@ -1777,6 +1875,35 @@ mod tests {
         assert_eq!(def.data_dir_flag, Some("--data-dir"));
         assert_eq!(def.maintenance_args, Some(&["maintain"][..]));
         assert!(allowed_names().contains(&"roadie"));
+    }
+
+    #[test]
+    fn test_only_yt_dlp_is_switched_to_the_os_trust_store() {
+        let yt = get_def("yt-dlp").unwrap().os_trust.expect("yt-dlp bundles certifi, so it needs os_trust");
+        // Repeated --compat-options accumulate in yt-dlp, so a plugin's own
+        // `--compat-options …` can't undo this one.
+        assert_eq!(yt.args, &["--compat-options", "no-certifi"]);
+        assert_eq!(yt.ca_file_env, Some("SSL_CERT_FILE"));
+        for name in ["ffmpeg", "rqbit", "roadie"] {
+            assert!(get_def(name).unwrap().os_trust.is_none(), "{name} has no bundled CA list to override");
+        }
+        assert_eq!(os_trust_setup_in("ffmpeg", None), (Vec::new(), None));
+    }
+
+    /// On macOS a yt-dlp spawn gets the flag *and* a CA file that really holds
+    /// this Mac's trusted roots; without a place to write the export it gets
+    /// neither, so it keeps its own list rather than a flag with nothing behind it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_yt_dlp_spawn_points_at_the_exported_trust_store() {
+        assert_eq!(os_trust_setup_in("yt-dlp", None), (Vec::new(), None));
+        let dir = tempfile::tempdir().unwrap();
+        let (args, ca_file) = os_trust_setup_in("yt-dlp", Some(dir.path()));
+        assert_eq!(args, vec!["--compat-options", "no-certifi"]);
+        let (var, pem) = ca_file.expect("CA file on macOS");
+        assert_eq!(var, "SSL_CERT_FILE");
+        let text = std::fs::read_to_string(&pem).unwrap();
+        assert!(text.matches("BEGIN CERTIFICATE").count() > 50);
     }
 
     const MANIFEST: &str = r#"{

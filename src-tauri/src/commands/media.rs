@@ -165,10 +165,12 @@ pub async fn plugin_exec(
             let mut cmd = build_plugin_command(&program, &args, cwd, &app_dir);
             let output = cmd.output()
                 .map_err(|e| format!("Failed to run {}: {}", program, e))?;
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            crate::dependencies::note_tls_failure(&program, &stderr);
             Ok(ExecResult {
                 exit_code: output.status.code().unwrap_or(-1),
                 stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                stderr,
             })
         })
         .await
@@ -237,6 +239,7 @@ pub async fn plugin_exec(
             return Err(EXEC_CANCELLED.to_string());
         }
         let status = status.map_err(|e| format!("Failed to wait for {}: {}", program, e))?;
+        crate::dependencies::note_tls_failure(&program, &err_text);
         Ok(ExecResult {
             exit_code: status.code().unwrap_or(-1),
             stdout: out_text,
