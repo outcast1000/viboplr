@@ -2,10 +2,21 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Collection, QueueTrack } from "../types";
 
+/** New server settings for a subsonic collection. An empty password keeps the stored one. */
+export interface SubsonicConnectionEdit {
+  url: string;
+  username: string;
+  password: string;
+}
+
 export function useCollectionActions(deps: {
   library: { loadLibrary: () => Promise<void>; loadTracks: () => Promise<void> };
   playback: { currentTrack: QueueTrack | null; handleStop: () => void };
-  queueHook: { queue: QueueTrack[]; removeMultiple: (indices: number[]) => void };
+  queueHook: {
+    queue: QueueTrack[];
+    removeMultiple: (indices: number[]) => void;
+    rewritePathPrefix: (oldPrefix: string, newPrefix: string) => void;
+  };
   collections: Collection[];
   // Fired when a collection change alters the library's track population
   // (enable/disable, remove). SearchView holds its own results independent of
@@ -88,7 +99,31 @@ export function useCollectionActions(deps: {
     }
   }
 
-  async function handleSaveCollection(id: number, name: string, autoUpdate: boolean, autoUpdateIntervalMins: number, enabled: boolean) {
+  /** Saves the modal. Rejects with a user-facing message on failure so the
+   * modal can show it and stay open — a connection change that fails its
+   * server check must not look saved. */
+  async function handleSaveCollection(
+    id: number,
+    name: string,
+    autoUpdate: boolean,
+    autoUpdateIntervalMins: number,
+    enabled: boolean,
+    connection?: SubsonicConnectionEdit,
+  ) {
+    if (connection) {
+      try {
+        const result = await invoke<{ oldPrefix: string; newPrefix: string }>("update_subsonic_connection", {
+          collectionId: id,
+          url: connection.url,
+          username: connection.username,
+          password: connection.password || null,
+        });
+        deps.queueHook.rewritePathPrefix(result.oldPrefix, result.newPrefix);
+      } catch (e) {
+        console.error("Failed to update collection connection:", e);
+        throw String(e);
+      }
+    }
     try {
       await invoke("update_collection", {
         collectionId: id,
@@ -99,7 +134,7 @@ export function useCollectionActions(deps: {
       });
     } catch (e) {
       console.error("Failed to save collection:", e);
-      return;
+      throw `Failed to save: ${e}`;
     }
     setEditingCollection(null);
     deps.library.loadLibrary();

@@ -76,6 +76,7 @@ macro_rules! invoke_handler {
             commands::add_collection,
             commands::remove_collection,
             commands::update_collection,
+            commands::update_subsonic_connection,
             commands::get_collections,
             commands::get_collection_stats,
             commands::find_track_in_collection,

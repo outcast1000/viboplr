@@ -193,6 +193,40 @@ impl Database {
         Ok(())
     }
 
+    /// Replace a subsonic collection's server URL and credentials. Library rows
+    /// store only the remote track id — their `subsonic://{host}/…` path is
+    /// built from `co.url` at query time (`PATH_EXPR`) — so they follow the new
+    /// URL with no rewrite. Stored locations elsewhere do not; see
+    /// `rewrite_playlist_source_prefix`.
+    pub fn update_collection_connection(
+        &self,
+        collection_id: i64,
+        url: &str,
+        username: &str,
+        password_token: &str,
+        salt: Option<&str>,
+        auth_method: &str,
+    ) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE collections SET url = ?2, username = ?3, password_token = ?4, salt = ?5, auth_method = ?6, last_sync_error = NULL WHERE id = ?1",
+            params![collection_id, url, username, password_token, salt, auth_method],
+        )?;
+        Ok(())
+    }
+
+    /// Re-point saved playlist entries whose `source` starts with `old_prefix`
+    /// at `new_prefix`. Playlist entries persist the full location, so without
+    /// this a server URL change strands every subsonic entry on the old host.
+    /// Returns the number of entries rewritten.
+    pub fn rewrite_playlist_source_prefix(&self, old_prefix: &str, new_prefix: &str) -> SqlResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE playlist_tracks SET source = ?2 || substr(source, length(?1) + 1) WHERE substr(source, 1, length(?1)) = ?1",
+            params![old_prefix, new_prefix],
+        )
+    }
+
     /// Rename a collection. Used by manifest sync to apply the manifest's own
     /// display name over the provisional name the collection was created with.
     pub fn set_collection_name(&self, collection_id: i64, name: &str) -> SqlResult<()> {

@@ -342,6 +342,99 @@ pub fn update_collection(
     state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
+/// Result of `update_subsonic_connection`: the saved collection, plus the
+/// location prefixes it moved between (equal when only credentials changed) so
+/// the frontend can re-point queue entries, which live outside the database.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubsonicConnectionUpdate {
+    pub collection: Collection,
+    pub old_prefix: String,
+    pub new_prefix: String,
+    pub playlist_entries_moved: usize,
+}
+
+/// Change a subsonic collection's server URL / username / password. The new
+/// settings are verified against the server before anything is saved, so a
+/// typo can't leave the collection pointing nowhere. `password: None` (or
+/// empty) keeps the stored credential — a token is md5(password + salt), so it
+/// stays valid under a new URL or username as long as the password is the same.
+#[tauri::command]
+pub async fn update_subsonic_connection(
+    state: State<'_, AppState>,
+    collection_id: i64,
+    url: String,
+    username: String,
+    password: Option<String>,
+) -> Result<SubsonicConnectionUpdate, String> {
+    // async + spawn_blocking: verifying pings the server.
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
+        if collection.kind != "subsonic" {
+            return Err(format!("Connection settings are not editable for '{}' collections", collection.kind));
+        }
+        let url = url.trim().trim_end_matches('/').to_string();
+        let username = username.trim().to_string();
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err("Server URL must start with http:// or https://".to_string());
+        }
+        if username.is_empty() {
+            return Err("Username is required".to_string());
+        }
+
+        let client = match password.as_deref().filter(|p| !p.is_empty()) {
+            Some(pass) => SubsonicClient::new(&url, &username, pass)
+                .map_err(|e| format!("Failed to connect: {}", e))?,
+            None => {
+                let creds = db.get_collection_credentials(collection_id).map_err(|e| e.to_string())?;
+                let client = SubsonicClient::from_stored(
+                    &url,
+                    &username,
+                    &creds.password_token,
+                    creds.salt.as_deref(),
+                    &creds.auth_method,
+                );
+                client.ping().map_err(|e| {
+                    format!("Failed to connect with the saved password: {} — enter the password to re-authenticate", e)
+                })?;
+                client
+            }
+        };
+
+        db.update_collection_connection(
+            collection_id,
+            &url,
+            &username,
+            &client.password_token,
+            client.salt.as_deref(),
+            &client.auth_method,
+        )
+        .map_err(|e| e.to_string())?;
+
+        let old_prefix = format!("subsonic://{}/", super::subsonic_host(collection.url.as_deref().unwrap_or_default()));
+        let new_prefix = format!("subsonic://{}/", super::subsonic_host(&url));
+        let playlist_entries_moved = if old_prefix != new_prefix {
+            db.rewrite_playlist_source_prefix(&old_prefix, &new_prefix).map_err(|e| e.to_string())?
+        } else {
+            0
+        };
+        log::info!(
+            "subsonic collection {} connection updated ({} -> {}, {} playlist entries moved)",
+            collection_id, old_prefix, new_prefix, playlist_entries_moved
+        );
+
+        Ok(SubsonicConnectionUpdate {
+            collection: db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?,
+            old_prefix,
+            new_prefix,
+            playlist_entries_moved,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn resync_collection(
     app: AppHandle,

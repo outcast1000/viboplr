@@ -501,6 +501,14 @@ pub struct EntityLikePayload {
 /// path-building SQL in `db/mod.rs`. Shared by the streaming
 /// (`resolve_subsonic_location`) and download (`resolve_subsonic_download_url`)
 /// paths so both parse the URI identically.
+/// The `{host}` part of a subsonic collection's track locations: its server URL
+/// with the scheme and trailing slash removed. Mirrors `PATH_EXPR` in `db/mod.rs`.
+pub(crate) fn subsonic_host(url: &str) -> &str {
+    url.trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+}
+
 fn resolve_subsonic_location_parts(
     db: &Database,
     location: &str,
@@ -523,13 +531,7 @@ fn resolve_subsonic_location_parts(
         .iter()
         .find(|c| {
             c.kind == "subsonic"
-                && c.url.as_ref().map_or(false, |u| {
-                    let normalized = u
-                        .trim_start_matches("https://")
-                        .trim_start_matches("http://")
-                        .trim_end_matches('/');
-                    normalized == host
-                })
+                && c.url.as_deref().map_or(false, |u| subsonic_host(u) == host)
         })
         .ok_or_else(|| format!("No subsonic collection found matching host: {}", host))?;
 

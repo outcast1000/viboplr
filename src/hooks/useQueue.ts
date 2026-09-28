@@ -433,6 +433,16 @@ export function useQueue(
     });
   }
 
+  // A subsonic collection's server URL changed: its entries persist the full
+  // `subsonic://{host}/{id}` location, so without this every one of them would
+  // stop resolving. Keeps the previous array when nothing matches.
+  function rewritePathPrefix(oldPrefix: string, newPrefix: string) {
+    if (oldPrefix === newPrefix) return;
+    setQueue(prev => prev.some(t => t.path?.startsWith(oldPrefix))
+      ? prev.map(t => t.path?.startsWith(oldPrefix) ? { ...t, path: newPrefix + t.path.slice(oldPrefix.length) } : t)
+      : prev);
+  }
+
   function removeFromQueue(index: number) {
     setQueue(prev => {
       const next = [...prev];
@@ -782,7 +792,7 @@ export function useQueue(
     backfillPending: pendingBackfillGen !== null, markBackfillPending, settleBackfill,
     holdForBackfillTail,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
+    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, rewritePathPrefix, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex, reconcileLibraryIds,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,

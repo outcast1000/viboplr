@@ -1584,6 +1584,7 @@ function App() {
     queueHook: {
       queue: queueHook.queue,
       removeMultiple: queueHook.removeMultiple,
+      rewritePathPrefix: queueHook.rewritePathPrefix,
     },
     collections: library.collections,
     onLibraryChanged: notifyLibraryChanged,

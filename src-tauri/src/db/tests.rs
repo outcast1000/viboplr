@@ -1614,6 +1614,36 @@ fn test_save_and_get_playlist() {
 }
 
 #[test]
+fn test_update_collection_connection_moves_playlist_sources() {
+    let db = test_db();
+    let col = db.add_collection("subsonic", "Nav", None, Some("https://old.example.com/"), Some("me"), Some("tok"), Some("salt"), Some("token")).unwrap();
+    let playlist_id = db.save_playlist("P", None, None, None, None).unwrap();
+    db.save_playlist_tracks(playlist_id, &[
+        ("A", None, None, None, Some("subsonic://old.example.com/abc"), None),
+        ("B", None, None, None, Some("subsonic://old.example.com.evil/xyz"), None),
+        ("C", None, None, None, Some("file:///music/c.mp3"), None),
+    ]).unwrap();
+
+    db.update_collection_connection(col.id, "http://new.example.com:4533", "you", "tok2", None, "plaintext").unwrap();
+    let updated = db.get_collection_by_id(col.id).unwrap();
+    assert_eq!(updated.url.as_deref(), Some("http://new.example.com:4533"));
+    assert_eq!(updated.username.as_deref(), Some("you"));
+    let creds = db.get_collection_credentials(col.id).unwrap();
+    assert_eq!(creds.password_token, "tok2");
+    assert_eq!(creds.salt, None);
+    assert_eq!(creds.auth_method, "plaintext");
+
+    let moved = db.rewrite_playlist_source_prefix("subsonic://old.example.com/", "subsonic://new.example.com:4533/").unwrap();
+    assert_eq!(moved, 1);
+    let sources: Vec<Option<String>> = db.get_playlist_tracks(playlist_id).unwrap().into_iter().map(|t| t.source).collect();
+    assert_eq!(sources, vec![
+        Some("subsonic://new.example.com:4533/abc".to_string()),
+        Some("subsonic://old.example.com.evil/xyz".to_string()),
+        Some("file:///music/c.mp3".to_string()),
+    ]);
+}
+
+#[test]
 fn test_save_playlist_tracks() {
     let db = test_db();
     let playlist_id = db.save_playlist("Test Playlist", None, None, None, None).unwrap();
