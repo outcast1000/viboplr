@@ -131,6 +131,8 @@ export interface PluginManifestAssistant {
     name: string;
     description: string;
     inputSchema?: Record<string, unknown>;
+    /** See `PluginAssistantToolDescriptor.readOnly`. */
+    readOnly?: boolean;
   }>;
 }
 
@@ -1333,6 +1335,15 @@ export interface PluginAssistantToolDescriptor {
   name: string;
   description: string;
   inputSchema?: Record<string, unknown>;
+  /**
+   * `true` when the tool only reads — it changes nothing in the app, the
+   * user's files, or any remote account (a lookup, a search, a cached list).
+   * Read-only tools are always callable by an AI assistant; every other tool
+   * is refused until the user switches on Settings → General → AI control →
+   * "Plugin actions". Omitted counts as **not** read-only, so declare it on
+   * every tool it is true for. Plugin-to-plugin calls are not gated.
+   */
+  readOnly?: boolean;
 }
 
 /** A registered assistant tool as the host tracks it (manifest + runtime merged). */
@@ -1374,7 +1385,7 @@ export interface PluginAssistantAPI {
     pluginId: string;
     name: string;
     instructions: string | null;
-    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null }>;
+    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null; readOnly: boolean }>;
   }>;
   /**
    * Call ANOTHER plugin's assistant tool and get its return value — the

@@ -10,13 +10,15 @@ import { TOOLS, buildPluginProxies, parseCliArgs, versionCmp, launchCommands } f
 
 // The MCP server is the one satellite that talks to the control API on the
 // user's behalf from clients we don't control, so the protocol handshake, the
-// tier split, and — above all — that the bearer token never leaves the server
+// tool listing, and — above all — that the bearer token never leaves the server
 // process are pinned here against a spawned real instance.
 
 const SERVER = join(__dirname, "..", "..", "mcp", "viboplr-mcp.mjs");
 const TEST_TOKEN = "tok_secret_test_1234567890";
 
-const FULL_ONLY = [
+// The tools the retired `--tier=full` flag used to hide. They are listed
+// unconditionally now; what they may change is gated in the app.
+const FORMERLY_FULL_TIER = [
   "plugin_actions",
   "plugin_deep_link",
   "plugin_tools",
@@ -159,7 +161,7 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
           pluginId: "mock-download",
           name: "Mock Download",
           instructions: "Mock provider for testing.",
-          tools: [{ name: "search_catalog", description: "Search the fake catalog", inputSchema: null }],
+          tools: [{ name: "search_catalog", description: "Search the fake catalog", inputSchema: null, readOnly: true }],
         }],
       });
     if (req.url === "/v1/assistant/invoke" && req.method === "POST") {
@@ -294,12 +296,12 @@ function toolText(result: unknown): string {
 // ---------------------------------------------------------------------------
 
 describe("tool table (static)", () => {
-  it("splits into default and full tiers as designed", () => {
+  it("has unique, described tools and no tier left on any of them", () => {
     const names = TOOLS.map((t: { name: string }) => t.name);
     expect(new Set(names).size).toBe(names.length);
-    const fullNames = TOOLS.filter((t: { tier?: string }) => t.tier === "full").map((t: { name: string }) => t.name);
-    expect(fullNames.sort()).toEqual([...FULL_ONLY].sort());
+    for (const name of FORMERLY_FULL_TIER) expect(names).toContain(name);
     for (const t of TOOLS) {
+      expect(t).not.toHaveProperty("tier");
       expect(t.inputSchema.type).toBe("object");
       expect(t.description.length).toBeGreaterThan(20);
     }
@@ -329,15 +331,19 @@ describe("tool table (static)", () => {
     expect(launchCommands("linux", {})).toEqual([{ cmd: "viboplr", args: [] }]);
   });
 
-  it("parses tier and profile from argv, rejecting garbage", () => {
-    expect(parseCliArgs([], {})).toEqual({ tier: "default", profile: undefined });
-    expect(parseCliArgs(["--tier=full"], {})).toEqual({ tier: "full", profile: undefined });
-    expect(parseCliArgs(["--tier", "full", "--profile", "perf"], {})).toEqual({ tier: "full", profile: "perf" });
-    expect(parseCliArgs([], { VIBOPLR_MCP_TIER: "full" })).toEqual({ tier: "full", profile: undefined });
-    // CLI flag wins over env
-    expect(parseCliArgs(["--tier=default"], { VIBOPLR_MCP_TIER: "full" }).tier).toBe("default");
-    expect(() => parseCliArgs(["--tier=admin"], {})).toThrow(/--tier/);
+  it("parses the profile from argv and env, rejecting garbage", () => {
+    expect(parseCliArgs([], {})).toEqual({ profile: undefined });
+    expect(parseCliArgs(["--profile", "perf"], {})).toEqual({ profile: "perf" });
+    expect(parseCliArgs(["--profile=dev-3"], {})).toEqual({ profile: "dev-3" });
+    expect(parseCliArgs([], { VIBOPLR_MCP_PROFILE: "perf" })).toEqual({ profile: "perf" });
     expect(() => parseCliArgs(["--bogus"], {})).toThrow(/unknown argument/);
+  });
+
+  it("still accepts the retired --tier flag, in either form, and ignores it", () => {
+    // Existing client configs carry it; refusing it would stop them starting.
+    expect(parseCliArgs(["--tier=full"], {})).toEqual({ profile: undefined });
+    expect(parseCliArgs(["--tier", "full", "--profile", "perf"], {})).toEqual({ profile: "perf" });
+    expect(parseCliArgs(["--tier=default"], {})).toEqual({ profile: undefined });
   });
 });
 
@@ -372,15 +378,18 @@ describe("MCP server over stdio", () => {
     expect(result.capabilities).toHaveProperty("tools");
   });
 
-  it("lists only default-tier tools without --tier=full", async () => {
+  it("lists every tool with no flag — including the ones --tier used to hide", async () => {
     const res = await rpc.request("tools/list");
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
     expect(names).toContain("search_library");
     expect(names).toContain("playback_control");
     expect(names).toContain("home_shelves");
-    expect(names).toContain("app_version");
-    expect(names).toContain("collections");
-    for (const full of FULL_ONLY) expect(names).not.toContain(full);
+    for (const name of FORMERLY_FULL_TIER) expect(names).toContain(name);
+    // Every static tool, plus one first-class entry per plugin tool: a
+    // default-config client can read a plugin's catalog (the Spotify
+    // "list Daily Mix 1" case that the tier made unreachable).
+    expect(names.length).toBe(TOOLS.length + 1);
+    expect(names).toContain("mock-download__search_catalog");
   });
 
   it("answers launch_app with alreadyRunning when the app is reachable", async () => {
@@ -459,18 +468,18 @@ describe("MCP server over stdio", () => {
     expect(JSON.parse(posted?.body ?? "{}").full).toBe(true);
   });
 
-  it("reports the installed version and its own tier without touching GitHub by default", async () => {
+  it("reports the installed version and its own version without touching GitHub by default", async () => {
     const res = await rpc.request("tools/call", { name: "app_version", arguments: {} });
     const info = JSON.parse(toolText(res.result));
     expect(info).toEqual({
       installed: "1.0.57",
       profile: "default",
       writeScopes: { modifyTags: true, manageFiles: false, downloads: false },
-      mcp: { version: expect.any(String), tier: "default" },
+      mcp: { version: expect.any(String) },
     });
   });
 
-  it("exposes the write tools at the default tier — the app's permission switches gate them", async () => {
+  it("exposes the write tools — the app's permission switches gate them", async () => {
     const res = await rpc.request("tools/list");
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
     for (const name of ["write_file_tags", "manage_files", "download_track"]) {
@@ -550,15 +559,18 @@ describe("MCP server over stdio", () => {
     expect(JSON.parse(second.body!)).toEqual({ stageId: "abcdef123456.flac", confirm: true });
   });
 
-  it("declares its tier in the initialize instructions", async () => {
+  it("points the model at plugin tools and the Plugin actions switch in its instructions", async () => {
     const init = await rpc.request("initialize", {
       protocolVersion: "2025-06-18",
       capabilities: {},
       clientInfo: { name: "test", version: "0" },
     });
-    const instructions = (init.result as { instructions: string }).instructions;
-    expect(instructions).toContain("default tool tier");
-    expect(instructions).toContain("--tier=full");
+    const result = init.result as { instructions: string; capabilities: { tools: { listChanged: boolean } } };
+    expect(result.instructions).toContain("spotify-browse__get_playlist_tracks");
+    expect(result.instructions).toContain("Plugin actions");
+    // Nothing left telling a model to ask the user for a config flag.
+    expect(result.instructions).not.toContain("tier");
+    expect(result.capabilities.tools.listChanged).toBe(true);
   });
 
   it("compares the installed version against the latest GitHub release on request", async () => {
@@ -591,11 +603,6 @@ describe("MCP server over stdio", () => {
     expect(JSON.parse(toolText(res.result)).mode).toBe("normal");
   }, 20_000);
 
-  it("refuses full-tier tools at the default tier", async () => {
-    const res = await rpc.request("tools/call", { name: "manage_extensions", arguments: { action: "list" } });
-    expect(res.error?.code).toBe(-32602);
-  });
-
   it("surfaces tool-level failures as isError results, not protocol errors", async () => {
     const res = await rpc.request("tools/call", { name: "browse", arguments: { kind: "artist_tracks" } });
     const r = res.result as { isError?: boolean };
@@ -616,7 +623,7 @@ describe("MCP server over stdio", () => {
   });
 });
 
-describe("MCP server at --tier=full", () => {
+describe("MCP server started with the retired --tier=full flag", () => {
   let api: Awaited<ReturnType<typeof startFakeApi>>;
   let rpc: Rpc;
 
@@ -630,19 +637,24 @@ describe("MCP server at --tier=full", () => {
     api.close();
   });
 
-  it("lists every tool including the full tier", async () => {
+  it("lists exactly what a flagless server lists", async () => {
     const res = await rpc.request("tools/list");
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
-    for (const full of FULL_ONLY) expect(names).toContain(full);
-    // Every static tool, plus one first-class entry per plugin tool.
+    for (const name of FORMERLY_FULL_TIER) expect(names).toContain(name);
     expect(names.length).toBe(TOOLS.length + 1);
   });
 
   it("lists each plugin tool as its own named tool and routes calls to it", async () => {
     const res = await rpc.request("tools/list");
-    const tools = (res.result as { tools: Array<{ name: string; description: string; inputSchema: { type: string } }> }).tools;
+    const tools = (res.result as {
+      tools: Array<{ name: string; description: string; inputSchema: { type: string }; annotations?: { readOnlyHint: boolean } }>;
+    }).tools;
     const proxy = tools.find((t) => t.name === "mock-download__search_catalog");
     expect(proxy).toBeDefined();
+    // The plugin declared it read-only: MCP's own hint says so, and there is
+    // no permission note because the app runs it without one.
+    expect(proxy!.annotations).toEqual({ readOnlyHint: true });
+    expect(proxy!.description).not.toContain("Plugin actions");
     // Named after the plugin, so a model (or a deferred-tool search) can find it.
     expect(proxy!.description).toContain("[Mock Download plugin] Search the fake catalog");
     expect(proxy!.description).toContain("Mock provider for testing.");
@@ -667,16 +679,9 @@ describe("MCP server at --tier=full", () => {
     expect(unknown.error?.code).toBe(-32602);
   });
 
-  it("reports tier full in app_version and the instructions", async () => {
-    const init = await rpc.request("initialize", {
-      protocolVersion: "2025-06-18",
-      capabilities: {},
-      clientInfo: { name: "test", version: "0" },
-    });
-    expect((init.result as { instructions: string }).instructions).toContain("full tool tier");
-
+  it("reports no tier in app_version", async () => {
     const res = await rpc.request("tools/call", { name: "app_version", arguments: {} });
-    expect(JSON.parse(toolText(res.result)).mcp.tier).toBe("full");
+    expect(JSON.parse(toolText(res.result)).mcp).not.toHaveProperty("tier");
   });
 
   it("lists and invokes plugin assistant tools", async () => {
@@ -764,6 +769,30 @@ describe("plugin tool proxies (pure)", () => {
     expect(proxies[1]).toMatchObject({ pluginId: "spotify-browse", tool: "list_playlists" });
   });
 
+  it("marks declared read-only tools with readOnlyHint and warns on the rest", () => {
+    const proxies = buildPluginProxies({
+      plugins: [
+        {
+          pluginId: "slskd",
+          name: "Soulseek",
+          tools: [
+            { name: "search", description: "Search the network", readOnly: true },
+            { name: "download", description: "Download a file", readOnly: false },
+            { name: "legacy", description: "Declares nothing" },
+          ],
+        },
+      ],
+    });
+    const [search, download, legacy] = proxies;
+    expect(search.annotations).toEqual({ readOnlyHint: true });
+    expect(search.description).not.toContain("Plugin actions");
+    // Undeclared counts as "may change things" — the app gates it the same way.
+    for (const p of [download, legacy]) {
+      expect(p.annotations).toEqual({ readOnlyHint: false });
+      expect(p.description).toContain('Needs the "Plugin actions" permission.');
+    }
+  });
+
   it("sanitizes names and skips ones MCP can't represent or that collide", () => {
     const proxies = buildPluginProxies({
       plugins: [
@@ -786,7 +815,7 @@ describe("plugin tools when the app starts after tools/list", () => {
   it("lists only static tools, then announces list_changed once the roster is reachable", async () => {
     const api = await startFakeApi();
     const dir = writeDiscovery(1); // nothing listens yet — the app isn't running
-    const rpc = startServer(dir, ["--tier=full"]);
+    const rpc = startServer(dir, []);
     try {
       const init = await rpc.request("initialize", {
         protocolVersion: "2025-06-18",

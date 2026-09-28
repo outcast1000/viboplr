@@ -362,12 +362,13 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/home/shelf", post(|s, b| handle_bridge_body_slow(s, "home.shelf", b)))
         .route("/v1/home/play", post(|s, b| handle_bridge_body_slow(s, "home.play", b)))
         .route("/v1/actions", get(|s, q| handle_bridge_query(s, "actions.list", q)))
-        .route("/v1/actions/invoke", post(|s, b| handle_bridge_body(s, "actions.invoke", json!({}), b)))
-        .route("/v1/plugins/{id}/deep-link", post(|s, p, b| handle_extension_bridge(s, p, "plugins.deepLink", b)))
+        // Making a plugin ACT needs the "Plugin actions" scope (listing is
+        // open): an action invoke, a deep link, or an assistant tool the plugin
+        // did not declare `readOnly`. See `handle_assistant_invoke`.
+        .route("/v1/actions/invoke", post(handle_actions_invoke))
+        .route("/v1/plugins/{id}/deep-link", post(handle_plugin_deep_link))
         .route("/v1/assistant/tools", get(|s| handle_bridge_get(s, "assistant.tools")))
-        // Slow: a plugin tool may legitimately shell out or hit a network
-        // (same budget as plugin catalog search).
-        .route("/v1/assistant/invoke", post(|s, b| handle_bridge_body_slow(s, "assistant.invoke", b)))
+        .route("/v1/assistant/invoke", post(handle_assistant_invoke))
         .route("/v1/queue/play-search", post(|s, b| handle_bridge_body(s, "queue.playSearch", json!({}), b)))
         .route("/v1/queue", get(|s| handle_bridge_get(s, "queue.get")))
         .route("/v1/playback", post(|s, b| handle_bridge_body(s, "playback.set", json!({}), b)))
@@ -1173,6 +1174,77 @@ fn check_scope(state: &ServerState, scope: Scope) -> Result<(), Response> {
     }
 }
 
+// --- Plugin actions (scope-gated) ---
+
+async fn handle_actions_invoke(state: AxumState<ServerState>, body: Bytes) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::PluginActions) {
+        return resp;
+    }
+    handle_bridge_body(state, "actions.invoke", json!({}), body).await
+}
+
+async fn handle_plugin_deep_link(
+    state: AxumState<ServerState>,
+    path: AxumPath<String>,
+    body: Bytes,
+) -> Response {
+    if let Err(resp) = check_scope(&state.0, Scope::PluginActions) {
+        return resp;
+    }
+    handle_extension_bridge(state, path, "plugins.deepLink", body).await
+}
+
+/// Whether the roster (`assistant.tools` — `{ plugins: [{ pluginId, tools:
+/// [{ name, readOnly }] }] }`) lists this tool, and if so whether it is
+/// declared read-only. `None` = not listed.
+fn roster_tool_read_only(roster: &Value, plugin_id: &str, tool: &str) -> Option<bool> {
+    let plugin = roster["plugins"]
+        .as_array()?
+        .iter()
+        .find(|p| p["pluginId"].as_str() == Some(plugin_id))?;
+    let entry = plugin["tools"].as_array()?.iter().find(|t| t["name"].as_str() == Some(tool))?;
+    Some(entry["readOnly"].as_bool() == Some(true))
+}
+
+/// Invoke a plugin's assistant tool. Tools the plugin declared `readOnly` run
+/// without a scope — reading is what the token already authorizes. Anything
+/// else runs plugin code that may change things (a Soulseek download, a
+/// playlist push), so it needs "Plugin actions". The classification comes
+/// from the webview's roster (the plugin declares it; plugin code is trusted
+/// per the plugin trust model); the *decision* is made here, from the scopes
+/// file, so the HTTP caller cannot talk its way past it. A tool the roster
+/// doesn't list is forwarded unchanged so the caller gets the dispatcher's
+/// "registers no tool … (its tools: …)" answer instead of a misleading 403.
+async fn handle_assistant_invoke(state: AxumState<ServerState>, body: Bytes) -> Response {
+    let payload = match parse_body(json!({}), &body) {
+        Ok(payload) => payload,
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
+    };
+    if !assistant_write::load_scopes(&state.0.app_dir).allows(Scope::PluginActions) {
+        if let (Some(plugin_id), Some(tool)) = (payload["pluginId"].as_str(), payload["tool"].as_str()) {
+            let roster = match bridge_value(&state.0, "assistant.tools", json!({}), state.0.bridge_timeout).await {
+                Ok(roster) => roster,
+                Err(resp) => return resp,
+            };
+            if roster_tool_read_only(&roster, plugin_id, tool) == Some(false) {
+                return error_response(
+                    StatusCode::FORBIDDEN,
+                    format!(
+                        "\"{}\" is not a read-only tool of plugin \"{}\", so it needs the \"{}\" assistant permission, which is off — the user can enable it in Viboplr → Settings → General → AI control",
+                        tool,
+                        plugin_id,
+                        Scope::PluginActions.label()
+                    ),
+                );
+            }
+        }
+    }
+    // Slow: a plugin tool may legitimately shell out or hit a network (same
+    // budget as plugin catalog search).
+    let timeout = state.0.bridge_timeout.saturating_mul(7);
+    bridge(&state.0, "assistant.invoke", payload, timeout).await
+}
+
 /// Run one blocking write operation and log it on success.
 async fn write_op<F>(verb: &'static str, f: F) -> Response
 where
@@ -1955,11 +2027,122 @@ mod tests {
         }
     }
 
+    /// Making a plugin act is scope-gated like the file writes; listing isn't.
+    #[tokio::test]
+    async fn test_plugin_action_routes_are_403_without_the_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        // Every other scope on: none of them stands in for Plugin actions.
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: true, downloads: true, plugin_actions: false });
+        let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
+        for (path, body) in [
+            ("/v1/actions/invoke", r#"{"actionId":"watch","kind":"track","title":"a"}"#),
+            ("/v1/plugins/ytdlp/deep-link", r#"{"path":"auth"}"#),
+        ] {
+            let res = router.clone().oneshot(request_json("POST", path, TEST_TOKEN, body)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::FORBIDDEN, "{} should be scope-gated", path);
+            let json = body_json(res).await;
+            assert!(json["error"].as_str().unwrap().contains("Plugin actions"));
+        }
+    }
+
+    /// A state whose webview answers `assistant.tools` with a fixed roster and
+    /// echoes every other verb, recording which verbs it saw.
+    fn assistant_state(app_dir: PathBuf, seen: Arc<Mutex<Vec<String>>>) -> ServerState {
+        let api_slot: Arc<Mutex<Option<Arc<ControlApi>>>> = Arc::new(Mutex::new(None));
+        let responder_slot = Arc::clone(&api_slot);
+        let state = test_state_in(
+            Arc::new(move |req: &ControlRequest| {
+                seen.lock().unwrap().push(req.verb.clone());
+                let Some(api) = responder_slot.lock().unwrap().clone() else { return };
+                if req.verb == "assistant.tools" {
+                    api.respond(req.id, true, json!({ "plugins": [{
+                        "pluginId": "spotify-browse",
+                        "tools": [
+                            { "name": "get_playlist_tracks", "readOnly": true },
+                            { "name": "push_playlist", "readOnly": false },
+                            { "name": "legacy_tool" },
+                        ],
+                    }] }));
+                } else {
+                    api.respond(req.id, true, json!({ "result": { "verb": req.verb, "payload": req.payload } }));
+                }
+            }),
+            app_dir,
+        );
+        *api_slot.lock().unwrap() = Some(Arc::clone(&state.api));
+        state
+    }
+
+    #[tokio::test]
+    async fn test_read_only_plugin_tools_run_without_the_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let router = build_router(assistant_state(dir.path().to_path_buf(), Arc::clone(&seen)));
+        let res = router
+            .oneshot(request_json(
+                "POST",
+                "/v1/assistant/invoke",
+                TEST_TOKEN,
+                r#"{"pluginId":"spotify-browse","tool":"get_playlist_tracks","args":{"id":"x"}}"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(*seen.lock().unwrap(), vec!["assistant.tools", "assistant.invoke"]);
+    }
+
+    /// Declared `readOnly: false` and not declared at all are both refused —
+    /// an undeclared tool is assumed to change things.
+    #[tokio::test]
+    async fn test_non_read_only_plugin_tools_are_403_without_the_scope() {
+        for tool in ["push_playlist", "legacy_tool"] {
+            let dir = tempfile::tempdir().unwrap();
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let router = build_router(assistant_state(dir.path().to_path_buf(), Arc::clone(&seen)));
+            let body = format!(r#"{{"pluginId":"spotify-browse","tool":"{}"}}"#, tool);
+            let res = router.oneshot(request_json("POST", "/v1/assistant/invoke", TEST_TOKEN, &body)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::FORBIDDEN, "{} must be gated", tool);
+            let json = body_json(res).await;
+            assert!(json["error"].as_str().unwrap().contains("Plugin actions"));
+            assert_eq!(*seen.lock().unwrap(), vec!["assistant.tools"], "{} must never reach the plugin", tool);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_plugin_actions_scope_unlocks_every_plugin_tool() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { plugin_actions: true, ..Default::default() });
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let router = build_router(assistant_state(dir.path().to_path_buf(), Arc::clone(&seen)));
+        let res = router
+            .oneshot(request_json("POST", "/v1/assistant/invoke", TEST_TOKEN, r#"{"pluginId":"spotify-browse","tool":"push_playlist"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        // With the scope on there is nothing to classify — no roster round trip.
+        assert_eq!(*seen.lock().unwrap(), vec!["assistant.invoke"]);
+    }
+
+    /// An unknown tool is forwarded so the dispatcher's "registers no tool"
+    /// answer (which lists the real ones) reaches the caller, not a 403.
+    #[tokio::test]
+    async fn test_unknown_plugin_tool_is_forwarded_not_forbidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let router = build_router(assistant_state(dir.path().to_path_buf(), Arc::clone(&seen)));
+        let res = router
+            .oneshot(request_json("POST", "/v1/assistant/invoke", TEST_TOKEN, r#"{"pluginId":"spotify-browse","tool":"nope"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(*seen.lock().unwrap(), vec!["assistant.tools", "assistant.invoke"]);
+    }
+
     /// One scope never unlocks another's routes.
     #[tokio::test]
     async fn test_scopes_do_not_cross_authorize() {
         let dir = tempfile::tempdir().unwrap();
-        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: false, downloads: false });
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, ..Default::default() });
         let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
         let res = router
             .oneshot(request_json("POST", "/v1/files/move", TEST_TOKEN, r#"{"moves":[{"trackId":1}]}"#))
@@ -1971,13 +2154,14 @@ mod tests {
     #[tokio::test]
     async fn test_health_reports_write_scopes() {
         let dir = tempfile::tempdir().unwrap();
-        grant_scopes(dir.path(), WriteScopes { modify_tags: true, manage_files: false, downloads: false });
+        grant_scopes(dir.path(), WriteScopes { modify_tags: true, ..Default::default() });
         let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
         let res = router.oneshot(request("GET", "/v1/health", Some(TEST_TOKEN))).await.unwrap();
         let json = body_json(res).await;
         assert_eq!(json["writeScopes"]["modifyTags"], json!(true));
         assert_eq!(json["writeScopes"]["manageFiles"], json!(false));
         assert_eq!(json["writeScopes"]["downloads"], json!(false));
+        assert_eq!(json["writeScopes"]["pluginActions"], json!(false));
     }
 
     /// Seed one local track whose file really exists under a temp collection

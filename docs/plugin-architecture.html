@@ -343,7 +343,7 @@
     <tbody>
       <tr><td>Entity information</td><td><code>get_entity_info</code></td><td><code>POST /v1/info/fetch</code></td><td><code>api.informationTypes.fetch</code></td><td><code>fetchInfoValue</code> → <code>fetchInfoThroughChain</code></td></tr>
       <tr><td>Catalog search</td><td><code>catalog_search</code></td><td><code>POST /v1/search/plugin</code></td><td><code>api.search.query</code></td><td><code>invokePluginSearch</code></td></tr>
-      <tr><td>Plugin tool</td><td><code>plugin_tools</code> (full tier)</td><td><code>POST /v1/assistant/invoke</code></td><td><code>api.assistant.invoke</code></td><td><code>invokeAssistantTool</code></td></tr>
+      <tr><td>Plugin tool</td><td><code>plugin_tools</code> / <code>&lt;pluginId&gt;__&lt;tool&gt;</code></td><td><code>POST /v1/assistant/invoke</code></td><td><code>api.assistant.invoke</code></td><td><code>invokeAssistantTool</code></td></tr>
       <tr><td>Installed plugins</td><td><code>manage_extensions</code></td><td><code>GET /v1/extensions</code></td><td><code>api.plugins.list</code></td><td><code>describePlugins</code> · <code>summarizeCapabilities</code></td></tr>
     </tbody>
   </table>

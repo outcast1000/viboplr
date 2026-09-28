@@ -146,7 +146,7 @@
       <text class="t-mono" x="110" y="219" text-anchor="middle">mcp/viboplr-mcp.mjs</text>
       <text class="t-muted" x="110" y="236" text-anchor="middle">Node · no dependencies</text>
       <text class="t-muted" x="110" y="252" text-anchor="middle">34 tools</text>
-      <text class="t-gate" x="110" y="269" text-anchor="middle">--tier=full shows 7 more</text>
+      <text class="t-gate" x="110" y="269" text-anchor="middle">+ plugins' own tools</text>
 
       <rect class="box" x="20" y="700" width="180" height="48" rx="6"/>
       <text class="t-title" x="110" y="720" text-anchor="middle">macOS / Windows</text>
@@ -332,7 +332,7 @@
     <tbody>
       <tr><td>User</td><td>React components → hooks</td><td>Already there. Calls Rust with <code>invoke</code>.</td><td>—</td></tr>
       <tr><td>Plugin</td><td><code>api</code> object from <code>buildAPI(id)</code>: 21 namespaces</td><td>Already there, since it runs in the same JS context. Calls Rust with <code>invoke(plugin_*)</code>.</td><td class="gate">No in-process sandbox. The curated gallery, the exec allow-list and path-traversal checks are the controls. Rust trusts the <code>pluginId</code> the webview sends.</td></tr>
-      <tr><td>AI assistant</td><td>MCP server (34 tools) → <code>/v1/*</code> (63 routes)</td><td>The <code>control-api-request</code> event, answered with <code>control_api_respond</code>, correlated by request id through a oneshot channel</td><td class="gate">Off by default. Bearer token (digest compare), no CORS, per-category write scopes in <code>assistant-permissions.json</code>. The MCP tier only hides tools; it does not change what the token allows.</td></tr>
+      <tr><td>AI assistant</td><td>MCP server (34 tools) → <code>/v1/*</code> (63 routes)</td><td>The <code>control-api-request</code> event, answered with <code>control_api_respond</code>, correlated by request id through a oneshot channel</td><td class="gate">Off by default. Bearer token (digest compare), no CORS, per-category scopes in <code>assistant-permissions.json</code> (file writes, downloads, and <em>Plugin actions</em> for anything that makes a plugin act &mdash; read-only plugin tools need none).</td></tr>
       <tr><td>OS deep link</td><td><code>lib.rs</code> (deep_link plugin, single-instance argv)</td><td>The <code>deep-link-received</code> event → router in <code>App.tsx</code></td><td class="gate"><code>probe</code> verbs only work in <code>perf</code> profiles. <code>viboplr://plugin/&lt;id&gt;</code> goes only to that plugin.</td></tr>
     </tbody>
   </table>

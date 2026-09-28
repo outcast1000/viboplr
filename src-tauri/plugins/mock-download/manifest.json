@@ -17,11 +17,13 @@
       "tools": [
         {
           "name": "search_catalog",
+          "readOnly": true,
           "description": "Search the fake 10-track catalog by title/artist substring",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] }
         },
         {
           "name": "get_state",
+          "readOnly": true,
           "description": "The mock provider's current simulation settings (fail/error rates, delay)"
         }
       ]

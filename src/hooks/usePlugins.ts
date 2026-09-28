@@ -53,6 +53,7 @@ import type {
   NowPlayingInfoResult,
   PluginSearchProvider,
   PluginAssistantTool,
+  PluginAssistantToolDescriptor,
   PluginVisualizer,
   PluginVisualizerDescriptor,
   PluginVisualizerRegistration,
@@ -1513,13 +1514,14 @@ export function usePlugins(
         },
 
         assistant: {
-          registerTool(descriptor: { name: string; description: string; inputSchema?: Record<string, unknown> }): () => void {
+          registerTool(descriptor: PluginAssistantToolDescriptor): () => void {
             const key = `${pluginId}:${descriptor.name}`;
             dynamicAssistantToolsRef.current.set(key, {
               pluginId,
               name: descriptor.name,
               description: descriptor.description,
               inputSchema: descriptor.inputSchema,
+              readOnly: descriptor.readOnly === true,
             });
             setAssistantVersion((v) => v + 1);
             const unsub = () => {
@@ -2447,6 +2449,7 @@ export function usePlugins(
                 name: tool.name,
                 description: tool.description,
                 inputSchema: tool.inputSchema,
+                readOnly: tool.readOnly === true,
               });
             }
             if (contrib.assistant.instructions) {

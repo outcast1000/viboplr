@@ -13,6 +13,7 @@
       "tools": [
         {
           "name": "search_album_art",
+          "readOnly": true,
           "description": "Search iTunes for album covers — returns up to `limit` candidates (album + artist + 600x600 url) instead of one auto-pick",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string", "description": "Album and/or artist keywords" }, "limit": { "type": "number", "description": "1-10, default 5" } }, "required": ["query"] }
         }

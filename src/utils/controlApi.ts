@@ -375,7 +375,7 @@ export function buildAssistantRoster(
   pluginId: string;
   name: string;
   instructions: string | null;
-  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null }>;
+  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> | null; readOnly: boolean }>;
 }> {
   const byPlugin = new Map<string, PluginAssistantTool[]>();
   for (const t of tools) {
@@ -392,6 +392,9 @@ export function buildAssistantRoster(
       name: t.name,
       description: t.description,
       inputSchema: t.inputSchema ?? null,
+      // Rust's /v1/assistant/invoke gate reads this: anything not exactly
+      // `true` needs the "Plugin actions" scope.
+      readOnly: t.readOnly === true,
     })),
   }));
 }

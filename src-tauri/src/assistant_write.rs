@@ -2,12 +2,17 @@
 //!
 //! The control API's bearer token authorizes *reading and driving* the app.
 //! Anything that changes the user's files or library metadata additionally
-//! requires a **write scope**, three booleans the user switches on in
+//! requires a **write scope**, booleans the user switches on in
 //! Settings → General → AI control:
 //!
-//! - `modify_tags`  — write tag/metadata edits into audio files
-//! - `manage_files` — create lyrics/cover files, move/rename tracks
-//! - `downloads`    — download a track's own source into a collection
+//! - `modify_tags`    — write tag/metadata edits into audio files
+//! - `manage_files`   — create lyrics/cover files, move/rename tracks
+//! - `downloads`      — download a track's own source into a collection
+//! - `plugin_actions` — make a plugin act: invoke a context-menu action,
+//!   deliver a deep link, or call an assistant tool the plugin did not
+//!   declare `readOnly` (read-only tools need no scope). Plugin code can do
+//!   anything the app can, so this is the gate that replaced the MCP
+//!   server's old `--tier=full` flag, which only hid tools from the model.
 //!
 //! Scopes live in `assistant-permissions.json` in the profile dir, owned and
 //! read by **Rust** (never the frontend store): the HTTP handlers re-read the
@@ -34,6 +39,7 @@ pub struct WriteScopes {
     pub modify_tags: bool,
     pub manage_files: bool,
     pub downloads: bool,
+    pub plugin_actions: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +47,7 @@ pub enum Scope {
     ModifyTags,
     ManageFiles,
     Downloads,
+    PluginActions,
 }
 
 impl Scope {
@@ -51,6 +58,7 @@ impl Scope {
             Scope::ModifyTags => "Modify tags",
             Scope::ManageFiles => "Manage files",
             Scope::Downloads => "Downloads",
+            Scope::PluginActions => "Plugin actions",
         }
     }
 }
@@ -61,6 +69,7 @@ impl WriteScopes {
             Scope::ModifyTags => self.modify_tags,
             Scope::ManageFiles => self.manage_files,
             Scope::Downloads => self.downloads,
+            Scope::PluginActions => self.plugin_actions,
         }
     }
 }
@@ -1052,6 +1061,21 @@ mod tests {
         assert!(!scopes.allows(Scope::ModifyTags));
         assert!(!scopes.allows(Scope::ManageFiles));
         assert!(!scopes.allows(Scope::Downloads));
+        assert!(!scopes.allows(Scope::PluginActions));
+    }
+
+    #[test]
+    fn test_scopes_file_without_plugin_actions_reads_it_as_off() {
+        // A permissions file written before the scope existed must not grant it.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(SCOPES_FILE),
+            r#"{"modifyTags":true,"manageFiles":true,"downloads":true}"#,
+        )
+        .unwrap();
+        let scopes = load_scopes(dir.path());
+        assert!(scopes.allows(Scope::Downloads));
+        assert!(!scopes.allows(Scope::PluginActions));
     }
 
     #[test]
@@ -1064,13 +1088,14 @@ mod tests {
     #[test]
     fn test_scopes_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
-        let scopes = WriteScopes { modify_tags: true, manage_files: false, downloads: true };
+        let scopes = WriteScopes { modify_tags: true, manage_files: false, downloads: true, plugin_actions: true };
         save_scopes(dir.path(), &scopes).unwrap();
         let loaded = load_scopes(dir.path());
         assert_eq!(loaded, scopes);
         assert!(loaded.allows(Scope::ModifyTags));
         assert!(!loaded.allows(Scope::ManageFiles));
         assert!(loaded.allows(Scope::Downloads));
+        assert!(loaded.allows(Scope::PluginActions));
     }
 
     #[test]

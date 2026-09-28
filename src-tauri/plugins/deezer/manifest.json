@@ -13,6 +13,7 @@
       "tools": [
         {
           "name": "search_art",
+          "readOnly": true,
           "description": "Search Deezer for artist portraits or album covers — returns up to `limit` candidates (name + image url) instead of one auto-pick",
           "inputSchema": { "type": "object", "properties": { "kind": { "type": "string", "enum": ["artist", "album"] }, "query": { "type": "string" }, "limit": { "type": "number", "description": "1-10, default 5" } }, "required": ["kind", "query"] }
         }

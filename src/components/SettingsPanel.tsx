@@ -648,6 +648,7 @@ interface AssistantScopes {
   modifyTags: boolean;
   manageFiles: boolean;
   downloads: boolean;
+  pluginActions: boolean;
 }
 
 const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; description: string }> = [
@@ -668,6 +669,12 @@ const ASSISTANT_SCOPE_ROWS: Array<{ key: keyof AssistantScopes; label: string; d
     label: "Download tracks",
     description:
       "Save a track's own server or web source into a local collection folder. Only the exact source — never a different copy found elsewhere.",
+  },
+  {
+    key: "pluginActions",
+    label: "Plugin actions",
+    description:
+      "Let the assistant make plugins act: run their menu actions, send them deep links, and call plugin tools that change things (for example start a Soulseek download). Plugin tools that only read — like listing your Spotify playlists — work without this.",
   },
 ];
 

@@ -383,6 +383,23 @@ describe("buildAssistantRoster", () => {
     expect(roster[1]).toMatchObject({ name: "spotify-browse", tools: [] });
     expect(roster[1].instructions).toContain("no callable tools");
   });
+
+  it("reports readOnly only when the plugin declared it — Rust gates on this", () => {
+    const roster = buildAssistantRoster(
+      [
+        { pluginId: "slskd", name: "search", description: "Search", readOnly: true },
+        { pluginId: "slskd", name: "download", description: "Download", readOnly: false },
+        { pluginId: "slskd", name: "legacy", description: "Declares nothing" },
+      ],
+      new Map(),
+      new Map(),
+    );
+    expect(roster[0].tools.map((t) => [t.name, t.readOnly])).toEqual([
+      ["search", true],
+      ["download", false],
+      ["legacy", false],
+    ]);
+  });
 });
 
 describe("annotateGalleryPlugins", () => {

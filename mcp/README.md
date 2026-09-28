@@ -53,52 +53,51 @@ pointer at the Settings toggle until it is, and the `launch_app` tool starts the
 installed app on request and waits for its API to answer (the toggle persists,
 so a launched app brings the API up on its own).
 
-## Tiers
+## Tools
 
-By default the server exposes the music surface: search/browse, playback and
-queue control, playlists, likes, tags, lyrics/info (incl. `search_info`, a
-substring search over the cached plugin info values — find a track by a lyric
-phrase, local file lyrics included), plugin catalogs
-(YouTube/Spotify/TIDAL search + play), plugin home shelves, collections
-(list + rescan — never add/remove), ad-hoc read-only SQL over the library
-database (`query_library` — writes and the credential tables are refused
-server-side), and the app
-version (`app_version` — with `checkLatest` it also reads the newest stable
-release from GitHub's `releases/latest` for `outcast1000/viboplr` and says
-whether the app is current; report-only, updates install from inside the app).
+Every tool is always listed: search/browse, playback and queue control,
+playlists, likes, tags, lyrics/info (incl. `search_info`, a substring search
+over the cached plugin info values — find a track by a lyric phrase, local file
+lyrics included), plugin catalogs (YouTube/Spotify/TIDAL search + play), plugin
+home shelves, collections (list + rescan — never add/remove), ad-hoc read-only
+SQL over the library database (`query_library` — writes and the credential
+tables are refused server-side), the app version (`app_version` — with
+`checkLatest` it also reads the newest stable release from GitHub's
+`releases/latest` for `outcast1000/viboplr` and says whether the app is
+current; report-only, updates install from inside the app), extension/skin
+management (per-plugin capability summaries, one plugin's full detail, and
+read-only gallery browsing for recommendations — install/delete stays a
+permanent non-goal), window control, log access, entity images, and the plugin
+surfaces: context-menu actions, deep links, and **plugin assistant tools**.
 
-`--tier=full` (or `VIBOPLR_MCP_TIER=full`) adds the power verbs: plugin
-context-menu actions, plugin deep links, plugin assistant tools (each plugin
-can publish its own AI tools + instructions — list and invoke them via
-`plugin_tools`; each one is also listed as its own tool named
-`<pluginId>__<tool>`, e.g. `spotify-browse__list_playlists`, so a model finds
-it by name instead of having to know `plugin_tools` exists — the roster is read
-from the running app, and when the app starts later the server announces the
-new tools with `notifications/tools/list_changed`), extension/skin management (per-plugin capability summaries,
-one plugin's full detail, and read-only gallery browsing for recommendations —
-install/delete stays a permanent non-goal), window control, and log access.
+Each plugin can publish its own AI tools + instructions. They are reachable
+through `plugin_tools` (list / invoke) and are also listed as their own tools
+named `<pluginId>__<tool>`, e.g. `spotify-browse__get_playlist_tracks`, so a
+model finds them by name instead of having to know `plugin_tools` exists. The
+roster is read from the running app; when the app starts later the server
+announces the new tools with `notifications/tools/list_changed`. A tool the
+plugin declared `readOnly` carries MCP's `readOnlyHint: true`; the others say
+in their description that they need the **Plugin actions** switch.
 
-```json
-"args": ["/path/to/viboplr/mcp/viboplr-mcp.mjs", "--tier=full"]
-```
+### Why there is no `--tier` flag any more
 
-The active tier is visible from inside a chat: the `app_version` tool reports
-it (`mcp.tier`, alongside the server's own version), and the server's
-initialize instructions declare it — so the model can explain *why* a power
-tool is missing and how to enable it, instead of just failing to find one.
+Earlier versions hid the "power" tools unless the client config passed
+`--tier=full`. It was meant to limit what an instruction injected through
+fetched web text (lyrics, bios, catalog results) could reach, but it gated by
+*client config* rather than by *consequence*: window control and log reads sat
+behind it, while every plugin tool — including pure reads like "list the
+tracks of my Daily Mix 1" — was unreachable without it. And because it lived
+in a hand-edited config, it silently differed between clients: the same
+question worked in one and dead-ended in the other.
 
-The default is deliberate: lyrics, bios and catalog results are untrusted web
-content that flows into the model's context, and the tier bounds what an
-injected instruction could reach. Turn on `full` per client, where you want it
-— e.g. full in Claude Code, default in Claude Desktop. Note the tier changes
-which tools the *model sees*, not what the token authorizes; it is an
-ergonomics/injection boundary, not an authorization one.
+What an assistant may *change* is now decided where the user can see it — the
+per-category switches below, enforced in Rust on every request. `--tier` is
+still accepted and ignored, so existing configs keep starting.
 
 ## Write permissions
 
-Five tools can change the user's files, and they sit **outside the tier
-system**: `write_file_tags` (tag/metadata edits written into the audio files —
-the app's canonical bulk edit), `manage_files` (lyrics/cover sidecar files;
+Five tools can change the user's files: `write_file_tags` (tag/metadata
+edits written into the audio files — the app's canonical bulk edit), `manage_files` (lyrics/cover sidecar files;
 two-step plan-then-apply moves/renames within a collection; the change log),
 `download_track` (a track's *own* subsonic/http source, as itself, into a
 local collection — never resolved through a download provider), and
@@ -112,12 +111,24 @@ keeping the library row; two-step: stage + compare, then confirm or discard;
 needs both the Downloads and Manage files switches, and the old file goes to
 the Trash).
 
-Their authorization is not the tier but **per-category switches in Viboplr →
-Settings → General → AI control**, all off by default, enforced in Rust on
+Their authorization is a **per-category switch in Viboplr → Settings →
+General → AI control**, all off by default, enforced in Rust on
 every request and re-read from disk each time (flipping a switch applies
 immediately; a missing/corrupt permissions file means *no*). A refused call is
-a 403 naming the switch. `app_version` reports the current switches
-(`writeScopes`), and every applied write is recorded in the app log as an
+a 403 naming the switch.
+
+A fourth switch, **Plugin actions**, covers the plugin surfaces, because a
+plugin's code can do anything the app can: invoking a context-menu action
+(`plugin_actions` invoke), delivering a deep link (`plugin_deep_link`), and
+calling any plugin tool **not** declared `readOnly` (a Soulseek download, a
+playlist push). Read-only plugin tools — lookups, searches, cached lists —
+always run. The classification is the plugin's own declaration (`readOnly` on
+the tool — see `.claude/rules/plugins.md` → Assistant Tools); a tool that
+declares nothing is treated as one that changes things. Listing actions and
+tools never needs the switch. Plugin-to-plugin calls (`api.assistant.invoke`)
+are not gated — the switch is about what the *assistant* may do.
+
+`app_version` reports the current switches (`writeScopes`), and every applied write is recorded in the app log as an
 `Assistant change [...]` line (the `logs` tool and problem reports, while
 logging is on).
 

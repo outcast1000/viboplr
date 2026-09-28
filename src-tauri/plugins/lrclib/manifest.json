@@ -14,6 +14,7 @@
       "tools": [
         {
           "name": "search_lyrics",
+          "readOnly": true,
           "description": "Free-text search of the LRCLIB catalog (title/artist keywords) — returns candidate tracks with whether synced lyrics exist. Use when an exact title+artist lookup came back empty",
           "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "limit": { "type": "number", "description": "1-20, default 10" } }, "required": ["query"] }
         }

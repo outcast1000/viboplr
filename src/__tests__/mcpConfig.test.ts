@@ -51,9 +51,9 @@ describe("buildMcpConfigSnippet", () => {
     expect(buildMcpCliCommand({ ...ok, scriptPath: null })).toBeNull();
   });
 
-  it("never emits --tier=full", () => {
-    // The default tier is the recommendation for a Desktop client; opting in
-    // is the user's call, not the button's.
+  it("never emits the retired --tier flag", () => {
+    // The server lists every tool and ignores --tier; what an assistant may
+    // change is the app's AI-control switches, not a client-config flag.
     expect(buildMcpConfigSnippet(ok)).not.toContain("tier");
   });
 
