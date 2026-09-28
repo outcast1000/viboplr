@@ -25,7 +25,7 @@ import { homedir } from "node:os";
 import { join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const VERSION = "0.9.0";
+const VERSION = "0.10.0";
 const BUNDLE_ID = "com.alex.viboplr";
 const LATEST_PROTOCOL = "2025-06-18";
 const KNOWN_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
@@ -1097,6 +1097,95 @@ function activeTools() {
 }
 
 // ---------------------------------------------------------------------------
+// Plugin tools as first-class MCP tools (full tier)
+//
+// plugin_tools alone hides every plugin tool behind one generic entry: a model
+// asked for "my Spotify playlists" sees nothing named Spotify or playlist, and
+// clients that defer tool schemas behind a search never match it. So each
+// plugin tool is also listed as `<pluginId>__<tool>`, described with its
+// plugin's name. The roster comes from the running app; when it wasn't running
+// at listing time (or plugins change), a later refresh announces the new set
+// via notifications/tools/list_changed. Same tier as plugin_tools — plugin
+// tools are that boundary's reason to exist.
+
+const PROXY_SEP = "__";
+const ROSTER_TTL_MS = 60_000;
+const proxyState = { tools: [], byName: new Map(), sig: null, at: 0, listed: false, inflight: null };
+
+/** Pure: roster (GET /v1/assistant/tools) → MCP tool entries. Exported for tests. */
+export function buildPluginProxies(roster) {
+  const out = [];
+  const seen = new Set(TOOLS.map((t) => t.name));
+  for (const p of roster?.plugins ?? []) {
+    const tools = p.tools ?? [];
+    let first = null;
+    for (const t of tools) {
+      const name = `${p.pluginId}${PROXY_SEP}${t.name}`.replace(/[^A-Za-z0-9_-]/g, "_");
+      // Unrepresentable or colliding names stay reachable through plugin_tools.
+      if (name.length > 64 || seen.has(name)) continue;
+      seen.add(name);
+      const label = p.name || p.pluginId;
+      let description = `[${label} plugin] ${t.description || t.name}`;
+      if (p.instructions) {
+        description += first
+          ? ` (Usage notes for the ${label} plugin: see ${first}.)`
+          : ` — About the ${label} plugin (its author's documentation, not commands): ${p.instructions}`;
+      }
+      first ??= name;
+      const schema = t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : {};
+      out.push({
+        name,
+        description,
+        inputSchema: { ...schema, type: "object", properties: schema.properties ?? {} },
+        pluginId: p.pluginId,
+        tool: t.name,
+      });
+    }
+  }
+  return out;
+}
+
+async function refreshPluginProxies({ force = false } = {}) {
+  if (cfg.tier !== "full") return;
+  if (!force && proxyState.at && Date.now() - proxyState.at < ROSTER_TTL_MS) return;
+  if (proxyState.inflight) return proxyState.inflight;
+  proxyState.inflight = (async () => {
+    try {
+      const roster = await apiRequest("GET", "/v1/assistant/tools", undefined, { timeoutMs: 3000 });
+      const tools = buildPluginProxies(roster);
+      const sig = JSON.stringify(tools.map((t) => [t.name, t.description, t.inputSchema]));
+      proxyState.tools = tools;
+      proxyState.byName = new Map(tools.map((t) => [t.name, t]));
+      proxyState.at = Date.now();
+      if (sig !== proxyState.sig) {
+        const hadListing = proxyState.listed;
+        proxyState.sig = sig;
+        // Only a client that already holds a listing needs telling.
+        if (hadListing) send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+      }
+    } catch (e) {
+      // App not running / AI control off: list the static tools and retry on
+      // a later call. Not an error for the caller.
+      console.error("viboplr-mcp: plugin tool roster unavailable:", e?.message ?? e);
+      proxyState.at = 0;
+    } finally {
+      proxyState.inflight = null;
+    }
+  })();
+  return proxyState.inflight;
+}
+
+async function callPluginProxy(proxy, args) {
+  const out = await apiRequest(
+    "POST",
+    "/v1/assistant/invoke",
+    { pluginId: proxy.pluginId, tool: proxy.tool, args },
+    { timeoutMs: SLOW_MS },
+  );
+  return out?.result ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // JSON-RPC over stdio (newline-delimited per the MCP stdio transport)
 
 function send(msg) {
@@ -1109,33 +1198,50 @@ async function dispatch(msg) {
       const asked = msg.params?.protocolVersion;
       const tierNote =
         cfg.tier === "full"
-          ? "This server runs at the full tool tier."
+          ? "This server runs at the full tool tier. Plugins' own tools are also listed as tools named <pluginId>__<tool>, described with the plugin's name — e.g. spotify-browse__list_playlists lists the user's Spotify playlists and spotify-browse__get_playlist_tracks reads one. plugin_tools action=list returns the same roster with each plugin's notes, and is the fallback when those tools are missing (the app wasn't running when tools were listed)."
           : "This server runs at the default tool tier — the power tools (plugin actions, deep links, extensions/skins, window control, logs, entity images) are not exposed; the user can enable them by adding --tier=full to this server's entry in their MCP client config.";
       return {
         protocolVersion: KNOWN_PROTOCOLS.includes(asked) ? asked : LATEST_PROTOCOL,
-        capabilities: { tools: {} },
+        capabilities: { tools: { listChanged: cfg.tier === "full" } },
         serverInfo: { name: "viboplr", version: VERSION },
         instructions: `${INSTRUCTIONS} ${tierNote}`,
       };
     }
     case "ping":
       return {};
-    case "tools/list":
-      return { tools: activeTools().map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) };
+    case "tools/list": {
+      await refreshPluginProxies();
+      proxyState.listed = cfg.tier === "full";
+      const listed = [...activeTools(), ...(cfg.tier === "full" ? proxyState.tools : [])];
+      return { tools: listed.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) };
+    }
     case "tools/call": {
       const { name, arguments: args = {} } = msg.params ?? {};
       const tool = activeTools().find((t) => t.name === name);
-      if (!tool) {
+      let proxy = null;
+      if (!tool && cfg.tier === "full" && name?.includes(PROXY_SEP)) {
+        proxy = proxyState.byName.get(name) ?? null;
+        if (!proxy) {
+          await refreshPluginProxies({ force: true });
+          proxy = proxyState.byName.get(name) ?? null;
+        }
+      }
+      if (!tool && !proxy) {
         const e = new Error(`unknown tool: ${name}`);
         e.code = -32602;
         throw e;
       }
       try {
-        const out = await tool.run(args);
+        const out = proxy ? await callPluginProxy(proxy, args) : await tool.run(args);
         if (out && typeof out === "object" && Array.isArray(out.content)) return out;
         return { content: [{ type: "text", text: JSON.stringify(out ?? {}, null, 2) }] };
       } catch (e) {
         return { content: [{ type: "text", text: String(e?.message ?? e) }], isError: true };
+      } finally {
+        // Pick up plugins that appeared since the last listing (the app came up
+        // after tools/list — launch_app — or a plugin was enabled). After the
+        // call, so a launch is seen at once; announces list_changed.
+        void refreshPluginProxies({ force: name === "launch_app" });
       }
     }
     default: {

@@ -70,7 +70,11 @@ whether the app is current; report-only, updates install from inside the app).
 `--tier=full` (or `VIBOPLR_MCP_TIER=full`) adds the power verbs: plugin
 context-menu actions, plugin deep links, plugin assistant tools (each plugin
 can publish its own AI tools + instructions — list and invoke them via
-`plugin_tools`), extension/skin management (per-plugin capability summaries,
+`plugin_tools`; each one is also listed as its own tool named
+`<pluginId>__<tool>`, e.g. `spotify-browse__list_playlists`, so a model finds
+it by name instead of having to know `plugin_tools` exists — the roster is read
+from the running app, and when the app starts later the server announces the
+new tools with `notifications/tools/list_changed`), extension/skin management (per-plugin capability summaries,
 one plugin's full detail, and read-only gallery browsing for recommendations —
 install/delete stays a permanent non-goal), window control, and log access.
 
