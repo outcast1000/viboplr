@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no type declarations
-import { TOOLS, parseCliArgs, versionCmp, launchCommands } from "../../mcp/viboplr-mcp.mjs";
+import { TOOLS, buildPluginProxies, parseCliArgs, versionCmp, launchCommands } from "../../mcp/viboplr-mcp.mjs";
 
 // The MCP server is the one satellite that talks to the control API on the
 // user's behalf from clients we don't control, so the protocol handshake, the
@@ -634,7 +634,37 @@ describe("MCP server at --tier=full", () => {
     const res = await rpc.request("tools/list");
     const names = (res.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
     for (const full of FULL_ONLY) expect(names).toContain(full);
-    expect(names.length).toBe(TOOLS.length);
+    // Every static tool, plus one first-class entry per plugin tool.
+    expect(names.length).toBe(TOOLS.length + 1);
+  });
+
+  it("lists each plugin tool as its own named tool and routes calls to it", async () => {
+    const res = await rpc.request("tools/list");
+    const tools = (res.result as { tools: Array<{ name: string; description: string; inputSchema: { type: string } }> }).tools;
+    const proxy = tools.find((t) => t.name === "mock-download__search_catalog");
+    expect(proxy).toBeDefined();
+    // Named after the plugin, so a model (or a deferred-tool search) can find it.
+    expect(proxy!.description).toContain("[Mock Download plugin] Search the fake catalog");
+    expect(proxy!.description).toContain("Mock provider for testing.");
+    expect(proxy!.inputSchema.type).toBe("object");
+
+    const before = api.seen.filter((r) => r.url === "/v1/assistant/invoke").length;
+    const called = await rpc.request("tools/call", {
+      name: "mock-download__search_catalog",
+      arguments: { query: "fugazi" },
+    });
+    // The tool's own return value, not plugin_tools' { result } envelope.
+    expect(JSON.parse(toolText(called.result)).matches[0].id).toBe("mock-7");
+    const posts = api.seen.filter((r) => r.url === "/v1/assistant/invoke");
+    expect(posts.length).toBe(before + 1);
+    expect(JSON.parse(posts[posts.length - 1].body!)).toEqual({
+      pluginId: "mock-download",
+      tool: "search_catalog",
+      args: { query: "fugazi" },
+    });
+
+    const unknown = await rpc.request("tools/call", { name: "mock-download__nope", arguments: {} });
+    expect(unknown.error?.code).toBe(-32602);
   });
 
   it("reports tier full in app_version and the instructions", async () => {
@@ -662,7 +692,7 @@ describe("MCP server at --tier=full", () => {
       arguments: { action: "invoke", pluginId: "mock-download", tool: "search_catalog", args: { query: "nirvana" } },
     });
     expect(JSON.parse(toolText(invoked.result)).result.matches[0].id).toBe("mock-7");
-    const posted = api.seen.find((r) => r.method === "POST" && r.url === "/v1/assistant/invoke");
+    const posted = api.seen.filter((r) => r.method === "POST" && r.url === "/v1/assistant/invoke").at(-1);
     expect(JSON.parse(posted!.body!)).toEqual({
       pluginId: "mock-download",
       tool: "search_catalog",
@@ -699,6 +729,93 @@ describe("MCP server at --tier=full", () => {
       arguments: { action: "get" },
     });
     expect((missing.result as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+describe("plugin tool proxies (pure)", () => {
+  it("names tools <pluginId>__<tool>, labels them with the plugin, and states usage notes once", () => {
+    const proxies = buildPluginProxies({
+      plugins: [
+        {
+          pluginId: "spotify-browse",
+          name: "Spotify",
+          instructions: "Browse the scraped home.",
+          tools: [
+            { name: "status", description: "Sync state", inputSchema: null },
+            {
+              name: "list_playlists",
+              description: "The scraped playlists",
+              inputSchema: { type: "object", properties: { section: { type: "string" } } },
+            },
+          ],
+        },
+        { pluginId: "audiodb", name: "TheAudioDB", instructions: "Portraits.", tools: [] },
+      ],
+    });
+    expect(proxies.map((p: { name: string }) => p.name)).toEqual(["spotify-browse__status", "spotify-browse__list_playlists"]);
+    expect(proxies[0].description).toContain("[Spotify plugin] Sync state");
+    expect(proxies[0].description).toContain("Browse the scraped home.");
+    // The prose rides on the first tool only; the rest point at it.
+    expect(proxies[1].description).not.toContain("Browse the scraped home.");
+    expect(proxies[1].description).toContain("see spotify-browse__status");
+    expect(proxies[1].inputSchema.properties.section.type).toBe("string");
+    // A null schema still yields a valid MCP input schema.
+    expect(proxies[0].inputSchema).toEqual({ type: "object", properties: {} });
+    expect(proxies[1]).toMatchObject({ pluginId: "spotify-browse", tool: "list_playlists" });
+  });
+
+  it("sanitizes names and skips ones MCP can't represent or that collide", () => {
+    const proxies = buildPluginProxies({
+      plugins: [
+        {
+          pluginId: "my.plugin",
+          name: "Mine",
+          tools: [
+            { name: "do thing", description: "d" },
+            { name: "x".repeat(70), description: "too long" },
+          ],
+        },
+      ],
+    });
+    expect(proxies.map((p: { name: string }) => p.name)).toEqual(["my_plugin__do_thing"]);
+    expect(buildPluginProxies(null)).toEqual([]);
+  });
+});
+
+describe("plugin tools when the app starts after tools/list", () => {
+  it("lists only static tools, then announces list_changed once the roster is reachable", async () => {
+    const api = await startFakeApi();
+    const dir = writeDiscovery(1); // nothing listens yet — the app isn't running
+    const rpc = startServer(dir, ["--tier=full"]);
+    try {
+      const init = await rpc.request("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "test", version: "0" },
+      });
+      expect((init.result as { capabilities: { tools: { listChanged: boolean } } }).capabilities.tools.listChanged).toBe(true);
+
+      const first = await rpc.request("tools/list");
+      const firstNames = (first.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+      expect(firstNames.length).toBe(TOOLS.length);
+      expect(rpc.rawStdout()).not.toContain("notifications/tools/list_changed");
+
+      // The app comes up (same discovery file the server re-reads per request).
+      writeFileSync(
+        join(dir, "default", "control-api.json"),
+        JSON.stringify({ port: api.port, token: TEST_TOKEN, profile: "default", pid: 1, startedAt: "now" }),
+      );
+      await rpc.request("tools/call", { name: "get_status", arguments: {} });
+      for (let i = 0; i < 50 && !rpc.rawStdout().includes("list_changed"); i++) await new Promise((r) => setTimeout(r, 20));
+      expect(rpc.rawStdout()).toContain("notifications/tools/list_changed");
+
+      const second = await rpc.request("tools/list");
+      const secondNames = (second.result as { tools: Array<{ name: string }> }).tools.map((t) => t.name);
+      expect(secondNames).toContain("mock-download__search_catalog");
+    } finally {
+      rpc.kill();
+      api.close();
+    }
   });
 });
 
