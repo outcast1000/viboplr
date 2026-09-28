@@ -594,6 +594,57 @@ pub struct LandTags {
     pub cover_url: Option<String>,
 }
 
+/// Fetch or move a download's bytes into `temp` (a hidden name beside their
+/// destination). A local source is MOVED — a plugin's temp output shouldn't
+/// linger — falling back to copy + remove across volumes.
+fn fetch_into(source: &DownloadSource, temp: &Path) -> Result<(), String> {
+    match source {
+        DownloadSource::Url(url, headers) => {
+            if let Err(e) = crate::downloader::download_file(url, headers.as_ref(), temp, None, None) {
+                let _ = std::fs::remove_file(temp);
+                return Err(format!("download failed: {}", e));
+            }
+        }
+        DownloadSource::LocalFile(path) => {
+            if !path.is_file() {
+                return Err(format!("resolved file {} does not exist", path.display()));
+            }
+            // Same-volume rename first; a plugin's temp dir can sit on another
+            // volume, where rename fails and a copy is the only way over.
+            if std::fs::rename(path, temp).is_err() {
+                std::fs::copy(path, temp).map_err(|e| {
+                    let _ = std::fs::remove_file(temp);
+                    format!("failed to copy resolved file into the collection: {}", e)
+                })?;
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Settle a fetched file's extension: the hint (or the local source's own),
+/// else sniff the bytes, else mp3.
+fn settle_ext(named_ext: String, source: &DownloadSource, temp: &Path) -> String {
+    let file_ext = if named_ext.is_empty() {
+        if let DownloadSource::LocalFile(path) = source {
+            path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
+        } else {
+            String::new()
+        }
+    } else {
+        named_ext
+    };
+    if !file_ext.is_empty() {
+        return file_ext;
+    }
+    let mut head = [0u8; 16];
+    let read = std::fs::File::open(temp)
+        .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
+        .unwrap_or(0);
+    sniff_audio_ext(&head[..read]).unwrap_or("mp3").to_string()
+}
+
 /// Land one download into a local collection: validate the destination
 /// (root-relative, symlink-checked), fetch/move the bytes, name the file
 /// `Artist - Title.ext`, refuse conflicts outright, and index the result so it
@@ -632,49 +683,8 @@ pub fn land_download(
 
     std::fs::create_dir_all(&dest_dir).map_err(|e| format!("failed to create {}: {}", dest_dir.display(), e))?;
     let temp = dest_dir.join(format!(".viboplr-dl-{}.tmp", std::process::id()));
-    match &source {
-        DownloadSource::Url(url, headers) => {
-            if let Err(e) = crate::downloader::download_file(url, headers.as_ref(), &temp, None, None) {
-                let _ = std::fs::remove_file(&temp);
-                return Err(format!("download failed: {}", e));
-            }
-        }
-        DownloadSource::LocalFile(path) => {
-            if !path.is_file() {
-                return Err(format!("resolved file {} does not exist", path.display()));
-            }
-            // Same-volume rename first; a plugin's temp dir can sit on another
-            // volume, where rename fails and a copy is the only way over.
-            if std::fs::rename(path, &temp).is_err() {
-                std::fs::copy(path, &temp).map_err(|e| {
-                    let _ = std::fs::remove_file(&temp);
-                    format!("failed to copy resolved file into the collection: {}", e)
-                })?;
-                let _ = std::fs::remove_file(path);
-            }
-        }
-    }
-
-    // Settle the extension: the hint (or the local file's own), else sniff the
-    // bytes, else mp3.
-    let file_ext = if named_ext.is_empty() {
-        if let DownloadSource::LocalFile(path) = &source {
-            path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
-        } else {
-            String::new()
-        }
-    } else {
-        named_ext
-    };
-    let final_ext = if file_ext.is_empty() {
-        let mut head = [0u8; 16];
-        let read = std::fs::File::open(&temp)
-            .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
-            .unwrap_or(0);
-        sniff_audio_ext(&head[..read]).unwrap_or("mp3").to_string()
-    } else {
-        file_ext
-    };
+    fetch_into(&source, &temp)?;
+    let final_ext = settle_ext(named_ext, &source, &temp);
     let filename = crate::downloader::download_filename(artist, title, &final_ext);
     let dest = dest_dir.join(&filename);
     if dest.exists() {
@@ -715,6 +725,279 @@ pub fn land_download(
         "libraryTrackId": new_id,
         "indexed": new_id.is_some(),
     }))
+}
+
+// --- Replace a track's file ---
+//
+// Two phases, never one: `stage_replacement` puts the new bytes beside the
+// track's file and reports old-vs-new quality; nothing changes until
+// `confirm_replacement` names that stage. The pause is the consent step — the
+// assistant shows the user the comparison (the in-app upgrade modal's compare
+// screen, headless). Staged files end in `.viboplr-replace`, which is no media
+// extension, so a rescan meanwhile can never index one.
+
+pub const STAGE_SUFFIX: &str = ".viboplr-replace";
+
+/// The replaceable track: its local file, and the local collection it lives in
+/// (a replace updates the row in place, so the root is needed for the path).
+struct ReplaceTarget {
+    track: crate::models::Track,
+    old: PathBuf,
+    root: String,
+    collection_id: i64,
+}
+
+fn replace_target(db: &Database, track_id: i64) -> Result<ReplaceTarget, String> {
+    let track = db.get_track_by_id(track_id).map_err(|e| format!("track {}: {}", track_id, e))?;
+    let old = local_file_of(&track)?;
+    let Some(collection_id) = track.collection_id else {
+        return Err(format!("track {} belongs to no collection", track_id));
+    };
+    let collection = db.get_collection_by_id(collection_id).map_err(|e| e.to_string())?;
+    if collection.kind != "local" {
+        return Err(format!("track {} is in a {} collection — only local files can be replaced", track_id, collection.kind));
+    }
+    let Some(root) = collection.path.clone() else {
+        return Err(format!("collection \"{}\" has no root path", collection.name));
+    };
+    if old.strip_prefix(&root).is_err() {
+        return Err(format!("track {} sits outside its collection root {}", track_id, root));
+    }
+    Ok(ReplaceTarget { track, old, root, collection_id })
+}
+
+/// `<token>.<ext>`: a hex token (so a re-stage gets a different id and a stale
+/// confirm can't swap in the wrong bytes) plus the new file's extension.
+fn parse_stage_id(stage_id: &str) -> Result<String, String> {
+    let bad = || format!("invalid stageId \"{}\" — use the stageId the stage call returned", stage_id);
+    let (token, ext) = stage_id.split_once('.').ok_or_else(bad)?;
+    let token_ok = (6..=24).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_hexdigit());
+    let ext_ok = (1..=5).contains(&ext.len()) && ext.bytes().all(|b| b.is_ascii_alphanumeric());
+    if !token_ok || !ext_ok {
+        return Err(bad());
+    }
+    Ok(ext.to_ascii_lowercase())
+}
+
+/// Where a stage lives: beside the track's file, named after its stem. Only
+/// ever computed from the track + a validated id — the caller never names a
+/// path, so confirm/discard can't reach any other file.
+fn staged_path(old: &Path, stage_id: &str) -> Result<PathBuf, String> {
+    parse_stage_id(stage_id)?;
+    let stem = old.file_stem().and_then(|s| s.to_str()).ok_or("track file has no name")?;
+    let parent = old.parent().ok_or("track file has no parent directory")?;
+    Ok(parent.join(format!("{}.{}{}", stem, stage_id, STAGE_SUFFIX)))
+}
+
+/// A file's audio quality, for the old-vs-new comparison. The format is passed
+/// in because a staged file's own name ends in `.viboplr-replace`; lofty
+/// sniffs the container from the bytes.
+pub fn audio_quality(path: &Path, format: &str) -> Value {
+    use lofty::prelude::*;
+    let file_size = std::fs::metadata(path).map(|m| m.len()).ok();
+    let props = lofty::probe::Probe::open(path)
+        .ok()
+        .and_then(|p| p.guess_file_type().ok())
+        .and_then(|p| p.read().ok())
+        .map(|f| f.properties().clone());
+    serde_json::json!({
+        "format": format,
+        "fileSize": file_size,
+        "durationSecs": props.as_ref().map(|p| p.duration().as_secs_f64()).filter(|d| *d > 0.0),
+        "bitrateKbps": props.as_ref().and_then(|p| p.audio_bitrate()),
+        "sampleRate": props.as_ref().and_then(|p| p.sample_rate()),
+        "bitDepth": props.as_ref().and_then(|p| p.bit_depth()),
+        "channels": props.as_ref().and_then(|p| p.channels()),
+    })
+}
+
+fn stage_token() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{:012x}", (nanos as u64) & 0xffff_ffff_ffff)
+}
+
+fn ext_of(path: &Path) -> String {
+    path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
+}
+
+/// Phase one: fetch/move the new bytes next to the track's file and report
+/// both files' quality. Touches nothing else — the library row, the old file
+/// and the tags all wait for `confirm_replacement`.
+pub fn stage_replacement(db: &Database, track_id: i64, ext_hint: &str, source: DownloadSource) -> Result<Value, String> {
+    let target = replace_target(db, track_id)?;
+    let named_ext = match ext_hint {
+        "auto" | "" => String::new(),
+        e => e.trim_start_matches('.').to_ascii_lowercase(),
+    };
+    let parent = target.old.parent().ok_or("track file has no parent directory")?;
+    let temp = parent.join(format!(".viboplr-stage-{}.tmp", std::process::id()));
+    fetch_into(&source, &temp)?;
+    let ext = settle_ext(named_ext, &source, &temp);
+    let stage_id = format!("{}.{}", stage_token(), ext);
+    let staged = match staged_path(&target.old, &stage_id) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp);
+            return Err(e);
+        }
+    };
+    std::fs::rename(&temp, &staged).map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        format!("failed to stage the replacement: {}", e)
+    })?;
+    Ok(serde_json::json!({
+        "staged": true,
+        "stageId": stage_id,
+        "trackId": track_id,
+        "title": target.track.title,
+        "artistName": target.track.artist_name,
+        "albumTitle": target.track.album_title,
+        "current": audio_quality(&target.old, &ext_of(&target.old)),
+        "replacement": audio_quality(&staged, &ext),
+        "note": "nothing was replaced yet — show the user current vs replacement, then re-send with stageId + confirm=true to swap it in (the old file goes to the Trash), or discard=true to throw the staged file away",
+    }))
+}
+
+/// Phase two: swap the staged file in under the SAME library row (id, DB-only
+/// tags, likes, playlists and history all survive), send the old file away via
+/// `displace` (production: `trash_replaced`), and re-read the file.
+/// `keep_library_tags` first writes the row's own title/artist/album/album
+/// artist/track/year into the new file, so the swap can't re-file the track
+/// under whatever spelling the new copy carried.
+pub fn confirm_replacement(
+    db: &Arc<Database>,
+    track_id: i64,
+    stage_id: &str,
+    keep_library_tags: bool,
+    displace: &dyn Fn(&Path) -> Result<(), String>,
+) -> Result<Value, String> {
+    let target = replace_target(db, track_id)?;
+    let staged = staged_path(&target.old, stage_id)?;
+    if !staged.is_file() {
+        return Err("no staged replacement with that stageId for this track (discarded, already confirmed, or never staged) — stage again".to_string());
+    }
+    let ext = parse_stage_id(stage_id)?;
+    let final_path = target.old.with_extension(&ext);
+    let same_path = final_path == target.old;
+    if !same_path && final_path.exists() {
+        return Err(format!(
+            "{} already exists — a replace never overwrites a different file; discard this stage or move that file first",
+            final_path.display()
+        ));
+    }
+    let previous = audio_quality(&target.old, &ext_of(&target.old));
+
+    // Old file out of the way, new one in. Same name: the old must leave
+    // first, and a failed rename then says where it went. Different name: the
+    // new one lands first, so a failed trash leaves both copies, never neither.
+    let mut old_note: Option<String> = None;
+    if same_path {
+        displace(&target.old)?;
+        std::fs::rename(&staged, &final_path).map_err(|e| {
+            format!("the old file was moved to the Trash but the replacement couldn't be moved into place ({}) — restore it from the Trash", e)
+        })?;
+    } else {
+        std::fs::rename(&staged, &final_path).map_err(|e| format!("failed to move the replacement into place: {}", e))?;
+        if let Err(e) = displace(&target.old) {
+            log::warn!("Replace kept the old file {}: {}", target.old.display(), e);
+            old_note = Some(format!("the old file is still on disk: {}", e));
+        }
+    }
+
+    if keep_library_tags {
+        if let Err(e) = write_library_identity(&final_path, &target.track) {
+            log::warn!("Replace: couldn't write library tags into {}: {}", final_path.display(), e);
+        }
+    }
+
+    let rel = final_path
+        .strip_prefix(Path::new(&target.root))
+        .map(rel_to_string)
+        .map_err(|_| "replacement landed outside the collection root".to_string())?;
+    if !same_path {
+        db.update_track_path(track_id, &rel)
+            .map_err(|e| format!("file replaced but the library row wasn't updated: {}", e))?;
+    }
+    let row = crate::scanner::reprocess_media_file(db, &final_path, Some(target.collection_id), Some(target.root.as_str()));
+    if let Some(id) = row {
+        if let Err(e) = db.refresh_track_after_ingest(id) {
+            log::error!("Failed to refresh track {} after replace: {}", id, e);
+        }
+    }
+    // The re-read may have moved the track to another artist/album (when the
+    // file's own tags were kept); drop the old ones if it was their last track.
+    if let Err(e) = db.recount_and_prune_entities(target.track.artist_id, target.track.album_id) {
+        log::error!("Failed to recount entities after replace: {}", e);
+    }
+
+    Ok(serde_json::json!({
+        "replaced": true,
+        "trackId": row.unwrap_or(track_id),
+        "path": final_path.to_string_lossy(),
+        "previousPath": target.old.to_string_lossy(),
+        "previous": previous,
+        "current": audio_quality(&final_path, &ext),
+        "oldFile": old_note.unwrap_or_else(|| "moved to the Trash".to_string()),
+        "note": if same_path {
+            "same file name — queue entries keep working"
+        } else {
+            "the file extension changed: live queue entries and .m3u playlist files still hold the old path; library playlists (by id) follow automatically"
+        },
+    }))
+}
+
+/// Throw a stage away. Idempotent: an already-gone stage is not an error.
+pub fn discard_replacement(db: &Database, track_id: i64, stage_id: &str) -> Result<Value, String> {
+    let target = replace_target(db, track_id)?;
+    let staged = staged_path(&target.old, stage_id)?;
+    let existed = staged.is_file();
+    if existed {
+        std::fs::remove_file(&staged).map_err(|e| format!("failed to remove the staged file: {}", e))?;
+    }
+    Ok(serde_json::json!({ "discarded": existed, "trackId": track_id, "stageId": stage_id }))
+}
+
+/// Write a library row's identity into a file's primary tag, leaving every
+/// other field (art, lyrics, ReplayGain the file brought) as the file has it.
+fn write_library_identity(path: &Path, track: &crate::models::Track) -> Result<(), String> {
+    use lofty::config::WriteOptions;
+    use lofty::prelude::*;
+    use lofty::tag::items::Timestamp;
+    use lofty::tag::{ItemKey, Tag};
+    let mut file = lofty::probe::Probe::open(path)
+        .and_then(|p| p.read())
+        .map_err(|e| e.to_string())?;
+    let tag_type = file.primary_tag_type();
+    if file.tag(tag_type).is_none() {
+        file.insert_tag(Tag::new(tag_type));
+    }
+    let tag = file.tag_mut(tag_type).ok_or("no writable tag")?;
+    tag.set_title(track.title.clone());
+    if let Some(a) = &track.artist_name {
+        tag.set_artist(a.clone());
+    }
+    if let Some(a) = &track.album_title {
+        tag.set_album(a.clone());
+    }
+    if let Some(aa) = track.album_artist_name.as_ref().filter(|aa| Some(*aa) != track.artist_name.as_ref()) {
+        tag.insert_text(ItemKey::AlbumArtist, aa.clone());
+    }
+    if let Some(n) = track.track_number.filter(|n| *n > 0) {
+        tag.set_track(n as u32);
+    }
+    if let Some(y) = track.year {
+        tag.set_date(Timestamp { year: y as u16, month: None, day: None, hour: None, minute: None, second: None });
+    }
+    tag.save_to_path(path, WriteOptions::default()).map_err(|e| e.to_string())
+}
+
+/// Production displacement for a confirmed replace: Trash locally, plain
+/// remove on network shares (no recycle bin there).
+pub fn trash_replaced(path: &Path) -> Result<(), String> {
+    displace_existing(path)
 }
 
 /// Download a track's *own* source — `subsonic://` or a direct `http(s)://`
@@ -1016,6 +1299,113 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("never overwrite"));
+    }
+
+    // --- Replace ---
+
+    /// Stand-in for the Trash: tests must not litter the real one.
+    fn remove_instead_of_trash(p: &Path) -> Result<(), String> {
+        std::fs::remove_file(p).map_err(|e| e.to_string())
+    }
+
+    fn resolved_file(bytes: &[u8], name: &str) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(name);
+        std::fs::write(&path, bytes).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn test_stage_parks_bytes_beside_the_file_and_changes_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let (db, track_id, _) = seed_local(root.path());
+        let (_src_dir, src) = resolved_file(b"fLaCstagedbytes!", "download.flac");
+
+        let out = stage_replacement(&db, track_id, "", DownloadSource::LocalFile(src.clone())).unwrap();
+        let stage_id = out["stageId"].as_str().unwrap().to_string();
+        assert!(stage_id.ends_with(".flac"), "stageId carries the new extension: {}", stage_id);
+        assert_eq!(out["current"]["format"], json!("mp3"));
+        assert_eq!(out["replacement"]["format"], json!("flac"));
+        assert!(!src.exists(), "a resolved local file is moved, not copied");
+        // The stage sits beside the file under a non-media name; the original
+        // and the row are untouched.
+        let staged = root.path().join(format!("a.{}{}", stage_id, STAGE_SUFFIX));
+        assert!(staged.is_file());
+        assert!(!crate::scanner::is_media_file(&staged), "a rescan must never index a stage");
+        assert_eq!(std::fs::read(root.path().join("a.mp3")).unwrap(), b"x");
+        assert!(db.get_track_by_id(track_id).unwrap().path.ends_with("a.mp3"));
+    }
+
+    #[test]
+    fn test_confirm_with_a_new_extension_keeps_the_row_and_removes_the_old_file() {
+        let root = tempfile::tempdir().unwrap();
+        let (db, track_id, _) = seed_local(root.path());
+        let db = Arc::new(db);
+        let (_d, src) = resolved_file(b"fLaCstagedbytes!", "download.flac");
+        let staged = stage_replacement(&db, track_id, "", DownloadSource::LocalFile(src)).unwrap();
+        let stage_id = staged["stageId"].as_str().unwrap();
+
+        let out = confirm_replacement(&db, track_id, stage_id, true, &remove_instead_of_trash).unwrap();
+        assert_eq!(out["replaced"], json!(true));
+        assert_eq!(out["trackId"], json!(track_id), "same library row — id survives");
+        assert!(!root.path().join("a.mp3").exists());
+        assert_eq!(std::fs::read(root.path().join("a.flac")).unwrap(), b"fLaCstagedbytes!");
+        let track = db.get_track_by_id(track_id).unwrap();
+        assert!(track.path.ends_with("a.flac"), "row follows the new file: {}", track.path);
+        assert_eq!(track.format.as_deref(), Some("flac"));
+
+        // The stage is consumed: confirming again is refused.
+        let err = confirm_replacement(&db, track_id, stage_id, true, &remove_instead_of_trash).unwrap_err();
+        assert!(err.contains("stage again"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_confirm_with_the_same_extension_swaps_in_place() {
+        let root = tempfile::tempdir().unwrap();
+        let (db, track_id, _) = seed_local(root.path());
+        let db = Arc::new(db);
+        let (_d, src) = resolved_file(b"ID3betterbytes..", "better.mp3");
+        let staged = stage_replacement(&db, track_id, "mp3", DownloadSource::LocalFile(src)).unwrap();
+        confirm_replacement(&db, track_id, staged["stageId"].as_str().unwrap(), false, &remove_instead_of_trash).unwrap();
+        assert_eq!(std::fs::read(root.path().join("a.mp3")).unwrap(), b"ID3betterbytes..");
+        assert_eq!(db.get_track_by_id(track_id).unwrap().id, track_id);
+    }
+
+    #[test]
+    fn test_confirm_never_overwrites_a_different_file() {
+        let root = tempfile::tempdir().unwrap();
+        let (db, track_id, _) = seed_local(root.path());
+        let db = Arc::new(db);
+        std::fs::write(root.path().join("a.flac"), b"someone else").unwrap();
+        let (_d, src) = resolved_file(b"fLaCstagedbytes!", "download.flac");
+        let staged = stage_replacement(&db, track_id, "", DownloadSource::LocalFile(src)).unwrap();
+        let err = confirm_replacement(&db, track_id, staged["stageId"].as_str().unwrap(), true, &remove_instead_of_trash)
+            .unwrap_err();
+        assert!(err.contains("never overwrites"), "got: {}", err);
+        assert_eq!(std::fs::read(root.path().join("a.flac")).unwrap(), b"someone else");
+        assert!(root.path().join("a.mp3").exists(), "the original is untouched");
+    }
+
+    #[test]
+    fn test_discard_removes_only_the_stage_and_is_idempotent() {
+        let root = tempfile::tempdir().unwrap();
+        let (db, track_id, _) = seed_local(root.path());
+        let (_d, src) = resolved_file(b"fLaCstagedbytes!", "download.flac");
+        let staged = stage_replacement(&db, track_id, "", DownloadSource::LocalFile(src)).unwrap();
+        let stage_id = staged["stageId"].as_str().unwrap();
+        assert_eq!(discard_replacement(&db, track_id, stage_id).unwrap()["discarded"], json!(true));
+        assert_eq!(discard_replacement(&db, track_id, stage_id).unwrap()["discarded"], json!(false));
+        assert!(root.path().join("a.mp3").exists());
+    }
+
+    #[test]
+    fn test_stage_ids_cannot_name_other_files() {
+        let root = tempfile::tempdir().unwrap();
+        let (db, track_id, _) = seed_local(root.path());
+        for bad in ["../../etc/passwd", "abcdef", "abcdef.fl/ac", "zzzzzz.flac", "abc.flac", "abcdef.toolongext"] {
+            let err = discard_replacement(&db, track_id, bad).unwrap_err();
+            assert!(err.contains("invalid stageId"), "{} → {}", bad, err);
+        }
     }
 
     #[test]

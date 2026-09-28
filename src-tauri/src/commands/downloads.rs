@@ -214,6 +214,95 @@ pub async fn assistant_land_download(
     .map_err(|e| e.to_string())?
 }
 
+/// Both scopes a replace needs: it downloads (Downloads) and it trashes a
+/// library file (Manage files). Re-checked in Rust per command, for the same
+/// reason as `assistant_land_download`.
+fn require_replace_scopes(app_dir: &std::path::Path) -> Result<(), String> {
+    use crate::assistant_write::{self, Scope};
+    let scopes = assistant_write::load_scopes(app_dir);
+    for scope in [Scope::Downloads, Scope::ManageFiles] {
+        if !scopes.allows(scope) {
+            return Err(format!(
+                "the \"{}\" assistant permission is off — enable it in Settings → General → AI control",
+                scope.label()
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Phase one of the control API's `tracks.replaceFile` verb: the frontend ran
+/// the owning plugin's resolve; this stages the bytes beside the track's file
+/// and reports old-vs-new quality (`assistant_write::stage_replacement`).
+#[tauri::command]
+pub async fn assistant_stage_replacement(
+    state: State<'_, AppState>,
+    track_id: i64,
+    ext: Option<String>,
+    source_url: Option<String>,
+    source_path: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+) -> Result<serde_json::Value, String> {
+    use crate::assistant_write::{self, DownloadSource};
+    require_replace_scopes(&state.app_dir)?;
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let source = match (source_url, source_path) {
+            (Some(url), None) => {
+                if !url.starts_with("http://") && !url.starts_with("https://") {
+                    return Err("sourceUrl must be http(s)".to_string());
+                }
+                DownloadSource::Url(url, headers)
+            }
+            (None, Some(path)) => {
+                let bare = path.strip_prefix("file://").unwrap_or(&path);
+                DownloadSource::LocalFile(std::path::PathBuf::from(bare))
+            }
+            _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
+        };
+        assistant_write::stage_replacement(&db, track_id, ext.as_deref().unwrap_or(""), source)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Phase two: swap a staged replacement in (old file to the Trash).
+#[tauri::command]
+pub async fn assistant_confirm_replacement(
+    state: State<'_, AppState>,
+    track_id: i64,
+    stage_id: String,
+    keep_library_tags: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    require_replace_scopes(&state.app_dir)?;
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::assistant_write::confirm_replacement(
+            &db,
+            track_id,
+            &stage_id,
+            keep_library_tags.unwrap_or(true),
+            &crate::assistant_write::trash_replaced,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Throw a staged replacement away. Unscoped like the plugin-download cancel:
+/// it can only delete a `.viboplr-replace` stage beside a library track.
+#[tauri::command]
+pub async fn assistant_discard_replacement(
+    state: State<'_, AppState>,
+    track_id: i64,
+    stage_id: String,
+) -> Result<serde_json::Value, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::assistant_write::discard_replacement(&db, track_id, &stage_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn cancel_direct_download(
     state: State<'_, AppState>,

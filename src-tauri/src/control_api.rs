@@ -390,6 +390,10 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/albums/{id}/cover-file", post(handle_cover_file))
         .route("/v1/files/move", post(handle_files_move))
         .route("/v1/tracks/{id}/download", post(handle_track_download))
+        // Replace a library track's file, two-phase: stage (resolve through the
+        // owning plugin, park the bytes beside the file, report old-vs-new),
+        // then confirm or discard by stageId. Downloads + Manage files scopes.
+        .route("/v1/tracks/{id}/replace-file", post(handle_replace_file))
         // Plugin-resolved download: POST resolves through the OWNING plugin in
         // the webview and lands the file (`assistant_land_download`); DELETE
         // cancels the in-flight resolve (kills the provider's subprocess).
@@ -1435,6 +1439,69 @@ async fn handle_plugin_download_cancel(state: AxumState<ServerState>, body: Byte
     bridge(&state.0, "downloads.cancel", payload, timeout).await
 }
 
+/// Replace a library track's file. Three shapes on one route, told apart by
+/// the body: `{stageId, discard: true}` throws a stage away (unscoped — it can
+/// only delete a `.viboplr-replace` file beside the track); `{stageId,
+/// confirm: true}` swaps the stage in; anything else stages, addressed like
+/// `POST /v1/downloads/plugin` (searchId + index, uri, or pluginId + title —
+/// the title defaulting to the track's own metadata).
+/// Stage and confirm need BOTH the Downloads and Manage files scopes: a replace
+/// downloads, and it sends a library file to the Trash. The webview resolves
+/// (plugins live there); `assistant_*_replacement` re-check the scopes in Rust.
+async fn handle_replace_file(state: AxumState<ServerState>, AxumPath(id): AxumPath<i64>, body: Bytes) -> Response {
+    let mut payload = match parse_body(json!({}), &body) {
+        Ok(p) => p,
+        Err(e) => return error_response(StatusCode::BAD_REQUEST, e),
+    };
+    let discard = payload.get("discard") == Some(&Value::Bool(true));
+    let confirm = payload.get("confirm") == Some(&Value::Bool(true));
+    if discard && confirm {
+        return error_response(StatusCode::BAD_REQUEST, "pass confirm or discard, not both");
+    }
+    if (discard || confirm) && !payload.get("stageId").map(|v| v.is_string()).unwrap_or(false) {
+        return error_response(StatusCode::BAD_REQUEST, "stageId (from the stage call) is required to confirm or discard");
+    }
+    if !discard {
+        for scope in [Scope::Downloads, Scope::ManageFiles] {
+            if let Err(resp) = check_scope(&state.0, scope) {
+                return resp;
+            }
+        }
+    }
+    if !discard
+        && !confirm
+        && payload.get("uri").is_none()
+        && payload.get("title").is_none()
+        && payload.get("searchId").is_none()
+        && payload.get("pluginId").is_none()
+    {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "address the replacement: searchId + index, uri (plugin scheme), or pluginId (+ optional title — defaults to the track's own metadata) — or pass stageId with confirm/discard",
+        );
+    }
+    payload["trackId"] = json!(id);
+    // Staging can BE the download (a provider fetching for minutes) — same
+    // budget as the plugin download route. Confirm/discard are local moves.
+    let timeout = if discard || confirm { state.0.bridge_timeout } else { state.0.bridge_timeout.saturating_mul(60) };
+    let result = match bridge_value(&state.0, "tracks.replaceFile", payload, timeout).await {
+        Ok(v) => v,
+        Err(resp) => return resp,
+    };
+    if confirm {
+        assistant_write::log_change(
+            "tracks.replaceFile",
+            &format!("replaced the file of track {} ({})", id, result["oldFile"].as_str().unwrap_or("old file handled")),
+            &[format!(
+                "{} → {}",
+                result["previousPath"].as_str().unwrap_or("?"),
+                result["path"].as_str().unwrap_or("?")
+            )],
+        );
+    }
+    axum::Json(result).into_response()
+}
+
 /// Source-faithful download: the track's own subsonic:// or http(s) source,
 /// as itself, into a local collection — never resolved through a download
 /// provider (the mixtape-export rule). The file is indexed on landing.
@@ -1833,6 +1900,8 @@ mod tests {
             ("POST", "/v1/files/move", r#"{"moves":[{"trackId":1}]}"#),
             ("POST", "/v1/tracks/1/download", r#"{"collectionId":1}"#),
             ("POST", "/v1/downloads/plugin", r#"{"collectionId":1,"uri":"ytdlp://abc"}"#),
+            ("POST", "/v1/tracks/1/replace-file", r#"{"uri":"slsk://abc"}"#),
+            ("POST", "/v1/tracks/1/replace-file", r#"{"stageId":"abcdef.flac","confirm":true}"#),
         ] {
             let res = router
                 .clone()
@@ -2154,6 +2223,66 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
         assert_eq!(body_json(res).await["verb"], json!("downloads.cancel"));
+    }
+
+    /// Replace needs BOTH scopes (it downloads and trashes a library file),
+    /// bridges all three phases as `tracks.replaceFile` with the path id
+    /// winning over the body, and discard alone is unscoped.
+    #[tokio::test]
+    async fn test_replace_file_needs_both_scopes_and_bridges_each_phase() {
+        let dir = tempfile::tempdir().unwrap();
+        grant_scopes(dir.path(), WriteScopes { downloads: true, ..Default::default() });
+        let api_slot: Arc<Mutex<Option<Arc<ControlApi>>>> = Arc::new(Mutex::new(None));
+        let responder_slot = Arc::clone(&api_slot);
+        let state = test_state_in(
+            Arc::new(move |req: &ControlRequest| {
+                if let Some(api) = responder_slot.lock().unwrap().clone() {
+                    api.respond(req.id, true, json!({ "verb": req.verb, "payload": req.payload }));
+                }
+            }),
+            dir.path().to_path_buf(),
+        );
+        *api_slot.lock().unwrap() = Some(Arc::clone(&state.api));
+        let router = build_router(state);
+        let post = |body: &'static str| {
+            router.clone().oneshot(request_json("POST", "/v1/tracks/7/replace-file", TEST_TOKEN, body))
+        };
+
+        // Downloads alone is not enough.
+        let res = post(r#"{"uri":"slsk://abc"}"#).await.unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        assert!(body_json(res).await["error"].as_str().unwrap().contains("Manage files"));
+
+        // Discard needs no scope at all.
+        let res = post(r#"{"stageId":"abcdef.flac","discard":true}"#).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        assert_eq!(json["verb"], json!("tracks.replaceFile"));
+        assert_eq!(json["payload"]["trackId"], json!(7));
+
+        grant_scopes(dir.path(), WriteScopes { downloads: true, manage_files: true, ..Default::default() });
+        for body in [
+            r#"{"uri":"slsk://abc","trackId":99}"#,
+            r#"{"pluginId":"ytdlp"}"#,
+            r#"{"stageId":"abcdef.flac","confirm":true}"#,
+        ] {
+            let res = post(body).await.unwrap();
+            assert_eq!(res.status(), StatusCode::OK, "body {} should bridge", body);
+            let json = body_json(res).await;
+            assert_eq!(json["verb"], json!("tracks.replaceFile"));
+            assert_eq!(json["payload"]["trackId"], json!(7), "the path id names the track, never the body");
+        }
+
+        // Unaddressed stage, confirm without a stageId, and both flags at once
+        // never reach the bridge.
+        for body in [
+            r#"{}"#,
+            r#"{"confirm":true}"#,
+            r#"{"stageId":"abcdef.flac","confirm":true,"discard":true}"#,
+        ] {
+            let res = post(body).await.unwrap();
+            assert_eq!(res.status(), StatusCode::BAD_REQUEST, "body {} must be refused", body);
+        }
     }
 
     #[test]

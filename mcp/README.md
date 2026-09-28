@@ -92,7 +92,7 @@ ergonomics/injection boundary, not an authorization one.
 
 ## Write permissions
 
-Four tools can change the user's files, and they sit **outside the tier
+Five tools can change the user's files, and they sit **outside the tier
 system**: `write_file_tags` (tag/metadata edits written into the audio files —
 the app's canonical bulk edit), `manage_files` (lyrics/cover sidecar files;
 two-step plan-then-apply moves/renames within a collection; the change log),
@@ -101,7 +101,12 @@ local collection — never resolved through a download provider), and
 `download_plugin_track` (a plugin-sourced track through the plugin that OWNS
 it — a catalog_search result, a plugin-scheme library track/URI, or a
 metadata resolve with an explicit pluginId; the app never picks the provider.
-One at a time, cancellable — the resolve can *be* the whole download).
+One at a time, cancellable — the resolve can *be* the whole download), and
+`replace_track_file` (swap a local library track's file for a better copy
+resolved the same way — e.g. a finished Soulseek download's `slsk://` uri —
+keeping the library row; two-step: stage + compare, then confirm or discard;
+needs both the Downloads and Manage files switches, and the old file goes to
+the Trash).
 
 Their authorization is not the tier but **per-category switches in Viboplr →
 Settings → General → AI control**, all off by default, enforced in Rust on

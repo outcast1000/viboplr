@@ -443,6 +443,21 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
     }
 }
 
+/// `process_media_file`, but re-reading the file even when its mtime says it
+/// is unchanged — for a file swapped in under an existing row (the assistant's
+/// replace), whose copied-in bytes can carry an mtime OLDER than the one the
+/// row stored. Upserts by `(collection_id, path)`, so the row keeps its id.
+pub fn reprocess_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<i64> {
+    let meta = prepare_media_file(db, path, collection_id, collection_root, true)?;
+    match db.ingest_scanned_files(std::slice::from_ref(&meta), collection_id) {
+        Ok(ids) => ids.into_iter().next().flatten(),
+        Err(e) => {
+            log::warn!("Failed to re-ingest {}: {}", meta.relative_path, e);
+            None
+        }
+    }
+}
+
 /// Everything `process_media_file` did up to (but not including) the DB
 /// writes: the mtime fast-path check, tag reading, video probing. Returns
 /// `None` when the file should be skipped. The DB is only touched for the

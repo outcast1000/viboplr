@@ -309,6 +309,107 @@ export function useControlApi(deps: ControlApiDeps) {
       console.error("Control API: failed to signal client ready:", e));
   }, [deps.appRestoring]);
 
+  /** Address → plan → resolve for a plugin-owned download: the shared front
+   *  half of `downloads.plugin` (which lands the result in a collection) and
+   *  `tracks.replaceFile` (which stages it beside a library track's file).
+   *  The provider is never picked here — a URI resolves through the plugin
+   *  owning its scheme (`classifyEffectiveSource` + `decideDownload`, the
+   *  modal's own mapping), a metadata resolve requires an explicit pluginId.
+   *  One resolve in flight at a time; `downloads.cancel` aborts it. */
+  async function resolveViaOwningPlugin(d: ControlApiDeps, payload: Record<string, unknown>) {
+    if (pluginDownloadRef.current) {
+      bad("another plugin download is in flight — one at a time; wait for it or cancel it (DELETE /v1/downloads/plugin)");
+    }
+    // -- Address the track: searchId+index (a catalog_search result),
+    //    trackId (a library row), uri, or bare metadata (+ pluginId).
+    let uri = optionalString(payload.uri) ?? null;
+    let meta = {
+      title: optionalString(payload.title) ?? null,
+      artist: optionalString(payload.artistName) ?? null,
+      album: optionalString(payload.albumTitle) ?? null,
+      duration: typeof payload.durationSecs === "number" ? payload.durationSecs : null,
+    };
+    if (typeof payload.searchId === "string") {
+      const cached = searchCacheRef.current.get(payload.searchId);
+      if (!cached) bad("unknown or expired searchId — re-run the catalog search");
+      const index = payload.index;
+      if (typeof index !== "number" || !cached.tracks[index]) bad("index is out of range for that search");
+      const t = cached.tracks[index];
+      uri = t.path;
+      meta = { title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null, duration: t.duration_secs ?? null };
+    } else if (typeof payload.trackId === "number") {
+      const rows = await invoke<Track[]>("get_tracks_by_ids", { ids: [payload.trackId] });
+      const t = rows[0];
+      if (!t) bad(`no library track with id ${payload.trackId}`);
+      uri = t.path;
+      meta = { title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null, duration: t.duration_secs ?? null };
+    }
+
+    // -- Pick the plan.
+    const providers = d.downloads.providers;
+    let pluginId: string | null;
+    let providerId: string;
+    let providerName: string;
+    let resolveRun: (quality: string) => ReturnType<DownloadProvider["resolveByUri"]>;
+    if (uri) {
+      const source = classifyEffectiveSource(uri, d.downloads.streamUriResolverOwner);
+      if (source.kind === "local") bad("that track is already a local file — nothing to download");
+      const plan = decideDownload(
+        source,
+        { title: meta.title ?? "", artist_name: meta.artist, album_title: meta.album, duration_secs: meta.duration },
+        providers,
+      );
+      if (!plan) {
+        bad(`no download provider owns this source (${uri.split("://")[0]}://) — is the owning plugin installed and enabled?`);
+      }
+      const entry = providers.find((p) => p.id === plan.providerId);
+      pluginId = entry && entry.source !== "__builtin" ? entry.source : null;
+      providerId = plan.providerId;
+      providerName = plan.providerName;
+      const planUri = plan.uri ?? uri;
+      resolveRun = (quality) => plan.resolveByUri(planUri, quality, undefined);
+    } else {
+      const pid = optionalString(payload.pluginId);
+      if (!pid) bad("a metadata download needs pluginId — the host never picks a provider on its own");
+      // artistName is optional: providers tolerate null (yt-dlp searches
+      // by title alone), and plenty of videos have no meaningful artist.
+      if (!meta.title) bad("title is required for a metadata download");
+      const entry = providers.find((p) => p.source === pid);
+      if (!entry) bad(`plugin "${pid}" contributes no download provider (or is disabled)`);
+      pluginId = pid;
+      providerId = entry.id;
+      providerName = entry.name;
+      resolveRun = (quality) =>
+        entry.resolveByMetadata(meta.title!, meta.artist, meta.album, meta.duration, quality, undefined);
+    }
+
+    // -- Quality: explicit, else the provider's first declared option,
+    //    else a neutral "original".
+    let quality = optionalString(payload.quality);
+    if (!quality && pluginId) {
+      const bare = providerId.startsWith(`${pluginId}:`) ? providerId.slice(pluginId.length + 1) : providerId;
+      quality = d.downloads.getQualities(pluginId, bare)?.[0]?.value;
+    }
+    quality ??= "original";
+
+    // -- Resolve. This can BE the whole download (yt-dlp fetches + merges
+    //    for minutes); the HTTP route carries the matching long budget.
+    const flight = { pluginId, cancelled: false };
+    pluginDownloadRef.current = flight;
+    let resolved;
+    try {
+      resolved = await resolveRun(quality);
+    } catch (e) {
+      console.error("Control API: plugin download resolve failed:", e);
+      bad(flight.cancelled ? "cancelled" : `the provider failed to resolve this download: ${errorText(e)}`);
+    } finally {
+      pluginDownloadRef.current = null;
+    }
+    if (flight.cancelled) bad("cancelled");
+    if (!resolved) bad("the provider could not resolve this track for download");
+    return { resolved, meta, pluginId, providerName, quality };
+  }
+
   async function dispatch(verb: string, payload: Record<string, unknown>): Promise<unknown> {
     const d = depsRef.current;
     switch (verb) {
@@ -1138,98 +1239,9 @@ export function useControlApi(deps: ControlApiDeps) {
         }
         const collectionId = payload.collectionId;
         if (typeof collectionId !== "number") bad("collectionId must be a number");
-        if (pluginDownloadRef.current) {
-          bad("another plugin download is in flight — one at a time; wait for it or cancel it (DELETE /v1/downloads/plugin)");
-        }
         const subdir = optionalString(payload.subdir) ?? null;
 
-        // -- Address the track: searchId+index (a catalog_search result),
-        //    trackId (a library row), uri, or bare metadata (+ pluginId).
-        let uri = optionalString(payload.uri) ?? null;
-        let meta = {
-          title: optionalString(payload.title) ?? null,
-          artist: optionalString(payload.artistName) ?? null,
-          album: optionalString(payload.albumTitle) ?? null,
-          duration: typeof payload.durationSecs === "number" ? payload.durationSecs : null,
-        };
-        if (typeof payload.searchId === "string") {
-          const cached = searchCacheRef.current.get(payload.searchId);
-          if (!cached) bad("unknown or expired searchId — re-run the catalog search");
-          const index = payload.index;
-          if (typeof index !== "number" || !cached.tracks[index]) bad("index is out of range for that search");
-          const t = cached.tracks[index];
-          uri = t.path;
-          meta = { title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null, duration: t.duration_secs ?? null };
-        } else if (typeof payload.trackId === "number") {
-          const rows = await invoke<Track[]>("get_tracks_by_ids", { ids: [payload.trackId] });
-          const t = rows[0];
-          if (!t) bad(`no library track with id ${payload.trackId}`);
-          uri = t.path;
-          meta = { title: t.title, artist: t.artist_name ?? null, album: t.album_title ?? null, duration: t.duration_secs ?? null };
-        }
-
-        // -- Pick the plan.
-        const providers = d.downloads.providers;
-        let pluginId: string | null;
-        let providerId: string;
-        let providerName: string;
-        let resolveRun: (quality: string) => ReturnType<DownloadProvider["resolveByUri"]>;
-        if (uri) {
-          const source = classifyEffectiveSource(uri, d.downloads.streamUriResolverOwner);
-          if (source.kind === "local") bad("that track is already a local file — nothing to download");
-          const plan = decideDownload(
-            source,
-            { title: meta.title ?? "", artist_name: meta.artist, album_title: meta.album, duration_secs: meta.duration },
-            providers,
-          );
-          if (!plan) {
-            bad(`no download provider owns this source (${uri.split("://")[0]}://) — is the owning plugin installed and enabled?`);
-          }
-          const entry = providers.find((p) => p.id === plan.providerId);
-          pluginId = entry && entry.source !== "__builtin" ? entry.source : null;
-          providerId = plan.providerId;
-          providerName = plan.providerName;
-          const planUri = plan.uri ?? uri;
-          resolveRun = (quality) => plan.resolveByUri(planUri, quality, undefined);
-        } else {
-          const pid = optionalString(payload.pluginId);
-          if (!pid) bad("a metadata download needs pluginId — the host never picks a provider on its own");
-          // artistName is optional: providers tolerate null (yt-dlp searches
-          // by title alone), and plenty of videos have no meaningful artist.
-          if (!meta.title) bad("title is required for a metadata download");
-          const entry = providers.find((p) => p.source === pid);
-          if (!entry) bad(`plugin "${pid}" contributes no download provider (or is disabled)`);
-          pluginId = pid;
-          providerId = entry.id;
-          providerName = entry.name;
-          resolveRun = (quality) =>
-            entry.resolveByMetadata(meta.title!, meta.artist, meta.album, meta.duration, quality, undefined);
-        }
-
-        // -- Quality: explicit, else the provider's first declared option,
-        //    else a neutral "original".
-        let quality = optionalString(payload.quality);
-        if (!quality && pluginId) {
-          const bare = providerId.startsWith(`${pluginId}:`) ? providerId.slice(pluginId.length + 1) : providerId;
-          quality = d.downloads.getQualities(pluginId, bare)?.[0]?.value;
-        }
-        quality ??= "original";
-
-        // -- Resolve. This can BE the whole download (yt-dlp fetches + merges
-        //    for minutes); the HTTP route carries the matching long budget.
-        const flight = { pluginId, cancelled: false };
-        pluginDownloadRef.current = flight;
-        let resolved;
-        try {
-          resolved = await resolveRun(quality);
-        } catch (e) {
-          console.error("Control API: plugin download resolve failed:", e);
-          bad(flight.cancelled ? "cancelled" : `the provider failed to resolve this download: ${errorText(e)}`);
-        } finally {
-          pluginDownloadRef.current = null;
-        }
-        if (flight.cancelled) bad("cancelled");
-        if (!resolved) bad("the provider could not resolve this track for download");
+        const { resolved, meta, pluginId, providerName, quality } = await resolveViaOwningPlugin(d, payload);
 
         // -- Land it. A file:// url means the provider already downloaded the
         //    bytes (its temp output is MOVED in); anything else is fetched.
@@ -1257,6 +1269,56 @@ export function useControlApi(deps: ControlApiDeps) {
         flight.cancelled = true;
         if (flight.pluginId) d.downloads.cancelResolve(flight.pluginId);
         return { cancelled: true, pluginId: flight.pluginId };
+      }
+
+      // Replace a library track's file, two-phase (POST
+      // /v1/tracks/{id}/replace-file; the Rust handler has checked the
+      // Downloads + Manage files scopes, and the commands re-check them).
+      // Stage: resolve through the owning plugin exactly like
+      // `downloads.plugin`, then park the bytes beside the track's file and
+      // report old-vs-new. Confirm/discard act on that stage by id. Nothing
+      // replaces on the first call — the pause is the user's review.
+      case "tracks.replaceFile": {
+        const trackId = payload.trackId;
+        if (typeof trackId !== "number") bad("trackId must be a number");
+        const stageId = optionalString(payload.stageId);
+        if (payload.discard === true) {
+          return await invoke("assistant_discard_replacement", { trackId, stageId });
+        }
+        if (payload.confirm === true) {
+          const result = await invoke<Record<string, unknown>>("assistant_confirm_replacement", {
+            trackId,
+            stageId,
+            keepLibraryTags: payload.keepLibraryTags !== false,
+          });
+          d.library.refreshAfterBulkEdit();
+          return result;
+        }
+        const rows = await invoke<Track[]>("get_tracks_by_ids", { ids: [trackId] });
+        const target = rows[0];
+        if (!target) bad(`no library track with id ${trackId}`);
+        if (!target.path?.startsWith("file://")) {
+          bad(`track ${trackId} is not a local file (${(target.path ?? "none").split("://")[0]}://) — only local files can be replaced`);
+        }
+        // `trackId` names the track being REPLACED, never the source; a bare
+        // pluginId resolves the library track's own metadata through it.
+        const source: Record<string, unknown> = { ...payload, trackId: undefined };
+        if (source.uri === undefined && source.searchId === undefined && source.title === undefined) {
+          source.title = target.title;
+          source.artistName ??= target.artist_name;
+          source.albumTitle ??= target.album_title;
+          source.durationSecs ??= target.duration_secs;
+        }
+        const { resolved, pluginId, providerName, quality } = await resolveViaOwningPlugin(d, source);
+        const isFile = resolved.url.startsWith("file://");
+        const staged = await invoke<Record<string, unknown>>("assistant_stage_replacement", {
+          trackId,
+          ext: resolved.ext ?? null,
+          sourceUrl: isFile ? null : resolved.url,
+          sourcePath: isFile ? resolved.url : null,
+          headers: resolved.headers ?? null,
+        });
+        return { ...staged, provider: providerName, pluginId, quality };
       }
 
       case "collections.rescan": {

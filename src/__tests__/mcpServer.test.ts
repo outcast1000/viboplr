@@ -95,6 +95,18 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       });
       return;
     }
+    if (req.url === "/v1/tracks/5/replace-file" && req.method === "POST") {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        const parsed = JSON.parse(body || "{}");
+        reply(200, parsed.confirm
+          ? { replaced: true, trackId: 5 }
+          : { staged: true, stageId: "abcdef123456.flac", current: { format: "mp3" }, replacement: { format: "flac" } });
+      });
+      return;
+    }
     if (req.url === "/v1/downloads/plugin" && req.method === "DELETE")
       return reply(200, { cancelled: false, note: "no plugin download resolve in flight" });
     if (req.url === "/v1/status")
@@ -517,6 +529,25 @@ describe("MCP server over stdio", () => {
     });
     expect(JSON.parse(toolText(cancel.result)).cancelled).toBe(false);
     expect(api.seen.some((r) => r.method === "DELETE" && r.url === "/v1/downloads/plugin")).toBe(true);
+  });
+
+  it("stages, then confirms, a track file replace on the track's own route", async () => {
+    const staged = await rpc.request("tools/call", {
+      name: "replace_track_file",
+      arguments: { trackId: 5, uri: "slsk://user/file.flac" },
+    });
+    const stage = JSON.parse(toolText(staged.result));
+    expect(stage.staged).toBe(true);
+    const first = api.seen.filter((r) => r.url === "/v1/tracks/5/replace-file")[0];
+    expect(JSON.parse(first.body!)).toEqual({ uri: "slsk://user/file.flac" });
+
+    const confirmed = await rpc.request("tools/call", {
+      name: "replace_track_file",
+      arguments: { trackId: 5, stageId: stage.stageId, confirm: true },
+    });
+    expect(JSON.parse(toolText(confirmed.result)).replaced).toBe(true);
+    const second = api.seen.filter((r) => r.url === "/v1/tracks/5/replace-file")[1];
+    expect(JSON.parse(second.body!)).toEqual({ stageId: "abcdef123456.flac", confirm: true });
   });
 
   it("declares its tier in the initialize instructions", async () => {
