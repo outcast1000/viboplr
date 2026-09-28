@@ -36,7 +36,7 @@
 use axum::{
     Router,
     body::Bytes,
-    extract::{Path as AxumPath, Query, Request, State as AxumState},
+    extract::{MatchedPath, Path as AxumPath, Query, Request, State as AxumState},
     http::{header, Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -49,7 +49,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 
 use crate::db::Database;
@@ -408,7 +408,32 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/extensions/{id}/enabled", post(|s, p, b| handle_extension_bridge(s, p, "extensions.setEnabled", b)))
         .route("/v1/skins/apply", post(|s, b| handle_bridge_body(s, "skins.apply", json!({}), b)))
         .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
+        // Outermost, so rejected (401/405) requests are logged too.
+        .layer(middleware::from_fn(log_middleware))
         .with_state(state)
+}
+
+/// One `viboplr.log` line per request: method, the **route pattern** (never
+/// the concrete URI — query strings carry search text, SQL and names), status
+/// and duration. Bodies and the token are never logged. Failures log at WARN
+/// so they stand out in a busy assistant session.
+async fn log_middleware(req: Request, next: Next) -> Response {
+    let method = req.method().clone();
+    let route = req
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|p| p.as_str().to_string())
+        .unwrap_or_else(|| "<unmatched>".to_string());
+    let started = Instant::now();
+    let response = next.run(req).await;
+    let status = response.status();
+    let ms = started.elapsed().as_millis();
+    if status.is_client_error() || status.is_server_error() {
+        log::warn!("Control API: {} {} -> {} ({}ms)", method, route, status.as_u16(), ms);
+    } else {
+        log::info!("Control API: {} {} -> {} ({}ms)", method, route, status.as_u16(), ms);
+    }
+    response
 }
 
 /// Bearer-token gate on every route. `OPTIONS` is refused outright and no
@@ -446,8 +471,14 @@ where
     let outcome = tokio::task::spawn_blocking(move || f(&db)).await;
     match outcome {
         Ok(Ok(value)) => axum::Json(value).into_response(),
-        Ok(Err(e)) => error_response(StatusCode::BAD_REQUEST, e),
-        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        Ok(Err(e)) => {
+            log::warn!("Control API: read failed: {}", e);
+            error_response(StatusCode::BAD_REQUEST, e)
+        }
+        Err(e) => {
+            log::error!("Control API: read task panicked: {}", e);
+            error_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+        }
     }
 }
 
@@ -1541,6 +1572,7 @@ async fn bridge(state: &ServerState, verb: &str, payload: Value, timeout: Durati
 /// read it (e.g. to log which files a write touched) before replying.
 async fn bridge_value(state: &ServerState, verb: &str, payload: Value, timeout: Duration) -> Result<Value, Response> {
     if !state.api.webview_ready.load(Ordering::Acquire) {
+        log::warn!("Control API: {} refused — app still starting", verb);
         return Err(error_response(StatusCode::SERVICE_UNAVAILABLE, "app still starting"));
     }
     let id = state.api.next_id.fetch_add(1, Ordering::Relaxed);
@@ -1555,11 +1587,17 @@ async fn bridge_value(state: &ServerState, verb: &str, payload: Value, timeout: 
 
     match tokio::time::timeout(timeout, rx).await {
         Ok(Ok(Ok(result))) => Ok(result),
+        // The dispatcher already wrote the error to the file log
+        // (`useControlApi.ts`), so only the verb is noted here.
         Ok(Ok(Err(message))) => Err(error_response(StatusCode::BAD_REQUEST, message)),
         // Sender dropped without answering — shouldn't happen, but don't hang.
-        Ok(Err(_)) => Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, "dispatcher dropped the request")),
+        Ok(Err(_)) => {
+            log::error!("Control API: {} — dispatcher dropped the request", verb);
+            Err(error_response(StatusCode::INTERNAL_SERVER_ERROR, "dispatcher dropped the request"))
+        }
         Err(_) => {
             state.api.pending.lock().unwrap().remove(&id);
+            log::warn!("Control API: {} timed out after {}s — app did not respond", verb, timeout.as_secs());
             Err(error_response(StatusCode::GATEWAY_TIMEOUT, "app did not respond"))
         }
     }

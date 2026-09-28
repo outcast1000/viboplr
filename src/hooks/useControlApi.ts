@@ -217,6 +217,13 @@ export interface ControlApiDeps {
   };
 }
 
+/** Mirror a dispatcher failure into `viboplr.log`. `console.error` alone only
+ *  reaches the webview console, so an assistant session's failures were
+ *  invisible in the file log (and in `/v1/logs`). */
+function logToFile(message: string) {
+  invoke("write_frontend_log", { level: "error", message, section: "control-api" }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: the failure being logged is already reported to the caller and the console
+}
+
 function bad(message: string): never {
   throw new Error(message);
 }
@@ -1446,11 +1453,13 @@ export function useControlApi(deps: ControlApiDeps) {
       ok = false;
       result = errorText(e);
       console.error(`Control API: ${req.verb} failed:`, e);
+      logToFile(`${req.verb} failed: ${result}`);
     }
     try {
       await invoke("control_api_respond", { id: req.id, ok, result });
     } catch (e) {
       console.error("Control API: failed to deliver response:", e);
+      logToFile(`${req.verb}: failed to deliver response: ${errorText(e)}`);
     }
   });
 
@@ -1461,7 +1470,10 @@ export function useControlApi(deps: ControlApiDeps) {
         console.error("Control API: malformed request event:", event.payload);
         return;
       }
-      handleRef.current(req).catch((e) => console.error("Control API: handler crashed:", e));
+      handleRef.current(req).catch((e) => {
+        console.error("Control API: handler crashed:", e);
+        logToFile(`${req.verb}: handler crashed: ${errorText(e)}`);
+      });
     });
     return stop;
   }, []);
