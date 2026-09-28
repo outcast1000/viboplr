@@ -8,6 +8,7 @@ import {
   contextFromMixtapeMetadata,
   diffThumbs,
   flushMainPlaylist,
+  playlistContextTitle,
   queueItemLocalThumb,
   toStringMetadata,
   tracksFromManifest,
@@ -436,6 +437,18 @@ describe("playlist metadata roundtrip", () => {
     expect(restored!.name).toBe("Kid A");
     expect(restored!.imagePath).toBe("/profile/main-playlist/cover.jpg");
     expect(restored!.source).toBeNull();
+  });
+});
+
+describe("playlistContextTitle", () => {
+  it("prefixes an album with its artist", () => {
+    expect(playlistContextTitle({ name: "OK Computer", source: "album", metadata: { artist: "Radiohead" } }))
+      .toBe("Radiohead – OK Computer");
+  });
+
+  it("falls back to the bare name without an artist or for other sources", () => {
+    expect(playlistContextTitle({ name: "OK Computer", source: "album" })).toBe("OK Computer");
+    expect(playlistContextTitle({ name: "Mix", source: "playlist", metadata: { artist: "X" } })).toBe("Mix");
   });
 });
 

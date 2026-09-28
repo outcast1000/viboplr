@@ -265,6 +265,17 @@ export function contextFromManifest(manifest: Manifest, mainPlaylistDir: string 
 }
 
 /**
+ * The title a queue context is shown under. An album reads "Artist – Album":
+ * titles like "Greatest Hits" or "Live" are ambiguous on their own. `ctx.name`
+ * itself stays the bare album title — recent plays, cover lookup and mixtape
+ * export key on it together with `metadata.artist`.
+ */
+export function playlistContextTitle(ctx: PlaylistContext): string {
+  const artist = ctx.source === "album" ? ctx.metadata?.artist : undefined;
+  return artist ? `${artist} – ${ctx.name}` : ctx.name;
+}
+
+/**
  * Flatten PlaylistContext fields into a single metadata map for mixtape export.
  * source and description become top-level keys; context.metadata is merged in.
  */

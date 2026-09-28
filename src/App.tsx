@@ -24,7 +24,7 @@ import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from ".
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
 import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
-import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, type Manifest, type MainPlaylistState } from "./mainPlaylist";
+import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { collectionAlert } from "./utils/collectionAlert";
 import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
@@ -4136,7 +4136,7 @@ function App() {
       if (id) {
         playActions.playAlbum(id, { tracks: opts?.tracks, startIndex: 0 });
       } else if (opts?.tracks) {
-        queueHook.playTracks(opts.tracks, 0, { name, source: "album", imagePath: albumImageCache.getImage(name, entityArtistName) });
+        queueHook.playTracks(opts.tracks, 0, { name, source: "album", imagePath: albumImageCache.getImage(name, entityArtistName), metadata: entityArtistName ? { artist: entityArtistName } : null });
       }
     } else {
       const id = opts?.entityId ?? library.tags.find(t => t.name === name)?.id;
@@ -6303,7 +6303,7 @@ function App() {
                 : `New Playlist ${dateStr}`;
             }
             return queueHook.playlistContext?.name
-              ? `${queueHook.playlistContext.name} ${dateStr}`
+              ? `${playlistContextTitle(queueHook.playlistContext)} ${dateStr}`
               : `Queue ${dateStr}`;
           })()}
           defaultImage={savePlaylistDefaultCover}

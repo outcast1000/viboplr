@@ -3,7 +3,7 @@ import { computeIndexSelection } from "../utils/rowSelection";
 import type { QueueTrack, QueueMode } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import { formatDuration, formatFileSize } from "../utils";
-import { queueItemLocalThumb, type ThumbInfo } from "../mainPlaylist";
+import { queueItemLocalThumb, playlistContextTitle, type ThumbInfo } from "../mainPlaylist";
 import { extractDominantColor, type RGB } from "../utils/extractDominantColor";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { resolveTrackImage } from "../utils/trackImage";
@@ -772,7 +772,7 @@ export function QueuePanel({
           </div>
           {eyebrow && <div className="queue-context-eyebrow">{eyebrow}</div>}
           <div className="queue-context-text">
-            <div className="queue-context-name">{playlistContext.name}</div>
+            <div className="queue-context-name">{playlistContextTitle(playlistContext)}</div>
             <div className="queue-context-meta">
               {queue.length} track{queue.length !== 1 ? "s" : ""} · {formatTotalDuration(queue)}
             </div>
@@ -915,7 +915,7 @@ export function QueuePanel({
           className={`ds-tooltip${contextInfoPos ? " visible" : ""}`}
           style={{ ...(contextInfoPos ?? { left: contextInfoAnchor.x, top: contextInfoAnchor.y, visibility: "hidden" as const }), pointerEvents: "auto" }}
         >
-          <div className="ds-tooltip-title">{playlistContext.name}</div>
+          <div className="ds-tooltip-title">{playlistContextTitle(playlistContext)}</div>
           <div className="ds-tooltip-rows">
             {playlistContext.source && (
               <div className="ds-tooltip-row">
