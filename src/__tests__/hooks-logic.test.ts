@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPositionOnScreen, clampToNearestMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
+import { isPositionOnScreen, clampToNearestMonitor, fitToMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
 import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement, canDriveTransitionMachine, crossfadeGainPair } from "../hooks/usePlayback";
 import { isWaveformAnalyzable, isWaveformSizeAllowed, WAVEFORM_MAX_FILE_SIZE } from "../hooks/useWaveform";
 
@@ -114,6 +114,42 @@ describe("isPositionOnScreen", () => {
 
   it("returns true when monitors array is empty (graceful fallback)", () => {
     expect(isPositionOnScreen(9999, 9999, [])).toBe(true);
+  });
+});
+
+describe("fitToMonitor", () => {
+  const laptop = [{ x: 0, y: 25, w: 1512, h: 920 }];
+
+  it("leaves a window that already fits untouched", () => {
+    const g = { x: 100, y: 100, w: 800, h: 600 };
+    expect(fitToMonitor(g, laptop)).toEqual(g);
+  });
+
+  it("shrinks a window sized for a larger display and pulls it fully on-screen", () => {
+    // What macOS leaves behind after unplugging a 2560x1440 external display:
+    // evacuated onto the laptop, old size kept.
+    expect(fitToMonitor({ x: 200, y: 60, w: 2400, h: 1300 }, laptop))
+      .toEqual({ x: 0, y: 25, w: 1512, h: 920 });
+  });
+
+  it("moves a window that overhangs the right/bottom edges back inside", () => {
+    expect(fitToMonitor({ x: 1200, y: 800, w: 800, h: 600 }, laptop))
+      .toEqual({ x: 712, y: 345, w: 800, h: 600 });
+  });
+
+  it("fits onto the monitor holding the window's centre", () => {
+    const g = fitToMonitor({ x: 1800, y: 100, w: 3000, h: 2000 }, dualMonitors);
+    expect(g).toEqual({ x: 1920, y: 0, w: 2560, h: 1440 });
+  });
+
+  it("falls back to the monitor it overlaps most when the centre is off-screen", () => {
+    const g = fitToMonitor({ x: -700, y: 100, w: 1000, h: 500 }, dualMonitors);
+    expect(g).toEqual({ x: 0, y: 100, w: 1000, h: 500 });
+  });
+
+  it("returns the geometry unchanged with no monitors", () => {
+    const g = { x: 5, y: 5, w: 5000, h: 5000 };
+    expect(fitToMonitor(g, [])).toEqual(g);
   });
 });
 

@@ -70,6 +70,39 @@ export function clampToNearestMonitor(
   };
 }
 
+/**
+ * Fit a full window onto one monitor: shrink it to that monitor's size, then
+ * move it so it lies entirely on it. The monitor is the one holding the
+ * window's centre, else the one it overlaps most, else the nearest.
+ *
+ * Needed at runtime because macOS evacuates a window off an unplugged display
+ * but keeps its size — a window sized for a large external screen lands on
+ * the laptop with its bottom/right edges (and so every resize handle) out of
+ * reach, and with `decorations: false` there is no native zoom button either.
+ */
+export function fitToMonitor(
+  g: { x: number; y: number; w: number; h: number }, monitors: MonitorRect[],
+): { x: number; y: number; w: number; h: number } {
+  if (monitors.length === 0) return g;
+  const cx = g.x + g.w / 2;
+  const cy = g.y + g.h / 2;
+  const overlap = (m: MonitorRect) =>
+    Math.max(0, Math.min(g.x + g.w, m.x + m.w) - Math.max(g.x, m.x)) *
+    Math.max(0, Math.min(g.y + g.h, m.y + m.h) - Math.max(g.y, m.y));
+  const dist = (m: MonitorRect) => (cx - (m.x + m.w / 2)) ** 2 + (cy - (m.y + m.h / 2)) ** 2;
+  const m =
+    monitors.find(m => cx >= m.x && cx < m.x + m.w && cy >= m.y && cy < m.y + m.h) ??
+    [...monitors].sort((a, b) => overlap(b) - overlap(a) || dist(a) - dist(b))[0];
+  const w = Math.min(g.w, m.w);
+  const h = Math.min(g.h, m.h);
+  return {
+    w,
+    h,
+    x: Math.max(m.x, Math.min(g.x, m.x + m.w - w)),
+    y: Math.max(m.y, Math.min(g.y, m.y + m.h - h)),
+  };
+}
+
 export interface SearchPanelGeometryInput {
   logicalY: number;       // current window top, logical px
   restingHeight: number;  // current resting height, already scaled (see cssToLogicalRatio)
@@ -116,6 +149,27 @@ async function getLogicalMonitorBounds(): Promise<MonitorRect[]> {
     });
   } catch (e) {
     console.error("Failed to read monitor geometry:", e);
+    return [];
+  }
+}
+
+/** Usable area of each monitor (logical px) — excludes the menu bar / Dock /
+ *  taskbar, so a fitted window's title bar and resize edges stay reachable. */
+async function getLogicalWorkAreas(): Promise<MonitorRect[]> {
+  try {
+    const monitors = await availableMonitors();
+    return monitors.map(m => {
+      const sf = m.scaleFactor;
+      const a = m.workArea ?? { position: m.position, size: m.size };
+      return {
+        x: a.position.x / sf,
+        y: a.position.y / sf,
+        w: a.size.width / sf,
+        h: a.size.height / sf,
+      };
+    });
+  } catch (e) {
+    console.error("Failed to read monitor work areas:", e);
     return [];
   }
 }
@@ -645,13 +699,11 @@ export function useMiniMode(
           if (arrGeo) geo = arrGeo;
         }
         if (geo) {
-          await win.setSize(new LogicalSize(geo.w, geo.h));
-          if (isPositionOnScreen(geo.x, geo.y, bounds)) {
-            await win.setPosition(new LogicalPosition(geo.x, geo.y));
-          } else if (bounds.length > 0) {
-            const clamped = clampToNearestMonitor(geo.x, geo.y, geo.w, geo.h, bounds);
-            await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
-          }
+          // Fitted, not applied verbatim: geometry captured on a larger display
+          // would otherwise reopen bigger than this screen (see fitToMonitor).
+          const fitted = fitToMonitor(geo, await getLogicalWorkAreas());
+          await win.setSize(new LogicalSize(fitted.w, fitted.h));
+          await win.setPosition(new LogicalPosition(fitted.x, fitted.y));
         } else {
           const [fw, fh, fx, fy] = await Promise.all([
             store.get<number | null>("fullWindowWidth"),
@@ -788,14 +840,21 @@ export function useMiniMode(
             // A maximized/fullscreen window is the OS's to lay out.
             const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
             if (maximized || fullscreen) return;
-            const g = await geomForCurrentArrangement<FullWindowGeom>("windowGeomByArrangement");
-            if (g) {
-              const target = isPositionOnScreen(g.x, g.y, bounds)
-                ? { x: g.x, y: g.y }
-                : clampToNearestMonitor(g.x, g.y, g.w, g.h, bounds);
-              await win.setSize(new LogicalSize(g.w, g.h));
-              await win.setPosition(new LogicalPosition(target.x, target.y));
-            }
+            // With nothing saved for this arrangement (e.g. the first time on
+            // the laptop alone), fit the window where the OS left it: the
+            // evacuation keeps the old size, which can exceed this screen.
+            const saved = await geomForCurrentArrangement<FullWindowGeom>("windowGeomByArrangement");
+            const factor = await win.scaleFactor();
+            const [pos, size] = await Promise.all([win.outerPosition(), win.innerSize()]);
+            const current: FullWindowGeom = {
+              x: pos.x / factor, y: pos.y / factor,
+              w: size.width / factor, h: size.height / factor,
+            };
+            const g = fitToMonitor(saved ?? current, await getLogicalWorkAreas());
+            const moved = Math.abs(g.x - current.x) >= 1 || Math.abs(g.y - current.y) >= 1;
+            const resized = Math.abs(g.w - current.w) >= 1 || Math.abs(g.h - current.h) >= 1;
+            if (resized) await win.setSize(new LogicalSize(g.w, g.h));
+            if (moved || resized) await win.setPosition(new LogicalPosition(g.x, g.y));
           }
         } catch (e) {
           console.error("Failed to restore window for the new display arrangement:", e);
