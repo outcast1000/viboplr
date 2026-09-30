@@ -323,14 +323,21 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     // rich_text, fresh "ok" so nothing tries a plugin fetch). This is what makes
     // the Various-Artists suppression assertable: a real artist's page shows the
     // About tab, the VA page must not render info sections at all.
+    // `__E2E_INFO__` serves the same fixture without the VA library, for the
+    // Now Playing About panel.
     case 'info_get_values_for_entity': {
-      if (window.__E2E_VA__ && String((args && args.entityKey) || '').startsWith('artist:')) {
-        return [[1, 'artist_bio', JSON.stringify({ summary: 'Mock artist bio' }), 'ok', Math.floor(Date.now() / 1000)]];
+      if ((window.__E2E_VA__ || window.__E2E_INFO__) && String((args && args.entityKey) || '').startsWith('artist:')) {
+        // The INFO variant is a realistic Last.fm-shaped bio (paragraphs + a
+        // "Read more" link) so the About panel is exercised with real prose.
+        const summary = window.__E2E_INFO__
+          ? 'Mock artist bio. Formed in a basement in 1994, the band spent a decade on small labels before a single on a film soundtrack found them a wider audience.<br><br>Their third record traded the early noise for strings and space, and is the one most listeners still start with. <a href="https://www.last.fm/music/Artist+A">Read more on Last.fm</a>'
+          : 'Mock artist bio';
+        return [[1, 'artist_bio', JSON.stringify({ summary }), 'ok', Math.floor(Date.now() / 1000)]];
       }
       return [];
     }
     case 'info_get_types_for_entity': {
-      if (window.__E2E_VA__ && args && args.entity === 'artist') {
+      if ((window.__E2E_VA__ || window.__E2E_INFO__) && args && args.entity === 'artist') {
         return [['artist_bio', 'About', 'rich_text', 7776000, 0, [['mock-plugin', 1]], '']];
       }
       return [];

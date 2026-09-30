@@ -183,6 +183,7 @@ import { FreezeWhileHidden } from "./components/FreezeWhileHidden";
 import { NowPlayingView } from "./components/NowPlayingView";
 import { MusicQuizView } from "./components/MusicQuizView";
 import { useLyrics } from "./hooks/useLyrics";
+import { useNowPlayingAbout } from "./hooks/useNowPlayingAbout";
 import type { ResolvedShelf } from "./hooks/useHome";
 import { LATEST_PLAY_SHELF_ID } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
@@ -510,6 +511,23 @@ function App() {
   // the words"), not a per-track state — re-deciding it every launch would be
   // the annoying half of a toggle.
   const [nowPlayingLyricsHidden, setNowPlayingLyricsHidden] = usePersistedSetting("nowPlayingLyricsHidden", false, restoredRef);
+  // The Now Playing About panel (song / artist / album prose). Session-only,
+  // unlike the lyrics flag: reading a bio is an errand, not a standing
+  // preference, and a view that reopened on a wall of text would undo the
+  // point of the surface being lean-back. Shared by both variants so entering
+  // fullscreen keeps what you were reading.
+  const [nowPlayingAboutOpen, setNowPlayingAboutOpen] = useState(false);
+  // The lyrics button while About is open means "back to the lyrics", not
+  // "toggle the lyrics preference" — which would hide lyrics nobody could see.
+  const handleToggleNowPlayingLyrics = useCallback(() => {
+    if (nowPlayingAboutOpen) {
+      setNowPlayingAboutOpen(false);
+      setNowPlayingLyricsHidden(false);
+    } else {
+      setNowPlayingLyricsHidden((v) => !v);
+    }
+  }, [nowPlayingAboutOpen, setNowPlayingLyricsHidden]);
+  const handleToggleNowPlayingAbout = useCallback(() => setNowPlayingAboutOpen((v) => !v), []);
   // Lyrics timing offsets, per track, keyed by metadata (`lyricOffsetKey`).
   // Persisted rather than session-scoped: fetched LRC is timed against the audio
   // release, so a music video is out by its intro EVERY time it plays — making
@@ -4271,6 +4289,17 @@ function App() {
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
   });
+  // About panel prose — fetched only while the panel is open on a surface that
+  // shows it (the audio Now Playing view, in-grid or fullscreen).
+  const nowPlayingAbout = useNowPlayingAbout({
+    track: playback.currentTrack,
+    enabled:
+      nowPlayingAboutOpen &&
+      (library.view === "nowplaying" || audioFullscreen) &&
+      !!playback.currentTrack && !isVideoTrack(playback.currentTrack),
+    invokeInfoFetch: plugins.invokeInfoFetch,
+    pluginNames: plugins.pluginNames,
+  });
   // Synced lyrics for the video subtitle overlay: only when the current track is
   // video, synced lyrics exist, and they fit the media length in BOTH directions
   // — not running past it (a short edit/preview) and not covering only a sliver
@@ -5392,11 +5421,14 @@ function App() {
               isArtistImageResolved={artistImageCache.isResolved}
               onSeek={playback.handleSeek}
               onOpenVisualizerPicker={openVisualizerPicker}
-              onToggleLyrics={() => setNowPlayingLyricsHidden((v) => !v)}
+              onToggleLyrics={handleToggleNowPlayingLyrics}
               onToggleFullscreen={canAudioFullscreen ? toggleAudioFullscreen : undefined}
               lyricsOffsetSecs={lyricsOffsetSecs}
               onLyricsOffsetChange={handleLyricsOffsetChange}
               lyricsHidden={nowPlayingLyricsHidden}
+              about={nowPlayingAbout}
+              aboutOpen={nowPlayingAboutOpen}
+              onToggleAbout={handleToggleNowPlayingAbout}
               visualizerSlot={
                 nowPlayingVisualizer
                   ? renderVisualizerSlot("nowplaying", nowPlayingVisualizer)
@@ -6509,13 +6541,16 @@ function App() {
               isArtistImageResolved={artistImageCache.isResolved}
               onSeek={playback.handleSeek}
               onOpenVisualizerPicker={openVisualizerPicker}
-              onToggleLyrics={() => setNowPlayingLyricsHidden((v) => !v)}
+              onToggleLyrics={handleToggleNowPlayingLyrics}
               // Same callback as the windowed view — the row keeps all three
               // buttons in both states, and this one just points the other way.
               onToggleFullscreen={toggleAudioFullscreen}
               lyricsOffsetSecs={lyricsOffsetSecs}
               onLyricsOffsetChange={handleLyricsOffsetChange}
               lyricsHidden={nowPlayingLyricsHidden}
+              about={nowPlayingAbout}
+              aboutOpen={nowPlayingAboutOpen}
+              onToggleAbout={handleToggleNowPlayingAbout}
               visualizerSlot={
                 fullscreenVisualizer
                   ? renderVisualizerSlot("fullscreen", fullscreenVisualizer)

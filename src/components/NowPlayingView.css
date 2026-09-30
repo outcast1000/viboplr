@@ -381,6 +381,120 @@
   50%      { opacity: 0.2; }
 }
 
+/* ── About panel (song / artist / album prose) ─────────
+   Takes the lyrics column's place, so it inherits its width budget, the
+   `--np-text-*` regime (light text over art, skin text on the no-art gradient)
+   and the same edge fade. Everything here is deliberately quiet: small tab
+   words instead of pills, body-size reading type, no chrome around the text. */
+.np-about {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Short text sits level with the artwork, as the lyrics do; long text falls
+     back to top-anchored and scrolls (`safe`, or its head would be unreachable). */
+  justify-content: safe center;
+  min-height: 0;
+  box-sizing: border-box;
+  /* Clears the corner action row, which sits over this column's top edge. */
+  padding-top: 48px;
+  text-align: left;
+}
+.np-about--empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--np-text-tertiary);
+  text-shadow: var(--np-text-shadow-sm);
+  font-size: var(--fs-sm);
+}
+.np-about-tabs {
+  flex: none;
+  display: flex;
+  gap: 18px;
+  padding: 0 4px 4px;
+}
+.np-about-tab {
+  padding: 2px 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--np-text-tertiary);
+  text-shadow: var(--np-text-shadow-sm);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.np-about-tab:hover,
+.np-about-tab:focus-visible {
+  color: var(--np-text-secondary);
+}
+.np-about-tab.is-active {
+  color: var(--np-text-primary);
+  border-bottom-color: var(--np-text-primary);
+}
+.np-about-scroll {
+  /* Content-sized, shrinking to the column when the text overflows — which is
+     what lets the parent centre a short bio and scroll a long one. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 4px 40px;
+  scrollbar-width: none;
+  /* Same stencil as the lyrics: only alpha is read, so #000 is not a colour. */
+  -webkit-mask-image: linear-gradient(transparent, #000 16px, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(transparent, #000 16px, #000 calc(100% - 40px), transparent);
+  animation: np-lyrics-in 0.45s ease both;
+  color: var(--np-text-primary);
+  text-shadow: var(--np-text-shadow-sm);
+  /* Scales with the stage on the lyrics' own principle, floored at body size. */
+  font-size: clamp(var(--fs-base), 0.55vh + 0.3vw, var(--fs-lg));
+  line-height: 1.7;
+}
+.np-about-scroll::-webkit-scrollbar { display: none; }
+.np-about-entry + .np-about-entry {
+  margin-top: 28px;
+}
+.np-about-entry-title {
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--np-text-tertiary);
+}
+.np-about-scroll p {
+  margin: 0 0 1em;
+}
+.np-about-scroll h4 {
+  margin: 1.2em 0 0.4em;
+  font-size: 1em;
+  font-weight: 600;
+}
+.np-about-scroll a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--np-text-tertiary);
+  text-underline-offset: 2px;
+}
+.np-about-scroll a:hover {
+  text-decoration-color: currentColor;
+}
+.np-about-scroll img {
+  max-width: 100%;
+  height: auto;
+}
+.now-playing-view--fs .np-about-scroll {
+  font-size: clamp(var(--fs-lg), 0.8vh + 0.4vw, var(--fs-xl));
+}
+@media (prefers-reduced-motion: reduce) {
+  .np-about-scroll {
+    animation: none;
+  }
+}
+
 /* When there are no lyrics, center the art alone (no two-column split). The gap
    goes with the column it was separating — the stage itself is uncapped in every
    case now, so there is nothing else to undo here. */

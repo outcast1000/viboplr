@@ -19,6 +19,10 @@ interface UseInformationTypesOpts {
   exclude?: string[];
   /** If set, only these type IDs are loaded (all others skipped). */
   include?: string[];
+  /** If set, only types of these display kinds are loaded. Filters by *shape*
+   * rather than by id, so a surface that wants "prose about this entity" picks
+   * up any plugin that provides one without naming that plugin's type ids. */
+  includeKinds?: DisplayKind[];
   /** Load nothing at all: no type query, no cache reads, no fetches. For
    * entities where per-entity metadata is meaningless (a "Various Artists"
    * collective) — distinct from `include: []`, which means "no filter". */
@@ -42,11 +46,16 @@ export function useInformationTypes({
   entity,
   exclude,
   include,
+  includeKinds,
   disabled,
   invokeInfoFetch,
   pluginNames,
 }: UseInformationTypesOpts) {
   const [sections, setSections] = useState<InfoSection[]>([]);
+  // Which entity `sections` currently describes. Before the first type/cache
+  // read lands, `sections` is `[]` for "no types" and "not read yet" alike;
+  // `ready` below tells the two apart for callers that render an empty state.
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const inFlightRef = useRef<Set<string>>(new Set());
   const mountedRef = useRef(true);
   // typeId → { displayKind, name, providers:[pluginId, integerId][] }, for the
@@ -60,6 +69,7 @@ export function useInformationTypes({
 
   const excludeKey = exclude?.join(",") ?? "";
   const includeKey = include?.join(",") ?? "";
+  const includeKindsKey = includeKinds?.join(",") ?? "";
   const entityKeyRef = useRef<string>("");
 
   const loadSections = useCallback(async () => {
@@ -79,6 +89,7 @@ export function useInformationTypes({
     entityKeyRef.current = entityKey;
     const excludeSet = excludeKey ? new Set(excludeKey.split(",")) : null;
     const includeSet = includeKey ? new Set(includeKey.split(",")) : null;
+    const includeKindSet = includeKindsKey ? new Set(includeKindsKey.split(",")) : null;
     const cached = await invoke<BackendValueRow[]>(
       "info_get_values_for_entity",
       { entityKey },
@@ -106,6 +117,7 @@ export function useInformationTypes({
       typeMetaRef.current.set(typeId, { displayKind: displayKind as DisplayKind, name, providers });
       if (excludeSet?.has(typeId)) continue;
       if (includeSet && !includeSet.has(typeId)) continue;
+      if (includeKindSet && !includeKindSet.has(displayKind)) continue;
 
       const desc = description || undefined;
 
@@ -159,7 +171,10 @@ export function useInformationTypes({
       }
     }
 
-    if (mountedRef.current) setSections(newSections);
+    if (mountedRef.current) {
+      setSections(newSections);
+      setLoadedKey(entityKey);
+    }
 
     // 4. Fire fetches with provider fallback
     for (const { typeId, providers } of fetchNeeded) {
@@ -218,7 +233,7 @@ export function useInformationTypes({
       })();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entity?.kind, entity?.id, entity?.name, entity?.artistName, excludeKey, includeKey, disabled, invokeInfoFetch]);
+  }, [entity?.kind, entity?.id, entity?.name, entity?.artistName, excludeKey, includeKey, includeKindsKey, disabled, invokeInfoFetch]);
 
   useEffect(() => {
     loadSections();
@@ -250,5 +265,7 @@ export function useInformationTypes({
     [],
   );
 
-  return { sections, refresh, reloadCache: loadSections, getTypeMeta };
+  const ready = !entity || disabled ? true : loadedKey === buildEntityKey(entity);
+
+  return { sections, ready, refresh, reloadCache: loadSections, getTypeMeta };
 }

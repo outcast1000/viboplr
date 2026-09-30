@@ -71,20 +71,21 @@ test('fullscreen fills the screen with the Now Playing surface, not a bespoke st
   await expect(overlay.locator('.fs-controls')).toBeVisible();
 });
 
-test('the corner action row is the same three buttons in both states', async ({ page }) => {
-  // Windowed: picker, lyrics, and enter-fullscreen.
-  await expect(page.locator('.now-playing-view .np-action-btn')).toHaveCount(3);
+test('the corner action row is the same four buttons in both states', async ({ page }) => {
+  // Windowed: picker, lyrics, about, and enter-fullscreen.
+  await expect(page.locator('.now-playing-view .np-action-btn')).toHaveCount(4);
   await expect(page.locator('.now-playing-view .np-action-btn[aria-label="Enter fullscreen"]')).toHaveCount(1);
 
   await enterFullscreen(page);
   const overlay = page.locator('.audio-fs');
 
-  // Fullscreen: the same row, same length, same order — only the third button
+  // Fullscreen: the same row, same length, same order — only the last button
   // turns around. A row that lost an item on the way in would read as a glitch,
   // and nothing had to move into FullscreenControls to keep it whole.
   await expect(overlay.locator('.np-actions')).toBeVisible();
-  await expect(overlay.locator('.np-action-btn')).toHaveCount(3);
+  await expect(overlay.locator('.np-action-btn')).toHaveCount(4);
   await expect(overlay.locator('.np-action-btn[aria-label="Choose visualizer"]')).toHaveCount(1);
+  await expect(overlay.locator('.np-action-btn[aria-label="About this track"]')).toHaveCount(1);
   await expect(overlay.locator('.np-action-btn[aria-label="Exit fullscreen"]')).toHaveCount(1);
   await expect(overlay.locator('.np-action-btn[aria-label="Enter fullscreen"]')).toHaveCount(0);
 });

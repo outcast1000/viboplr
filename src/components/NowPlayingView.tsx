@@ -12,6 +12,8 @@ import { isReducedMotion } from "../utils/reducedMotion";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { TrackArtFallback } from "./TrackArtFallback";
+import { NowPlayingAbout } from "./NowPlayingAbout";
+import type { NowPlayingAboutData } from "../hooks/useNowPlayingAbout";
 import "./NowPlayingView.css";
 
 interface NowPlayingViewProps {
@@ -79,6 +81,14 @@ interface NowPlayingViewProps {
       has lyrics at all — both end up hiding the column, and both hand the
       freed width to whatever is in the art column. */
   lyricsHidden?: boolean;
+  /** Song / artist / album prose for the About panel (`useNowPlayingAbout`). */
+  about?: NowPlayingAboutData;
+  /** The About panel is open. It takes the lyrics column's place rather than
+      adding a third one: the stage has room for the art and one thing to read,
+      and a lean-back surface should never show both at once. */
+  aboutOpen?: boolean;
+  /** Show/hide the About panel. Absent hides the button. */
+  onToggleAbout?: () => void;
   /** Per-track lyrics timing offset; positive delays. See `lyricPosition`. */
   lyricsOffsetSecs?: number;
   /** Omit to hide the offset control (it is also hidden for plain lyrics, which
@@ -269,6 +279,9 @@ export function NowPlayingView({
   onToggleLyrics,
   onToggleFullscreen,
   lyricsHidden,
+  about,
+  aboutOpen = false,
+  onToggleAbout,
   lyricsOffsetSecs = 0,
   onLyricsOffsetChange,
 }: NowPlayingViewProps) {
@@ -358,28 +371,32 @@ export function NowPlayingView({
   // backdrop itself arrives.
   const artRegime = hasArt || artPending;
   const hasLyrics = lyrics.status === "loaded" && !!lyrics.data;
-  // One flag drives the layout: "no lyrics on screen", whether because the
-  // track has none or because the user collapsed them. The art column — and so
-  // a visualizer sitting in it — takes the whole stage either way.
-  const showLyrics = hasLyrics && !lyricsHidden;
+  // The side column holds one thing to read: the About panel when it's open,
+  // otherwise the lyrics. One flag drives the layout — "nothing in the side
+  // column", whether because the track has no lyrics or because the user
+  // collapsed them — and the art column (and so a visualizer sitting in it)
+  // takes the whole stage either way.
+  const showAbout = aboutOpen && !!about;
+  const showLyrics = hasLyrics && !lyricsHidden && !showAbout;
+  const sideEmpty = !showLyrics && !showAbout;
   return (
     <div
       ref={surfaceRef}
-      className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${showLyrics ? "" : " np-audio--nolyrics"}`}
+      className={`${rootClass} np-audio${artRegime ? "" : " np-audio--noart"}${sideEmpty ? " np-audio--nolyrics" : ""}`}
       // Leaving the surface hides the row at once rather than after the idle
       // wait — the pointer has gone to the sidebar or the queue, so there is
       // nothing left to wait for.
       onMouseLeave={hideActions}
     >
       {/* Every view action is a visible button. There is no ⋯ and no right-click
-          menu: the three things this view can do are now all on screen, so a
-          second, hidden route to the same three would be duplication rather than
+          menu: everything this view can do is on screen, so a second, hidden
+          route to the same buttons would be duplication rather than
           convenience. The visualizer picker is still a native menu — it's a list
           of choices — but it hangs off the button that describes it.
 
           The row travels into fullscreen unchanged; only "enter fullscreen" drops
           out there, because the control bar under it owns the exit. */}
-      {(onOpenVisualizerPicker || onToggleLyrics || onToggleFullscreen) && (
+      {(onOpenVisualizerPicker || onToggleLyrics || onToggleAbout || onToggleFullscreen) && (
         <div className={`np-actions${actionsVisible ? " is-visible" : ""}`}>
           {onOpenVisualizerPicker && (
             <button
@@ -423,6 +440,24 @@ export function NowPlayingView({
                 <rect x="3" y="5" width="18" height="14" rx="2" />
                 <path d="M7 14.5a2 2 0 0 1 0-4" />
                 <path d="M15 14.5a3 3 0 0 1 0-4" />
+              </svg>
+            </button>
+          )}
+          {onToggleAbout && (
+            <button
+              className={`np-action-btn${showAbout ? "" : " is-off"}`}
+              onClick={onToggleAbout}
+              title={showAbout ? "Hide info" : "About this track"}
+              aria-label={showAbout ? "Hide info" : "About this track"}
+              aria-pressed={showAbout}
+            >
+              {/* An "i" in a circle — the conventional info glyph. Always
+                  enabled: whether there is anything to read is only known once
+                  the panel asks, and it says so itself when there isn't. */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <line x1="12" y1="11" x2="12" y2="16.5" />
+                <line x1="12" y1="7.5" x2="12" y2="7.5" />
               </svg>
             </button>
           )}
@@ -496,7 +531,11 @@ export function NowPlayingView({
         {/* Unmounted, not just hidden, when collapsed — the synced panel runs a
             position-driven auto-scroll, and leaving that ticking behind
             `display: none` would burn frames on something nobody can see. */}
-        {!lyricsHidden && (
+        {showAbout && about ? (
+          <div className="np-lyrics-col np-lyrics-col--about">
+            <NowPlayingAbout data={about} trackKey={track.key} />
+          </div>
+        ) : !lyricsHidden && (
           <div className="np-lyrics-col">
             {lyrics.status === "loaded" && lyrics.data ? (
               <NowPlayingLyrics key={track.key} data={lyrics.data} onSeek={onSeek} offsetSecs={lyricsOffsetSecs} />
