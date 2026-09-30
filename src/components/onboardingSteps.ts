@@ -96,7 +96,13 @@ export const PROFILE_PRESETS: Record<OnboardingProfile, ProfilePreset> = {
     subsonicFirst: false,
     subsonicAutoExpand: false,
     showVideoHistoryToggle: false,
-    profileShelves: [],
+    // With no library, the library-backed defaults (Recently added, Discover
+    // by decade, Forgotten favorites, Liked albums, Jump back in — and the
+    // Radio carousel, whose seeds are library tracks) are always empty and
+    // hide themselves. These two need no library: likes live in the
+    // metadata-keyed entity_likes store and history is name-keyed, and an
+    // artist card with no library row opens the name-based artist page.
+    profileShelves: ["builtin:recently-liked", "builtin:most-played-artists-30d"],
   },
   server: {
     title: "Music server",

@@ -38,9 +38,18 @@ describe("profileShelves", () => {
     expect(PROFILE_PRESETS.video.profileShelves).toEqual([VIDEO_SHELF]);
   });
 
-  it("leaves the other profiles alone", () => {
+  it("gives the streaming profile the shelves that fill without a library", () => {
+    // Likes are metadata-keyed and history is name-keyed, so both work for a
+    // setup whose every track comes from a plugin.
+    expect(PROFILE_PRESETS.streaming.profileShelves).toEqual([
+      "builtin:recently-liked",
+      "builtin:most-played-artists-30d",
+    ]);
+  });
+
+  it("leaves the library-backed profiles alone", () => {
+    // Subsonic tracks are real library rows, so Server gets every default shelf.
     expect(PROFILE_PRESETS.normal.profileShelves).toEqual([]);
-    expect(PROFILE_PRESETS.streaming.profileShelves).toEqual([]);
     expect(PROFILE_PRESETS.server.profileShelves).toEqual([]);
   });
 });
@@ -52,8 +61,18 @@ describe("seedProfileShelfVisibility", () => {
 
   it("returns null when there is nothing to fill", () => {
     expect(seedProfileShelfVisibility("normal", {})).toBeNull();
-    expect(seedProfileShelfVisibility("streaming", {})).toBeNull();
     expect(seedProfileShelfVisibility("server", {})).toBeNull();
+  });
+
+  it("seeds both streaming shelves, but only the ones still unset", () => {
+    expect(seedProfileShelfVisibility("streaming", {})).toEqual({
+      "builtin:recently-liked": true,
+      "builtin:most-played-artists-30d": true,
+    });
+    expect(seedProfileShelfVisibility("streaming", { "builtin:recently-liked": false })).toEqual({
+      "builtin:recently-liked": false,
+      "builtin:most-played-artists-30d": true,
+    });
   });
 
   it("never overrides a shelf the user switched off", () => {

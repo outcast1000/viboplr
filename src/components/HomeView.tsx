@@ -94,10 +94,9 @@ export function HomeView(props: HomeViewProps) {
     })();
   }, []);
 
-  // Switch on the shelves the chosen usage profile implies — currently Video →
-  // "Recently added tracks", the only built-in shelf that surfaces videos at
-  // all (videos have no album_id, so "Recently added albums" can never show
-  // one, and it is the album shelf that is visible by default).
+  // Switch on the shelves the chosen usage profile implies (the list and the
+  // reasons live in `PROFILE_PRESETS` — e.g. Video → "Recently added tracks",
+  // Streaming → the shelves that fill without a library).
   //
   // This lives here rather than in the wizard's close handler because this
   // component owns `visibility`: a store write from outside would be silently
