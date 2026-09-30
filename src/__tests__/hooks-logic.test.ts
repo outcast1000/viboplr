@@ -152,7 +152,7 @@ describe("searchPanelGeometry", () => {
   it("grows down when there is room below", () => {
     const g = searchPanelGeometry({ logicalY: 100, restingHeight: 52, monitor });
     expect(g.direction).toBe("down");
-    expect(g.height).toBe(260);
+    expect(g.height).toBe(460);
     expect(g.newY).toBe(100); // position unchanged when growing down
   });
 
@@ -160,9 +160,9 @@ describe("searchPanelGeometry", () => {
     // Window near the bottom: 1080 - (1040 + 52) = -12 room below → grow up.
     const g = searchPanelGeometry({ logicalY: 1040, restingHeight: 52, monitor });
     expect(g.direction).toBe("up");
-    expect(g.height).toBe(260);
-    // newY = logicalY - (height - restingHeight) = 1040 - (260 - 52) = 832
-    expect(g.newY).toBe(832);
+    expect(g.height).toBe(460);
+    // newY = logicalY - (height - restingHeight) = 1040 - (460 - 52) = 632
+    expect(g.newY).toBe(632);
   });
 
   it("treats a null monitor as unlimited space below (grows down)", () => {

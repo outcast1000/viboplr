@@ -1,26 +1,31 @@
 // Mini-player quick search: search state + play/enqueue routing.
 //
-// Distinct from useCentralSearch (which navigates to detail pages). In mini
-// mode there are no detail pages, so every pick is a play/enqueue action:
-// tracks play/enqueue directly; albums/artists route through usePlayActions.
+// Distinct from useCentralSearch: tracks play/enqueue directly. Mini mode has
+// no detail pages, so picking an album/artist opens it in the main window
+// (the caller leaves mini mode first); the enqueue modifier still enqueues it
+// through usePlayActions without leaving the mini player.
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, SearchAllResults, SearchResultItem } from "../types";
-import { allocateSlotsTrackWeighted } from "../utils/searchSlots";
 import type { SearchLikeDeps } from "../utils/searchLikes";
 import { useSearchLikeHandlers } from "./useSearchLikeHandlers";
 
 import { useAssignRef } from "./useLatestRef";
 const DEBOUNCE_MS = 200;
-const PER_TYPE_LIMIT = 7;
+// Fixed caps, no redistribution: a sparse category never hands its slots to
+// another. Mini search is "find a song fast", so tracks get the most room.
+// useMiniMode's MINI_SEARCH_PANEL_HEIGHT is sized to fit exactly these caps.
+const ARTIST_LIMIT = 2;
+const ALBUM_LIMIT = 2;
+const TRACK_LIMIT = 5;
 const EMPTY_RESULTS: SearchAllResults = { artists: [], albums: [], tracks: [] };
 
 export interface MiniSearchActionDeps {
   onPlayTrack: (track: Track) => void;
   onEnqueueTrack: (track: Track) => void;
-  playAlbum: (albumId: number) => void;
+  openAlbum: (albumId: number, artistId: number | null) => void;
   enqueueAlbum: (albumId: number) => void;
-  playArtist: (artistId: number) => void;
+  openArtist: (artistId: number) => void;
   enqueueArtist: (artistId: number) => void;
 }
 
@@ -37,11 +42,11 @@ export function routeMiniSearchAction(
       break;
     case "album":
       if (enqueue) deps.enqueueAlbum(item.data.id);
-      else deps.playAlbum(item.data.id);
+      else deps.openAlbum(item.data.id, item.data.artist_id);
       break;
     case "artist":
       if (enqueue) deps.enqueueArtist(item.data.id);
-      else deps.playArtist(item.data.id);
+      else deps.openArtist(item.data.id);
       break;
   }
 }
@@ -108,18 +113,12 @@ export function useMiniSearch(opts: UseMiniSearchOptions) {
 
     debounceRef.current = setTimeout(async () => {
       try {
-        const raw = await invoke<SearchAllResults>("search_all", {
+        setResults(await invoke<SearchAllResults>("search_all", {
           query: q,
-          artistLimit: PER_TYPE_LIMIT,
-          albumLimit: PER_TYPE_LIMIT,
-          trackLimit: PER_TYPE_LIMIT,
-        });
-        const slots = allocateSlotsTrackWeighted(raw.artists.length, raw.albums.length, raw.tracks.length);
-        setResults({
-          artists: raw.artists.slice(0, slots.artists),
-          albums: raw.albums.slice(0, slots.albums),
-          tracks: raw.tracks.slice(0, slots.tracks),
-        });
+          artistLimit: ARTIST_LIMIT,
+          albumLimit: ALBUM_LIMIT,
+          trackLimit: TRACK_LIMIT,
+        }));
         setHighlightedIndex(-1);
       } catch (e) {
         console.error("Mini search failed:", e);

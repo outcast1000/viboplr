@@ -21,7 +21,11 @@ const FULL_MIN_WIDTH = 300;
 const FULL_MIN_HEIGHT = 400;
 const MINI_HOVER_EXPAND_DELAY = 500;
 const MINI_HOVER_COLLAPSE_DELAY = 300;
-const MINI_SEARCH_PANEL_HEIGHT = 260;
+// Tall enough for a full result list without scrolling: 44px input + 8px list
+// padding + 3 section headings × 21px + 9 rows × 38px (2 artists, 2 albums,
+// 5 tracks — useMiniSearch's caps) + the footer's 1px top/bottom borders = 459.
+// Measured, not estimated; change it together with those caps or the CSS.
+const MINI_SEARCH_PANEL_HEIGHT = 460;
 
 export type MiniWidthSize = "small" | "medium" | "large";
 
@@ -540,6 +544,12 @@ export function useMiniMode(
   }, [currentRestingHeight, expandedH, minW, sampleCssRatio, searchH]);
 
   const toggleMiniMode = useCallback(async () => {
+    // Leaving mini mode supersedes an open search panel. Clear it before the
+    // first await: a caller that picks a result and exits (mini search opening
+    // an album/artist) closes the panel right after this call, and a
+    // closeSearchPanel still passing its guard would resize the window to the
+    // mini sizes concurrently with — and possibly after — the full restore.
+    if (miniModeRef.current) searchOpenRef.current = false;
     try {
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
@@ -604,7 +614,6 @@ export function useMiniMode(
         await win.show();
         await win.setFocus();
       } else {
-        if (searchOpenRef.current) { searchOpenRef.current = false; }
         cancelCollapseTimer();
         miniModeRef.current = false;
         const pos = await win.outerPosition();

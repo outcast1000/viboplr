@@ -18,8 +18,8 @@ const artist: Artist = { id: 2, name: "Artist", track_count: 20, liked: 0 } as A
 function deps() {
   return {
     onPlayTrack: vi.fn(), onEnqueueTrack: vi.fn(),
-    playAlbum: vi.fn(), enqueueAlbum: vi.fn(),
-    playArtist: vi.fn(), enqueueArtist: vi.fn(),
+    openAlbum: vi.fn(), enqueueAlbum: vi.fn(),
+    openArtist: vi.fn(), enqueueArtist: vi.fn(),
   };
 }
 
@@ -39,18 +39,18 @@ describe("routeMiniSearchAction", () => {
     expect(d.onEnqueueTrack).toHaveBeenCalledWith(t);
   });
 
-  it("album + play → playAlbum(id); + enqueue → enqueueAlbum(id)", () => {
+  it("album + select → openAlbum(id, artistId); + enqueue → enqueueAlbum(id)", () => {
     const d = deps();
     routeMiniSearchAction({ kind: "album", data: album } as SearchResultItem, false, d);
-    expect(d.playAlbum).toHaveBeenCalledWith(3);
+    expect(d.openAlbum).toHaveBeenCalledWith(3, 2);
     routeMiniSearchAction({ kind: "album", data: album } as SearchResultItem, true, d);
     expect(d.enqueueAlbum).toHaveBeenCalledWith(3);
   });
 
-  it("artist + play → playArtist(id); + enqueue → enqueueArtist(id)", () => {
+  it("artist + select → openArtist(id); + enqueue → enqueueArtist(id)", () => {
     const d = deps();
     routeMiniSearchAction({ kind: "artist", data: artist } as SearchResultItem, false, d);
-    expect(d.playArtist).toHaveBeenCalledWith(2);
+    expect(d.openArtist).toHaveBeenCalledWith(2);
     routeMiniSearchAction({ kind: "artist", data: artist } as SearchResultItem, true, d);
     expect(d.enqueueArtist).toHaveBeenCalledWith(2);
   });

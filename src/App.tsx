@@ -1655,9 +1655,17 @@ function App() {
   const miniSearch = useMiniSearch({
     onPlayTrack: (track) => { queueHook.playTracks([track], 0); },
     onEnqueueTrack: (track) => { queueHook.enqueueTracks([track]); },
-    playAlbum: (albumId) => { playActions.playAlbum(albumId); },
+    // Album/artist picks open the detail page, which only exists in the main
+    // window — so leave mini mode first, then navigate.
+    openAlbum: (albumId, artistId) => {
+      if (mini.miniModeRef.current) mini.toggleMiniMode();
+      library.handleAlbumClick(albumId, artistId);
+    },
     enqueueAlbum: (albumId) => { playActions.enqueueAlbum(albumId); },
-    playArtist: (artistId) => { playActions.playArtist(artistId); },
+    openArtist: (artistId) => {
+      if (mini.miniModeRef.current) mini.toggleMiniMode();
+      library.handleArtistClick(artistId);
+    },
     enqueueArtist: (artistId) => { playActions.enqueueArtist(artistId); },
     onOpenPanel: () => { mini.openSearchPanel(); },
     onClosePanel: () => { mini.closeSearchPanel(); },
