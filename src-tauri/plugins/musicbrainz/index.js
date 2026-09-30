@@ -23,6 +23,14 @@ function activate(api) {
   async function resolveWikimediaThumbnail(commonsUrl) {
     var parts = commonsUrl.split("File:");
     var filename = parts[parts.length - 1];
+    // MusicBrainz stores the Commons link already percent-encoded
+    // ("Bj%C3%B6rk_1997.jpg"). Encoding that again sends "%25C3" and Wikipedia
+    // rejects the title as invalid, so every non-ASCII filename missed.
+    try {
+      filename = decodeURIComponent(filename);
+    } catch (e) {
+      // Malformed escape: keep the raw name and let the lookup decide.
+    }
     var resp = await api.network.fetch(
       "https://en.wikipedia.org/w/api.php?action=query&titles=File:" +
         encodeURIComponent(filename) +
@@ -116,7 +124,10 @@ function activate(api) {
     // Step 2: Fetch cover art from Cover Art Archive
     await sleep(1000);
     var coverUrl = "https://coverartarchive.org/release-group/" + mbid + "/front-500";
-    return { status: "ok", url: coverUrl };
+    // CAA redirects to archive.org, which serves an HTML page instead of the
+    // image to the host's default browser-style User-Agent. An honest client
+    // UA gets the JPEG.
+    return { status: "ok", url: coverUrl, headers: { "User-Agent": "Viboplr" } };
   });
 }
 

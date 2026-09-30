@@ -17,8 +17,11 @@ function activate(api) {
   }
 
   api.imageProviders.onFetch("artist", async function (name) {
+    // "123" is TheAudioDB's current public test key. The old "2" was retired:
+    // it answers every search with a 404 {"Message":"Not found"}, which made
+    // this provider a silent miss for every artist.
     var resp = await api.network.fetch(
-      "https://www.theaudiodb.com/api/v1/json/2/search.php?s=" + encodeURIComponent(name)
+      "https://www.theaudiodb.com/api/v1/json/123/search.php?s=" + encodeURIComponent(name)
     );
     var data = await resp.json();
     var artist = data && data.artists && data.artists[0];

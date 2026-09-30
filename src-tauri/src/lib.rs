@@ -402,6 +402,7 @@ pub(crate) fn download_image_from_url(
         return Err(format!("HTTP {} from {}", status, url));
     }
     let bytes = resp.bytes().map_err(|e| e.to_string())?;
+    ensure_image_bytes(&bytes).map_err(|e| format!("{} from {}", e, url))?;
     image_provider::write_image(dest, &bytes)
 }
 
@@ -410,7 +411,24 @@ pub(crate) fn base64_decode_and_save(data: &str, dest: &std::path::Path) -> Resu
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| format!("Base64 decode error: {}", e))?;
+    ensure_image_bytes(&bytes)?;
     image_provider::write_image(dest, &bytes)
+}
+
+/// Reject a provider payload that isn't an image before it lands in the cache.
+///
+/// A 200 is not proof of an image: archive.org (where Cover Art Archive
+/// redirects) answers some clients with an HTML page. Written to disk as
+/// `<slug>.jpg`, that page counted as the chain's success — the entity got a
+/// broken image and the providers behind it were never asked. Failing here
+/// makes it an ordinary miss, so the chain moves on.
+fn ensure_image_bytes(bytes: &[u8]) -> Result<(), String> {
+    if commands::sniff_image_ext(bytes).is_some() {
+        return Ok(());
+    }
+    let head = String::from_utf8_lossy(&bytes[..bytes.len().min(64)]).to_ascii_lowercase();
+    let what = if head.trim_start().starts_with('<') { "an HTML/XML page" } else { "unrecognized data" };
+    Err(format!("Not an image ({}, {} bytes)", what, bytes.len()))
 }
 
 
@@ -1726,6 +1744,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ensure_image_bytes_rejects_html_and_accepts_images() {
+        let html = b"<!DOCTYPE html><html><head><title>archive.org</title>";
+        let err = ensure_image_bytes(html).unwrap_err();
+        assert!(err.contains("HTML"), "{}", err);
+        assert!(ensure_image_bytes(b"").is_err());
+        assert!(ensure_image_bytes(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10]).is_ok());
+        assert!(ensure_image_bytes(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]).is_ok());
+    }
 
     fn write_state(dir: &std::path::Path, json: &str) {
         std::fs::write(dir.join("app-state.json"), json).unwrap();
