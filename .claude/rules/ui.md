@@ -178,18 +178,23 @@ See "Entity System > Three Rendering Modes" above. Toggled via `ViewModeToggle` 
 
 **Radio-station hero:** auto-rotating carousel of up to 10 radio stations. `useHome` picks the seeds via `pick_radio_seeds` (`db/history.rs`), which fills **two quotas** (`radio_seed_quotas`: half/half, odd one familiar — 10 → 5 + 5): a **familiar** pool (liked, or played in the last 90 days; weight base 1, ×3 liked, ×(1 + 0.5·min(plays, 4))) and a **discovery** pool (never played, not liked; weight 1 + 0.25·min(artist plays in 90 days, 20) + 1·min(artist's liked tracks, 5), so an unheard song by an artist the user loves is up to 11× a stranger's). Each pool is a weighted sample drawn with `weighted_sample_key`, one track per artist **across the whole row**, and the two halves are **interleaved** (familiar first). A short pool is topped up from the other, then the distinct rule is relaxed, then the cooldown is dropped — the row never thins. History: a hard-tier ranking drew the carousel from the same liked-and-recent pool every refresh (the user saw the same stations for weeks); the proportional weighted sample that replaced it swung the other way, because the weights are per track and a large library is mostly untouched tracks, so most seeds were strangers however high the favourite weights went. Quotas are library-size invariant — do not go back to tiers or to a single proportional draw, and do not "fix" the familiar/discovery split by tuning weights. Pinned by `test_pick_radio_seeds_fills_familiar_and_discovery_quotas_and_interleaves` and `test_pick_radio_seeds_untouched_tracks_get_the_discovery_half_even_when_favourites_abound`. On top of that sits the **shown-seed cooldown**: `fetchRadioStations` passes the ids shown over the last 3 refreshes (30 ids; persisted as `radioSeedCooldown`, ring maintained by the pure `utils/radioSeedCooldown.ts`) as `exclude`, so a refresh cannot hand back the cards the user just saw; the backend tops the row up *from* the excluded set when the library can't fill it otherwise (`test_pick_radio_seeds_cooldown_tops_up_from_excluded_when_library_is_small`), so the cooldown never thins the carousel. The auto-playlist callers pass no cooldown — it belongs to the carousel, not to seed picking in general. It resolves a cover for each (album image first, artist image fallback) into the `RadioStation` (`{ seed, coverUrl }`) shape. Same look as the rest of the hero (blurred backdrop, arrows + dots, auto-advance every 8s, pauses on hover). `Play` (or clicking the art) starts that station via `contextMenuActions.startRadio` (which calls `build_radio_for_track` and plays the result with a `Radio: <title>` / `source: "radio"` context). Radio is play-only — there is no Enqueue. The station seeds resolve independently of the shelves and are persisted in the home snapshot (`radioStations`).
 
-**Built-in shelves** (in this order):
+**Built-in shelves** — `BUILTIN_SHELF_DESCRIPTORS` in `useHome.ts` is the source of truth for the set, the default order and default visibility; this table follows it. On by default, in order:
 
 | Shelf id | Title | Item type | Source |
 |---|---|---|---|
-| `builtin:recently-played` | Recently played | track | `get_history_recent` |
-| `builtin:most-played-30d` | Most played · 30 days | track | `get_history_most_played_since` (now − 30 days) |
-| `builtin:most-played-artists-30d` | Most played artists · 30 days | artist | `get_history_most_played_artists_since`, resolved against library by name |
-| `builtin:recently-added` | Recently added albums | album | `get_albums` with `sort: "added_desc"` |
-| `builtin:recently-added-tracks` | Recently added tracks | track | `get_tracks` with `sortField: "added"`, `sortDir: "desc"` — track-based so videos (no `album_id`) and loose singles surface; off by default |
-| `builtin:liked-albums` | Liked albums | album | `get_albums` filtered by `liked === 1` |
-| `builtin:liked-artists` | Liked artists | artist | `get_artists` filtered by `liked === 1` |
+| `builtin:radio` | Radio | stations | the hero carousel (below) — first in the order, so it renders as the hero |
+| `builtin:latest-play` | Latest play | playlist cards | `recentPlaySessions` (things that replaced the queue), re-resolved on click |
 | `builtin:jump-back-in` | Jump back in | mixed (album/artist) | reads `recentlyVisitedEntities` ring buffer (recorded by `recordVisit` from `src/utils/recentlyVisited.ts`) |
+| `builtin:recently-added` | Recently added albums | album | `get_albums` with `sort: "added_desc"` |
+| `builtin:most-played-30d` | Most played · 30 days | track | `get_history_most_played_since` (now − 30 days) |
+| `builtin:discover-by-decade` | Discover the *N*s | album | `pick_decade_albums` — one random decade + a random handful of its albums, both in SQL; the resolver returns the decade as the shelf's `title` for that fetch |
+| `builtin:forgotten-favorites` | Forgotten favorites | track | `pick_forgotten_favorites` (≥2 plays, none in 30 days) |
+| `builtin:liked-albums` | Liked albums | album | `get_albums` with `likedOnly`, **`sort: "random"`**, `limit` — shuffled because an alphabetical top 20 showed the same "A" albums every refresh |
+| `builtin:recently-played` | Recently played | track | `get_history_recent` — deliberately **last**: under Latest play / Jump back in it read as a third "recent" shelf in a row |
+
+Off by default (opt in via Customize): `recently-added-tracks` (`get_tracks` by `added` desc — track-based so videos and loose singles surface; on for the Video profile), `most-played-artists-30d`, `recently-liked` / `recently-liked-albums` / `recently-liked-artists` (`pick_liked_entities` by recency), `random-liked`, `liked-artists` (`get_artists` with `likedOnly`, `sort: "random"`, `limit`), `never-played`, `popular-track-radio`, `liked-track-radio`.
+
+Reordering the defaults only reaches profiles with no saved `homeShelfOrder` (new ones, or after Reset) — `mergeShelfOrder` keeps a saved arrangement. Default *visibility* changes reach everyone who never toggled that shelf.
 
 Plugin-contributed shelves are merged in alongside the built-ins. See `plugins.md` "Home Shelves" for the contribution surface.
 

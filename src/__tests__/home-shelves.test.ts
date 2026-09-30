@@ -6,6 +6,8 @@ import {
   findMissingRenderedShelfKeys,
   resolveSessionCover,
   RADIO_SHELF_ID,
+  BUILTIN_SHELF_DESCRIPTORS,
+  decadeShelfTitle,
   type ShelfResolver,
 } from "../hooks/useHome";
 import type { RecentPlaySession } from "../utils/recentPlays";
@@ -33,6 +35,27 @@ describe("resolveShelves", () => {
     const result = await resolveShelves([throws, good], { timeoutMs: 50 });
     expect(result.map(r => r.id)).toEqual(["good"]);
     consoleErr.mockRestore();
+  });
+
+  it("lets a resolver retitle its shelf per fetch, else keeps the registered title", async () => {
+    const retitled = makeResolver("decade", async () => ({ status: "ok", title: decadeShelfTitle(1990), items: [{ libraryId: 1, name: "x" }] }));
+    const plain = makeResolver("plain", async () => ({ status: "ok", items: [{ libraryId: 2, name: "y" }] }));
+    const result = await resolveShelves([retitled, plain], { timeoutMs: 50 });
+    expect(result.map(r => r.title)).toEqual(["Discover the 1990s", "plain"]);
+  });
+});
+
+describe("default shelf set", () => {
+  const visibleByDefault = BUILTIN_SHELF_DESCRIPTORS.filter((d) => d.defaultVisible).map((d) => d.id);
+
+  it("keeps the three recent-activity shelves from stacking up in a row", () => {
+    // Latest play and Jump back in open the list; Recently played is last.
+    expect(visibleByDefault.slice(1, 3)).toEqual(["builtin:latest-play", "builtin:jump-back-in"]);
+    expect(visibleByDefault[visibleByDefault.length - 1]).toBe("builtin:recently-played");
+  });
+
+  it("names the decade with all four digits", () => {
+    expect(decadeShelfTitle(2000)).toBe("Discover the 2000s");
   });
 });
 

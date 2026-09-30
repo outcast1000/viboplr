@@ -47,25 +47,22 @@ impl Database {
     pub fn get_artists_filtered(
         &self,
         liked_only: bool,
+        sort: Option<&str>,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> SqlResult<Vec<Artist>> {
         let conn = self.conn.lock().unwrap();
         let visible = artist_visible_clause("artists");
         let albums = artist_album_count_sql("artists");
-        let base = if liked_only {
-            format!(
-                "SELECT id, name, track_count, liked, {} FROM artists \
-                 WHERE {} AND liked = 1 ORDER BY name",
-                albums, visible
-            )
-        } else {
-            format!(
-                "SELECT id, name, track_count, liked, {} FROM artists \
-                 WHERE {} ORDER BY name",
-                albums, visible
-            )
-        };
+        let liked_clause = if liked_only { " AND liked = 1" } else { "" };
+        // "random" = a fresh shuffle per call (the Home "Liked artists" shelf);
+        // anything else keeps the alphabetical order paging consumers rely on.
+        let order = if sort == Some("random") { "RANDOM()" } else { "name" };
+        let base = format!(
+            "SELECT id, name, track_count, liked, {} FROM artists \
+             WHERE {}{} ORDER BY {}",
+            albums, visible, liked_clause, order
+        );
         // Pagination is DB-side so a paging consumer (the plugin API's
         // getArtists) doesn't pull the whole table across IPC per page.
         let sql = format!("{}{}", base, limit_offset_clause(limit, offset));

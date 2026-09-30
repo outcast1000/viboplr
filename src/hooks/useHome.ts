@@ -46,12 +46,16 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   { id: RADIO_SHELF_ID, title: "Radio", description: "Stations spun from songs you’ll like.", defaultVisible: true },
   { id: LATEST_PLAY_SHELF_ID, title: "Latest play", description: "Jump back into what you last played.", defaultVisible: true },
   { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently.", defaultVisible: true },
-  { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off.", defaultVisible: true },
   { id: "builtin:recently-added", title: "Recently added albums", description: "The newest albums in your library.", defaultVisible: true },
   { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: true },
   { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A different era from your collection each refresh.", defaultVisible: true },
   { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Old favorites you haven’t played in a while.", defaultVisible: true },
-  { id: "builtin:liked-albums", title: "Liked albums", description: "Albums you’ve hearted.", defaultVisible: true },
+  // Shuffled, not alphabetical — a 20-card view of an A→Z list showed the same
+  // "A" albums on every refresh. "Recently liked albums" covers the by-date view.
+  { id: "builtin:liked-albums", title: "Liked albums", description: "A shuffle through albums you’ve hearted.", defaultVisible: true },
+  // Last of the defaults: right under Latest play / Jump back in it read as a
+  // third "recent" shelf in a row.
+  { id: "builtin:recently-played", title: "Recently played", description: "Pick up where you left off.", defaultVisible: true },
   // Off by default — opt in via Customize.
   // Track-level counterpart to "Recently added albums": surfaces the newest
   // tracks (including videos, which carry no album_id and so never appear in the
@@ -63,13 +67,19 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   { id: "builtin:recently-liked-albums", title: "Recently liked albums", description: "Albums you’ve loved most recently.", defaultVisible: false },
   { id: "builtin:recently-liked-artists", title: "Recently liked artists", description: "Artists you’ve loved most recently.", defaultVisible: false },
   { id: "builtin:random-liked", title: "Random liked", description: "A shuffle through your liked songs.", defaultVisible: false },
-  { id: "builtin:liked-artists", title: "Liked artists", description: "Artists you’ve hearted.", defaultVisible: false },
+  { id: "builtin:liked-artists", title: "Liked artists", description: "A shuffle through artists you’ve hearted.", defaultVisible: false },
   { id: "builtin:never-played", title: "Never played", description: "Tracks in your library you’ve never played.", defaultVisible: false },
   { id: "builtin:popular-track-radio", title: "Popular Track radio", description: "Stations from your most-played songs.", defaultVisible: false },
   { id: "builtin:liked-track-radio", title: "Liked Track radio", description: "Stations from songs you love.", defaultVisible: false },
 ];
 
 export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
+
+// Title for the "Discover by decade" shelf once it has drawn its decade. Full
+// four-digit form: "the 00s" / "the 10s" are ambiguous across centuries.
+export function decadeShelfTitle(decade: number): string {
+  return `Discover the ${decade}s`;
+}
 
 // One-line description for a built-in shelf id (shown in the shelf header and the
 // Customize modal). Undefined for plugin shelves / unknown ids.
@@ -283,13 +293,18 @@ export interface ResolvedShelf {
   items: HomeShelfItem[];
 }
 
+// A resolver's answer. Built-ins may retitle their shelf per fetch (Discover by
+// decade names the decade it drew); `title` is internal only — plugins still
+// return a plain HomeShelfResult and keep their registered title.
+export type ShelfFetchResult = HomeShelfResult & { title?: string };
+
 export interface ShelfResolver {
   id: string;
   pluginId?: string;
   title: string;
   displayKind: HomeShelfDisplayKind;
   limit: number;
-  fetch: (limit: number) => Promise<HomeShelfResult>;
+  fetch: (limit: number) => Promise<ShelfFetchResult>;
 }
 
 // Sort key for a shelf given the user's built-in order. Built-ins are ranked by
@@ -318,9 +333,9 @@ export async function resolveShelves(
 ): Promise<ResolvedShelf[]> {
   const work = resolvers.map(async (r) => {
     try {
-      const result = await Promise.race<HomeShelfResult>([
+      const result = await Promise.race<ShelfFetchResult>([
         r.fetch(r.limit),
-        new Promise<HomeShelfResult>((resolve) =>
+        new Promise<ShelfFetchResult>((resolve) =>
           setTimeout(() => resolve({ status: "error", message: "timeout" }), opts.timeoutMs),
         ),
       ]);
@@ -333,7 +348,7 @@ export async function resolveShelves(
       return {
         id: r.id,
         pluginId: r.pluginId,
-        title: r.title,
+        title: result.title ?? r.title,
         displayKind: r.displayKind,
         items: result.items,
       } as ResolvedShelf;
@@ -671,10 +686,12 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const albums = (await invoke<Album[]>("get_albums", { artistId: null, likedOnly: true })) ?? [];
+              // Shuffled + limited in SQL: the whole liked list used to come
+              // across IPC only to show its alphabetical first 20.
+              const albums = (await invoke<Album[]>("get_albums", { artistId: null, likedOnly: true, sort: "random", limit })) ?? [];
               return {
                 status: "ok",
-                items: albums.slice(0, limit).map(a => ({
+                items: albums.map(a => ({
                   libraryId: a.id,
                   name: a.title,
                   artistName: a.artist_name ?? undefined,
@@ -692,10 +709,10 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const artists = (await invoke<Artist[]>("get_artists", { likedOnly: true })) ?? [];
+              const artists = (await invoke<Artist[]>("get_artists", { likedOnly: true, sort: "random", limit })) ?? [];
               return {
                 status: "ok",
-                items: artists.slice(0, limit).map(a => ({
+                items: artists.map(a => ({
                   libraryId: a.id,
                   name: a.name,
                 })),
@@ -752,27 +769,16 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const albums = (await invoke<Album[]>("get_albums", { artistId: null })) ?? [];
-              const withYear = albums.filter((a) => typeof a.year === "number" && (a.year as number) > 0);
-              if (withYear.length === 0) return { status: "empty" };
-              // Group by decade, then feature one decade (chosen at random) per refresh.
-              const byDecade = new Map<number, Album[]>();
-              for (const a of withYear) {
-                const d = Math.floor((a.year as number) / 10) * 10;
-                const bucket = byDecade.get(d);
-                if (bucket) bucket.push(a);
-                else byDecade.set(d, [a]);
-              }
-              const decades = [...byDecade.keys()];
-              const decade = decades[Math.floor(Math.random() * decades.length)];
-              const picks = [...(byDecade.get(decade) ?? [])];
-              for (let i = picks.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [picks[i], picks[j]] = [picks[j], picks[i]];
-              }
+              // One decade drawn per refresh, and its albums shuffled — both in
+              // SQL, so this no longer pulls the whole album table across IPC.
+              const picked = await invoke<{ decade: number; albums: Album[] } | null>("pick_decade_albums", { limit });
+              if (!picked || picked.albums.length === 0) return { status: "empty" };
               return {
                 status: "ok",
-                items: picks.slice(0, limit).map((a) => ({
+                // Name the decade it drew — a fixed "Discover by decade" left
+                // the user guessing which era the cards came from.
+                title: decadeShelfTitle(picked.decade),
+                items: picked.albums.map((a) => ({
                   libraryId: a.id,
                   name: a.title,
                   artistName: a.artist_name ?? undefined,
@@ -934,9 +940,9 @@ export function useHome(opts: UseHomeOptions) {
       const resolvedOk = new Set<string>();
       const shelfPromises = all.map(async (r) => {
         try {
-          const result = await Promise.race<HomeShelfResult>([
+          const result = await Promise.race<ShelfFetchResult>([
             r.fetch(r.limit),
-            new Promise<HomeShelfResult>((resolve) =>
+            new Promise<ShelfFetchResult>((resolve) =>
               setTimeout(() => resolve({ status: "error", message: "timeout" }), PLUGIN_TIMEOUT_MS),
             ),
           ]);
@@ -951,7 +957,7 @@ export function useHome(opts: UseHomeOptions) {
           partial.set(r.id, {
             id: r.id,
             pluginId: r.pluginId,
-            title: r.title,
+            title: result.title ?? r.title,
             displayKind: r.displayKind,
             items: result.items,
           });

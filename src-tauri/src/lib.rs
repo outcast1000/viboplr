@@ -121,6 +121,7 @@ macro_rules! invoke_handler {
             commands::pick_liked_entities,
             commands::pick_never_played_tracks,
             commands::pick_forgotten_favorites,
+            commands::pick_decade_albums,
             commands::get_track_like_states,
             commands::export_likes,
             commands::import_likes,

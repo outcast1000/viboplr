@@ -127,6 +127,9 @@ impl Database {
         let order_clause = match sort {
             Some("added_desc") =>
                 format!("ORDER BY {} DESC, a.title", album_added_at_sql("a")),
+            // A fresh shuffle per call — the Home "Liked albums" shelf, so its
+            // 20 cards aren't the same alphabetical head on every refresh.
+            Some("random") => "ORDER BY RANDOM()".to_string(),
             _ => "ORDER BY a.title".to_string(),
         };
         let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
@@ -144,6 +147,33 @@ impl Database {
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| album_from_row(row))?;
         rows.collect()
+    }
+
+    /// One decade drawn at random from the albums that carry a year, plus up
+    /// to `limit` of that decade's albums in random order — the Home "Discover
+    /// by decade" shelf. `None` when no album has a year. Both draws run in SQL
+    /// so the shelf never pulls the whole album table across IPC.
+    pub fn pick_decade_albums(&self, limit: i64) -> SqlResult<Option<(i32, Vec<Album>)>> {
+        let conn = self.conn.lock().unwrap();
+        let decade: Option<i32> = conn
+            .query_row(
+                "SELECT d FROM (SELECT DISTINCT (year / 10) * 10 AS d FROM albums \
+                 WHERE track_count > 0 AND year > 0) ORDER BY RANDOM() LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(decade) = decade else { return Ok(None) };
+        let mut stmt = conn.prepare(
+            "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
+             FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
+             WHERE a.track_count > 0 AND a.year >= ?1 AND a.year < ?1 + 10 \
+             ORDER BY RANDOM() LIMIT ?2",
+        )?;
+        let albums = stmt
+            .query_map(params![decade, limit], |row| album_from_row(row))?
+            .collect::<SqlResult<Vec<_>>>()?;
+        Ok(Some((decade, albums)))
     }
 }
 
@@ -201,7 +231,7 @@ mod tests {
 
         // The album artist performs on no track but owns an album → visible.
         let names: Vec<String> = db
-            .get_artists_filtered(false, None, None)
+            .get_artists_filtered(false, None, None, None)
             .unwrap()
             .into_iter()
             .map(|a| a.name)
@@ -292,7 +322,7 @@ mod tests {
         // search selects need FTS rows, so they are asserted in
         // `test_search_finds_a_compilation_and_its_album_artist`.)
         assert_eq!(db.get_artist_by_id(va.id).unwrap().unwrap().album_count, 1);
-        let listed = db.get_artists_filtered(false, None, None).unwrap();
+        let listed = db.get_artists_filtered(false, None, None, None).unwrap();
         let listed_va = listed.iter().find(|a| a.name == "Various Artists").unwrap();
         assert_eq!(listed_va.album_count, 1);
 

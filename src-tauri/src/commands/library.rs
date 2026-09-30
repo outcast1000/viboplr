@@ -7,10 +7,11 @@ use super::*;
 pub fn get_artists(
     state: State<'_, AppState>,
     liked_only: Option<bool>,
+    sort: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<Artist>, String> {
-    state.db.get_artists_filtered(liked_only.unwrap_or(false), limit, offset).map_err(|e| e.to_string())
+    state.db.get_artists_filtered(liked_only.unwrap_or(false), sort.as_deref(), limit, offset).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -28,6 +29,21 @@ pub fn get_albums(
     offset: Option<i64>,
 ) -> Result<Vec<Album>, String> {
     state.db.get_albums_sorted(artist_id, sort.as_deref(), liked_only.unwrap_or(false), limit, offset)
+        .map_err(|e| e.to_string())
+}
+
+/// One randomly drawn decade and a random handful of its albums — the Home
+/// "Discover by decade" shelf. `None` when no album carries a year.
+#[derive(serde::Serialize)]
+pub struct DecadeAlbums {
+    pub decade: i32,
+    pub albums: Vec<Album>,
+}
+
+#[tauri::command]
+pub fn pick_decade_albums(state: State<'_, AppState>, limit: i64) -> Result<Option<DecadeAlbums>, String> {
+    state.db.pick_decade_albums(limit)
+        .map(|picked| picked.map(|(decade, albums)| DecadeAlbums { decade, albums }))
         .map_err(|e| e.to_string())
 }
 

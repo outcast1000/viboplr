@@ -1162,7 +1162,7 @@ mod tests {
         // Artist liked — need recompute_counts for artist to show up (track_count > 0 filter)
         state.db.toggle_liked("artists", artist_id, 1).unwrap();
         state.db.recompute_counts().unwrap();
-        let artists = state.db.get_artists_filtered(false, None, None).unwrap();
+        let artists = state.db.get_artists_filtered(false, None, None, None).unwrap();
         assert!(!artists.is_empty());
         assert!(artists.iter().any(|a| a.id == artist_id && a.liked == 1));
 

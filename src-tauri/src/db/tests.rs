@@ -305,16 +305,16 @@ fn test_entity_listings_paginate_in_sql() {
     }
     db.recompute_counts().unwrap();
 
-    let page = db.get_artists_filtered(false, Some(2), Some(1)).unwrap();
+    let page = db.get_artists_filtered(false, None, Some(2), Some(1)).unwrap();
     assert_eq!(
         page.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
         vec!["Bravo", "Charlie"],
     );
     // Offset with no limit: everything after the first row.
-    let rest = db.get_artists_filtered(false, None, Some(3)).unwrap();
+    let rest = db.get_artists_filtered(false, None, None, Some(3)).unwrap();
     assert_eq!(rest.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), vec!["Delta"]);
     // Unpaginated call unchanged.
-    assert_eq!(db.get_artists_filtered(false, None, None).unwrap().len(), 4);
+    assert_eq!(db.get_artists_filtered(false, None, None, None).unwrap().len(), 4);
 
     let albums = db.get_albums_sorted(None, None, false, Some(2), Some(2)).unwrap();
     assert_eq!(
@@ -3667,6 +3667,64 @@ fn test_pick_forgotten_favorites() {
     let titles: Vec<&str> = forgotten.iter().map(|t| t.title.as_str()).collect();
     assert!(titles.contains(&"OldFave"), "old repeat-played track should be a forgotten favorite");
     assert!(!titles.contains(&"RecentFave"), "recently played track must be excluded");
+}
+
+/// Home "Discover by decade": one decade, only that decade's albums, capped at
+/// `limit`, and albums without a year (or without tracks) never drawn.
+#[test]
+fn test_pick_decade_albums() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid = db.get_or_create_artist("A").unwrap();
+    assert!(db.pick_decade_albums(10).unwrap().is_none(), "empty library has no decade");
+
+    let years = [Some(1991), Some(1995), Some(1999), Some(2003), None];
+    for (i, year) in years.iter().enumerate() {
+        let alb = db.get_or_create_album(&format!("Album {}", i), Some(aid), *year).unwrap();
+        db.upsert_track(&format!("file://t{}.mp3", i), &format!("T{}", i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), *year).unwrap();
+    }
+    // An album with a year but no tracks must not make its decade drawable.
+    db.get_or_create_album("Empty", Some(aid), Some(1975)).unwrap();
+    db.recompute_counts().unwrap();
+
+    for _ in 0..20 {
+        let (decade, albums) = db.pick_decade_albums(10).unwrap().expect("a decade");
+        assert!(decade == 1990 || decade == 2000, "unexpected decade {}", decade);
+        assert!(!albums.is_empty());
+        for a in &albums {
+            let y = a.year.expect("drawn albums carry a year");
+            assert_eq!((y / 10) * 10, decade, "{} is outside the {}s", a.title, decade);
+        }
+    }
+    let (_, capped) = db.pick_decade_albums(2).unwrap().unwrap();
+    assert!(capped.len() <= 2);
+}
+
+/// `sort: "random"` on the album and artist lists (Home "Liked albums" /
+/// "Liked artists") still honours liked-only and the limit.
+#[test]
+fn test_random_sort_keeps_liked_filter_and_limit() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    for i in 0..5 {
+        let aid = db.get_or_create_artist(&format!("Artist {}", i)).unwrap();
+        let alb = db.get_or_create_album(&format!("Album {}", i), Some(aid), None).unwrap();
+        db.upsert_track(&format!("file://r{}.mp3", i), &format!("R{}", i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        if i < 3 {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("UPDATE albums SET liked = 1 WHERE id = ?1", params![alb]).unwrap();
+            conn.execute("UPDATE artists SET liked = 1 WHERE id = ?1", params![aid]).unwrap();
+        }
+    }
+    db.recompute_counts().unwrap();
+
+    let albums = db.get_albums_sorted(None, Some("random"), true, Some(2), None).unwrap();
+    assert_eq!(albums.len(), 2);
+    assert!(albums.iter().all(|a| a.liked == 1));
+    let artists = db.get_artists_filtered(true, Some("random"), Some(2), None).unwrap();
+    assert_eq!(artists.len(), 2);
+    assert!(artists.iter().all(|a| a.liked == 1));
+    assert_eq!(db.get_artists_filtered(true, Some("random"), None, None).unwrap().len(), 3);
 }
 
 #[test]

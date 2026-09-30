@@ -196,6 +196,14 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return args && args.artistId != null
         ? TEST_ALBUMS.filter(a => a.artist_id === args.artistId)
         : TEST_ALBUMS;
+    case 'pick_decade_albums': {
+      // Deterministic stand-in for the random draw: the first dated album's decade.
+      const dated = TEST_ALBUMS.filter(a => a.year > 0);
+      if (dated.length === 0) return null;
+      const decade = Math.floor(dated[0].year / 10) * 10;
+      const albums = dated.filter(a => a.year >= decade && a.year < decade + 10);
+      return { decade, albums: albums.slice(0, (args && args.limit) || albums.length) };
+    }
     case 'get_collections':
       return TEST_COLLECTIONS;
     case 'get_collection_stats':
