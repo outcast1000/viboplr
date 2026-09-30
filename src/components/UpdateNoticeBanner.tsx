@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { UpdateError } from "../hooks/useAppUpdater";
 import type { UpdateNotice } from "../utils/updateNotice";
 import { UpdateProgress } from "./UpdateProgress";
@@ -22,6 +22,13 @@ export interface UpdateNoticeBannerProps {
   onOpenDetails: () => void;
   /** Hide this notice until its signature changes. */
   onDismiss: () => void;
+  /**
+   * The strip's rendered height, reported on mount, on every resize (release
+   * notes / error expanding) and as 0 on unmount. The Now Playing video theater
+   * is an absolutely-positioned layer over the whole main column, so it needs
+   * this to start *below* the strip instead of covering it.
+   */
+  onHeightChange?: (height: number) => void;
 }
 
 /**
@@ -46,8 +53,23 @@ export function UpdateNoticeBanner({
   onUpdate,
   onOpenDetails,
   onDismiss,
+  onHeightChange,
 }: UpdateNoticeBannerProps) {
   const [notesOpen, setNotesOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || !onHeightChange) return;
+    // offsetHeight, not the observer's contentRect: the strip's padding and
+    // border are part of what the theater must clear.
+    onHeightChange(el.offsetHeight);
+    const ro = new ResizeObserver(() => onHeightChange(el.offsetHeight));
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      onHeightChange(0);
+    };
+  }, [onHeightChange]);
   const isApp = notice.kind === "app";
   // Only an install failure belongs here. A failed *check* is about a release
   // this banner can't be announcing (it has one, so the check succeeded at
@@ -62,7 +84,7 @@ export function UpdateNoticeBanner({
   const details = isApp ? notice.body : names.length > 1 ? names.join(", ") : undefined;
 
   return (
-    <div className={`update-notice ${failure ? "has-error" : ""}`} role="status" aria-live="polite">
+    <div ref={rootRef} className={`update-notice ${failure ? "has-error" : ""}`} role="status" aria-live="polite">
       <div className="update-notice-row">
         <span className="update-notice-icon" aria-hidden="true">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">

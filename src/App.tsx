@@ -1503,6 +1503,9 @@ function App() {
     extensionUpdates: extensionsHook.updates,
     dismissed: updateNoticeDismissed,
   }), [updater.updateState.available, extensionsHook.updates, updateNoticeDismissed]);
+  // Height of the update strip, so the Now Playing video theater (absolute over
+  // the whole `.main`) starts below it instead of covering its buttons.
+  const [updateNoticeHeight, setUpdateNoticeHeight] = useState(0);
   const handleDismissUpdateNotice = useCallback(() => {
     if (!updateNotice) return;
     setUpdateNoticeDismissed(prev => dismissNotice(prev, updateNotice));
@@ -5171,7 +5174,7 @@ function App() {
       />
 
       {/* Main content */}
-      <main className="main" data-dock={videoPlaying && videoLayout.dockSide !== "queue" ? videoLayout.dockSide : undefined}>
+      <main className="main" data-dock={videoPlaying && videoLayout.dockSide !== "queue" ? videoLayout.dockSide : undefined} style={updateNoticeHeight ? { "--update-notice-h": `${updateNoticeHeight}px` } as React.CSSProperties : undefined}>
         {/* Content area */}
         <div className="content" data-view={view} ref={contentRef} style={videoPlaying && videoLayout.dockSide !== "queue" ? (videoLayout.isHorizontal ? { minHeight: 150 } : { minWidth: 150 }) : undefined}>
           {/* Update notice — above the view, inside `.content` so it can't be
@@ -5197,6 +5200,7 @@ function App() {
                 }
               }}
               onDismiss={handleDismissUpdateNotice}
+              onHeightChange={setUpdateNoticeHeight}
             />
           )}
           <DetailViewProvider actions={detailViewActions} state={detailViewState}>
