@@ -8,6 +8,7 @@ import {
   RADIO_SHELF_ID,
   BUILTIN_SHELF_DESCRIPTORS,
   decadeShelfTitle,
+  dropRetiredBuiltInShelves,
   type ShelfResolver,
 } from "../hooks/useHome";
 import type { RecentPlaySession } from "../utils/recentPlays";
@@ -52,6 +53,21 @@ describe("default shelf set", () => {
     // Latest play and Jump back in open the list; Recently played is last.
     expect(visibleByDefault.slice(1, 3)).toEqual(["builtin:latest-play", "builtin:jump-back-in"]);
     expect(visibleByDefault[visibleByDefault.length - 1]).toBe("builtin:recently-played");
+  });
+
+  it("has no station shelves besides the Radio carousel", () => {
+    const ids = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
+    expect(ids).not.toContain("builtin:popular-track-radio");
+    expect(ids).not.toContain("builtin:liked-track-radio");
+  });
+
+  it("drops retired built-in shelves from a hydrated snapshot, keeping plugin shelves", () => {
+    const snap = [
+      { id: "builtin:liked-albums" },
+      { id: "builtin:popular-track-radio" },
+      { id: "spotify:discover", pluginId: "spotify" },
+    ];
+    expect(dropRetiredBuiltInShelves(snap).map((s) => s.id)).toEqual(["builtin:liked-albums", "spotify:discover"]);
   });
 
   it("names the decade with all four digits", () => {

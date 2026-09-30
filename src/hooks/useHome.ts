@@ -69,8 +69,11 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   { id: "builtin:random-liked", title: "Random liked", description: "A shuffle through your liked songs.", defaultVisible: false },
   { id: "builtin:liked-artists", title: "Liked artists", description: "A shuffle through artists you’ve hearted.", defaultVisible: false },
   { id: "builtin:never-played", title: "Never played", description: "Tracks in your library you’ve never played.", defaultVisible: false },
-  { id: "builtin:popular-track-radio", title: "Popular Track radio", description: "Stations from your most-played songs.", defaultVisible: false },
-  { id: "builtin:liked-track-radio", title: "Liked Track radio", description: "Stations from songs you love.", defaultVisible: false },
+  // No "Popular / Liked track radio" shelves: they were narrower slices of the
+  // Radio carousel's familiar half (most-played / liked tracks as stations)
+  // without its one-per-artist rule or shown-seed cooldown, and each repeated
+  // an existing shelf (Most played · 30 days / Random liked). More stations
+  // belong in the carousel, not in a second station row.
 ];
 
 export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
@@ -94,6 +97,16 @@ export function isShelfVisible(id: string, visibility: Record<string, boolean>):
   if (explicit !== undefined) return explicit;
   const d = BUILTIN_SHELF_DESCRIPTORS.find((x) => x.id === id);
   return d ? d.defaultVisible : true;
+}
+
+// Drop built-in shelves (no pluginId) whose id is no longer a descriptor — a
+// shelf removed in a later release. Without this a hydrated snapshot keeps
+// rendering it until the next refresh (up to 24h): `isShelfVisible` reads an
+// unknown id as visible (the plugin default) and the prune effect only prunes
+// plugin shelves. Plugin shelves pass through untouched.
+export function dropRetiredBuiltInShelves<T extends { id: string; pluginId?: string }>(shelves: T[]): T[] {
+  const known = new Set(BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id));
+  return shelves.filter((s) => s.pluginId || known.has(s.id));
 }
 
 // Merge a persisted shelf order with the canonical default: keep the user's
@@ -790,49 +803,6 @@ export function useHome(opts: UseHomeOptions) {
           },
         },
         {
-          id: "builtin:popular-track-radio",
-          title: "Popular Track radio",
-          displayKind: "playlist-cards",
-          limit: 12,
-          fetch: async (limit) => {
-            try {
-              const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-              const tracks = (await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit })) ?? [];
-              if (tracks.length === 0) return { status: "empty" };
-              const items = await Promise.all(
-                tracks.map(async (t, i) => {
-                  const cover = await resolveCover(null, t.display_artist);
-                  return radioStationItem(`radio:pop:${i}`, { title: t.display_title, artist_name: t.display_artist }, cover);
-                }),
-              );
-              return { status: "ok", items };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
-          },
-        },
-        {
-          id: "builtin:liked-track-radio",
-          title: "Liked Track radio",
-          displayKind: "playlist-cards",
-          limit: 12,
-          fetch: async (limit) => {
-            try {
-              const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "track", order: "random", limit })) ?? [];
-              if (rows.length === 0) return { status: "empty" };
-              const items = await Promise.all(
-                rows.map(async (r, i) => {
-                  const cover = r.image_url ?? await resolveCover(r.album_title, r.artist_name);
-                  return radioStationItem(`radio:liked:${i}`, { title: r.name, artist_name: r.artist_name, album_title: r.album_title }, cover);
-                }),
-              );
-              return { status: "ok", items };
-            } catch (e) {
-              return { status: "error", message: String(e) };
-            }
-          },
-        },
-        {
           id: "builtin:jump-back-in",
           title: "Jump back in",
           displayKind: "album-cards",
@@ -1003,7 +973,7 @@ export function useHome(opts: UseHomeOptions) {
         const snap = await store.get<HomeSnapshot>(SNAPSHOT_KEY);
         if (cancelled) return;
         if (snap?.radioStations?.length) setRadioStations(snap.radioStations);
-        if (snap?.shelves?.length) setShelves(snap.shelves);
+        if (snap?.shelves?.length) setShelves(dropRetiredBuiltInShelves(snap.shelves));
         if (snap?.savedAt) savedAtRef.current = snap.savedAt;
         if (snap?.attemptedKeys) attemptedKeysRef.current = new Set(snap.attemptedKeys);
       } catch (e) {
