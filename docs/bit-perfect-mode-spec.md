@@ -128,9 +128,15 @@ device before a fallback track plays.
 ## Platform
 
 - **macOS:** full design above.
-- **Windows:** the engine already sets WASAPI exclusive, but pinning and verification were not
-  spiked. v1 hides the toggle on Windows; a follow-up spike repeats this one there
-  (device pinning by ID, detecting a busy device, rate following).
+- **Windows:** spiked 2026-10-01 on a Sound BlasterX G6 (`probe_wasapi_exclusive`,
+  `probe_bit_perfect_busy_device` in `mpv_engine/output.rs`) and enabled. Pinning is by
+  WASAPI endpoint id (`wasapi/<id>`), and the rate follows each track under `gapless-audio=weak`
+  (96k → 44.1k observed). A device held exclusively by another app makes mpv's open **fail**
+  (`AUDCLNT_E_DEVICE_IN_USE`) instead of stalling. The engine keeps the track and retries every
+  2s, and reports `deviceBusy`. The badge reads "waiting" with no holder name (WASAPI exposes none)
+  and no "play shared" escape: an exclusive holder blocks shared playback too. Ownership is
+  inferred from mpv's open exclusive AO. Shared-mode apps are evicted by our exclusive open,
+  so they never block it. The volume keys keep working on a hardware-volume device.
 
 ## Implementation map
 

@@ -52,6 +52,11 @@ export function isBitPerfect(inputs: BitPerfectInputs): boolean {
 
 // ── Bit-perfect mode ────────────────────────────────────────────────────────
 
+/** Where Bit-perfect mode runs. The two differ in what they can observe
+ *  (CoreAudio names the process holding a device; WASAPI names nobody) and
+ *  in whether the OS volume keys still reach the held device. */
+export type BitPerfectPlatform = "mac" | "windows";
+
 /** The device Bit-perfect mode is pinned to (`engine_default_output_device`). */
 export interface DevicePin {
   uid: string;
@@ -66,11 +71,15 @@ export interface EngineOutput {
   deviceUid: string;
   deviceName: string;
   devicePresent: boolean;
-  /** CoreAudio reports this process holding the device exclusively. */
+  /** This process holds the device exclusively (CoreAudio's hog-mode pid;
+   *  on Windows, mpv's exclusive WASAPI output being open). */
   hoggedByUs: boolean;
-  /** Another process holding the device, when not us. */
+  /** Another process holding the device, when not us (CoreAudio only). */
   holderPid: number | null;
   holderName: string | null;
+  /** The device refused to open because another app holds it exclusively,
+   *  holder unknown (WASAPI). The engine keeps the track and retries. */
+  deviceBusy?: boolean;
   /** The engine's current track key, or null when it isn't playing anything. */
   trackKey: string | null;
   /** Decoded source rate / rate the output was opened at / device nominal rate. */
@@ -91,8 +100,11 @@ export type BitPerfectState =
   | { kind: "idle" }
   /** The current track is playing through the browser engine instead. */
   | { kind: "not-native" }
-  /** Another app holds the device. mpv waits silently and resumes on release. */
-  | { kind: "waiting"; holderName: string | null }
+  /** Another app holds the device; playback resumes on release (mpv stalls
+   *  silently on macOS, the engine retries on Windows). `canPlayShared`: turning
+   *  the mode off plays through the shared mixer meanwhile — true on macOS, not
+   *  on Windows, where an exclusive holder blocks shared playback too. */
+  | { kind: "waiting"; holderName: string | null; canPlayShared: boolean }
   /** Playing, but exclusive access wasn't granted and nobody else holds it. */
   | { kind: "no-exclusive" }
   /** The device can't run at the source rate, so the stream is resampled. */
@@ -126,7 +138,7 @@ export const BIT_PERFECT_SETTLE_MS = 2000;
  */
 export function isOutputSettling(output: EngineOutput): boolean {
   if (!output.devicePresent || output.trackKey === null) return false;
-  if (!output.hoggedByUs) return output.holderPid === null;
+  if (!output.hoggedByUs) return output.holderPid === null && !output.deviceBusy;
   if (output.rateSupported === false) return false;
   if (output.srcRate === null || output.outRate === null) return false;
   return output.outRate !== output.srcRate || (output.deviceRate !== null && output.deviceRate !== output.outRate);
@@ -152,7 +164,8 @@ export function resolveBitPerfectState(
   // engine is still on the outgoing track. Neither is a verdict.
   if (ctx.currentKey !== null && output.trackKey !== ctx.currentKey) return { kind: "pending" };
   if (!output.hoggedByUs) {
-    if (output.holderPid !== null) return { kind: "waiting", holderName: output.holderName };
+    if (output.holderPid !== null) return { kind: "waiting", holderName: output.holderName, canPlayShared: true };
+    if (output.deviceBusy) return { kind: "waiting", holderName: null, canPlayShared: false };
     // Paused with the output closed is not a failure — it reopens on play.
     if (!ctx.playing) return { kind: "idle" };
     return ctx.settling ? { kind: "pending" } : { kind: "no-exclusive" };
@@ -192,7 +205,9 @@ export function describeBitPerfectState(
     case "waiting":
       return {
         tone: "warn",
-        text: `Waiting for ${deviceName} — in use by ${state.holderName ?? "another app"}. Playback resumes when it's free; click to play shared instead.`,
+        text: state.canPlayShared
+          ? `Waiting for ${deviceName} — in use by ${state.holderName ?? "another app"}. Playback resumes when it's free; click to play shared instead.`
+          : `Waiting for ${deviceName} — another app is using it exclusively. Playback resumes when it's free.`,
       };
     case "no-exclusive":
       return { tone: "warn", text: `Not bit-perfect: exclusive access to ${deviceName} wasn't granted` };
@@ -219,9 +234,23 @@ export const BIT_PERFECT_EQ_REASON = "Equalizer suspended by Bit-perfect mode";
 export const BIT_PERFECT_VOLUME_REASON = "This device has no volume control — in Bit-perfect mode, set the level on your DAC or amplifier";
 
 /** Volume tooltip while on, for a device whose own volume Viboplr controls. */
-export function bitPerfectDeviceVolumeNote(deviceName: string): string {
+export function bitPerfectDeviceVolumeNote(deviceName: string, platform: BitPerfectPlatform): string {
   return `Volume of ${deviceName} — Bit-perfect mode sets the device's own level, so the audio stays untouched. ` +
-    "Your Mac's volume keys can't reach it while Viboplr holds it; use this slider.";
+    volumeKeysNote(platform, true);
+}
+
+/**
+ * What the OS volume keys do while the device is held. macOS moves its system
+ * output off a hogged device, so the keys go elsewhere. Windows leaves the
+ * default where it is, and on a device with hardware volume the keys drive the
+ * same endpoint level Viboplr does; without one, the endpoint level is a
+ * software gain that exclusive mode bypasses, so the keys do nothing.
+ */
+export function volumeKeysNote(platform: BitPerfectPlatform, hasVolume: boolean): string {
+  if (platform === "mac") return "Your Mac's volume keys can't reach it while Viboplr holds it; use this slider.";
+  return hasVolume
+    ? "The Windows volume keys adjust it too."
+    : "The Windows volume keys won't change it either.";
 }
 
 /**

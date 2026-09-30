@@ -65,6 +65,10 @@ const POSITION_EMIT_INTERVAL: Duration = Duration::from_millis(240);
 /// sitting there watching it fill.
 const BUFFER_POLL_INTERVAL: Duration = Duration::from_millis(240);
 const FADE_TICK: Duration = Duration::from_millis(30);
+/// How often a busy pinned device is retried (see `EngineState::device_busy`).
+const BUSY_RETRY_INTERVAL: Duration = Duration::from_secs(2);
+/// `MPV_ERROR_AO_INIT_FAILED` — the audio output couldn't be opened.
+const MPV_ERROR_AO_INIT_FAILED: i32 = -14;
 
 /// Where engine events go. Production wraps `AppHandle::emit`; tests collect.
 pub type EventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
@@ -441,6 +445,19 @@ struct EngineState {
     bit_perfect: Option<output::DevicePin>,
     /// Bumped on every bit-perfect toggle; a watchdog whose generation is stale exits.
     bit_perfect_gen: u64,
+    /// What the active deck was asked to load for the current track (URL +
+    /// external audio track) — what a busy-device retry reloads.
+    current_load: Option<(String, Option<String>)>,
+    /// URL of the gapless arm, promoted into `current_load` at the transition.
+    gapless_url: Option<String>,
+    /// Last position reported for the current track (at the 4 Hz emit rate).
+    last_pos: f64,
+    /// Bit-perfect only: the pinned device refused to open because another
+    /// process holds it exclusively (WASAPI fails the open outright, where
+    /// CoreAudio stalls). Holds the time of the last attempt; the current
+    /// track is kept and the output watchdog reloads it at `last_pos` every
+    /// `BUSY_RETRY_INTERVAL` until the device opens.
+    device_busy: Option<Instant>,
     fading: bool,
     /// Bumped when a fade starts or is snapped; a ramp whose generation is
     /// stale exits without touching the decks.
@@ -795,6 +812,10 @@ impl Engine {
             let out = Self::deck_volume(&st);
             st.current_key = Some(track_key.to_string());
             st.gapless_key = None;
+            st.gapless_url = None;
+            st.current_load = Some((url.to_string(), audio_url.map(str::to_string)));
+            st.last_pos = seek_secs.unwrap_or(0.0);
+            st.device_busy = None;
             let had_xfade = st.xfade_key.take().is_some();
             // Video renders through deck 0's render context only.
             if video {
@@ -916,6 +937,7 @@ impl Engine {
             let active = {
                 let mut st = self.state.lock().unwrap();
                 st.gapless_key = Some(track_key.to_string());
+                st.gapless_url = Some(url.to_string());
                 st.active
             };
             // Gapless appends to the deck that is already playing. Its current
@@ -1131,6 +1153,8 @@ impl Engine {
             st.expecting_start = [false; 2];
             st.pending_seek = None;
             st.duration = None;
+            st.current_load = None;
+            st.device_busy = None;
         }
         self.set_video_layer_visible(false);
         let mut result = Ok(());
@@ -1270,14 +1294,58 @@ impl Engine {
         self.state.lock().unwrap().bit_perfect.is_some()
     }
 
-    /// For the output watchdog: the pin, current track key and active deck —
-    /// or None once the mode is off or `generation` has been superseded.
-    fn bit_perfect_snapshot(&self, generation: u64) -> Option<(output::DevicePin, Option<String>, usize)> {
+    /// For the output watchdog: the pin, current track key, active deck and
+    /// whether the pinned device is busy — or None once the mode is off or
+    /// `generation` has been superseded.
+    fn bit_perfect_snapshot(&self, generation: u64) -> Option<output::Snapshot> {
         let st = self.state.lock().unwrap();
         if st.bit_perfect_gen != generation {
             return None;
         }
-        st.bit_perfect.clone().map(|pin| (pin, st.current_key.clone(), st.active))
+        st.bit_perfect.clone().map(|pin| output::Snapshot {
+            pin,
+            track_key: st.current_key.clone(),
+            active: st.active,
+            busy: st.device_busy.is_some(),
+        })
+    }
+
+    /// Output watchdog: the pinned device opened, so it's no longer busy.
+    fn clear_device_busy(&self) {
+        self.state.lock().unwrap().device_busy = None;
+    }
+
+    /// Output watchdog: reload the current track at its last position when
+    /// the pinned device was busy and `BUSY_RETRY_INTERVAL` has passed (or
+    /// right away with `now`). A failure lands back in `is_busy_device_failure`.
+    fn retry_busy_device(&self, now: bool) {
+        let (active, url, audio_url) = {
+            let mut st = self.state.lock().unwrap();
+            let Some(last) = st.device_busy else { return };
+            if !now && last.elapsed() < BUSY_RETRY_INTERVAL {
+                return;
+            }
+            let (Some(_), Some((url, audio_url))) = (st.current_key.as_ref(), st.current_load.clone()) else {
+                st.device_busy = None;
+                return;
+            };
+            st.device_busy = Some(Instant::now());
+            let active = st.active;
+            st.expecting_start[active] = true;
+            st.pending_seek = Some(st.last_pos).filter(|s| *s > 0.1);
+            (active, url, audio_url)
+        };
+        let deck = &self.decks[active].mpv;
+        let load = match audio_url {
+            Some(audio) => {
+                let opt = format!("audio-file=%{}%{}", audio.len(), audio);
+                deck.command("loadfile", &[&url, "replace", "0", &opt])
+            }
+            None => deck.command("loadfile", &[&url, "replace"]),
+        };
+        if let Err(e) = load {
+            log::error!("mpv-engine: busy-device retry loadfile failed: {e}");
+        }
     }
 
     /// Turn bit-perfect mode on (pinned to `pin`) or off, and re-apply every
@@ -1334,7 +1402,15 @@ impl Engine {
                 .set_property("volume", out)
                 .map_err(|e| format!("mpv volume failed: {e}"))?;
         }
-        if playing {
+        let busy = self.state.lock().unwrap().device_busy.is_some();
+        if busy && pin.is_none() {
+            // Waiting on a busy device and the user gave up on the mode: the
+            // deck is idle, so there's no AO to reload — load the track again
+            // under the normal output. If that fails too it's an ordinary
+            // engine error from here (the mode is off).
+            self.retry_busy_device(true);
+            self.clear_device_busy();
+        } else if playing && !busy {
             if let Err(e) = self.decks[active].mpv.command("ao-reload", &[]) {
                 log::error!("mpv-engine: ao-reload for bit-perfect failed: {e}");
             }
@@ -1377,6 +1453,30 @@ impl Engine {
 
 /// Emit the active deck's buffer state, unless nothing has moved since the
 /// last emit. Must be called with no lock on `state` held — it takes one.
+/// Whether an end-file error is Bit-perfect mode's pinned device being held by
+/// another process, and if so mark it busy (see `EngineState::device_busy`).
+///
+/// Measured on Windows (WASAPI, 2026-10-01): while one client holds an
+/// endpoint exclusively, a second client's open fails with
+/// `AUDCLNT_E_DEVICE_IN_USE`, surfacing as `MPV_ERROR_AO_INIT_FAILED` on
+/// end-file — exclusive *or* shared. (Shared-mode holders don't cause this:
+/// an exclusive open evicts them, and mpv's own retry lands ~1s later.)
+fn is_busy_device_failure(e: &api::Error, deck: usize, state: &Mutex<EngineState>) -> bool {
+    if *e != api::Error::Raw(MPV_ERROR_AO_INIT_FAILED) {
+        return false;
+    }
+    let mut st = state.lock().unwrap();
+    if deck != st.active || st.bit_perfect.is_none() || st.current_key.is_none() || st.current_load.is_none() {
+        return false;
+    }
+    st.gapless_key = None;
+    st.gapless_url = None;
+    // Keep the first failure's time: a retry that fails again mustn't push
+    // the next one out, and the retry itself stamps its own attempt.
+    st.device_busy.get_or_insert_with(Instant::now);
+    true
+}
+
 fn emit_buffer_if_changed(
     client: &Mpv,
     deck: usize,
@@ -1459,6 +1559,10 @@ fn run_event_loop(
                         st.current_key = Some(next_key.clone());
                         st.duration = None;
                         st.pending_seek = None;
+                        st.last_pos = 0.0;
+                        if let Some(url) = st.gapless_url.take() {
+                            st.current_load = Some((url, None));
+                        }
                         drop(st);
                         sink(
                             "engine-track-changed",
@@ -1538,8 +1642,9 @@ fn run_event_loop(
                     ("time-pos", PropertyData::Double(pos)) => {
                         if last_position_emit.elapsed() >= POSITION_EMIT_INTERVAL {
                             let owner = {
-                                let st = state.lock().unwrap();
+                                let mut st = state.lock().unwrap();
                                 if deck == st.active {
+                                    st.last_pos = pos;
                                     st.current_key.clone().map(|key| (key, st.duration))
                                 } else {
                                     None
@@ -1613,6 +1718,17 @@ fn run_event_loop(
                 }
             }
             Ok(_) => {}
+            Err(e) if is_busy_device_failure(&e, deck, &state) => {
+                // The pinned device is held by another process. Not a decode
+                // failure: the browser engine can't reach the device either
+                // (a shared-mode open fails too while it's held), so keep the
+                // track and let the output watchdog retry. mpv would otherwise
+                // move on to a gapless arm, which can't open the device either.
+                if let Err(e) = client.command("playlist-clear", &[]) {
+                    log::error!("mpv-engine: playlist-clear after busy device failed: {e}");
+                }
+                log::warn!("mpv-engine: pinned output device is busy ({e}) — waiting for it");
+            }
             Err(e) => {
                 // Decode/load failures surface here (EndFile with an error
                 // reason is mapped to Err by api::Mpv::wait_event).
@@ -2177,7 +2293,7 @@ mod tests {
         engine.apply_bit_perfect(Some(&pin), &dsp).expect("bit-perfect on");
         for i in 0..2 {
             assert_eq!(s(i, "gapless-audio"), "weak", "deck {i}");
-            assert_eq!(s(i, "audio-device"), "coreaudio/TestDevice", "deck {i}");
+            assert_eq!(s(i, "audio-device"), pin.mpv_device(), "deck {i}");
             assert_eq!(s(i, "af"), "", "deck {i}: EQ suspended");
             assert_eq!(s(i, "replaygain"), "no", "deck {i}: ReplayGain suspended");
             assert_eq!(deck(i).get_property::<f64>("speed").unwrap(), 1.0, "deck {i}: speed held");

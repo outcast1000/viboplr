@@ -10,6 +10,7 @@ import {
   BIT_PERFECT_VOLUME_REASON,
   bitPerfectDeviceVolumeNote,
   handoverDeviceVolume,
+  type BitPerfectPlatform,
   type BitPerfectState,
   type DevicePin,
   type EngineOutput,
@@ -30,9 +31,12 @@ const VOLUME_HINT_INTERVAL_MS = 4000;
 const DEVICE_VOLUME_ECHO_MS = 1500;
 
 interface UseBitPerfectOptions {
-  /** Native engine selected + loadable, on macOS. Off → the toggle is hidden
-   *  and an active mode turns itself off. */
+  /** Native engine selected + loadable. Off → the toggle is hidden and an
+   *  active mode turns itself off. */
   available: boolean;
+  /** The platform the mode runs on (only macOS and Windows have one) — picks
+   *  the copy about the OS volume keys. */
+  platform: BitPerfectPlatform;
   playing: boolean;
   /** Key of the track the frontend considers current. */
   currentKey: string | null;
@@ -58,7 +62,7 @@ interface UseBitPerfectOptions {
  * reactions to it (device unplugged → off).
  */
 export function useBitPerfect(opts: UseBitPerfectOptions) {
-  const { available, playing, currentKey, skipConfirm, setSkipConfirm } = opts;
+  const { available, platform, playing, currentKey, skipConfirm, setSkipConfirm } = opts;
   // Callbacks via latest-refs: App passes fresh closures every render, and the
   // `control` object must stay identity-stable for the memo'd playback bar.
   const notifyRef = useLatestRef(opts.notify);
@@ -234,9 +238,9 @@ export function useBitPerfect(opts: UseBitPerfectOptions) {
       text: described?.text ?? BIT_PERFECT_OFF_TEXT,
       onToggle: toggle,
       volumeLocked: pin !== null && deviceVolume === null,
-      volumeNote: pin !== null && deviceVolume !== null ? bitPerfectDeviceVolumeNote(pin.name) : null,
+      volumeNote: pin !== null && deviceVolume !== null ? bitPerfectDeviceVolumeNote(pin.name, platform) : null,
     };
-  }, [available, pin, described?.tone, described?.text, toggle, deviceVolume]);
+  }, [available, platform, pin, described?.tone, described?.text, toggle, deviceVolume]);
 
   return {
     on: pin !== null,

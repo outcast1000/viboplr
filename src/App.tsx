@@ -252,6 +252,7 @@ async function resolveFirstAlbumCover(
 /** Bit-perfect mode's device pinning and verification are CoreAudio-only for
  *  now (Windows WASAPI exclusive exists in the engine but isn't verified). */
 const IS_MAC = navigator.platform.includes("Mac");
+const IS_WINDOWS = navigator.platform.startsWith("Win");
 
 function App() {
   const restoredRef = useRef(false);
@@ -994,10 +995,11 @@ function App() {
   // failure/fallback paths can surface feedback.
   const { toasts, notify, dismiss: dismissToast } = useToasts();
 
-  // Bit-perfect mode (native engine, macOS): session-only overlay the engine
-  // applies — see useBitPerfect / mpv_engine/output.rs.
+  // Bit-perfect mode (native engine, macOS + Windows): session-only overlay
+  // the engine applies — see useBitPerfect / mpv_engine/output.rs.
   const bitPerfect = useBitPerfect({
-    available: IS_MAC && mpvCapable && playbackEngine === "native",
+    available: (IS_MAC || IS_WINDOWS) && mpvCapable && playbackEngine === "native",
+    platform: IS_WINDOWS ? "windows" : "mac",
     playing: playback.playing,
     currentKey: playback.currentTrack?.key ?? null,
     appVolume: playback.volume,
@@ -6504,6 +6506,7 @@ function App() {
         <BitPerfectConfirmModal
           deviceName={bitPerfect.confirmPin.name}
           hasVolume={bitPerfect.confirmPin.hasVolume === true}
+          platform={IS_WINDOWS ? "windows" : "mac"}
           onCancel={bitPerfect.cancelEnable}
           onConfirm={bitPerfect.confirmEnable}
         />

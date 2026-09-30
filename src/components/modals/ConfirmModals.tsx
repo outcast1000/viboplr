@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { ConfirmModal } from "../ConfirmModal";
 import { AlertModal } from "../AlertModal";
+import type { BitPerfectPlatform } from "../../utils/bitPerfect";
 
 interface DeleteTracksModalProps {
   title: string;
@@ -252,6 +253,8 @@ interface BitPerfectConfirmModalProps {
   deviceName: string;
   /** The device has its own controllable volume (Viboplr's slider drives it). */
   hasVolume: boolean;
+  /** Picks the copy about the OS volume keys (see `volumeKeysNote`). */
+  platform: BitPerfectPlatform;
   onCancel: () => void;
   /** `dontAskAgain` = the user ticked the checkbox (skip this modal next time). */
   onConfirm: (dontAskAgain: boolean) => void;
@@ -259,7 +262,7 @@ interface BitPerfectConfirmModalProps {
 
 /** Explains Bit-perfect mode before it takes the device. The volume warning is
  *  the point: the mode jumps the player to full digital volume. */
-export function BitPerfectConfirmModal({ deviceName, hasVolume, onCancel, onConfirm }: BitPerfectConfirmModalProps) {
+export function BitPerfectConfirmModal({ deviceName, hasVolume, platform, onCancel, onConfirm }: BitPerfectConfirmModalProps) {
   const [dontAsk, setDontAsk] = useState(false);
   return (
     <ConfirmModal
@@ -273,9 +276,9 @@ export function BitPerfectConfirmModal({ deviceName, hasVolume, onCancel, onConf
       <ul className="bit-perfect-confirm-list">
         <li><strong>Exclusive access</strong> — other apps (browser, calls, system sounds) can't play through this device until you turn it off.</li>
         {hasVolume ? (
-          <li><strong>Viboplr's volume controls {deviceName} itself</strong> — the audio goes out at full digital level and the device sets the loudness. Your Mac's volume keys won't reach it while it's held. The level is lowered for you to match, but <strong>check your headphones before continuing.</strong></li>
+          <li><strong>Viboplr's volume controls {deviceName} itself</strong> — the audio goes out at full digital level and the device sets the loudness. {platform === "mac" ? "Your Mac's volume keys won't reach it while it's held." : "The Windows volume keys adjust it too."} The level is lowered for you to match, but <strong>check your headphones before continuing.</strong></li>
         ) : (
-          <li><strong>Volume fixed at 100%</strong> — this device has no volume control of its own, and your Mac's volume keys won't reach it. Set the level on your DAC or amplifier. <strong>Turn it down before continuing.</strong></li>
+          <li><strong>Volume fixed at 100%</strong> — this device has no volume control of its own{platform === "mac" ? ", and your Mac's volume keys won't reach it" : ", and the Windows volume keys won't change it"}. Set the level on your DAC or amplifier. <strong>Turn it down before continuing.</strong></li>
         )}
         <li><strong>EQ, ReplayGain and playback speed are suspended</strong>, and crossfade is replaced by gapless playback.</li>
         <li>The device follows each track's sample rate; a rate change between tracks can leave a brief gap.</li>

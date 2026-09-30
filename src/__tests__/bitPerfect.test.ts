@@ -7,6 +7,8 @@ import {
   formatSampleRate,
   isOutputSettling,
   handoverDeviceVolume,
+  bitPerfectDeviceVolumeNote,
+  volumeKeysNote,
   type EngineOutput,
 } from "../utils/bitPerfect";
 import { serializeBitPerfect } from "../utils/controlApi";
@@ -92,7 +94,20 @@ describe("resolveBitPerfectState", () => {
 
   it("waits, naming the holder, when another process holds the device (mpv stalls silently)", () => {
     const busy = { ...good, hoggedByUs: false, holderPid: 17942, holderName: "Audirvana", outRate: 44100, deviceRate: 44100 };
-    expect(resolveBitPerfectState(busy, playingQ1)).toEqual({ kind: "waiting", holderName: "Audirvana" });
+    expect(resolveBitPerfectState(busy, playingQ1)).toEqual({ kind: "waiting", holderName: "Audirvana", canPlayShared: true });
+  });
+
+  it("waits on a busy WASAPI device with no holder to name, and no shared escape", () => {
+    // Windows: the open fails while another app holds the endpoint
+    // exclusively; the engine retries and reports deviceBusy.
+    const busy = { ...good, hoggedByUs: false, deviceBusy: true, srcRate: null, outRate: null, deviceRate: null };
+    expect(resolveBitPerfectState(busy, playingQ1)).toEqual({ kind: "waiting", holderName: null, canPlayShared: false });
+  });
+
+  it("verifies a WASAPI stream without a separate device rate", () => {
+    const win = { ...good, deviceRate: null, deviceMaxRate: 384000, deviceBusy: false };
+    expect(resolveBitPerfectState(win, playingQ1)).toEqual({ kind: "bit-perfect", rate: 96000 });
+    expect(resolveBitPerfectState({ ...win, outRate: 48000 }, playingQ1).kind).toBe("resampled");
   });
 
   it("flags exclusive not granted while playing, but not while paused", () => {
@@ -127,14 +142,32 @@ describe("describeBitPerfectState", () => {
     expect(describeBitPerfectState({ kind: "bit-perfect", rate: 44100 }, "DAC")).toEqual({
       tone: "ok", text: "Bit-perfect · 44.1 kHz · DAC",
     });
-    expect(describeBitPerfectState({ kind: "waiting", holderName: null }, "DAC").tone).toBe("warn");
+    expect(describeBitPerfectState({ kind: "waiting", holderName: null, canPlayShared: true }, "DAC").tone).toBe("warn");
     expect(describeBitPerfectState({ kind: "idle" }, "DAC").tone).toBe("neutral");
   });
 
   it("names the holder and the escape hatch while waiting", () => {
-    const { text } = describeBitPerfectState({ kind: "waiting", holderName: "Audirvana" }, "DAC");
+    const { text } = describeBitPerfectState({ kind: "waiting", holderName: "Audirvana", canPlayShared: true }, "DAC");
     expect(text).toContain("in use by Audirvana");
     expect(text).toContain("play shared instead");
+  });
+
+  it("doesn't offer shared playback where an exclusive holder blocks it too", () => {
+    const { text } = describeBitPerfectState({ kind: "waiting", holderName: null, canPlayShared: false }, "DAC");
+    expect(text).toContain("using it exclusively");
+    expect(text).not.toContain("shared");
+  });
+});
+
+describe("volume keys copy", () => {
+  it("tells Mac users the keys can't reach the held device", () => {
+    expect(bitPerfectDeviceVolumeNote("DAC", "mac")).toContain("Mac's volume keys can't reach it");
+  });
+
+  it("tells Windows users whether the keys still work", () => {
+    expect(bitPerfectDeviceVolumeNote("DAC", "windows")).not.toContain("Mac");
+    expect(volumeKeysNote("windows", true)).toContain("adjust it too");
+    expect(volumeKeysNote("windows", false)).toContain("won't change it");
   });
 });
 
@@ -190,6 +223,9 @@ describe("settling grace window", () => {
   it("still reports a busy device at once while settling", () => {
     const busy = { ...good, hoggedByUs: false, holderPid: 7, holderName: "Audirvana" };
     expect(resolveBitPerfectState(busy, { ...playingQ1, settling: true }).kind).toBe("waiting");
+    const wasapiBusy = { ...good, hoggedByUs: false, deviceBusy: true };
+    expect(isOutputSettling(wasapiBusy)).toBe(false);
+    expect(resolveBitPerfectState(wasapiBusy, { ...playingQ1, settling: true }).kind).toBe("waiting");
   });
 });
 
