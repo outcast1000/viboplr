@@ -81,9 +81,11 @@ export interface HeroCarouselProps {
   artistImageFor: (name: string) => string | null;
   onItemClick: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
   onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
+  /** Opens the shelf's own ⋯ native menu (move / hide / customize). */
+  onShelfMenu?: (shelf: ResolvedShelf, e: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick, onItemPlay }: HeroCarouselProps) {
+export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick, onItemPlay, onShelfMenu }: HeroCarouselProps) {
   const items = shelf.items;
   const videoFrames = useShelfVideoFrames(shelf);
   const [idx, setIdx] = useState(0);
@@ -191,6 +193,15 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
           <button className="home-hero-arrow home-hero-arrow--left" aria-label="Previous" onClick={() => advance(-1)}>‹</button>
           <button className="home-hero-arrow home-hero-arrow--right" aria-label="Next" onClick={() => advance(1)}>›</button>
         </>
+      )}
+
+      {onShelfMenu && (
+        <button
+          className="home-hero-menu"
+          aria-label={`${shelf.title} options`}
+          title="Shelf options"
+          onClick={(e) => onShelfMenu(shelf, e)}
+        >⋯</button>
       )}
 
       {/* key re-mounts the content on each change so it fades in fresh. */}

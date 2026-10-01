@@ -3,17 +3,23 @@ import type { HomeShelfItem, HomeShelfResult, HomeShelfDisplayKind } from "../ty
 import type { ResolvedShelf } from "../hooks/useHome";
 import {
   useHome,
+  BUILTIN_SHELF_DESCRIPTORS,
   DEFAULT_SHELF_ORDER,
   RADIO_SHELF_ID,
   buildRadioShelf,
+  completeShelfOrder,
   mergeShelfOrder,
+  moveShelf,
   orderResolvedShelves,
   isShelfVisible,
+  shelfKey,
 } from "../hooks/useHome";
 import { useImageCache } from "../hooks/useImageCache";
 import { HeroCarousel } from "./HeroCarousel";
 import { HomeShelf } from "./HomeShelf";
-import { CustomizeHomeModal } from "./CustomizeHomeModal";
+import { CustomizeHomeModal, type CustomizeShelfRow } from "./CustomizeHomeModal";
+import { buildHomeShelfMenuSpecs } from "../contextMenu/buildHomeShelfMenuSpecs";
+import { showNativeMenu } from "../nativeMenu";
 import { store } from "../store";
 import { seedProfileShelfVisibility, type OnboardingProfile } from "./onboardingSteps";
 import "./HomeView.css";
@@ -29,6 +35,8 @@ export interface HomeViewProps {
     limit: number;
   }>;
   invokePluginShelf: (pluginId: string, shelfId: string, limit: number) => Promise<HomeShelfResult>;
+  /** Plugin id → display name, for labelling plugin shelves in Customize. */
+  pluginNames: Record<string, string>;
   pluginsLoaded: boolean;
   // Ids of currently loaded & active plugins — lets useHome keep the cached
   // shelves of a plugin that registers them late (rather than pruning them).
@@ -65,7 +73,8 @@ export function HomeView(props: HomeViewProps) {
   const artistImages = useImageCache("artist");
 
   const [visibility, setVisibility] = useState<Record<string, boolean>>({});
-  // User-defined order of the built-in shelves; plugin shelves always follow.
+  // User-defined shelf order — built-in and plugin ids alike. A plugin shelf the
+  // user has never placed isn't listed and follows every listed shelf.
   const [shelfOrder, setShelfOrder] = useState<string[]>(DEFAULT_SHELF_ORDER);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   // Own hydration flag for visibility/order, separate from the app-wide
@@ -182,6 +191,66 @@ export function HomeView(props: HomeViewProps) {
   const ordered = orderResolvedShelves(radioShelf ? [radioShelf, ...visibleShelves] : visibleShelves, shelfOrder);
   const [heroShelf, ...rowShelves] = ordered;
 
+  // Customize lists every built-in plus every plugin shelf registered right now,
+  // in the order the user has them. A plugin shelf that hasn't been placed yet is
+  // appended, which is exactly where `orderResolvedShelves` renders it.
+  const pluginShelfIds = props.pluginShelves.map((p) => shelfKey(p.pluginId, p.shelfId));
+  const customizeRows: CustomizeShelfRow[] = (() => {
+    const rows = new Map<string, CustomizeShelfRow>();
+    for (const d of BUILTIN_SHELF_DESCRIPTORS) rows.set(d.id, { id: d.id, title: d.title, description: d.description });
+    for (const p of props.pluginShelves) {
+      const id = shelfKey(p.pluginId, p.shelfId);
+      rows.set(id, { id, title: p.title, source: props.pluginNames[p.pluginId] ?? p.pluginId });
+    }
+    return completeShelfOrder(shelfOrder, pluginShelfIds)
+      .map((id) => rows.get(id))
+      .filter((r): r is CustomizeShelfRow => r !== undefined);
+  })();
+
+  // The modal reorders only the shelves it lists. Ids it doesn't list — a plugin
+  // that is disabled or uninstalled right now — keep their place at the end, so
+  // the plugin comes back where the user put it.
+  function reorderFromCustomize(ids: string[]) {
+    const listed = new Set(ids);
+    setShelfOrder([...ids, ...shelfOrder.filter((id) => !listed.has(id))]);
+  }
+
+  function hideShelf(id: string) {
+    setVisibility((prev) => ({ ...prev, [id]: false }));
+  }
+
+  // Move up / down step past the neighbouring shelf on screen (see
+  // buildHomeShelfMenuSpecs), against the full order so an unplaced plugin shelf
+  // can be moved too — it is written into the order the first time it moves.
+  function stepShelf(id: string, dir: -1 | 1) {
+    const idx = ordered.findIndex((s) => s.id === id);
+    const neighbour = ordered[idx + dir];
+    if (idx === -1 || !neighbour) return;
+    setShelfOrder((prev) =>
+      moveShelf(
+        completeShelfOrder(prev, ordered.map((s) => s.id)),
+        id,
+        neighbour.id,
+        dir < 0 ? "before" : "after",
+      ),
+    );
+  }
+
+  function openShelfMenu(shelf: ResolvedShelf, e: React.MouseEvent<HTMLButtonElement>) {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const specs = buildHomeShelfMenuSpecs({
+      index: ordered.findIndex((s) => s.id === shelf.id),
+      count: ordered.length,
+      onMoveUp: () => stepShelf(shelf.id, -1),
+      onMoveDown: () => stepShelf(shelf.id, 1),
+      onHide: () => hideShelf(shelf.id),
+      onCustomize: () => setCustomizeOpen(true),
+    });
+    showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
+      console.error("Failed to show Home shelf menu:", err),
+    );
+  }
+
   const albumImageFor = (name: string, artistName?: string) => albumImages.getImage(name, artistName ?? null);
   const artistImageFor = (name: string) => artistImages.getImage(name);
 
@@ -194,9 +263,9 @@ export function HomeView(props: HomeViewProps) {
 
       {customizeOpen && (
         <CustomizeHomeModal
-          builtInOrder={shelfOrder}
+          shelves={customizeRows}
           visibility={visibility}
-          onReorder={setShelfOrder}
+          onReorder={reorderFromCustomize}
           onToggle={toggleShelf}
           onReset={resetCustomization}
           onClose={() => setCustomizeOpen(false)}
@@ -228,6 +297,7 @@ export function HomeView(props: HomeViewProps) {
           artistImageFor={artistImageFor}
           onItemClick={props.onShelfItemClick}
           onItemPlay={props.onShelfItemPlay}
+          onShelfMenu={openShelfMenu}
         />
       )}
 
@@ -240,6 +310,7 @@ export function HomeView(props: HomeViewProps) {
           onItemClick={props.onShelfItemClick}
           onItemContextMenu={props.onShelfItemContextMenu}
           onItemPlay={props.onShelfItemPlay}
+          onShelfMenu={openShelfMenu}
         />
       ))}
     </div>

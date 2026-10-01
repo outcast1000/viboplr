@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   orderResolvedShelves,
   mergeShelfOrder,
+  completeShelfOrder,
+  moveShelf,
   buildRadioShelf,
   isShelfVisible,
   RADIO_SHELF_ID,
@@ -10,6 +12,8 @@ import {
   type RadioStation,
 } from "../hooks/useHome";
 import type { Track } from "../types";
+import { buildHomeShelfMenuSpecs } from "../contextMenu/buildHomeShelfMenuSpecs";
+import type { MenuItemSpec } from "../nativeMenu";
 
 function shelf(id: string, pluginId?: string): ResolvedShelf {
   return { id, pluginId, title: id, displayKind: "album-cards", items: [] };
@@ -51,6 +55,18 @@ describe("orderResolvedShelves", () => {
     expect(ids(ordered)).toEqual(["builtin:a", "builtin:b", "plug:x", "plug:y"]);
   });
 
+  it("ranks a placed plugin shelf by its position in the order, even above built-ins", () => {
+    const shelves = [shelf("builtin:a"), shelf("builtin:b"), shelf("plug:x", "plug")];
+    const ordered = orderResolvedShelves(shelves, ["plug:x", "builtin:a", "builtin:b"]);
+    expect(ids(ordered)).toEqual(["plug:x", "builtin:a", "builtin:b"]);
+  });
+
+  it("puts unplaced plugin shelves after placed ones of either kind", () => {
+    const shelves = [shelf("plug:y", "plug"), shelf("builtin:a"), shelf("plug:x", "plug")];
+    const ordered = orderResolvedShelves(shelves, ["builtin:a", "plug:x"]);
+    expect(ids(ordered)).toEqual(["builtin:a", "plug:x", "plug:y"]);
+  });
+
   it("does not mutate the input array", () => {
     const shelves = [shelf("builtin:b"), shelf("builtin:a")];
     const copy = ids(shelves);
@@ -82,6 +98,67 @@ describe("mergeShelfOrder", () => {
 
   it("returns the default order unchanged", () => {
     expect(mergeShelfOrder(DEFAULT_SHELF_ORDER)).toEqual(DEFAULT_SHELF_ORDER);
+  });
+
+  it("keeps plugin shelf ids where the user put them, installed or not", () => {
+    const saved = ["acme:top", ...DEFAULT_SHELF_ORDER.slice(0, 3), "gone:shelf", ...DEFAULT_SHELF_ORDER.slice(3)];
+    expect(mergeShelfOrder(saved)).toEqual(saved);
+  });
+
+  it("slots a new built-in after its default predecessor, not by raw index", () => {
+    // A plugin shelf placed at the top shifts every index by one; a missing
+    // built-in must still land right after the built-in that precedes it.
+    const missing = DEFAULT_SHELF_ORDER[2];
+    const saved = ["acme:top", ...DEFAULT_SHELF_ORDER.filter((id) => id !== missing)];
+    const merged = mergeShelfOrder(saved);
+    expect(merged.indexOf(missing)).toBe(merged.indexOf(DEFAULT_SHELF_ORDER[1]) + 1);
+    expect(merged[0]).toBe("acme:top");
+  });
+
+  it("drops duplicate ids", () => {
+    expect(mergeShelfOrder([...DEFAULT_SHELF_ORDER, DEFAULT_SHELF_ORDER[0], "acme:x", "acme:x"]))
+      .toEqual([...DEFAULT_SHELF_ORDER, "acme:x"]);
+  });
+});
+
+describe("completeShelfOrder", () => {
+  it("appends ids the order doesn't list, in the order given, once", () => {
+    expect(completeShelfOrder(["a", "b"], ["b", "x", "y", "x"])).toEqual(["a", "b", "x", "y"]);
+  });
+});
+
+describe("moveShelf", () => {
+  it("moves an id to just before or after a target", () => {
+    expect(moveShelf(["a", "b", "c", "d"], "d", "b", "before")).toEqual(["a", "d", "b", "c"]);
+    expect(moveShelf(["a", "b", "c", "d"], "a", "c", "after")).toEqual(["b", "c", "a", "d"]);
+  });
+
+  it("returns the order unchanged when either id is missing", () => {
+    const order = ["a", "b"];
+    expect(moveShelf(order, "z", "a", "before")).toBe(order);
+    expect(moveShelf(order, "a", "z", "after")).toBe(order);
+    expect(moveShelf(order, "a", "a", "after")).toBe(order);
+  });
+});
+
+describe("buildHomeShelfMenuSpecs", () => {
+  const noop = () => {};
+  const specs = (index: number, count: number) =>
+    buildHomeShelfMenuSpecs({ index, count, onMoveUp: noop, onMoveDown: noop, onHide: noop, onCustomize: noop });
+  const enabled = (s: MenuItemSpec[], text: string) =>
+    s.find((x) => x.kind === "item" && x.text === text) as { enabled?: boolean } | undefined;
+
+  it("disables Move up on the hero and Move down on the last shelf", () => {
+    expect(enabled(specs(0, 3), "Move up")?.enabled).toBe(false);
+    expect(enabled(specs(0, 3), "Move down")?.enabled).toBe(true);
+    expect(enabled(specs(2, 3), "Move down")?.enabled).toBe(false);
+    expect(enabled(specs(1, 3), "Move up")?.enabled).toBe(true);
+  });
+
+  it("always offers Hide and Customize", () => {
+    const texts = specs(0, 1).flatMap((x) => (x.kind === "item" ? [x.text] : []));
+    expect(texts).toContain("Hide this shelf");
+    expect(texts).toContain("Customize Home…");
   });
 });
 

@@ -242,7 +242,7 @@ A user can turn off **individual** contributions without disabling the whole plu
 | Contribution | Surface | Persisted as |
 |---|---|---|
 | Information types / image providers / stream resolvers | Settings → Providers (on/off + priority) | `*.active` / `*.priority` DB columns, plus `streamResolverOrder` (download providers have **no** priority/enable — the downloader follows the track's source) |
-| Home shelves | Home → ⚙ Shelves (on/off + order) | `homeShelfVisibility` / `homeShelfOrder` |
+| Home shelves | Home → ⚙ Customize, or the shelf's own ⋯ menu (on/off + order, interleaved with built-ins) | `homeShelfVisibility` / `homeShelfOrder` |
 | Now Playing info items | Settings → Playback (on/off + dwell + order) | `nowPlayingInfoSelection` / `…Persistence` / `…Order` |
 | **Context menu items, sidebar views, search providers** | **Extensions → plugin detail → Contributions** | **`pluginContributionVisibility`** |
 

@@ -122,7 +122,27 @@
   min-width: 0;
 }
 
+.customize-home-title-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Which plugin contributed the shelf — built-ins carry no badge. */
+.customize-home-source {
+  flex-shrink: 0;
+  font-size: var(--fs-2xs);
+  color: var(--text-secondary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-pill);
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
 .customize-home-title {
+  min-width: 0;
   font-size: var(--fs-sm);
   color: var(--text-primary);
   overflow: hidden;

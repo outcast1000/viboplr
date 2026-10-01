@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { BUILTIN_SHELF_DESCRIPTORS, isShelfVisible } from "../hooks/useHome";
+import { isShelfVisible } from "../hooks/useHome";
 import "./CustomizeHomeModal.css";
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
@@ -15,11 +15,20 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
   );
 }
 
+/** One row of the Customize list: a built-in shelf, or a registered plugin shelf. */
+export interface CustomizeShelfRow {
+  id: string;
+  title: string;
+  description?: string;
+  /** The contributing plugin's name; absent for built-in shelves. */
+  source?: string;
+}
+
 export interface CustomizeHomeModalProps {
-  // Current order of the built-in shelves (ids), including Radio. The first
-  // visible shelf becomes the Home hero carousel. Only built-in shelves are
-  // configurable here; plugin shelves are not surfaced.
-  builtInOrder: string[];
+  // Every configurable shelf in its current order — built-ins (including Radio)
+  // and the plugin shelves registered right now. The first visible shelf becomes
+  // the Home hero carousel, whichever kind it is.
+  shelves: CustomizeShelfRow[];
   visibility: Record<string, boolean>;
   onReorder: (orderedIds: string[]) => void;
   onToggle: (id: string) => void;
@@ -28,23 +37,22 @@ export interface CustomizeHomeModalProps {
 }
 
 export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
-  const titleById = new Map(BUILTIN_SHELF_DESCRIPTORS.map((d) => [d.id, d.title]));
-  const descById = new Map(BUILTIN_SHELF_DESCRIPTORS.map((d) => [d.id, d.description]));
+  const rowById = new Map(props.shelves.map((r) => [r.id, r]));
+  const order = props.shelves.map((r) => r.id);
 
   const [query, setQuery] = useState("");
 
-  const visibleCount = props.builtInOrder.filter((id) => isShelfVisible(id, props.visibility)).length;
+  const visibleCount = order.filter((id) => isShelfVisible(id, props.visibility)).length;
 
   const filteredOrder = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return props.builtInOrder;
-    return props.builtInOrder.filter((id) => {
-      const title = titleById.get(id) ?? id;
-      const desc = descById.get(id) ?? "";
-      return title.toLowerCase().includes(q) || desc.toLowerCase().includes(q);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, props.builtInOrder]);
+    if (!q) return props.shelves.map((r) => r.id);
+    return props.shelves
+      .filter((r) =>
+        [r.title, r.description ?? "", r.source ?? ""].some((s) => s.toLowerCase().includes(q)),
+      )
+      .map((r) => r.id);
+  }, [query, props.shelves]);
 
   // Drag-reorder state for built-in rows. Refs drive the drag (no re-render churn);
   // the state mirrors are only for the dragging/drag-over visual styling.
@@ -76,7 +84,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
       if (!ghostRef.current) {
         const ghost = document.createElement("div");
         ghost.className = "customize-home-drag-ghost";
-        ghost.textContent = titleById.get(id) ?? id;
+        ghost.textContent = rowById.get(id)?.title ?? id;
         document.body.appendChild(ghost);
         ghostRef.current = ghost;
       }
@@ -101,8 +109,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
       showGhost(ev.clientX, ev.clientY);
       const target = document.elementFromPoint(ev.clientX, ev.clientY);
       const overId = target ? findShelfId(target) : null;
-      // Only built-in rows are reorderable targets.
-      if (overId && overId !== draggedRef.current && titleById.has(overId)) {
+      if (overId && overId !== draggedRef.current && rowById.has(overId)) {
         dragOverRef.current = overId;
         setDragOverId(overId);
       } else {
@@ -118,7 +125,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
       const from = draggedRef.current;
       const to = dragOverRef.current;
       if (didDragRef.current && from && to && from !== to) {
-        const ids = [...props.builtInOrder];
+        const ids = [...order];
         const fromIdx = ids.indexOf(from);
         const toIdx = ids.indexOf(to);
         if (fromIdx !== -1 && toIdx !== -1) {
@@ -144,7 +151,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
       <div className="ds-modal ds-modal--lg customize-home-modal" onClick={(e) => e.stopPropagation()}>
         <div className="customize-home-header">
           <h2 className="ds-modal-title">Customize Home</h2>
-          <span className="customize-home-count">{visibleCount} of {props.builtInOrder.length} shown</span>
+          <span className="customize-home-count">{visibleCount} of {order.length} shown</span>
         </div>
         <p className="customize-home-hint">Drag <span className="customize-home-handle-inline">⠿</span> to reorder. The first shown shelf becomes the carousel.</p>
 
@@ -162,6 +169,7 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
           )}
           {filteredOrder.map((id) => {
             const visible = isShelfVisible(id, props.visibility);
+            const row = rowById.get(id);
             return (
               <div
                 key={id}
@@ -179,8 +187,11 @@ export function CustomizeHomeModal(props: CustomizeHomeModalProps) {
                   title="Drag to reorder"
                 >⠿</span>
                 <div className="customize-home-text">
-                  <span className="customize-home-title">{titleById.get(id) ?? id}</span>
-                  {descById.get(id) && <span className="customize-home-desc">{descById.get(id)}</span>}
+                  <span className="customize-home-title-line">
+                    <span className="customize-home-title">{row?.title ?? id}</span>
+                    {row?.source && <span className="customize-home-source">{row.source}</span>}
+                  </span>
+                  {row?.description && <span className="customize-home-desc">{row.description}</span>}
                 </div>
                 <Toggle
                   checked={visible}

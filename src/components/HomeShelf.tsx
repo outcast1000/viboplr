@@ -58,9 +58,11 @@ export interface HomeShelfProps {
     e: React.MouseEvent,
   ) => void;
   onItemPlay: (shelf: ResolvedShelf, item: HomeShelfItem) => void;
+  /** Opens the shelf's own ⋯ native menu (move / hide / customize). */
+  onShelfMenu?: (shelf: ResolvedShelf, e: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay }: HomeShelfProps) {
+export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, onItemContextMenu, onItemPlay, onShelfMenu }: HomeShelfProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const videoFrames = useShelfVideoFrames(shelf);
 
@@ -82,6 +84,14 @@ export function HomeShelf({ shelf, albumImageFor, artistImageFor, onItemClick, o
         <div className="home-shelf-arrows">
           <button className="ds-btn ds-btn--ghost ds-btn--sm" aria-label="Scroll left" onClick={() => scroll(-1)}>‹</button>
           <button className="ds-btn ds-btn--ghost ds-btn--sm" aria-label="Scroll right" onClick={() => scroll(1)}>›</button>
+          {onShelfMenu && (
+            <button
+              className="ds-btn ds-btn--ghost ds-btn--sm"
+              aria-label={`${shelf.title} options`}
+              title="Shelf options"
+              onClick={(e) => onShelfMenu(shelf, e)}
+            >⋯</button>
+          )}
         </div>
       </div>
       <div className="home-shelf-scroller" ref={scrollerRef}>

@@ -109,18 +109,65 @@ export function dropRetiredBuiltInShelves<T extends { id: string; pluginId?: str
   return shelves.filter((s) => s.pluginId || known.has(s.id));
 }
 
+// Built-in shelf ids are namespaced `builtin:`; anything else is a plugin shelf
+// (`<pluginId>:<shelfId>`, see `shelfKey`).
+export function isBuiltInShelfId(id: string): boolean {
+  return id.startsWith("builtin:");
+}
+
 // Merge a persisted shelf order with the canonical default: keep the user's
-// arrangement for shelves they've ordered, drop ids no longer known, and slot any
-// brand-new built-in (e.g. Radio for a profile saved before it existed) into its
-// default position rather than tacking it on the end.
+// arrangement for shelves they've ordered, drop built-in ids no longer known, and
+// slot any brand-new built-in (e.g. Radio for a profile saved before it existed)
+// into its default position — right after the default shelf that precedes it —
+// rather than tacking it on the end.
+//
+// Plugin shelf ids are kept as they are, even for a plugin that isn't installed
+// right now: the order is only consulted for shelves that exist, so a stale id is
+// inert, and keeping it means a plugin that is disabled and re-enabled (or
+// reinstalled) comes back where the user put it.
 export function mergeShelfOrder(saved: string[], def: string[] = DEFAULT_SHELF_ORDER): string[] {
-  const savedSet = new Set(saved);
-  const result = saved.filter((id) => def.includes(id));
+  const result = saved.filter(
+    (id, i) => saved.indexOf(id) === i && (def.includes(id) || !isBuiltInShelfId(id)),
+  );
   for (let i = 0; i < def.length; i++) {
-    if (savedSet.has(def[i])) continue;
-    result.splice(Math.min(i, result.length), 0, def[i]);
+    if (result.includes(def[i])) continue;
+    let at = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = result.indexOf(def[j]);
+      if (prev !== -1) { at = prev + 1; break; }
+    }
+    result.splice(at, 0, def[i]);
   }
   return result;
+}
+
+// `order` with every id in `ids` it doesn't mention appended, in the order given.
+// Turns the saved order into the full list the user is arranging: a plugin shelf
+// the user has never moved isn't in the saved order yet, and appending it puts it
+// exactly where `rankShelf` already ranks it — after every listed shelf.
+export function completeShelfOrder(order: string[], ids: string[]): string[] {
+  const seen = new Set(order);
+  const extra: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    extra.push(id);
+  }
+  return [...order, ...extra];
+}
+
+// Move `id` to just before / after `targetId`. Returns `order` unchanged when
+// either id is missing, so a stale menu action can't corrupt the arrangement.
+export function moveShelf(
+  order: string[],
+  id: string,
+  targetId: string,
+  where: "before" | "after",
+): string[] {
+  if (id === targetId || !order.includes(id) || !order.includes(targetId)) return order;
+  const rest = order.filter((x) => x !== id);
+  rest.splice(rest.indexOf(targetId) + (where === "after" ? 1 : 0), 0, id);
+  return rest;
 }
 
 // Minimal seed metadata a radio station card needs.
@@ -320,18 +367,18 @@ export interface ShelfResolver {
   fetch: (limit: number) => Promise<ShelfFetchResult>;
 }
 
-// Sort key for a shelf given the user's built-in order. Built-ins are ranked by
-// their position in `builtinOrder`; an unknown/new built-in (not yet in the saved
-// order, e.g. added in a later release) sorts just after the listed built-ins;
-// plugin shelves always come after all built-ins. Stable sorts preserve the input
-// order among same-rank items (so plugins and unknown built-ins keep their order).
-function rankShelf(item: { id: string; pluginId?: string }, builtinOrder: string[]): number {
-  if (item.pluginId) return builtinOrder.length + 1;
-  const idx = builtinOrder.indexOf(item.id);
-  return idx >= 0 ? idx : builtinOrder.length;
+// Sort key for a shelf given the user's shelf order. Any shelf the order lists —
+// built-in or plugin — ranks by its position there. An unlisted built-in (added in
+// a later release, before `mergeShelfOrder` has seen it) sorts just after the
+// listed shelves; an unlisted plugin shelf (one the user never moved) after that.
+// Stable sorts preserve the input order among same-rank items.
+function rankShelf(item: { id: string; pluginId?: string }, order: string[]): number {
+  const idx = order.indexOf(item.id);
+  if (idx >= 0) return idx;
+  return item.pluginId ? order.length + 1 : order.length;
 }
 
-// Reorder resolved shelves so the built-in ones follow `builtinOrder`. Pure —
+// Reorder resolved shelves to follow the user's shelf order. Pure —
 // used both when refreshing and to re-sort live when the user reorders shelves.
 export function orderResolvedShelves(
   shelves: ResolvedShelf[],
@@ -398,8 +445,8 @@ export interface UseHomeOptions {
   // cached shelves pruned the instant `pluginsLoaded` flips, then never re-added.
   activePluginIds: Set<string>;
   visibility: Record<string, boolean>;
-  // User-defined order of the built-in shelves (ids). Plugin shelves always
-  // follow the built-ins regardless. Defaults to DEFAULT_SHELF_ORDER.
+  // User-defined shelf order (ids, built-in and plugin). Plugin shelves the user
+  // never placed follow every listed shelf. Defaults to DEFAULT_SHELF_ORDER.
   shelfOrder: string[];
   restoredRef: React.RefObject<boolean>;
   // Monotonic counter the host bumps whenever a collection resync changes the
@@ -884,7 +931,7 @@ export function useHome(opts: UseHomeOptions) {
 
       const all = [...builtIns, ...pluginResolvers]
         .filter(r => isShelfVisible(r.id, visibility))
-        // Apply the user's built-in order; plugin shelves stay after the built-ins.
+        // Apply the user's shelf order; unplaced plugin shelves follow it.
         .sort((a, b) => rankShelf(a, shelfOrder) - rankShelf(b, shelfOrder));
       // Remember which resolvers we attempted this cycle so a later mount can
       // distinguish an already-seen shelf from a freshly-installed plugin shelf.

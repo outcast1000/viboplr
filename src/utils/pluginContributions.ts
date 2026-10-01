@@ -12,7 +12,7 @@ import type {
  * stream resolver but not the four context-menu items it also adds had no way
  * to say so. Providers (information types, images, stream/download) and Home
  * shelves already have per-item control — Settings → Providers and Home →
- * Shelves respectively. This module covers the two contribution kinds that
+ * Customize respectively. This module covers the two contribution kinds that
  * didn't: context-menu items and sidebar views.
  *
  * State is one flat `Record<key, boolean>` persisted under the

@@ -912,6 +912,11 @@ function App() {
     () => new Set(plugins.pluginStates.filter((p) => p.status === "active").map((p) => p.id)),
     [plugins.pluginStates],
   );
+  // Plugin id → name, so Customize Home can say which plugin a shelf comes from.
+  const pluginNames = useMemo(
+    () => Object.fromEntries(plugins.pluginStates.map((p) => [p.id, p.manifest.name])),
+    [plugins.pluginStates],
+  );
 
   // Dynamic, cycling Now Playing info section (mini player + main bar).
   const { availableItems: nowPlayingInfoAvailable, resolvedItems: nowPlayingInfoResolved } = useNowPlayingInfo({
@@ -5311,6 +5316,7 @@ function App() {
             style={{ display: view === "home" ? undefined : "none" }}
             isVisible={view === "home"}
             pluginShelves={plugins.homeShelves}
+            pluginNames={pluginNames}
             pluginsLoaded={plugins.pluginsLoaded}
             activePluginIds={activePluginIds}
             invokePluginShelf={plugins.invokeHomeShelf}
