@@ -4795,6 +4795,29 @@ function App() {
         specs.push({ kind: "item", text: "Start radio from this track", action: () => {
           contextMenuActions.startRadio({ title: t.title, artistName: t.artist_name, coverPath: t.image_url ?? null });
         } });
+        // The playing entry is a QueueTrack (no album_id), so the library
+        // album is resolved by name — album artist first, matching how albums
+        // are keyed (find_album_by_name also accepts the track artist).
+        const albumTitle = t.album_title;
+        if (albumTitle) {
+          specs.push({ kind: "item", text: "Play Full Album", action: async () => {
+            try {
+              const a = await invoke<Album | null>("find_album_by_name", { title: albumTitle, artistName: t.album_artist_name ?? t.artist_name ?? null });
+              if (a) await playActions.playAlbum(a.id);
+              else notify(`"${albumTitle}" isn't in your library`);
+            } catch (e) {
+              console.error("Failed to play full album:", e);
+              notify("Couldn't play the album");
+            }
+          } });
+        }
+        // Plugin-registered track actions (Universal Track Actions) — e.g.
+        // Last.fm's "Play the Full Album" for the playing track.
+        const matching = plugins.menuItems.filter((mi) => mi.targets.includes("track"));
+        const target = { kind: "track" as const, trackId: t.libraryId ?? undefined, title: t.title, artistName: t.artist_name ?? null, albumTitle: t.album_title ?? null, isLocal: isLocalTrack(t) };
+        const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), plugins.dispatchContextMenuAction);
+        if (pluginSpecs.length > 0) specs.push({ kind: "separator" }, ...pluginSpecs);
+        specs.push({ kind: "separator" });
       }
       const widthItems: MenuItemSpec[] = MINI_WIDTH_SIZES.map(size => ({
         kind: "check" as const,
