@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { QueueTrack, QueueMode, ResolvedSource } from "../types";
+import type { QueueTrack, ResolvedSource } from "../types";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
-import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import { formatDuration, isVideoTrack } from "../utils";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
-import { TransportButtons, QueueModeGroup, VolumeControl } from "./TransportControls";
-import { EqControlGroup, type EqControls } from "./EqButton";
-import { BitPerfectButton, type BitPerfectControl } from "./BitPerfectButton";
-import { BIT_PERFECT_EQ_REASON, BIT_PERFECT_VOLUME_REASON } from "../utils/bitPerfect";
+import { TransportButtons, VolumeControl } from "./TransportControls";
+import type { EqControls } from "./EqButton";
+import type { BitPerfectControl } from "./BitPerfectButton";
+import { AudioOptionsGroup } from "./AudioOptions";
+import type { PlayerBarPins } from "../utils/playerBarPins";
+import { BIT_PERFECT_VOLUME_REASON } from "../utils/bitPerfect";
 import { SourceIndicator } from "./SourceIndicator";
 import type { Storyboard } from "../utils/storyboard";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
@@ -27,11 +28,6 @@ interface FullscreenControlsProps {
   scrobbled: boolean;
   volume: number;
   muted: boolean;
-  queueMode: QueueMode;
-  autoContinueEnabled: boolean;
-  autoContinueSameFormat: boolean;
-  showAutoContinuePopover: boolean;
-  autoContinueWeights: AutoContinueWeights;
   imagePath: string | null;
   onPause: () => void;
   onStop: () => void;
@@ -40,13 +36,6 @@ interface FullscreenControlsProps {
   onSeek: (secs: number) => void;
   onVolume: (level: number) => void;
   onMute: () => void;
-  onToggleQueueMode: () => void;
-  onToggleAutoContinue: () => void;
-  onToggleAutoContinueSameFormat: () => void;
-  onToggleAutoContinuePopover: () => void;
-  onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
-  onResetAutoContinueWeights: () => void;
-  onCloseAutoContinuePopover: () => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   /** Leave fullscreen. **Optional**: the audio surface omits it, because its own
@@ -73,6 +62,9 @@ interface FullscreenControlsProps {
   /** Bit-perfect toggle — the same control the docked bar shows. While on it
       also suspends the EQ cluster and locks the volume. Omit to hide. */
   bitPerfect?: BitPerfectControl | null;
+  /** Same pins as the docked bar (utils/playerBarPins) — one rule, both bars. */
+  playerBarPins: PlayerBarPins;
+  onPlayerBarPinsChange: (next: PlayerBarPins) => void;
   /** Whether mpv is driving the current video — the one case where video can be
       EQ'd. Mirrors the now-playing bar's availability rule. */
   nativeVideoActive?: boolean;
@@ -99,14 +91,12 @@ export function FullscreenControls({
   storyboard,
   currentTrack, playing,
   durationSecs, scrobbled,
-  volume, muted, queueMode,
-  autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
+  volume, muted,
   imagePath,
   onPause, onStop, onNext, onPrevious,
-  onSeek, onVolume, onMute, onToggleQueueMode,
-  onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
+  onSeek, onVolume, onMute,
   onToggleLike, onToggleDislike, onToggleFullscreen, showQueue, onToggleQueue, hasSubtitles, subtitlesOn, onToggleSubtitles, onNavigateToArtistByName, onNavigateToAlbumByName,
-  eq, bitPerfect = null, nativeVideoActive = false, resolvedSource = null,
+  eq, bitPerfect = null, playerBarPins, onPlayerBarPinsChange, nativeVideoActive = false, resolvedSource = null,
   active = false,
 }: FullscreenControlsProps) {
   // Subscribed here (not passed from App) so the ~4 Hz position tick — and the
@@ -143,10 +133,11 @@ export function FullscreenControls({
     return () => document.removeEventListener("fullscreenchange", onChange);
   }, []);
 
-  // The EQ popover is a 600px panel you read as much as you drag, so the idle
-  // timer must not yank the bar (and the popover inside it) out from under it.
-  // Keyed separately from the drag hold: releasing one must not release the other.
-  const handleEqOpenChange = useCallback((open: boolean) => pin("eq", open), [pin]);
+  // The EQ popover is a 600px panel you read as much as you drag, and the Audio
+  // options menu is a native menu, so the idle timer must not yank the bar out
+  // from under either. Keyed separately from the drag hold (and from each
+  // other): releasing one must not release the rest.
+  const handleAudioHold = useCallback((key: "audio-menu" | "eq", held: boolean) => pin(key, held), [pin]);
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -264,25 +255,19 @@ export function FullscreenControls({
         />
         <div className="fs-right">
           <div className="fs-group">
-          <QueueModeGroup
-            queueMode={queueMode}
-            onToggleQueueMode={onToggleQueueMode}
-            autoContinueEnabled={autoContinueEnabled}
-            autoContinueSameFormat={autoContinueSameFormat}
-            showAutoContinuePopover={showAutoContinuePopover}
-            autoContinueWeights={autoContinueWeights}
-            onToggleAutoContinue={onToggleAutoContinue}
-            onToggleAutoContinueSameFormat={onToggleAutoContinueSameFormat}
-            onToggleAutoContinuePopover={onToggleAutoContinuePopover}
-            onAdjustAutoContinueWeight={onAdjustAutoContinueWeight}
-            onResetAutoContinueWeights={onResetAutoContinueWeights}
-            onCloseAutoContinuePopover={onCloseAutoContinuePopover}
-          />
-          {/* Last in this group, immediately before volume — the same slot the
-              cluster occupies in the now-playing bar, and the same cluster:
-              inline Bass/Treble slot (or curve preview) plus the popover button. */}
-          {bitPerfect && <BitPerfectButton control={bitPerfect} />}
-          {eq && <EqControlGroup eq={eq} available={eqAvailable} onOpenChange={handleEqOpenChange} suspendedReason={bitPerfect?.on ? BIT_PERFECT_EQ_REASON : null} />}
+          {/* The same cluster, in the same slot, as the docked bar. Queue mode
+              and auto-continue live in the queue header — reached here through
+              the Queue button. */}
+          {eq && (
+            <AudioOptionsGroup
+              eq={eq}
+              eqAvailable={eqAvailable}
+              bitPerfect={bitPerfect}
+              pins={playerBarPins}
+              onPinsChange={onPlayerBarPinsChange}
+              onHoldChange={handleAudioHold}
+            />
+          )}
           </div>
           <div className="fs-group">
           <VolumeControl

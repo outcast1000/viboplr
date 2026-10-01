@@ -48,6 +48,9 @@ interface EqGroupProps {
   /** Set while something overrides the EQ (Bit-perfect mode): the cluster is
    *  disabled with this as its tooltip, and the user's settings are untouched. */
   suspendedReason?: string | null;
+  /** Controlled popover state. Omit to let the button own it; the bars pass it
+   *  so the Audio options menu's "Equalizer settings…" can open the popover. */
+  open?: boolean;
 }
 
 /** Is the EQ doing anything audible? Drives the button's `active` styling. */
@@ -66,7 +69,7 @@ function isShaping(eq: EqControls): boolean {
  * Bass/Treble sliders and fullscreen showed a lone icon, so "the same EQ" was
  * two different controls depending on the chrome.
  */
-export function EqControlGroup({ eq, available, onOpenChange, suspendedReason }: EqGroupProps) {
+export function EqControlGroup({ eq, available, onOpenChange, suspendedReason, open }: EqGroupProps) {
   return (
     <>
       {available && !suspendedReason && eq.showBarControl && (
@@ -82,20 +85,21 @@ export function EqControlGroup({ eq, available, onOpenChange, suspendedReason }:
           onEnsureEnabled={() => { if (!eq.enabled) eq.onEnabledChange(true); }}
         />
       )}
-      <EqButton eq={eq} available={available} onOpenChange={onOpenChange} suspendedReason={suspendedReason} />
+      <EqButton eq={eq} available={available} onOpenChange={onOpenChange} suspendedReason={suspendedReason} open={open} />
     </>
   );
 }
 
-export function EqButton({ eq, available: availableForTrack, onOpenChange, suspendedReason }: EqGroupProps) {
+export function EqButton({ eq, available: availableForTrack, onOpenChange, suspendedReason, open: openProp }: EqGroupProps) {
   const available = availableForTrack && !suspendedReason;
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
   const anchorRef = useRef<HTMLButtonElement>(null);
 
   const setOpenState = useCallback((next: boolean) => {
-    setOpen(next);
+    if (openProp === undefined) setInternalOpen(next);
     onOpenChange?.(next);
-  }, [onOpenChange]);
+  }, [onOpenChange, openProp]);
 
   // Availability can drop out from under an open popover (the queue advances to
   // a browser-engine video), which unmounts it. Report the close too, or a host

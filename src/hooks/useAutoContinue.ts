@@ -32,7 +32,6 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
   const [enabled, setEnabled] = useState(false);
   const [sameFormat, setSameFormat] = useState(false);
   const [weights, setWeights] = useState<AutoContinueWeights>(DEFAULT_AUTO_CONTINUE_WEIGHTS);
-  const [showPopover, setShowPopover] = useState(false);
 
   // Restore from store
   useEffect(() => {
@@ -144,7 +143,6 @@ export function useAutoContinue(restoredRef: React.RefObject<boolean>) {
     enabled, setEnabled,
     sameFormat, setSameFormat,
     weights, adjustWeight, resetWeights,
-    showPopover, setShowPopover,
     fetchTrack,
   };
 }

@@ -172,6 +172,14 @@
   align-items: stretch;
   gap: 10px;
 }
+/* Auto-continue weights: label · slider · percentage, one row per strategy. */
+.settings-ac-weights {
+  display: grid;
+  grid-template-columns: max-content minmax(120px, 360px) 44px;
+  align-items: center;
+  gap: 8px 14px;
+  font-variant-numeric: tabular-nums;
+}
 .settings-row-info {
   flex: 1;
   min-width: 0;

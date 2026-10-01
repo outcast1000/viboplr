@@ -112,7 +112,7 @@
         </ul>
         <p>You don't have to keep that checklist in your head: while exclusive access is on, the settings row shows a live <strong>● Bit-perfect</strong> indicator, and when the stream isn't bit-perfect it names exactly what's in the way.</p>
         <h3 id="bit-perfect-mode">Bit-perfect mode</h3>
-        <p>The <strong>Bit-perfect</strong> button in the now-playing bar does all of the above in one click, for the current session. It pins your current output device, takes exclusive access to it, suspends the equalizer, ReplayGain and speed, holds the volume at 100%, and lets the device follow each track's sample rate. Your own settings are left untouched, so turning the mode off (or quitting) puts everything back exactly as it was.</p>
+        <p><strong>Bit-perfect</strong>, in the now-playing bar's <strong>Audio options</strong> menu, does all of the above in one click, for the current session. It pins your current output device, takes exclusive access to it, suspends the equalizer, ReplayGain and speed, holds the volume at 100%, and lets the device follow each track's sample rate. Your own settings are left untouched, so turning the mode off (or quitting) puts everything back exactly as it was. While the mode is on, its button sits in the bar and shows the verified state; choose <em>Keep in bar</em> in the same menu to keep the button there when it's off.</p>
         <p>The button reports what it <em>verified</em>, not what it asked for: it turns green only when the device is confirmed held by Viboplr and the file, the output and the device all run at the same rate. Amber means something is in the way, and its tooltip says what:</p>
         <ul class="docs-list">
           <li><strong>Waiting for the device</strong> — another app holds it exclusively. Playback starts by itself once that app lets go. On macOS you can click the button to play through the shared mixer instead; on Windows an app holding the device exclusively blocks shared playback too, so the only way through is to close it or switch off its exclusive mode.</li>
@@ -220,7 +220,7 @@
         <h2>Prefer video</h2>
         <p class="docs-lead">Play the music video instead of the audio, whenever one can be found.</p>
         <p>With <strong>Prefer video</strong> on, every track that isn't already a video — songs you queue as well as tracks picked automatically to keep the music going — is first looked up through your video providers (for example the YouTube plugin). If a music video is found, it plays in the theater; if not, the track simply plays as normal audio. Because the lookup can hit the network, there may be a short pause before playback starts, and nothing changes for tracks that are already videos.</p>
-        <p>Toggle it from the button in the queue header, or from <strong>Settings &rarr; Playback &rarr; Prefer video</strong>. It's a preference, not a hard filter: it never overrides your source ordering, and it falls back to audio whenever no video exists.</p>
+        <p>Toggle it from the queue's &middot;&middot;&middot; menu. While it is on, a banner at the top of the queue says so and has a <strong>Turn off</strong> button. It's a preference, not a hard filter: it never overrides your source ordering, and it falls back to audio whenever no video exists.</p>
       </div>
     </div>
   </section>
@@ -287,7 +287,8 @@
           <li><strong>Most Played</strong> &mdash; your heavy rotation, by play count.</li>
           <li><strong>Liked</strong> &mdash; tracks you've hearted.</li>
         </ul>
-        <p><strong>Same format</strong> restricts the picks to the current track's file format &mdash; handy if you're keeping a listening session all-FLAC. The reset button returns every weight to its default mix. Auto Continue only runs during normal playback; it's off in <em>Repeat All</em> and <em>Repeat One</em>, where the queue already loops.</p>
+        <p>Turn it on or off with the <strong>&infin;</strong> button in the queue header, next to the queue mode button. It is also at the top of the collapsed queue strip. The weights and <strong>Same format</strong> live in <strong>Settings &rarr; Playback</strong>, which the queue's &middot;&middot;&middot; menu opens directly with <em>Auto-continue settings&hellip;</em>.</p>
+        <p><strong>Same format</strong> keeps audio after audio and video after video, so a music-video session doesn't drift into albums. The reset button returns every weight to its default mix. Auto Continue only runs during normal playback, so its button is greyed out in <em>Repeat All</em> and <em>Repeat One</em>, where the queue already loops.</p>
       </div>
     </div>
   </section>
@@ -298,6 +299,7 @@
       <div class="docs-body reveal">
         <h2>Equalizer</h2>
         <p class="docs-lead">Shape the sound &mdash; boost the bass, tame harsh highs, or dial in a preset.</p>
+        <p>Open it from the now-playing bar's <strong>Audio options</strong> button: <em>Equalizer</em> turns it on or off, <em>Equalizer settings&hellip;</em> opens the panel. While it is on, the equalizer's button and its Bass/Treble sliders sit in the bar; <em>Keep in bar</em> keeps them there when it's off.</p>
         <p>The equalizer has two modes, switched at the top of the panel:</p>
         <ul class="docs-list">
           <li><strong>Simple</strong> &mdash; two shelves, <em>Bass</em> and <em>Treble</em>, plus a row of one-tap presets. Drag the curve or pick a preset; it's the quick way to warm things up or brighten them.</li>

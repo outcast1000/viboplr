@@ -4,11 +4,14 @@ import type { MenuItemSpec } from "../nativeMenu";
 
 function makeDeps(overrides: Partial<QueueHeaderMenuDeps> = {}): QueueHeaderMenuDeps {
   return {
+    preferVideo: false,
+    onTogglePreferVideo: vi.fn(),
     onLoadPlaylist: vi.fn(),
     onSaveToPlaylists: vi.fn(),
     onSaveAsM3U: vi.fn(),
     onPublishQueue: vi.fn(),
     onExportAsMixtape: vi.fn(),
+    onOpenAutoContinueSettings: vi.fn(),
     onClear: vi.fn(),
     ...overrides,
   };
@@ -49,9 +52,11 @@ function invokeItem(specs: MenuItemSpec[], text: string): void {
 describe("buildQueueHeaderMenuSpecs", () => {
   it("offers every queue-level action", () => {
     expect(texts(buildQueueHeaderMenuSpecs(makeDeps()))).toEqual([
+      "Prefer video",
       "Load playlist…",
       "Save", "Save as Playlist", "Export as M3U",
       "Share", "Publish hosted source…", "Save as file (.mixtape)…",
+      "Auto-continue settings…",
       "Clear queue",
     ]);
   });
@@ -78,17 +83,20 @@ describe("buildQueueHeaderMenuSpecs", () => {
     ["Export as M3U", "onSaveAsM3U"],
     ["Publish hosted source…", "onPublishQueue"],
     ["Save as file (.mixtape)…", "onExportAsMixtape"],
+    ["Auto-continue settings…", "onOpenAutoContinueSettings"],
+    ["Prefer video", "onTogglePreferVideo"],
   ] as const)("wires %s to %s", (label, key) => {
     const deps = makeDeps();
     invokeItem(buildQueueHeaderMenuSpecs(deps), label);
     expect(deps[key]).toHaveBeenCalledTimes(1);
   });
 
-  // Prefer video is deliberately NOT in this menu — it is a visible header
-  // button with an in-list banner while on (see QueuePanel), because a mode
-  // that changes what every play does must not hide behind a ⋯.
-  it("carries no prefer-video item", () => {
-    expect(texts(buildQueueHeaderMenuSpecs(makeDeps()))).not.toContain("Prefer video");
+  // Prefer video is a check item reflecting the live mode. It can sit behind
+  // the ⋯ because it is never on silently: the list's own banner announces it
+  // with a Turn off button (see QueuePanel).
+  it.each([true, false])("shows Prefer video checked=%s from the live mode", (on) => {
+    const item = buildQueueHeaderMenuSpecs(makeDeps({ preferVideo: on }))[0];
+    expect(item).toMatchObject({ kind: "check", text: "Prefer video", checked: on });
   });
 
   it("separates the destructive Clear from the rest", () => {

@@ -82,6 +82,7 @@ import {
 import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { usePersistedSetting, usePersistMirror } from "./hooks/usePersistedSetting";
 import { coerceRadioOptions, DEFAULT_RADIO_OPTIONS, type RadioOptions } from "./utils/radioOptions";
+import { DEFAULT_PLAYER_BAR_PINS, normalizePlayerBarPins, type PlayerBarPins } from "./utils/playerBarPins";
 import { useUiZoom } from "./hooks/useUiZoom";
 import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
@@ -410,6 +411,9 @@ function App() {
   const [eqShowBarControlSimple, setEqShowBarControlSimple] = usePersistedSetting("eqShowBarControlSimple", true, restoredRef);
   const [eqShowBarControlAdvanced, setEqShowBarControlAdvanced] = usePersistedSetting("eqShowBarControlAdvanced", false, restoredRef);
   const [eqSaveAsOpen, setEqSaveAsOpen] = useState(false);
+  // Which of EQ / Bit-perfect stay on the playback bars while off
+  // (utils/playerBarPins); edited from the Audio options menu and Settings.
+  const [playerBarPins, setPlayerBarPins] = usePersistedSetting<PlayerBarPins>("playerBarPins", DEFAULT_PLAYER_BAR_PINS, restoredRef);
   const [debugLogging, setDebugLogging] = usePersistedSetting("debugLogging", false, restoredRef);
   const [debugMode, setDebugMode] = usePersistedSetting("debugMode", false, restoredRef);
   const [devPluginPath, setDevPluginPath] = usePersistedSetting<string | null>("devPluginPath", null, restoredRef);
@@ -790,6 +794,15 @@ function App() {
     if (isVideoTrack(t)) playback.toggleFullscreen();
     else toggleAudioFullscreen();
   }, [playback.currentTrack, playback.toggleFullscreen, toggleAudioFullscreen]);
+
+  // The queue ⋯ menu's "Auto-continue settings…": the tuning lives in Settings →
+  // Playback now that the popover is gone. Leaves audio fullscreen first, or the
+  // settings page would open behind the overlay.
+  const openAutoContinueSettings = useCallback(() => {
+    if (audioFullscreen) toggleAudioFullscreen();
+    setSettingsScrollTarget("auto-continue");
+    library.setView("settings");
+  }, [audioFullscreen, toggleAudioFullscreen, library]);
 
   // Leave fullscreen the moment it stops being valid — the track changed to a
   // video, the plugin was disabled, playback stopped. Otherwise the window stays
@@ -2840,7 +2853,7 @@ function App() {
           minimizeToMiniPlayer: savedMinimizeToMiniPlayer,
           confirmTrashDelete: savedConfirmTrashDelete, videoStoryboards: savedVideoStoryboards,
           bitPerfectSkipConfirm: savedBitPerfectSkipConfirm,
-          radioOptions: savedRadioOptions,
+          radioOptions: savedRadioOptions, playerBarPins: savedPlayerBarPins,
           openNowPlayingOnPlay: savedOpenNowPlayingOnPlay, openNowPlayingOnVideoPlay: savedOpenNowPlayingOnVideoPlay,
           updateNoticeDismissed: savedUpdateNoticeDismissed,
           reduceMotion: savedReduceMotion,
@@ -2931,6 +2944,7 @@ function App() {
         if (savedOpenNowPlayingOnVideoPlay) setOpenNowPlayingOnVideoPlay(true);
         if (savedVideoStoryboards === false) setVideoStoryboards(false);
         if (savedRadioOptions !== undefined) setRadioOptions(coerceRadioOptions(savedRadioOptions));
+        if (savedPlayerBarPins !== undefined) setPlayerBarPins(normalizePlayerBarPins(savedPlayerBarPins));
         if (savedUpdateNoticeDismissed) setUpdateNoticeDismissed(savedUpdateNoticeDismissed);
         if (savedReduceMotion) { setReduceMotion(true); applyReduceMotionAttr(true); }
 
@@ -4735,15 +4749,7 @@ function App() {
       else setEqShowBarControlAdvanced(v);
     },
     onToggleFullscreen: () => toggleFullscreenForTrack(),
-    // Leaving Normal mode unmounts the Auto Continue button, so drop the
-    // popover with it — otherwise it springs back open on the way round.
-    onToggleQueueMode: () => { queueHook.toggleQueueMode(); autoContinue.setShowPopover(false); },
-    onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
-    onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
-    onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
-    onAdjustAutoContinueWeight: autoContinue.adjustWeight,
-    onResetAutoContinueWeights: autoContinue.resetWeights,
-    onCloseAutoContinuePopover: () => autoContinue.setShowPopover(false),
+    onPlayerBarPinsChange: setPlayerBarPins,
     onToggleLike: () => {
       const t = playback.currentTrack;
       if (!t) return;
@@ -4863,11 +4869,6 @@ function App() {
     scrobbled: playback.scrobbled,
     volume: controlsVolume,
     muted: playback.muted,
-    queueMode: queueHook.queueMode,
-    autoContinueEnabled: autoContinue.enabled,
-    autoContinueSameFormat: autoContinue.sameFormat,
-    showAutoContinuePopover: autoContinue.showPopover,
-    autoContinueWeights: autoContinue.weights,
     imagePath: playback.currentTrack?.image_url || null,
     onPause: playback.handlePause,
     onStop: playback.handleStop,
@@ -4876,15 +4877,6 @@ function App() {
     onSeek: playback.handleSeek,
     onVolume: playback.handleVolume,
     onMute: playback.toggleMute,
-    // Leaving Normal mode unmounts the Auto Continue button, so drop the
-    // popover with it — otherwise it springs back open on the way round.
-    onToggleQueueMode: () => { queueHook.toggleQueueMode(); autoContinue.setShowPopover(false); },
-    onToggleAutoContinue: () => autoContinue.setEnabled(!autoContinue.enabled),
-    onToggleAutoContinueSameFormat: () => autoContinue.setSameFormat(!autoContinue.sameFormat),
-    onToggleAutoContinuePopover: () => autoContinue.setShowPopover(!autoContinue.showPopover),
-    onAdjustAutoContinueWeight: autoContinue.adjustWeight,
-    onResetAutoContinueWeights: autoContinue.resetWeights,
-    onCloseAutoContinuePopover: () => autoContinue.setShowPopover(false),
     onToggleLike: () => { if (playback.currentTrack) likeActions.handleToggleLike(playback.currentTrack); },
     onToggleDislike: () => { if (playback.currentTrack) likeActions.handleToggleDislike(playback.currentTrack); },
     showQueue: !queueCollapsed,
@@ -4898,6 +4890,8 @@ function App() {
     nativeVideoActive: playback.nativeVideoActive,
     eq: eqControls,
     bitPerfect: bitPerfect.control,
+    playerBarPins,
+    onPlayerBarPinsChange: setPlayerBarPins,
     resolvedSource,
   };
 
@@ -5701,6 +5695,14 @@ function App() {
               onVideoStoryboardsChange={handleVideoStoryboardsChange}
               radioOptions={radioOptions}
               onRadioOptionsChange={handleRadioOptionsChange}
+              autoContinueSameFormat={autoContinue.sameFormat}
+              onAutoContinueSameFormatChange={autoContinue.setSameFormat}
+              autoContinueWeights={autoContinue.weights}
+              onAdjustAutoContinueWeight={autoContinue.adjustWeight}
+              onResetAutoContinueWeights={autoContinue.resetWeights}
+              playerBarPins={playerBarPins}
+              onPlayerBarPinsChange={setPlayerBarPins}
+              bitPerfectAvailable={bitPerfect.control != null}
               minimizeToMiniPlayer={minimizeToMiniPlayer}
               onMinimizeToMiniPlayerChange={handleMinimizeToMiniPlayerChange}
               confirmTrashDelete={confirmTrashDelete}
@@ -5995,6 +5997,10 @@ function App() {
           onPreferVideoResolutionChange={handlePreferVideoResolutionChange}
           onRandomize={queueHook.randomizeQueue}
           queueMode={queueHook.queueMode}
+          onToggleQueueMode={queueHook.toggleQueueMode}
+          autoContinueEnabled={autoContinue.enabled}
+          onToggleAutoContinue={() => autoContinue.setEnabled(!autoContinue.enabled)}
+          onOpenAutoContinueSettings={openAutoContinueSettings}
           onContextMenu={(e, indices) => {
             const tracks = indices.map(i => queueHook.queue[i]).filter(Boolean);
             const first = tracks[0];
@@ -6430,11 +6436,6 @@ function App() {
         trackRank={trackRank}
         volume={controlsVolume}
         muted={playback.muted}
-        queueMode={queueHook.queueMode}
-        autoContinueEnabled={autoContinue.enabled}
-        autoContinueSameFormat={autoContinue.sameFormat}
-        showAutoContinuePopover={autoContinue.showPopover}
-        autoContinueWeights={autoContinue.weights}
         imagePath={playback.currentTrack?.image_url || null}
         miniMode={mini.miniMode}
         miniExpanded={mini.miniExpanded}
@@ -6476,13 +6477,6 @@ function App() {
         onEqShowBarControlChange={npBar.onEqShowBarControlChange}
         onToggleFullscreen={npBar.onToggleFullscreen}
         canFullscreen={canFullscreen}
-        onToggleQueueMode={npBar.onToggleQueueMode}
-        onToggleAutoContinue={npBar.onToggleAutoContinue}
-        onToggleAutoContinueSameFormat={npBar.onToggleAutoContinueSameFormat}
-        onToggleAutoContinuePopover={npBar.onToggleAutoContinuePopover}
-        onAdjustAutoContinueWeight={npBar.onAdjustAutoContinueWeight}
-        onResetAutoContinueWeights={npBar.onResetAutoContinueWeights}
-        onCloseAutoContinuePopover={npBar.onCloseAutoContinuePopover}
         onToggleLike={npBar.onToggleLike}
         onToggleDislike={npBar.onToggleDislike}
         likeDisabled={likeBusy}
@@ -6504,6 +6498,8 @@ function App() {
         invokeInfoFetch={plugins.invokeInfoFetch}
         pluginsLoaded={plugins.pluginsLoaded}
         bitPerfect={bitPerfect.control}
+        playerBarPins={playerBarPins}
+        onPlayerBarPinsChange={npBar.onPlayerBarPinsChange}
       />
 
       {bitPerfect.confirmPin && (

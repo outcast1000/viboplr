@@ -434,9 +434,10 @@
   z-index: 20;
 }
 
-/* Functional groups (playlist controls, audio controls). Each is a subtle
+/* Functional groups (audio controls, view controls). Each is a subtle
    segmented pill so related controls read as one unit, separated from the next
-   group by the larger .now-right gap. */
+   group by the larger .now-right gap. The queue panel header and its collapsed
+   rail reuse this class so the two surfaces read as one family. */
 .now-group {
   display: flex;
   align-items: center;
@@ -528,8 +529,9 @@
    Every selector here exists only in the full bar, so the mini player (its own
    narrow window, different classes) is untouched. Order of sacrifice: the
    inline EQ sliders (widest single element), then the whole audio pill
-   (EQ + mute + volume), then the playlist pill (queue mode / auto-continue),
-   then the album art. The fullscreen button stays — it is the only route to
+   (audio options + EQ + mute + volume), then the album art. (Queue mode and
+   auto-continue live in the queue header, so the bar has no playlist pill.)
+   The fullscreen button stays — it is the only route to
    fullscreen from the bar and costs one icon's width. */
 @media (max-width: 1060px) {
   .now-group--audio .eqbar-slot {
@@ -539,12 +541,6 @@
 
 @media (max-width: 920px) {
   .now-group--audio {
-    display: none;
-  }
-}
-
-@media (max-width: 800px) {
-  .now-group--playlist {
     display: none;
   }
 }

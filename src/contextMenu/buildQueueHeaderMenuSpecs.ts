@@ -1,10 +1,10 @@
 // Queue header (⋯) menu spec builder, extracted from QueuePanel.
 //
-// Pure: given the queue-level callbacks, returns the MenuItemSpec[] to
+// Pure: given the queue-level state + callbacks, returns the MenuItemSpec[] to
 // display. QueuePanel keeps a thin useCallback wrapper that owns the anchor
-// rect + showNativeMenu. (Prefer video and Randomize are visible header
-// buttons, not menu items — a mode that changes what every play does must not
-// hide behind a ⋯.)
+// rect + showNativeMenu. (Queue mode, auto-continue and Randomize are visible
+// header buttons, not menu items. Prefer video is a check item here; it is
+// never on silently, because the list's own banner announces it with Turn off.)
 //
 // Extracted for the same reason buildContextMenuSpecs was: showNativeMenu opens
 // a native OS menu with no DOM, so every item behind it — including "Clear
@@ -14,11 +14,14 @@
 import type { MenuItemSpec } from "../nativeMenu";
 
 export interface QueueHeaderMenuDeps {
+  preferVideo: boolean;
+  onTogglePreferVideo: () => void;
   onLoadPlaylist: () => void;
   onSaveToPlaylists: () => void;
   onSaveAsM3U: () => void;
   onPublishQueue: () => void;
   onExportAsMixtape: () => void;
+  onOpenAutoContinueSettings: () => void;
   onClear: () => void;
 }
 
@@ -29,6 +32,8 @@ export interface QueueHeaderMenuDeps {
  */
 export function buildQueueHeaderMenuSpecs(d: QueueHeaderMenuDeps): MenuItemSpec[] {
   return [
+    { kind: "check", text: "Prefer video", checked: d.preferVideo, action: d.onTogglePreferVideo },
+    { kind: "separator" },
     { kind: "item", text: "Load playlist…", action: d.onLoadPlaylist },
     {
       kind: "submenu",
@@ -46,6 +51,8 @@ export function buildQueueHeaderMenuSpecs(d: QueueHeaderMenuDeps): MenuItemSpec[
         { kind: "item", text: "Save as file (.mixtape)…", action: d.onExportAsMixtape },
       ],
     },
+    { kind: "separator" },
+    { kind: "item", text: "Auto-continue settings…", action: d.onOpenAutoContinueSettings },
     { kind: "separator" },
     { kind: "item", text: "Clear queue", action: d.onClear },
   ];

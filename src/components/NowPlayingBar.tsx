@@ -3,20 +3,21 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { usePlaybackPosition } from "../playback/positionStore";
-import type { QueueTrack, SearchAllResults, SearchResultItem, QueueMode, ResolvedSource } from "../types";
+import type { QueueTrack, SearchAllResults, SearchResultItem, ResolvedSource } from "../types";
 import type { SearchLikeHandlers } from "../utils/searchLikes";
-import type { AutoContinueWeights } from "../hooks/useAutoContinue";
 import {
   cycleRestingSize, isAlwaysExpanded, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZE_LABELS,
   type MiniRestingSize, type MiniWidthSize,
 } from "../hooks/useMiniMode";
 import { formatDuration, isVideoTrack } from "../utils";
-import { EqControlGroup, type EqControls } from "./EqButton";
-import { BitPerfectButton, type BitPerfectControl } from "./BitPerfectButton";
-import { BIT_PERFECT_EQ_REASON, BIT_PERFECT_VOLUME_REASON } from "../utils/bitPerfect";
+import type { EqControls } from "./EqButton";
+import type { BitPerfectControl } from "./BitPerfectButton";
+import { AudioOptionsGroup } from "./AudioOptions";
+import type { PlayerBarPins } from "../utils/playerBarPins";
+import { BIT_PERFECT_VOLUME_REASON } from "../utils/bitPerfect";
 import type { EqClipProtection, EqMode } from "../eqPresets";
 import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
-import { TransportButtons, QueueModeGroup, VolumeControl } from "./TransportControls";
+import { TransportButtons, VolumeControl } from "./TransportControls";
 import { BufferingChip } from "./BufferingChip";
 import { bufferedFraction } from "../playback/bufferState";
 import { usePlaybackBuffer } from "../playback/bufferStore";
@@ -91,11 +92,6 @@ interface NowPlayingBarProps {
   trackRank: number | null;
   volume: number;
   muted: boolean;
-  queueMode: QueueMode;
-  autoContinueEnabled: boolean;
-  autoContinueSameFormat: boolean;
-  showAutoContinuePopover: boolean;
-  autoContinueWeights: AutoContinueWeights;
   imagePath: string | null;
   miniMode: boolean;
   miniExpanded: boolean;
@@ -142,13 +138,6 @@ interface NowPlayingBarProps {
   onEqSaveAs: () => void;
   eqShowBarControl: boolean;
   onEqShowBarControlChange: (v: boolean) => void;
-  onToggleQueueMode: () => void;
-  onToggleAutoContinue: () => void;
-  onToggleAutoContinueSameFormat: () => void;
-  onToggleAutoContinuePopover: () => void;
-  onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
-  onResetAutoContinueWeights: () => void;
-  onCloseAutoContinuePopover: () => void;
   onToggleLike: () => void;
   onToggleDislike?: () => void;
   likeDisabled?: boolean;
@@ -182,6 +171,9 @@ interface NowPlayingBarProps {
   /** Bit-perfect toggle (native engine on macOS only — null hides it). While on
    *  it also suspends the EQ cluster and locks the volume slider. Memoized by App. */
   bitPerfect?: BitPerfectControl | null;
+  /** Which advanced audio controls stay on the bar while off (utils/playerBarPins). */
+  playerBarPins: PlayerBarPins;
+  onPlayerBarPinsChange: (next: PlayerBarPins) => void;
 }
 
 // memo'd: the bar renders on every App state change otherwise (App is its
@@ -198,19 +190,16 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   durationSecs, scrobbled,
   icyTitle,
   trackRank,
-  volume, muted, queueMode,
-  autoContinueEnabled, autoContinueSameFormat, showAutoContinuePopover, autoContinueWeights,
+  volume, muted,
   imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleFullscreen, canFullscreen,
   eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqClipProtection, eqCustomPresets,
   onEqEnabledChange, onEqModeChange, onEqPresetChange, onEqGainChange, onEqPreGainChange, onEqBassChange, onEqTrebleChange, onEqClipProtectionChange, onEqResetAll, onEqSaveAs,
   eqShowBarControl, onEqShowBarControlChange,
-  onToggleQueueMode,
-  onToggleAutoContinue, onToggleAutoContinueSameFormat, onToggleAutoContinuePopover, onAdjustAutoContinueWeight, onResetAutoContinueWeights, onCloseAutoContinuePopover,
   onToggleLike, onToggleDislike, likeDisabled, onTrackClick,
   onNavigateToArtistByName, onNavigateToAlbumByName, onNavigateToTagByName,
-  playbackError, resolvedSource, loadingTrack, onSkipError, bitPerfect = null,
+  playbackError, resolvedSource, loadingTrack, onSkipError, bitPerfect = null, playerBarPins, onPlayerBarPinsChange,
   onDownloadTrack,
   onContextMenu,
   nowPlayingInfo,
@@ -712,28 +701,16 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           className="now-controls"
         />
       <div className="now-right">
-        {/* Playlist group: queue mode · randomize · auto-continue */}
-        <div className="now-group now-group--playlist" role="group" aria-label="Playlist controls">
-          <QueueModeGroup
-            queueMode={queueMode}
-            onToggleQueueMode={onToggleQueueMode}
-            autoContinueEnabled={autoContinueEnabled}
-            autoContinueSameFormat={autoContinueSameFormat}
-            showAutoContinuePopover={showAutoContinuePopover}
-            autoContinueWeights={autoContinueWeights}
-            onToggleAutoContinue={onToggleAutoContinue}
-            onToggleAutoContinueSameFormat={onToggleAutoContinueSameFormat}
-            onToggleAutoContinuePopover={onToggleAutoContinuePopover}
-            onAdjustAutoContinueWeight={onAdjustAutoContinueWeight}
-            onResetAutoContinueWeights={onResetAutoContinueWeights}
-            onCloseAutoContinuePopover={onCloseAutoContinuePopover}
-          />
-        </div>
-
-        {/* Audio group: equalizer (+ inline knobs) · mute · volume */}
+        {/* Audio group: audio options (+ Bit-perfect / EQ while on or pinned) · mute · volume.
+            Queue mode and auto-continue live in the queue panel header. */}
         <div className="now-group now-group--audio" role="group" aria-label="Audio controls">
-          {bitPerfect && <BitPerfectButton control={bitPerfect} />}
-          <EqControlGroup eq={eqControls} available={eqAvailable} suspendedReason={bitPerfect?.on ? BIT_PERFECT_EQ_REASON : null} />
+          <AudioOptionsGroup
+            eq={eqControls}
+            eqAvailable={eqAvailable}
+            bitPerfect={bitPerfect}
+            pins={playerBarPins}
+            onPinsChange={onPlayerBarPinsChange}
+          />
           <VolumeControl
             volume={volume}
             muted={muted}

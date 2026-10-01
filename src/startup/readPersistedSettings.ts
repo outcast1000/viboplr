@@ -45,6 +45,8 @@ export interface PersistedSettings {
   openNowPlayingOnVideoPlay: boolean | undefined;
   videoStoryboards: boolean | undefined;
   radioOptions: unknown;
+  /** Player-bar "Keep in bar" pins — coerced by normalizePlayerBarPins. */
+  playerBarPins: unknown;
   lastDownloadDest: string | null | undefined;
   searchViewModes: { tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null | undefined;
   pluginViewMode: string | null | undefined;
@@ -139,6 +141,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     videoStoryboards: read<boolean>("videoStoryboards"),
     // Coerced by App (`coerceRadioOptions`): an older build may have written a partial object.
     radioOptions: read<unknown>("radioOptions"),
+    playerBarPins: read<unknown>("playerBarPins"),
     lastDownloadDest: read<string | null>("lastDownloadDest"),
     searchViewModes: read<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode } | null>("searchViewModes"),
     pluginViewMode: read<string | null>("pluginViewMode"),

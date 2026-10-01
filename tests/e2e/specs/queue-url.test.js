@@ -77,8 +77,10 @@ test('queue header menu offers Clear queue', async ({ page }) => {
     const mod = await import('/src/contextMenu/buildQueueHeaderMenuSpecs.ts');
     const noop = () => {};
     const specs = mod.buildQueueHeaderMenuSpecs({
+      preferVideo: false, onTogglePreferVideo: noop,
       onLoadPlaylist: noop, onSaveToPlaylists: noop, onSaveAsM3U: noop,
       onPublishQueue: noop, onExportAsMixtape: noop,
+      onOpenAutoContinueSettings: noop,
       onClear: noop,
     });
     const out = [];
@@ -94,30 +96,20 @@ test('queue header menu offers Clear queue', async ({ page }) => {
   expect(texts).toContain('Clear queue');
   expect(texts).toContain('Load playlist…');
   expect(texts).toContain('Save as Playlist');
-  // Prefer video moved out of this menu — it is a visible queue-header button
-  // with an in-list banner while on (see QueuePanel).
-  expect(texts).not.toContain('Prefer video');
+  // Prefer video is a check item here; the in-list banner announces it while on
+  // (pinned in queue-controls.test.js).
+  expect(texts).toContain('Prefer video');
+  expect(texts).toContain('Auto-continue settings…');
 });
 
-test('queue header carries the Randomize and Prefer video buttons', async ({ page }) => {
-  // Both moved out of hidden surfaces (the transport bar / the ⋯ menu) to the
-  // head of the playlist. Prefer video additionally announces itself with an
-  // in-list banner whose Turn off button is the escape hatch.
-  const randomize = page.locator('.queue-header [aria-label="Randomize queue order"]');
-  const preferVideo = page.locator('.queue-header [aria-label="Prefer video"]');
-  await expect(randomize).toBeVisible();
-  await expect(preferVideo).toBeVisible();
-  await expect(preferVideo).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('.queue-prefer-video-row')).toHaveCount(0);
-
-  await preferVideo.click();
-  await expect(preferVideo).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('.queue-prefer-video-row')).toBeVisible();
-
-  // The banner's Turn off button disables the mode and removes the banner.
-  await page.locator('.queue-prefer-video-off').click();
-  await expect(preferVideo).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.locator('.queue-prefer-video-row')).toHaveCount(0);
+test('queue header carries queue mode, auto-continue and Randomize', async ({ page }) => {
+  // Queue mode and auto-continue moved here from the player bars; Prefer video
+  // moved into the ⋯ menu.
+  const header = page.locator('.queue-header');
+  await expect(header.locator('[aria-label^="Queue mode"]')).toBeVisible();
+  await expect(header.locator('[aria-label="Auto-continue"]')).toBeVisible();
+  await expect(header.locator('[aria-label="Randomize queue order"]')).toBeVisible();
+  await expect(header.locator('[aria-label="Prefer video"]')).toHaveCount(0);
 });
 
 test('now playing bar updates when a track plays', async ({ page }) => {

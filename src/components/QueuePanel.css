@@ -99,11 +99,22 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   height: 100%;
+  padding-top: 8px;
   cursor: pointer;
   gap: 8px;
   transition: background 0.15s;
+}
+
+/* Queue mode · auto-continue at the top of the rail: the bar's pill
+   (.now-group), turned vertical to fit 40px. */
+.queue-rail-group {
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 4px;
+  cursor: default;
 }
 
 .queue-collapsed-strip:hover {
@@ -142,17 +153,28 @@
   flex-shrink: 0;
 }
 
+/* The title gives way before the pills wrap on a narrow queue. */
 .queue-title {
   font-size: var(--fs-base);
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .queue-header-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
+/* Same pill groups as the now-playing bar (.now-group), a touch tighter. */
+.queue-header-group {
+  padding: 3px 4px;
+  gap: 2px;
+}
 .queue-list {
   flex: 1;
   overflow-y: auto;

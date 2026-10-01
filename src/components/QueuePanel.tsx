@@ -239,17 +239,24 @@ interface QueuePanelProps {
   onExportAsMixtape: () => void;
   onLoadPlaylist: () => void;
   onPublishQueue: () => void;
-  /** "Prefer video" mode — the queue header toggle is the ONLY control for it
-   *  (it moved out of Settings → Playback and out of the ⋯ menu). While on, an
-   *  info row at the head of the list explains the mode and offers Turn off. */
+  /** "Prefer video" mode — a check item in the ⋯ menu. While on, an info row at
+   *  the head of the list explains the mode and offers Turn off, so the mode is
+   *  never on without the list saying so. */
   preferVideoResolution: boolean;
   onPreferVideoResolutionChange: (enabled: boolean) => void;
   /** One-shot queue reorder (see queue.md "Randomize Is Destructive, Not
    *  Stateful") — lives in the queue header, next to what it reorders. */
   onRandomize: () => void;
-  /** Randomize is pointless in Repeat One, so the button disables there —
-   *  same rule the old transport-bar control had. */
+  /** Normal / Repeat All / Repeat One. Its button sits in the header and on the
+   *  collapsed rail; Randomize disables in Repeat One. */
   queueMode: QueueMode;
+  onToggleQueueMode: () => void;
+  /** Auto-continue on/off — one button next to queue mode. It only applies in
+   *  Normal mode, so it disables (keeping its slot) in the repeat modes. */
+  autoContinueEnabled: boolean;
+  onToggleAutoContinue: () => void;
+  /** Auto-continue's tuning lives in Settings → Playback; the ⋯ menu links there. */
+  onOpenAutoContinueSettings: () => void;
   onContextMenu: (e: React.MouseEvent, indices: number[]) => void;
   onToggleLike?: (track: QueueTrack) => void;
   onToggleDislike?: (track: QueueTrack) => void;
@@ -274,6 +281,56 @@ interface QueuePanelProps {
 }
 
 const AUTO_APPROVE_SECS = 10;
+
+const QUEUE_MODE_LABELS: Record<QueueMode, string> = {
+  "normal": "Normal",
+  "repeat-all": "Repeat All",
+  "repeat-one": "Repeat One",
+};
+
+/** Queue mode · auto-continue: what the queue does next. Rendered twice — in the
+ *  header and on the collapsed rail — so the two can never disagree. */
+function QueueBehaviourButtons({ queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue }: {
+  queueMode: QueueMode;
+  onToggleQueueMode: () => void;
+  autoContinueEnabled: boolean;
+  onToggleAutoContinue: () => void;
+}) {
+  // Auto-continue only runs in Normal mode (App.tsx handleNext). The button
+  // disables rather than vanishing, so the rail's label below doesn't jump.
+  const acApplies = queueMode === "normal";
+  const acOn = acApplies && autoContinueEnabled;
+  return (
+    <>
+      <button
+        className={`g-btn g-btn-sm${queueMode !== "normal" ? " active" : ""}`}
+        onClick={onToggleQueueMode}
+        title={`Queue mode: ${QUEUE_MODE_LABELS[queueMode]}`}
+        aria-label={`Queue mode: ${QUEUE_MODE_LABELS[queueMode]}`}
+      >
+        {queueMode === "repeat-one"
+          ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M11.5 9 13 8.3V16"/></svg>
+          : queueMode === "repeat-all"
+          ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>}
+      </button>
+      <button
+        className={`g-btn g-btn-sm${acOn ? " active" : ""}`}
+        onClick={onToggleAutoContinue}
+        disabled={!acApplies}
+        aria-pressed={acOn}
+        aria-label="Auto-continue"
+        title={!acApplies
+          ? "Auto-continue only applies in Normal mode"
+          : autoContinueEnabled
+            ? "Auto-continue is on: similar tracks play when the queue ends. Click to turn off."
+            : "Auto-continue: keep playing similar tracks when the queue ends"}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 12c-2-2.67-4-4-6-4a4 4 0 1 0 0 8c2 0 4-1.33 6-4zm0 0c2 2.67 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.33-6 4z"/></svg>
+      </button>
+    </>
+  );
+}
 
 function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | null; fallback: string | null; track: QueueTrack }) {
   const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
@@ -302,7 +359,7 @@ function QueueItemThumb({ localThumb, fallback, track }: { localThumb: string | 
 export function QueuePanel({
   queue, queueIndex, queuePanelRef, playlistContext,
   pendingEnqueue, onAllowAll, onSkipDuplicates, onCancelEnqueue,
-  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onContextMenu, onToggleLike, onToggleDislike,
+  onPlay, onTogglePlayPause, onRemove: _onRemove, onLocateTrack, onStartRadio, onMoveMultiple, onClear, onSaveAsM3U, onSaveToPlaylists, onExportAsMixtape, onLoadPlaylist, onPublishQueue, preferVideoResolution, onPreferVideoResolutionChange, onRandomize, queueMode, onToggleQueueMode, autoContinueEnabled, onToggleAutoContinue, onOpenAutoContinueSettings, onContextMenu, onToggleLike, onToggleDislike,
   externalDropTarget,
   collapsed, fsRevealed, onToggleCollapsed, onResizeWidth, isPlaying, debugMode,
   mainPlaylistDir, thumbInfo, resolvingStatus, resolveFailures, backfillPending,
@@ -346,15 +403,19 @@ export function QueuePanel({
   const openHeaderMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const specs = buildQueueHeaderMenuSpecs({
+      preferVideo: preferVideoResolution,
+      onTogglePreferVideo: () => onPreferVideoResolutionChange(!preferVideoResolution),
       onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
+      onOpenAutoContinueSettings,
       onClear,
     });
     showNativeMenu(rect.left, rect.bottom, specs).catch((err) =>
       console.error("Failed to show queue header menu:", err)
     );
   }, [
+    preferVideoResolution, onPreferVideoResolutionChange,
     onLoadPlaylist, onSaveToPlaylists, onSaveAsM3U, onPublishQueue, onExportAsMixtape,
-    onClear,
+    onOpenAutoContinueSettings, onClear,
   ]);
 
   useEffect(() => {
@@ -696,6 +757,17 @@ export function QueuePanel({
       {!collapsed && <div className={`queue-resize-handle${resizing ? " active" : ""}`} onMouseDown={handleResizeMouseDown} />}
       {collapsed ? (
         <div className="queue-collapsed-strip" onClick={onToggleCollapsed}>
+          {/* The queue's behaviour stays visible while collapsed — a hidden
+              Repeat One otherwise reads as "the same song keeps playing".
+              Clicks here must not also expand the panel. */}
+          <div className="now-group queue-rail-group" role="group" aria-label="Queue behaviour" onClick={(e) => e.stopPropagation()}>
+            <QueueBehaviourButtons
+              queueMode={queueMode}
+              onToggleQueueMode={onToggleQueueMode}
+              autoContinueEnabled={autoContinueEnabled}
+              onToggleAutoContinue={onToggleAutoContinue}
+            />
+          </div>
           <span className="queue-collapsed-label">Queue</span>
           <span className="queue-collapsed-count">{queue.length} track{queue.length !== 1 ? "s" : ""}</span>
           {queue.length > 0 && <span className="queue-collapsed-duration">{formatTotalDuration(queue)}</span>}
@@ -705,34 +777,35 @@ export function QueuePanel({
       <div className="queue-header">
         <span className="queue-title">Queue</span>
         <div className="queue-header-actions">
-          <button
-            className="g-btn g-btn-sm"
-            onClick={onRandomize}
-            disabled={queueMode === "repeat-one" || queue.length < 2}
-            title="Randomize queue order"
-            aria-label="Randomize queue order"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg>
-          </button>
-          <button
-            className={`g-btn g-btn-sm${preferVideoResolution ? " active" : ""}`}
-            onClick={() => onPreferVideoResolutionChange(!preferVideoResolution)}
-            aria-pressed={preferVideoResolution}
-            aria-label="Prefer video"
-            title={preferVideoResolution
-              ? "Prefer video is on — tracks play as music videos when one is found. Click to turn off."
-              : "Prefer video: play each track as a music video when one is found"}
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-          </button>
-          <button
-            className="g-btn g-btn-sm queue-header-menu-btn"
-            onClick={openHeaderMenu}
-            title="Playlist options"
-            aria-label="Playlist options"
-          >
-            &#x22EF;
-          </button>
+          {/* The now-playing bar's pill groups: what the queue does, then what
+              you can do to it. Everything else is in the ⋯ menu. */}
+          <div className="now-group queue-header-group" role="group" aria-label="Queue behaviour">
+            <QueueBehaviourButtons
+              queueMode={queueMode}
+              onToggleQueueMode={onToggleQueueMode}
+              autoContinueEnabled={autoContinueEnabled}
+              onToggleAutoContinue={onToggleAutoContinue}
+            />
+          </div>
+          <div className="now-group queue-header-group" role="group" aria-label="Queue actions">
+            <button
+              className="g-btn g-btn-sm"
+              onClick={onRandomize}
+              disabled={queueMode === "repeat-one" || queue.length < 2}
+              title="Randomize queue order"
+              aria-label="Randomize queue order"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg>
+            </button>
+            <button
+              className="g-btn g-btn-sm queue-header-menu-btn"
+              onClick={openHeaderMenu}
+              title="Playlist options"
+              aria-label="Playlist options"
+            >
+              &#x22EF;
+            </button>
+          </div>
         </div>
       </div>
       {pendingEnqueue && (

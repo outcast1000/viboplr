@@ -13,6 +13,8 @@ import { trashLabel } from "../utils";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { RADIO_ARTIST_SHARE_CHOICES, RADIO_TASTE_CHOICES, type RadioOptions, type RadioTaste } from "../utils/radioOptions";
+import type { AutoContinueWeights } from "../hooks/useAutoContinue";
+import type { PlayerBarPins } from "../utils/playerBarPins";
 import {
   MINI_RESTING_SIZES, MINI_RESTING_SIZE_LABELS, MINI_WIDTH_SIZES, MINI_WIDTH_SIZE_LABELS,
   type MiniRestingSize, type MiniWidthSize,
@@ -1269,6 +1271,17 @@ interface SettingsPanelProps {
   onVideoStoryboardsChange: (enabled: boolean) => void;
   radioOptions: RadioOptions;
   onRadioOptionsChange: (next: RadioOptions) => void;
+  /** Auto-continue's tuning (its on/off is the queue header button, not here). */
+  autoContinueSameFormat: boolean;
+  onAutoContinueSameFormatChange: (enabled: boolean) => void;
+  autoContinueWeights: AutoContinueWeights;
+  onAdjustAutoContinueWeight: (key: keyof AutoContinueWeights, value: number) => void;
+  onResetAutoContinueWeights: () => void;
+  /** "Keep in bar" pins for the playback bars' advanced audio controls. */
+  playerBarPins: PlayerBarPins;
+  onPlayerBarPinsChange: (next: PlayerBarPins) => void;
+  /** Bit-perfect exists on this machine (native engine, macOS or Windows) — gates its pin row. */
+  bitPerfectAvailable: boolean;
   minimizeToMiniPlayer: boolean;
   onMinimizeToMiniPlayerChange: (enabled: boolean) => void;
   confirmTrashDelete: boolean;
@@ -1336,11 +1349,22 @@ interface SettingsPanelProps {
 
 type SettingsTab = "general" | "playback" | "providers" | "debug";
 
+/** Auto-continue's weight sliders, in the order the strategies are drawn. */
+const AUTO_CONTINUE_WEIGHT_ROWS: { key: keyof AutoContinueWeights; label: string }[] = [
+  { key: "random", label: "Random" },
+  { key: "sameArtist", label: "Same artist" },
+  { key: "sameTag", label: "Same tag" },
+  { key: "mostPlayed", label: "Most played" },
+  { key: "liked", label: "Liked" },
+];
+
 /** Which tab owns a deep-linkable section id. Sections not listed live in the
  *  default (General) tab. Keep in step with the `id="…"` attributes below. */
 const SECTION_TABS: Record<string, SettingsTab> = {
   "now-playing-info": "playback",
   "radio": "playback",
+  "auto-continue": "playback",
+  "player-bar": "playback",
   // The update notice banner's "Details" lands here.
   "app-update": "general",
   "control-api": "general",
@@ -1381,6 +1405,14 @@ export function SettingsPanel({
   onVideoStoryboardsChange,
   radioOptions,
   onRadioOptionsChange,
+  autoContinueSameFormat,
+  onAutoContinueSameFormatChange,
+  autoContinueWeights,
+  onAdjustAutoContinueWeight,
+  onResetAutoContinueWeights,
+  playerBarPins,
+  onPlayerBarPinsChange,
+  bitPerfectAvailable,
   minimizeToMiniPlayer,
   onMinimizeToMiniPlayerChange,
   confirmTrashDelete,
@@ -2035,6 +2067,61 @@ export function SettingsPanel({
                       </div>
                       <ToggleSwitch checked={radioOptions.spreadArtists} onChange={v => onRadioOptionsChange({ ...radioOptions, spreadArtists: v })} />
                     </div>
+                    {/* Auto-continue's tuning. Its on/off is the ∞ button in the
+                        queue header (and on the collapsed rail) — one control
+                        for one setting, so it is not repeated here. */}
+                    <div className="settings-row" id="auto-continue">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Auto-continue · same format<HelpLink anchor="auto-continue" topic="Auto Continue" /></span>
+                        <span className="settings-description">When the queue runs out, keep to audio after audio and video after video.</span>
+                      </div>
+                      <ToggleSwitch checked={autoContinueSameFormat} onChange={onAutoContinueSameFormatChange} />
+                    </div>
+                    <div className="settings-row settings-row--stacked">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Auto-continue · how it picks the next track</span>
+                        <span className="settings-description">The mix of rules auto-continue draws from; each weight is that rule's share of picks, and they always add up to 100%. Turn auto-continue on or off with the ∞ button in the queue header.</span>
+                      </div>
+                      <div className="settings-ac-weights">
+                        {AUTO_CONTINUE_WEIGHT_ROWS.map(({ key, label }) => (
+                          <Fragment key={key}>
+                            <label className="settings-description" htmlFor={`ac-weight-${key}`}>{label}</label>
+                            <input
+                              id={`ac-weight-${key}`}
+                              type="range"
+                              min={0}
+                              max={100}
+                              value={autoContinueWeights[key]}
+                              onChange={e => onAdjustAutoContinueWeight(key, parseInt(e.target.value, 10))}
+                              className="settings-slider"
+                            />
+                            <span className="settings-value">{autoContinueWeights[key]}%</span>
+                          </Fragment>
+                        ))}
+                      </div>
+                      <div>
+                        <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={onResetAutoContinueWeights}>Reset to defaults</button>
+                      </div>
+                    </div>
+                    {/* Pins for the playback bars' Audio options cluster
+                        (utils/playerBarPins). The same state the menu's
+                        "Keep in bar" submenu edits. */}
+                    <div className="settings-row" id="player-bar">
+                      <div className="settings-row-info">
+                        <span className="settings-label">Player bar · keep the equalizer in the bar</span>
+                        <span className="settings-description">The equalizer is behind the Audio options button and shows in the bar while it is on. Switch this on to keep it there when it is off too.</span>
+                      </div>
+                      <ToggleSwitch checked={playerBarPins.eq} onChange={v => onPlayerBarPinsChange({ ...playerBarPins, eq: v })} />
+                    </div>
+                    {bitPerfectAvailable && (
+                      <div className="settings-row">
+                        <div className="settings-row-info">
+                          <span className="settings-label">Player bar · keep Bit-perfect in the bar</span>
+                          <span className="settings-description">Bit-perfect is behind the Audio options button and shows in the bar while it is on. Switch this on to keep it there when it is off too.</span>
+                        </div>
+                        <ToggleSwitch checked={playerBarPins.bitPerfect} onChange={v => onPlayerBarPinsChange({ ...playerBarPins, bitPerfect: v })} />
+                      </div>
+                    )}
                     {nowPlayingInfo && (
                       <div className="settings-row settings-row--stacked" id="now-playing-info">
                         <div className="settings-row-info">
