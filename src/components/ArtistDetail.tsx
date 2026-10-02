@@ -23,6 +23,7 @@ import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { isVariousArtists } from "../utils/variousArtists";
 import { placeMissingRanked } from "../utils/missingTracks";
+import { withHostTabs } from "../utils/hostTabs";
 
 interface ArtistDetailProps {
   name: string;
@@ -249,6 +250,54 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
   if (albums.length > 0) meta.push(`${albums.length} ${albums.length === 1 ? "album" : "albums"}`);
   if (missingRows.length > 0) meta.push(`${rankedTracks.length - missingRows.length} of top ${rankedTracks.length} songs in library`);
 
+  // Below the Albums strip: one tab bar — All Tracks first (the track list,
+  // Top Songs the user lacks merged in), then Tags, then the plugin sections
+  // (About, Similar Artists, …). A saved order that predates these host tabs
+  // gets them first (withHostTabs); the user can drag them anywhere after.
+  const customTabs: Array<{ id: string; name: string; content: React.ReactNode }> = [];
+  if (sortedTracks.length > 0) {
+    customTabs.push({
+      id: "tracks",
+      name: "All Tracks",
+      content: (
+        <TrackList
+          tracks={sortedTracks}
+          currentTrack={state.currentTrack}
+          playing={state.playing}
+          highlightedIndex={-1}
+          sortField={sortField}
+          trackListRef={trackListRef}
+          columns={trackColumns}
+          onColumnsChange={setTrackColumns}
+          onDoubleClick={actions.playTracks}
+          onPlay={(t) => actions.playTracks([t], 0)}
+          onEnqueue={(t) => actions.enqueueTracks([t])}
+          onStartRadio={actions.startRadio}
+          onLocateTrack={actions.locateTrack}
+          onContextMenu={actions.handleTrackContextMenu}
+          onArtistClick={actions.navigateToArtist}
+          onAlbumClick={actions.navigateToAlbum}
+          onSort={handleSort}
+          sortIndicator={sortIndicator}
+          onToggleLike={actions.toggleLike}
+          onToggleDislike={actions.toggleDislike}
+          onTrackDragStart={actions.handleTrackDragStart}
+          onDeleteTracks={actions.deleteTracks}
+          trackPopularity={trackPopularity}
+          missingRows={missingRows}
+          onPlayMissing={playOneExternal}
+          onEnqueueMissing={enqueueOneExternal}
+          onStartRadioMissing={startRadioMissing}
+          onLocateMissing={locateMissing}
+          onMissingContextMenu={handleMissingContextMenu}
+          emptyMessage="No tracks found for this artist."
+        />
+      ),
+    });
+    customTabs.push({ id: "tags", name: "Tags", content: <EntityTagPanel tracks={sortedTracks} embedded addFirst emptyText="This artist's tracks have no tags yet." /> });
+  }
+  const tabOrder = withHostTabs(belowTabOrder, customTabs.map(t => t.id));
+
   return (
     <div className="artist-detail">
       <DetailHero
@@ -277,7 +326,9 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         <InformationSections
           entity={infoEntity}
           exclude={["artist_stats"]}
-          pluginSectionsDisabled={placeholder}
+          // This strip only hosts the Albums tab — "header" placement shows no plugin
+          // section — so skip their fetches (the tab bar below runs them).
+          pluginSectionsDisabled
           placement="header"
           customTabs={albums.length > 0 ? [{
             id: "albums",
@@ -324,58 +375,17 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         />
       </div>
 
-      {sortedTracks.length > 0 && (
-        <div className="artist-section">
-          <div className="section-title">All Tracks</div>
-          <TrackList
-            tracks={sortedTracks}
-            currentTrack={state.currentTrack}
-            playing={state.playing}
-            highlightedIndex={-1}
-            sortField={sortField}
-            trackListRef={trackListRef}
-            columns={trackColumns}
-            onColumnsChange={setTrackColumns}
-            onDoubleClick={actions.playTracks}
-            onPlay={(t) => actions.playTracks([t], 0)}
-            onEnqueue={(t) => actions.enqueueTracks([t])}
-            onStartRadio={actions.startRadio}
-            onLocateTrack={actions.locateTrack}
-            onContextMenu={actions.handleTrackContextMenu}
-            onArtistClick={actions.navigateToArtist}
-            onAlbumClick={actions.navigateToAlbum}
-            onSort={handleSort}
-            sortIndicator={sortIndicator}
-            onToggleLike={actions.toggleLike}
-            onToggleDislike={actions.toggleDislike}
-            onTrackDragStart={actions.handleTrackDragStart}
-            onDeleteTracks={actions.deleteTracks}
-            trackPopularity={trackPopularity}
-            missingRows={missingRows}
-            onPlayMissing={playOneExternal}
-            onEnqueueMissing={enqueueOneExternal}
-            onStartRadioMissing={startRadioMissing}
-            onLocateMissing={locateMissing}
-            onMissingContextMenu={handleMissingContextMenu}
-            emptyMessage="No tracks found for this artist."
-          />
-        </div>
-      )}
-
-      {sortedTracks.length > 0 && (
-        <EntityTagPanel tracks={sortedTracks} />
-      )}
-
-      {!placeholder && (
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}
           exclude={hideTopSongsTab ? ["artist_stats", rankedTypeId] : ["artist_stats"]}
+          pluginSectionsDisabled={placeholder}
           placement="below"
+          customTabs={customTabs.length > 0 ? customTabs : undefined}
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}
           retrieve={actions.retrieve}
-          tabOrder={belowTabOrder}
+          tabOrder={tabOrder}
           onTabOrderChange={handleBelowTabOrderChange}
           onEntityClick={handleEntityClick}
           onAction={handleInfoAction}
@@ -384,7 +394,6 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
           onEntityContextMenu={actions.handleEntityContextMenu}
         />
       </div>
-      )}
     </div>
   );
 }

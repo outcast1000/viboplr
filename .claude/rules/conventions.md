@@ -223,7 +223,7 @@ Cross-cutting rules that apply to all code everywhere.
 
 - All detail pages (Artist, Album, Track, Tag) must follow a consistent layout and look/feel
 - Shared structure: header area with image + title + actions in the top
-- Artist Details. Show the Albums under the header then the track list and finally then other content sections
+- Artist Details. Show the Albums strip under the header, then **one tab bar**: **All Tracks** first (the track list, host `customTabs` entry), then **Tags**, then the plugin information sections (About, Similar Artists, …). Saved tab orders get host tabs placed by `utils/hostTabs.ts` → `withHostTabs`, shared with the album page.
 - Album Details. The track list is the **first tab** of the information sections ("Track List", a host `customTabs` entry), followed by a host **Tags** tab (the album's tags, `EntityTagPanel embedded`, library albums only), so the header is followed by one tab bar: Track List, Tags, Review, and whatever plugins register. An album not in the library shows the provider's tracklist in that same tab.
 - Tag Details. Show the track list under the header and then the information sections
 - Track Details. Show the informations sections under the header

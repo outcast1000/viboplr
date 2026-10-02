@@ -428,9 +428,8 @@ All detail pages follow a consistent structure (see conventions.md for layout ru
 
 **Artist Detail** (`ArtistDetail.tsx`):
 - Header: circular avatar + name + like/hate
-- Albums grid
-- Track list (artist's tracks) — with the artist's Top Songs the user doesn't own merged in as dimmed "Not in library" rows: after the owned tracks in rank order, or by listener count when sorted by popularity. The Top Songs tab is hidden while merged
-- Information sections (tabs)
+- Albums strip (its own single-tab section, unchanged)
+- One tab bar: **All Tracks** first — the track list, with the artist's Top Songs the user doesn't own merged in as dimmed "Not in library" rows (after the owned tracks in rank order, or by listener count when sorted by popularity; the Top Songs tab is hidden while merged) — then **Tags**, then the information sections (About, Similar Artists, plugin tabs). A placeholder artist (Various Artists) gets the host tabs only
 
 **Album Detail** (`AlbumDetail.tsx` + `TrackList`):
 - Header: 240x240 cover + title + artist (clickable) + year + count + play all + like/hate. Background: the album cover, falling back to the artist image only without one.

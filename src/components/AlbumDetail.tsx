@@ -23,6 +23,7 @@ import { TrackRow, type TrackRowThumb } from "./TrackRow";
 import { trackLikeId } from "../utils/likeReconcile";
 import { formatCompactCount } from "../utils/formatCount";
 import { placeMissingTracks } from "../utils/missingTracks";
+import { withHostTabs } from "../utils/hostTabs";
 import type { MissingTrackRow } from "./TrackList";
 
 const TRACKS_TAB_ID = "tracks";
@@ -366,12 +367,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
 
   // Host tabs a saved order doesn't name yet (it predates them) are put where
   // they belong: Track List first, Tags right after it.
-  let tabOrder = belowTabOrder;
-  if (tracksTab && !tabOrder.includes(TRACKS_TAB_ID)) tabOrder = [TRACKS_TAB_ID, ...tabOrder];
-  if (tagsTab && !tabOrder.includes(TAGS_TAB_ID)) {
-    const at = tabOrder.indexOf(TRACKS_TAB_ID) + 1;
-    tabOrder = [...tabOrder.slice(0, at), TAGS_TAB_ID, ...tabOrder.slice(at)];
-  }
+  const tabOrder = withHostTabs(belowTabOrder, customTabs.map(t => t.id));
 
   return (
     <div className="album-detail">
