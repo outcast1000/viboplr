@@ -3312,6 +3312,56 @@ fn test_build_radio_returns_seed_first() {
 }
 
 #[test]
+fn test_build_radio_station_for_a_seed_not_in_the_library_draws_from_its_artist() {
+    // The album/artist "Not in library" rows start radio from a track the
+    // library lacks. Its artist is there, so the station is that artist's
+    // tracks — one slot short, because the caller plays the seed itself.
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid = db.get_or_create_artist("Björk").unwrap();
+    let alb = db.get_or_create_album("Homogenic", Some(aid), None).unwrap();
+    for i in 0..4 {
+        db.upsert_track(&format!("file://b-{}.mp3", i), &format!("Owned {}", i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    }
+
+    // Accent-insensitive artist match, like the seed lookup.
+    let station = db.build_radio_station("Not Owned Song", Some("Bjork"), 3, &RadioOptions::default()).unwrap();
+    assert!(!station.seed_in_library);
+    assert_eq!(station.tracks.len(), 2, "target 3 minus the caller-played seed");
+    assert!(station.tracks.iter().all(|t| t.artist_id == Some(aid)));
+    assert!(station.tracks.iter().all(|t| t.title != "Not Owned Song"));
+
+    // The library-seeded contract is unchanged: no seed row, no station.
+    assert!(db.build_radio_for_track("Not Owned Song", Some("Bjork"), 3, &RadioOptions::default()).unwrap().is_empty());
+}
+
+#[test]
+fn test_build_radio_station_is_empty_when_neither_seed_nor_artist_is_in_the_library() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid = db.get_or_create_artist("Someone Else").unwrap();
+    db.upsert_track("file://x.mp3", "X", Some(aid), None, None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+    let station = db.build_radio_station("Unknown Song", Some("Unknown Artist"), 30, &RadioOptions::default()).unwrap();
+    assert!(!station.seed_in_library);
+    assert!(station.tracks.is_empty());
+    let no_artist = db.build_radio_station("Unknown Song", None, 30, &RadioOptions::default()).unwrap();
+    assert!(no_artist.tracks.is_empty());
+}
+
+#[test]
+fn test_build_radio_station_with_a_library_seed_matches_build_radio_for_track() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid = db.get_or_create_artist("Seed Artist").unwrap();
+    db.upsert_track("file://seed.mp3", "Seed Title", Some(aid), None, None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+
+    let station = db.build_radio_station("Seed Title", Some("Seed Artist"), 30, &RadioOptions::default()).unwrap();
+    assert!(station.seed_in_library);
+    assert_eq!(station.tracks[0].title, "Seed Title", "a library seed still opens its own station");
+}
+
+#[test]
 fn test_build_radio_excludes_already_picked() {
     let db = test_db();
     let cid = test_collection(&db);

@@ -1,0 +1,31 @@
+{
+  "id": "mock-info",
+  "name": "Mock Info",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Debug-only fake Last.fm-style ranked lists (album tracklist, artist Top Songs) built from your library plus invented tracks, so the album/artist 'Not in library' merge can be tested without Last.fm.",
+  "minAppVersion": "0.9.4",
+  "runtime": "worker",
+  "permissions": ["library:read"],
+  "debugOnly": true,
+  "contributes": {
+    "informationTypes": [
+      {
+        "id": "album_track_popularity",
+        "name": "Track Popularity",
+        "description": "Fake album tracklist with listener counts",
+        "entity": "album",
+        "displayKind": "ranked_list",
+        "ttl": 60
+      },
+      {
+        "id": "artist_top_tracks",
+        "name": "Top Songs",
+        "description": "Fake artist top songs with listener counts",
+        "entity": "artist",
+        "displayKind": "ranked_list",
+        "ttl": 60
+      }
+    ]
+  }
+}

@@ -143,7 +143,7 @@ Views are toggled via `library.view` (`View` union type). When an entity is sele
 | `home` | `HomeView` (default startup view; renders only when `view === "home"`) | — |
 | `search` (Library) | `SearchView` (always mounted; tabs for Tracks/Artists/Albums/Tags, with empty query showing the full library) | — |
 | `artists` | — (entered only via entity selection from Library) | `ArtistDetail` |
-| `albums` | — (entered only via entity selection from Library) | `AlbumDetail` (hero + `TrackList`) |
+| `albums` | — (entered only via entity selection from Library) | `AlbumDetail` (hero + tabs, `TrackList` first) |
 | `tags` | — (entered only via entity selection from Library) | Tag header + `TrackList` |
 | Track detail | — (entered only via track selection) | `TrackDetailView` |
 | `nowplaying` | `NowPlayingView` (lean-back view of the current track) | — |
@@ -429,14 +429,14 @@ All detail pages follow a consistent structure (see conventions.md for layout ru
 **Artist Detail** (`ArtistDetail.tsx`):
 - Header: circular avatar + name + like/hate
 - Albums grid
-- Track list (artist's tracks)
+- Track list (artist's tracks) — with the artist's Top Songs the user doesn't own merged in as dimmed "Not in library" rows: after the owned tracks in rank order, or by listener count when sorted by popularity. The Top Songs tab is hidden while merged
 - Information sections (tabs)
 
 **Album Detail** (`AlbumDetail.tsx` + `TrackList`):
 - Header: 240x240 cover + title + artist (clickable) + year + count + play all + like/hate. Background: the album cover, falling back to the artist image only without one.
-- Track list — with the provider tracklist's tracks the user doesn't own merged in, in album order, dimmed with a "Not in library" badge (read-only: play / enqueue / right-click only); meta reads "N of M in library" when any are missing
-- Information sections (tabs) — the provider's "Track Popularity" tab is hidden on album pages; that data is the popularity column
-- An album **not in the library** has no track list; instead its provider tracklist (album `ranked_list`, metadata-only rows that play through the stream resolvers) is the information sections' first tab, **Tracks**, so the tabs sit directly under the header. "Not in your library" shows in the meta line; like/hate work there too (name-keyed)
+- One tab bar directly under the header. Its first tab is **Track List**: the `TrackList` with the provider tracklist's tracks the user doesn't own merged in, in album order, dimmed with a "Not in library" badge (read-only: play / enqueue / right-click only); meta reads "N of M in library" when any are missing. Then a **Tags** tab (the album's tags; library albums only), then the information sections (Review, plugin tabs). The provider's "Track Popularity" tab is hidden on album pages; that data is the popularity column
+- An album **not in the library** shows the provider tracklist (album `ranked_list`, metadata-only rows that play through the stream resolvers) in the same Track List tab. "Not in your library" shows in the meta line; like/hate work there too (name-keyed)
+- The tab body normally scrolls itself (`overflow-y: auto`); for the Track List tab that is overridden (`.album-detail .info-section-content:has(> .track-list)`) so the list's sticky column header pins to the page scroller
 
 **Track Detail** (`TrackDetailView.tsx`):
 - Header: album art + metadata

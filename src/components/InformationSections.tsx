@@ -84,7 +84,6 @@ export function InformationSections({
 }: InformationSectionsProps) {
   const { sections, refresh, reloadCache, getTypeMeta } = useInformationTypes({ entity, exclude, disabled: pluginSectionsDisabled, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
   const entityKey = entity ? buildEntityKey(entity) : null;
 
   // After the Retrieve modal applies new info for one of our types, reload the
@@ -328,14 +327,6 @@ export function InformationSections({
   return (
     <div className="information-sections">
       <div className="info-sections-tabs">
-        <svg
-          className={`section-chevron info-sections-collapse${collapsed ? " collapsed" : ""}`}
-          width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-          onClick={() => setCollapsed(c => !c)}
-        >
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
         {tabs.map(tab => {
           const tabId = getTabId(tab);
           const tabState = tab.kind === "plugin" ? tab.section.state.kind : null;
@@ -344,7 +335,7 @@ export function InformationSections({
               key={tabId}
               data-tab-id={tabId}
               className={`info-sections-tab${tabId === resolvedTab ? " active" : ""}${tabState === "empty" ? " empty" : ""}${tabState === "loading" ? " loading" : ""}${tabState === "loaded" ? " has-data" : ""}${draggedTab === tabId ? " dragging" : ""}${dragOverTab === tabId ? " drag-over" : ""}`}
-              onClick={() => { if (!didDragTabRef.current) { setActiveTab(tabId); setCollapsed(false); } }}
+              onClick={() => { if (!didDragTabRef.current) setActiveTab(tabId); }}
               onMouseDown={(e) => handleTabMouseDown(e, tabId)}
               {...(tab.description ? { "data-tooltip": tab.description } : {})}
             >
@@ -354,7 +345,7 @@ export function InformationSections({
             </div>
           );
         })}
-        {!collapsed && activeEntry.kind === "plugin" && (
+        {activeEntry.kind === "plugin" && (
           <svg
             className="info-sections-refresh"
             width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -366,50 +357,48 @@ export function InformationSections({
           </svg>
         )}
       </div>
-      {!collapsed && (
-        <div className="info-section-content">
-          {activeEntry.kind === "custom" ? (
-            activeEntry.content
-          ) : (() => {
-            const s = activeEntry.section;
-            const Renderer = renderers[s.displayKind];
-            return s.state.kind === "loading" ? (
-              <div className="info-section-loading">
-                <div className="info-section-skeleton" />
-                {s.state.progress && s.state.progress.length > 0 && (
-                  <div className="info-section-progress">
-                    {s.state.progress.map((p, i) => (
-                      <div key={i} className={`info-progress-entry${p.status === "ok" ? " ok" : p.status === "not_found" || p.status === "error" ? " fail" : ""}`}>
-                        <span className="info-progress-provider">{p.provider}</span>
-                        {p.url && <span className="info-progress-url">{p.url}</span>}
-                        {p.status === "fetching" && <span className="info-progress-status">...</span>}
-                        {p.status === "ok" && <span className="info-progress-status">found</span>}
-                        {p.status === "not_found" && <span className="info-progress-status">not found</span>}
-                        {p.status === "error" && <span className="info-progress-status">error</span>}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
-              <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={(id, p) => handleAction(id, p, s.name)} resolveEntity={resolveEntity} context={livePosition != null ? { livePosition } : undefined} onTrackContextMenu={onTrackContextMenu} onEntityContextMenu={onEntityContextMenu} />
-            ) : s.state.kind === "empty" ? (
-              <div className="info-section-empty">No data available</div>
-            ) : null;
-          })()}
-          {meta?.providerName && (meta?.url ? (
-            <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); openUrl(meta.url!); }}>
-              View on {meta.providerName}
-            </a>
-          ) : (
-            <span className="info-section-view-on">
-              Source: {meta.homepageUrl ? (
-                <a href="#" onClick={(e) => { e.preventDefault(); openUrl(meta!.homepageUrl!); }}>{meta.providerName}</a>
-              ) : meta.providerName}
-            </span>
-          ))}
-        </div>
-      )}
+      <div className="info-section-content">
+        {activeEntry.kind === "custom" ? (
+          activeEntry.content
+        ) : (() => {
+          const s = activeEntry.section;
+          const Renderer = renderers[s.displayKind];
+          return s.state.kind === "loading" ? (
+            <div className="info-section-loading">
+              <div className="info-section-skeleton" />
+              {s.state.progress && s.state.progress.length > 0 && (
+                <div className="info-section-progress">
+                  {s.state.progress.map((p, i) => (
+                    <div key={i} className={`info-progress-entry${p.status === "ok" ? " ok" : p.status === "not_found" || p.status === "error" ? " fail" : ""}`}>
+                      <span className="info-progress-provider">{p.provider}</span>
+                      {p.url && <span className="info-progress-url">{p.url}</span>}
+                      {p.status === "fetching" && <span className="info-progress-status">...</span>}
+                      {p.status === "ok" && <span className="info-progress-status">found</span>}
+                      {p.status === "not_found" && <span className="info-progress-status">not found</span>}
+                      {p.status === "error" && <span className="info-progress-status">error</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
+            <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={(id, p) => handleAction(id, p, s.name)} resolveEntity={resolveEntity} context={livePosition != null ? { livePosition } : undefined} onTrackContextMenu={onTrackContextMenu} onEntityContextMenu={onEntityContextMenu} />
+          ) : s.state.kind === "empty" ? (
+            <div className="info-section-empty">No data available</div>
+          ) : null;
+        })()}
+        {meta?.providerName && (meta?.url ? (
+          <a className="info-section-view-on" href="#" onClick={(e) => { e.preventDefault(); openUrl(meta.url!); }}>
+            View on {meta.providerName}
+          </a>
+        ) : (
+          <span className="info-section-view-on">
+            Source: {meta.homepageUrl ? (
+              <a href="#" onClick={(e) => { e.preventDefault(); openUrl(meta!.homepageUrl!); }}>{meta.providerName}</a>
+            ) : meta.providerName}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

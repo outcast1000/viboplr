@@ -1,17 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials } from "../utils";
-import type { Artist, ColumnConfig } from "../types";
+import type { Artist, ColumnConfig, QueueTrack } from "../types";
 
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
-import { TrackList } from "./TrackList";
+import { TrackList, type MissingTrackRow } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import { DetailHero } from "./DetailHero";
@@ -22,6 +22,7 @@ import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { isVariousArtists } from "../utils/variousArtists";
+import { placeMissingRanked } from "../utils/missingTracks";
 
 interface ArtistDetailProps {
   name: string;
@@ -36,9 +37,13 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     albums,
     isLibrary,
     sortField,
+    sortDir,
     handleSort,
     sortIndicator,
     trackPopularity,
+    rankedTracks,
+    rankedValues,
+    rankedTypeId,
     handleToggleLike: handleToggleArtistLike,
     handleToggleDislike: handleToggleArtistDislike,
     handleToggleAlbumLike,
@@ -197,12 +202,52 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     actions.enqueueTracks(sortedTracks.filter(t => t.liked !== -1));
   }, [actions.enqueueTracks, sortedTracks]);
 
+  // The artist's Top Songs the user doesn't own, merged into the track list as
+  // read-only "Not in library" rows (see MissingTrackRow). A ranked list has no
+  // album position: sorted by popularity they fall in by listener count, so the
+  // list reads as one ranking; otherwise they follow the owned rows in rank
+  // order. Not for a placeholder artist, whose Last.fm data describes nothing.
+  const mergeTopTracks = !placeholder && sortedTracks.length > 0 && rankedTracks.length > 0;
+  const missingRows = useMemo<MissingTrackRow[]>(() => {
+    if (!mergeTopTracks) return [];
+    const libraryValues = sortedTracks.map(t => (t.id != null ? trackPopularity[t.id] : undefined) ?? 0);
+    const byValue = sortField === "popularity" ? sortDir : null;
+    return placeMissingRanked(sortedTracks, libraryValues, rankedTracks, rankedValues, byValue).map(({ providerIndex, before }) => ({
+      track: rankedTracks[providerIndex],
+      before,
+      popularity: rankedValues[providerIndex] || undefined,
+    }));
+  }, [mergeTopTracks, sortedTracks, trackPopularity, rankedTracks, rankedValues, sortField, sortDir]);
+
+  // Keyed on the type id (known before the provider answers), not on the
+  // rows: a late `exclude` change reloads every section.
+  const hideTopSongsTab = !placeholder && sortedTracks.length > 0 && rankedTypeId != null;
+
+  const { playExternal, enqueueExternal, handleInfoTrackContextMenu } = actions;
+  const playOneExternal = useCallback((t: QueueTrack) => {
+    playExternal([t], 0);
+  }, [playExternal]);
+  const enqueueOneExternal = useCallback((t: QueueTrack) => {
+    enqueueExternal([t]);
+  }, [enqueueExternal]);
+  const handleMissingContextMenu = useCallback((e: React.MouseEvent, t: QueueTrack) => {
+    handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name });
+  }, [handleInfoTrackContextMenu]);
+  const { startRadioByName, navigateToTrackByName } = actions;
+  const startRadioMissing = useCallback((t: QueueTrack) => {
+    startRadioByName(t.title, t.artist_name, t.album_title);
+  }, [startRadioByName]);
+  const locateMissing = useCallback((t: QueueTrack) => {
+    navigateToTrackByName(t.title, t.artist_name ?? undefined, t.album_title ?? undefined);
+  }, [navigateToTrackByName]);
+
   const meta: Array<string | { label: string; onClick: () => void }> = [];
   // Both counts are already omitted at 0 — an album-artist-only artist (0 own
   // tracks, see utils/artistCount.ts) shows only its album count here, so this
   // page never needed the tracks-or-albums fallback the list rows use.
   if (isLibrary && artist?.track_count) meta.push(`${artist.track_count} ${artist.track_count === 1 ? "track" : "tracks"}`);
   if (albums.length > 0) meta.push(`${albums.length} ${albums.length === 1 ? "album" : "albums"}`);
+  if (missingRows.length > 0) meta.push(`${rankedTracks.length - missingRows.length} of top ${rankedTracks.length} songs in library`);
 
   return (
     <div className="artist-detail">
@@ -306,6 +351,12 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
             onTrackDragStart={actions.handleTrackDragStart}
             onDeleteTracks={actions.deleteTracks}
             trackPopularity={trackPopularity}
+            missingRows={missingRows}
+            onPlayMissing={playOneExternal}
+            onEnqueueMissing={enqueueOneExternal}
+            onStartRadioMissing={startRadioMissing}
+            onLocateMissing={locateMissing}
+            onMissingContextMenu={handleMissingContextMenu}
             emptyMessage="No tracks found for this artist."
           />
         </div>
@@ -319,7 +370,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}
-          exclude={["artist_stats"]}
+          exclude={hideTopSongsTab ? ["artist_stats", rankedTypeId] : ["artist_stats"]}
           placement="below"
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}

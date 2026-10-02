@@ -48,6 +48,13 @@ export interface TagEditorProps {
   /** Lay the input and suggestion pills on a single row (pills first, input
    *  after). Default false: the legacy stacked layout (input, then pills row). */
   inlineSuggestions?: boolean;
+  /** Put the add row (input, then suggestion pills) above the chips instead of
+   *  after them — for a host where adding is the primary action (a full Tags
+   *  tab). Default false. */
+  addAreaFirst?: boolean;
+  /** Shown in place of the chips when there are no tags and the editor is
+   *  editable. Omitted: nothing (the legacy behaviour). */
+  emptyText?: string;
 }
 
 export default function TagEditor({
@@ -68,6 +75,8 @@ export default function TagEditor({
   onFillToAll,
   onChipLabelClick,
   inlineSuggestions,
+  addAreaFirst,
+  emptyText,
 }: TagEditorProps) {
   const [input, setInput] = useState("");
 
@@ -153,9 +162,27 @@ export default function TagEditor({
     </div>
   ) : null;
   const showAddArea = !disabled;
+  const addArea = !showAddArea ? null : addAreaFirst ? (
+    <div className="tag-editor-add-row">
+      {inputEl}
+      {pillsEl}
+    </div>
+  ) : inlineSuggestions ? (
+    <div className="tag-editor-add-row">
+      {pillsEl}
+      {inputEl}
+    </div>
+  ) : (
+    <>
+      {inputEl}
+      {pillsEl}
+    </>
+  );
+  const noTags = tags.length === 0 && (partialTags?.length ?? 0) === 0;
 
   return (
-    <div className={`tag-editor tag-editor--${variant}${inlineSuggestions ? " tag-editor--entity" : ""}`}>
+    <div className={`tag-editor tag-editor--${variant}${inlineSuggestions ? " tag-editor--entity" : ""}${addAreaFirst ? " tag-editor--add-first" : ""}`}>
+      {addAreaFirst && addArea}
       <div className="tag-editor-chips">
         {tags.map((name) => (
           <span key={`full:${name}`} className="track-tag-chip track-tag-assigned">
@@ -209,24 +236,17 @@ export default function TagEditor({
             )}
           </span>
         ))}
-        {tags.length === 0 && (partialTags?.length ?? 0) === 0 && disabled && (
+        {noTags && disabled && (
           <span className="tag-editor-empty">No tags</span>
+        )}
+        {noTags && !disabled && emptyText && (
+          <span className="tag-editor-empty">{emptyText}</span>
         )}
       </div>
       {disabled && disabledHint && (
         <span className="tag-editor-hint">{disabledHint}</span>
       )}
-      {showAddArea && (inlineSuggestions ? (
-        <div className="tag-editor-add-row">
-          {pillsEl}
-          {inputEl}
-        </div>
-      ) : (
-        <>
-          {inputEl}
-          {pillsEl}
-        </>
-      ))}
+      {!addAreaFirst && addArea}
     </div>
   );
 }

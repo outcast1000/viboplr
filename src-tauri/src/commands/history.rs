@@ -130,6 +130,33 @@ pub async fn build_radio_for_track(
     .map_err(|e| e.to_string())?
 }
 
+/// `build_radio_for_track` that also opens a station for a seed the library
+/// lacks, when its artist is in it — see `Database::build_radio_station`.
+/// What the frontend's `startRadio` calls, so radio works from a track that
+/// isn't in the library (an album's or artist's "Not in library" rows,
+/// Similar Tracks).
+#[tauri::command]
+pub async fn build_radio_station(
+    state: State<'_, AppState>,
+    seed_title: String,
+    seed_artist: Option<String>,
+    target_count: u32,
+    options: Option<RadioOptions>,
+) -> Result<RadioStation, String> {
+    // async + spawn_blocking: two full-library sampled scans (per-row
+    // strip_diacritics joins for the non-default tastes) — run inline this
+    // froze the webview while the queue built. `options` is optional so an
+    // older caller (or the control API) gets the defaults.
+    let db = state.db.clone();
+    let options = options.unwrap_or_default();
+    tauri::async_runtime::spawn_blocking(move || {
+        db.build_radio_station(&seed_title, seed_artist.as_deref(), target_count, &options)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn pick_radio_seeds(
     state: State<'_, AppState>,

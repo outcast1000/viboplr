@@ -90,4 +90,20 @@ describe("TrackList missing rows", () => {
     const { container } = mount({ missingRows: [missing("Joga", 2, 2)] });
     expect(rowTitles(container)).toEqual(["Hunter", "Bachelorette", "Joga"]);
   });
+
+  it("get the same hover actions as library rows: play, enqueue, radio, details", () => {
+    const onStartRadioMissing = vi.fn();
+    const onLocateMissing = vi.fn();
+    const { container, props } = mount({ onStartRadioMissing, onLocateMissing });
+    const missingRow = container.querySelector(".track-row--missing")!;
+    const titles = [...missingRow.querySelectorAll(".row-hover-action")].map(b => b.getAttribute("title"));
+    expect(titles).toEqual(["Play", "Enqueue", "Start radio", "Details"]);
+
+    fireEvent.click(missingRow.querySelector("[title='Start radio']")!);
+    expect(onStartRadioMissing).toHaveBeenCalledWith(expect.objectContaining({ title: "Joga" }));
+    fireEvent.click(missingRow.querySelector("[title='Details']")!);
+    expect(onLocateMissing).toHaveBeenCalledWith(expect.objectContaining({ title: "Joga" }));
+    fireEvent.click(missingRow.querySelector("[title='Enqueue']")!);
+    expect(props.onEnqueueMissing).toHaveBeenCalledWith(expect.objectContaining({ title: "Joga" }));
+  });
 });

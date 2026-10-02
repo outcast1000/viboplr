@@ -27,6 +27,12 @@ export interface DetailViewActions {
   startRadio: (track: Track) => void;
   /** Open a track's detail page (overlay "info" action). */
   locateTrack: (track: Track) => void;
+  /** Start radio from a track known only by name — one the library may lack
+   *  (a "Not in library" row); the station then opens with it, metadata-only. */
+  startRadioByName: (title: string, artistName: string | null, albumTitle?: string | null) => void;
+  /** Open a track's detail page by name (the name-only page when the library
+   *  has no such track). */
+  navigateToTrackByName: (name: string, artistName?: string, albumTitle?: string) => void;
 
   toggleLike: (track: Track | QueueTrack) => void;
   toggleDislike: (track: Track | QueueTrack) => void;
@@ -130,7 +136,7 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.goBack, actions.canGoBack,
     actions.playTracks, actions.playEntityAll, actions.playAlbum, actions.enqueueTracks,
     actions.playExternal, actions.enqueueExternal,
-    actions.startRadio, actions.locateTrack,
+    actions.startRadio, actions.locateTrack, actions.startRadioByName, actions.navigateToTrackByName,
     actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike,
     actions.setEntityLikeByName, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, QueueTrack, SortField, SortDir } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import { normalizeTrackTitle } from "../utils/albumTracklist";
+import { normalizeTrackTitle } from "../utils/missingTracks";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { nextTriState } from "../likeKeys";
 import { subscribeTrackEvents } from "../trackEvents";
@@ -69,19 +69,21 @@ export interface EntityDetailReturn {
   /** Like state shown in the hero: the row's own, or — for an entity that
    *  isn't in the library — the durable name-keyed one. */
   liked: number;
-  /** Album pages only: the album's tracklist from the album `ranked_list`
-   *  provider, in album order, metadata-only (the stream resolvers find each
-   *  source at play time, a library copy first). Empty until it arrives. */
-  albumTracklist: QueueTrack[];
-  /** The provider's value per tracklist row (Last.fm listeners), parallel to
-   *  `albumTracklist`; 0 when it reported none. */
-  albumTracklistValues: number[];
-  /** "idle" off album pages and before the library lookup answers. */
-  tracklistStatus: "idle" | "loading" | "ok" | "none";
-  /** The ranked_list info type the list came from — album pages hide that
-   *  tab, since the page already shows the same list. */
+  /** Album and artist pages: the entity's `ranked_list` as metadata-only
+   *  queue tracks (the stream resolvers find each source at play time, a
+   *  library copy first) — an album's tracklist in album order, an artist's
+   *  Top Songs in rank order. Empty until it arrives. */
+  rankedTracks: QueueTrack[];
+  /** The provider's value per row (Last.fm listeners), parallel to
+   *  `rankedTracks`; 0 when it reported none. */
+  rankedValues: number[];
+  /** "idle" on tag pages and before the library lookup answers. */
+  rankedStatus: "idle" | "loading" | "ok" | "none";
+  /** The ranked_list info type the list came from — a page that merges the
+   *  list into its own hides that tab, since it already shows the same rows. */
   rankedTypeId: string | null;
   sortField: SortField | null;
+  sortDir: SortDir;
   handleSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
   trackPopularity: Record<number, number>;
@@ -196,7 +198,7 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     const key = `${kind}|${name}|${artistName ?? ""}`;
     const settle = (items: RankedItem[], typeId: string | null) =>
       setRanked({ key, status: items.length > 0 ? "ok" : "none", items, typeId });
-    // No info system wired (never in the app) — tracklistStatus reports "none".
+    // No info system wired (never in the app) — rankedStatus reports "none".
     if (!invokeInfoFetch) return;
 
     let cancelled = false;
@@ -256,20 +258,23 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     return popMap;
   }, [rankedItems, entity, tracks]);
 
-  // Album pages: the provider's whole tracklist, in album order, as
-  // metadata-only queue tracks filed under this album. On a library album the
-  // page merges the ones the user lacks into its track list; on an album that
-  // isn't in the library it is the tracklist.
-  const albumTracklist = useMemo(() => {
-    if (kind !== "album" || !rankedItems) return EMPTY_EXTERNAL;
+  // The ranked list as metadata-only queue tracks. A library page merges the
+  // ones the user lacks into its own track list; an album that isn't in the
+  // library shows it as its tracklist. Album rows are filed under the album;
+  // an artist's Top Songs carry no album.
+  const rankedTracks = useMemo(() => {
+    if (kind === "tag" || !rankedItems) return EMPTY_EXTERNAL;
+    if (kind === "artist") {
+      return rankedItems.map(item => buildExternalQueueTrack(item.name, item.subtitle ?? entityName ?? name));
+    }
     return rankedItems.map(item => ({
       ...buildExternalQueueTrack(item.name, item.subtitle ?? artistName),
       album_title: entityName ?? name,
       album_artist_name: entityArtist ?? artistName ?? null,
     }));
   }, [kind, rankedItems, name, artistName, entityName, entityArtist]);
-  const albumTracklistValues = useMemo(
-    () => kind === "album" && rankedItems ? rankedItems.map(item => item.value > 0 ? item.value : 0) : EMPTY_VALUES,
+  const rankedValues = useMemo(
+    () => kind !== "tag" && rankedItems ? rankedItems.map(item => item.value > 0 ? item.value : 0) : EMPTY_VALUES,
     [kind, rankedItems],
   );
 
@@ -403,13 +408,14 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     isLibrary: entity !== null,
     loaded,
     liked,
-    albumTracklist,
-    albumTracklistValues,
-    tracklistStatus: kind !== "album" || !loaded ? "idle"
+    rankedTracks,
+    rankedValues,
+    rankedStatus: kind === "tag" || !loaded ? "idle"
       : !invokeInfoFetch ? "none"
       : ranked?.key === detailKey ? ranked.status : "loading",
     rankedTypeId: ranked?.key === detailKey ? ranked.typeId : null,
     sortField,
+    sortDir,
     handleSort,
     sortIndicator,
     trackPopularity,

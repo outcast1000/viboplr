@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { Track } from "../types";
 import { useDetailActions } from "../contexts/DetailViewContext";
 import { useEntityTags } from "../hooks/useEntityTags";
@@ -12,6 +12,12 @@ interface EntityTagPanelProps {
   tracks: Track[];
   /** Render bare (no section wrapper or title) — for hosting inside a tab. */
   embedded?: boolean;
+  /** One line above the editor saying what the tab does (a full Tags tab). */
+  intro?: ReactNode;
+  /** Input above the chips (see TagEditor `addAreaFirst`). */
+  addFirst?: boolean;
+  /** Shown when there are no tags yet (see TagEditor `emptyText`). */
+  emptyText?: string;
 }
 
 /**
@@ -21,7 +27,7 @@ interface EntityTagPanelProps {
  * and optimistic. Reuses the shared TagEditor; refreshes library tag state after
  * each write so the Library tags tab and counts stay current.
  */
-export function EntityTagPanel({ tracks, embedded }: EntityTagPanelProps) {
+export function EntityTagPanel({ tracks, embedded, intro, addFirst, emptyText }: EntityTagPanelProps) {
   const actions = useDetailActions();
   const libraryTrackCount = tracks.filter((t) => t.id != null).length;
   const hasTracks = libraryTrackCount > 0;
@@ -49,6 +55,7 @@ export function EntityTagPanel({ tracks, embedded }: EntityTagPanelProps) {
   return (
     <div className={embedded ? "entity-tag-panel" : "section-wide entity-tag-panel"}>
       {!embedded && <div className="section-title">Tags</div>}
+      {intro && hasTracks && <p className="entity-tag-panel-intro">{intro}</p>}
       {!hasTracks ? (
         <span className="entity-tag-panel-hint">No library tracks to tag.</span>
       ) : loading ? (
@@ -63,6 +70,8 @@ export function EntityTagPanel({ tracks, embedded }: EntityTagPanelProps) {
           onRemove={remove}
           onChipLabelClick={actions.navigateToTagByName}
           inlineSuggestions
+          addAreaFirst={addFirst}
+          emptyText={emptyText}
           disabled={pending}
           placeholder={placeholder}
           suggestedPills={communityTags.map((t) => t.name)}

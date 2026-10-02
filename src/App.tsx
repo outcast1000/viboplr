@@ -4319,6 +4319,10 @@ function App() {
     // the pre-TrackSelection behavior. A library Track carries no key, so an
     // id-less one has nothing to open and the action no-ops.
     locateTrack: (t) => { const sel = trackSelection(t); if (sel) library.handleTrackClick(sel); },
+    startRadioByName: (title, artistName, albumTitle) => { void contextMenuActions.startRadio({ title, artistName, coverPath: null, albumTitle }); },
+    navigateToTrackByName: (name, artistName, albumTitle) => {
+      library.navigateToTrackByName(name, artistName, albumTitle).catch(e => console.error("Failed to open track page:", e));
+    },
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
     toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
@@ -4378,7 +4382,7 @@ function App() {
     },
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
-    library.handleTrackClick, contextMenuActions.startRadio,
+    library.handleTrackClick, library.navigateToTrackByName, contextMenuActions.startRadio,
     goBack, canGoBack,
     queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,

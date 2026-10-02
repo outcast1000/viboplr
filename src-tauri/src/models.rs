@@ -130,6 +130,16 @@ pub enum RadioTaste {
     Discovery,
 }
 
+/// What `Database::build_radio_station` returns: the station, and whether
+/// its seed is in the library. When it isn't, `tracks` leaves the seed's slot
+/// for the caller (who plays the seed itself) and holds `target - 1` tracks.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RadioStation {
+    pub seed_in_library: bool,
+    pub tracks: Vec<Track>,
+}
+
 /// User-facing knobs for `Database::build_radio_for_track`. Every field has a
 /// default so an older frontend (or the control API) can omit the whole
 /// object and get today's behaviour. Mirrors `utils/radioOptions.ts`.

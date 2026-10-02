@@ -44,7 +44,7 @@ interface UseContextMenuActionsDeps {
     playAlbum: (albumId: number) => void;
     playArtist: (artistId: number) => void;
     playTag: (tagId: number) => void;
-    startRadio: (seed: { title: string; artistName: string | null; coverPath: string | null }) => void;
+    startRadio: (seed: { title: string; artistName: string | null; coverPath: string | null; albumTitle?: string | null }) => void;
   };
   queueCollapsed: boolean;
   setQueueCollapsed: React.Dispatch<React.SetStateAction<boolean>>;

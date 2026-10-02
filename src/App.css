@@ -227,6 +227,15 @@
   margin-top: 0;
 }
 
+/* The album's "Track List" tab hosts the full TrackList. A tab body is an
+   `overflow-y: auto` box (InformationSections.css) that never scrolls itself,
+   and the TrackList's sticky column header would pin to it — i.e. scroll away
+   with the page. Let it escape so the header sticks to the page scroller, as
+   it did when the list sat above the tabs. */
+.album-detail .info-section-content:has(> .track-list) {
+  overflow: visible;
+}
+
 .album-external-note {
   padding: 12px 0;
   font-size: var(--fs-sm);

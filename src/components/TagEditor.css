@@ -217,3 +217,19 @@
   flex: 0 0 auto;
   width: 220px;
 }
+
+/* Add row on top (a full Tags tab): the input leads and gets room to type,
+   and the chips start on their own line below it. */
+.tag-editor--add-first .tag-editor-add-row {
+  align-items: center;
+}
+
+.tag-editor--add-first .tag-editor-add-row .tag-editor-input.ds-input {
+  width: 320px;
+  max-width: 100%;
+}
+
+.tag-editor--add-first .tag-editor-chips {
+  width: 100%;
+  gap: 6px;
+}

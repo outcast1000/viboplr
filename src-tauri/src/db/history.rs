@@ -324,8 +324,32 @@ impl Database {
         target_count: u32,
         opts: &RadioOptions,
     ) -> SqlResult<Vec<Track>> {
+        // The library-seeded contract: no seed row, no station. Callers that
+        // can open a station with a seed they hold themselves use
+        // `build_radio_station`.
+        let station = self.build_radio_station(seed_title, seed_artist, target_count, opts)?;
+        Ok(if station.seed_in_library { station.tracks } else { Vec::new() })
+    }
+
+    /// `build_radio_for_track`, plus a station for a seed that **isn't in the
+    /// library** when its artist is: the seed's slot is left for the caller
+    /// (which plays the seed itself, metadata-only), and the remaining
+    /// `target_count - 1` slots are drawn from the same two pools, keyed on
+    /// the artist row instead of a seed track — the artist's tracks and its
+    /// tag neighbourhood. Such a station is audio (there's no seed file to
+    /// read a media type from). `seed_in_library` says which case this was;
+    /// with neither the seed nor its artist in the library, the station is
+    /// empty.
+    pub fn build_radio_station(
+        &self,
+        seed_title: &str,
+        seed_artist: Option<&str>,
+        target_count: u32,
+        opts: &RadioOptions,
+    ) -> SqlResult<RadioStation> {
+        let empty = |seed_in_library| RadioStation { seed_in_library, tracks: Vec::new() };
         if target_count == 0 {
-            return Ok(Vec::new());
+            return Ok(empty(false));
         }
 
         let canonical_title = strip_diacritics(&seed_title.to_lowercase());
@@ -340,17 +364,36 @@ impl Database {
              {} LIMIT 1",
             TRACK_SELECT, ENABLED_COLLECTION_FILTER
         );
-        let seed: Track = match conn.query_row(&sql, params![canonical_title, canonical_artist], |row| track_from_row(row)).optional()? {
-            Some(t) => t,
-            None => return Ok(Vec::new()),
+        let seed: Option<Track> = conn.query_row(&sql, params![canonical_title, canonical_artist], |row| track_from_row(row)).optional()?;
+        let seed_in_library = seed.is_some();
+
+        // What the pools key on: the seed row's id (excluded from both) and
+        // artist, or — for a seed the library lacks — no row and the artist
+        // found by name.
+        let (seed_id, seed_artist_id, seed_is_video) = match &seed {
+            Some(t) => (t.id, t.artist_id, is_video_format(t.format.as_deref())),
+            None => {
+                if canonical_artist.is_empty() {
+                    return Ok(empty(false));
+                }
+                let aid: Option<i64> = conn.query_row(
+                    "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = ?1 LIMIT 1",
+                    params![canonical_artist],
+                    |row| row.get(0),
+                ).optional()?;
+                match aid {
+                    Some(aid) => (-1, Some(aid), false),
+                    None => return Ok(empty(false)),
+                }
+            }
         };
         if slots == 0 {
-            return Ok(vec![seed]);
+            return Ok(RadioStation { seed_in_library, tracks: seed.into_iter().collect() });
         }
 
         // Every tag ever applied to any track by this artist, not just the
         // seed's own — a seed with no tags still reaches its neighbourhood.
-        let tag_pool: Vec<i64> = match seed.artist_id {
+        let tag_pool: Vec<i64> = match seed_artist_id {
             Some(aid) => {
                 let mut stmt = conn.prepare(
                     "SELECT DISTINCT tt.tag_id FROM track_tags tt \
@@ -366,14 +409,14 @@ impl Database {
         // Keep the station coherent with the seed's media type — mirror
         // auto-continue's same-format behavior so an audio seed never queues
         // video tracks (and a video seed never queues audio).
-        let format_clause = if is_video_format(seed.format.as_deref()) {
+        let format_clause = if seed_is_video {
             VIDEO_FORMAT_CLAUSE.as_str()
         } else {
             AUDIO_FORMAT_CLAUSE.as_str()
         };
 
-        let artist_pool: Vec<Track> = match seed.artist_id {
-            Some(aid) if share > 0 => Self::radio_artist_pool(&conn, &seed, aid, format_clause, opts.taste, slots)?,
+        let artist_pool: Vec<Track> = match seed_artist_id {
+            Some(aid) if share > 0 => Self::radio_artist_pool(&conn, seed_id, aid, format_clause, opts.taste, slots)?,
             _ => Vec::new(),
         };
         // The spread cap skips candidates, so over-fetch to keep the station
@@ -382,7 +425,7 @@ impl Database {
         let neighbour_pool: Vec<Track> = if tag_pool.is_empty() {
             Vec::new()
         } else {
-            Self::radio_neighbour_pool(&conn, &seed, &tag_pool, format_clause, opts.taste, tag_limit)?
+            Self::radio_neighbour_pool(&conn, seed_id, seed_artist_id, &tag_pool, format_clause, opts.taste, tag_limit)?
         };
         // One SQLite RANDOM() seeds the coin flips; no extra crate.
         let rng_seed: i64 = conn.query_row("SELECT RANDOM()", [], |row| row.get(0))?;
@@ -392,13 +435,18 @@ impl Database {
         let cap = if opts.spread_artists { Some(RADIO_SPREAD_MAX_PER_ARTIST) } else { None };
         let mut result: Vec<Track> = Vec::with_capacity(target_count as usize);
         let mut picked: HashSet<i64> = HashSet::new();
-        picked.insert(seed.id);
-        result.push(seed);
+        // A seed the library lacks still takes the first slot — the caller
+        // plays it — so the station it gets back is one shorter.
+        let fill_to = if seed_in_library { target_count as usize } else { target_count as usize - 1 };
+        if let Some(seed) = seed {
+            picked.insert(seed.id);
+            result.push(seed);
+        }
         let mut per_artist: HashMap<i64, usize> = HashMap::new();
         let mut artist_cursor = 0usize;
         let mut neighbour_cursor = 0usize;
 
-        while result.len() < target_count as usize {
+        while result.len() < fill_to {
             // The artist pool is the seed's own artist, which the share
             // governs and the spread cap never touches; the neighbour pool
             // excludes that artist, so the cap applies to all of it.
@@ -423,7 +471,7 @@ impl Database {
             }
         }
 
-        Ok(result)
+        Ok(RadioStation { seed_in_library, tracks: result })
     }
 
     /// Advance `cursor` through a pre-sampled pool to the next track that is
@@ -497,14 +545,14 @@ impl Database {
     }
 
     /// Up to `limit` other tracks by the seed's artist, best sample key first.
-    fn radio_artist_pool(conn: &Connection, seed: &Track, artist_id: i64, format_clause: &str, taste: RadioTaste, limit: i64) -> SqlResult<Vec<Track>> {
+    fn radio_artist_pool(conn: &Connection, seed_id: i64, artist_id: i64, format_clause: &str, taste: RadioTaste, limit: i64) -> SqlResult<Vec<Track>> {
         let (join, group, order) = Self::radio_pool_order(taste);
         let sql = format!(
             "{select} {join} WHERE t.artist_id = ?1 AND t.id != ?2 AND t.liked != -1 {enabled}{format} {group} {order} LIMIT ?3",
             select = TRACK_SELECT, join = join, enabled = ENABLED_COLLECTION_FILTER, format = format_clause, group = group, order = order,
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![artist_id, seed.id, limit], |row| track_from_row(row))?;
+        let rows = stmt.query_map(params![artist_id, seed_id, limit], |row| track_from_row(row))?;
         rows.collect()
     }
 
@@ -512,7 +560,7 @@ impl Database {
     /// tag in `tag_pool`, best sample key first. Excluding the seed's artist
     /// here is what makes `artist_share` honest: without it a tag hit could
     /// hand the seed's artist a slot the coin had given to the neighbourhood.
-    fn radio_neighbour_pool(conn: &Connection, seed: &Track, tag_pool: &[i64], format_clause: &str, taste: RadioTaste, limit: i64) -> SqlResult<Vec<Track>> {
+    fn radio_neighbour_pool(conn: &Connection, seed_id: i64, seed_artist_id: Option<i64>, tag_pool: &[i64], format_clause: &str, taste: RadioTaste, limit: i64) -> SqlResult<Vec<Track>> {
         let (join, group, order) = Self::radio_pool_order(taste);
         let tag_list: Vec<String> = tag_pool.iter().map(|id| id.to_string()).collect();
         let sql = format!(
@@ -525,7 +573,7 @@ impl Database {
             tags = tag_list.join(","), group = group, order = order,
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![seed.id, seed.artist_id, limit], |row| track_from_row(row))?;
+        let rows = stmt.query_map(params![seed_id, seed_artist_id, limit], |row| track_from_row(row))?;
         rows.collect()
     }
 

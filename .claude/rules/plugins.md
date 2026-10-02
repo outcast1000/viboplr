@@ -455,6 +455,8 @@ Tabbed metadata panels shown on entity detail pages (artists, albums, tracks, ta
 
 Multiple plugins can provide the same information type ID (e.g., both `lastfm` and `genius` provide `artist_bio`). The app hardcodes default priority ordering (in `usePlugins.ts`). Users can reorder providers in Settings > Providers. Lower `priority` number = tried first. First success wins.
 
+The bundled **`mock-info`** plugin (`debugOnly` — loaded only while Settings → Debug → **Debug mode** is on, which is a persisted setting, not the build type) uses exactly this to stand in for Last.fm's two `ranked_list` types, `album_track_popularity` and `artist_top_tracks`. Its answers are deterministic fake lists built from the user's own library (via `api.library.getTracks`) plus invented "(Mock)" tracks, which is what the album/artist "Not in library" merge needs to be tested without a working Last.fm. With no `DEFAULT_INFO_TYPE_PRIORITY` entry it sits at 500, behind Last.fm, so it answers only when Last.fm fails; move it first in Settings → Providers to force fake data.
+
 ### Entity Keys
 
 Cached values use **name-based keys** (not DB IDs), enabling cross-library metadata sharing:

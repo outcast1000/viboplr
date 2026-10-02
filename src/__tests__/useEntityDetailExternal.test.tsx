@@ -14,10 +14,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 const RANKED_TYPE = ["album_track_popularity", "Track Popularity", "ranked_list", 604800, 0, [["lastfm", 1]]];
 
-function mockBackend(opts: { album?: unknown; liked?: number; types?: unknown[] }) {
+function mockBackend(opts: { album?: unknown; artist?: unknown; liked?: number; types?: unknown[] }) {
   vi.mocked(invoke).mockImplementation(async (cmd: string) => {
     switch (cmd) {
       case "find_album_by_name": return opts.album ?? null;
+      case "find_artist_by_name": return opts.artist ?? null;
+      case "get_tracks_by_artist": return [{ id: 7, title: "Joga", artist_name: "Bjork", liked: 0 }];
+      case "get_albums": return [];
       case "get_tracks": return [{ id: 7, title: "Joga", artist_name: "Bjork", liked: 0 }];
       case "get_entity_like_state": return opts.liked ?? 0;
       case "info_get_types_for_entity": return opts.types ?? [RANKED_TYPE];
@@ -46,11 +49,11 @@ describe("useEntityDetail — album not in the library", () => {
     const { result } = renderHook(() =>
       useEntityDetail({ kind: "album", name: "Homogenic", artistName: "Bjork", invokeInfoFetch }));
 
-    await waitFor(() => expect(result.current.tracklistStatus).toBe("ok"));
+    await waitFor(() => expect(result.current.rankedStatus).toBe("ok"));
     expect(result.current.isLibrary).toBe(false);
-    expect(result.current.albumTracklist.map(t => t.title)).toEqual(["Hunter", "Joga"]);
-    expect(result.current.albumTracklistValues).toEqual([900, 1200]);
-    const first = result.current.albumTracklist[0];
+    expect(result.current.rankedTracks.map(t => t.title)).toEqual(["Hunter", "Joga"]);
+    expect(result.current.rankedValues).toEqual([900, 1200]);
+    const first = result.current.rankedTracks[0];
     expect(first.path).toBeNull();
     expect(first.album_title).toBe("Homogenic");
     expect(first.album_artist_name).toBe("Bjork");
@@ -64,8 +67,8 @@ describe("useEntityDetail — album not in the library", () => {
     const invokeInfoFetch = vi.fn();
     const { result } = renderHook(() =>
       useEntityDetail({ kind: "album", name: "Homogenic", artistName: "Bjork", invokeInfoFetch }));
-    await waitFor(() => expect(result.current.tracklistStatus).toBe("none"));
-    expect(result.current.albumTracklist).toEqual([]);
+    await waitFor(() => expect(result.current.rankedStatus).toBe("none"));
+    expect(result.current.rankedTracks).toEqual([]);
   });
 
   it("reads the like by name and writes it by name, reverting a failed write", async () => {
@@ -98,8 +101,8 @@ describe("useEntityDetail — library album", () => {
     await waitFor(() => expect(result.current.trackPopularity).toEqual({ 7: 1200 }));
     expect(result.current.isLibrary).toBe(true);
     // The page merges the rows it lacks ("Hunter") into its track list.
-    expect(result.current.tracklistStatus).toBe("ok");
-    expect(result.current.albumTracklist.map(t => t.title)).toEqual(["Hunter", "Joga"]);
+    expect(result.current.rankedStatus).toBe("ok");
+    expect(result.current.rankedTracks.map(t => t.title)).toEqual(["Hunter", "Joga"]);
     expect(result.current.rankedTypeId).toBe("album_track_popularity");
     expect(invoke).not.toHaveBeenCalledWith("get_entity_like_state", expect.anything());
   });
@@ -111,10 +114,33 @@ describe("useEntityDetail — library album", () => {
     const { result } = renderHook(() =>
       useEntityDetail({ kind: "album", name: "Homogenic", artistName: "Bjork", invokeInfoFetch, onEntityLike }));
 
-    await waitFor(() => expect(result.current.tracklistStatus).toBe("ok"));
+    await waitFor(() => expect(result.current.rankedStatus).toBe("ok"));
     act(() => { result.current.handleToggleLike(); });
     expect(result.current.liked).toBe(1);
     expect(result.current.trackPopularity).toEqual({ 7: 1200 });
     expect(invokeInfoFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useEntityDetail — library artist", () => {
+  it("turns Top Songs into metadata-only tracks under the artist, with no album", async () => {
+    mockBackend({
+      artist: { id: 1, name: "Bjork", liked: 0 },
+      types: [["artist_top_tracks", "Top Songs", "ranked_list", 604800, 0, [["lastfm", 1]]]],
+    });
+    const invokeInfoFetch = vi.fn().mockResolvedValue({
+      status: "ok",
+      value: { items: [{ name: "Army of Me", value: 900 }, { name: "Joga", subtitle: "Bjork", value: 800 }] },
+    });
+    const { result } = renderHook(() => useEntityDetail({ kind: "artist", name: "Bjork", invokeInfoFetch }));
+
+    await waitFor(() => expect(result.current.rankedStatus).toBe("ok"));
+    expect(result.current.rankedTypeId).toBe("artist_top_tracks");
+    expect(result.current.rankedTracks.map(t => [t.title, t.artist_name, t.album_title])).toEqual([
+      ["Army of Me", "Bjork", null],
+      ["Joga", "Bjork", null],
+    ]);
+    expect(result.current.rankedValues).toEqual([900, 800]);
+    expect(result.current.trackPopularity).toEqual({ 7: 800 });
   });
 });
