@@ -137,7 +137,7 @@ export function InformationSections({
     }
   }, [sections, onTitleData]);
 
-  const handleAction = useCallback(async (actionId: string, payload?: unknown) => {
+  const handleAction = useCallback(async (actionId: string, payload?: unknown, sectionName?: string) => {
     // The list item rarely carries an explicit artist (e.g. Last.fm "Top Songs"
     // emits track name only). Fall back to the section's own entity: its
     // artistName for album/track pages, or its name when it IS an artist.
@@ -172,6 +172,18 @@ export function InformationSections({
       const artist = resolveArtist(p.artist);
       const ext: QueueTrack = buildExternalQueueTrack(p.name, artist);
       onAction(actionId === "enqueue-track" ? "enqueue-track" : "play-track", ext);
+      return;
+    }
+    // A click on a row of a track list (Similar Tracks, Top Songs): queue the
+    // whole list from that row, metadata-only — the stream resolvers find each
+    // track's source when it plays, a library copy first.
+    if (actionId === "play-list") {
+      const p = payload as { items?: { name: string; artist?: string }[]; startIndex?: number } | undefined;
+      if (!p?.items?.length || !onAction) return;
+      const tracks = p.items.map(it => buildExternalQueueTrack(it.name, resolveArtist(it.artist)));
+      const startIndex = Math.min(Math.max(p.startIndex ?? 0, 0), tracks.length - 1);
+      const name = sectionName && entity ? `${sectionName} · ${entity.name}` : sectionName ?? entity?.name;
+      onAction("play-tracks", { tracks, startIndex, context: name ? { name } : null });
       return;
     }
     if (onAction) onAction(actionId, payload);
@@ -380,7 +392,7 @@ export function InformationSections({
                 )}
               </div>
             ) : s.state.kind === "loaded" && s.state.data && Renderer ? (
-              <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={handleAction} resolveEntity={resolveEntity} context={livePosition != null ? { livePosition } : undefined} onTrackContextMenu={onTrackContextMenu} onEntityContextMenu={onEntityContextMenu} />
+              <Renderer data={s.state.data} onEntityClick={onEntityClick} onAction={(id, p) => handleAction(id, p, s.name)} resolveEntity={resolveEntity} context={livePosition != null ? { livePosition } : undefined} onTrackContextMenu={onTrackContextMenu} onEntityContextMenu={onEntityContextMenu} />
             ) : s.state.kind === "empty" ? (
               <div className="info-section-empty">No data available</div>
             ) : null;

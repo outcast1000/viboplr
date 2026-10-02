@@ -3,11 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Album, ColumnConfig, QueueTrack } from "../types";
+import type { Album, ColumnConfig } from "../types";
 
 import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
-import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
+import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { TrackList } from "./TrackList";
 import { PromptModal } from "./PromptModal";
 import { InformationSections } from "./InformationSections";
@@ -87,15 +87,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     else if (kind === "album") actions.navigateToAlbum(id ?? 0, undefined, entityName);
   }, [actions.navigateToArtist, actions.navigateToAlbum]);
 
-  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
-    if (actionId === "play-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.playExternal([t]);
-    } else if (actionId === "enqueue-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.enqueueExternal([t]);
-    }
-  }, [actions.playExternal, actions.enqueueExternal]);
+  const handleInfoAction = useInfoSectionActions();
 
   const resolveEntity = useCallback((kind: string, entityName: string) => {
     if (kind === "artist") {

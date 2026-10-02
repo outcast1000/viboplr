@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
-import type { Tag, ColumnConfig, QueueTrack } from "../types";
+import type { Tag, ColumnConfig } from "../types";
 
 import { TAG_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
-import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
+import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { TrackList } from "./TrackList";
 import { InformationSections } from "./InformationSections";
 import type { InfoEntity } from "../types/informationTypes";
@@ -121,15 +121,7 @@ export function TagDetail({ name }: TagDetailProps) {
   if (isLibrary && tag?.track_count) meta.push(`${tag.track_count} tracks`);
   if (artistCount > 0) meta.push(`${artistCount} artists`);
 
-  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
-    if (actionId === "play-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.playExternal([t]);
-    } else if (actionId === "enqueue-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.enqueueExternal([t]);
-    }
-  }, [actions.playExternal, actions.enqueueExternal]);
+  const handleInfoAction = useInfoSectionActions();
 
   return (
     <div className="album-detail">

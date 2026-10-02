@@ -4,11 +4,11 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getInitials } from "../utils";
-import type { Artist, ColumnConfig, QueueTrack } from "../types";
+import type { Artist, ColumnConfig } from "../types";
 
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
-import { useDetailActions, useDetailState } from "../contexts/DetailViewContext";
+import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList } from "./TrackList";
@@ -90,15 +90,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     return undefined;
   }, [artist, sortedTracks, actions.getArtistImage]);
 
-  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
-    if (actionId === "play-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.playExternal([t]);
-    } else if (actionId === "enqueue-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.enqueueExternal([t]);
-    }
-  }, [actions.playExternal, actions.enqueueExternal]);
+  const handleInfoAction = useInfoSectionActions();
 
   const infoEntity: InfoEntity = artist
     ? { kind: "artist", name: artist.name, id: artist.id }

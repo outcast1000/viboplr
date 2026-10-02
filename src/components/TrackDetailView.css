@@ -754,6 +754,12 @@
   border-bottom: none;
 }
 
+.scrobble-list-more {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  padding: 8px 0 2px;
+}
+
 .album-card-body {
   padding: 8px 10px;
 }

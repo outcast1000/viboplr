@@ -3,11 +3,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Track, QueueTrack } from "../types";
-import { formatDuration, formatDateTime, formatRelativeTime } from "../utils";
+import type { Track } from "../types";
+import { formatDuration, formatDateTime, formatRelativeTime, formatFileSize } from "../utils";
 import { formatAverage, formatCompactCount } from "../utils/formatCount";
 import { isLocalTrack } from "../queueEntry";
-import { useDetailActions } from "../contexts/DetailViewContext";
+import { useDetailActions, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { IconFolder, IconLastfm } from "./Icons";
 import { store } from "../store";
 
@@ -26,8 +26,7 @@ import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOver
 import "./TrackDetailView.css";
 
 const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "tags", "details", "play-history"];
-
-
+const PLAY_HISTORY_LIMIT = 50;
 
 interface TrackPlayStats {
   play_count: number;
@@ -89,6 +88,7 @@ export function TrackDetailView({
   // Spotify plays), rendered after the Last.fm line. Keyed by info type id.
   const [extraTitleLines, setExtraTitleLines] = useState<Record<string, unknown>>({});
   const [tabOrder, setTabOrder] = useState<string[]>(DEFAULT_TAB_ORDER);
+  const [pathCopied, setPathCopied] = useState(false);
   const trackIdRef = useRef(trackId);
   const videoFrames = useVideoFrames(isVideoTrack(track) ? track : null);
   // Storyboard tiles back the filmstrip and the hero art's hover cycling; the single
@@ -143,7 +143,7 @@ export function TrackDetailView({
         .then(setExtraTags).catch(e => console.error("Failed to load extra tags:", e));
     }
     invoke<TrackPlayStats | null>("get_track_play_stats", { title: track.title, artistName: track.artist_name }).then(s => { if (s) setPlayStats(s); }).catch(e => console.error("Failed to load play stats:", e));
-    invoke<Array<{ played_at: number }>>("get_track_play_history", { title: track.title, artistName: track.artist_name, limit: 50 }).then(setPlayHistory).catch(e => console.error("Failed to load play history:", e));
+    invoke<Array<{ played_at: number }>>("get_track_play_history", { title: track.title, artistName: track.artist_name, limit: PLAY_HISTORY_LIMIT }).then(setPlayHistory).catch(e => console.error("Failed to load play history:", e));
   }, [trackId, isLibrary, track.artist_name, track.title]);
 
   // Receive track_info data from InformationSections (via onTitleData callback)
@@ -171,19 +171,13 @@ export function TrackDetailView({
     if (info.listeners || info.playcount || info.perListener) setTrackInfo(info);
   }, []);
 
-  const handleInfoAction = useCallback((actionId: string, payload?: unknown) => {
-    if (actionId === "play-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.playExternal([t]);
-    } else if (actionId === "enqueue-track") {
-      const t = payload as QueueTrack | undefined;
-      if (t) actions.enqueueExternal([t]);
-    }
-  }, [actions.playExternal, actions.enqueueExternal]);
+  const handleInfoAction = useInfoSectionActions();
 
+  // Entity images are keyed by name, so these actions work for a track that
+  // isn't in the library too. They target whichever image the hero art shows.
   const heroImageKind: "album" | "artist" | null =
-    isLibrary && albumImagePath && track.album_title ? "album"
-    : isLibrary && track.artist_name ? "artist"
+    albumImagePath && track.album_title ? "album"
+    : track.artist_name ? "artist"
     : null;
 
   const heroImageEntityName =
@@ -191,8 +185,11 @@ export function TrackDetailView({
     : heroImageKind === "artist" ? track.artist_name!
     : null;
 
+  // An album is keyed by its album artist (a compilation belongs to "Various
+  // Artists", not this track's performer) — the same key App reads it by.
+  const albumArtistName = track.album_artist_name ?? track.artist_name;
   const heroImageArtistArg =
-    heroImageKind === "album" ? (track.artist_name ?? undefined) : undefined;
+    heroImageKind === "album" ? (albumArtistName ?? undefined) : undefined;
 
   const handleRefreshImage = useCallback(() => {
     if (!heroImageKind || !heroImageEntityName) return;
@@ -210,12 +207,12 @@ export function TrackDetailView({
       await invoke("set_entity_image", {
         kind: heroImageKind,
         name: heroImageEntityName,
-        artistName: heroImageKind === "album" ? (track.artist_name ?? null) : null,
+        artistName: heroImageArtistArg ?? null,
         sourcePath: selected,
       });
       actions.invalidateImage(heroImageKind, heroImageEntityName, heroImageArtistArg);
     } catch (e) { console.error("Failed to set track-related image:", e); }
-  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg, track.artist_name]);
+  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg]);
 
   const handlePasteImage = useCallback(async () => {
     if (!heroImageKind || !heroImageEntityName) return;
@@ -223,11 +220,11 @@ export function TrackDetailView({
       await invoke("paste_entity_image_from_clipboard", {
         kind: heroImageKind,
         name: heroImageEntityName,
-        artistName: heroImageKind === "album" ? (track.artist_name ?? null) : null,
+        artistName: heroImageArtistArg ?? null,
       });
       actions.invalidateImage(heroImageKind, heroImageEntityName, heroImageArtistArg);
     } catch (e) { console.error("Failed to paste track-related image:", e); }
-  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg, track.artist_name]);
+  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg]);
 
   const handleRemoveImage = useCallback(async () => {
     if (!heroImageKind || !heroImageEntityName) return;
@@ -235,20 +232,20 @@ export function TrackDetailView({
       await invoke("remove_entity_image", {
         kind: heroImageKind,
         name: heroImageEntityName,
-        artistName: heroImageKind === "album" ? (track.artist_name ?? null) : null,
+        artistName: heroImageArtistArg ?? null,
       });
       actions.invalidateImage(heroImageKind, heroImageEntityName, heroImageArtistArg);
     } catch (e) { console.error("Failed to remove track-related image:", e); }
-  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg, track.artist_name]);
+  }, [actions.invalidateImage, heroImageKind, heroImageEntityName, heroImageArtistArg]);
 
   const handleSearchImageGoogle = useCallback(() => {
     if (!heroImageKind || !heroImageEntityName) return;
-    const q = heroImageKind === "album" && track.artist_name
-      ? `${track.artist_name} ${heroImageEntityName}`
+    const q = heroImageArtistArg
+      ? `${heroImageArtistArg} ${heroImageEntityName}`
       : heroImageEntityName;
     openUrl(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}`)
       .catch(e => console.error("Failed to open image search:", e));
-  }, [heroImageKind, heroImageEntityName, track.artist_name]);
+  }, [heroImageKind, heroImageEntityName, heroImageArtistArg]);
 
   const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
     entityKind: "track",
@@ -279,7 +276,8 @@ export function TrackDetailView({
     heroMeta.push({ label: track.album_title, onClick: () => actions.navigateToAlbum(track.album_id ?? 0, track.artist_id, track.album_title!, (track.album_artist_name ?? track.artist_name) ?? undefined) });
   }
   if (track.year) heroMeta.push(String(track.year));
-  if (track.format) heroMeta.push(`${track.format.toUpperCase()}${audioProps?.bitrate ? ` · ${audioProps.bitrate} kbps` : ""}`);
+  // Format only — bitrate, sample rate and bit depth belong to the Details tab.
+  if (track.format) heroMeta.push(track.format.toUpperCase());
 
   // Listeners (compact, exact on hover) plus the plays-per-listener average —
   // the raw Last.fm playcount is deliberately not shown, the average carries
@@ -312,6 +310,17 @@ export function TrackDetailView({
       ))}
     </>
   ) : undefined;
+
+  const handleCopyPath = useCallback(async () => {
+    if (!track.path) return;
+    try {
+      await navigator.clipboard.writeText(track.path);
+      setPathCopied(true);
+      setTimeout(() => setPathCopied(false), 2000);
+    } catch (e) {
+      console.error("Failed to copy track path:", e);
+    }
+  }, [track.path]);
 
   const handleEnqueueTrack = useCallback(() => {
     actions.enqueueTracks([track]);
@@ -347,7 +356,6 @@ export function TrackDetailView({
         liked={track.liked}
         onToggleLike={onToggleLike}
         onToggleDislike={onToggleDislike}
-        likeDisabled={!isLibrary}
         entityLabel="track"
         meta={heroMeta}
         onPlay={onPlay}
@@ -412,9 +420,7 @@ export function TrackDetailView({
                     <div className="track-details-row">
                       <span className="track-details-label">Size</span>
                       <span className="track-details-value">
-                        {track.file_size >= 1048576
-                          ? `${(track.file_size / 1048576).toFixed(1)} MB`
-                          : `${Math.round(track.file_size / 1024)} KB`}
+                        {formatFileSize(track.file_size)}
                       </span>
                     </div>
                   )}
@@ -428,8 +434,12 @@ export function TrackDetailView({
                             <IconFolder size={12} />
                           </button>
                         )}
-                        <button className="track-detail-path-btn" onClick={() => { navigator.clipboard.writeText(track.path ?? ""); }} title="Copy path">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                        <button className="track-detail-path-btn" onClick={handleCopyPath} title={pathCopied ? "Copied" : "Copy path"}>
+                          {pathCopied ? (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                          ) : (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                          )}
                         </button>
                       </span>
                     </div>
@@ -468,14 +478,19 @@ export function TrackDetailView({
                     return groups.map(({ year, entries }) => (
                       <div key={year} className="scrobble-year-group">
                         <div className="scrobble-year-label">{year}</div>
-                        {entries.map((entry, i) => (
-                          <div key={i} className="scrobble-entry">
+                        {entries.map((entry) => (
+                          <div key={entry.played_at} className="scrobble-entry">
                             {formatDateTime(entry.played_at)}
                           </div>
                         ))}
                       </div>
                     ));
                   })()}
+                  {playStats && playStats.play_count > playHistory.length && (
+                    <div className="scrobble-list-more">
+                      Showing the latest {playHistory.length} of {playStats.play_count.toLocaleString()} plays
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="track-detail-empty">No play history</div>

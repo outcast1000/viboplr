@@ -510,8 +510,11 @@ Renderers emit actions via `onAction(actionId, payload)`. Built-in actions handl
 | Action | Payload | Behavior |
 |---|---|---|
 | `save-lyrics` | `{text, kind}` | Upserts lyrics to cache |
-| `play-track` | `{id}` | Plays library track by ID |
-| `play-or-youtube` | `{name, artist?}` | Plays a metadata-only external track — resolved on play through the stream-resolver chain (e.g. the yt-dlp plugin), so a library copy or any resolver can satisfy it |
+| `play-track` / `enqueue-track` | `{name, artist?}` | Plays / enqueues one metadata-only external track (`buildExternalQueueTrack`; a missing `artist` falls back to the section's entity) |
+| `play-or-youtube` | `{name, artist?}` | Legacy alias of `play-track` |
+| `play-list` | `{items: [{name, artist?}], startIndex}` | Replaces the queue with the whole list, metadata-only, playing from `startIndex`; the queue banner reads "`<section name>` · `<entity name>`". Emitted by `ranked_list` on a **row click** of a track row (Similar Tracks, Top Songs), so the rest of the list follows the clicked track |
+
+All three play actions hand the detail page **metadata-only** tracks, library row or not — the stream-resolver chain finds each one's source at play time, the built-in Library resolver first, so an owned track plays the user's copy and anything else goes to the plugin resolvers. The detail pages share one handler for them: `useInfoSectionActions()` (`contexts/DetailViewContext.tsx`), whose `play-tracks` form is what `play-list` becomes.
 
 ## Image Provider Chain (Rust-JS Bridge)
 

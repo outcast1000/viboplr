@@ -7,11 +7,16 @@ export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntit
   if (!d?.items?.length) return null;
 
   const maxVal = d.items.reduce((m, it) => Math.max(m, it.maxValue ?? it.value), 0);
+  const isTrackItem = (item: RankedListData["items"][number]) =>
+    item.libraryKind === "track" || (!item.libraryKind && !!item.subtitle);
+  // The playable rows, in order — what a row click queues. Library or not:
+  // the stream resolvers find each one's source at play time.
+  const trackItems = d.items.filter(isTrackItem);
 
   return (
     <div className="renderer-ranked-list">
       {d.items.map((item, i) => {
-        const isTrack = item.libraryKind === "track" || (!item.libraryKind && !!item.subtitle);
+        const isTrack = isTrackItem(item);
         const resolved = isTrack && !item.libraryId && resolveEntity
           ? resolveEntity("track", item.subtitle ? `${item.name}|||${item.subtitle}` : item.name)
           : undefined;
@@ -20,10 +25,17 @@ export function RankedListRenderer({ data, onEntityClick, onAction, resolveEntit
         return (
           <div
             key={i}
-            className={`ranked-list-item${(item.libraryId || resolved?.id) ? " clickable" : ""}`}
+            className={`ranked-list-item${isTrack || item.libraryId ? " clickable" : ""}`}
+            title={isTrack ? "Play from here" : undefined}
             onClick={() => {
-              const id = item.libraryId ?? resolved?.id;
-              if (id) onEntityClick?.(item.libraryKind ?? "track", id, item.name);
+              if (isTrack) {
+                onAction?.("play-list", {
+                  items: trackItems.map(t => ({ name: t.name, artist: t.subtitle })),
+                  startIndex: trackItems.indexOf(item),
+                });
+                return;
+              }
+              if (item.libraryId) onEntityClick?.(item.libraryKind ?? "track", item.libraryId, item.name);
             }}
             onContextMenu={isTrack && onTrackContextMenu ? (e) => {
               e.preventDefault();

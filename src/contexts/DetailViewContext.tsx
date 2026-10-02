@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import type { Track, QueueTrack } from "../types";
 import type { PlaylistContext } from "../hooks/useQueue";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
@@ -21,7 +21,7 @@ export interface DetailViewActions {
   playEntityAll: (kind: "artist" | "album" | "tag", name: string, artistName?: string, opts?: { tracks?: Track[]; entityId?: number }) => void;
   playAlbum: (albumId: number, opts?: { tracks?: Track[]; startIndex?: number }) => void;
   enqueueTracks: (tracks: Track[]) => void;
-  playExternal: (tracks: QueueTrack[]) => void;
+  playExternal: (tracks: QueueTrack[], startIndex?: number, context?: PlaylistContext | null) => void;
   enqueueExternal: (tracks: QueueTrack[]) => void;
   /** Start a radio station seeded from a single track (overlay "radio" action). */
   startRadio: (track: Track) => void;
@@ -85,6 +85,29 @@ export function useDetailActions(): DetailViewActions {
   const ctx = useContext(ActionsContext);
   if (!ctx) throw new Error("useDetailActions must be used within DetailViewProvider");
   return ctx;
+}
+
+/** The `onAction` handler every detail page gives `InformationSections`.
+ *  Tracks arrive metadata-only (`buildExternalQueueTrack`) and are queued as
+ *  they are — the stream-resolver chain finds a source at play time, the
+ *  Library resolver first, so a track the user owns plays their copy.
+ *  - `play-track` / `enqueue-track`: one track.
+ *  - `play-tracks`: a whole list (e.g. Similar Tracks) from `startIndex`, so
+ *    the rest of the list follows the clicked track in the queue. */
+export function useInfoSectionActions(): (actionId: string, payload?: unknown) => void {
+  const { playExternal, enqueueExternal } = useDetailActions();
+  return useCallback((actionId: string, payload?: unknown) => {
+    if (actionId === "play-track") {
+      const t = payload as QueueTrack | undefined;
+      if (t) playExternal([t]);
+    } else if (actionId === "enqueue-track") {
+      const t = payload as QueueTrack | undefined;
+      if (t) enqueueExternal([t]);
+    } else if (actionId === "play-tracks") {
+      const p = payload as { tracks: QueueTrack[]; startIndex: number; context?: PlaylistContext | null } | undefined;
+      if (p?.tracks.length) playExternal(p.tracks, p.startIndex, p.context ?? null);
+    }
+  }, [playExternal, enqueueExternal]);
 }
 
 export function useDetailState(): DetailViewState {
