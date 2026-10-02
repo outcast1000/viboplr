@@ -5,12 +5,13 @@ import type {
   HomeShelfDisplayKind,
   HomeShelfResult,
   HomeShelfItem,
+  PluginTrack,
 } from "../types/plugin";
 import type { RecentlyVisitedEntry } from "../utils/recentlyVisited";
 import { type RecentPlaySession, sessionKey, sessionSubtitle } from "../utils/recentPlays";
 import { store } from "../store";
 import { isVideoTrack } from "../utils";
-import { isLocalTrack } from "../queueEntry";
+import { isLocalTrack, type PlaylistTrackRow } from "../queueEntry";
 
 import { useAssignRef } from "./useLatestRef";
 import { coerceSeedCooldown, rememberShownSeeds } from "../utils/radioSeedCooldown";
@@ -48,8 +49,8 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
   { id: "builtin:jump-back-in", title: "Jump back in", description: "Albums and artists you visited recently.", defaultVisible: true },
   { id: "builtin:recently-added", title: "Recently added albums", description: "The newest albums in your library.", defaultVisible: true },
   { id: "builtin:most-played-30d", title: "Most played · 30 days", description: "Your heavy rotation this month.", defaultVisible: true },
-  { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A different era from your collection each refresh.", defaultVisible: true },
-  { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Old favorites you haven’t played in a while.", defaultVisible: true },
+  { id: "builtin:discover-by-decade", title: "Discover by decade", description: "A mix from each era in your collection.", defaultVisible: true },
+  { id: "builtin:forgotten-favorites", title: "Forgotten favorites", description: "Mixes of old favorites you haven’t played in a while.", defaultVisible: true },
   // Shuffled, not alphabetical — a 20-card view of an A→Z list showed the same
   // "A" albums on every refresh. "Recently liked albums" covers the by-date view.
   { id: "builtin:liked-albums", title: "Liked albums", description: "A shuffle through albums you’ve hearted.", defaultVisible: true },
@@ -78,10 +79,98 @@ export const BUILTIN_SHELF_DESCRIPTORS: { id: string; title: string; description
 
 export const DEFAULT_SHELF_ORDER: string[] = BUILTIN_SHELF_DESCRIPTORS.map((d) => d.id);
 
-// Title for the "Discover by decade" shelf once it has drawn its decade. Full
-// four-digit form: "the 00s" / "the 10s" are ambiguous across centuries.
-export function decadeShelfTitle(decade: number): string {
-  return `Discover the ${decade}s`;
+// A forgotten-favorites mix from the backend (`TrackMix` in models.rs),
+// grouped by `tag` (null = the catch-all).
+export interface TrackMix {
+  tag: string | null;
+  tracks: Track[];
+}
+
+// Six forgotten mixes keeps the row to about a screen.
+const FORGOTTEN_MIX_COUNT = 6;
+const MIX_SIZE = 25;
+
+// The Playlists view's auto decade mixes (`auto_playlists.rs`), which the
+// "Discover by decade" shelf shows instead of building decade mixes of its own,
+// so there is one "1990s" mix across the app.
+const AUTO_DECADE_KIND_PREFIX = "auto:decade:";
+
+// The slice of a playlist row (`Playlist` in models.rs) the decade shelf reads.
+export interface DecadePlaylistRow {
+  id: number;
+  name: string;
+  image_path: string | null;
+  track_count: number;
+  system_kind: string | null;
+}
+
+// The auto decade playlists among `rows`, oldest decade first. The kind is
+// `auto:decade:1990s`; its number is the sort key.
+export function decadePlaylists<T extends DecadePlaylistRow>(rows: T[]): T[] {
+  const decadeOf = (p: T) => Number.parseInt((p.system_kind ?? "").slice(AUTO_DECADE_KIND_PREFIX.length), 10);
+  return rows
+    .filter((p) => p.system_kind?.startsWith(AUTO_DECADE_KIND_PREFIX) && Number.isFinite(decadeOf(p)))
+    .sort((a, b) => decadeOf(a) - decadeOf(b));
+}
+// How many "Latest play" cards the shelf shows (and so how many sessions
+// "Jump back in" checks itself against).
+const LATEST_PLAY_LIMIT = 12;
+// Recent plays read to fill "Recently played". Repeats are dropped, so reading
+// exactly 20 left a short shelf for anyone who had looped one album.
+const RECENTLY_PLAYED_SCAN = 200;
+
+// Card names stand alone, because the same name becomes the queue banner once
+// the mix plays — "Jazz" there says nothing about where the tracks came from.
+export function forgottenMixName(tag: string | null): string {
+  return tag ? `Forgotten ${tag}` : "Forgotten favorites mix";
+}
+export function trackCountLabel(n: number): string {
+  return `${n} ${n === 1 ? "track" : "tracks"}`;
+}
+
+// A playlist row's track as a shelf track. `source` is the track's own URI.
+export function playlistShelfTrack(t: PlaylistTrackRow): PluginTrack {
+  return {
+    title: t.title,
+    artist_name: t.artist_name ?? undefined,
+    album_title: t.album_name ?? undefined,
+    duration_secs: t.duration_secs ?? undefined,
+    path: t.source ?? undefined,
+    image_url: t.image_path ?? undefined,
+  };
+}
+
+// A library track as a shelf track: the real path + duration, so the queued
+// entry is first-class (Open Folder, delete-by-path, native playback). No
+// image_url — library art resolves through the entity cache.
+export function libraryShelfTrack(t: Track): PluginTrack {
+  return {
+    title: t.title,
+    artist_name: t.artist_name ?? undefined,
+    album_artist_name: t.album_artist_name ?? undefined,
+    album_title: t.album_title ?? undefined,
+    path: t.path,
+    duration_secs: t.duration_secs ?? undefined,
+  };
+}
+
+// "Jump back in" leaves out an album or artist the user also played, when that
+// play is on the Latest play shelf: opening a card and pressing play put the
+// same entity on both shelves. Matched by name, case-insensitively — both sides
+// are display names already in hand, not a library lookup.
+export function visitAlreadyInLatestPlay(
+  item: { name: string; artistName?: string; entityKind?: "album" | "artist" },
+  sessions: RecentPlaySession[],
+): boolean {
+  const norm = (s: string | null | undefined) => (s ?? "").trim().toLocaleLowerCase();
+  const name = norm(item.name);
+  return sessions.some((s) => {
+    if (norm(s.name) !== name) return false;
+    if (item.entityKind === "artist") return s.source === "artist";
+    if (s.source !== "album") return false;
+    // An album session without an artist (or a card without one) still matches.
+    return !s.artistName || !item.artistName || norm(s.artistName) === norm(item.artistName);
+  });
 }
 
 // One-line description for a built-in shelf id (shown in the shelf header and the
@@ -236,15 +325,46 @@ async function resolveCover(
   albumTitle: string | null | undefined,
   artistName: string | null | undefined,
 ): Promise<string | null> {
+  // A failed lookup only costs the card its cover, so it falls through to the
+  // next candidate — but it is still logged, never swallowed.
+  const lookup = (kind: "album" | "artist", name: string, artist: string | null) =>
+    invoke<string | null>("get_entity_image", { kind, name, artistName: artist }).catch((e) => {
+      console.error(`Failed to look up the ${kind} cover for "${name}":`, e);
+      return null;
+    });
   if (albumTitle) {
-    const a = await invoke<string | null>("get_entity_image", { kind: "album", name: albumTitle, artistName: artistName ?? null }).catch(() => null);
+    const a = await lookup("album", albumTitle, artistName ?? null);
     if (a) return a;
   }
   if (artistName) {
-    const ar = await invoke<string | null>("get_entity_image", { kind: "artist", name: artistName, artistName: null }).catch(() => null);
+    const ar = await lookup("artist", artistName, null);
     if (ar) return ar;
   }
   return null;
+}
+
+// Playlist cards for a list of mixes. Each card ships its full track list, so a
+// click plays at once with the card's name as the queue banner. The cover is the
+// lead track's album (artist fallback) — whatever the shuffle put first.
+export async function mixCards(
+  mixes: TrackMix[],
+  idOf: (m: TrackMix) => string,
+  nameOf: (m: TrackMix) => string,
+  cover: typeof resolveCover = resolveCover,
+): Promise<HomeShelfItem[]> {
+  return Promise.all(mixes.map(async (m) => {
+    const lead = m.tracks[0];
+    const coverUrl = lead
+      ? await cover(lead.album_title, lead.album_artist_name ?? lead.artist_name)
+      : null;
+    return {
+      id: idOf(m),
+      name: nameOf(m),
+      subtitle: trackCountLabel(m.tracks.length),
+      coverUrl: coverUrl ?? undefined,
+      tracks: m.tracks.map(libraryShelfTrack),
+    };
+  }));
 }
 
 // Cover for a "Latest play" tile, in priority order:
@@ -523,7 +643,7 @@ export function useHome(opts: UseHomeOptions) {
   }, []);
 
   const buildBuiltInResolvers = useCallback(
-    (recentlyVisited: RecentlyVisitedEntry[], recentPlays: RecentPlaySession[]): ShelfResolver[] => {
+    (recentlyVisited: RecentlyVisitedEntry[], recentPlays: RecentPlaySession[], latestPlayVisible: boolean): ShelfResolver[] => {
       return [
         {
           id: "builtin:recently-played",
@@ -532,7 +652,7 @@ export function useHome(opts: UseHomeOptions) {
           limit: 20,
           fetch: async (limit) => {
             try {
-              const hist = (await invoke<HistoryEntry[]>("get_history_recent", { limit: 60, resolveAlbums: true })) ?? [];
+              const hist = (await invoke<HistoryEntry[]>("get_history_recent", { limit: RECENTLY_PLAYED_SCAN, resolveAlbums: true })) ?? [];
               const seen = new Set<string>();
               const items: HomeShelfItem[] = [];
               for (const h of hist) {
@@ -565,7 +685,10 @@ export function useHome(opts: UseHomeOptions) {
           fetch: async (limit) => {
             try {
               const sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-              const tracks = (await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit })) ?? [];
+              // At least two plays in the window: with one each, the shelf was
+              // just a reordered "Recently played".
+              const tracks = (await invoke<HistoryMostPlayed[]>("get_history_most_played_since", { sinceTs, limit, minPlays: 2 })) ?? [];
+              if (tracks.length === 0) return { status: "empty" };
               return {
                 status: "ok",
                 items: tracks.map(t => ({
@@ -696,7 +819,11 @@ export function useHome(opts: UseHomeOptions) {
               if (rows.length === 0) return { status: "empty" };
               // Resolve to library albums by name so cards get a play button + detail nav.
               const items = await Promise.all(rows.map(async (r) => {
-                const album = await invoke<Album | null>("find_album_by_name", { title: r.name, artistName: r.artist_name ?? null }).catch(() => null);
+                // A failed lookup still shows the card (it navigates by name).
+                const album = await invoke<Album | null>("find_album_by_name", { title: r.name, artistName: r.artist_name ?? null }).catch((e) => {
+                  console.error(`Failed to resolve liked album "${r.name}":`, e);
+                  return null;
+                });
                 return { libraryId: album?.id, name: r.name, artistName: r.artist_name ?? undefined };
               }));
               return { status: "ok", items };
@@ -715,7 +842,10 @@ export function useHome(opts: UseHomeOptions) {
               const rows = (await invoke<LikedEntityInfo[]>("pick_liked_entities", { kind: "artist", order: "recent", limit })) ?? [];
               if (rows.length === 0) return { status: "empty" };
               const items = await Promise.all(rows.map(async (r) => {
-                const artist = await invoke<Artist | null>("find_artist_by_name", { name: r.name }).catch(() => null);
+                const artist = await invoke<Artist | null>("find_artist_by_name", { name: r.name }).catch((e) => {
+                  console.error(`Failed to resolve liked artist "${r.name}":`, e);
+                  return null;
+                });
                 return { libraryId: artist?.id, name: r.name };
               }));
               return { status: "ok", items };
@@ -785,18 +915,20 @@ export function useHome(opts: UseHomeOptions) {
         {
           id: "builtin:forgotten-favorites",
           title: "Forgotten favorites",
-          displayKind: "track-rows",
-          limit: 20,
+          // Playlists, not single tracks: the backend shuffles the forgotten
+          // pool (weighted by plays) and groups it by tag, plus one catch-all.
+          displayKind: "playlist-cards",
+          limit: FORGOTTEN_MIX_COUNT,
           fetch: async (limit) => {
             try {
-              const tracks = (await invoke<Track[]>("pick_forgotten_favorites", { limit })) ?? [];
-              if (tracks.length === 0) return { status: "empty" };
-              return {
-                status: "ok",
-                items: tracks.map(t => ({
-                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_artist_name: t.album_artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
-                })),
-              };
+              const mixes = (await invoke<TrackMix[]>("pick_forgotten_mixes", { maxMixes: limit, mixSize: MIX_SIZE })) ?? [];
+              if (mixes.length === 0) return { status: "empty" };
+              const items = await mixCards(
+                mixes,
+                (m) => `forgotten:${m.tag ?? "*"}`,
+                (m) => forgottenMixName(m.tag),
+              );
+              return { status: "ok", items };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -813,9 +945,7 @@ export function useHome(opts: UseHomeOptions) {
               if (tracks.length === 0) return { status: "empty" };
               return {
                 status: "ok",
-                items: tracks.map(t => ({
-                  track: { title: t.title, artist_name: t.artist_name ?? undefined, album_artist_name: t.album_artist_name ?? undefined, album_title: t.album_title ?? undefined, path: t.path, duration_secs: t.duration_secs ?? undefined },
-                })),
+                items: tracks.map(t => ({ track: libraryShelfTrack(t) })),
               };
             } catch (e) {
               return { status: "error", message: String(e) };
@@ -825,25 +955,34 @@ export function useHome(opts: UseHomeOptions) {
         {
           id: "builtin:discover-by-decade",
           title: "Discover by decade",
-          displayKind: "album-cards",
-          limit: 20,
+          // The Playlists view's auto decade mixes, oldest first — one "1990s"
+          // mix across the app rather than a second, different one here. They
+          // regenerate on their own 24h cycle (App.tsx, `ensure_auto_playlists`)
+          // and only exist for decades with enough tracks, so a stray reissue's
+          // decade never gets a one-card shelf. Each card ships its full list,
+          // and Latest play snapshots it, so a replay is the mix that was heard.
+          displayKind: "playlist-cards",
+          limit: 10,
           fetch: async (limit) => {
             try {
-              // One decade drawn per refresh, and its albums shuffled — both in
-              // SQL, so this no longer pulls the whole album table across IPC.
-              const picked = await invoke<{ decade: number; albums: Album[] } | null>("pick_decade_albums", { limit });
-              if (!picked || picked.albums.length === 0) return { status: "empty" };
-              return {
-                status: "ok",
-                // Name the decade it drew — a fixed "Discover by decade" left
-                // the user guessing which era the cards came from.
-                title: decadeShelfTitle(picked.decade),
-                items: picked.albums.map((a) => ({
-                  libraryId: a.id,
-                  name: a.title,
-                  artistName: a.artist_name ?? undefined,
-                })),
-              };
+              const rows = (await invoke<DecadePlaylistRow[]>("get_playlists")) ?? [];
+              const decades = decadePlaylists(rows).slice(0, limit);
+              if (decades.length === 0) return { status: "empty" };
+              const items = await Promise.all(decades.map(async (p): Promise<HomeShelfItem | null> => {
+                const rows = (await invoke<PlaylistTrackRow[]>("get_playlist_tracks", { playlistId: p.id })) ?? [];
+                if (rows.length === 0) return null;
+                const lead = rows[0];
+                const coverUrl = p.image_path ?? (await resolveCover(lead.album_name, lead.artist_name));
+                return {
+                  id: `playlist:${p.id}`,
+                  name: p.name,
+                  subtitle: trackCountLabel(rows.length),
+                  coverUrl: coverUrl ?? undefined,
+                  tracks: rows.map(playlistShelfTrack),
+                };
+              }));
+              const cards = items.filter((it): it is HomeShelfItem => it !== null);
+              return cards.length > 0 ? { status: "ok", items: cards } : { status: "empty" };
             } catch (e) {
               return { status: "error", message: String(e) };
             }
@@ -856,17 +995,25 @@ export function useHome(opts: UseHomeOptions) {
           limit: 12,
           fetch: async (limit) => {
             try {
-              const sorted = [...recentlyVisited].sort((a, b) => b.ts - a.ts).slice(0, limit);
-              const items: HomeShelfItem[] = [];
-              for (const v of sorted) {
+              // Every recorded visit (the ring holds 20), looked up in parallel,
+              // so dropping the ones Latest play already shows can still fill
+              // `limit` cards.
+              const sorted = [...recentlyVisited].sort((a, b) => b.ts - a.ts);
+              const resolved = await Promise.all(sorted.map(async (v) => {
                 if (v.kind === "album") {
                   const a = await invoke<Album | null>("get_album_by_id", { albumId: v.id });
-                  if (a) items.push({ libraryId: a.id, name: a.title, artistName: a.artist_name ?? undefined, entityKind: "album" });
-                } else {
-                  const ar = await invoke<Artist | null>("get_artist_by_id", { artistId: v.id });
-                  if (ar) items.push({ libraryId: ar.id, name: ar.name, entityKind: "artist" });
+                  return a ? { libraryId: a.id, name: a.title, artistName: a.artist_name ?? undefined, entityKind: "album" as const } : null;
                 }
-              }
+                const ar = await invoke<Artist | null>("get_artist_by_id", { artistId: v.id });
+                return ar ? { libraryId: ar.id, name: ar.name, entityKind: "artist" as const } : null;
+              }));
+              const shownSessions = latestPlayVisible
+                ? [...recentPlays].sort((a, b) => b.ts - a.ts).slice(0, LATEST_PLAY_LIMIT)
+                : [];
+              const items: HomeShelfItem[] = resolved
+                .filter((it): it is NonNullable<typeof it> => it !== null)
+                .filter((it) => !visitAlreadyInLatestPlay(it, shownSessions))
+                .slice(0, limit);
               return { status: "ok", items };
             } catch (e) {
               return { status: "error", message: String(e) };
@@ -880,7 +1027,7 @@ export function useHome(opts: UseHomeOptions) {
           // and re-resolves each `__session` to a fresh play rather than the empty
           // `tracks` we ship here (we don't snapshot the played tracks).
           displayKind: "playlist-cards",
-          limit: 12,
+          limit: LATEST_PLAY_LIMIT,
           fetch: async (limit) => {
             try {
               const sorted = [...recentPlays].sort((a, b) => b.ts - a.ts).slice(0, limit);
@@ -919,7 +1066,7 @@ export function useHome(opts: UseHomeOptions) {
       const recentlyVisited = (await store.get<RecentlyVisitedEntry[]>("recentlyVisitedEntities")) ?? [];
       const recentPlays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
 
-      const builtIns = buildBuiltInResolvers(recentlyVisited, recentPlays);
+      const builtIns = buildBuiltInResolvers(recentlyVisited, recentPlays, isShelfVisible(LATEST_PLAY_SHELF_ID, visibility));
       const pluginResolvers: ShelfResolver[] = pluginShelves.map(p => ({
         id: shelfKey(p.pluginId, p.shelfId),
         pluginId: p.pluginId,

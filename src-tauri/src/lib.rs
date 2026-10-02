@@ -28,6 +28,7 @@ mod publish_server;
 mod tag_writer;
 mod mixtape;
 mod main_playlist;
+mod recent_plays;
 mod mpv_engine;
 mod timing;
 mod telemetry;
@@ -120,8 +121,7 @@ macro_rules! invoke_handler {
             commands::get_liked_tracks,
             commands::pick_liked_entities,
             commands::pick_never_played_tracks,
-            commands::pick_forgotten_favorites,
-            commands::pick_decade_albums,
+            commands::pick_forgotten_mixes,
             commands::get_track_like_states,
             commands::export_likes,
             commands::import_likes,
@@ -311,6 +311,10 @@ macro_rules! invoke_handler {
             commands::main_playlist_read,
             commands::main_playlist_clear,
             commands::main_playlist_gc,
+            commands::recent_play_write,
+            commands::recent_play_read,
+            commands::recent_play_delete,
+            commands::recent_play_gc,
             commands::main_playlist_set_cover,
             commands::main_playlist_set_thumb,
             commands::main_playlist_set_thumb_from_video,

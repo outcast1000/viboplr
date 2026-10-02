@@ -32,19 +32,11 @@ pub fn get_albums(
         .map_err(|e| e.to_string())
 }
 
-/// One randomly drawn decade and a random handful of its albums — the Home
-/// "Discover by decade" shelf. `None` when no album carries a year.
-#[derive(serde::Serialize)]
-pub struct DecadeAlbums {
-    pub decade: i32,
-    pub albums: Vec<Album>,
-}
-
+/// Forgotten favorites grouped by tag into playlists — the Home "Forgotten
+/// favorites" shelf.
 #[tauri::command]
-pub fn pick_decade_albums(state: State<'_, AppState>, limit: i64) -> Result<Option<DecadeAlbums>, String> {
-    state.db.pick_decade_albums(limit)
-        .map(|picked| picked.map(|(decade, albums)| DecadeAlbums { decade, albums }))
-        .map_err(|e| e.to_string())
+pub fn pick_forgotten_mixes(state: State<'_, AppState>, max_mixes: usize, mix_size: usize) -> Result<Vec<TrackMix>, String> {
+    state.db.pick_forgotten_mixes(max_mixes, mix_size).map_err(|e| e.to_string())
 }
 
 /// ReplayGain values for the track at `path` (parsed from its `extra_tags` JSON).
@@ -719,12 +711,6 @@ pub fn pick_liked_entities(
 #[tauri::command]
 pub fn pick_never_played_tracks(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
     state.db.pick_never_played_tracks(limit).map_err(|e| e.to_string())
-}
-
-/// Often-played tracks not heard recently — for the Home "Forgotten favorites" shelf.
-#[tauri::command]
-pub fn pick_forgotten_favorites(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
-    state.db.pick_forgotten_favorites(limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

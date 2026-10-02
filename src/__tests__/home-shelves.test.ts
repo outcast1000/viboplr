@@ -7,10 +7,17 @@ import {
   resolveSessionCover,
   RADIO_SHELF_ID,
   BUILTIN_SHELF_DESCRIPTORS,
-  decadeShelfTitle,
   dropRetiredBuiltInShelves,
+  forgottenMixName,
+  trackCountLabel,
+  decadePlaylists,
+  playlistShelfTrack,
+  mixCards,
+  visitAlreadyInLatestPlay,
   type ShelfResolver,
+  type TrackMix,
 } from "../hooks/useHome";
+import type { Track } from "../types";
 import type { RecentPlaySession } from "../utils/recentPlays";
 
 function makeResolver(name: string, fn: () => Promise<unknown>): ShelfResolver {
@@ -39,10 +46,10 @@ describe("resolveShelves", () => {
   });
 
   it("lets a resolver retitle its shelf per fetch, else keeps the registered title", async () => {
-    const retitled = makeResolver("decade", async () => ({ status: "ok", title: decadeShelfTitle(1990), items: [{ libraryId: 1, name: "x" }] }));
+    const retitled = makeResolver("retitled", async () => ({ status: "ok", title: "Fetched title", items: [{ libraryId: 1, name: "x" }] }));
     const plain = makeResolver("plain", async () => ({ status: "ok", items: [{ libraryId: 2, name: "y" }] }));
     const result = await resolveShelves([retitled, plain], { timeoutMs: 50 });
-    expect(result.map(r => r.title)).toEqual(["Discover the 1990s", "plain"]);
+    expect(result.map(r => r.title)).toEqual(["Fetched title", "plain"]);
   });
 });
 
@@ -70,8 +77,91 @@ describe("default shelf set", () => {
     expect(dropRetiredBuiltInShelves(snap).map((s) => s.id)).toEqual(["builtin:liked-albums", "spotify:discover"]);
   });
 
-  it("names the decade with all four digits", () => {
-    expect(decadeShelfTitle(2000)).toBe("Discover the 2000s");
+});
+
+function libTrack(id: number, over: Partial<Track> = {}): Track {
+  return {
+    id, path: `file:///m/${id}.flac`, title: `T${id}`, artist_id: 1, artist_name: "Artist", album_id: 1,
+    album_title: "Album", year: 1994, track_number: id, duration_secs: 200, format: "flac", file_size: 1,
+    collection_id: 1, collection_name: "Music", liked: 0, added_at: 0, modified_at: 0, album_artist_name: null,
+    ...over,
+  } as Track;
+}
+
+describe("mix shelves", () => {
+  it("names mixes so the queue banner stands alone", () => {
+    expect(forgottenMixName("Jazz")).toBe("Forgotten Jazz");
+    expect(forgottenMixName(null)).toBe("Forgotten favorites mix");
+  });
+
+  it("counts tracks in the singular and plural", () => {
+    expect(trackCountLabel(1)).toBe("1 track");
+    expect(trackCountLabel(25)).toBe("25 tracks");
+  });
+
+  it("turns mixes into playable cards carrying every track and the lead's album cover", async () => {
+    const mix: TrackMix = {
+      tag: "Jazz",
+      tracks: [libTrack(1, { album_title: "Kind of Blue", album_artist_name: "Miles Davis" }), libTrack(2)],
+    };
+    const cover = vi.fn(async (album: string | null | undefined, artist: string | null | undefined) =>
+      album === "Kind of Blue" && artist === "Miles Davis" ? "/covers/kob.jpg" : null);
+    const [card] = await mixCards([mix], (m) => `forgotten:${m.tag}`, (m) => forgottenMixName(m.tag), cover);
+    const c = card as { id: string; name: string; coverUrl?: string; tracks: Array<{ path?: string | null; title: string }> };
+    expect(c.id).toBe("forgotten:Jazz");
+    expect(c.name).toBe("Forgotten Jazz");
+    expect(c.coverUrl).toBe("/covers/kob.jpg");
+    // Real library paths travel with the card, so it plays without a lookup.
+    expect(c.tracks.map((t) => t.path)).toEqual(["file:///m/1.flac", "file:///m/2.flac"]);
+  });
+});
+
+describe("Discover by decade reads the Playlists view's decade mixes", () => {
+  const row = (id: number, name: string, system_kind: string | null) =>
+    ({ id, name, image_path: null, track_count: 30, system_kind });
+
+  it("keeps only auto decade playlists, oldest first", () => {
+    const rows = [
+      row(1, "2000s", "auto:decade:2000s"),
+      row(2, "Rock Mix", "auto:genre:rock"),
+      row(3, "1970s", "auto:decade:1970s"),
+      row(4, "My 1990s", null),
+      row(5, "1990s", "auto:decade:1990s"),
+    ];
+    expect(decadePlaylists(rows).map((p) => p.name)).toEqual(["1970s", "1990s", "2000s"]);
+  });
+
+  it("ignores a decade kind it can't read a year from", () => {
+    expect(decadePlaylists([row(1, "?", "auto:decade:")])).toEqual([]);
+  });
+
+  it("plays a playlist row from its own source URI", () => {
+    expect(playlistShelfTrack({
+      title: "T", artist_name: "A", album_name: "Al", duration_secs: 200, source: "file:///m/t.flac", image_path: null,
+    })).toEqual({ title: "T", artist_name: "A", album_title: "Al", duration_secs: 200, path: "file:///m/t.flac", image_url: undefined });
+  });
+});
+
+describe("visitAlreadyInLatestPlay", () => {
+  const session = (over: Partial<RecentPlaySession>): RecentPlaySession =>
+    ({ source: "album", name: "Blue", artistName: "Joni Mitchell", imagePath: null, track: null, ts: 1, ...over } as RecentPlaySession);
+
+  it("drops an album the user also played, case-insensitively", () => {
+    expect(visitAlreadyInLatestPlay({ name: "blue", artistName: "joni mitchell", entityKind: "album" }, [session({})])).toBe(true);
+  });
+
+  it("keeps a same-named album by another artist", () => {
+    expect(visitAlreadyInLatestPlay({ name: "Blue", artistName: "Weezer", entityKind: "album" }, [session({})])).toBe(false);
+  });
+
+  it("matches artists only against artist sessions", () => {
+    const artistSession = session({ source: "artist", name: "Björk", artistName: undefined });
+    expect(visitAlreadyInLatestPlay({ name: "Björk", entityKind: "artist" }, [artistSession])).toBe(true);
+    expect(visitAlreadyInLatestPlay({ name: "Björk", entityKind: "artist" }, [session({ name: "Björk" })])).toBe(false);
+  });
+
+  it("never matches a playlist or radio session", () => {
+    expect(visitAlreadyInLatestPlay({ name: "Blue", entityKind: "album" }, [session({ source: "playlist" })])).toBe(false);
   });
 });
 

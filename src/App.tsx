@@ -24,10 +24,10 @@ import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from ".
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
 import { subscribeTrackEvents } from "./trackEvents";
 import { track as trackTelemetry, setTelemetryEnabled as syncTelemetryEnabled, bucketCount, sourceClass } from "./telemetry";
-import { tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest, type MainPlaylistState } from "./mainPlaylist";
+import { buildManifest, tracksFromManifest, contextFromManifest, contextToExportMetadata, contextFromMixtapeMetadata, playlistContextTitle, type Manifest, type MainPlaylistState } from "./mainPlaylist";
 import { recordVisit, type RecentlyVisitedEntry } from "./utils/recentlyVisited";
 import { collectionAlert } from "./utils/collectionAlert";
-import { buildPlaySession, recordPlaySession, type RecentPlaySession } from "./utils/recentPlays";
+import { buildPlaySession, recordPlaySession, snapshotFor, newSnapshotId, snapshotIdsOf, droppedSnapshotIds, replaysFromSnapshot, type RecentPlaySession } from "./utils/recentPlays";
 import { resolveImageUrl, resolveImageSrc, stripImageVersion } from "./utils/resolveImageUrl";
 import { resolveNowPlayingArt } from "./utils/nowPlayingArt";
 import { pickEntityImagePath } from "./utils/trackImage";
@@ -288,6 +288,10 @@ function App() {
   // "Latest play" ring buffer (things that replaced the queue). Mirrors
   // recentlyVisitedRef: loaded from the store on mount, written on each play.
   const recentPlaysRef = useRef<RecentPlaySession[]>([]);
+  // Serializes Latest play recording. A snapshot write takes a moment (it may
+  // resize a cover), so without a queue a quick second play could record
+  // before the first and the shelf would show them out of order.
+  const recentPlaysChainRef = useRef<Promise<void>>(Promise.resolve());
   const contentRef = useRef<HTMLDivElement>(null);
   const getScrollEl = useCallback(() => {
     const el = contentRef.current;
@@ -621,9 +625,38 @@ function App() {
     }
     const session = buildPlaySession(tracks, startIndex, context, Date.now());
     if (!session) return;
-    const next = recordPlaySession(recentPlaysRef.current, session);
-    recentPlaysRef.current = next;
-    store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
+    // Record, then delete the snapshot files of sessions that just left the
+    // ring (evicted, or replaced by this newer play of the same thing).
+    const record = (s: RecentPlaySession) => {
+      const prev = recentPlaysRef.current;
+      const next = recordPlaySession(prev, s);
+      recentPlaysRef.current = next;
+      store.set("recentPlaySessions", next).catch((e) => console.error("Failed to persist recentPlaySessions:", e));
+      const dropped = droppedSnapshotIds(prev, next);
+      if (dropped.length > 0) {
+        invoke("recent_play_delete", { ids: dropped }).catch((e) => console.error("Failed to delete old Latest play snapshots:", e));
+      }
+    };
+    // Plays that can't be rebuilt by name keep their tracks in a snapshot. The
+    // file is written before the session that names it is recorded, so a crash
+    // in between leaves only an orphan, which the startup sweep removes.
+    const snap = snapshotFor(tracks, startIndex, session.source);
+    recentPlaysChainRef.current = recentPlaysChainRef.current.then(async () => {
+      if (!snap) { record(session); return; }
+      const snapshotId = newSnapshotId(Date.now());
+      try {
+        await invoke("recent_play_write", {
+          id: snapshotId,
+          manifest: buildManifest(snap.tracks, context),
+          cover: context?.imagePath ?? null,
+        });
+        record({ ...session, snapshotId, startIndex: snap.startIndex });
+      } catch (e) {
+        // Without a snapshot the session still replays the way it used to.
+        console.error("Failed to snapshot latest play:", e);
+        record(session);
+      }
+    });
   }, () => audiblePlayingTrackRef.current, () => backfillAbandonedRef.current());
   const autoContinue = useAutoContinue(restoredRef);
   const zoom = useUiZoom();
@@ -2239,6 +2272,32 @@ function App() {
   // radio regenerates a new station, and a lone/unresolved track replays itself.
   const handleReplayLatestPlay = useCallback(async (session: RecentPlaySession) => {
     try {
+      // Radio, mixes, playlists and selections replay exactly what was heard,
+      // from the session's snapshot. A missing or unreadable snapshot falls
+      // through to the rebuild-or-lead-track paths below.
+      if (replaysFromSnapshot(session) && session.snapshotId) {
+        try {
+          const manifest = await invoke<Manifest>("recent_play_read", { id: session.snapshotId });
+          let tracks = tracksFromManifest(manifest);
+          if (tracks.length > 0) {
+            try {
+              const byId = await fetchLikeStates(tracks);
+              tracks = tracks.map((t) => applyLikeState(t, byId));
+            } catch (e) {
+              console.error("Failed to reconcile Latest play like states:", e);
+            }
+            const saved = contextFromManifest(manifest, null);
+            // A context-less selection was recorded without one; keep it that way.
+            const ctx = saved || session.source === "radio"
+              ? { ...(saved ?? {}), name: session.name, imagePath: session.imagePath ?? null, source: saved?.source ?? session.source }
+              : null;
+            queueHook.playTracks(tracks, Math.min(session.startIndex ?? 0, tracks.length - 1), ctx);
+            return;
+          }
+        } catch (e) {
+          console.error(`Failed to read the Latest play snapshot for "${session.name}":`, e);
+        }
+      }
       if (session.source === "album") {
         const a = await invoke<Album | null>("find_album_by_name", { title: session.name, artistName: session.artistName ?? null });
         if (a) { playActions.playAlbum(a.id); return; }
@@ -3363,6 +3422,12 @@ function App() {
       recentlyVisitedRef.current = stored;
       const plays = (await store.get<RecentPlaySession[]>("recentPlaySessions")) ?? [];
       recentPlaysRef.current = plays;
+      // Sweep snapshot files no session names: crash orphans, a reset store.
+      // Plays only record after restore, which lands well after this mount-time
+      // read, so the list here is the whole set still in use.
+      invoke<number>("recent_play_gc", { keep: snapshotIdsOf(plays) })
+        .then((n) => { if (n > 0) console.debug(`Removed ${n} orphaned Latest play snapshot(s)`); })
+        .catch((e) => console.error("Failed to clean up Latest play snapshots:", e));
     })();
   }, []);
 

@@ -8,6 +8,21 @@ use crate::db::likes::norm_segment;
 // media_type_clause) live in db/mod.rs, shared by every surface that splits
 // audio from video; the pinning test stays below.
 
+/// Forgotten favorites: a track needs at least this many plays to count as a
+/// favourite, and no play in the last `FORGOTTEN_QUIET_DAYS`.
+pub(crate) const FORGOTTEN_MIN_PLAYS: i64 = 2;
+pub(crate) const FORGOTTEN_QUIET_DAYS: i64 = 30;
+/// Play-count weight ceiling for the forgotten-favorites shuffle. Uncapped, a
+/// 300-play track would be 150× a 2-play one and lead every draw; capped, the
+/// heavy favourites are favoured without crowding the rest out.
+pub(crate) const FORGOTTEN_WEIGHT_CAP: i64 = 20;
+
+/// The identity of a song across library copies: normalized title + artist —
+/// the same identity history and likes key on.
+pub(crate) fn song_key(t: &Track) -> (String, String) {
+    (norm_segment(Some(&t.title)), norm_segment(t.artist_name.as_deref()))
+}
+
 /// Radio-seed pools (see `pick_radio_seeds`). A row of `count` seeds is split
 /// into a **familiar** quota (liked, or played within the window) and a
 /// **discovery** quota (never played, not liked), each drawn as a weighted
@@ -687,9 +702,14 @@ impl Database {
         rows.collect()
     }
 
-    /// Library tracks that have never been played (no matching history play),
-    /// randomly sampled. History is name-based, so a track counts as played only
-    /// when a history_track for its canonical artist+title has plays.
+    /// Library tracks that have never been played, randomly sampled; never a
+    /// disliked track. History is name-based, so a track counts as played when
+    /// a history_track for its canonical artist+title has plays.
+    ///
+    /// Reads the denormalized `history_tracks.play_count` through the two
+    /// unique indexes (`history_artists.canonical_name`, `(history_artist_id,
+    /// canonical_title)`) — one probe pair per track, never the plays table.
+    /// The previous shape joined every play row and grouped the whole library.
     pub fn pick_never_played_tracks(&self, limit: u32) -> SqlResult<Vec<Track>> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -697,13 +717,13 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let sql = format!(
             "{} \
-             LEFT JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
-             LEFT JOIN history_tracks ht ON ht.history_artist_id = ha.id \
-                  AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
-             LEFT JOIN history_plays hp ON hp.history_track_id = ht.id \
-             WHERE 1=1 {} \
-             GROUP BY t.id \
-             HAVING COUNT(hp.id) = 0 \
+             WHERE t.liked != -1 {} \
+               AND NOT EXISTS ( \
+                 SELECT 1 FROM history_artists ha \
+                 JOIN history_tracks ht ON ht.history_artist_id = ha.id \
+                 WHERE ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
+                   AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
+                   AND ht.play_count > 0) \
              ORDER BY RANDOM() \
              LIMIT ?1",
             TRACK_SELECT, ENABLED_COLLECTION_FILTER
@@ -713,8 +733,17 @@ impl Database {
         rows.collect()
     }
 
-    /// Tracks played repeatedly in the past but not heard in the last 30 days,
-    /// ranked by total play count — the Home "Forgotten favorites" shelf.
+    /// Tracks played at least `FORGOTTEN_MIN_PLAYS` times but not in the last
+    /// 30 days — the pool behind the Home "Forgotten favorites" mixes. A
+    /// weighted shuffle (weight = plays, capped at `FORGOTTEN_WEIGHT_CAP`), so
+    /// the heaviest favourites lead more often without freezing the order: a
+    /// ranking by play count showed the same tracks every day until one was
+    /// played. Never a disliked track; one row per song (the first library copy
+    /// drawn), so a song held in two collections can't appear twice.
+    ///
+    /// Driven from `history_tracks` (its denormalized `play_count` /
+    /// `last_played_at`), probing the library through `idx_tracks_title_norm`,
+    /// instead of joining every play row against every library track.
     pub fn pick_forgotten_favorites(&self, limit: u32) -> SqlResult<Vec<Track>> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -724,23 +753,46 @@ impl Database {
             let s: String = row.get(0)?;
             Ok(s.parse::<i64>().unwrap_or(0))
         })?;
-        let cutoff = now_ts - 30 * 24 * 60 * 60;
+        let cutoff = now_ts - FORGOTTEN_QUIET_DAYS * 24 * 60 * 60;
+        // CROSS JOIN pins history_tracks as the outer loop — the forgotten set
+        // is a small slice of history, and the inner side is an index probe.
         let sql = format!(
-            "{} \
-             LEFT JOIN history_artists ha ON ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
-             LEFT JOIN history_tracks ht ON ht.history_artist_id = ha.id \
-                  AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) \
-             LEFT JOIN history_plays hp ON hp.history_track_id = ht.id \
-             WHERE 1=1 {} \
-             GROUP BY t.id \
-             HAVING COUNT(hp.id) >= 2 AND MAX(hp.played_at) < ?1 \
-             ORDER BY COUNT(hp.id) DESC \
-             LIMIT ?2",
-            TRACK_SELECT, ENABLED_COLLECTION_FILTER
+            "{select} \
+             WHERE t.liked != -1 {enabled} \
+               AND t.id IN ( \
+                 SELECT t2.id FROM history_tracks ht \
+                 JOIN history_artists ha ON ha.id = ht.history_artist_id \
+                 CROSS JOIN tracks t2 \
+                 LEFT JOIN artists ar2 ON ar2.id = t2.artist_id \
+                 WHERE ht.play_count >= ?2 AND ht.last_played_at < ?1 \
+                   AND strip_diacritics(unicode_lower(t2.title)) = +ht.canonical_title \
+                   AND strip_diacritics(unicode_lower(COALESCE(ar2.name, ''))) = ha.canonical_name) \
+             ORDER BY weighted_sample_key(RANDOM(), MIN({cap}, ( \
+                 SELECT ht.play_count FROM history_artists ha \
+                 JOIN history_tracks ht ON ht.history_artist_id = ha.id \
+                 WHERE ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
+                   AND ht.canonical_title = strip_diacritics(unicode_lower(t.title))))) \
+             LIMIT ?3",
+            select = TRACK_SELECT,
+            enabled = ENABLED_COLLECTION_FILTER,
+            cap = FORGOTTEN_WEIGHT_CAP,
         );
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![cutoff, limit], |row| track_from_row(row))?;
-        rows.collect()
+        // Over-fetch a little so dropping duplicate copies still fills `limit`.
+        let rows = stmt.query_map(params![cutoff, FORGOTTEN_MIN_PLAYS, limit * 2], |row| track_from_row(row))?;
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        let mut out = Vec::with_capacity(limit as usize);
+        for t in rows {
+            let t = t?;
+            if !seen.insert(song_key(&t)) {
+                continue;
+            }
+            out.push(t);
+            if out.len() >= limit as usize {
+                break;
+            }
+        }
+        Ok(out)
     }
 
     // --- Decoupled history ---
@@ -1042,7 +1094,11 @@ impl Database {
         Ok(tracks)
     }
 
-    pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
+    /// Tracks ranked by plays since `since_ts`. `min_plays` drops tracks played
+    /// fewer times in the window: the Home "Most played · 30 days" shelf passes
+    /// 2, because with a light listener every track has one play and the shelf
+    /// degrades into a reordered "Recently played". The History view passes 1.
+    pub fn get_history_most_played_since(&self, since_ts: i64, limit: i64, min_plays: i64) -> SqlResult<Vec<HistoryMostPlayed>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, cnt, display_title, display_name, rank FROM ( \
@@ -1053,9 +1109,10 @@ impl Database {
                JOIN history_artists ha ON ha.id = ht.history_artist_id \
                WHERE hp.played_at >= ?1 \
                GROUP BY ht.id \
+               HAVING COUNT(*) >= ?3 \
              ) ORDER BY cnt DESC LIMIT ?2"
         )?;
-        let rows = stmt.query_map(params![since_ts, limit], |row| {
+        let rows = stmt.query_map(params![since_ts, limit, min_plays.max(1)], |row| {
             Ok(HistoryMostPlayed {
                 history_track_id: row.get(0)?,
                 play_count: row.get(1)?,

@@ -313,6 +313,7 @@ pub mod control_query;
 mod history;
 mod image_failures;
 pub mod likes;
+mod mixes;
 mod playlists;
 mod plugin_storage;
 mod providers;

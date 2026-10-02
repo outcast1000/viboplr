@@ -8,6 +8,7 @@ use super::*;
 use crate::db::collections::TagMode;
 use crate::db::history::{radio_seed_quotas, RadioSeedPool};
 use crate::models::FieldUpdate;
+use std::collections::HashMap;
 
 fn test_db() -> Database {
     Database::new_in_memory().expect("Failed to create in-memory database")
@@ -952,7 +953,7 @@ fn test_history_most_played_and_search_resolve_albums() {
 
     for rows in [
         db.get_history_most_played(10).unwrap(),
-        db.get_history_most_played_since(0, 10).unwrap(),
+        db.get_history_most_played_since(0, 10, 1).unwrap(),
         db.search_history_tracks("song", 10).unwrap(),
     ] {
         let r = rows.iter().find(|r| r.display_title == "Song A").expect("Song A in history");
@@ -2499,7 +2500,7 @@ fn test_history_most_played_since() {
     }
 
     // Since timestamp 5000 — only "New Song" plays should count
-    let results = db.get_history_most_played_since(5000, 10).unwrap();
+    let results = db.get_history_most_played_since(5000, 10, 1).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].display_title, "New Song");
     assert_eq!(results[0].play_count, 2);
@@ -2663,7 +2664,9 @@ fn seed_bench_db(db: &Database, num_artists: usize, num_albums: usize, num_track
         }
 
         conn.execute_batch(
-            "UPDATE history_tracks SET play_count = (SELECT COUNT(*) FROM history_plays WHERE history_track_id = history_tracks.id); \
+            "UPDATE history_tracks SET play_count = (SELECT COUNT(*) FROM history_plays WHERE history_track_id = history_tracks.id), \
+                first_played_at = (SELECT MIN(played_at) FROM history_plays WHERE history_track_id = history_tracks.id), \
+                last_played_at = (SELECT MAX(played_at) FROM history_plays WHERE history_track_id = history_tracks.id); \
              UPDATE history_artists SET play_count = (SELECT COALESCE(SUM(ht.play_count), 0) FROM history_tracks ht WHERE ht.history_artist_id = history_artists.id);"
         ).unwrap();
     }
@@ -3146,7 +3149,7 @@ fn bench_search_performance() {
     }));
 
     results.push(bench("get_history_most_played_since(50)", 50, || {
-        let _ = db.get_history_most_played_since(1700050000, 50).unwrap();
+        let _ = db.get_history_most_played_since(1700050000, 50, 1).unwrap();
     }));
 
     results.push(bench("search_history_tracks(\"track\")", 50, || {
@@ -3641,24 +3644,7 @@ fn test_pick_forgotten_favorites() {
     db.upsert_track("file://old.mp3", "OldFave", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
     let recent = db.upsert_track("file://recent.mp3", "RecentFave", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
 
-    // Seed an old favorite directly: 3 plays, all > 30 days ago.
-    {
-        let conn = db.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count) VALUES ('a','A',0,0,0)",
-            [],
-        ).unwrap();
-        let ha: i64 = conn.query_row("SELECT id FROM history_artists WHERE canonical_name='a'", [], |r| r.get(0)).unwrap();
-        conn.execute(
-            "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count) VALUES (?1,'oldfave','OldFave',0,0,0)",
-            params![ha],
-        ).unwrap();
-        let ht: i64 = conn.query_row("SELECT id FROM history_tracks WHERE canonical_title='oldfave'", [], |r| r.get(0)).unwrap();
-        let old_ts: i64 = conn.query_row("SELECT strftime('%s','now') - 200*24*60*60", [], |r| r.get(0)).unwrap();
-        for _ in 0..3 {
-            conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, ?2)", params![ht, old_ts]).unwrap();
-        }
-    }
+    seed_old_plays(&db, "A", "OldFave", 3, 200);
     // The recently-played favorite must be excluded (played just now, several times).
     db.record_history_play(recent).unwrap();
     db.record_history_play(recent).unwrap();
@@ -3669,35 +3655,144 @@ fn test_pick_forgotten_favorites() {
     assert!(!titles.contains(&"RecentFave"), "recently played track must be excluded");
 }
 
-/// Home "Discover by decade": one decade, only that decade's albums, capped at
-/// `limit`, and albums without a year (or without tracks) never drawn.
+/// Record `plays` plays of artist/title `days_ago`, through the same import path
+/// the Last.fm import uses, so the denormalized counters are what production
+/// keeps (the forgotten/never-played picks read those, not the plays table).
+fn seed_old_plays(db: &Database, artist: &str, title: &str, plays: usize, days_ago: i64) {
+    let ts: i64 = {
+        let conn = db.conn.lock().unwrap();
+        conn.query_row("SELECT strftime('%s','now') - ?1 * 24*60*60", params![days_ago], |r| r.get(0)).unwrap()
+    };
+    let conn = db.conn.lock().unwrap();
+    let canon_artist = strip_diacritics(&artist.to_lowercase());
+    let canon_title = strip_diacritics(&title.to_lowercase());
+    conn.execute(
+        "INSERT INTO history_artists (canonical_name, display_name, first_played_at, last_played_at, play_count) \
+         VALUES (?1, ?2, ?3, ?3, ?4) \
+         ON CONFLICT(canonical_name) DO UPDATE SET play_count = play_count + ?4",
+        params![canon_artist, artist, ts, plays as i64],
+    ).unwrap();
+    let ha: i64 = conn.query_row("SELECT id FROM history_artists WHERE canonical_name = ?1", params![canon_artist], |r| r.get(0)).unwrap();
+    conn.execute(
+        "INSERT INTO history_tracks (history_artist_id, canonical_title, display_title, first_played_at, last_played_at, play_count) \
+         VALUES (?1, ?2, ?3, ?4, ?4, ?5)",
+        params![ha, canon_title, title, ts, plays as i64],
+    ).unwrap();
+    let ht = conn.last_insert_rowid();
+    for _ in 0..plays {
+        conn.execute("INSERT INTO history_plays (history_track_id, played_at) VALUES (?1, ?2)", params![ht, ts]).unwrap();
+    }
+}
+
 #[test]
-fn test_pick_decade_albums() {
+fn test_forgotten_and_never_played_exclude_disliked_tracks() {
     let db = test_db();
     let cid = test_collection(&db);
     let aid = db.get_or_create_artist("A").unwrap();
-    assert!(db.pick_decade_albums(10).unwrap().is_none(), "empty library has no decade");
-
-    let years = [Some(1991), Some(1995), Some(1999), Some(2003), None];
-    for (i, year) in years.iter().enumerate() {
-        let alb = db.get_or_create_album(&format!("Album {}", i), Some(aid), *year).unwrap();
-        db.upsert_track(&format!("file://t{}.mp3", i), &format!("T{}", i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), *year).unwrap();
+    let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+    let fave = db.upsert_track("file://f.mp3", "Fave", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    let fresh = db.upsert_track("file://n.mp3", "Fresh", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    seed_old_plays(&db, "A", "Fave", 5, 100);
+    assert_eq!(db.pick_forgotten_favorites(10).unwrap().len(), 1);
+    assert_eq!(db.pick_never_played_tracks(10).unwrap().len(), 1);
+    {
+        let conn = db.conn.lock().unwrap();
+        conn.execute("UPDATE tracks SET liked = -1 WHERE id IN (?1, ?2)", params![fave, fresh]).unwrap();
     }
-    // An album with a year but no tracks must not make its decade drawable.
-    db.get_or_create_album("Empty", Some(aid), Some(1975)).unwrap();
+    assert!(db.pick_forgotten_favorites(10).unwrap().is_empty(), "a disliked track is not a favourite");
+    assert!(db.pick_never_played_tracks(10).unwrap().is_empty(), "a disliked track is not a discovery");
+}
+
+/// The forgotten pool is a weighted shuffle, not a fixed ranking: across draws
+/// the leading track changes, and the heavy favourite leads most often.
+#[test]
+fn test_pick_forgotten_favorites_is_a_weighted_shuffle() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid = db.get_or_create_artist("A").unwrap();
+    let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+    for (title, plays) in [("Heavy", 20), ("Light1", 2), ("Light2", 2), ("Light3", 2)] {
+        db.upsert_track(&format!("file://{title}.mp3"), title, Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        seed_old_plays(&db, "A", title, plays, 90);
+    }
+    let mut leads: HashMap<String, usize> = HashMap::new();
+    for _ in 0..200 {
+        let picked = db.pick_forgotten_favorites(4).unwrap();
+        assert_eq!(picked.len(), 4);
+        *leads.entry(picked[0].title.clone()).or_default() += 1;
+    }
+    assert!(leads.len() > 1, "the same track led every draw: {leads:?}");
+    // Heavy weighs 20 against 3×2: it should lead roughly 20/26 of the time.
+    assert!(leads.get("Heavy").copied().unwrap_or(0) > 100, "heavy favourite under-weighted: {leads:?}");
+}
+
+/// A song held in two collections is one forgotten favourite, not two.
+#[test]
+fn test_pick_forgotten_favorites_dedupes_library_copies() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let aid = db.get_or_create_artist("A").unwrap();
+    let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+    db.upsert_track("file://copy1.mp3", "Song", Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+    db.upsert_track("file://copy2.flac", "Song", Some(aid), Some(alb), None, Some(180.0), Some("flac"), Some(1024), None, Some(cid), None).unwrap();
+    seed_old_plays(&db, "A", "Song", 4, 60);
+    assert_eq!(db.pick_forgotten_favorites(10).unwrap().len(), 1);
+}
+
+#[test]
+fn test_pick_forgotten_mixes_groups_by_tag() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let jazz = db.get_or_create_tag("Jazz").unwrap();
+    let rock = db.get_or_create_tag("Rock").unwrap();
+    for i in 0..14 {
+        let artist = format!("Artist {i}");
+        let aid = db.get_or_create_artist(&artist).unwrap();
+        let alb = db.get_or_create_album("Album", Some(aid), None).unwrap();
+        let title = format!("Song {i}");
+        let tid = db.upsert_track(&format!("file://s{i}.mp3"), &title, Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
+        db.add_track_tag(tid, if i < 8 { jazz } else { rock }).unwrap();
+        seed_old_plays(&db, &artist, &title, 3, 45);
+    }
     db.recompute_counts().unwrap();
+    let mixes = db.pick_forgotten_mixes(4, 20).unwrap();
+    let tags: Vec<Option<&str>> = mixes.iter().map(|m| m.tag.as_deref()).collect();
+    assert_eq!(tags, vec![Some("Jazz"), Some("Rock")]);
+    assert_eq!(mixes[0].tracks.len(), 8);
+    assert_eq!(mixes[1].tracks.len(), 6);
+}
 
-    for _ in 0..20 {
-        let (decade, albums) = db.pick_decade_albums(10).unwrap().expect("a decade");
-        assert!(decade == 1990 || decade == 2000, "unexpected decade {}", decade);
-        assert!(!albums.is_empty());
-        for a in &albums {
-            let y = a.year.expect("drawn albums carry a year");
-            assert_eq!((y / 10) * 10, decade, "{} is outside the {}s", a.title, decade);
-        }
-    }
-    let (_, capped) = db.pick_decade_albums(2).unwrap().unwrap();
-    assert!(capped.len() <= 2);
+/// Pins the query plans the Home picks' speed depends on, rather than timing
+/// them (timing assertions flake — see backend.md): the never-played probe reads
+/// history through the two unique indexes and never the plays table, and the
+/// forgotten pool is driven from history_tracks, probing the title index.
+/// `bench_home_shelf_picks` measures the result.
+#[test]
+fn test_home_picks_use_history_indexes() {
+    let db = test_db();
+    let conn = db.conn.lock().unwrap();
+    let plan = |sql: &str| -> String {
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let rows = stmt.query_map([], |r| r.get::<_, String>(3)).unwrap();
+        rows.map(|r| r.unwrap()).collect::<Vec<_>>().join("\n")
+    };
+    let never = plan(
+        "SELECT t.id FROM tracks t LEFT JOIN artists ar ON ar.id = t.artist_id WHERE NOT EXISTS ( \
+           SELECT 1 FROM history_artists ha JOIN history_tracks ht ON ht.history_artist_id = ha.id \
+           WHERE ha.canonical_name = strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) \
+             AND ht.canonical_title = strip_diacritics(unicode_lower(t.title)) AND ht.play_count > 0)",
+    );
+    assert!(!never.contains("history_plays"), "never-played must not touch the plays table:\n{never}");
+    assert!(never.contains("sqlite_autoindex_history_artists"), "{never}");
+    assert!(never.contains("sqlite_autoindex_history_tracks"), "{never}");
+    let forgotten = plan(
+        "SELECT t2.id FROM history_tracks ht JOIN history_artists ha ON ha.id = ht.history_artist_id \
+         CROSS JOIN tracks t2 LEFT JOIN artists ar2 ON ar2.id = t2.artist_id \
+         WHERE ht.play_count >= 2 AND ht.last_played_at < 0 \
+           AND strip_diacritics(unicode_lower(t2.title)) = +ht.canonical_title \
+           AND strip_diacritics(unicode_lower(COALESCE(ar2.name, ''))) = ha.canonical_name",
+    );
+    assert!(forgotten.contains("idx_tracks_title_norm"), "forgotten pool must probe the title index:\n{forgotten}");
 }
 
 /// `sort: "random"` on the album and artist lists (Home "Liked albums" /
@@ -4375,5 +4470,24 @@ fn bench_album_added_sort() {
         let start = std::time::Instant::now();
         seed_bench_db(&fresh, 2000, 4000, 20000, 0);
         println!("{:<30} {:>8.1} ms", label, start.elapsed().as_secs_f64() * 1000.0);
+    }
+}
+
+/// Home shelf picks against the bench library (20k tracks, 100k plays). Run with
+/// `cargo test bench_home_shelf_picks -- --ignored --nocapture`. Every Home
+/// shelf has a 5s budget and they all run at once, so these must stay far below it.
+#[test]
+#[ignore]
+fn bench_home_shelf_picks() {
+    let db = test_db();
+    seed_bench_db(&db, 2000, 4000, 20000, 100000);
+    let results = vec![
+        bench("pick_never_played_tracks(20)", 10, || { let _ = db.pick_never_played_tracks(20).unwrap(); }),
+        bench("pick_forgotten_favorites(20)", 10, || { let _ = db.pick_forgotten_favorites(20).unwrap(); }),
+        bench("pick_forgotten_mixes(6, 20)", 10, || { let _ = db.pick_forgotten_mixes(6, 20).unwrap(); }),
+        bench("get_history_most_played_since(0, 20)", 10, || { let _ = db.get_history_most_played_since(0, 20, 2).unwrap(); }),
+    ];
+    for r in &results {
+        println!("{:<45} avg {:>8.2} ms  min {:>8.2}  max {:>8.2}", r.name, r.avg_ms, r.min_ms, r.max_ms);
     }
 }

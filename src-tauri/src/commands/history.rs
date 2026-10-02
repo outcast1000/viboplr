@@ -34,8 +34,14 @@ pub fn get_history_most_played(state: State<'_, AppState>, limit: i64) -> Result
 }
 
 #[tauri::command]
-pub fn get_history_most_played_since(state: State<'_, AppState>, since_ts: i64, limit: i64) -> Result<Vec<HistoryMostPlayed>, String> {
-    state.db.get_history_most_played_since(since_ts, limit).map_err(|e| e.to_string())
+pub fn get_history_most_played_since(
+    state: State<'_, AppState>,
+    since_ts: i64,
+    limit: i64,
+    // Optional so the History view and plugin callers keep their behaviour.
+    min_plays: Option<i64>,
+) -> Result<Vec<HistoryMostPlayed>, String> {
+    state.db.get_history_most_played_since(since_ts, limit, min_plays.unwrap_or(1)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

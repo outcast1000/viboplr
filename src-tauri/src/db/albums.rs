@@ -149,32 +149,6 @@ impl Database {
         rows.collect()
     }
 
-    /// One decade drawn at random from the albums that carry a year, plus up
-    /// to `limit` of that decade's albums in random order — the Home "Discover
-    /// by decade" shelf. `None` when no album has a year. Both draws run in SQL
-    /// so the shelf never pulls the whole album table across IPC.
-    pub fn pick_decade_albums(&self, limit: i64) -> SqlResult<Option<(i32, Vec<Album>)>> {
-        let conn = self.conn.lock().unwrap();
-        let decade: Option<i32> = conn
-            .query_row(
-                "SELECT d FROM (SELECT DISTINCT (year / 10) * 10 AS d FROM albums \
-                 WHERE track_count > 0 AND year > 0) ORDER BY RANDOM() LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(decade) = decade else { return Ok(None) };
-        let mut stmt = conn.prepare(
-            "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
-             FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
-             WHERE a.track_count > 0 AND a.year >= ?1 AND a.year < ?1 + 10 \
-             ORDER BY RANDOM() LIMIT ?2",
-        )?;
-        let albums = stmt
-            .query_map(params![decade, limit], |row| album_from_row(row))?
-            .collect::<SqlResult<Vec<_>>>()?;
-        Ok(Some((decade, albums)))
-    }
 }
 
 #[cfg(test)]

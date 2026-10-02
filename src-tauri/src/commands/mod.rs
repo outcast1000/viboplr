@@ -44,6 +44,8 @@ mod plugins;
 pub use plugins::*;
 mod publish;
 pub use publish::*;
+mod recent_plays;
+pub use recent_plays::*;
 mod skins_cmd;
 pub use skins_cmd::*;
 mod transcode;

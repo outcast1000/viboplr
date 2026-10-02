@@ -4,6 +4,12 @@ import {
   buildPlaySession,
   sessionKey,
   sessionSubtitle,
+  snapshotFor,
+  replaysFromSnapshot,
+  newSnapshotId,
+  snapshotIdsOf,
+  droppedSnapshotIds,
+  SNAPSHOT_TRACK_CAP,
   type RecentPlaySession,
 } from "../utils/recentPlays";
 import type { QueueTrack } from "../types";
@@ -127,5 +133,61 @@ describe("sessionSubtitle", () => {
     expect(sessionSubtitle(session({ source: "artist" }))).toBe("Artist");
     expect(sessionSubtitle(session({ source: "tag" }))).toBe("Tag");
     expect(sessionSubtitle(session({ source: "playlist" }))).toBe("Playlist");
+  });
+});
+
+describe("Latest play snapshots", () => {
+  const tracks = (n: number) => Array.from({ length: n }, (_, i) => track({ key: `q:${i}`, title: `T${i}`, path: `file:///${i}.mp3` }));
+
+  it("snapshots radio, playlists and selections, never album/artist/tag or a lone track", () => {
+    for (const source of ["radio", "playlist", "track"] as const) {
+      expect(snapshotFor(tracks(3), 0, source)).not.toBeNull();
+    }
+    for (const source of ["album", "artist", "tag"] as const) {
+      expect(snapshotFor(tracks(3), 0, source)).toBeNull();
+    }
+    expect(snapshotFor(tracks(1), 0, "playlist")).toBeNull();
+  });
+
+  it("keeps a short play whole, with its start position", () => {
+    const snap = snapshotFor(tracks(30), 4, "radio")!;
+    expect(snap.tracks).toHaveLength(30);
+    expect(snap.startIndex).toBe(4);
+  });
+
+  it("caps a long play at the 100 tracks from where it started", () => {
+    const snap = snapshotFor(tracks(250), 120, "playlist")!;
+    expect(snap.tracks).toHaveLength(SNAPSHOT_TRACK_CAP);
+    expect(snap.tracks[0].title).toBe("T120");
+    expect(snap.tracks[99].title).toBe("T219");
+    expect(snap.startIndex).toBe(0);
+  });
+
+  it("replays from the snapshot only for sources that took one", () => {
+    expect(replaysFromSnapshot({ source: "radio", snapshotId: "a" })).toBe(true);
+    expect(replaysFromSnapshot({ source: "radio" })).toBe(false);
+    // An album session can't replay a snapshot even if one were named.
+    expect(replaysFromSnapshot({ source: "album", snapshotId: "a" })).toBe(false);
+  });
+
+  it("mints ids the backend accepts as file names", () => {
+    const id = newSnapshotId(1_759_000_000_000, () => 0.5);
+    expect(id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(newSnapshotId(1, () => 0)).not.toBe(newSnapshotId(1, () => 0.999));
+  });
+
+  it("names the snapshots to delete when a session leaves the ring or is replaced", () => {
+    const a = session({ source: "radio", name: "Radio: A", snapshotId: "a" });
+    const b = session({ source: "playlist", name: "B", snapshotId: "b" });
+    const album = session({ source: "album", name: "C" });
+    const prev = [a, b, album];
+    expect(snapshotIdsOf(prev)).toEqual(["a", "b"]);
+    // Replaying "Radio: A" records a new session (new snapshot) under the same key.
+    const next = recordPlaySession(prev, session({ source: "radio", name: "Radio: A", snapshotId: "a2", ts: 2 }));
+    expect(droppedSnapshotIds(prev, next)).toEqual(["a"]);
+    // Ring eviction: twelve newer plays push both snapshots out.
+    let ring = prev;
+    for (let i = 0; i < 12; i++) ring = recordPlaySession(ring, session({ source: "album", name: `X${i}`, ts: 10 + i }));
+    expect(droppedSnapshotIds(prev, ring)).toEqual(["a", "b"]);
   });
 });

@@ -180,6 +180,14 @@ pub struct Track {
     pub album_artist_name: Option<String>,
 }
 
+/// A generated "Forgotten favorites" mix on Home, grouped by `tag` (None for
+/// the catch-all mix).
+#[derive(Debug, Clone, Serialize)]
+pub struct TrackMix {
+    pub tag: Option<String>,
+    pub tracks: Vec<Track>,
+}
+
 /// One match from a search across cached `information_values` (any info type —
 /// lyrics, bios, reviews, similar lists, …). Backs the `search_information_values`
 /// command / `api.informationTypes.searchValues`. `value` is the raw JSON string
