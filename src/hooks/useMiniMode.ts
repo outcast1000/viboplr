@@ -340,6 +340,9 @@ export function useMiniMode(
   const [miniWidthSize, setMiniWidthSizeState] = useState<MiniWidthSize>("medium");
   const miniWidthSizeRef = useRef<MiniWidthSize>("medium");
   useEffect(() => { miniWidthSizeRef.current = miniWidthSize; }, [miniWidthSize]);
+  // Whether an overflowing title line scrolls (marquee) or just truncates.
+  // Toggled from the mini player's context menu; persisted as `miniTitleScroll`.
+  const [miniTitleScroll, setMiniTitleScrollState] = useState(true);
 
   // Latest measured CSS-px → logical-px factor for this webview on this
   // monitor at this zoom (see `cssToLogicalRatio`). Sampled before every sizing
@@ -909,6 +912,8 @@ export function useMiniMode(
         if (savedWidth === "small" || savedWidth === "medium" || savedWidth === "large") {
           setMiniWidthSizeState(savedWidth);
         }
+        const savedScroll = await store.get<boolean | null>("miniTitleScroll");
+        if (typeof savedScroll === "boolean") setMiniTitleScrollState(savedScroll);
       } catch (err) {
         console.error("Failed to load miniRestingSize:", err);
       }
@@ -1032,6 +1037,13 @@ export function useMiniMode(
     })();
   }, [expandedH, heightFor, minW, sampleCssRatio]);
 
+  const setMiniTitleScroll = useCallback((next: boolean) => {
+    setMiniTitleScrollState(next);
+    store.set("miniTitleScroll", next).catch((err: unknown) => {
+      console.error("Failed to persist miniTitleScroll:", err);
+    });
+  }, []);
+
   const setMiniWidthSize = useCallback(async (next: MiniWidthSize) => {
     setMiniWidthSizeState(next);
     store.set("miniWidthSize", next).catch((err: unknown) => {
@@ -1094,6 +1106,7 @@ export function useMiniMode(
     miniMode, setMiniMode, miniModeRef, fullSizeRef, toggleMiniMode, miniExpanded,
     cancelCollapseTimer, miniRestingSize, setMiniRestingSize,
     miniWidthSize, setMiniWidthSize, applyMiniZoom,
+    miniTitleScroll, setMiniTitleScroll,
     // Same operation, named for its other caller: `lib.rs` sizes the mini window
     // at startup from its own copy of the constants, before a webview exists to
     // measure — so a restart into mini mode comes up in unmeasured logical px

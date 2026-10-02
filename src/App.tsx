@@ -4941,6 +4941,7 @@ function App() {
         action: () => mini.setMiniRestingSize(size),
       }));
       specs.push({ kind: "submenu", text: "Height", items: heightItems });
+      specs.push({ kind: "check", text: "Scroll Long Titles", checked: mini.miniTitleScroll, action: () => mini.setMiniTitleScroll(!mini.miniTitleScroll) });
       // The info line is configured in Settings > Playback (drag to reorder,
       // dwell, on/off) — the menu just takes you there, leaving the main
       // window open on that section.
@@ -6582,6 +6583,7 @@ function App() {
         miniMode={mini.miniMode}
         miniExpanded={mini.miniExpanded}
         miniRestingSize={mini.miniRestingSize}
+        miniTitleScroll={mini.miniTitleScroll}
         miniWidthSize={mini.miniWidthSize}
         onCancelCollapseTimer={npBar.onCancelCollapseTimer}
         onBeginMiniDrag={npBar.onBeginMiniDrag}

@@ -95,6 +95,8 @@ interface NowPlayingBarProps {
   miniMode: boolean;
   miniExpanded: boolean;
   miniRestingSize: MiniRestingSize;
+  /** When false, the mini player's title/info lines truncate instead of scrolling. */
+  miniTitleScroll: boolean;
   miniWidthSize: MiniWidthSize;
   onCancelCollapseTimer: () => void;
   onBeginMiniDrag?: () => void;
@@ -190,7 +192,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
   icyTitle,
   trackRank,
   volume, muted,
-  imagePath, miniMode, miniExpanded, miniRestingSize, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
+  imagePath, miniMode, miniExpanded, miniRestingSize, miniTitleScroll, miniWidthSize, onCancelCollapseTimer, onBeginMiniDrag, onCycleRestingSize, onCycleMiniWidth, onToggleMiniMode, onClose,
   onPause, onStop, onNext, onPrevious,
   onSeek, onVolume, onMute, onToggleFullscreen, canFullscreen,
   eqEnabled, eqMode, eqPreset, eqGains, eqPreGainDb, eqBassDb, eqTrebleDb, eqClipProtection, eqCustomPresets,
@@ -369,7 +371,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                     ) : (
                       <NowPlayingInfoCycler
                         plain
-                        marquee
+                        marquee={miniTitleScroll}
                         className="now-artist"
                         items={nowPlayingInfo}
                         sep=" · "
@@ -414,7 +416,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             {playbackError ? (
               <span className="mini-ultra-title">Playback failed</span>
             ) : currentTrack ? (
-              <MarqueeText className="mini-ultra-title" enabled restartKey={currentTrack.key} onPlan={handleUltraPlan}>
+              <MarqueeText className="mini-ultra-title" enabled={miniTitleScroll} restartKey={currentTrack.key} onPlan={handleUltraPlan}>
                 <span className={`mini-ultra-lead${ultraTitleYielded ? " is-yielded" : ""}`}>
                   <span className="mini-ultra-lead-inner">
                     {currentTrack.liked === 1 && <IconHeartFilled size={11} className="mini-ultra-heart" />}
