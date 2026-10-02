@@ -1,14 +1,12 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Artist, Album, Tag, Track, QueueTrack, SortField, SortDir } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
-import { stripAccents } from "../utils";
+import { normalizeTrackTitle } from "../utils/albumTracklist";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { nextTriState } from "../likeKeys";
 import { subscribeTrackEvents } from "../trackEvents";
-import { useAssignRef } from "./useLatestRef";
 
-const normalizeTitle = (s: string) => stripAccents(s.toLowerCase().replace(/\([^)]*\)/g, "").trim()).replace(/[^\p{L}\p{N}]/gu, "");
 
 /**
  * Deterministic PRNG (mulberry32), so the "random" track sort is a pure function
@@ -40,6 +38,9 @@ export function seededRandom(seed: number): () => number {
 const EMPTY_EXTERNAL: QueueTrack[] = [];
 const EMPTY_VALUES: number[] = [];
 
+/** One row of a ranked_list info value. */
+interface RankedItem { name: string; subtitle?: string; value: number }
+
 type BackendTypeRow =[string, string, string, number, number, Array<[string, number]>];
 
 interface EntityDetailConfig {
@@ -68,14 +69,18 @@ export interface EntityDetailReturn {
   /** Like state shown in the hero: the row's own, or — for an entity that
    *  isn't in the library — the durable name-keyed one. */
   liked: number;
-  /** Album pages only, when the album isn't in the library: its tracklist from
-   *  the album `ranked_list` provider, metadata-only (the stream resolvers find
-   *  each source at play time, a library copy first). */
-  externalTracks: QueueTrack[];
-  /** The provider's value per external track (Last.fm listeners), parallel to
-   *  `externalTracks`; 0 when it reported none. */
-  externalValues: number[];
-  externalStatus: "idle" | "loading" | "ok" | "none";
+  /** Album pages only: the album's tracklist from the album `ranked_list`
+   *  provider, in album order, metadata-only (the stream resolvers find each
+   *  source at play time, a library copy first). Empty until it arrives. */
+  albumTracklist: QueueTrack[];
+  /** The provider's value per tracklist row (Last.fm listeners), parallel to
+   *  `albumTracklist`; 0 when it reported none. */
+  albumTracklistValues: number[];
+  /** "idle" off album pages and before the library lookup answers. */
+  tracklistStatus: "idle" | "loading" | "ok" | "none";
+  /** The ranked_list info type the list came from — album pages hide that
+   *  tab, since the page already shows the same list. */
+  rankedTypeId: string | null;
   sortField: SortField | null;
   handleSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
@@ -95,8 +100,8 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const loaded = loadedKey === detailKey;
   const [nameLike, setNameLike] = useState<{ key: string; liked: number } | null>(null);
-  const [external, setExternal] = useState<{
-    key: string; status: "ok" | "none"; tracks: QueueTrack[]; values: number[];
+  const [ranked, setRanked] = useState<{
+    key: string; status: "loading" | "ok" | "none"; items: RankedItem[]; typeId: string | null;
   } | null>(null);
   const [entity, setEntity] = useState<Artist | Album | Tag | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -105,7 +110,6 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [shuffleKey, setShuffleKey] = useState(0);
   const [loadKey, setLoadKey] = useState(0);
-  const [trackPopularity, setTrackPopularity] = useState<Record<number, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -180,30 +184,19 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     });
   }, []);
 
-  // Stable signature of the track *set* (ids only). Patches that mutate a field
-  // like `liked` produce a new `tracks` array but the same id set, so this key
-  // is unchanged — keeping the popularity effect below from re-running (and
-  // blanking the popularity bars) on every like/dislike.
-  const trackIdsKey = useMemo(() => tracks.map(t => t.id ?? "x").join(","), [tracks]);
-
-  // Read latest tracks inside the popularity effect without making the array
-  // identity a dependency (so field-only patches don't re-run it).
-  const tracksRef = useRef(tracks);
-  useAssignRef(tracksRef, tracks);
-
-  // The entity's ranked_list info type (artist and album only). One fetch, two
-  // uses: for a library entity it supplies the track popularity bars; for an
-  // album that isn't in the library it *is* the tracklist — the provider lists
-  // the album's tracks in album order (Last.fm `album.getInfo`).
-  const wantsExternalTracklist = loaded && !entity && kind === "album";
+  // The entity's ranked_list info type (artist and album only), fetched once
+  // per page. Everything else is derived from the raw items below, so a like
+  // toggle (a new `entity` / `tracks` identity) neither refetches nor blanks
+  // anything — the effect keys on the entity's identity fields, not the object.
+  const entityId = entity?.id ?? null;
+  const entityName = entity ? (kind === "artist" ? (entity as Artist).name : kind === "album" ? (entity as Album).title : (entity as Tag).name) : null;
+  const entityArtist = entity && kind === "album" ? (entity as Album).artist_name ?? undefined : undefined;
   useEffect(() => {
-    setTrackPopularity({});
-    if (kind === "tag" || !(entity || wantsExternalTracklist)) return;
+    if (!loaded || kind === "tag") return;
     const key = `${kind}|${name}|${artistName ?? ""}`;
-    const settleExternal = (tracks: QueueTrack[], values: number[] = []) => {
-      if (!entity) setExternal({ key, status: tracks.length > 0 ? "ok" : "none", tracks, values });
-    };
-    // No info system wired (never in the app) — externalStatus reports "none".
+    const settle = (items: RankedItem[], typeId: string | null) =>
+      setRanked({ key, status: items.length > 0 ? "ok" : "none", items, typeId });
+    // No info system wired (never in the app) — tracklistStatus reports "none".
     if (!invokeInfoFetch) return;
 
     let cancelled = false;
@@ -212,37 +205,26 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
         const types = await invoke<BackendTypeRow[]>("info_get_types_for_entity", { entity: kind });
         if (cancelled) return;
         const rankedType = types.find(([, , displayKind]) => displayKind === "ranked_list");
-        if (!rankedType) { settleExternal([]); return; }
+        if (!rankedType) { settle([], null); return; }
 
         const [typeId, , , , , providers] = rankedType;
-        const infoEntity: InfoEntity = !entity
-          ? { kind: "album", name, id: 0, artistName }
+        // Publish the type id before the (slow) provider fetch: the page hides
+        // that tab by id, and a late `exclude` change reloads every section.
+        setRanked({ key, status: "loading", items: [], typeId });
+        const infoEntity: InfoEntity = entityId == null
+          ? { kind, name, id: 0, artistName: kind === "album" ? artistName : undefined }
           : kind === "artist"
-            ? { kind: "artist", name: (entity as Artist).name, id: entity.id }
-            : { kind: "album", name: (entity as Album).title, id: entity.id, artistName: (entity as Album).artist_name ?? undefined };
+            ? { kind: "artist", name: entityName!, id: entityId }
+            : { kind: "album", name: entityName!, id: entityId, artistName: entityArtist };
 
         for (const [pluginId] of providers) {
           if (cancelled) return;
           try {
             const result = await invokeInfoFetch(pluginId, typeId, infoEntity);
             if (cancelled || result.status !== "ok") continue;
-            const items = (result.value as Record<string, unknown>)?.items as Array<{ name: string; subtitle?: string; value: number }> | undefined;
+            const items = (result.value as Record<string, unknown>)?.items as RankedItem[] | undefined;
             if (!items) continue;
-            if (!entity) {
-              settleExternal(items.map(item => ({
-                ...buildExternalQueueTrack(item.name, item.subtitle ?? artistName),
-                album_title: name,
-                album_artist_name: artistName ?? null,
-              })), items.map(item => item.value > 0 ? item.value : 0));
-              return;
-            }
-            const popMap: Record<number, number> = {};
-            for (const item of items) {
-              const norm = normalizeTitle(item.name);
-              const match = tracksRef.current.find(t => normalizeTitle(t.title) === norm);
-              if (match && match.id != null && item.value > 0) popMap[match.id] = item.value;
-            }
-            setTrackPopularity(popMap);
+            settle(items, typeId);
             return;
           } catch (e) {
             // Fall through to the next provider, but don't hide why this one lost.
@@ -250,16 +232,46 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
             continue;
           }
         }
-        if (!cancelled) settleExternal([]);
+        if (!cancelled) settle([], typeId);
       } catch (e) {
         console.error(`Failed to fetch ${kind} ranked list:`, e);
-        if (!cancelled) settleExternal([]);
+        if (!cancelled) settle([], null);
       }
     })();
 
     return () => { cancelled = true; };
-    // trackIdsKey (not `tracks`) so field-only patches like `liked` don't refetch.
-  }, [entity, wantsExternalTracklist, trackIdsKey, invokeInfoFetch, kind, name, artistName]);
+  }, [loaded, entityId, entityName, entityArtist, invokeInfoFetch, kind, name, artistName]);
+
+  const rankedItems = ranked?.key === detailKey ? ranked.items : null;
+
+  // Popularity bars: each library row's provider value, matched by title.
+  const trackPopularity = useMemo(() => {
+    const popMap: Record<number, number> = {};
+    if (!rankedItems || !entity) return popMap;
+    for (const item of rankedItems) {
+      const norm = normalizeTrackTitle(item.name);
+      const match = tracks.find(t => normalizeTrackTitle(t.title) === norm);
+      if (match && match.id != null && item.value > 0) popMap[match.id] = item.value;
+    }
+    return popMap;
+  }, [rankedItems, entity, tracks]);
+
+  // Album pages: the provider's whole tracklist, in album order, as
+  // metadata-only queue tracks filed under this album. On a library album the
+  // page merges the ones the user lacks into its track list; on an album that
+  // isn't in the library it is the tracklist.
+  const albumTracklist = useMemo(() => {
+    if (kind !== "album" || !rankedItems) return EMPTY_EXTERNAL;
+    return rankedItems.map(item => ({
+      ...buildExternalQueueTrack(item.name, item.subtitle ?? artistName),
+      album_title: entityName ?? name,
+      album_artist_name: entityArtist ?? artistName ?? null,
+    }));
+  }, [kind, rankedItems, name, artistName, entityName, entityArtist]);
+  const albumTracklistValues = useMemo(
+    () => kind === "album" && rankedItems ? rankedItems.map(item => item.value > 0 ? item.value : 0) : EMPTY_VALUES,
+    [kind, rankedItems],
+  );
 
   const handleSort = useCallback((field: SortField) => {
     if (field === "random") {
@@ -391,11 +403,12 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     isLibrary: entity !== null,
     loaded,
     liked,
-    externalTracks: !entity && external?.key === detailKey ? external.tracks : EMPTY_EXTERNAL,
-    externalValues: !entity && external?.key === detailKey ? external.values : EMPTY_VALUES,
-    externalStatus: !wantsExternalTracklist ? "idle"
+    albumTracklist,
+    albumTracklistValues,
+    tracklistStatus: kind !== "album" || !loaded ? "idle"
       : !invokeInfoFetch ? "none"
-      : external?.key === detailKey ? external.status : "loading",
+      : ranked?.key === detailKey ? ranked.status : "loading",
+    rankedTypeId: ranked?.key === detailKey ? ranked.typeId : null,
     sortField,
     handleSort,
     sortIndicator,

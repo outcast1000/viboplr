@@ -109,6 +109,29 @@
   background: rgba(var(--accent-rgb), 0.08);
 }
 
+/* A tracklist entry the user doesn't own (album page, from the provider's
+   tracklist): read as a gap in the album, not as a row to manage. Dimmed text,
+   a "Not in library" badge; the playing state still wins the colour. */
+.track-row--missing:not(.playing) {
+  color: var(--text-tertiary);
+}
+
+.track-row--missing {
+  cursor: default;
+}
+
+.track-missing-badge {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-pill);
+  font-size: var(--fs-2xs);
+  line-height: 16px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
 .track-header > span,
 .track-row > span {
   white-space: nowrap;

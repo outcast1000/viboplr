@@ -434,8 +434,8 @@ All detail pages follow a consistent structure (see conventions.md for layout ru
 
 **Album Detail** (`AlbumDetail.tsx` + `TrackList`):
 - Header: 240x240 cover + title + artist (clickable) + year + count + play all + like/hate. Background: the album cover, falling back to the artist image only without one.
-- Track list
-- Information sections (tabs)
+- Track list — with the provider tracklist's tracks the user doesn't own merged in, in album order, dimmed with a "Not in library" badge (read-only: play / enqueue / right-click only); meta reads "N of M in library" when any are missing
+- Information sections (tabs) — the provider's "Track Popularity" tab is hidden on album pages; that data is the popularity column
 - An album **not in the library** has no track list; instead its provider tracklist (album `ranked_list`, metadata-only rows that play through the stream resolvers) is the information sections' first tab, **Tracks**, so the tabs sit directly under the header. "Not in your library" shows in the meta line; like/hate work there too (name-keyed)
 
 **Track Detail** (`TrackDetailView.tsx`):

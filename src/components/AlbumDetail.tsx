@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { Album, ColumnConfig } from "../types";
+import type { Album, ColumnConfig, QueueTrack } from "../types";
 
 import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
@@ -22,6 +22,8 @@ import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { TrackRow, type TrackRowThumb } from "./TrackRow";
 import { trackLikeId } from "../utils/likeReconcile";
 import { formatCompactCount } from "../utils/formatCount";
+import { placeMissingTracks } from "../utils/albumTracklist";
+import type { MissingTrackRow } from "./TrackList";
 
 const TRACKS_TAB_ID = "tracks";
 
@@ -46,9 +48,10 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     reload,
     loaded,
     liked,
-    externalTracks,
-    externalValues,
-    externalStatus,
+    albumTracklist,
+    albumTracklistValues,
+    tracklistStatus,
+    rankedTypeId,
   } = useEntityDetail({ kind: "album", name, artistName, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, onEntityLikeByName: actions.setEntityLikeByName, reloadSignal: state.bulkEditKey });
 
   const album = entity as Album | null;
@@ -135,12 +138,36 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
 
   const { playExternal, enqueueExternal } = actions;
   const playExternalFrom = useCallback((index: number) => {
-    playExternal(externalTracks, index, externalContext);
-  }, [playExternal, externalTracks, externalContext]);
+    playExternal(albumTracklist, index, externalContext);
+  }, [playExternal, albumTracklist, externalContext]);
 
   const handleEnqueueExternal = useCallback(() => {
-    enqueueExternal(externalTracks);
-  }, [enqueueExternal, externalTracks]);
+    enqueueExternal(albumTracklist);
+  }, [enqueueExternal, albumTracklist]);
+
+  // Library album: the provider's tracks the user doesn't own, merged into the
+  // track list in album order (or after the owned rows once a column sort
+  // makes album position meaningless). Read-only rows — see MissingTrackRow.
+  const missingRows = useMemo<MissingTrackRow[]>(() => {
+    if (!isLibrary || albumTracklist.length === 0) return [];
+    return placeMissingTracks(sortedTracks, albumTracklist, sortField === null).map(({ providerIndex, before }) => ({
+      track: albumTracklist[providerIndex],
+      before,
+      number: providerIndex + 1,
+      popularity: albumTracklistValues[providerIndex] || undefined,
+    }));
+  }, [isLibrary, albumTracklist, albumTracklistValues, sortedTracks, sortField]);
+
+  const playOneExternal = useCallback((t: QueueTrack) => {
+    playExternal([t], 0);
+  }, [playExternal]);
+  const enqueueOneExternal = useCallback((t: QueueTrack) => {
+    enqueueExternal([t]);
+  }, [enqueueExternal]);
+  const { handleInfoTrackContextMenu } = actions;
+  const handleMissingContextMenu = useCallback((e: React.MouseEvent, t: QueueTrack) => {
+    handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name });
+  }, [handleInfoTrackContextMenu]);
 
   const handleRefreshImage = useCallback(() => {
     actions.requestFetchImage("album", name, artistName);
@@ -225,12 +252,16 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   const eyebrow = album?.year ? `Album · ${album.year}` : "Album";
   const meta: Array<string | { label: string; onClick: () => void }> = [];
   if (displayArtist) meta.push({ label: displayArtist, onClick: () => actions.navigateToArtist(album?.artist_id ?? 0, displayArtist ?? undefined) });
-  if (isLibrary && album?.track_count) meta.push(`${album.track_count} tracks`);
-  else if (externalTracks.length > 0) meta.push(`${externalTracks.length} tracks`);
+  if (isLibrary && album?.track_count) {
+    // "12 of 17 in library" once the provider tracklist shows tracks missing.
+    meta.push(missingRows.length > 0
+      ? `${sortedTracks.length} of ${sortedTracks.length + missingRows.length} in library`
+      : `${album.track_count} tracks`);
+  } else if (albumTracklist.length > 0) meta.push(`${albumTracklist.length} tracks`);
   if (loaded && !isLibrary) meta.push("Not in your library");
 
   const externalThumb: TrackRowThumb = albumHeroUrl ? { kind: "image", url: albumHeroUrl, alt: name } : { kind: "disc" };
-  const canPlayExternal = !isLibrary && externalTracks.length > 0;
+  const canPlayExternal = !isLibrary && albumTracklist.length > 0;
   // A provider row has no library id, so "is this the one playing?" is the
   // same normalized title+artist identity likes use.
   const playingId = state.playing && state.currentTrack
@@ -240,23 +271,23 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   // Album not in the library: the tracklist is the page's main tab — first,
   // and so selected on arrival, unless the user has dragged it elsewhere (a
   // saved order that predates the tab doesn't name it, so it goes in front).
-  const tracksTab = externalStatus === "idle" ? null : {
+  const tracksTab = isLibrary || tracklistStatus === "idle" ? null : {
     id: TRACKS_TAB_ID,
     name: "Tracks",
-    content: externalStatus === "loading" ? (
+    content: tracklistStatus === "loading" ? (
       <div className="album-external-note">Looking up the tracklist…</div>
-    ) : externalStatus === "none" ? (
+    ) : tracklistStatus === "none" ? (
       <div className="album-external-note">No tracklist found for this album.</div>
     ) : (
       <div className="entity-list album-external-tracks">
-        {externalTracks.map((t, i) => (
+        {albumTracklist.map((t, i) => (
           <TrackRow
             key={t.key}
             leading={<span className="album-external-num">{i + 1}</span>}
             thumb={externalThumb}
             title={t.title}
             subtitle={t.artist_name ?? undefined}
-            meta={externalValues[i] ? <span title={`${externalValues[i].toLocaleString()} listeners`}>{formatCompactCount(externalValues[i])}</span> : undefined}
+            meta={albumTracklistValues[i] ? <span title={`${albumTracklistValues[i].toLocaleString()} listeners`}>{formatCompactCount(albumTracklistValues[i])}</span> : undefined}
             playing={playingId !== null && playingId === trackLikeId(t.title, t.artist_name)}
             onDoubleClick={() => playExternalFrom(i)}
             onContextMenu={(e) => { e.preventDefault(); actions.handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name }); }}
@@ -328,6 +359,10 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           onTrackDragStart={actions.handleTrackDragStart}
           onDeleteTracks={actions.deleteTracks}
           trackPopularity={trackPopularity}
+          missingRows={missingRows}
+          onPlayMissing={playOneExternal}
+          onEnqueueMissing={enqueueOneExternal}
+          onMissingContextMenu={handleMissingContextMenu}
           emptyMessage="No tracks found."
         />
       )}
@@ -339,7 +374,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
       <div className="section-wide">
         <InformationSections
           entity={infoEntity}
-          exclude={[]}
+          exclude={rankedTypeId ? [rankedTypeId] : []}
           placement="below"
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}

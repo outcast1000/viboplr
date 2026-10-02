@@ -4,6 +4,7 @@ import { isVideoTrack, formatDuration, formatFileSize } from "../utils";
 import { formatCompactCount } from "../utils/formatCount";
 import { computeSelection as computeSelectionGeneric } from "../utils/rowSelection";
 import { isPlayingLibraryRow } from "../queueEntry";
+import { trackLikeId } from "../utils/likeReconcile";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { RowHoverActions } from "./RowHoverActions";
 import { SpinningDisc } from "./SpinningDisc";
@@ -83,6 +84,19 @@ export function computeSelection(
   return computeSelectionGeneric(current, clickedIndex, tracks.map(t => t.id), lastIndex, meta, shift);
 }
 
+/** A track the list shows without a library row behind it — an album page's
+ *  provider tracklist entry the user doesn't own. Read-only: it plays and
+ *  enqueues (found by the stream resolvers at play time) and opens the track
+ *  context menu, but is never selected, dragged, deleted or liked from here. */
+export interface MissingTrackRow {
+  track: QueueTrack;
+  /** Drawn before `tracks[before]`; `tracks.length` puts it after the last. */
+  before: number;
+  /** What the # column shows (its position on the album). */
+  number?: number;
+  popularity?: number;
+}
+
 interface TrackListProps {
   tracks: Track[];
   currentTrack: QueueTrack | null;
@@ -114,7 +128,15 @@ interface TrackListProps {
   onLoadMore?: () => void;
   /** Accessible name for the listbox (screen readers). */
   ariaLabel?: string;
+  /** Rows interleaved with `tracks` that have no library copy (see
+   *  MissingTrackRow). Not part of the selection or the keyboard cursor. */
+  missingRows?: MissingTrackRow[];
+  onPlayMissing?: (track: QueueTrack) => void;
+  onEnqueueMissing?: (track: QueueTrack) => void;
+  onMissingContextMenu?: (e: React.MouseEvent, track: QueueTrack) => void;
 }
+
+const NO_MISSING: MissingTrackRow[] = [];
 
 export function TrackList({
   tracks, currentTrack, playing, highlightedIndex,
@@ -125,11 +147,24 @@ export function TrackList({
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
   ariaLabel = "Tracks",
+  missingRows = NO_MISSING, onPlayMissing, onEnqueueMissing, onMissingContextMenu,
 }: TrackListProps) {
   const maxPopularity = useMemo(() => {
-    if (!trackPopularity) return 0;
-    return Math.max(0, ...Object.values(trackPopularity));
-  }, [trackPopularity]);
+    const missing = missingRows.map(m => m.popularity ?? 0);
+    return Math.max(0, ...Object.values(trackPopularity ?? {}), ...missing);
+  }, [trackPopularity, missingRows]);
+
+  // Missing rows grouped by the library row they precede, in the order given.
+  const missingBefore = useMemo(() => {
+    const byIndex = new Map<number, MissingTrackRow[]>();
+    for (const m of missingRows) {
+      const at = Math.min(Math.max(m.before, 0), tracks.length);
+      const list = byIndex.get(at);
+      if (list) list.push(m); else byIndex.set(at, [m]);
+    }
+    return byIndex;
+  }, [missingRows, tracks.length]);
+  const playingId = currentTrack ? trackLikeId(currentTrack.title, currentTrack.artist_name) : null;
 
   const [draggedCol, setDraggedCol] = useState<TrackColumnId | null>(null);
   const [dragOverCol, setDragOverCol] = useState<TrackColumnId | null>(null);
@@ -470,6 +505,9 @@ export function TrackList({
     enqueue: onEnqueue,
     startRadio: onStartRadio,
     locate: onLocateTrack,
+    playMissing: onPlayMissing,
+    enqueueMissing: onEnqueueMissing,
+    missingContextMenu: onMissingContextMenu,
   });
 
   // Which optional actions exist decides what the row renders (hover buttons,
@@ -506,9 +544,20 @@ export function TrackList({
       <div className="track-header" role="presentation" onContextMenu={handleHeaderContextMenu}>
         {visibleColumns.map(col => renderHeaderCell(col))}
       </div>
-      {tracks.map((t, i) => {
+      {[...tracks, null].map((t, i) => {
+        const missingHere = missingBefore.get(i)?.map(m => (
+          <MissingRow
+            key={`m:${m.track.key}`}
+            row={m}
+            isCurrent={playingId !== null && playingId === trackLikeId(m.track.title, m.track.artist_name)}
+            visibleColumns={visibleColumns}
+            maxPopularity={maxPopularity}
+            handlers={rowHandlersRef}
+          />
+        ));
+        if (t === null) return missingHere ?? null;
         const isCurrent = isPlayingLibraryRow(t, currentTrack);
-        return (
+        const row = (
           <TrackRow
             key={t.id}
             track={t}
@@ -526,13 +575,14 @@ export function TrackList({
             handlers={rowHandlersRef}
           />
         );
+        return missingHere ? [...missingHere, row] : row;
       })}
       {hasMore && (
         <div ref={sentinelRef} className="track-list-sentinel">
           {loadingMore && <div className="track-list-loading">Loading more tracks...</div>}
         </div>
       )}
-      {tracks.length === 0 && (
+      {tracks.length === 0 && missingRows.length === 0 && (
         <div className="empty">{emptyMessage}</div>
       )}
     </div>
@@ -555,6 +605,9 @@ interface TrackRowHandlers {
   enqueue?: (track: Track) => void;
   startRadio?: (track: Track) => void;
   locate?: (track: Track) => void;
+  playMissing?: (track: QueueTrack) => void;
+  enqueueMissing?: (track: QueueTrack) => void;
+  missingContextMenu?: (e: React.MouseEvent, track: QueueTrack) => void;
 }
 
 /** Which optional actions this surface wired up — drives what renders (hover
@@ -699,6 +752,74 @@ const TrackRow = memo(function TrackRow({
       onClick={(e) => handlers.current.click(e, index)}
       onDoubleClick={() => handlers.current.doubleClick(index)}
       onContextMenu={(e) => handlers.current.contextMenu(e, t, index)}
+    >
+      {visibleColumns.map(col => renderCell(col))}
+    </div>
+  );
+});
+
+interface MissingRowProps {
+  row: MissingTrackRow;
+  isCurrent: boolean;
+  visibleColumns: ColumnConfig[];
+  maxPopularity: number;
+  handlers: React.RefObject<TrackRowHandlers>;
+}
+
+/** A tracklist entry with no library copy. Same columns as TrackRow so it
+ *  lines up, but read-only: no like control, no file facts, no selection —
+ *  a `role="option"` that is `aria-disabled`, outside the keyboard cursor. */
+const MissingRow = memo(function MissingRow({ row, isCurrent, visibleColumns, maxPopularity, handlers }: MissingRowProps) {
+  const t = row.track;
+  function renderCell(col: ColumnConfig) {
+    switch (col.id) {
+      case "num":
+        return <span key="num" className="col-num">{row.number ?? ""}</span>;
+      case "title":
+        return (
+          <span key="title" className="col-title">
+            <span className="col-title-main">
+              <span className="col-title-text">{t.title}</span>
+              <span className="track-missing-badge">Not in library</span>
+            </span>
+            <RowHoverActions
+              onPlay={() => handlers.current.playMissing?.(t)}
+              onEnqueue={() => handlers.current.enqueueMissing?.(t)}
+            />
+          </span>
+        );
+      case "artist":
+        return <span key="artist" className="col-artist">{t.artist_name ?? ""}</span>;
+      case "album":
+        return <span key="album" className="col-album">{t.album_title ?? ""}</span>;
+      case "popularity": {
+        const pct = (row.popularity && maxPopularity > 0) ? (row.popularity / maxPopularity) * 100 : 0;
+        return (
+          <span key="popularity" className="col-popularity">
+            {row.popularity ? (
+              <>
+                <span className="popularity-fill" style={{ width: `${pct}%` }} />
+                <span className="popularity-count">{formatCompactCount(row.popularity)}</span>
+              </>
+            ) : null}
+          </span>
+        );
+      }
+      default:
+        // Like, duration, file facts: nothing to show for a track not on disk.
+        return <span key={col.id} className={`col-${col.id}`} />;
+    }
+  }
+
+  return (
+    <div
+      role="option"
+      aria-disabled="true"
+      aria-selected={false}
+      className={`track-row track-row--missing${isCurrent ? " playing" : ""}`}
+      title="Not in your library — plays from your other sources"
+      onDoubleClick={() => handlers.current.playMissing?.(t)}
+      onContextMenu={(e) => { e.preventDefault(); handlers.current.missingContextMenu?.(e, t); }}
     >
       {visibleColumns.map(col => renderCell(col))}
     </div>
