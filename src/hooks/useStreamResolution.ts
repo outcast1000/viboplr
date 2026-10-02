@@ -21,6 +21,18 @@ const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 const RESOLVE_CACHE_TTL_MS = 12000;
 const RESOLVE_CACHE_MAX = 64;
 
+/** How long one metadata stream resolver gets before the chain moves on. */
+const RESOLVER_TIMEOUT_MS = 60000;
+const RESOLVER_TIMED_OUT = Symbol("resolver-timed-out");
+
+/** A metadata resolver that answered nothing or ran out of time — as opposed
+ *  to one that threw. Carries which, so the failure label can say so. */
+class ResolverMiss extends Error {
+  constructor(readonly reason: "miss" | "timeout", message: string) {
+    super(message);
+  }
+}
+
 /** Formats that the local `<video>` element can't play natively and that must be
  * routed through the on-the-fly transcode server. */
 export function needsTranscode(track: { format: string | null }): boolean {
@@ -46,6 +58,20 @@ export interface ChainFailure {
   /** Overrides the default "<name> failed" wording when the reason is known up
    *  front — e.g. a plugin scheme no installed plugin can resolve. */
   label?: string;
+  /** How a fallback resolver failed: it answered nothing (`miss`), ran past
+   *  the chain's per-resolver timeout (`timeout`), or threw (`error`). */
+  reason?: "miss" | "timeout" | "error";
+  /** A prefer-video pass entry. Its miss only means "no video", which says
+   *  nothing about why the track couldn't play at all. */
+  videoFirst?: boolean;
+}
+
+/** Wording for one failed fallback resolver, by how it failed. */
+function fallbackFailureLabel(f: ChainFailure): string {
+  if (f.name === "Library") return entryFailureLabel(f.name);
+  if (f.reason === "miss") return `${f.name} found no match`;
+  if (f.reason === "timeout") return `${f.name} timed out`;
+  return `${f.name} failed`;
 }
 
 /**
@@ -60,15 +86,20 @@ export interface ChainFailure {
 export function describeChainFailure(failures: ChainFailure[]): string {
   const native = failures.find((f) => f.native);
   if (!native) return "No playable source found";
-  return native.label ?? entryFailureLabel(native.name);
+  // A native entry with a known-up-front label is a scheme nothing can play by
+  // id (a spotify:// row): it was never going to work, so it isn't the cause.
+  // When a plugin fallback (yt-dlp) actually tried, ITS outcome is the news —
+  // blaming the unplayable link hid a live yt-dlp miss or timeout behind "No
+  // installed plugin can play spotify:// links". With only the Library lookup
+  // behind it, that label is the honest answer and stays.
+  if (native.label) {
+    const fallbacks = failures.filter((f) => !f.native && !f.videoFirst);
+    if (fallbacks.some((f) => f.name !== "Library")) return fallbacks.map(fallbackFailureLabel).join(" · ");
+    return native.label;
+  }
+  return entryFailureLabel(native.name);
 }
 
-/**
- * Wording for a track whose own scheme belongs to no installed resolver — e.g. a
- * `spotify://` row from a browse-only plugin with no yt-dlp installed. Blaming
- * "Spotify failed" points at the plugin that produced the row and did nothing
- * wrong; the missing piece is a plugin that can turn that link into a stream.
- */
 /**
  * Build the `http` engine source for a direct URL, attaching request headers
  * only when there are any to attach.
@@ -87,6 +118,12 @@ export function httpEngineSource(url: string, headers?: Record<string, string>):
     : { kind: "http", url };
 }
 
+/**
+ * Wording for a track whose own scheme belongs to no installed resolver — e.g. a
+ * `spotify://` row from a browse-only plugin with no yt-dlp installed. Blaming
+ * "Spotify failed" points at the plugin that produced the row and did nothing
+ * wrong; the missing piece is a plugin that can turn that link into a stream.
+ */
 export function unownedSchemeLabel(scheme: string): string {
   return `No installed plugin can play ${scheme}:// links`;
 }
@@ -531,14 +568,15 @@ export function useStreamResolution({
           resolve: async () => {
             const result = await Promise.race([
               sr.resolve(track.title, track.artist_name, track.album_title, track.duration_secs ?? null, { externalAudio, fresh, preferVideo: videoOnly }),
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)),
+              new Promise<typeof RESOLVER_TIMED_OUT>((resolve) => setTimeout(() => resolve(RESOLVER_TIMED_OUT), RESOLVER_TIMEOUT_MS)),
             ]);
-            if (!result) throw new Error("No result");
+            if (result === RESOLVER_TIMED_OUT) throw new ResolverMiss("timeout", `Timed out after ${RESOLVER_TIMEOUT_MS / 1000}s`);
+            if (!result) throw new ResolverMiss("miss", "No result");
             // Prefer-video pass: only an actual video stream counts. A resolver
             // that ignored the hint (returned audio, or found nothing playable
             // as video) is a miss here, so the track keeps falling through to
             // its own source and plays as audio.
-            if (videoOnly && !result.video) throw new Error("No video stream");
+            if (videoOnly && !result.video) throw new ResolverMiss("miss", "No video stream");
             if (result.sourceUrl) entry.sourceUrl = result.sourceUrl;
             // A resolver that honored the "prefer video" hint flags its result
             // as video; reclassify the track (format → mp4) so it routes to the
@@ -676,7 +714,13 @@ export function useStreamResolution({
           console.error(`Stream resolver "${entry.name}" failed:`, e);
           lastError = entry.failureLabel ?? entryFailureLabel(entry.name);
           lastThrown = e;
-          failures.push({ name: entry.name, native: entry.native, label: entry.failureLabel });
+          failures.push({
+            name: entry.name,
+            native: entry.native,
+            label: entry.failureLabel,
+            reason: e instanceof ResolverMiss ? e.reason : "error",
+            videoFirst: entry.videoFirst,
+          });
           continue;
         }
       }

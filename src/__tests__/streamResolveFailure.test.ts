@@ -66,6 +66,37 @@ describe("describeChainFailure", () => {
     ).toBe("No installed plugin can play spotify:// links");
   });
 
+  it("blames the plugin fallback that tried, not the unplayable spotify:// link", () => {
+    // A restored Spotify-playlist row with yt-dlp installed: the link was never
+    // playable, so "No installed plugin can play spotify:// links" was false —
+    // yt-dlp was right there and came back empty.
+    const spotify = { name: "Spotify", native: true, label: unownedSchemeLabel("spotify") };
+    expect(
+      describeChainFailure([spotify, { name: "Library", reason: "miss" }, { name: "yt-dlp", reason: "miss" }]),
+    ).toBe("Not in library · yt-dlp found no match");
+    expect(describeChainFailure([spotify, { name: "yt-dlp", reason: "timeout" }])).toBe("yt-dlp timed out");
+    expect(describeChainFailure([spotify, { name: "yt-dlp", reason: "error" }])).toBe("yt-dlp failed");
+  });
+
+  it("leaves prefer-video misses out of the fallback summary", () => {
+    expect(
+      describeChainFailure([
+        { name: "yt-dlp", reason: "miss", videoFirst: true },
+        { name: "Spotify", native: true, label: unownedSchemeLabel("spotify") },
+        { name: "yt-dlp", reason: "timeout" },
+      ]),
+    ).toBe("yt-dlp timed out");
+  });
+
+  it("keeps the unowned-scheme label when only the Library lookup ran behind it", () => {
+    expect(
+      describeChainFailure([
+        { name: "Spotify", native: true, label: unownedSchemeLabel("spotify") },
+        { name: "Library", reason: "miss" },
+      ]),
+    ).toBe("No installed plugin can play spotify:// links");
+  });
+
   it("ignores a label on a non-native entry", () => {
     // Only the native entry decides the blame, so a fallback's label must not
     // leak into the message.
