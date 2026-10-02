@@ -1,6 +1,5 @@
 import { memo, useCallback, useRef, useState, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { usePlaybackPosition } from "../playback/positionStore";
 import type { QueueTrack, SearchAllResults, SearchResultItem, ResolvedSource } from "../types";
@@ -267,35 +266,10 @@ export const NowPlayingBar = memo(function NowPlayingBar({
     onResetAll: onEqResetAll, onSaveAs: onEqSaveAs,
     showBarControl: eqShowBarControl, onShowBarControlChange: onEqShowBarControlChange,
   };
-  // Tags for the current track, shown inline in the subtitle. The track is a
-  // QueueTrack (no DB id), so resolve to a library row by metadata. The tag
-  // popover edits keep this in sync via onTagsChange so the subtitle updates live.
-  const [trackTags, setTrackTags] = useState<string[]>([]);
-
   // Blur any focused element when entering mini mode so no button appears selected
   useEffect(() => {
     if (miniMode) (document.activeElement as HTMLElement)?.blur();
   }, [miniMode]);
-
-  // Load tags for the current track (library tracks only). Reset on track change.
-  useEffect(() => {
-    setTrackTags([]);
-    if (!currentTrack) return;
-    let cancelled = false;
-    invoke<{ id: number } | null>("find_track_by_metadata", {
-      title: currentTrack.title,
-      artistName: currentTrack.artist_name ?? null,
-      albumName: currentTrack.album_title ?? null,
-    })
-      .then((lib) => {
-        if (cancelled || !lib) return;
-        invoke<Array<{ id: number; name: string }>>("get_tags_for_track", { trackId: lib.id })
-          .then((rows) => { if (!cancelled) setTrackTags(rows.map((r) => r.name)); })
-          .catch((e) => console.error("Failed to load tags for now-playing track:", e));
-      })
-      .catch((e) => console.error("Failed to resolve now-playing track:", e));
-    return () => { cancelled = true; };
-  }, [currentTrack?.title, currentTrack?.artist_name, currentTrack?.album_title]);
 
   // Auto-skip on error in mini mode (5s)
   useEffect(() => {
@@ -664,19 +638,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
                   </span>
                   )}
                   {!miniMode && (
-                    <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} pluginsLoaded={pluginsLoaded} onTagsChange={setTrackTags} />
-                  )}
-                  {trackTags.length > 0 && (
-                    <span className="now-tags">
-                      {trackTags.map((t) => (
-                        <span
-                          key={t}
-                          className="now-tag now-link"
-                          onClick={onNavigateToTagByName ? () => onNavigateToTagByName(t) : undefined}
-                          title={`Go to #${t}`}
-                        >#{t}</span>
-                      ))}
-                    </span>
+                    <TagPopover track={currentTrack} suggestions={tagSuggestions ?? []} invokeInfoFetch={invokeInfoFetch} pluginsLoaded={pluginsLoaded} onNavigateToTag={onNavigateToTagByName} />
                   )}
                 </span>
               </>

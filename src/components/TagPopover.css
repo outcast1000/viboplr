@@ -1,5 +1,6 @@
 /* Tag trigger button — sits inline in the now-playing subtitle, after the
-   artist/album and before the #tags. */
+   artist/album. The tags themselves live only in the dialog it opens, which
+   looks them up on demand — nothing is fetched until it is opened. */
 .now-tag-btn {
   display: inline-flex;
   align-items: center;

@@ -16,12 +16,12 @@ interface TagPopoverProps {
   invokeInfoFetch?: InvokeInfoFetch;
   /** Whether plugins finished loading — re-fetches community tags once ready. */
   pluginsLoaded?: boolean;
-  /** Notifies the parent of the current tag list so it can render them inline
-   *  in the subtitle (kept in sync as the user adds/removes here). */
-  onTagsChange?: (tags: string[]) => void;
+  /** Opens a tag's detail page. Clicking a chip closes the dialog and navigates
+   *  — the dialog is the bar's only tag surface (the subtitle shows none). */
+  onNavigateToTag?: (name: string) => void;
 }
 
-export default function TagPopover({ track, suggestions, invokeInfoFetch, pluginsLoaded, onTagsChange }: TagPopoverProps) {
+export default function TagPopover({ track, suggestions, invokeInfoFetch, pluginsLoaded, onNavigateToTag }: TagPopoverProps) {
   const [open, setOpen] = useState(false);
   const [resolvedId, setResolvedId] = useState<number | null>(null);
   const [tags, setTags] = useState<string[]>([]);
@@ -78,35 +78,30 @@ export default function TagPopover({ track, suggestions, invokeInfoFetch, plugin
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  function syncTags(next: string[]) {
-    setTags(next);
-    onTagsChange?.(next);
-  }
-
   async function handleAdd(name: string) {
     if (resolvedId == null) return;
-    syncTags([...tags, name]);
+    setTags([...tags, name]);
     const names = await tagActions.add(resolvedId, name);
-    if (names == null) syncTags(tags.filter((t) => t.toLowerCase() !== name.toLowerCase()));
-    else syncTags(names);
+    if (names == null) setTags(tags.filter((t) => t.toLowerCase() !== name.toLowerCase()));
+    else setTags(names);
   }
 
   async function handleRemove(name: string) {
     if (resolvedId == null) return;
     const before = tags;
-    syncTags(before.filter((t) => t.toLowerCase() !== name.toLowerCase()));
+    setTags(before.filter((t) => t.toLowerCase() !== name.toLowerCase()));
     const names = await tagActions.remove(resolvedId, before, name);
-    if (names == null) syncTags(before);
-    else syncTags(names);
+    if (names == null) setTags(before);
+    else setTags(names);
   }
 
   return (
     <>
       <button
         className="now-tag-btn"
-        title="Edit tags"
+        title="Tags"
         onClick={() => setOpen(true)}
-        aria-label="Edit tags"
+        aria-label="Tags"
       >
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
@@ -115,9 +110,9 @@ export default function TagPopover({ track, suggestions, invokeInfoFetch, plugin
       </button>
       {open && createPortal(
         <div className="ds-modal-overlay">
-          <div className="ds-modal tag-edit-modal" role="dialog" aria-label="Edit tags" aria-modal="true">
+          <div className="ds-modal tag-edit-modal" role="dialog" aria-label="Tags" aria-modal="true">
             <div className="tag-edit-modal-head">
-              <div className="ds-modal-title tag-edit-modal-title">Edit tags</div>
+              <div className="ds-modal-title tag-edit-modal-title">Tags</div>
               <button className="tag-edit-modal-close" onClick={() => setOpen(false)} aria-label="Close" title="Close">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
@@ -137,6 +132,7 @@ export default function TagPopover({ track, suggestions, invokeInfoFetch, plugin
               placeholder="Type a tag and press Enter…"
               autoFocus
               chipPrefix="#"
+              onChipLabelClick={onNavigateToTag ? (name) => { setOpen(false); onNavigateToTag(name); } : undefined}
               suggestedPills={communityPills}
               suggestedPillsLabel="Last.fm"
               suggestedPillsLoading={communityLoading}
