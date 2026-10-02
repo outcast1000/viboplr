@@ -62,7 +62,7 @@ unsafe extern "system" {
         cy: i32,
         flags: u32,
     ) -> i32;
-    fn ShowWindow(hwnd: isize, n_cmd_show: i32) -> i32;
+    fn ShowWindowAsync(hwnd: isize, n_cmd_show: i32) -> i32;
     fn GetModuleHandleW(lp_module_name: *const u16) -> isize;
     fn GetLastError() -> u32;
 }
@@ -71,6 +71,7 @@ const WS_CHILD: u32 = 0x4000_0000;
 const WS_VISIBLE: u32 = 0x1000_0000; // mpv's own embedded child is WS_CHILD | WS_VISIBLE
 const SWP_NOACTIVATE: u32 = 0x0010;
 const SWP_NOZORDER: u32 = 0x0004;
+const SWP_ASYNCWINDOWPOS: u32 = 0x4000;
 const SW_HIDE: i32 = 0;
 const SW_SHOWNA: i32 = 8; // show without activating
 
@@ -83,8 +84,14 @@ pub struct VideoLayer {
     app: tauri::AppHandle,
 }
 
-// The HWND is only touched via thread-safe Win32 calls (SetWindowPos/ShowWindow
-// post to the owning thread's queue).
+// The HWND is only touched via calls that *post* to the owning (main) thread's
+// queue: `ShowWindowAsync` and `SetWindowPos(SWP_ASYNCWINDOWPOS)`. The plain
+// `ShowWindow` / `SetWindowPos` are synchronous across threads — they wait for
+// the main thread to process the message — and the mpv event thread calls in
+// here while holding the engine's `video` mutex. A sync engine command
+// (`engine_set_video_bounds`) runs on the main thread and takes that same
+// mutex, so a synchronous call deadlocked the app (event thread waiting on
+// main, main waiting on the mutex). Never switch these back.
 unsafe impl Send for VideoLayer {}
 unsafe impl Sync for VideoLayer {}
 
@@ -129,7 +136,15 @@ impl VideoLayer {
         let pw = ((width * scale).round() as i32).max(1);
         let ph = ((height * scale).round() as i32).max(1);
         let ok = unsafe {
-            SetWindowPos(self.hwnd, 0, px, py, pw, ph, SWP_NOACTIVATE | SWP_NOZORDER)
+            SetWindowPos(
+                self.hwnd,
+                0,
+                px,
+                py,
+                pw,
+                ph,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS,
+            )
         };
         if ok == 0 {
             let err = unsafe { GetLastError() };
@@ -139,7 +154,7 @@ impl VideoLayer {
 
     pub fn set_visible(&self, visible: bool) {
         unsafe {
-            ShowWindow(self.hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
+            ShowWindowAsync(self.hwnd, if visible { SW_SHOWNA } else { SW_HIDE });
         }
     }
 }
