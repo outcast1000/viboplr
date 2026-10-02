@@ -93,6 +93,42 @@ export function decideDownload(
   }
   // Stream-resolver win (e.g. YouTube fallback) — no native URI; resolve by
   // metadata, which lets the provider check its cache before re-downloading.
+  return metadataPlan(p, track);
+}
+
+/**
+ * The downloader for a track that has **no source yet** — metadata only (a
+ * detail page's "Not in library" row, an information-section track, a queue
+ * entry that hasn't resolved). Its source is whichever stream resolver will
+ * play it, so the downloader follows the user's resolver order (Settings →
+ * Providers): the first enabled plugin resolver whose plugin also contributes
+ * a download provider, resolving by metadata — the same plan `decideDownload`
+ * gives a stream-resolver win once the track has played.
+ *
+ * Decided statically from the order, not by running the chain: if that
+ * provider can't find the track the modal reports it, and nothing walks on to
+ * the next provider on the user's behalf. `resolverSources` is the ordered,
+ * enabled resolver list's `source` (plugin id; `"built-in"` entries skipped —
+ * the Library resolver has nothing to download).
+ */
+export function decideMetadataDownload(
+  resolverSources: readonly string[],
+  track: Pick<QueueTrack, "title" | "artist_name" | "album_title" | "duration_secs">,
+  providers: DownloadProvider[],
+): DownloadPlan | null {
+  for (const source of resolverSources) {
+    if (source === "built-in") continue;
+    // Subsonic downloads by URI only — it has nothing to search by name.
+    const p = providers.find((pr) => pr.source === source && pr.id !== BUILTIN_SUBSONIC_PROVIDER_ID);
+    if (p) return metadataPlan(p, track);
+  }
+  return null;
+}
+
+function metadataPlan(
+  p: DownloadProvider,
+  track: Pick<QueueTrack, "title" | "artist_name" | "album_title" | "duration_secs">,
+): DownloadPlan {
   return {
     providerId: p.id,
     providerName: p.name,

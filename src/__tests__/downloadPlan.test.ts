@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { decideDownload, extFromDirectUrl, BUILTIN_SUBSONIC_PROVIDER_ID, BUILTIN_DIRECT_PROVIDER_ID } from "../utils/downloadPlan";
+import { decideDownload, decideMetadataDownload, extFromDirectUrl, BUILTIN_SUBSONIC_PROVIDER_ID, BUILTIN_DIRECT_PROVIDER_ID } from "../utils/downloadPlan";
 import type { DownloadProvider } from "../types/plugin";
 
 const track = { title: "Song", artist_name: "Artist", album_title: "Album", duration_secs: 200 };
@@ -83,5 +83,28 @@ describe("decideDownload", () => {
   it("returns null for null/undefined source", () => {
     expect(decideDownload(null, track, ALL)).toBeNull();
     expect(decideDownload(undefined, track, ALL)).toBeNull();
+  });
+});
+
+describe("decideMetadataDownload", () => {
+  it("follows the resolver order: first plugin resolver with a download provider", async () => {
+    const plan = decideMetadataDownload(["built-in", "spotify", "tidal-browse", "youtube"], track, ALL);
+    // spotify resolves but contributes no downloader → skipped; tidal is next.
+    expect(plan).toMatchObject({ providerId: "tidal-browse:tidal-dl", providerName: "TIDAL", uri: null });
+    await plan!.resolveByUri("", "flac");
+    expect(tidal.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac", undefined);
+  });
+
+  it("respects a reordered chain", () => {
+    expect(decideMetadataDownload(["youtube", "tidal-browse"], track, ALL)?.providerId).toBe("youtube:youtube-fallback");
+  });
+
+  it("never picks the built-in Subsonic provider (no resolver owns it)", () => {
+    expect(decideMetadataDownload(["built-in", "__builtin"], track, [subsonic])).toBeNull();
+  });
+
+  it("returns null when no resolver's plugin can download", () => {
+    expect(decideMetadataDownload(["built-in", "spotify"], track, ALL)).toBeNull();
+    expect(decideMetadataDownload([], track, ALL)).toBeNull();
   });
 });

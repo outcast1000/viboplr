@@ -168,9 +168,9 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   }, [enqueueExternal]);
   const { handleInfoTrackContextMenu } = actions;
   const handleMissingContextMenu = useCallback((e: React.MouseEvent, t: QueueTrack) => {
-    handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name });
+    handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name, albumTitle: t.album_title });
   }, [handleInfoTrackContextMenu]);
-  const { startRadioByName, navigateToTrackByName } = actions;
+  const { startRadioByName, navigateToTrackByName, downloadByName } = actions;
   const startRadioMissing = useCallback((t: QueueTrack) => {
     startRadioByName(t.title, t.artist_name, t.album_title);
   }, [startRadioByName]);
@@ -312,8 +312,9 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
         missingRows={missingRows}
         onPlayMissing={playOneExternal}
         onEnqueueMissing={enqueueOneExternal}
-            onStartRadioMissing={startRadioMissing}
-            onLocateMissing={locateMissing}
+        onStartRadioMissing={startRadioMissing}
+        onLocateMissing={locateMissing}
+        onDownloadMissing={actions.downloadByName ?? undefined}
         onMissingContextMenu={handleMissingContextMenu}
         emptyMessage="No tracks found."
       />
@@ -339,10 +340,11 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
             meta={rankedValues[i] ? <span title={`${rankedValues[i].toLocaleString()} listeners`}>{formatCompactCount(rankedValues[i])}</span> : undefined}
             playing={playingId !== null && playingId === trackLikeId(t.title, t.artist_name)}
             onDoubleClick={() => playExternalFrom(i)}
-            onContextMenu={(e) => { e.preventDefault(); actions.handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name }); }}
+            onContextMenu={(e) => { e.preventDefault(); actions.handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name, albumTitle: t.album_title }); }}
             actions={{
               onPlay: () => playExternalFrom(i),
               onEnqueue: () => enqueueExternal([t]),
+              onDownload: downloadByName ? () => downloadByName(t) : undefined,
             }}
           />
         ))}

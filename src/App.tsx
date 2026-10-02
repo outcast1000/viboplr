@@ -449,6 +449,9 @@ function App() {
   });
   const streamResolversRef = useRef<StreamResolver[]>([]);
   const [streamResolverOrderVersion, setStreamResolverOrderVersion] = useState(0);
+  // The built chain's `source`s, in order — state (not just the ref) so a
+  // metadata-only track's Download affordance re-renders when it changes.
+  const [resolverSources, setResolverSources] = useState<string[]>([]);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
   const waveformPeaks = useWaveform(
@@ -1300,6 +1303,7 @@ function App() {
       } else {
         streamResolversRef.current = allResolvers;
       }
+      setResolverSources(streamResolversRef.current.map((r) => r.source));
     };
     buildResolvers();
   }, [plugins.pluginStates, plugins.invokeStreamResolve, streamResolverOrderVersion]);
@@ -1885,10 +1889,12 @@ function App() {
     openDownloadForCurrentTrack,
     resolveNativeDownload,
     openNativeDownload,
+    openDownloadByName,
   } = useDownloadOrchestration({
     plugins,
     libraryTracks: library.tracks,
     queue: queueHook.queue,
+    resolverSources,
   });
 
   // The single decision for the now-playing download button: whether it shows
@@ -4323,6 +4329,7 @@ function App() {
     navigateToTrackByName: (name, artistName, albumTitle) => {
       library.navigateToTrackByName(name, artistName, albumTitle).catch(e => console.error("Failed to open track page:", e));
     },
+    downloadByName: openDownloadByName,
     toggleLike: likeActions.handleToggleLike,
     toggleDislike: likeActions.handleToggleDislike,
     toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => {
@@ -4382,7 +4389,7 @@ function App() {
     },
   }), [
     library.handleArtistClick, library.handleAlbumClick, library.handleTagClick, library.navigateToTagByName,
-    library.handleTrackClick, library.navigateToTrackByName, contextMenuActions.startRadio,
+    library.handleTrackClick, library.navigateToTrackByName, contextMenuActions.startRadio, openDownloadByName,
     goBack, canGoBack,
     queueHook.playTracks, queueHook.enqueueTracks, handlePlayEntityAll, playActions.playAlbum, contextMenuActions.handleEnqueue,
     likeActions.handleToggleLike, likeActions.handleToggleDislike,

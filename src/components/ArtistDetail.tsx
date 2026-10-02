@@ -232,7 +232,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     enqueueExternal([t]);
   }, [enqueueExternal]);
   const handleMissingContextMenu = useCallback((e: React.MouseEvent, t: QueueTrack) => {
-    handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name });
+    handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name, albumTitle: t.album_title });
   }, [handleInfoTrackContextMenu]);
   const { startRadioByName, navigateToTrackByName } = actions;
   const startRadioMissing = useCallback((t: QueueTrack) => {
@@ -289,6 +289,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
           onEnqueueMissing={enqueueOneExternal}
           onStartRadioMissing={startRadioMissing}
           onLocateMissing={locateMissing}
+          onDownloadMissing={actions.downloadByName ?? undefined}
           onMissingContextMenu={handleMissingContextMenu}
           emptyMessage="No tracks found for this artist."
         />

@@ -1,5 +1,5 @@
 // The single definition of the row hover-action tray (Play / Enqueue / Start
-// radio / Details) shared by every track surface, plus a dynamic mode for
+// radio / Download / Details) shared by every track surface, plus a dynamic mode for
 // plugin-declared actions. Type-agnostic: callers pass pre-bound `() => void`
 // thunks (already closed over the row + selection), so this never sees a track.
 //
@@ -24,12 +24,15 @@ export interface RowHoverActionsProps {
   onEnqueue?: () => void;
   onStartRadio?: () => void;
   onDetails?: () => void;
+  /** Only "Not in library" rows pass this — a library row's download lives in
+   *  its context menu, decided by its own source. */
+  onDownload?: () => void;
   // Dynamic plugin actions, appended after the fixed set.
   actions?: RowHoverAction[];
 }
 
-export function RowHoverActions({ onPlay, onEnqueue, onStartRadio, onDetails, actions }: RowHoverActionsProps) {
-  const hasFixed = !!(onPlay || onEnqueue || onStartRadio || onDetails);
+export function RowHoverActions({ onPlay, onEnqueue, onStartRadio, onDetails, onDownload, actions }: RowHoverActionsProps) {
+  const hasFixed = !!(onPlay || onEnqueue || onStartRadio || onDetails || onDownload);
   const hasDynamic = !!(actions && actions.length);
   if (!hasFixed && !hasDynamic) return null;
 
@@ -48,6 +51,11 @@ export function RowHoverActions({ onPlay, onEnqueue, onStartRadio, onDetails, ac
       {onStartRadio && (
         <button type="button" className="row-hover-action" title="Start radio" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onStartRadio(); }}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </button>
+      )}
+      {onDownload && (
+        <button type="button" className="row-hover-action" title="Download" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); onDownload(); }}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         </button>
       )}
       {onDetails && (

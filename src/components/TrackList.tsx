@@ -87,8 +87,9 @@ export function computeSelection(
 /** A track the list shows without a library row behind it — an album page's
  *  provider tracklist entry (or an artist's Top Song) the user doesn't own.
  *  Read-only: it gets the same hover actions as a library row — play,
- *  enqueue, start radio, details — and the track context menu, all by
- *  metadata (the stream resolvers find it at play time), but is never
+ *  enqueue, start radio, details — plus download, and the track context
+ *  menu, all by metadata (the stream resolvers find it at play time; the
+ *  download follows the same resolver order), but is never
  *  selected, dragged, deleted or liked from here. */
 export interface MissingTrackRow {
   track: QueueTrack;
@@ -138,6 +139,8 @@ interface TrackListProps {
   onStartRadioMissing?: (track: QueueTrack) => void;
   /** Open the track page by name (no library row to open by id). */
   onLocateMissing?: (track: QueueTrack) => void;
+  /** When provided, missing rows get a hover "Download" button. */
+  onDownloadMissing?: (track: QueueTrack) => void;
   onMissingContextMenu?: (e: React.MouseEvent, track: QueueTrack) => void;
 }
 
@@ -152,7 +155,7 @@ export function TrackList({
   emptyMessage = "No tracks found.",
   hasMore = false, loadingMore = false, onLoadMore,
   ariaLabel = "Tracks",
-  missingRows = NO_MISSING, onPlayMissing, onEnqueueMissing, onStartRadioMissing, onLocateMissing, onMissingContextMenu,
+  missingRows = NO_MISSING, onPlayMissing, onEnqueueMissing, onStartRadioMissing, onLocateMissing, onDownloadMissing, onMissingContextMenu,
 }: TrackListProps) {
   const maxPopularity = useMemo(() => {
     const missing = missingRows.map(m => m.popularity ?? 0);
@@ -514,6 +517,7 @@ export function TrackList({
     enqueueMissing: onEnqueueMissing,
     startRadioMissing: onStartRadioMissing,
     locateMissing: onLocateMissing,
+    downloadMissing: onDownloadMissing,
     missingContextMenu: onMissingContextMenu,
   });
 
@@ -528,6 +532,7 @@ export function TrackList({
   const hasDislike = !!onToggleDislike;
   const hasStartRadioMissing = !!onStartRadioMissing;
   const hasLocateMissing = !!onLocateMissing;
+  const hasDownloadMissing = !!onDownloadMissing;
   const presence = useMemo<TrackRowActionPresence>(() => ({
     play: hasPlay,
     enqueue: hasEnqueue,
@@ -536,7 +541,8 @@ export function TrackList({
     dislike: hasDislike,
     startRadioMissing: hasStartRadioMissing,
     locateMissing: hasLocateMissing,
-  }), [hasPlay, hasEnqueue, hasStartRadio, hasLocate, hasDislike, hasStartRadioMissing, hasLocateMissing]);
+    downloadMissing: hasDownloadMissing,
+  }), [hasPlay, hasEnqueue, hasStartRadio, hasLocate, hasDislike, hasStartRadioMissing, hasLocateMissing, hasDownloadMissing]);
 
   // Infinite scroll appends pages without bound, so a large library can
   // accumulate thousands of rows. Above a threshold, opt each row into
@@ -627,6 +633,7 @@ interface TrackRowHandlers {
   enqueueMissing?: (track: QueueTrack) => void;
   startRadioMissing?: (track: QueueTrack) => void;
   locateMissing?: (track: QueueTrack) => void;
+  downloadMissing?: (track: QueueTrack) => void;
   missingContextMenu?: (e: React.MouseEvent, track: QueueTrack) => void;
 }
 
@@ -640,6 +647,7 @@ interface TrackRowActionPresence {
   dislike: boolean;
   startRadioMissing: boolean;
   locateMissing: boolean;
+  downloadMissing: boolean;
 }
 
 interface TrackRowProps {
@@ -810,6 +818,7 @@ const MissingRow = memo(function MissingRow({ row, isCurrent, visibleColumns, pr
               onEnqueue={() => handlers.current.enqueueMissing?.(t)}
               onStartRadio={presence.startRadioMissing ? () => handlers.current.startRadioMissing?.(t) : undefined}
               onDetails={presence.locateMissing ? () => handlers.current.locateMissing?.(t) : undefined}
+              onDownload={presence.downloadMissing ? () => handlers.current.downloadMissing?.(t) : undefined}
             />
           </span>
         );
