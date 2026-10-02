@@ -181,6 +181,7 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     case 'list_profiles':
       return [{ name: 'default', isCurrent: true }];
     case 'get_pending_profile_switch':
+    case 'take_pending_mixtape_open':
       return null;
     // Settings > Debug reads these; null answers crash TimingTable / path rows.
     case 'get_app_paths':

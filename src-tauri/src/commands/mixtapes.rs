@@ -331,6 +331,15 @@ pub fn export_mixtape_full(
     Ok(())
 }
 
+/// Consume a `.mixtape` the OS asked us to open (see `PendingMixtapeOpen`).
+/// Pull-once semantics, so the same file is never played twice.
+#[tauri::command]
+pub fn take_pending_mixtape_open(
+    pending: State<'_, crate::mixtape::PendingMixtapeOpen>,
+) -> Option<String> {
+    pending.0.lock().ok()?.take()
+}
+
 #[tauri::command]
 pub fn import_mixtape(
     path: String,

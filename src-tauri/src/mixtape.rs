@@ -437,9 +437,70 @@ where
     Ok(manifest)
 }
 
+/// A `.mixtape` the OS asked us to open (Explorer double-click, "Open with",
+/// macOS Finder) that the frontend hasn't played yet. Managed on the Builder
+/// *before* the single-instance plugin registers, like `PendingProfileSwitch`.
+/// The frontend consumes it via `take_pending_mixtape_open` once the restored
+/// queue is applied; the `mixtape-file-opened` event is only a nudge. A stash
+/// is needed because a cold launch delivers the path before any listener
+/// exists — an event alone is simply lost.
+#[derive(Default)]
+pub struct PendingMixtapeOpen(pub std::sync::Mutex<Option<String>>);
+
+impl PendingMixtapeOpen {
+    pub fn stash(&self, path: String) {
+        // Poison-tolerant: a panic elsewhere must not turn a double-click
+        // into a crash of the running app.
+        if let Ok(mut pending) = self.0.lock() {
+            *pending = Some(path);
+        }
+    }
+}
+
+/// The `.mixtape` path in a launch argv, if any. Windows file associations
+/// launch `viboplr.exe "<path>"`, so the path is a plain argument. `argv[0]`
+/// (the executable) is skipped; the last match wins.
+pub fn mixtape_path_from_argv(argv: &[String]) -> Option<String> {
+    argv.iter()
+        .skip(1)
+        .filter(|a| !a.starts_with("--"))
+        .filter(|a| {
+            Path::new(a)
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("mixtape"))
+        })
+        .last()
+        .cloned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_mixtape_path_from_argv_finds_the_file_argument() {
+        assert_eq!(
+            mixtape_path_from_argv(&argv(&["C:\\Viboplr\\viboplr.exe", "D:\\Music\\Road Trip.mixtape"])),
+            Some("D:\\Music\\Road Trip.mixtape".to_string())
+        );
+        // Extension match is case-insensitive (Windows paths often aren't).
+        assert_eq!(
+            mixtape_path_from_argv(&argv(&["viboplr", "--profile", "work", "/m/x.MIXTAPE"])),
+            Some("/m/x.MIXTAPE".to_string())
+        );
+    }
+
+    #[test]
+    fn test_mixtape_path_from_argv_ignores_everything_else() {
+        assert_eq!(mixtape_path_from_argv(&argv(&["viboplr.mixtape"])), None); // argv[0]
+        assert_eq!(mixtape_path_from_argv(&argv(&["viboplr", "--profile", "work"])), None);
+        assert_eq!(mixtape_path_from_argv(&argv(&["viboplr", "viboplr://quiz"])), None);
+        assert_eq!(mixtape_path_from_argv(&argv(&["viboplr", "song.mp3"])), None);
+    }
 
     #[test]
     fn test_track_archive_path() {

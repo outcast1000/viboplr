@@ -307,6 +307,7 @@ macro_rules! invoke_handler {
             commands::export_mixtape_playlist_only,
             commands::export_mixtape_full,
             commands::import_mixtape,
+            commands::take_pending_mixtape_open,
             commands::cancel_mixtape_operation,
             commands::cleanup_temp_mixtapes,
             commands::main_playlist_write,
@@ -891,7 +892,16 @@ pub fn run() {
 
     // Managed before the single-instance plugin registers so its callback can
     // never observe unmanaged state (it can fire while setup is still running).
-    let builder = tauri::Builder::default().manage(profiles::PendingProfileSwitch::default());
+    // A cold launch from a `.mixtape` (Windows file association) carries the
+    // path in argv; stash it for the frontend to pull once restore applies.
+    let pending_mixtape = mixtape::PendingMixtapeOpen::default();
+    if let Some(path) = mixtape::mixtape_path_from_argv(&std::env::args().collect::<Vec<_>>()) {
+        log::info!("Launched to open mixtape: {}", path);
+        pending_mixtape.stash(path);
+    }
+    let builder = tauri::Builder::default()
+        .manage(profiles::PendingProfileSwitch::default())
+        .manage(pending_mixtape);
     #[cfg(not(debug_assertions))]
     let builder = timer.time("plugin: single_instance", || {
         let current_profile = profile_name.clone();
@@ -915,6 +925,12 @@ pub fn run() {
                     *pending = Some(requested.clone());
                 }
                 let _ = app.emit("profile-switch-requested", requested);
+            }
+            // A `.mixtape` opened while running (Windows passes it in argv).
+            // Stash + nudge, same as a profile switch.
+            if let Some(path) = mixtape::mixtape_path_from_argv(&argv) {
+                app.state::<mixtape::PendingMixtapeOpen>().stash(path.clone());
+                let _ = app.emit("mixtape-file-opened", path);
             }
             // Check argv for subsonic:// and viboplr:// deep link URLs
             for arg in &argv {
@@ -1722,9 +1738,17 @@ pub fn run() {
                     for url in urls {
                         let url_str = url.to_string();
                         if url_str.ends_with(".mixtape") {
-                            let path = url_str.strip_prefix("file://").unwrap_or(&url_str);
+                            // to_file_path decodes %20 etc.; a raw strip_prefix
+                            // left "Road%20Trip.mixtape", which doesn't exist.
+                            let path = url
+                                .to_file_path()
+                                .map(|p| p.to_string_lossy().into_owned())
+                                .unwrap_or_else(|_| url_str.strip_prefix("file://").unwrap_or(&url_str).to_string());
                             eprintln!("[RunEvent::Opened] mixtape file: {}", path);
-                            let _ = app.emit("mixtape-file-opened", path.to_string());
+                            // Stash too: on a cold launch this fires before the
+                            // webview has subscribed, so the event alone is lost.
+                            app.state::<mixtape::PendingMixtapeOpen>().stash(path.clone());
+                            let _ = app.emit("mixtape-file-opened", path);
                         } else {
                             eprintln!("[RunEvent::Opened] emitting deep-link-received: {}", url);
                             let _ = app.emit("deep-link-received", url.to_string());

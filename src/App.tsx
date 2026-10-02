@@ -2837,12 +2837,26 @@ function App() {
     return stopDeepLink;
   }, [plugins.forwardDeepLink]);
 
+  // A .mixtape the OS asked us to open (Explorer double-click / Finder / a
+  // second launch). The backend stash is the single consumption point
+  // (pull-once), the `mixtape-file-opened` event only a nudge — a cold launch
+  // delivers the path before any listener exists. Consumed only once the
+  // restored queue is applied, or the restore would replace the mixtape.
+  const consumePendingMixtapeOpen = useCallback(() => {
+    invoke<string | null>("take_pending_mixtape_open")
+      .then((path) => {
+        if (!path) return;
+        trackTelemetry("playlist_loaded", { format: "mixtape" });
+        return invoke("import_mixtape", { path, mode: "just_play", destDir: null });
+      })
+      .catch(err => console.error("Failed to play mixtape:", err));
+  }, []);
+
   // Listen for mixtape file opened events (from file association / CLI) — play immediately
   useEffect(() => {
-    const stopMixtapeOpen = subscribe<string>("mixtape-file-opened", (event) => {
-      trackTelemetry("playlist_loaded", { format: "mixtape" });
-      invoke("import_mixtape", { path: event.payload, mode: "just_play", destDir: null })
-        .catch(err => console.error("Failed to play mixtape:", err));
+    const stopMixtapeOpen = subscribe<string>("mixtape-file-opened", () => {
+      if (!restoreAppliedRef.current) return; // stash consumed after restore applies
+      consumePendingMixtapeOpen();
     });
 
     const stopJustPlay = subscribe<{ tracks: Track[]; coverPath?: string | null; title?: string; metadata?: Record<string, string> | null }>("mixtape-just-play", (event) => {
@@ -2864,7 +2878,7 @@ function App() {
     });
 
     return combineUnlisten(stopMixtapeOpen, stopJustPlay);
-  }, [mixtapePreviewPath, queueHook.playTracks]);
+  }, [mixtapePreviewPath, queueHook.playTracks, consumePendingMixtapeOpen]);
 
   // Handle drag-and-drop of .mixtape files onto the window — play immediately
   useEffect(() => {
@@ -3244,7 +3258,9 @@ function App() {
     // default. Consume any switch request stashed during startup.
     restoreAppliedRef.current = true;
     consumePendingProfileSwitch();
-  }, [appRestoring, consumePendingProfileSwitch]);
+    // Same reasoning for a mixtape the app was launched to open.
+    consumePendingMixtapeOpen();
+  }, [appRestoring, consumePendingProfileSwitch, consumePendingMixtapeOpen]);
 
   // One-shot Collections-view hint: after the ALBUMARTIST update, local
   // libraries scanned before it keep per-track-artist album forks until a Full
