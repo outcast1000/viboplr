@@ -189,7 +189,7 @@ It is a correlated subquery evaluated once per album, which makes the covering i
 - **Entity keys** are name-based and diacritic-normalized (`strip_diacritics(lowercase(...))` via `norm_segment`), built by `build_entity_key(kind, name_or_title, artist_name)`: `track:{artist}:{title}`, `album:{artist}:{title}`, `artist:{name}`, `tag:{name}`. Because keys are metadata-based, likes survive for non-library and `id`-less `QueueTrack`s.
 - `set_entity_like` upserts a row (or **deletes** it when `liked == 0`). The `tracks.liked` column is kept as a mirror for library list rendering, but `entity_likes` is authoritative.
 - `get_track_like_states(&[(title, artist)])` batch-reads track like states from `entity_likes` (0 when no row). Used on startup to reconcile the restored queue / now-playing tracks, whose `QueueTrack`s carry no DB id — `tracksFromManifest` hardcodes `liked: 0`, so the restore path patches it from this command.
-- Commands: `set_entity_like_state` (frontend `useLikeActions` calls this with `{ kind, entity, likeState }`), `get_track_like_states` (in `commands/library.rs`).
+- Commands: `set_entity_like_state` (frontend `useLikeActions` calls this with `{ kind, entity, likeState }`), `get_track_like_states`, `get_entity_like_state` (one artist/album/tag by name — the like of a detail page whose entity isn't in the library) (in `commands/library.rs`).
 
 ## Profiles
 

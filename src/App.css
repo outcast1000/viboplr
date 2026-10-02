@@ -219,6 +219,29 @@
   margin-top: 0;
 }
 
+/* Album detail, album not in the library: the provider tracklist, rendered as
+   the information sections' "Tracks" tab. With no library TrackList in
+   between, those tabs are the hero's immediate sibling — cancel the overlap
+   for the same reason as Artist detail above. */
+.album-detail .detail-hero + .section-wide {
+  margin-top: 0;
+}
+
+.album-external-note {
+  padding: 12px 0;
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+}
+
+.album-external-num {
+  width: 24px;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
 
 .artist-image-menu-wrapper {
   position: relative;

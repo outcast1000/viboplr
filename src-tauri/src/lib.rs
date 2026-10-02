@@ -118,6 +118,7 @@ macro_rules! invoke_handler {
             commands::resolve_subsonic_location,
             commands::toggle_liked,
             commands::set_entity_like_state,
+            commands::get_entity_like_state,
             commands::get_liked_tracks,
             commands::pick_liked_entities,
             commands::pick_never_played_tracks,

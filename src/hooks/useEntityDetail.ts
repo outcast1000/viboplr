@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Artist, Album, Tag, Track, SortField, SortDir } from "../types";
+import type { Artist, Album, Tag, Track, QueueTrack, SortField, SortDir } from "../types";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import { stripAccents } from "../utils";
+import { buildExternalQueueTrack } from "../utils/externalTrack";
+import { nextTriState } from "../likeKeys";
 import { subscribeTrackEvents } from "../trackEvents";
 import { useAssignRef } from "./useLatestRef";
 
@@ -35,7 +37,10 @@ export function seededRandom(seed: number): () => number {
   };
 }
 
-type BackendTypeRow = [string, string, string, number, number, Array<[string, number]>];
+const EMPTY_EXTERNAL: QueueTrack[] = [];
+const EMPTY_VALUES: number[] = [];
+
+type BackendTypeRow =[string, string, string, number, number, Array<[string, number]>];
 
 interface EntityDetailConfig {
   kind: "artist" | "album" | "tag";
@@ -44,6 +49,9 @@ interface EntityDetailConfig {
   invokeInfoFetch?: (pluginId: string, infoTypeId: string, entity: InfoEntity, onFetchUrl?: (url: string) => void) => Promise<InfoFetchResult>;
   onEntityLike?: (kind: "artist" | "album" | "tag", id: number) => void;
   onEntityDislike?: (kind: "artist" | "album" | "tag", id: number) => void;
+  /** Like/dislike for an entity that isn't in the library (no id). Resolves
+   *  whether the write landed, so the optimistic state can be reverted. */
+  onEntityLikeByName?: (kind: "artist" | "album" | "tag", name: string, artistName: string | undefined, likeState: number) => Promise<boolean>;
   /** External refetch trigger — bumping this re-runs the load effect (e.g. after
    *  a bulk edit changes the track set). */
   reloadSignal?: number;
@@ -55,6 +63,19 @@ export interface EntityDetailReturn {
   sortedTracks: Track[];
   albums: Album[];
   isLibrary: boolean;
+  /** The library lookup for the current name has answered (found or not). */
+  loaded: boolean;
+  /** Like state shown in the hero: the row's own, or — for an entity that
+   *  isn't in the library — the durable name-keyed one. */
+  liked: number;
+  /** Album pages only, when the album isn't in the library: its tracklist from
+   *  the album `ranked_list` provider, metadata-only (the stream resolvers find
+   *  each source at play time, a library copy first). */
+  externalTracks: QueueTrack[];
+  /** The provider's value per external track (Last.fm listeners), parallel to
+   *  `externalTracks`; 0 when it reported none. */
+  externalValues: number[];
+  externalStatus: "idle" | "loading" | "ok" | "none";
   sortField: SortField | null;
   handleSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
@@ -66,7 +87,17 @@ export interface EntityDetailReturn {
   reload: () => void;
 }
 
-export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEntityLike, onEntityDislike, reloadSignal }: EntityDetailConfig): EntityDetailReturn {
+export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEntityLike, onEntityDislike, onEntityLikeByName, reloadSignal }: EntityDetailConfig): EntityDetailReturn {
+  // Which page the state below describes. Everything loaded asynchronously is
+  // stamped with the key it was loaded for, so a late answer for the previous
+  // page never shows on the next one.
+  const detailKey = `${kind}|${name}|${artistName ?? ""}`;
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const loaded = loadedKey === detailKey;
+  const [nameLike, setNameLike] = useState<{ key: string; liked: number } | null>(null);
+  const [external, setExternal] = useState<{
+    key: string; status: "ok" | "none"; tracks: QueueTrack[]; values: number[];
+  } | null>(null);
   const [entity, setEntity] = useState<Artist | Album | Tag | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [albums, setAlbums] = useState<Album[]>([]);
@@ -78,6 +109,7 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
 
   useEffect(() => {
     let cancelled = false;
+    const key = `${kind}|${name}|${artistName ?? ""}`;
 
     (async () => {
       try {
@@ -117,13 +149,19 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
         } else {
           setTracks([]);
           setAlbums([]);
+          // Not in the library: the like still exists by name.
+          invoke<number>("get_entity_like_state", { kind, name, artistName: artistName ?? null })
+            .then(liked => { if (!cancelled) setNameLike({ key, liked }); })
+            .catch(e => console.error(`Failed to load ${kind} like state:`, e));
         }
+        if (!cancelled) setLoadedKey(key);
       } catch (e) {
         console.error(`Failed to load ${kind} detail:`, e);
         if (!cancelled) {
           setEntity(null);
           setTracks([]);
           setAlbums([]);
+          setLoadedKey(key);
         }
       }
     })();
@@ -153,52 +191,75 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
   const tracksRef = useRef(tracks);
   useAssignRef(tracksRef, tracks);
 
-  // Fetch track popularity from ranked_list info types (artist and album only)
+  // The entity's ranked_list info type (artist and album only). One fetch, two
+  // uses: for a library entity it supplies the track popularity bars; for an
+  // album that isn't in the library it *is* the tracklist — the provider lists
+  // the album's tracks in album order (Last.fm `album.getInfo`).
+  const wantsExternalTracklist = loaded && !entity && kind === "album";
   useEffect(() => {
     setTrackPopularity({});
-    if (!entity || !invokeInfoFetch || kind === "tag") return;
+    if (kind === "tag" || !(entity || wantsExternalTracklist)) return;
+    const key = `${kind}|${name}|${artistName ?? ""}`;
+    const settleExternal = (tracks: QueueTrack[], values: number[] = []) => {
+      if (!entity) setExternal({ key, status: tracks.length > 0 ? "ok" : "none", tracks, values });
+    };
+    // No info system wired (never in the app) — externalStatus reports "none".
+    if (!invokeInfoFetch) return;
 
     let cancelled = false;
     (async () => {
       try {
         const types = await invoke<BackendTypeRow[]>("info_get_types_for_entity", { entity: kind });
+        if (cancelled) return;
         const rankedType = types.find(([, , displayKind]) => displayKind === "ranked_list");
-        if (!rankedType || cancelled) return;
+        if (!rankedType) { settleExternal([]); return; }
 
         const [typeId, , , , , providers] = rankedType;
-        const infoEntity: InfoEntity = kind === "artist"
-          ? { kind: "artist", name: (entity as Artist).name, id: entity.id }
-          : { kind: "album", name: (entity as Album).title, id: entity.id, artistName: (entity as Album).artist_name ?? undefined };
+        const infoEntity: InfoEntity = !entity
+          ? { kind: "album", name, id: 0, artistName }
+          : kind === "artist"
+            ? { kind: "artist", name: (entity as Artist).name, id: entity.id }
+            : { kind: "album", name: (entity as Album).title, id: entity.id, artistName: (entity as Album).artist_name ?? undefined };
 
         for (const [pluginId] of providers) {
           if (cancelled) return;
           try {
             const result = await invokeInfoFetch(pluginId, typeId, infoEntity);
             if (cancelled || result.status !== "ok") continue;
-            const items = (result.value as Record<string, unknown>)?.items as Array<{ name: string; value: number }> | undefined;
+            const items = (result.value as Record<string, unknown>)?.items as Array<{ name: string; subtitle?: string; value: number }> | undefined;
             if (!items) continue;
+            if (!entity) {
+              settleExternal(items.map(item => ({
+                ...buildExternalQueueTrack(item.name, item.subtitle ?? artistName),
+                album_title: name,
+                album_artist_name: artistName ?? null,
+              })), items.map(item => item.value > 0 ? item.value : 0));
+              return;
+            }
             const popMap: Record<number, number> = {};
             for (const item of items) {
               const norm = normalizeTitle(item.name);
               const match = tracksRef.current.find(t => normalizeTitle(t.title) === norm);
               if (match && match.id != null && item.value > 0) popMap[match.id] = item.value;
             }
-            if (!cancelled) setTrackPopularity(popMap);
+            setTrackPopularity(popMap);
             return;
           } catch (e) {
             // Fall through to the next provider, but don't hide why this one lost.
-            console.error(`Popularity provider "${pluginId}" failed for ${kind}:`, e);
+            console.error(`Ranked-list provider "${pluginId}" failed for ${kind}:`, e);
             continue;
           }
         }
+        if (!cancelled) settleExternal([]);
       } catch (e) {
-        console.error(`Failed to fetch ${kind} track popularity:`, e);
+        console.error(`Failed to fetch ${kind} ranked list:`, e);
+        if (!cancelled) settleExternal([]);
       }
     })();
 
     return () => { cancelled = true; };
     // trackIdsKey (not `tracks`) so field-only patches like `liked` don't refetch.
-  }, [entity, trackIdsKey, invokeInfoFetch, kind]);
+  }, [entity, wantsExternalTracklist, trackIdsKey, invokeInfoFetch, kind, name, artistName]);
 
   const handleSort = useCallback((field: SortField) => {
     if (field === "random") {
@@ -275,17 +336,33 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     // that went away with the Math.random() it was covering for.
   }, [tracks, sortField, sortDir, shuffleKey, trackPopularity]);
 
+  const liked = entity ? entity.liked : nameLike?.key === detailKey ? nameLike.liked : 0;
+
+  // An entity that isn't in the library has no id to toggle, but its like is
+  // name-keyed: written by name, shown optimistically, reverted if it fails.
+  const rateByName = useCallback(async (action: "like" | "dislike") => {
+    if (!onEntityLikeByName || !loaded) return;
+    const prev = liked;
+    const next = nextTriState(prev, action);
+    setNameLike({ key: detailKey, liked: next });
+    if (!(await onEntityLikeByName(kind, name, artistName, next))) {
+      setNameLike(cur => cur?.key === detailKey ? { key: detailKey, liked: prev } : cur);
+    }
+  }, [onEntityLikeByName, loaded, liked, detailKey, kind, name, artistName]);
+
   const handleToggleLike = useCallback(() => {
-    if (!entity || !onEntityLike) return;
+    if (!entity) { void rateByName("like"); return; }
+    if (!onEntityLike) return;
     onEntityLike(kind, entity.id);
     setEntity(prev => prev ? { ...prev, liked: prev.liked === 1 ? 0 : 1 } : null);
-  }, [entity, kind, onEntityLike]);
+  }, [entity, kind, onEntityLike, rateByName]);
 
   const handleToggleDislike = useCallback(() => {
-    if (!entity || !onEntityDislike) return;
+    if (!entity) { void rateByName("dislike"); return; }
+    if (!onEntityDislike) return;
     onEntityDislike(kind, entity.id);
     setEntity(prev => prev ? { ...prev, liked: prev.liked === -1 ? 0 : -1 } : null);
-  }, [entity, kind, onEntityDislike]);
+  }, [entity, kind, onEntityDislike, rateByName]);
 
   // Albums shown on the artist-detail page live in this hook's local state
   // (loaded via get_albums), separate from library.albums — so they need their
@@ -312,6 +389,13 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     sortedTracks,
     albums,
     isLibrary: entity !== null,
+    loaded,
+    liked,
+    externalTracks: !entity && external?.key === detailKey ? external.tracks : EMPTY_EXTERNAL,
+    externalValues: !entity && external?.key === detailKey ? external.values : EMPTY_VALUES,
+    externalStatus: !wantsExternalTracklist ? "idle"
+      : !invokeInfoFetch ? "none"
+      : external?.key === detailKey ? external.status : "loading",
     sortField,
     handleSort,
     sortIndicator,

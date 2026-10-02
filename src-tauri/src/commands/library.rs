@@ -616,6 +616,23 @@ pub fn get_track_like_states(
     state.db.get_track_like_states(&pairs).map_err(|e| e.to_string())
 }
 
+/// Like state of one artist/album/tag by name, from the durable `entity_likes`
+/// store — for a detail page whose entity isn't in the library, so there is no
+/// row whose `liked` column could be read instead.
+#[tauri::command]
+pub fn get_entity_like_state(
+    state: State<'_, AppState>,
+    kind: String,
+    name: String,
+    artist_name: Option<String>,
+) -> Result<i32, String> {
+    if !matches!(kind.as_str(), "artist" | "album" | "tag") {
+        return Err(format!("Unknown kind: {}", kind));
+    }
+    let key = crate::db::likes::build_entity_key(&kind, &name, artist_name.as_deref());
+    state.db.get_entity_like_state(&kind, &key).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
     state.db.get_liked_tracks().map_err(|e| e.to_string())

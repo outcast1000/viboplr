@@ -114,10 +114,9 @@ impl Database {
         Ok(out)
     }
 
-    /// Read the current like state for a single entity (0 if no row).
-    /// Test-only assertion helper — production reads go through the batch
-    /// `get_track_like_states` / `get_liked_entities` paths.
-    #[cfg(test)]
+    /// Read the current like state for a single entity (0 if no row). Backs
+    /// the detail page of an entity that isn't in the library (an album opened
+    /// from Similar, a plugin, a deep link): its like lives only here.
     pub fn get_entity_like_state(&self, kind: &str, entity_key: &str) -> SqlResult<i32> {
         let conn = self.conn.lock().unwrap();
         let v: Option<i32> = conn.query_row(

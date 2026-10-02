@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
@@ -19,6 +19,11 @@ import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
 import { useDetailHeroImages } from "../hooks/useDetailHeroImages";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { TrackRow, type TrackRowThumb } from "./TrackRow";
+import { trackLikeId } from "../utils/likeReconcile";
+import { formatCompactCount } from "../utils/formatCount";
+
+const TRACKS_TAB_ID = "tracks";
 
 interface AlbumDetailProps {
   name: string;
@@ -39,7 +44,12 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     handleToggleLike: handleToggleAlbumLike,
     handleToggleDislike: handleToggleAlbumDislike,
     reload,
-  } = useEntityDetail({ kind: "album", name, artistName, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, reloadSignal: state.bulkEditKey });
+    loaded,
+    liked,
+    externalTracks,
+    externalValues,
+    externalStatus,
+  } = useEntityDetail({ kind: "album", name, artistName, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, onEntityLikeByName: actions.setEntityLikeByName, reloadSignal: state.bulkEditKey });
 
   const album = entity as Album | null;
 
@@ -62,7 +72,12 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   const displayArtist = album?.artist_name ?? artistName;
   const albumImagePath = actions.getAlbumImage(name, artistName ?? null);
 
-  const heroArtistName = album?.artist_name ?? artistName ?? null;
+  // Hero background: the album's own cover first — it is what the page is
+  // about — falling back to the artist's image only when there is no cover.
+  // The artist lookup is skipped (null name) while a cover exists, so an album
+  // that has one costs no artist image fetch.
+  const albumHeroUrl = resolveImageUrl(albumImagePath);
+  const heroArtistName = albumHeroUrl ? null : album?.artist_name ?? artistName ?? null;
   const requestArtistImage = useCallback(
     (n: string) => actions.autoFetchImage("artist", n),
     [actions.autoFetchImage],
@@ -72,11 +87,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     actions.getArtistImage,
     requestArtistImage,
   );
-  // Hero background fallback chain: artist image -> album image.
-  const albumHeroUrl = resolveImageUrl(albumImagePath);
-  const heroImages = artistHeroImages.length > 0
-    ? artistHeroImages
-    : albumHeroUrl ? [albumHeroUrl] : [];
+  const heroImages = albumHeroUrl ? [albumHeroUrl] : artistHeroImages;
 
   const infoEntity: InfoEntity = album
     ? { kind: "album", name: album.title, id: album.id, artistName: album.artist_name ?? undefined }
@@ -111,6 +122,25 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
       entityId: album?.id,
     });
   }, [actions.playEntityAll, name, artistName, sortedTracks, album]);
+
+  // Album not in the library: its tracklist comes from the info provider,
+  // metadata-only, and plays through the stream resolvers (a library copy of
+  // any one track still wins). Same banner context a library album play gets.
+  const externalContext = useMemo(() => ({
+    name,
+    source: "album",
+    imagePath: albumImagePath,
+    metadata: displayArtist ? { artist: displayArtist } : null,
+  }), [name, albumImagePath, displayArtist]);
+
+  const { playExternal, enqueueExternal } = actions;
+  const playExternalFrom = useCallback((index: number) => {
+    playExternal(externalTracks, index, externalContext);
+  }, [playExternal, externalTracks, externalContext]);
+
+  const handleEnqueueExternal = useCallback(() => {
+    enqueueExternal(externalTracks);
+  }, [enqueueExternal, externalTracks]);
 
   const handleRefreshImage = useCallback(() => {
     actions.requestFetchImage("album", name, artistName);
@@ -196,6 +226,52 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   const meta: Array<string | { label: string; onClick: () => void }> = [];
   if (displayArtist) meta.push({ label: displayArtist, onClick: () => actions.navigateToArtist(album?.artist_id ?? 0, displayArtist ?? undefined) });
   if (isLibrary && album?.track_count) meta.push(`${album.track_count} tracks`);
+  else if (externalTracks.length > 0) meta.push(`${externalTracks.length} tracks`);
+  if (loaded && !isLibrary) meta.push("Not in your library");
+
+  const externalThumb: TrackRowThumb = albumHeroUrl ? { kind: "image", url: albumHeroUrl, alt: name } : { kind: "disc" };
+  const canPlayExternal = !isLibrary && externalTracks.length > 0;
+  // A provider row has no library id, so "is this the one playing?" is the
+  // same normalized title+artist identity likes use.
+  const playingId = state.playing && state.currentTrack
+    ? trackLikeId(state.currentTrack.title, state.currentTrack.artist_name)
+    : null;
+
+  // Album not in the library: the tracklist is the page's main tab — first,
+  // and so selected on arrival, unless the user has dragged it elsewhere (a
+  // saved order that predates the tab doesn't name it, so it goes in front).
+  const tracksTab = externalStatus === "idle" ? null : {
+    id: TRACKS_TAB_ID,
+    name: "Tracks",
+    content: externalStatus === "loading" ? (
+      <div className="album-external-note">Looking up the tracklist…</div>
+    ) : externalStatus === "none" ? (
+      <div className="album-external-note">No tracklist found for this album.</div>
+    ) : (
+      <div className="entity-list album-external-tracks">
+        {externalTracks.map((t, i) => (
+          <TrackRow
+            key={t.key}
+            leading={<span className="album-external-num">{i + 1}</span>}
+            thumb={externalThumb}
+            title={t.title}
+            subtitle={t.artist_name ?? undefined}
+            meta={externalValues[i] ? <span title={`${externalValues[i].toLocaleString()} listeners`}>{formatCompactCount(externalValues[i])}</span> : undefined}
+            playing={playingId !== null && playingId === trackLikeId(t.title, t.artist_name)}
+            onDoubleClick={() => playExternalFrom(i)}
+            onContextMenu={(e) => { e.preventDefault(); actions.handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name }); }}
+            actions={{
+              onPlay: () => playExternalFrom(i),
+              onEnqueue: () => enqueueExternal([t]),
+            }}
+          />
+        ))}
+      </div>
+    ),
+  };
+  const tabOrder = tracksTab && !belowTabOrder.includes(TRACKS_TAB_ID)
+    ? [TRACKS_TAB_ID, ...belowTabOrder]
+    : belowTabOrder;
 
   return (
     <div className="album-detail">
@@ -216,13 +292,13 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
         artShape="square"
         eyebrow={eyebrow}
         title={name}
-        liked={isLibrary ? album?.liked ?? 0 : undefined}
-        onToggleLike={isLibrary ? handleToggleAlbumLike : undefined}
-        onToggleDislike={isLibrary ? handleToggleAlbumDislike : undefined}
+        liked={isLibrary || loaded ? liked : undefined}
+        onToggleLike={isLibrary || loaded ? handleToggleAlbumLike : undefined}
+        onToggleDislike={isLibrary || loaded ? handleToggleAlbumDislike : undefined}
         entityLabel="album"
         meta={meta}
-        onPlay={sortedTracks.length > 0 ? handlePlayAll : undefined}
-        onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : undefined}
+        onPlay={sortedTracks.length > 0 ? handlePlayAll : canPlayExternal ? () => playExternalFrom(0) : undefined}
+        onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : canPlayExternal ? handleEnqueueExternal : undefined}
         overflowItems={overflowItems}
         titleLine={<TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
       />
@@ -268,8 +344,9 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
           invokeInfoFetch={actions.invokeInfoFetch}
           pluginNames={actions.pluginNames}
           retrieve={actions.retrieve}
-          tabOrder={belowTabOrder}
+          tabOrder={tabOrder}
           onTabOrderChange={handleBelowTabOrderChange}
+          customTabs={tracksTab ? [tracksTab] : undefined}
           onEntityClick={handleEntityClick}
           onAction={handleInfoAction}
           resolveEntity={resolveEntity}

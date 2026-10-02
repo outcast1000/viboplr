@@ -4331,6 +4331,12 @@ function App() {
       else if (kind === "album") likeActions.handleToggleAlbumDislike(id);
       else likeActions.handleToggleTagDislike(id);
     },
+    setEntityLikeByName: async (kind: "artist" | "album" | "tag", name: string, artistName: string | undefined, likeState: number) => {
+      const r = kind === "artist" ? await likeActions.setArtistLike(name, likeState)
+        : kind === "album" ? await likeActions.setAlbumLike(name, artistName, likeState)
+        : await likeActions.setTagLike(name, likeState);
+      return r.ok;
+    },
     deleteTracks: handleDeleteTracks,
     handleTrackContextMenu: contextMenuActions.handleTrackContextMenu,
     handleAlbumContextMenu: contextMenuActions.handleAlbumContextMenu,
@@ -4379,6 +4385,7 @@ function App() {
     likeActions.handleToggleArtistLike, likeActions.handleToggleArtistDislike,
     likeActions.handleToggleAlbumLike, likeActions.handleToggleAlbumDislike,
     likeActions.handleToggleTagLike, likeActions.handleToggleTagDislike,
+    likeActions.setArtistLike, likeActions.setAlbumLike, likeActions.setTagLike,
     handleDeleteTracks,
     contextMenuActions.handleTrackContextMenu, contextMenuActions.handleAlbumContextMenu,
     contextMenuActions.handleInfoTrackContextMenu, contextMenuActions.handleEntityContextMenu,

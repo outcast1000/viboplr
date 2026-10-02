@@ -32,6 +32,10 @@ export interface DetailViewActions {
   toggleDislike: (track: Track | QueueTrack) => void;
   toggleEntityLike: (kind: "artist" | "album" | "tag", id: number) => void;
   toggleEntityDislike: (kind: "artist" | "album" | "tag", id: number) => void;
+  /** Set an artist/album/tag like by name — for a detail page whose entity
+   *  isn't in the library (no id to toggle). Likes are name-keyed, so the write
+   *  lands either way. Resolves whether it was saved. */
+  setEntityLikeByName: (kind: "artist" | "album" | "tag", name: string, artistName: string | undefined, likeState: number) => Promise<boolean>;
   deleteTracks: (trackIds: number[]) => void;
 
   handleTrackContextMenu: (e: React.MouseEvent, track: Track, selectedTracks: Track[]) => void;
@@ -125,8 +129,10 @@ export function DetailViewProvider({ actions, state, children }: DetailViewProvi
     actions.navigateToArtist, actions.navigateToAlbum, actions.navigateToTag, actions.navigateToTagByName,
     actions.goBack, actions.canGoBack,
     actions.playTracks, actions.playEntityAll, actions.playAlbum, actions.enqueueTracks,
+    actions.playExternal, actions.enqueueExternal,
     actions.startRadio, actions.locateTrack,
-    actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike, actions.deleteTracks,
+    actions.toggleLike, actions.toggleDislike, actions.toggleEntityLike, actions.toggleEntityDislike,
+    actions.setEntityLikeByName, actions.deleteTracks,
     actions.handleTrackContextMenu, actions.handleAlbumContextMenu,
     actions.handleInfoTrackContextMenu, actions.handleEntityContextMenu,
     actions.handleTrackDragStart,
