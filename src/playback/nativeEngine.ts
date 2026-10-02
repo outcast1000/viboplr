@@ -36,9 +36,14 @@ export interface EngineEndedEvent {
  * frame. The decode clock (position) and VO reconfig both fire earlier, before
  * the frame is actually on screen, so this is the signal the video pipeline
  * waits for before revealing the native surface (avoids a background/desktop
- * flash at video start). */
+ * flash at video start). Also re-sent with `hasVideo: true` when a video
+ * output comes up only after playback already restarted. */
 export interface EnginePlaybackRestartEvent {
   trackKey: string;
+  /** mpv has a configured video output, i.e. there is a picture to reveal.
+   * False for a video whose picture failed to decode (mpv plays it
+   * audio-only) — revealing then would show the desktop through the hole. */
+  hasVideo: boolean;
 }
 
 export interface EngineStateEvent {

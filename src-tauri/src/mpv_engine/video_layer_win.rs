@@ -67,6 +67,18 @@ unsafe extern "system" {
     fn GetLastError() -> u32;
 }
 
+#[link(name = "gdi32")]
+unsafe extern "system" {
+    fn CreateSolidBrush(color: u32) -> isize;
+}
+
+/// Fill for the child window wherever mpv hasn't painted (no file loaded yet,
+/// the VO torn down between files, a strip exposed mid-resize). Near-black,
+/// NOT black: on the DWM glass the main window composites over, GDI writes
+/// alpha 0, and pure black at alpha 0 is transparent — the desktop would show
+/// through exactly as with no fill at all. COLORREF is 0x00BBGGRR.
+const VIDEO_FILL_COLOR: u32 = 0x0008_0808;
+
 const WS_CHILD: u32 = 0x4000_0000;
 const WS_VISIBLE: u32 = 0x1000_0000; // mpv's own embedded child is WS_CHILD | WS_VISIBLE
 const SWP_NOACTIVATE: u32 = 0x0010;
@@ -171,11 +183,13 @@ unsafe fn create_child_window(parent: isize) -> Result<isize, String> {
         h_instance: instance,
         h_icon: 0,
         h_cursor: 0,
-        // NULL brush (not BLACK_BRUSH): don't let GDI erase the client area.
-        // mpv paints the whole surface itself, and while the window is being
-        // live-resized larger, WM_ERASEBKGND would otherwise flash the
-        // newly-exposed strip black before mpv's next present catches up.
-        hbr_background: 0,
+        // Near-black fill (see VIDEO_FILL_COLOR), not NULL. NULL avoided a
+        // black flash on the strip a live resize exposes, but left any
+        // unpainted area see-through: a broken or still-loading video showed
+        // the desktop under the hole. A dark strip during resize is the
+        // cheaper failure — it reads as letterbox. Created once per class
+        // registration and owned by the class for the process lifetime.
+        hbr_background: unsafe { CreateSolidBrush(VIDEO_FILL_COLOR) },
         lpsz_menu_name: std::ptr::null(),
         lpsz_class_name: class_name.as_ptr(),
     };

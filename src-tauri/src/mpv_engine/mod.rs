@@ -722,6 +722,12 @@ impl Engine {
                 log::warn!("mpv-engine: cannot observe {name} (no buffer readout): {e}");
             }
         }
+        // Whether a video output exists — gates the see-through hole (see the
+        // PlaybackRestart handler). Best-effort: without it, a video output
+        // that comes up only after playback restarted is never revealed.
+        if let Err(e) = client.observe_property("vo-configured", Format::Flag, 7) {
+            log::warn!("mpv-engine: cannot observe vo-configured: {e}");
+        }
 
         let state = self.state.clone();
         let sink = self.sink.clone();
@@ -1525,6 +1531,9 @@ fn run_event_loop(
     let mut last_position_emit = Instant::now() - POSITION_EMIT_INTERVAL;
     let mut last_buffer_poll = Instant::now() - BUFFER_POLL_INTERVAL;
     let mut last_buffer: Option<BufferFingerprint> = None;
+    // Playback has (re)started on the current file — a `vo-configured` that
+    // flips true after this is a late video output still to be revealed.
+    let mut restarted = false;
     loop {
         let event = client.wait_event(0.5);
         // Sample the cache on every pass, whatever woke us (including the 0.5s
@@ -1549,6 +1558,7 @@ fn run_event_loop(
                 // first snapshot of this track always reaches the frontend,
                 // even when it happens to match the last one of the previous.
                 last_buffer = None;
+                restarted = false;
                 let mut st = state.lock().unwrap();
                 if st.expecting_start[deck] {
                     // Our own explicit loadfile (play or crossfade arm).
@@ -1587,12 +1597,23 @@ fn run_event_loop(
                 // the accurate "frame is on screen" signal (StartFile / time-pos
                 // / video-reconfig all fire earlier, before the VO has actually
                 // painted), so the frontend reveals the native video hole on it.
+                //
+                // `hasVideo` says whether there is a picture to reveal. A video
+                // whose picture can't be decoded still restarts — mpv carries on
+                // audio-only — and revealing then opens the hole over an empty
+                // native surface: the desktop shows through the transparent
+                // window for the whole track.
+                restarted = true;
                 let key = {
                     let st = state.lock().unwrap();
                     if deck != st.active { None } else { st.current_key.clone() }
                 };
                 if let Some(key) = key {
-                    sink("engine-playback-restart", json!({ "trackKey": key }));
+                    let has_video = client.get_property::<bool>("vo-configured").unwrap_or(false);
+                    sink(
+                        "engine-playback-restart",
+                        json!({ "trackKey": key, "hasVideo": has_video }),
+                    );
                 }
             }
             Ok(Event::EndFile(reason)) => {
@@ -1698,6 +1719,20 @@ fn run_event_loop(
                     ("paused-for-cache", PropertyData::Flag(_))
                     | ("cache-buffering-state", PropertyData::Int64(_)) => {
                         emit_buffer_if_changed(&client, deck, &state, &sink, &mut last_buffer);
+                    }
+                    ("vo-configured", PropertyData::Flag(true)) if restarted => {
+                        // The video output came up after playback had already
+                        // restarted without one — reveal it now.
+                        let key = {
+                            let st = state.lock().unwrap();
+                            if deck != st.active { None } else { st.current_key.clone() }
+                        };
+                        if let Some(key) = key {
+                            sink(
+                                "engine-playback-restart",
+                                json!({ "trackKey": key, "hasVideo": true }),
+                            );
+                        }
                     }
                     ("media-title", PropertyData::Str(title)) => {
                         // ICY StreamTitle updates for live radio streams. Local

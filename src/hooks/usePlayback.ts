@@ -319,11 +319,12 @@ export function usePlayback(
   // NOT `engine-position`/VO-reconfig, which fire before the frame is on
   // screen). App keeps the see-through hole opaque until this flips, so a fresh
   // start never reveals the transparent window before mpv has painted into the
-  // child. Reset per session start; a fallback timer flips it even if the
-  // signal never arrives (stall safety).
+  // child. Reset per session start. There is deliberately no wall-clock
+  // fallback: a 1.5s timer used to reveal a slow-loading or broken video over
+  // an empty surface, showing the desktop through the hole. A video with no
+  // picture keeps the hole opaque (app background) instead.
   const [nativeVideoPresenting, setNativeVideoPresenting] = useState(false);
   const nativeVideoPresentingRef = useRef(false);
-  const presentingFallbackRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Fullscreen for native video sessions = WINDOW fullscreen + the
   // `.video-container--native-fs` full-window pin (DOM element-fullscreen
   // would move the webview to its own space, away from the native layer).
@@ -715,13 +716,11 @@ export function usePlayback(
   // FIRST (mpv's first frame is up behind the transparent hole), then remove the
   // preview one frame later: the preview still and mpv's first frame are the
   // same picture, so this hands off with no gap to background/desktop. Idempotent
-  // (first caller wins); driven by `engine-playback-restart`, with the fallback
-  // timer as a stall backstop.
+  // (first caller wins); driven by `engine-playback-restart` with `hasVideo`.
   function markNativeVideoPresenting() {
     if (nativeVideoPresentingRef.current) return;
     nativeVideoPresentingRef.current = true;
     setNativeVideoPresenting(true);
-    clearTimeout(presentingFallbackRef.current);
     // Clear the preview frame a beat after the reveal, only while a native
     // session still owns the element (a browser fallback may have reclaimed it).
     requestAnimationFrame(() => {
@@ -730,8 +729,6 @@ export function usePlayback(
   }
 
   function resetNativeVideoPresentation() {
-    clearTimeout(presentingFallbackRef.current);
-    presentingFallbackRef.current = undefined;
     nativeVideoPresentingRef.current = false;
     setNativeVideoPresenting(false);
   }
@@ -1290,7 +1287,12 @@ export function usePlayback(
         // fire earlier, before the frame is actually on screen). Reveal the
         // native hole now; it's been held opaque, with the restored preview
         // frame bridging it, since the session started.
+        // Only when mpv has a picture: a video whose picture failed to decode
+        // still restarts (audio-only), and revealing over that empty surface
+        // shows the desktop through the transparent window. The hole stays
+        // opaque instead; a late video output re-sends with hasVideo.
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
+        if (!payload.hasVideo) return;
         markNativeVideoPresenting();
       }),
       subscribe<EngineStateEvent>("engine-state", ({ payload }) => {
@@ -1850,12 +1852,9 @@ export function usePlayback(
       nativeLastPositionRef.current = seekTo > 0 ? seekTo : 0;
       nativeSessionRef.current = { key: track.key };
       // New session: hold the hole opaque until this session's first frame
-      // presents (engine-playback-restart) or the fallback fires, so start never
+      // presents (engine-playback-restart with a picture), so start never
       // flashes transparent over an empty native surface.
       resetNativeVideoPresentation();
-      if (isVideo) {
-        presentingFallbackRef.current = setTimeout(markNativeVideoPresenting, 1500);
-      }
       try {
         await nativeEngine.play({
           source: engineSource,
