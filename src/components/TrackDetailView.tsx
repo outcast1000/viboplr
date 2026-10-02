@@ -25,7 +25,7 @@ import { EntityTagPanel } from "./EntityTagPanel";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import "./TrackDetailView.css";
 
-const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "tags", "details", "play-history"];
+const DEFAULT_TAB_ORDER = ["song_meaning", "lyrics", "song_bio", "similar_tracks", "details", "tags", "play-history"];
 const PLAY_HISTORY_LIMIT = 50;
 
 interface TrackPlayStats {
@@ -119,7 +119,7 @@ export function TrackDetailView({
   useEffect(() => {
     store.get<string[]>("trackDetailTabOrder").then(saved => {
       if (saved && saved.length > 0) setTabOrder(saved);
-    });
+    }).catch(e => console.error("Failed to load track detail tab order:", e));
   }, []);
 
   const handleTabOrderChange = useCallback((order: string[]) => {
@@ -380,11 +380,6 @@ export function TrackDetailView({
           onTitleData={handleTitleData}
           livePosition={isCurrentTrack}
           customTabs={[
-            ...(isLibrary ? [{
-              id: "tags",
-              name: "Tags",
-              content: <EntityTagPanel tracks={[{ ...track, id: trackId }]} embedded />,
-            }] : []),
             {
               id: "details",
               name: "Details",
@@ -459,6 +454,11 @@ export function TrackDetailView({
                 </div>
               ),
             },
+            ...(isLibrary ? [{
+              id: "tags",
+              name: "Tags",
+              content: <EntityTagPanel tracks={[{ ...track, id: trackId }]} embedded />,
+            }] : []),
             {
               id: "play-history",
               name: `Play History${playStats ? ` (${formatCompactCount(playStats.play_count)})` : ""}`,
