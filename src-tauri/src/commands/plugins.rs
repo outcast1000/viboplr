@@ -42,6 +42,9 @@ fn scan_dev_plugin(dir: &std::path::Path) -> Option<serde_json::Value> {
         }
     };
     let code = std::fs::read_to_string(dir.join("index.js")).ok();
+    let (signature, signature_error) = crate::plugin_signing::status_json(
+        &crate::plugin_signing::verify_scanned(dir, content.as_bytes(), code.as_deref()),
+    );
     Some(serde_json::json!({
         "id": id,
         "manifest": manifest,
@@ -49,6 +52,8 @@ fn scan_dev_plugin(dir: &std::path::Path) -> Option<serde_json::Value> {
         "dev": true,
         "devPath": dir.to_string_lossy(),
         "code": code,
+        "signature": signature,
+        "signatureError": signature_error,
     }))
 }
 

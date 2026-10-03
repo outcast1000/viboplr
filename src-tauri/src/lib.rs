@@ -40,6 +40,7 @@ mod stream_relay;
 mod transcode_server;
 mod window_arrangement;
 mod plugin_worker;
+mod plugin_signing;
 mod trust_store;
 #[cfg(target_os = "macos")]
 mod cursor_tracker;

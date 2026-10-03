@@ -145,6 +145,26 @@ function ExperimentalBadge({ stability }: { stability?: string }) {
   );
 }
 
+/** What "unverified" means, for the badge tooltip and the detail pane. */
+const UNVERIFIED_EXPLANATION =
+  "This plugin runs with full access to the app and isn't signed by Viboplr, " +
+  "so the app can't check that it is the code Viboplr published.";
+
+// A main-realm plugin with no Viboplr signature (utils/pluginTrust.ts). A
+// worker plugin is bounded by its permissions; these have none, so say so.
+function UnverifiedBadge({ unverified }: { unverified?: boolean }) {
+  if (!unverified) return null;
+  return (
+    <span
+      className="ext-badge ext-badge--attention"
+      title={UNVERIFIED_EXPLANATION}
+      aria-label={`Unverified — ${UNVERIFIED_EXPLANATION}`}
+    >
+      unverified
+    </span>
+  );
+}
+
 function GalleryError({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="ext-gallery-error" role="alert">
@@ -220,6 +240,7 @@ function PluginCard({
               <span className="ext-badge ext-badge--recommended">recommended</span>
             )}
             <ExperimentalBadge stability={ext.stability} />
+            <UnverifiedBadge unverified={ext.unverified} />
             <StatusBadge status={ext.status} update={ext.updateAvailable} />
           </div>
           <div className="ext-pcard-meta">by {ext.author}{ext.version ? ` · v${ext.version}` : ""}</div>
@@ -318,6 +339,7 @@ function PluginRow({
             <span className="ext-badge ext-badge--recommended">recommended</span>
           )}
           <ExperimentalBadge stability={ext.stability} />
+          <UnverifiedBadge unverified={ext.unverified} />
           <StatusBadge status={ext.status} update={ext.updateAvailable} />
         </div>
         <div className="ext-prow-line2">
@@ -523,6 +545,7 @@ function PluginDetail({
               <span className="ext-badge ext-badge--recommended">recommended</span>
             )}
             <ExperimentalBadge stability={ext.stability} />
+            <UnverifiedBadge unverified={ext.unverified} />
           </div>
           <div className="ext-detail-desc">{ext.description}</div>
           <div className="ext-detail-meta">
@@ -540,6 +563,7 @@ function PluginDetail({
               Loaded from dev folder{ext.devPath ? <>: <code>{ext.devPath}</code></> : null} (overrides the installed copy)
             </div>
           )}
+          {ext.unverified && <div className="ext-dev-notice">{UNVERIFIED_EXPLANATION}</div>}
 
           <div className="ext-detail-actions">
             {ext.updateAvailable && ext.updateAvailable.status === "available" && (

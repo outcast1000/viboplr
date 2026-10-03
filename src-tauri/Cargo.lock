@@ -5747,6 +5747,7 @@ dependencies = [
  "lofty",
  "log",
  "md5",
+ "minisign-verify",
  "mslnk",
  "objc",
  "regex",

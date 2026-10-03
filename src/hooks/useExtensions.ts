@@ -440,6 +440,7 @@ export function useExtensions(props: UseExtensionsProps) {
         runtime: ps.manifest.runtime,
         permissions: ps.manifest.permissions,
         pendingPermissions: ps.pendingPermissions,
+        unverified: ps.unverified,
         homepage: ps.manifest.homepage,
         minAppVersion: ps.manifest.minAppVersion,
         updateUrl: ps.manifest.updateUrl,

@@ -1,0 +1,8 @@
+{
+  "id": "signing-fixture",
+  "name": "Signing Fixture",
+  "version": "1.0.0",
+  "author": "Viboplr",
+  "description": "Test fixture for plugin_signing.rs. Never shipped.",
+  "minAppVersion": "0.9.4"
+}

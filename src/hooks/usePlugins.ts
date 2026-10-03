@@ -112,6 +112,7 @@ import { withResolverLog } from "../utils/resolverLog";
 import { useAssignRef } from "./useLatestRef";
 import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type WorkerPluginControl } from "../pluginWorker/host";
 import { networkHosts, pendingPermissions } from "../pluginWorker/permissions";
+import { mainRealmVerdict } from "../utils/pluginTrust";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -2277,6 +2278,8 @@ export function usePlugins(
       // need to actually activate. Plugins whose status is decided by manifest
       // alone (error/disabled/incompatible) get their state pushed eagerly.
       const toActivate: InstalledPlugin[] = [];
+      /** Main-realm plugins running without a Viboplr signature (see pluginTrust.ts). */
+      const unverifiedIds = new Set<string>();
       for (const plugin of installed) {
         const m = plugin.manifest;
 
@@ -2353,6 +2356,28 @@ export function usePlugins(
           continue;
         }
 
+        // Main-realm plugins get full app access, so they must be signed by
+        // Viboplr (utils/pluginTrust.ts). During the migration an unsigned one
+        // still runs, labelled "Unverified"; a broken signature never does.
+        const trust = mainRealmVerdict(
+          { runtime: m.runtime, builtin: plugin.builtin, dev: plugin.dev, signature: plugin.signature, signatureError: plugin.signatureError },
+          { debugMode: debugMode === true },
+        );
+        if (!trust.allow) {
+          states.push({
+            id: plugin.id,
+            manifest: m,
+            status: "error",
+            error: trust.reason,
+            enabled: true,
+            builtin: plugin.builtin,
+            dev: plugin.dev,
+            devPath: plugin.devPath,
+          });
+          continue;
+        }
+        if (trust.unverified) unverifiedIds.add(plugin.id);
+
         if (m.runtime === "worker" && !plugin.builtin) {
           const pending = pendingPermissions(m.permissions ?? [], permissionGrantsRef.current[plugin.id] ?? []);
           if (pending.length > 0) {
@@ -2388,7 +2413,7 @@ export function usePlugins(
       prewarmPluginWorkers(toActivate.filter((p) => p.manifest.runtime === "worker").map((p) => p.id));
       for (const plugin of toActivate) {
         const { state, timing } = await activatePlugin(plugin);
-        states.push(state);
+        states.push(unverifiedIds.has(plugin.id) ? { ...state, unverified: true } : state);
         timings.push(timing);
 
         if (state.status === "active" && plugin.manifest.contributes) {

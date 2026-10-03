@@ -205,6 +205,10 @@ export interface InstalledPlugin {
   // Bundled by `plugin_list_installed` so activation skips a second IPC.
   // May be null if the file couldn't be read.
   code?: string | null;
+  /** Main-realm signature check (`plugin_signing.rs`); see utils/pluginTrust.ts. */
+  signature?: "verified" | "unsigned" | "invalid" | "builtin";
+  /** Why an `invalid` signature failed. */
+  signatureError?: string | null;
 }
 
 // -- Plugin status --
@@ -228,6 +232,9 @@ export interface PluginState {
   devPath?: string;
   /** For `needs-approval`: the requested permissions not yet approved. */
   pendingPermissions?: string[];
+  /** Runs in the main realm (full app access) without a Viboplr signature —
+   *  see utils/pluginTrust.ts. Shown as "Unverified" in Extensions. */
+  unverified?: boolean;
 }
 
 // -- Plugin-facing context menu target --
@@ -1900,6 +1907,8 @@ export interface ExtensionItem {
   runtime?: "worker";
   permissions?: string[];
   pendingPermissions?: string[];
+  /** Running in the main realm without a Viboplr signature — see utils/pluginTrust.ts. */
+  unverified?: boolean;
   homepage?: string;
   minAppVersion?: string;
   skinColors?: [string, string, string, string];
