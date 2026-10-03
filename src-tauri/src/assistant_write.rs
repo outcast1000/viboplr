@@ -714,7 +714,7 @@ pub fn land_download(
                 &dest,
                 t.title.as_deref().unwrap_or("Unknown"),
                 t.artist.as_deref().unwrap_or("Unknown Artist"),
-                t.album.as_deref().unwrap_or("Unknown Album"),
+                t.album.as_deref(),
                 t.track_number,
                 t.year,
                 t.genre.as_deref(),

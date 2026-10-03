@@ -370,7 +370,7 @@ pub async fn download_to_path(
                 &temp_path,
                 title.as_deref().unwrap_or("Unknown"),
                 artist_name.as_deref().unwrap_or("Unknown Artist"),
-                album_title.as_deref().unwrap_or("Unknown Album"),
+                album_title.as_deref(),
                 track_number,
                 None, // year
                 None, // genre
@@ -501,7 +501,7 @@ pub async fn download_preview(
                 &new_path,
                 title.as_deref().unwrap_or("Unknown"),
                 artist_name.as_deref().unwrap_or("Unknown Artist"),
-                album_title.as_deref().unwrap_or("Unknown Album"),
+                album_title.as_deref(),
                 track_number,
                 None, // year
                 None, // genre

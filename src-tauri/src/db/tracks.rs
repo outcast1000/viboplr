@@ -913,6 +913,35 @@ impl Database {
         rows.collect()
     }
 
+    /// How many distinct albums (by case-folded title) have tracks sitting
+    /// directly in `rel_dir` — not in its subfolders — of the local collection
+    /// rooted at `collection_root`. `rel_dir` is relative to that root, in the
+    /// same OS-separator form the scanner stores; `""` means the root itself.
+    ///
+    /// Counted by title rather than `album_id` so an untagged compilation (one
+    /// album row per track artist) still reads as the single album it is.
+    pub fn count_albums_in_dir(&self, collection_root: &str, rel_dir: &str) -> SqlResult<i64> {
+        let prefix = if rel_dir.is_empty() {
+            String::new()
+        } else {
+            format!("{}{}", rel_dir, std::path::MAIN_SEPARATOR)
+        };
+        // Range bound on the (collection_id, path) unique index; text compares
+        // as memcmp of UTF-8, so prefix + U+10FFFF is above every extension.
+        let upper = format!("{}\u{10FFFF}", prefix);
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(DISTINCT lower(a.title)) FROM tracks t \
+             JOIN albums a ON t.album_id = a.id \
+             WHERE t.collection_id IN (SELECT id FROM collections WHERE path = ?1 AND kind = 'local') \
+               AND t.path >= ?2 AND t.path < ?3 \
+               AND instr(substr(t.path, length(?2) + 1), '/') = 0 \
+               AND instr(substr(t.path, length(?2) + 1), '\\') = 0",
+            rusqlite::params![collection_root, prefix, upper],
+            |row| row.get(0),
+        )
+    }
+
     /// Local track locations for an artist, as `(collection_root,
     /// absolute_path)` pairs — the artist-folder counterpart of
     /// `get_album_track_locations`.

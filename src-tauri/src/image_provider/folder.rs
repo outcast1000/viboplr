@@ -266,12 +266,30 @@ impl FolderImageProvider {
                     continue;
                 }
                 probed.push(dir.clone());
-                if let Some(found) = pick_in_dir(&dir, &patterns) {
-                    return Ok(found);
+                let Some(found) = pick_in_dir(&dir, &patterns) else { continue };
+                if self.dir_is_shared(root, &dir) {
+                    continue;
                 }
+                return Ok(found);
             }
         }
         Err("No folder image found".into())
+    }
+
+    /// Does `dir` hold tracks from more than one album? Then its `cover.jpg`
+    /// belongs to (at most) one of them, and handing it to the rest is the
+    /// walk-up mistake again, one level lower: a Downloads or `Singles/` dump
+    /// whose one leftover cover becomes every downloaded track's album art.
+    /// Checked only after an image is found, so the common miss costs nothing.
+    fn dir_is_shared(&self, root: &str, dir: &Path) -> bool {
+        let Ok(rel) = dir.strip_prefix(root) else { return false };
+        match self.db.count_albums_in_dir(root, &rel.to_string_lossy()) {
+            Ok(n) => n > 1,
+            Err(e) => {
+                log::warn!("Folder art: album count failed for {}: {}", dir.display(), e);
+                false
+            }
+        }
     }
 
     /// Locate an artist's folder image without copying it anywhere.
@@ -530,6 +548,67 @@ mod tests {
         assert_eq!(
             provider.find_artist_image("Björk").unwrap(),
             tmp.path().join("Björk").join("artist.jpg")
+        );
+    }
+
+    #[test]
+    fn a_folder_shared_by_several_albums_lends_its_cover_to_none() {
+        // A Downloads-style dump at the collection root: one album's leftover
+        // cover.jpg next to an unrelated single. Neither gets the cover —
+        // which one it belongs to is unknowable from the folder alone.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::write(root.join("cover.jpg"), PNG).unwrap();
+        std::fs::write(root.join("a.mp3"), b"x").unwrap();
+        std::fs::write(root.join("b.mp3"), b"x").unwrap();
+        std::fs::write(root.join("c.opus"), b"x").unwrap();
+        let sub = root.join("Solo");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join("cover.jpg"), PNG).unwrap();
+        std::fs::write(sub.join("01.flac"), b"x").unwrap();
+        std::fs::write(sub.join("02.flac"), b"x").unwrap();
+
+        let db = Arc::new(Database::new_in_memory().unwrap());
+        let collection = db
+            .add_collection("local", "music", Some(root.to_str().unwrap()), None, None, None, None, None)
+            .unwrap();
+        let file = |rel: &str, artist: &str, album: &str| crate::db::ScannedFileMeta {
+            relative_path: rel.to_string(),
+            title: rel.to_string(),
+            artist: Some(artist.to_string()),
+            album_artist: None,
+            album: Some(album.to_string()),
+            year: None,
+            track_number: None,
+            duration_secs: None,
+            format: Some("mp3".to_string()),
+            file_size: None,
+            modified_at: None,
+            tag_names: Vec::new(),
+            extra_tags: None,
+            write_extra_tags: false,
+        };
+        let solo = |name: &str| format!("Solo{}{}", std::path::MAIN_SEPARATOR, name);
+        db.ingest_scanned_files(
+            &[
+                file("a.mp3", "Balafas", "Ena Alliotiko Proi"),
+                file("b.mp3", "Balafas", "Ena Alliotiko Proi"),
+                file("c.opus", "The Clash", "Single"),
+                // One album in its own folder, two artists (an untagged
+                // compilation forks per artist): still one album by title.
+                file(&solo("01.flac"), "A", "Comp"),
+                file(&solo("02.flac"), "B", "Comp"),
+            ],
+            Some(collection.id),
+        )
+        .unwrap();
+
+        let provider = FolderImageProvider::new(db);
+        assert!(provider.find_album_image("Single", Some("The Clash")).is_err());
+        assert!(provider.find_album_image("Ena Alliotiko Proi", Some("Balafas")).is_err());
+        assert_eq!(
+            provider.find_album_image("Comp", Some("A")).unwrap(),
+            sub.join("cover.jpg")
         );
     }
 

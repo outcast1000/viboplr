@@ -235,11 +235,17 @@ pub fn replace_file_safely(src: &Path, dest: &Path) -> Result<(), String> {
     }
 }
 
+/// Write download metadata into the file's tags.
+///
+/// `album` is optional on purpose: a provider that knows no album (a YouTube
+/// video) must leave the tag alone rather than stamp a placeholder. An
+/// "Unknown Album" tag becomes a real album row on ingest, and image lookups
+/// keyed by that name then fetch art for a release that doesn't exist.
 pub fn write_tags(
     path: &Path,
     title: &str,
     artist: &str,
-    album: &str,
+    album: Option<&str>,
     track_number: Option<u32>,
     year: Option<i32>,
     genre: Option<&str>,
@@ -267,7 +273,9 @@ pub fn write_tags(
 
     tag.set_title(title.to_string());
     tag.set_artist(artist.to_string());
-    tag.set_album(album.to_string());
+    if let Some(album) = album.map(str::trim).filter(|a| !a.is_empty()) {
+        tag.set_album(album.to_string());
+    }
     if let Some(num) = track_number {
         tag.set_track(num);
     }
