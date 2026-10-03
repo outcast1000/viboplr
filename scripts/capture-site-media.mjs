@@ -3,34 +3,55 @@
 // running app — `npm run capture:media`.
 //
 // Drives the app through the control API's UI verbs (navigate / ui action /
-// window geometry, see src/utils/uiControl.ts) and captures with the macOS
-// tools the terminal already has permission for: `screencapture -l<windowId>`
-// for stills, ffmpeg's avfoundation screen grab cropped to the window for
-// videos. The app never captures itself (see control_api.rs / backend.md).
+// window geometry, see src/utils/uiControl.ts) and captures with the OS's own
+// tools — macOS: `screencapture -l<windowId>` for stills, ffmpeg avfoundation
+// for videos; Windows: ffmpeg gdigrab cropped to the window for both. The
+// per-platform command lines live in scripts/lib/capturePlatform.mjs. The app
+// never captures itself (see control_api.rs / backend.md).
 //
 // The window is brought to the front for EVERY scene, stills included: macOS
 // stops painting a WKWebView whose window is covered, so `screencapture -l`
 // of a background window returns its last composited frame — measured: every
-// still came back showing the page from before the navigation.
+// still came back showing the page from before the navigation. On Windows the
+// grab is a crop of the desktop, so the window has to be on top regardless.
 //
 // Every scene is verified before it is captured (GET /v1/ui against the
 // scene's `expect`), so a page that didn't land is skipped, not saved. The
 // app's state — window, skin, hero look, volume, playback — is restored at the
 // end, also on failure.
 //
-// Needs: macOS, Viboplr running with Settings → General → AI control on,
-// ffmpeg (libx264 + libvpx-vp9) and cwebp on PATH. The run takes the front of
-// the screen while it works — don't type into other apps meanwhile.
+// Needs: macOS or Windows, Viboplr running with Settings → General → AI
+// control on, ffmpeg (libx264 + libvpx-vp9) on PATH, and either cwebp or an
+// ffmpeg with libwebp (macOS: `brew install ffmpeg webp`; Windows: the
+// gyan.dev ffmpeg build has all of it). The run takes the front of the screen
+// while it works — don't type into other apps meanwhile.
+//
+// Windows focus: Windows may refuse to bring another process's window to the
+// front ("focus stealing prevention"), and gdigrab records whatever is on top
+// of that rectangle. Keep the terminal off the window's area (it is placed at
+// 40,60, 1440x900 by default) — a second monitor is easiest.
+//
+// Windows scaling: gdigrab crops in physical pixels, so the window's logical
+// frame is multiplied by its scale factor. If the captures come out shifted or
+// cut off (an ffmpeg build that isn't DPI-aware sees logical pixels instead),
+// rerun with `--grab-scale 1`.
 //
 // Usage:
 //   npm run capture:media -- [--profile default] [--only home,lyrics] [--list]
 //     [--out docs/assets/media] [--width 1440 --height 900] [--settle 2500]
-//     [--no-video] [--keep-volume] [--artist "Name"]
+//     [--no-video] [--keep-volume] [--artist "Name"] [--grab-scale 1]
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import {
+  WINDOWS_PARK_POINTER,
+  gdigrabStillArgs,
+  grabInputArgs,
+  profilesDir,
+  webpArgs,
+} from "./lib/capturePlatform.mjs";
 import {
   MANUAL_CAPTURES,
   SCENES,
@@ -42,13 +63,14 @@ import {
   resolveRefs,
 } from "./lib/captureScenes.mjs";
 
-const BUNDLE_ID = "com.alex.viboplr";
+const PLATFORM = process.platform;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function parseArgs(argv) {
   const o = {
     profile: "default", only: null, list: false, out: "docs/assets/media",
     width: 1440, height: 900, x: 40, y: 60, settle: 2500, video: true, keepVolume: false, artist: null,
+    grabScale: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -63,6 +85,7 @@ function parseArgs(argv) {
     else if (a === "--no-video") o.video = false;
     else if (a === "--keep-volume") o.keepVolume = true;
     else if (a === "--artist") o.artist = next();
+    else if (a === "--grab-scale") o.grabScale = Number(next());
     else throw new Error(`unknown argument: ${a}`);
   }
   return o;
@@ -71,7 +94,7 @@ function parseArgs(argv) {
 // --- control API --------------------------------------------------------
 
 function discovery(profile) {
-  const file = join(homedir(), "Library", "Application Support", BUNDLE_ID, "profiles", profile, "control-api.json");
+  const file = join(profilesDir(PLATFORM, process.env, homedir()), profile, "control-api.json");
   if (!existsSync(file)) {
     throw new Error(`No control API for profile "${profile}" — start Viboplr and turn on Settings → General → AI control.`);
   }
@@ -143,6 +166,10 @@ async function playTemp(api, trackId, facts) {
  *  the window otherwise, where it shows in videos and leaves a hover effect
  *  on whatever it rests on (both seen on the first run). */
 function parkPointer() {
+  if (PLATFORM === "win32") {
+    run("powershell", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_PARK_POINTER]);
+    return;
+  }
   const bin = join(tmpdir(), "viboplr-park-pointer");
   if (!existsSync(bin)) {
     const src = `${bin}.swift`;
@@ -176,25 +203,52 @@ function run(cmd, args) {
   return r;
 }
 
-async function captureStill(api, out, scene) {
-  const id = scene.id;
-  const win = await api("GET", "/window");
-  if (!win.windowId) throw new Error("the app reported no window id (macOS only)");
-  const png = join(tmpdir(), `viboplr-${id}.png`);
-  run("screencapture", ["-x", "-o", `-l${win.windowId}`, png]);
-  const crop = [];
-  if (scene.cropBottom) {
-    const dims = run("sips", ["-g", "pixelWidth", "-g", "pixelHeight", png]).stdout;
-    const w = Number(/pixelWidth: (\d+)/.exec(dims)[1]);
-    const h = Number(/pixelHeight: (\d+)/.exec(dims)[1]);
-    crop.push("-crop", "0", "0", String(w), String(Math.round(h * (1 - scene.cropBottom))));
+/** cwebp if it's on PATH, else ffmpeg's libwebp — or a clear error. */
+function pickWebpEncoder() {
+  if (spawnSync("cwebp", ["-version"], { encoding: "utf8" }).status === 0) return "cwebp";
+  const encoders = spawnSync("ffmpeg", ["-hide_banner", "-encoders"], { encoding: "utf8" }).stdout ?? "";
+  if (/\blibwebp\b/.test(encoders)) return "ffmpeg";
+  throw new Error("no WebP encoder: install cwebp (libwebp) or an ffmpeg built with libwebp");
+}
+
+function toWebp(png, out, encoder, { quality = 90, cropBottom = 0 } = {}) {
+  let size = null;
+  if (cropBottom && encoder === "cwebp") {
+    // cwebp's crop wants pixels. ffprobe reads a PNG on every platform.
+    const dims = run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0", png]).stdout.trim();
+    const [width, height] = dims.split(",").map(Number);
+    size = { width, height };
   }
-  run("cwebp", ["-quiet", "-q", "90", ...crop, png, "-o", join(out, `${id}.webp`)]);
+  const { cmd, args } = webpArgs(png, out, { quality, cropBottom, encoder, size });
+  run(cmd, args);
+}
+
+/** The window's rectangle in the pixels the grabber uses. */
+async function windowRect(api, opts, screen, pad = 0) {
+  const win = await api("GET", "/window");
+  return { win, rect: cropRect(win.frame, opts.grabScale ?? win.scaleFactor, screen, pad) };
+}
+
+async function captureStill(api, out, scene, opts, screen, encoder) {
+  const id = scene.id;
+  const png = join(tmpdir(), `viboplr-${id}.png`);
+  if (PLATFORM === "darwin") {
+    const win = await api("GET", "/window");
+    if (!win.windowId) throw new Error("the app reported no window id");
+    run("screencapture", ["-x", "-o", `-l${win.windowId}`, png]);
+  } else {
+    const { rect } = await windowRect(api, opts, screen);
+    run("ffmpeg", gdigrabStillArgs(rect, png));
+  }
+  toWebp(png, join(out, `${id}.webp`), encoder, { quality: 90, cropBottom: scene.cropBottom ?? 0 });
   rmSync(png, { force: true });
   return [`${id}.webp`];
 }
 
 function screenInfo() {
+  // gdigrab takes the rectangle directly and needs no device; the window is
+  // placed well inside the primary screen, so there is nothing to clamp to.
+  if (PLATFORM === "win32") return { device: null, width: Number.MAX_SAFE_INTEGER, height: Number.MAX_SAFE_INTEGER };
   const listing = spawnSync("ffmpeg", ["-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""], { encoding: "utf8" }).stderr;
   const device = parseScreenDevice(listing);
   if (device === null) throw new Error("ffmpeg sees no screen to record (Screen Recording permission?)");
@@ -204,16 +258,15 @@ function screenInfo() {
   return { device, width: Number(m[1]), height: Number(m[2]) };
 }
 
-async function captureVideo(api, out, scene, facts, screen) {
+async function captureVideo(api, out, scene, facts, screen, opts, encoder) {
   await api("POST", "/window", { focus: true });
   await sleep(600);
-  const win = await api("GET", "/window");
-  const rect = cropRect(win.frame, win.scaleFactor, screen, scene.region?.pad ?? 0);
+  const { rect } = await windowRect(api, opts, screen, scene.region?.pad ?? 0);
   const raw = join(tmpdir(), `viboplr-${scene.id}.mp4`);
+  const grab = grabInputArgs(PLATFORM, rect, { device: screen.device, seconds: scene.seconds });
   const ff = spawn("ffmpeg", [
-    "-y", "-hide_banner", "-f", "avfoundation", "-capture_cursor", "0", "-framerate", "30",
-    "-i", `${screen.device}:none`, "-t", String(scene.seconds),
-    "-vf", `crop=${rect.width}:${rect.height}:${rect.x}:${rect.y}`,
+    "-y", "-hide_banner", ...grab.input,
+    ...(grab.filter ? ["-vf", grab.filter] : []),
     "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16", "-pix_fmt", "yuv420p", raw,
   ]);
   let log = "";
@@ -232,7 +285,7 @@ async function captureVideo(api, out, scene, facts, screen) {
   run("ffmpeg", args.mp4);
   run("ffmpeg", args.webm);
   run("ffmpeg", args.poster);
-  run("cwebp", ["-quiet", "-q", "85", `${base}-poster.png`, "-o", `${base}-poster.webp`]);
+  toWebp(`${base}-poster.png`, `${base}-poster.webp`, encoder, { quality: 85 });
   rmSync(`${base}-poster.png`, { force: true });
   rmSync(raw, { force: true });
   return [`${scene.id}.mp4`, `${scene.id}.webm`, `${scene.id}-poster.webp`];
@@ -280,7 +333,8 @@ async function main() {
     for (const m of MANUAL_CAPTURES) console.log(`  ${m.page.padEnd(13)} ${m.slot} — ${m.why}`);
     return;
   }
-  if (process.platform !== "darwin") throw new Error("capture-site-media is macOS-only (screencapture + avfoundation)");
+  if (PLATFORM !== "darwin" && PLATFORM !== "win32") throw new Error("capture-site-media runs on macOS and Windows only");
+  const encoder = pickWebpEncoder();
 
   const api = makeApi(opts.profile);
   await api("GET", "/health");
@@ -296,7 +350,7 @@ async function main() {
   const hasTrack = Boolean(status0.currentTrack);
   const facts = await discoverFacts(api, opts);
   facts.skin0 = skin0 ?? null;
-  const screen = scenes.some((s) => s.kind === "video") ? screenInfo() : null;
+  const screen = screenInfo();
 
   const results = [];
   try {
@@ -322,8 +376,8 @@ async function main() {
         if (problems.length) throw new Error(`page didn't land: ${problems.join("; ")}`);
         await sleep(scene.settleMs ?? opts.settle);
         const files = scene.kind === "still"
-          ? await captureStill(api, out, scene)
-          : await captureVideo(api, out, scene, facts, screen);
+          ? await captureStill(api, out, scene, opts, screen, encoder)
+          : await captureVideo(api, out, scene, facts, screen, opts, encoder);
         results.push({ scene, status: "saved", files });
         console.log(`saved ${files.join(", ")}`);
       } catch (e) {
