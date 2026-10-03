@@ -24,4 +24,10 @@ describe("formatPlaylistSource", () => {
     expect(formatPlaylistSource("mixtape")).toBe("Playing from mixtape");
     expect(formatPlaylistSource("Spotify Radio")).toBe("Playing from spotify radio");
   });
+
+  it("names the service and kind for URI sources, dropping the id", () => {
+    expect(formatPlaylistSource("spotify://playlists/37i9dQZF1E36RNLX5GOIBY")).toBe("Playing from spotify playlist");
+    expect(formatPlaylistSource("spotify:album:4aawyAB9vmqN3uQ7FjRGTy")).toBe("Playing from spotify album");
+    expect(formatPlaylistSource("ytdlp://123")).toBe("Playing from ytdlp");
+  });
 });

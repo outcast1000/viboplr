@@ -42,7 +42,16 @@ export function formatPlaylistSource(source: string | null | undefined): string 
     tag: "Playing from tag",
     playlist: "Playing from playlist",
   };
-  return known[s] ?? `Playing from ${s}`;
+  if (known[s]) return known[s];
+  // Plugins often pass a URI (`spotify://playlists/<id>`) as the source. The
+  // raw id is noise in a heading, so name only the service and the kind of
+  // thing ("spotify playlist"); the full URI stays in the info popover.
+  const uri = /^([a-z][a-z0-9+.-]*):(?:\/\/)?([a-z]+)?/.exec(s);
+  if (uri && s.includes(":")) {
+    const kind = uri[2] ? uri[2].replace(/s$/, "") : "";
+    return `Playing from ${kind ? `${uri[1]} ${kind}` : uri[1]}`;
+  }
+  return `Playing from ${s}`;
 }
 
 interface QueueRowProps {
