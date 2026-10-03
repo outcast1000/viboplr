@@ -113,6 +113,7 @@ import { useAssignRef } from "./useLatestRef";
 import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type WorkerPluginControl } from "../pluginWorker/host";
 import { networkHosts, pendingPermissions } from "../pluginWorker/permissions";
 import { mainRealmVerdict } from "../utils/pluginTrust";
+import { deleteIfSame } from "../utils/registryOps";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -878,17 +879,18 @@ export function usePlugins(
           },
           registerItem: (item: PluginDynamicMenuItem): (() => void) => {
             const key = `${pluginId}:${item.id}`;
-            dynamicMenuItemsRef.current.set(key, {
+            const entry = {
               pluginId,
               id: item.id,
               label: item.label,
               targets: item.targets,
               submenuLabel: item.submenuLabel,
               order: item.order,
-            });
+            };
+            dynamicMenuItemsRef.current.set(key, entry);
             setDynamicMenuItemsVersion((v) => v + 1);
             const unsub = () => {
-              if (dynamicMenuItemsRef.current.delete(key)) {
+              if (deleteIfSame(dynamicMenuItemsRef.current, key, entry)) {
                 setDynamicMenuItemsVersion((v) => v + 1);
               }
             };
@@ -1378,17 +1380,18 @@ export function usePlugins(
             icon?: string;
           }): () => void {
             const key = `${pluginId}:${descriptor.id}`;
-            dynamicHomeShelvesRef.current.set(key, {
+            const entry = {
               pluginId,
               shelfId: descriptor.id,
               title: descriptor.title,
               displayKind: descriptor.displayKind,
               limit: descriptor.limit ?? 20,
               icon: descriptor.icon,
-            });
+            };
+            dynamicHomeShelvesRef.current.set(key, entry);
             setDynamicShelvesVersion((v) => v + 1);
             const unsub = () => {
-              if (dynamicHomeShelvesRef.current.delete(key)) {
+              if (deleteIfSame(dynamicHomeShelvesRef.current, key, entry)) {
                 setDynamicShelvesVersion((v) => v + 1);
               }
             };
@@ -1438,10 +1441,11 @@ export function usePlugins(
           },
           register(descriptor: PluginVisualizerDescriptor): () => void {
             const key = `${pluginId}:${descriptor.id}`;
-            dynamicVisualizersRef.current.set(key, { pluginId, ...descriptor });
+            const entry = { pluginId, ...descriptor };
+            dynamicVisualizersRef.current.set(key, entry);
             setDynamicVisualizersVersion((v) => v + 1);
             const unsub = () => {
-              if (dynamicVisualizersRef.current.delete(key)) {
+              if (deleteIfSame(dynamicVisualizersRef.current, key, entry)) {
                 setDynamicVisualizersVersion((v) => v + 1);
               }
             };
@@ -1472,15 +1476,16 @@ export function usePlugins(
           },
           registerProvider(descriptor: { id: string; name: string; icon?: string }): () => void {
             const key = `${pluginId}:${descriptor.id}`;
-            dynamicSearchProvidersRef.current.set(key, {
+            const entry = {
               pluginId,
               providerId: descriptor.id,
               name: descriptor.name,
               icon: descriptor.icon,
-            });
+            };
+            dynamicSearchProvidersRef.current.set(key, entry);
             setDynamicSearchProvidersVersion((v) => v + 1);
             const unsub = () => {
-              if (dynamicSearchProvidersRef.current.delete(key)) {
+              if (deleteIfSame(dynamicSearchProvidersRef.current, key, entry)) {
                 setDynamicSearchProvidersVersion((v) => v + 1);
               }
             };
@@ -1521,16 +1526,17 @@ export function usePlugins(
         assistant: {
           registerTool(descriptor: PluginAssistantToolDescriptor): () => void {
             const key = `${pluginId}:${descriptor.name}`;
-            dynamicAssistantToolsRef.current.set(key, {
+            const entry = {
               pluginId,
               name: descriptor.name,
               description: descriptor.description,
               inputSchema: descriptor.inputSchema,
               readOnly: descriptor.readOnly === true,
-            });
+            };
+            dynamicAssistantToolsRef.current.set(key, entry);
             setAssistantVersion((v) => v + 1);
             const unsub = () => {
-              if (dynamicAssistantToolsRef.current.delete(key)) {
+              if (deleteIfSame(dynamicAssistantToolsRef.current, key, entry)) {
                 setAssistantVersion((v) => v + 1);
               }
             };
@@ -1587,16 +1593,17 @@ export function usePlugins(
         nowPlayingInfo: {
           registerItem(descriptor: { id: string; label: string; priority?: number; defaultEnabled?: boolean }): () => void {
             const key = `${pluginId}:${descriptor.id}`;
-            nowPlayingInfoItemsRef.current.set(key, {
+            const entry = {
               pluginId,
               itemId: descriptor.id,
               label: descriptor.label,
               priority: descriptor.priority ?? 100,
               defaultEnabled: descriptor.defaultEnabled ?? false,
-            });
+            };
+            nowPlayingInfoItemsRef.current.set(key, entry);
             setNowPlayingInfoVersion((v) => v + 1);
             const unsub = () => {
-              if (nowPlayingInfoItemsRef.current.delete(key)) {
+              if (deleteIfSame(nowPlayingInfoItemsRef.current, key, entry)) {
                 setNowPlayingInfoVersion((v) => v + 1);
               }
             };
