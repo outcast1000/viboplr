@@ -1,32 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "../hooks/useHome";
 import type { HomeShelfItem, PluginTrack } from "../types/plugin";
 import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
 import { shouldPauseEffect } from "./DetailHeroEffect";
+import { playlistCardCandidates } from "./HomeShelf";
+import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
+import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates";
 
 const ROTATE_MS = 8_000;
 
-// Resolve any image path (http/data URI, or local path with optional `#v=...`
-// cache-busting fragment) to a value usable in <img src> / background-image.
-function resolveImagePath(path: string | null | undefined): string | null {
-  if (!path) return null;
-  if (path.startsWith("http") || path.startsWith("data:")) return path;
-  const hashIdx = path.indexOf("#");
-  if (hashIdx >= 0) return convertFileSrc(path.slice(0, hashIdx)) + path.slice(hashIdx);
-  return convertFileSrc(path);
-}
-
 interface Slide {
-  coverSrc: string | null;
+  // Ordered cover chain; the first that is present and hasn't failed to load wins.
+  covers: ImageCandidate[];
   title: string;
   subtitle: string | null;
 }
 
-// Map a shelf item to a hero slide (cover + title + subtitle) per display kind,
-// reusing the album/artist name-based image chain when the item has no explicit
-// art. `videoFrames` carries already-converted first-frame URLs for video tracks.
+// Map a shelf item to a hero slide (cover chain + title + subtitle) per display
+// kind, reusing the album/artist name-based image chain behind the item's own
+// art — an explicit cover can be a stale path or an unreadable file, so it is
+// never the only candidate. `videoFrames` carries already-converted
+// first-frame URLs for video tracks.
 function slideFor(
   shelf: ResolvedShelf,
   item: HomeShelfItem,
@@ -37,7 +32,11 @@ function slideFor(
   if (shelf.displayKind === "album-cards") {
     const it = item as { name: string; artistName?: string; coverUrl?: string };
     return {
-      coverSrc: resolveImagePath(it.coverUrl ?? albumImageFor(it.name, it.artistName)),
+      covers: [
+        resolveImageUrl(it.coverUrl),
+        () => resolveImageUrl(albumImageFor(it.name, it.artistName)),
+        () => (it.artistName ? resolveImageUrl(artistImageFor(it.artistName)) : null),
+      ],
       title: it.name,
       subtitle: it.artistName ?? null,
     };
@@ -45,33 +44,30 @@ function slideFor(
   if (shelf.displayKind === "artist-cards") {
     const it = item as { name: string; imageUrl?: string };
     return {
-      coverSrc: resolveImagePath(it.imageUrl ?? artistImageFor(it.name)),
+      covers: [resolveImageUrl(it.imageUrl), () => resolveImageUrl(artistImageFor(it.name))],
       title: it.name,
       subtitle: null,
     };
   }
   if (shelf.displayKind === "playlist-cards") {
+    // Radio stations and mixes: the station's cover, then the seed track's
+    // album/artist image, which fetches on demand.
     const it = item as { name: string; coverUrl?: string; subtitle?: string; tracks?: PluginTrack[] };
-    // No explicit cover (e.g. a radio station whose cover wasn't cached): fall
-    // back to the seed track's album/artist image, which fetches on demand.
-    const seed = it.tracks?.[0];
-    const fallback = seed
-      ? (seed.album_title ? albumImageFor(seed.album_title, (seed.album_artist_name ?? seed.artist_name) ?? undefined) : null) ??
-        (seed.artist_name ? artistImageFor(seed.artist_name) : null)
-      : null;
-    return { coverSrc: resolveImagePath(it.coverUrl ?? fallback), title: it.name, subtitle: it.subtitle ?? null };
+    return { covers: playlistCardCandidates(it, albumImageFor, artistImageFor), title: it.name, subtitle: it.subtitle ?? null };
   }
-  // track-rows
+  // track-rows — video frame URLs are already converted and used verbatim.
   const it = item as { track: { title: string; artist_name?: string; album_artist_name?: string; album_title?: string; path?: string | null; image_url?: string } };
-  const explicit = it.track.image_url ?? null;
-  // Video frame URLs are already converted — do NOT pass them through resolveImagePath.
-  const videoFrame = !explicit ? videoFrames[shelfVideoKey(it.track.path)] ?? null : null;
-  if (videoFrame) return { coverSrc: videoFrame, title: it.track.title, subtitle: it.track.artist_name ?? null };
-  const path =
-    explicit ??
-    (it.track.album_title ? albumImageFor(it.track.album_title, it.track.album_artist_name ?? it.track.artist_name) : null) ??
-    (it.track.artist_name ? artistImageFor(it.track.artist_name) : null);
-  return { coverSrc: resolveImagePath(path), title: it.track.title, subtitle: it.track.artist_name ?? null };
+  const t = it.track;
+  return {
+    covers: [
+      resolveImageSrc(t.image_url),
+      videoFrames[shelfVideoKey(t.path)] ?? null,
+      () => (t.album_title ? resolveImageUrl(albumImageFor(t.album_title, t.album_artist_name ?? t.artist_name)) : null),
+      () => (t.artist_name ? resolveImageUrl(artistImageFor(t.artist_name)) : null),
+    ],
+    title: t.title,
+    subtitle: t.artist_name ?? null,
+  };
 }
 
 export interface HeroCarouselProps {
@@ -91,6 +87,10 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
   const [idx, setIdx] = useState(0);
   const hoverRef = useRef(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  // Covers that failed to load (missing file, unreadable image). Shared by the
+  // art and the background layers, so both step down the same chain together.
+  const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
+  const coverFor = (s: Slide) => firstUsableImage(s.covers, failedSrcs);
 
   // Track the slide the carousel just left, so only two background layers are
   // ever mounted: the active one plus the one fading out. Keeping one
@@ -154,6 +154,7 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
   const safeIdx = idx % items.length;
   const item = items[safeIdx];
   const slide = slideFor(shelf, item, albumImageFor, artistImageFor, videoFrames);
+  const coverSrc = coverFor(slide);
   const hasPlay = resolveShelfPlayAction(shelf.displayKind, item).kind !== "none";
   const advance = (delta: number) => setIdx((i) => (i + delta + items.length) % items.length);
 
@@ -175,7 +176,7 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
         {bgIdxs.map((i) => {
           const it = items[i];
           if (!it) return null;
-          const src = slideFor(shelf, it, albumImageFor, artistImageFor, videoFrames).coverSrc;
+          const src = coverFor(slideFor(shelf, it, albumImageFor, artistImageFor, videoFrames));
           if (!src) return null;
           return (
             <div
@@ -207,8 +208,13 @@ export function HeroCarousel({ shelf, albumImageFor, artistImageFor, onItemClick
       {/* key re-mounts the content on each change so it fades in fresh. */}
       <div className="home-hero-content" key={safeIdx}>
         <div className="home-hero-art" onClick={() => onItemClick(shelf, item)}>
-          {slide.coverSrc
-            ? <img src={slide.coverSrc} alt={slide.title} />
+          {coverSrc
+            ? <img
+                key={coverSrc}
+                src={coverSrc}
+                alt={slide.title}
+                onError={() => setFailedSrcs((prev) => new Set(prev).add(coverSrc))}
+              />
             : <div className="home-hero-art-fallback">{slide.title[0]?.toUpperCase() ?? "?"}</div>}
         </div>
         <div className="home-hero-info">

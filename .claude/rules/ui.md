@@ -265,6 +265,8 @@ Radio stations play straight away too: `startRadio` resolves the banner cover *a
 
 Track-row cards have an additional async image fallback: `track.image_url` → album image (by name) → artist image (by name) → first-letter placeholder, all via the same `useImageCache` chain used elsewhere.
 
+**An explicit cover is never the only candidate.** Covers persist (the 24h snapshot, a Latest play session's `imagePath`), so they can name a file a plugin has since pruned (a rotated Spotify mix) or one that won't decode. Playlist cards and every hero slide therefore carry an ordered chain — explicit cover → lead track's `image_url` → album → artist (`HomeShelf.tsx` → `playlistCardCandidates`; a Latest play card's lead is its `__session.track`) — and an `<img>` load error drops to the next one (`utils/imageCandidates.ts` → `firstUsableImage`). Later candidates are thunks, so the album/artist lookup (which may fetch) only runs once the earlier ones have failed. The hero keeps one failed-src set shared by its art and its background layers, so both step down together.
+
 ## Queue Panel
 
 **Component:** `QueuePanel.tsx` (column 3, all rows)

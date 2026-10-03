@@ -4,9 +4,10 @@ import { shelfDescriptionFor } from "../hooks/useHome";
 import type { HomeShelfItem, PluginTrack } from "../types/plugin";
 import { useShelfVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveShelfPlayAction } from "../utils/homeShelfPlay";
-import { resolveImageUrl } from "../utils/resolveImageUrl";
+import { resolveImageSrc, resolveImageUrl } from "../utils/resolveImageUrl";
 import { resolveTrackImage } from "../utils/trackImage";
 import { TrackArtFallback } from "./TrackArtFallback";
+import { firstUsableImage, type ImageCandidate } from "../utils/imageCandidates";
 import "./HomeView.css";
 
 // First track's album image, falling back to its artist image — the on-demand
@@ -25,14 +26,33 @@ function playlistFallbackImage(
   );
 }
 
+// Cover chain for a playlist card. The explicit cover can go stale — a Latest
+// play session keeps the path it captured at play time, and a plugin may since
+// have pruned that file (a rotated Spotify mix) — so it is only the first
+// candidate: then the lead track's own image, then its album/artist image. A
+// Latest play card ships no tracks; its lead is the session's track.
+export function playlistCardCandidates(
+  it: { coverUrl?: string; tracks?: PluginTrack[]; __session?: { track?: PluginTrack | null } },
+  albumImageFor: (name: string, artistName?: string) => string | null,
+  artistImageFor: (name: string) => string | null,
+): ImageCandidate[] {
+  const lead = it.tracks?.[0] ?? it.__session?.track ?? undefined;
+  const leadTracks = lead ? [lead] : undefined;
+  return [
+    resolveImageUrl(it.coverUrl),
+    () => resolveImageSrc(lead?.image_url),
+    () => resolveImageUrl(playlistFallbackImage(leadTracks, albumImageFor, artistImageFor)),
+  ];
+}
+
 // Renders a shelf card's art with graceful degradation. `candidates` is an
-// ordered list of already-resolved `<img src>` values (first usable one wins);
-// on a load failure that src is dropped and the next is tried. When every
+// ordered chain of already-resolved `<img src>` values or lazy thunks (first
+// usable one wins); on a load failure that src is dropped and the next is tried. When every
 // candidate is missing or fails, the first-letter placeholder renders instead of
 // the browser's broken-image glyph. Mirrors QueueItemThumb in QueuePanel.tsx.
-function ShelfCardArt({ candidates, name, fallback }: { candidates: (string | null | undefined)[]; name: string; fallback?: React.ReactNode }) {
+function ShelfCardArt({ candidates, name, fallback }: { candidates: ImageCandidate[]; name: string; fallback?: React.ReactNode }) {
   const [failedSrcs, setFailedSrcs] = useState<Set<string>>(new Set());
-  const src = candidates.find((s): s is string => !!s && !failedSrcs.has(s)) ?? null;
+  const src = firstUsableImage(candidates, failedSrcs);
   if (!src) {
     // Track-rows pass a type-aware icon; entity cards fall back to the letter.
     return <div className="home-shelf-card-fallback">{fallback ?? (name[0]?.toUpperCase() ?? "?")}</div>;
@@ -172,11 +192,10 @@ function renderCard(shelf: ResolvedShelf, item: HomeShelfItem, idx: number, ctx:
   }
   if (shelf.displayKind === "playlist-cards") {
     const it = item as { id: string; name: string; coverUrl?: string; subtitle?: string; tracks?: PluginTrack[] };
-    const src = resolveImageUrl(it.coverUrl ?? playlistFallbackImage(it.tracks, ctx.albumImageFor, ctx.artistImageFor));
     return (
       <div key={`${idx}-${it.id}`} className="ds-card home-shelf-card" onClick={onClick} onContextMenu={onCtx}>
         <div className="ds-card-art">
-          <ShelfCardArt candidates={[src]} name={it.name} />
+          <ShelfCardArt candidates={playlistCardCandidates(it, ctx.albumImageFor, ctx.artistImageFor)} name={it.name} />
           {playButton(shelf, item, ctx)}
         </div>
         <div className="ds-card-body">
