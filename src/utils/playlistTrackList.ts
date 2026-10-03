@@ -6,6 +6,7 @@
 import type { SortKey } from "../sortChain";
 import { seededRandom } from "../hooks/useEntityDetail";
 import { isVideoTrack } from "../utils";
+import { normalizeFilterQuery, trackMatches } from "./detailTrackFilter";
 
 export interface PlaylistTrackListItem {
   title: string;
@@ -33,25 +34,22 @@ export function chainIsStoredOrder(chain: SortKey[]): boolean {
 export type TrackMediaFilter = "all" | "audio" | "video";
 
 /**
- * Instant text + media-type filter. Text matches title/artist/album,
- * case-insensitively. Media type is judged from the source path's extension
- * (playlist rows carry no format), so an extension-less stream counts as audio.
+ * Instant text + media-type filter. Text matches title/artist/album, case- and
+ * accent-insensitively (the same matcher the entity detail pages use). Media
+ * type is judged from the source path's extension (playlist rows carry no
+ * format), so an extension-less stream counts as audio.
  */
 export function filterPlaylistTracks<T extends PlaylistTrackListItem>(
   tracks: T[],
   query: string,
   media: TrackMediaFilter,
 ): T[] {
-  const q = query.trim().toLowerCase();
+  const q = normalizeFilterQuery(query);
   if (!q && media === "all") return tracks;
   return tracks.filter((t) => {
     if (media !== "all" && (media === "video") !== isVideoTrack({ format: null, path: t.source })) return false;
     if (!q) return true;
-    return (
-      t.title.toLowerCase().includes(q) ||
-      (t.artist_name?.toLowerCase().includes(q) ?? false) ||
-      (t.album_name?.toLowerCase().includes(q) ?? false)
-    );
+    return trackMatches({ title: t.title, artist_name: t.artist_name, album_title: t.album_name }, q);
   });
 }
 

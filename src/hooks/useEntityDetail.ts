@@ -87,6 +87,10 @@ export interface EntityDetailReturn {
   handleSort: (field: SortField) => void;
   sortIndicator: (field: SortField) => string;
   trackPopularity: Record<number, number>;
+  /** The track list's local filter text (see utils/detailTrackFilter). Belongs
+   *  to the page it was typed on — it reads "" again on the next entity. */
+  filterQuery: string;
+  setFilterQuery: (query: string) => void;
   handleToggleLike: () => void;
   handleToggleDislike: () => void;
   handleToggleAlbumLike: (albumId: number) => void;
@@ -112,6 +116,11 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [shuffleKey, setShuffleKey] = useState(0);
   const [loadKey, setLoadKey] = useState(0);
+  // Stamped with the page key like the async state above, so navigating to
+  // another entity starts unfiltered without an effect to clear it.
+  const [filter, setFilter] = useState<{ key: string; query: string } | null>(null);
+  const filterQuery = filter?.key === detailKey ? filter.query : "";
+  const setFilterQuery = useCallback((query: string) => setFilter({ key: detailKey, query }), [detailKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -419,6 +428,8 @@ export function useEntityDetail({ kind, name, artistName, invokeInfoFetch, onEnt
     handleSort,
     sortIndicator,
     trackPopularity,
+    filterQuery,
+    setFilterQuery,
     handleToggleLike,
     handleToggleDislike,
     handleToggleAlbumLike,

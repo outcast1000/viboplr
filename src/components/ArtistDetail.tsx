@@ -12,6 +12,8 @@ import { useDetailActions, useDetailState, useInfoSectionActions } from "../cont
 import { AlbumCardArt } from "./AlbumCardArt";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
 import { TrackList, type MissingTrackRow } from "./TrackList";
+import { DetailTrackFilter } from "./DetailTrackFilter";
+import { filterDetailRows, showDetailFilter } from "../utils/detailTrackFilter";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
 import { DetailHero } from "./DetailHero";
@@ -45,6 +47,8 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     rankedTracks,
     rankedValues,
     rankedTypeId,
+    filterQuery,
+    setFilterQuery,
     handleToggleLike: handleToggleArtistLike,
     handleToggleDislike: handleToggleArtistDislike,
     handleToggleAlbumLike,
@@ -220,6 +224,16 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
     }));
   }, [mergeTopTracks, sortedTracks, trackPopularity, rankedTracks, rankedValues, sortField, sortDir]);
 
+  // The list's local filter, over library and "Not in library" rows alike.
+  // Hero Play / Enqueue keep acting on the whole artist.
+  const listRowCount = sortedTracks.length + missingRows.length;
+  const filterable = showDetailFilter(listRowCount);
+  const visible = useMemo(
+    () => filterable ? filterDetailRows(sortedTracks, missingRows, filterQuery) : { tracks: sortedTracks, missingRows },
+    [filterable, sortedTracks, missingRows, filterQuery],
+  );
+  const visibleRowCount = visible.tracks.length + visible.missingRows.length;
+
   // Keyed on the type id (known before the provider answers), not on the
   // rows: a late `exclude` change reloads every section.
   const hideTopSongsTab = !placeholder && sortedTracks.length > 0 && rankedTypeId != null;
@@ -260,39 +274,44 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
       id: "tracks",
       name: "All Tracks",
       content: (
-        <TrackList
-          tracks={sortedTracks}
-          currentTrack={state.currentTrack}
-          playing={state.playing}
-          highlightedIndex={-1}
-          sortField={sortField}
-          trackListRef={trackListRef}
-          columns={trackColumns}
-          onColumnsChange={setTrackColumns}
-          onDoubleClick={actions.playTracks}
-          onPlay={(t) => actions.playTracks([t], 0)}
-          onEnqueue={(t) => actions.enqueueTracks([t])}
-          onStartRadio={actions.startRadio}
-          onLocateTrack={actions.locateTrack}
-          onContextMenu={actions.handleTrackContextMenu}
-          onArtistClick={actions.navigateToArtist}
-          onAlbumClick={actions.navigateToAlbum}
-          onSort={handleSort}
-          sortIndicator={sortIndicator}
-          onToggleLike={actions.toggleLike}
-          onToggleDislike={actions.toggleDislike}
-          onTrackDragStart={actions.handleTrackDragStart}
-          onDeleteTracks={actions.deleteTracks}
-          trackPopularity={trackPopularity}
-          missingRows={missingRows}
-          onPlayMissing={playOneExternal}
-          onEnqueueMissing={enqueueOneExternal}
-          onStartRadioMissing={startRadioMissing}
-          onLocateMissing={locateMissing}
-          onDownloadMissing={actions.downloadByName ?? undefined}
-          onMissingContextMenu={handleMissingContextMenu}
-          emptyMessage="No tracks found for this artist."
-        />
+        <>
+          {filterable && (
+            <DetailTrackFilter query={filterQuery} onQueryChange={setFilterQuery} total={listRowCount} shown={visibleRowCount} />
+          )}
+          <TrackList
+            tracks={visible.tracks}
+            currentTrack={state.currentTrack}
+            playing={state.playing}
+            highlightedIndex={-1}
+            sortField={sortField}
+            trackListRef={trackListRef}
+            columns={trackColumns}
+            onColumnsChange={setTrackColumns}
+            onDoubleClick={actions.playTracks}
+            onPlay={(t) => actions.playTracks([t], 0)}
+            onEnqueue={(t) => actions.enqueueTracks([t])}
+            onStartRadio={actions.startRadio}
+            onLocateTrack={actions.locateTrack}
+            onContextMenu={actions.handleTrackContextMenu}
+            onArtistClick={actions.navigateToArtist}
+            onAlbumClick={actions.navigateToAlbum}
+            onSort={handleSort}
+            sortIndicator={sortIndicator}
+            onToggleLike={actions.toggleLike}
+            onToggleDislike={actions.toggleDislike}
+            onTrackDragStart={actions.handleTrackDragStart}
+            onDeleteTracks={actions.deleteTracks}
+            trackPopularity={trackPopularity}
+            missingRows={visible.missingRows}
+            onPlayMissing={playOneExternal}
+            onEnqueueMissing={enqueueOneExternal}
+            onStartRadioMissing={startRadioMissing}
+            onLocateMissing={locateMissing}
+            onDownloadMissing={actions.downloadByName ?? undefined}
+            onMissingContextMenu={handleMissingContextMenu}
+            emptyMessage={visibleRowCount < listRowCount ? "No tracks match the filter." : "No tracks found for this artist."}
+          />
+        </>
       ),
     });
     customTabs.push({ id: "tags", name: "Tags", content: <EntityTagPanel tracks={sortedTracks} embedded addFirst emptyText="This artist's tracks have no tags yet." /> });

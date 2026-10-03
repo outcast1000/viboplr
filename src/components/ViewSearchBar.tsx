@@ -11,13 +11,15 @@ interface ViewSearchBarProps {
   onArrowDown?: () => void;
   onArrowUp?: () => void;
   onEnter?: () => void;
+  /** Extra class on the bar, for a host that restyles it (e.g. DetailTrackFilter). */
+  className?: string;
 }
 
-export function ViewSearchBar({ query, onQueryChange, placeholder, children, autoFocus, onArrowDown, onArrowUp, onEnter }: ViewSearchBarProps) {
+export function ViewSearchBar({ query, onQueryChange, placeholder, children, autoFocus, onArrowDown, onArrowUp, onEnter, className }: ViewSearchBarProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="view-search-bar">
+    <div className={className ? `view-search-bar ${className}` : "view-search-bar"}>
       {children}
       <div className="view-search-input-wrap">
         <svg

@@ -9,6 +9,8 @@ import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { TrackList } from "./TrackList";
+import { DetailTrackFilter } from "./DetailTrackFilter";
+import { filterDetailRows, normalizeFilterQuery, showDetailFilter, trackMatches } from "../utils/detailTrackFilter";
 import { PromptModal } from "./PromptModal";
 import { InformationSections } from "./InformationSections";
 import { TitleLineInfo } from "./TitleLineInfo";
@@ -54,6 +56,8 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     rankedValues,
     rankedStatus,
     rankedTypeId,
+    filterQuery,
+    setFilterQuery,
   } = useEntityDetail({ kind: "album", name, artistName, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, onEntityLikeByName: actions.setEntityLikeByName, reloadSignal: state.bulkEditKey });
 
   const album = entity as Album | null;
@@ -159,6 +163,26 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
       popularity: rankedValues[providerIndex] || undefined,
     }));
   }, [isLibrary, rankedTracks, rankedValues, sortedTracks, sortField]);
+
+  // The list's local filter, over library and "Not in library" rows alike — or,
+  // for an album not in the library, over the provider's tracklist (kept with
+  // each row's album position, so # and play-from-here stay right). Hero Play /
+  // Enqueue keep acting on the whole album.
+  const listRowCount = isLibrary ? sortedTracks.length + missingRows.length : rankedTracks.length;
+  const filterable = showDetailFilter(listRowCount);
+  const visible = useMemo(
+    () => filterable ? filterDetailRows(sortedTracks, missingRows, filterQuery) : { tracks: sortedTracks, missingRows },
+    [filterable, sortedTracks, missingRows, filterQuery],
+  );
+  const visibleExternal = useMemo(() => {
+    const q = filterable ? normalizeFilterQuery(filterQuery) : "";
+    return rankedTracks.map((t, index) => ({ t, index })).filter(({ t }) => trackMatches(t, q));
+  }, [filterable, filterQuery, rankedTracks]);
+  const visibleRowCount = isLibrary ? visible.tracks.length + visible.missingRows.length : visibleExternal.length;
+  const filterBar = filterable && (
+    <DetailTrackFilter query={filterQuery} onQueryChange={setFilterQuery} total={listRowCount} shown={visibleRowCount} />
+  );
+  const filteredOut = visibleRowCount < listRowCount;
 
   const playOneExternal = useCallback((t: QueueTrack) => {
     playExternal([t], 0);
@@ -285,8 +309,9 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   // isn't in the library shows the provider's tracklist.
   const libraryTracksContent = (
     <>
+      {filterBar}
       <TrackList
-        tracks={sortedTracks}
+        tracks={visible.tracks}
         currentTrack={state.currentTrack}
         playing={state.playing}
         highlightedIndex={-1}
@@ -309,14 +334,14 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
         onTrackDragStart={actions.handleTrackDragStart}
         onDeleteTracks={actions.deleteTracks}
         trackPopularity={trackPopularity}
-        missingRows={missingRows}
+        missingRows={visible.missingRows}
         onPlayMissing={playOneExternal}
         onEnqueueMissing={enqueueOneExternal}
         onStartRadioMissing={startRadioMissing}
         onLocateMissing={locateMissing}
         onDownloadMissing={actions.downloadByName ?? undefined}
         onMissingContextMenu={handleMissingContextMenu}
-        emptyMessage="No tracks found."
+        emptyMessage={filteredOut ? "No tracks match the filter." : "No tracks found."}
       />
     </>
   );
@@ -329,26 +354,32 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     ) : rankedStatus === "none" ? (
       <div className="album-external-note">No tracklist found for this album.</div>
     ) : (
-      <div className="entity-list album-external-tracks">
-        {rankedTracks.map((t, i) => (
-          <TrackRow
-            key={t.key}
-            leading={<span className="album-external-num">{i + 1}</span>}
-            thumb={externalThumb}
-            title={t.title}
-            subtitle={t.artist_name ?? undefined}
-            meta={rankedValues[i] ? <span title={`${rankedValues[i].toLocaleString()} listeners`}>{formatCompactCount(rankedValues[i])}</span> : undefined}
-            playing={playingId !== null && playingId === trackLikeId(t.title, t.artist_name)}
-            onDoubleClick={() => playExternalFrom(i)}
-            onContextMenu={(e) => { e.preventDefault(); actions.handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name, albumTitle: t.album_title }); }}
-            actions={{
-              onPlay: () => playExternalFrom(i),
-              onEnqueue: () => enqueueExternal([t]),
-              onDownload: downloadByName ? () => downloadByName(t) : undefined,
-            }}
-          />
-        ))}
-      </div>
+      <>
+        {filterBar}
+        {filteredOut && visibleExternal.length === 0 && (
+          <div className="album-external-note">No tracks match the filter.</div>
+        )}
+        <div className="entity-list album-external-tracks">
+          {visibleExternal.map(({ t, index: i }) => (
+            <TrackRow
+              key={t.key}
+              leading={<span className="album-external-num">{i + 1}</span>}
+              thumb={externalThumb}
+              title={t.title}
+              subtitle={t.artist_name ?? undefined}
+              meta={rankedValues[i] ? <span title={`${rankedValues[i].toLocaleString()} listeners`}>{formatCompactCount(rankedValues[i])}</span> : undefined}
+              playing={playingId !== null && playingId === trackLikeId(t.title, t.artist_name)}
+              onDoubleClick={() => playExternalFrom(i)}
+              onContextMenu={(e) => { e.preventDefault(); actions.handleInfoTrackContextMenu(e, { title: t.title, artistName: t.artist_name, albumTitle: t.album_title }); }}
+              actions={{
+                onPlay: () => playExternalFrom(i),
+                onEnqueue: () => enqueueExternal([t]),
+                onDownload: downloadByName ? () => downloadByName(t) : undefined,
+              }}
+            />
+          ))}
+        </div>
+      </>
     ),
   };
   // The album's tags (library albums only — the tags live on library rows).

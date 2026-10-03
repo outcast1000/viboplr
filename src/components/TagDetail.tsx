@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
@@ -8,6 +8,8 @@ import { TAG_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
 import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { TrackList } from "./TrackList";
+import { DetailTrackFilter } from "./DetailTrackFilter";
+import { filterDetailRows, showDetailFilter } from "../utils/detailTrackFilter";
 import { InformationSections } from "./InformationSections";
 import type { InfoEntity } from "../types/informationTypes";
 import { store } from "../store";
@@ -31,11 +33,20 @@ export function TagDetail({ name }: TagDetailProps) {
     sortField,
     handleSort,
     sortIndicator,
+    filterQuery,
+    setFilterQuery,
     handleToggleLike: handleToggleTagLike,
     handleToggleDislike: handleToggleTagDislike,
   } = useEntityDetail({ kind: "tag", name, invokeInfoFetch: actions.invokeInfoFetch, onEntityLike: actions.toggleEntityLike, onEntityDislike: actions.toggleEntityDislike, reloadSignal: state.bulkEditKey });
 
   const tag = entity as Tag | null;
+
+  // The list's local filter. Hero Play / Enqueue keep acting on the whole tag.
+  const filterable = showDetailFilter(sortedTracks.length);
+  const visibleTracks = useMemo(
+    () => filterable ? filterDetailRows(sortedTracks, [], filterQuery).tracks : sortedTracks,
+    [filterable, sortedTracks, filterQuery],
+  );
 
   const [trackColumns, setTrackColumns] = useState<ColumnConfig[]>(TAG_DETAIL_COLUMNS);
   const trackListRef = useRef<HTMLDivElement>(null);
@@ -148,9 +159,12 @@ export function TagDetail({ name }: TagDetailProps) {
         titleLine={<TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
       />
 
+      {filterable && (
+        <DetailTrackFilter query={filterQuery} onQueryChange={setFilterQuery} total={sortedTracks.length} shown={visibleTracks.length} />
+      )}
       {sortedTracks.length > 0 && (
         <TrackList
-          tracks={sortedTracks}
+          tracks={visibleTracks}
           currentTrack={state.currentTrack}
           playing={state.playing}
           highlightedIndex={-1}
@@ -172,7 +186,7 @@ export function TagDetail({ name }: TagDetailProps) {
           onToggleDislike={actions.toggleDislike}
           onTrackDragStart={actions.handleTrackDragStart}
           onDeleteTracks={actions.deleteTracks}
-          emptyMessage="No tracks found."
+          emptyMessage={visibleTracks.length < sortedTracks.length ? "No tracks match the filter." : "No tracks found."}
         />
       )}
 

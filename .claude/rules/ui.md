@@ -443,6 +443,12 @@ All detail pages follow a consistent structure (see conventions.md for layout ru
 
 **Tag Detail:** Header + track list + information sections.
 
+**Track list filter (all three entity pages):** once the list draws **more than 10 rows** (`DETAIL_FILTER_MIN_ROWS`, counted over library + "Not in library" rows, unfiltered so the box can't vanish mid-typing), a `DetailTrackFilter` box sits above it — on artist/album pages inside the track tab, on the tag page above the list. Pure logic in `utils/detailTrackFilter.ts` (unit-tested; e2e `detail-track-filter.test.js`). Rules:
+- Matches title / artist / album / album artist via `normalizeForMatch` (case- and accent-insensitive) — the same matcher the playlist detail's filter now uses.
+- "Not in library" rows are **placed against the full list, then filtered** (`filterDetailRows` remaps their `before` index); placing them against the filtered list would make an owned-but-hidden track look missing.
+- **Hero Play / Enqueue ignore the filter** — they belong to the entity, not to the list. A non-library album's filtered rows keep their album position, so # and play-from-here stay right.
+- The query lives in `useEntityDetail` stamped with the page key, so it reads empty on the next entity without an effect, and is never persisted. `TrackList` already clears its selection when its id sequence changes, so Delete can't reach a filtered-out row.
+
 ## Information Sections
 
 **Component:** `InformationSections.tsx`

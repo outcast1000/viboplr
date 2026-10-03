@@ -1,0 +1,19 @@
+/* Sits inside a detail page's tab body, so it drops the view-level bar's own
+   background strip and divider and lines up with the track list below. */
+.view-search-bar.detail-track-filter {
+  background: transparent;
+  border-bottom: none;
+  padding: 8px 0;
+}
+
+.detail-track-filter .view-search-input-wrap {
+  max-width: 360px;
+}
+
+.detail-track-filter-count {
+  order: 2;
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
