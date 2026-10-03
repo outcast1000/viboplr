@@ -10,6 +10,13 @@ never reaches the model or the client transcript.
 
 Requires Node ≥ 18. No `npm install` — the script is self-contained.
 
+Two files: `viboplr-mcp.mjs` is the stdio transport (discovery, token, HTTP),
+and `tools.mjs` is the tool catalog itself. The app imports the same
+`tools.mjs` and offers it to in-app plugins as `api.assistant.host`, running
+each tool through the control API in-process — so **add tools to `tools.mjs`**
+(each declares `readOnly` and `categories`), and both an outside MCP client and
+an in-app agent get them. Both files ship in the bundle side by side.
+
 ## Setup
 
 1. In Viboplr: **Settings → General → AI control** — switch it on.

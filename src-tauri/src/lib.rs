@@ -367,6 +367,7 @@ macro_rules! invoke_handler {
             commands::control_api_status,
             commands::control_api_regenerate_token,
             commands::control_api_respond,
+            commands::control_api_call,
             commands::control_api_client_ready,
             commands::assistant_scopes_get,
             commands::assistant_scopes_set,

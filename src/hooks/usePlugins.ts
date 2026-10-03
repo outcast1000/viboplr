@@ -74,6 +74,7 @@ import {
   type FileMetadataEdit, type TagOpsDeps,
 } from "../utils/tagOps";
 import { invokeAssistantTool as invokeAssistantToolOp, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
+import { hostInstructions, inProcessContext, invokeHostTool, listHostTools } from "../utils/hostAssistantTools";
 import { fetchLocalLyrics } from "../utils/localLyrics";
 import { sanitizeViewHeader } from "../utils/pluginViewHeader";
 
@@ -1563,6 +1564,19 @@ export function usePlugins(
             if (typeof targetPluginId !== "string" || !targetPluginId) throw new Error("pluginId is required");
             if (typeof tool !== "string" || !tool) throw new Error("tool is required");
             return invokeAssistantToolOp(registry(), { pluginId: targetPluginId, tool, args }, crossCall);
+          },
+          // The app's own assistant tools — the MCP server's catalog, run
+          // in-process through the control API (see utils/hostAssistantTools.ts).
+          host: {
+            listTools() {
+              return listHostTools(inProcessContext(`plugin:${pluginId}`));
+            },
+            instructions() {
+              return hostInstructions();
+            },
+            invoke(name, args) {
+              return invokeHostTool(inProcessContext(`plugin:${pluginId}`), name, args);
+            },
           },
         },
 

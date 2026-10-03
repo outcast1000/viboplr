@@ -1400,6 +1400,50 @@ export interface PluginAssistantAPI {
    * older hosts: `typeof api.assistant.invoke === "function"`.
    */
   invoke(pluginId: string, tool: string, args?: Record<string, unknown>): Promise<unknown>;
+  /**
+   * The APP's own assistant tools — exactly the catalog the Viboplr MCP server
+   * offers an outside assistant (`mcp/tools.mjs`), plus every plugin-published
+   * tool as `<pluginId>__<tool>`. Calls run in-process through the control
+   * API, so they need Settings → General → AI control on and pass the same
+   * per-category write switches an MCP client does (a refused write rejects
+   * with the 403 text naming the switch). This is the surface for an in-app
+   * agent: a tool added to the catalog reaches it with no plugin release.
+   * Needs the `assistant:host` permission. Guard for older hosts:
+   * `typeof api.assistant?.host?.invoke === "function"`.
+   */
+  host?: PluginHostAssistantAPI;
+}
+
+/** One tool of the app's catalog as `api.assistant.host.listTools()` returns it. */
+export interface PluginHostTool {
+  name: string;
+  description: string;
+  /** JSON Schema of the args object — pass it to the model verbatim. */
+  inputSchema: Record<string, unknown>;
+  /** No call can change the app, the user's files or an account. */
+  readOnly: boolean;
+  /** `{ argName: [values] }` — a call whose args match ANY entry is read-only
+   *  although the tool isn't (e.g. `{ action: ["list"] }`). An agent should
+   *  ask the user before any call that is neither. */
+  readOnlyWhen?: Record<string, unknown[]>;
+  /** What the tool is about — pick tools by category, never by name, so new
+   *  tools join a feature automatically: library, playback, queue, playlists,
+   *  likes, tags, info, catalog, download, files, plugins, app. */
+  categories: string[];
+  /** Set for a plugin-published tool. */
+  pluginId?: string;
+}
+
+export interface PluginHostAssistantAPI {
+  /** The current roster: app tools first, then plugin tools. Rejects while
+   *  AI control is off. */
+  listTools(): Promise<PluginHostTool[]>;
+  /** Prose for the model: what the app is and how its tools compose (the MCP
+   *  server's instructions). */
+  instructions(): string | Promise<string>;
+  /** Run one tool; resolves with its JSON result. Rejects with the API's
+   *  error text ("HTTP 403: …" names the switch to turn on). */
+  invoke(name: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
 /** Result of resolving a Now Playing info item for the current track.

@@ -466,6 +466,26 @@ pub fn control_api_respond(
     state.control_api.respond(id, ok, result);
 }
 
+/// One control-API request routed in-process — the host side of the plugin
+/// API's `api.assistant.host.invoke`. Same router, same auth and write
+/// scopes as an HTTP client; refused while AI control is off. `caller` names
+/// the plugin for the log only (bodies are never logged).
+#[tauri::command]
+pub async fn control_api_call(
+    state: State<'_, AppState>,
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+    caller: Option<String>,
+) -> Result<crate::control_api::InProcessResponse, String> {
+    log::info!(
+        "Control API (in-process, {}): {} request",
+        caller.as_deref().unwrap_or("app"),
+        method
+    );
+    state.control_api.call_in_process(&method, &path, body).await
+}
+
 /// Invoked once by the dispatcher after app restore; bridged routes answer
 /// 503 until then.
 #[tauri::command]

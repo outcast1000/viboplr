@@ -46,7 +46,8 @@
     "createUpdaterArtifacts": true,
     "resources": {
       "plugins/": "plugins/",
-      "../mcp/viboplr-mcp.mjs": "mcp/viboplr-mcp.mjs"
+      "../mcp/viboplr-mcp.mjs": "mcp/viboplr-mcp.mjs",
+      "../mcp/tools.mjs": "mcp/tools.mjs"
     },
     "fileAssociations": [
       {

@@ -15,6 +15,8 @@
 //   system:open        opening URLs / files / folders with the OS
 //   env:<NAME>         reading one environment variable
 //   plugins:call       reaching other plugins (search, assistant tools, info chain)
+//   assistant:host     the app's own assistant tools (api.assistant.host): the
+//                      MCP catalog, gated again by the AI-control switches
 //
 // <host> is an exact hostname, "*.example.com" (subdomains only — list the apex
 // separately), or "*" for any host.
@@ -158,6 +160,9 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "assistant.setInstructions": OWN,
   "assistant.listTools": need("plugins:call"),
   "assistant.invoke": need("plugins:call"),
+  "assistant.host.listTools": need("assistant:host"),
+  "assistant.host.instructions": need("assistant:host"),
+  "assistant.host.invoke": need("assistant:host"),
 
   "nowPlayingInfo.registerItem": OWN,
   "nowPlayingInfo.unregisterItem": OWN,
@@ -266,6 +271,12 @@ export function describePermission(perm: string): PermissionDescription {
       return { label: "Open links and files", detail: "Hand them to your browser or other apps.", sensitive: false };
     case "plugins:call":
       return { label: "Use your other plugins", detail: "Their searches, tools and information.", sensitive: false };
+    case "assistant:host":
+      return {
+        label: "Control Viboplr like an AI assistant",
+        detail: "Use the tools an AI assistant gets when AI control is on. Changes still need the switches you've turned on in Settings → General → AI control.",
+        sensitive: true,
+      };
   }
   return { label: perm, detail: "Not recognised by this version of Viboplr, so it grants nothing.", sensitive: false };
 }

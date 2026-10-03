@@ -69,6 +69,20 @@ type PendingSender = oneshot::Sender<Result<Value, String>>;
 struct Running {
     port: u16,
     shutdown: Option<oneshot::Sender<()>>,
+    /// The same router the socket serves, kept for in-process calls
+    /// (`ControlApi::call_in_process`) so an in-app caller runs exactly the
+    /// handlers — and the scope checks — an HTTP client does.
+    router: Router,
+}
+
+/// What an in-process call returns: the HTTP status plus the body. A JSON body
+/// is passed through as-is; anything else (the image route's bytes) comes back
+/// as `{ base64, mimeType }` so it survives the IPC boundary.
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InProcessResponse {
+    pub status: u16,
+    pub body: Value,
 }
 
 /// Shared control-API state, held in `AppState` for the whole app lifetime
@@ -104,6 +118,28 @@ impl ControlApi {
 
     pub fn token(&self) -> Option<String> {
         self.token.lock().unwrap().clone()
+    }
+
+    /// Run one request through the live router without a socket — the path the
+    /// in-app assistant (`api.assistant.host`) takes. It carries the session
+    /// token like any client, so it passes the same auth layer, and every
+    /// route's write-scope check applies unchanged. Refused while the server is
+    /// off: AI control is the consent for an in-app agent too.
+    pub async fn call_in_process(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<InProcessResponse, String> {
+        let router = self
+            .running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.router.clone())
+            .ok_or_else(|| "AI control is off — enable it in Settings → General → AI control.".to_string())?;
+        let token = self.token().ok_or_else(|| "Control API has no session token".to_string())?;
+        call_router(router, &token, method, path, body).await
     }
 
     pub fn mark_webview_ready(&self) {
@@ -267,6 +303,7 @@ pub fn start(
         app_dir: app_dir.to_path_buf(),
     };
     let router = build_router(state);
+    let in_process_router = router.clone();
 
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     tauri::async_runtime::spawn(async move {
@@ -291,6 +328,7 @@ pub fn start(
     *api.running.lock().unwrap() = Some(Running {
         port,
         shutdown: Some(shutdown_tx),
+        router: in_process_router,
     });
     Ok(port)
 }
@@ -307,6 +345,69 @@ pub fn stop(api: &Arc<ControlApi>, app_dir: &Path) {
 }
 
 // --- Router ---
+
+const IN_PROCESS_METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+/// Send one request through `router` and collect the response. Split out of
+/// `ControlApi::call_in_process` so tests can drive it with `build_router`.
+pub(crate) async fn call_router(
+    router: Router,
+    token: &str,
+    method: &str,
+    path: &str,
+    body: Option<Value>,
+) -> Result<InProcessResponse, String> {
+    use tower::ServiceExt;
+    let method = method.to_ascii_uppercase();
+    if !IN_PROCESS_METHODS.contains(&method.as_str()) {
+        return Err(format!("Unsupported method: {method}"));
+    }
+    // Only the API's own namespace: the caller names a route, never a URL.
+    if !path.starts_with("/v1/") || path.contains("://") {
+        return Err(format!("Not a control API path: {path}"));
+    }
+    let mut builder = axum::http::Request::builder()
+        .method(method.as_str())
+        .uri(path)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"));
+    let req_body = match body {
+        Some(v) => {
+            builder = builder.header(header::CONTENT_TYPE, "application/json");
+            axum::body::Body::from(v.to_string())
+        }
+        None => axum::body::Body::empty(),
+    };
+    let request = builder.body(req_body).map_err(|e| format!("Bad request: {e}"))?;
+    let response = router
+        .oneshot(request)
+        .await
+        .map_err(|e| format!("Control API call failed: {e}"))?;
+    let status = response.status().as_u16();
+    let mime = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .map_err(|e| format!("Failed to read control API response: {e}"))?;
+    let body = if mime.starts_with("application/json") || mime.is_empty() {
+        if bytes.is_empty() {
+            json!({})
+        } else {
+            serde_json::from_slice(&bytes)
+                .unwrap_or_else(|_| json!({ "raw": String::from_utf8_lossy(&bytes) }))
+        }
+    } else {
+        use base64::Engine;
+        json!({
+            "base64": base64::engine::general_purpose::STANDARD.encode(&bytes),
+            "mimeType": mime,
+        })
+    };
+    Ok(InProcessResponse { status, body })
+}
 
 fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
     (status, axum::Json(json!({ "error": message.into() }))).into_response()
@@ -2573,5 +2674,53 @@ mod tests {
         *api.token.lock().unwrap() = Some(TEST_TOKEN.to_string());
         assert!(api.token_matches(TEST_TOKEN));
         assert!(!api.token_matches("aaaa"));
+    }
+
+    // --- In-process calls (api.assistant.host) ---
+
+    #[tokio::test]
+    async fn test_in_process_call_answers_like_http() {
+        let router = build_router(test_state(noop_emit()));
+        let res = call_router(router, TEST_TOKEN, "get", "/v1/health", None).await.unwrap();
+        assert_eq!(res.status, 200);
+        assert_eq!(res.body["ok"], json!(true));
+        assert_eq!(res.body["profile"], json!("test"));
+    }
+
+    /// The in-process path skips the socket, never the scope checks.
+    #[tokio::test]
+    async fn test_in_process_call_keeps_write_scopes() {
+        let dir = tempfile::tempdir().unwrap();
+        let router = build_router(test_state_in(noop_emit(), dir.path().to_path_buf()));
+        let res = call_router(
+            router,
+            TEST_TOKEN,
+            "POST",
+            "/v1/tracks/file-tags",
+            Some(json!({ "trackIds": [1], "tagNames": ["rock"] })),
+        )
+        .await
+        .unwrap();
+        assert_eq!(res.status, 403);
+        assert!(res.body["error"].as_str().unwrap().contains("Settings"));
+    }
+
+    #[tokio::test]
+    async fn test_in_process_call_rejects_foreign_paths_and_methods() {
+        let router = build_router(test_state(noop_emit()));
+        for path in ["/health", "http://evil.example/v1/health", "/v2/health"] {
+            assert!(
+                call_router(router.clone(), TEST_TOKEN, "GET", path, None).await.is_err(),
+                "{path} must be refused"
+            );
+        }
+        assert!(call_router(router, TEST_TOKEN, "OPTIONS", "/v1/health", None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_in_process_call_refused_while_server_off() {
+        let api = ControlApi::default();
+        let err = api.call_in_process("GET", "/v1/health", None).await.unwrap_err();
+        assert!(err.contains("AI control"), "{err}");
     }
 }
