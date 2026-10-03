@@ -340,7 +340,7 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Connecting an AI assistant (MCP)</h2>
-        <p class="docs-lead">Give Claude Desktop, Claude Code, or any MCP client a set of typed Viboplr tools &mdash; search, playback, queue, playlists, tags, likes and more.</p>
+        <p class="docs-lead">Give Claude Desktop, Claude Code, or any MCP client a set of typed Viboplr tools &mdash; search, playback, queue, playlists, tags, likes and more. It can also open pages and panels for you (&ldquo;show me Radiohead&rsquo;s page&rdquo;), which changes only what is on screen.</p>
         <p>The MCP server is a single small script that translates an assistant's tool calls into requests against the private <a href="#control-api">control server</a>. It runs on your computer, finds the app automatically via the discovery file, and keeps the access token to itself &mdash; the assistant never sees it. The assistant must run <strong>on the same computer as Viboplr</strong>: web-based assistants (and cloud sandboxes) can't reach a server that only listens on <code>127.0.0.1</code>.</p>
         <p><strong>Before you start:</strong> install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer and switch on <strong>Settings &rarr; General &rarr; AI control</strong> in Viboplr. No <code>npm install</code> needed &mdash; the script is self-contained.</p>
         <p><strong>The quick way &mdash; let the app write it for you.</strong> The server script ships inside Viboplr, so there is nothing to download. With the toggle on, the same settings card shows a <strong>Connect an AI assistant</strong> row:</p>

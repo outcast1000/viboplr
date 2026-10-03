@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 import { EqControlGroup, type EqControls } from "./EqButton";
+import { registerEqPanel, type EqHost } from "../utils/uiRemote";
 import { BitPerfectButton, type BitPerfectControl } from "./BitPerfectButton";
 import { BIT_PERFECT_EQ_REASON } from "../utils/bitPerfect";
 import { bitPerfectOnBar, eqOnBar, type PlayerBarPins } from "../utils/playerBarPins";
@@ -25,9 +26,12 @@ interface AudioOptionsGroupProps {
   /** Fired while the menu or the EQ popover is up, so a host with an idle
    *  auto-hide (the fullscreen bar) can hold itself open. */
   onHoldChange?: (key: "audio-menu" | "eq", held: boolean) => void;
+  /** Which bar this is, so the control API can open *this* bar's EQ popover
+   *  (`utils/uiRemote.ts`). Omitted = not remotely addressable. */
+  remoteHost?: EqHost;
 }
 
-export function AudioOptionsGroup({ eq, eqAvailable, bitPerfect, pins, onPinsChange, onHoldChange }: AudioOptionsGroupProps) {
+export function AudioOptionsGroup({ eq, eqAvailable, bitPerfect, pins, onPinsChange, onHoldChange, remoteHost }: AudioOptionsGroupProps) {
   const [eqOpen, setEqOpen] = useState(false);
   const suspendedReason = bitPerfect?.on ? BIT_PERFECT_EQ_REASON : null;
   const eqUsable = eqAvailable && !suspendedReason;
@@ -36,6 +40,11 @@ export function AudioOptionsGroup({ eq, eqAvailable, bitPerfect, pins, onPinsCha
     setEqOpen(open);
     onHoldChange?.("eq", open);
   }, [onHoldChange]);
+
+  useEffect(() => {
+    if (!remoteHost) return;
+    return registerEqPanel(remoteHost, { isOpen: () => eqOpen, setOpen: handleEqOpenChange });
+  }, [remoteHost, eqOpen, handleEqOpenChange]);
 
   const openMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();

@@ -54,6 +54,16 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
         ok: true, version: "1.0.57", profile: "default",
         writeScopes: { modifyTags: true, manageFiles: false, downloads: false },
       });
+    if (req.url?.startsWith("/v1/ui")) {
+      // UI verbs: echo what arrived, so a test can assert the routing.
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen[seen.length - 1].body = body;
+        reply(200, { view: "home", echoed: body ? JSON.parse(body) : null });
+      });
+      return;
+    }
     if (req.url === "/v1/tracks/file-tags" && req.method === "POST") {
       let body = "";
       req.on("data", (c) => (body += c));
@@ -405,6 +415,20 @@ describe("MCP server over stdio", () => {
     expect(status.currentTrack.title).toBe("Jóga");
     const statusReq = api.seen.find((r) => r.url === "/v1/status");
     expect(statusReq?.auth).toBe(`Bearer ${TEST_TOKEN}`);
+  });
+
+  it("routes navigate and ui_control to the UI endpoints", async () => {
+    await rpc.request("tools/call", { name: "navigate", arguments: { artist: "Kyuss" } });
+    const nav = api.seen.find((r) => r.method === "POST" && r.url === "/v1/ui/navigate");
+    expect(JSON.parse(nav!.body!)).toEqual({ artist: "Kyuss" });
+
+    // No action = a read of the UI state.
+    await rpc.request("tools/call", { name: "ui_control", arguments: {} });
+    expect(api.seen.some((r) => r.method === "GET" && r.url === "/v1/ui")).toBe(true);
+
+    await rpc.request("tools/call", { name: "ui_control", arguments: { action: "eqPanel", open: true } });
+    const act = api.seen.find((r) => r.method === "POST" && r.url === "/v1/ui/action");
+    expect(JSON.parse(act!.body!)).toEqual({ action: "eqPanel", open: true });
   });
 
   it("posts query_library SQL with params and surfaces the refusal for blocked tables", async () => {

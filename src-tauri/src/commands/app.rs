@@ -522,6 +522,35 @@ pub fn write_probe_dump(state: State<'_, AppState>, contents: String) -> Result<
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// The OS id of the main window — on macOS the `CGWindowID`, which is what
+/// `NSWindow.windowNumber` returns and what `screencapture -l<id>` takes.
+///
+/// Reported by the control API's `GET /v1/window` so a capture script can grab
+/// this window without hunting for it through `CGWindowListCopyWindowInfo`.
+/// (It still has to be in front: a covered WKWebView stops painting, so a
+/// background capture shows a stale frame.) The app never captures itself: that would
+/// need Screen Recording permission for Viboplr and turn the API into a way to
+/// pull pixels out of it. `None` off macOS, where no such id exists.
+#[tauri::command]
+pub fn window_native_id(window: tauri::WebviewWindow) -> Option<u64> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc::{msg_send, sel, sel_impl};
+        #[allow(deprecated)]
+        let ns = window.ns_window().ok()? as *mut objc::runtime::Object;
+        if ns.is_null() {
+            return None;
+        }
+        let number: isize = unsafe { msg_send![ns, windowNumber] };
+        if number > 0 { Some(number as u64) } else { None }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        None
+    }
+}
+
 #[tauri::command]
 pub fn get_startup_timings() -> Vec<crate::timing::TimingEntry> {
     crate::timing::timer().get_entries()

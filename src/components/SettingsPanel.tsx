@@ -10,6 +10,7 @@ import type { EngineComponentStatus } from "../playback/nativeEngine";
 import type { InstallProgress } from "../hooks/useDependencies";
 import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
 import { trashLabel } from "../utils";
+import { SECTION_TABS, type SettingsTab } from "../utils/settingsSections";
 import { LINKS } from "../constants/links";
 import { ZOOM_PRESET_OPTIONS } from "../utils/zoom";
 import { RADIO_ARTIST_SHARE_CHOICES, RADIO_TASTE_CHOICES, type RadioOptions, type RadioTaste } from "../utils/radioOptions";
@@ -1347,7 +1348,6 @@ interface SettingsPanelProps {
   onScrolledToId?: () => void;
 }
 
-type SettingsTab = "general" | "playback" | "providers" | "debug";
 
 /** Auto-continue's weight sliders, in the order the strategies are drawn. */
 const AUTO_CONTINUE_WEIGHT_ROWS: { key: keyof AutoContinueWeights; label: string }[] = [
@@ -1357,18 +1357,6 @@ const AUTO_CONTINUE_WEIGHT_ROWS: { key: keyof AutoContinueWeights; label: string
   { key: "mostPlayed", label: "Most played" },
   { key: "liked", label: "Liked" },
 ];
-
-/** Which tab owns a deep-linkable section id. Sections not listed live in the
- *  default (General) tab. Keep in step with the `id="…"` attributes below. */
-const SECTION_TABS: Record<string, SettingsTab> = {
-  "now-playing-info": "playback",
-  "radio": "playback",
-  "auto-continue": "playback",
-  "player-bar": "playback",
-  // The update notice banner's "Details" lands here.
-  "app-update": "general",
-  "control-api": "general",
-};
 
 export function SettingsPanel({
   onSeedDatabase, onClearDatabase, clearing,
@@ -1825,7 +1813,7 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "playback" && (
-                <div className="settings-group">
+                <div className="settings-group" id="playback-engine">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
                     {/* Always rendered. libmpv ships bundled in every release, so
@@ -1917,7 +1905,7 @@ export function SettingsPanel({
                       </div>
                     )}
                     {mpvCapable && playbackEngine === "native" && (
-                      <div className="settings-row">
+                      <div className="settings-row" id="exclusive-audio">
                         <div className="settings-row-info">
                           <span className="settings-label">Exclusive audio access<HelpLink anchor="exclusive-audio" topic="exclusive audio access" /></span>
                           <span className="settings-description">Opens the output device exclusively for bit-perfect playback — other apps can't play audio while active. Disables crossfade; applies from the next track.</span>

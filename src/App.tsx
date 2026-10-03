@@ -37,6 +37,9 @@ import { builtinQualityOptions } from "./utils/builtinDownloadQualities";
 import { buildPluginOverflowItems } from "./utils/heroOverflow";
 import { applyReduceMotionAttr } from "./utils/reducedMotion";
 import { parseProbeCommand, isProbeProfile, buildProbeDump, type ProbeCommand } from "./utils/probeControl";
+import type { NavigateTarget, UiAction, UiStateInput } from "./utils/uiControl";
+import { isEqPanelOpen, setEqPanelOpen } from "./utils/uiRemote";
+import { getHeroEffectModeSnapshot, setHeroEffectMode } from "./heroEffectMode";
 import { type StreamResolver, createLibraryStreamResolver } from "./streamResolvers";
 import { BUILTIN_PRESETS, presetForGains } from "./eqPresets";
 import { timeAsync, getTimingEntries, type TimingEntry } from "./startupTiming";
@@ -530,6 +533,11 @@ function App() {
   // point of the surface being lean-back. Shared by both variants so entering
   // fullscreen keeps what you were reading.
   const [nowPlayingAboutOpen, setNowPlayingAboutOpen] = useState(false);
+  // Control API "showcase" mode (`ui.action { action: "showcase" }`): hides the
+  // toasts, the update banner and the caption bar's sync indicator so a scripted capture shows the app itself,
+  // not whatever happened to be announced at that moment. Session-only —
+  // never persisted, so a capture run can't leave a user without update notices.
+  const [showcase, setShowcase] = useState(false);
   // The lyrics button while About is open means "back to the lyrics", not
   // "toggle the lyrics preference" — which would hide lyrics nobody could see.
   const handleToggleNowPlayingLyrics = useCallback(() => {
@@ -3925,6 +3933,144 @@ function App() {
   // handleGaplessNext check here).
   useAssignRef(nativeEndedRef, () => handleNext("auto"));
 
+  // UI verbs for the control API (ui.navigate / ui.action / ui.get). Each one
+  // goes through the handler a click reaches — library navigation, the queue
+  // toggle, the bar's download button — so a navigated page is the page a
+  // person would have opened. Validation lives in utils/uiControl.ts.
+  const clearDetailSelection = () => {
+    library.setSelectedArtist(null);
+    library.setSelectedAlbum(null);
+    library.setSelectedTag(null);
+    library.setSelectedTrack(null);
+  };
+  const uiNavigate = async (target: NavigateTarget) => {
+    switch (target.kind) {
+      case "view":
+        library.setView(target.view);
+        clearDetailSelection();
+        return;
+      case "artist":
+        await library.navigateToArtistByName(target.name);
+        return;
+      case "album":
+        await library.navigateToAlbumByName(target.name, target.artistName);
+        return;
+      case "tag": {
+        const tag = await invoke<{ id: number } | null>("find_tag_by_name", { name: target.name });
+        if (!tag) throw new Error(`no tag named "${target.name}"`);
+        await library.navigateToTagByName(target.name);
+        return;
+      }
+      case "track":
+        await library.navigateToTrackByName(target.title, target.artistName, target.albumTitle);
+        return;
+      case "settings":
+        library.setView("settings");
+        clearDetailSelection();
+        if (target.section) setSettingsScrollTarget(target.section);
+        return;
+      case "plugin": {
+        const exists = plugins.sidebarItemsUnfiltered.some((i) => i.pluginId === target.pluginId && i.id === target.viewId);
+        if (!exists) throw new Error(`plugin view ${target.pluginId}:${target.viewId} not found (is the plugin enabled?)`);
+        handleOpenPluginView(target.pluginId, target.viewId, target.query);
+        return;
+      }
+    }
+  };
+  const fullscreenNow = () => audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null;
+  const uiAction = async (a: UiAction) => {
+    switch (a.action) {
+      case "queuePanel":
+        if (a.open === queueCollapsed) handleToggleQueueCollapsed();
+        return;
+      case "nowPlayingAbout":
+        setNowPlayingAboutOpen(a.open);
+        return;
+      case "nowPlayingLyrics":
+        if (a.open) setNowPlayingAboutOpen(false);
+        setNowPlayingLyricsHidden(!a.open);
+        return;
+      case "eqPanel":
+        if (!setEqPanelOpen(fullscreenNow() ? "fullscreen" : "bar", a.open)) {
+          throw new Error("the equalizer isn't available right now (mini player, or no playback bar)");
+        }
+        return;
+      case "bitPerfect":
+        if (!bitPerfect.control) throw new Error("Bit-perfect mode isn't available (needs the native engine on macOS or Windows)");
+        if (a.on !== bitPerfect.on) bitPerfect.control.onToggle();
+        return;
+      case "bitPerfectConfirm":
+        if (!bitPerfect.confirmPin) throw new Error("no Bit-perfect confirmation is open");
+        await bitPerfect.confirmEnable(false);
+        return;
+      case "heroLook":
+        setHeroEffectMode(a.look);
+        return;
+      case "showcase":
+        setShowcase(a.on);
+        return;
+      case "bulkEdit": {
+        const tracks = await invoke<Track[]>("get_tracks_by_ids", { ids: a.trackIds });
+        if (tracks.length === 0) throw new Error("no library tracks found for the given trackIds");
+        contextMenuActions.setBulkEditTracks(tracks);
+        return;
+      }
+      case "download": {
+        const t = playback.currentTrack;
+        if (!t) throw new Error("nothing is playing");
+        if (!downloadPlan) throw new Error("no downloader handles the playing track's source");
+        openDownloadForCurrentTrack(t, downloadPlan);
+        return;
+      }
+      case "closeModals":
+        contextMenuActions.setBulkEditTracks(null);
+        setDownloadModal(null);
+        if (bitPerfect.confirmPin) bitPerfect.cancelEnable();
+        return;
+      case "scroll": {
+        // The view's own scroller: the tallest scrollable element inside the
+        // content column (each view scrolls itself; `.content` doesn't).
+        const root = document.querySelector(".content");
+        const candidates = root ? [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))] : [];
+        let scroller: Element | null = null;
+        for (const el of candidates) {
+          if (el.scrollHeight - el.clientHeight < 8) continue;
+          const overflow = getComputedStyle(el).overflowY;
+          if (overflow !== "auto" && overflow !== "scroll") continue;
+          if (!scroller || el.clientHeight > scroller.clientHeight) scroller = el;
+        }
+        if (!scroller) throw new Error("nothing to scroll in this view");
+        const top = a.to === "top" ? 0 : a.to === "bottom" ? scroller.scrollHeight : a.to;
+        scroller.scrollTo({ top, behavior: a.smooth ? "smooth" : "auto" });
+        return;
+      }
+    }
+  };
+  const uiState = (): UiStateInput => {
+    const modals: string[] = [];
+    if (showOnboarding) modals.push("onboarding");
+    if (contextMenuActions.bulkEditTracks) modals.push("bulk-edit");
+    if (downloadModal) modals.push("download");
+    if (bitPerfect.confirmPin) modals.push("bit-perfect-confirm");
+    const sel = library.selectedTrack;
+    return {
+      view: library.view,
+      selectedArtistId: library.selectedArtist,
+      selectedAlbumId: library.selectedAlbum,
+      selectedTagId: library.selectedTag,
+      selectedTrack: sel ? (sel.kind === "library" ? `lib:${sel.libraryId}` : `entry:${sel.key}`) : null,
+      settingsSection: settingsScrollTarget,
+      queueCollapsed,
+      nowPlayingAbout: nowPlayingAboutOpen,
+      lyricsHidden: nowPlayingLyricsHidden,
+      eqPanel: isEqPanelOpen(fullscreenNow() ? "fullscreen" : "bar"),
+      modals,
+      showcase,
+      heroLook: getHeroEffectModeSnapshot(),
+      bitPerfect: bitPerfect.control ? { on: bitPerfect.on, tone: bitPerfect.control.tone } : null,
+    };
+  };
+
   // Localhost control API dispatcher: answers `control-api-request` events from
   // the Rust server (control_api.rs) through the canonical action hooks. `next`
   // goes through handleNext — the media-key path — so an assistant's "next" at
@@ -3942,8 +4088,9 @@ function App() {
     mini: { miniMode: mini.miniMode, toggleMiniMode: mini.toggleMiniMode },
     window: {
       setFullscreen: (on: boolean) => setProbeFullscreenRef.current(on),
-      isFullscreen: () => audioFullscreen || playback.nativeFullscreen || document.fullscreenElement !== null,
+      isFullscreen: fullscreenNow,
     },
+    ui: { navigate: uiNavigate, action: uiAction, state: uiState },
     logging: {
       enabled: loggingEnabled,
       setEnabled: handleLoggingEnabledChange,
@@ -5317,8 +5464,11 @@ function App() {
         pluginViews={pluginViewList}
         onOpenPluginView={handleOpenPluginView}
         onToggleMiniMode={mini.toggleMiniMode}
-        resyncProgress={resyncProgress}
-        resyncComplete={resyncComplete}
+        // Showcase hides the sync indicator too: it names the collection being
+        // synced (a server's URL, typically) and is exactly the transient
+        // chrome a scripted capture must not pick up.
+        resyncProgress={showcase ? null : resyncProgress}
+        resyncComplete={showcase ? null : resyncComplete}
         onNavigateToCollections={() => {
           library.setView("collections");
           library.setSelectedArtist(null);
@@ -5335,7 +5485,7 @@ function App() {
               scrolled away and isn't reordered by `.main`'s video-dock
               direction. Hidden while the wizard owns the screen: a first run
               has an errand of its own. */}
-          {updateNotice && !showOnboarding && (
+          {updateNotice && !showOnboarding && !showcase && (
             <UpdateNoticeBanner
               notice={updateNotice}
               installing={updateNotice.kind === "app" && updater.updateState.downloading}
@@ -6750,7 +6900,7 @@ function App() {
         />
       )}
 
-      <Toasts toasts={toasts} onDismiss={dismissToast} />
+      {!showcase && <Toasts toasts={toasts} onDismiss={dismissToast} />}
 
       {fileDragOver && (
         <div className="file-drop-overlay" aria-hidden="true">

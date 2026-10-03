@@ -882,7 +882,7 @@ export const TOOLS = [
     readOnly: false,
     categories: ["app"],
     description:
-      "Read or set the app window: visible/minimized/maximized/fullscreen/mini(-player)/focus, all idempotent booleans. No arguments = read. The response snapshot lags OS animation — re-read ~2s later for the settled state. Entering fullscreen needs a current track.",
+      "Read or set the app window: visible/minimized/maximized/fullscreen/mini(-player)/focus (idempotent booleans), plus size (width+height) and position (x+y) in logical pixels. No arguments = read; the read includes the OS windowId (macOS: for `screencapture -l<id>`) and the window's logical frame. The response snapshot lags OS animation — re-read ~2s later for the settled state. Entering fullscreen needs a current track.",
     inputSchema: obj({
       visible: bool("Show/hide"),
       minimized: bool("Minimize/restore"),
@@ -890,9 +890,55 @@ export const TOOLS = [
       fullscreen: bool("Fullscreen on/off"),
       mini: bool("Mini player on/off"),
       focus: bool("Bring to front"),
+      width: num("Window width in logical px (with height; min 640)"),
+      height: num("Window height in logical px (with width; min 400)"),
+      x: num("Window left edge in logical px (with y)"),
+      y: num("Window top edge in logical px (with x)"),
     }),
     run: (args, ctx) =>
       Object.keys(args).length === 0 ? ctx.request("GET", "/v1/window") : ctx.request("POST", "/v1/window", args),
+  },
+  {
+    name: "navigate",
+    readOnly: false,
+    categories: ["app"],
+    description:
+      "Open a page in the app, like the user clicking to it. Give exactly one target: view (library, home, history, nowplaying, playlists, collections, extensions, settings), artist / album (+artistName) / tag / track (+artistName, albumTitle) by name, settings (true, or a section id such as playback-engine, exclusive-audio, radio, auto-continue, player-bar, now-playing-info, control-api), or pluginView {pluginId, viewId, query?} — plugin view ids come from manage_extensions. Changes only what is on screen. Returns the UI state (see ui_control).",
+    inputSchema: obj({
+      view: en(["library", "home", "history", "nowplaying", "playlists", "collections", "extensions", "settings"], "A top-level view"),
+      artist: str("Artist page, by name"),
+      album: str("Album page, by title"),
+      tag: str("Tag page, by name"),
+      track: str("Track page, by title"),
+      artistName: str("album/track: the artist, to disambiguate"),
+      albumTitle: str("track: the album, to disambiguate"),
+      settings: { description: "true for Settings, or a section id to scroll to" },
+      pluginView: obj({ pluginId: str("Plugin id"), viewId: str("Sidebar view id"), query: str("Search to run in the view") }, ["pluginId", "viewId"]),
+    }),
+    run: (args, ctx) => ctx.request("POST", "/v1/ui/navigate", args),
+  },
+  {
+    name: "ui_control",
+    readOnly: false,
+    // `action` omitted means get.
+    readOnlyWhen: { action: [undefined, "get"] },
+    categories: ["app"],
+    description:
+      "Read what is on screen, or open/close a panel. action=get (default) returns the view, the open detail page's entity ids, open panels and modals, showcase mode and the hero look. Other actions: queuePanel/nowPlayingAbout/nowPlayingLyrics/eqPanel {open}; bitPerfect {on} (may open a confirmation — then bitPerfectConfirm accepts it); heroLook {look}: disabled, random, by-artist or late-night, silent-film, daydream, broadcast, aurora-drift, light-leak, prism-bloom, minimal (persists, like the page's own picker); showcase {on} hides toasts, the update banner and the sync indicator for this session, for screenshots; bulkEdit {trackIds} and download (the playing track) OPEN their dialogs — nothing is saved until the user presses the button; closeModals; scroll {to: top|bottom|px, smooth?}. Nothing here touches the library or files.",
+    inputSchema: obj({
+      action: en(
+        ["get", "queuePanel", "nowPlayingAbout", "nowPlayingLyrics", "eqPanel", "bitPerfect", "bitPerfectConfirm", "heroLook", "showcase", "bulkEdit", "download", "closeModals", "scroll"],
+        "What to do (default get)",
+      ),
+      open: bool("Panel actions: open (true) or close (false)"),
+      on: bool("bitPerfect / showcase: on or off"),
+      look: str("heroLook: the mode"),
+      trackIds: numArr("bulkEdit: library track ids"),
+      to: { description: 'scroll: "top", "bottom" or a pixel offset' },
+      smooth: bool("scroll: animate"),
+    }),
+    run: ({ action = "get", ...rest }, ctx) =>
+      action === "get" ? ctx.request("GET", "/v1/ui") : ctx.request("POST", "/v1/ui/action", { action, ...rest }),
   },
   {
     name: "logs",

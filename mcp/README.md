@@ -74,8 +74,12 @@ tables are refused server-side), the app version (`app_version` — with
 current; report-only, updates install from inside the app), extension/skin
 management (per-plugin capability summaries, one plugin's full detail, and
 read-only gallery browsing for recommendations — install/delete stays a
-permanent non-goal), window control, log access, entity images, and the plugin
-surfaces: context-menu actions, deep links, and **plugin assistant tools**.
+permanent non-goal), window control (incl. size/position and the macOS window
+id), UI control (`navigate` opens a page — a view, an artist/album/tag/track by
+name, a Settings section, a plugin view; `ui_control` reads what is on screen
+and opens/closes panels and dialogs, never touching the library or files), log
+access, entity images, and the plugin surfaces: context-menu actions, deep
+links, and **plugin assistant tools**.
 
 Each plugin can publish its own AI tools + instructions. They are reachable
 through `plugin_tools` (list / invoke) and are also listed as their own tools
