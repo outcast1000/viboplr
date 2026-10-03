@@ -44,6 +44,10 @@ base64 = "0.22"
 sha2 = "0.10"
 # Plugin signatures (plugin_signing.rs). Already in the graph via tauri-plugin-updater.
 minisign-verify = "0.2"
+# `ServiceExt::oneshot` for control_api::call_router (in-process control-API
+# calls from plugins). A normal dependency, not a dev one: it is used outside
+# tests. Already in the graph through axum.
+tower = { version = "0.5", features = ["util"] }
 urlencoding = "2"
 encoding_rs = "0.8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
@@ -104,7 +108,6 @@ tempfile = "3"
 # Control-API router tests drive axum handlers via `ServiceExt::oneshot`, and
 # `#[tokio::test]` needs the macros feature (dev-only; features merge).
 tokio = { version = "1", features = ["macros", "rt"] }
-tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 lto = true
