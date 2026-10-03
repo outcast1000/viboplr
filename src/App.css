@@ -243,15 +243,6 @@
   color: var(--text-tertiary);
 }
 
-.album-external-num {
-  width: 24px;
-  flex-shrink: 0;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  font-size: var(--fs-xs);
-  color: var(--text-tertiary);
-}
-
 
 .artist-image-menu-wrapper {
   position: relative;

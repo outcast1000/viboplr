@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeTrackTitle, placeMissingTracks, placeMissingRanked } from "../utils/missingTracks";
+import { normalizeTrackTitle, placeMissingTracks, placeMissingRanked, sortProviderRows } from "../utils/missingTracks";
 
 const rows = (...titles: string[]) => titles.map(title => ({ title }));
 
@@ -80,5 +80,31 @@ describe("placeMissingRanked", () => {
 
   it("puts valued missing rows above library rows with no popularity at all", () => {
     expect(placeMissingRanked(rows("Rare"), [0], rows("Hit"), [500], "desc")).toEqual([{ providerIndex: 0, before: 0 }]);
+  });
+});
+
+describe("sortProviderRows", () => {
+  const prow = (title: string, number: number, popularity?: number) =>
+    ({ track: { title, artist_name: "Björk" }, number, popularity, before: 0 });
+  const album = [prow("Hunter", 1, 300), prow("Jóga", 2, 900), prow("Unravel", 3), prow("Bachelorette", 4, 900)];
+  const titles = (rs: Array<{ track: { title: string } }>) => rs.map(r => r.track.title);
+
+  it("keeps album order with no sort, or a column a provider row can't fill", () => {
+    expect(sortProviderRows(album, null, "asc")).toBe(album);
+    expect(sortProviderRows(album, "duration", "desc")).toBe(album);
+  });
+
+  it("sorts by title and by # in either direction", () => {
+    expect(titles(sortProviderRows(album, "title", "asc"))).toEqual(["Bachelorette", "Hunter", "Jóga", "Unravel"]);
+    expect(titles(sortProviderRows(album, "num", "desc"))).toEqual(["Bachelorette", "Unravel", "Jóga", "Hunter"]);
+  });
+
+  it("sorts by popularity, missing values as zero, ties in album order", () => {
+    expect(titles(sortProviderRows(album, "popularity", "desc"))).toEqual(["Jóga", "Bachelorette", "Hunter", "Unravel"]);
+  });
+
+  it("does not mutate its input", () => {
+    sortProviderRows(album, "title", "asc");
+    expect(titles(album)).toEqual(["Hunter", "Jóga", "Unravel", "Bachelorette"]);
   });
 });

@@ -104,3 +104,26 @@ export function placeMissingRanked(
     return { providerIndex: p, before: i < 0 ? library.length : i };
   });
 }
+
+/**
+ * Sorts provider-only rows (an album not in the library, drawn as `TrackList`
+ * missing rows) by a column, the way the library list sorts its own rows. Only
+ * the columns a provider row can fill sort: # (album position), title, artist
+ * and popularity. Any other field (duration, size, … — always blank here) and
+ * no field keep album order. Stable, so equal values keep album order too.
+ */
+export function sortProviderRows<R extends { track: { title: string; artist_name: string | null }; number?: number; popularity?: number }>(
+  rows: R[],
+  field: string | null,
+  dir: "asc" | "desc",
+): R[] {
+  const sign = dir === "desc" ? -1 : 1;
+  let cmp: ((a: R, b: R) => number) | null = null;
+  if (field === "num") cmp = (a, b) => (a.number ?? 0) - (b.number ?? 0);
+  else if (field === "title") cmp = (a, b) => a.track.title.localeCompare(b.track.title);
+  else if (field === "artist") cmp = (a, b) => (a.track.artist_name ?? "").localeCompare(b.track.artist_name ?? "");
+  else if (field === "popularity") cmp = (a, b) => (a.popularity ?? 0) - (b.popularity ?? 0);
+  if (!cmp) return rows;
+  const by = cmp;
+  return [...rows].sort((a, b) => sign * by(a, b));
+}
