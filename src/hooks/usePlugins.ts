@@ -1737,6 +1737,13 @@ export function usePlugins(
             const scope = scopes && scopes.length ? scopes[scopes.length - 1] : undefined;
             const onOutput = opts?.onOutput;
             const onStart = opts?.onStart;
+            // A cancel kills only the execs running at that moment. A resolve
+            // that chains several (rqbit's hunt: search, list a torrent, then
+            // download) can be between two when the user cancels, and the next
+            // one would then run to completion with nobody watching — so a
+            // cancelled scope refuses new execs with the same rejection a kill
+            // produces.
+            if (scope?.cancelled) throw new Error("Cancelled");
             // An exec id buys cancellability and line streaming, at the cost of
             // piping both channels through the host. Only take it when someone
             // can use it — a plain version probe keeps the original path.
