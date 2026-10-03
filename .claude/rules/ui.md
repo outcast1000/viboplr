@@ -430,6 +430,7 @@ All detail pages follow a consistent structure (see conventions.md for layout ru
 - Header: circular avatar + name + like/hate
 - Albums strip (its own single-tab section, unchanged)
 - One tab bar: **All Tracks** first — the track list, with the artist's Top Songs the user doesn't own merged in as dimmed "Not in library" rows (after the owned tracks in rank order, or by listener count when sorted by popularity; the Top Songs tab is hidden while merged) — then **Tags**, then the information sections (About, Similar Artists, plugin tabs). A placeholder artist (Various Artists) gets the host tabs only
+- An artist with no library tracks of its own (incl. not in the library) shows its **Top Songs** in that same `TrackList` table instead, as a first "Top Songs" tab (every row "Not in library", sortable, filterable); hero Play/Enqueue play them in rank order and the hero like works by name
 
 **Album Detail** (`AlbumDetail.tsx` + `TrackList`):
 - Header: 240x240 cover + title + artist (clickable) + year + count + play all + like/hate. Background: the album cover, falling back to the artist image only without one.
