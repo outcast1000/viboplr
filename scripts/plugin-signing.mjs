@@ -33,8 +33,8 @@ export const SIGNATURE_FILE = "signature.sig";
 
 /** Mirrors TRUSTED_PLUGIN_KEYS in plugin_signing.rs (base64 of the .pub file). */
 export const TRUSTED_PLUGIN_KEYS = [
-  // minisign key id D3D9DDD19A8CC4A7 (2026-10-03)
-  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzRDlEREQxOUE4Q0M0QTcKUldTbnhJeWEwZDNaMDNzbzFqYUMzNHdDMmpyR1ZjTXFnL1prK01jQ1FqU2tYTlg4VnlzUUVxYkMK",
+  // minisign key id 15B3CD58A11504F3 (2026-10-04)
+  "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE1QjNDRDU4QTExNTA0RjMKUldUekJCV2hXTTJ6RlpacHRmZFFYOFVDZWk3YmJLTXFlQlZGTlkyMmV6QXVvbk03dFRZblhiTU4K",
 ];
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");

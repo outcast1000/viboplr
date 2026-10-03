@@ -41,9 +41,12 @@ const PAYLOAD_HEADER: &str = "viboplr-plugin-signature:v1";
 ///
 /// Not the updater key (`CD75518CAC5EDC4F`): that one signs app binaries. An
 /// empty list makes every plugin report `Unsigned`.
+///
+/// History: 1.0.85 trusted `D3D9DDD19A8CC4A7`, whose password was lost before
+/// anything was signed with it, so it was dropped rather than kept for rotation.
 pub const TRUSTED_PLUGIN_KEYS: &[&str] = &[
-    // Viboplr plugin-signing key, minisign key id D3D9DDD19A8CC4A7 (2026-10-03).
-    "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQzRDlEREQxOUE4Q0M0QTcKUldTbnhJeWEwZDNaMDNzbzFqYUMzNHdDMmpyR1ZjTXFnL1prK01jQ1FqU2tYTlg4VnlzUUVxYkMK",
+    // Viboplr plugin-signing key, minisign key id 15B3CD58A11504F3 (2026-10-04).
+    "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE1QjNDRDU4QTExNTA0RjMKUldUekJCV2hXTTJ6RlpacHRmZFFYOFVDZWk3YmJLTXFlQlZGTlkyMmV6QXVvbk03dFRZblhiTU4K",
 ];
 
 /// What the signature check concluded about a plugin folder.
@@ -51,11 +54,13 @@ pub const TRUSTED_PLUGIN_KEYS: &[&str] = &[
 pub enum SignatureStatus {
     /// Signed by a trusted key, over exactly these files.
     Verified,
-    /// No signature file. Normal for every plugin today.
+    /// No signature file — or a signature made by a key this build doesn't
+    /// trust (see `verify_with_keys`), which proves no more than none at all.
     Unsigned,
-    /// A signature is present and does not verify: the files changed after
-    /// signing, the signature was copied from another plugin, or the key isn't
-    /// trusted. Treat it as tampered, never as "unsigned".
+    /// A signature from a TRUSTED key that does not verify: the files changed
+    /// after signing, or the signature was moved to another plugin's files.
+    /// Treat it as tampered, never as "unsigned". Also a signature file that
+    /// can't be read or parsed.
     Invalid(String),
 }
 
@@ -93,12 +98,29 @@ fn decode_b64_text(what: &str, b64: &str) -> Result<String, String> {
     String::from_utf8(raw).map_err(|_| format!("{} is not UTF-8", what))
 }
 
+/// The 8-byte key id inside a minisign key or signature file (given as base64 of
+/// the file text, the way tauri writes both): bytes 2..10 of the blob on the
+/// file's second line, after the 2-byte algorithm tag.
+fn minisign_key_id(b64_file: &str) -> Option<[u8; 8]> {
+    use base64::Engine;
+    let text = decode_b64_text("minisign file", b64_file).ok()?;
+    let blob = base64::engine::general_purpose::STANDARD
+        .decode(text.lines().nth(1)?.trim())
+        .ok()?;
+    blob.get(2..10)?.try_into().ok()
+}
+
 /// Verify `signature_b64` (the contents of `signature.sig`) over the payload for
 /// these files against any of `keys`.
+///
+/// **A signature by a key not in `keys` is `Unsigned`, not `Invalid`.** It
+/// proves nothing — anyone can sign with a key of their own — so it earns no
+/// more than an unsigned plugin does; but refusing it as tampered would make
+/// every key rotation break the plugins signed with a key the running app
+/// predates. `Invalid` is kept for what it means: a TRUSTED key's signature
+/// over different files. The key id travels in the signature, so the two are
+/// told apart without trying every key.
 pub fn verify_with_keys(manifest: &[u8], code: &[u8], signature_b64: &str, keys: &[&str]) -> SignatureStatus {
-    if keys.is_empty() {
-        return SignatureStatus::Invalid("this build trusts no plugin-signing key".to_string());
-    }
     let sig_text = match decode_b64_text("signature", signature_b64) {
         Ok(t) => t,
         Err(e) => return SignatureStatus::Invalid(e),
@@ -107,9 +129,16 @@ pub fn verify_with_keys(manifest: &[u8], code: &[u8], signature_b64: &str, keys:
         Ok(s) => s,
         Err(e) => return SignatureStatus::Invalid(format!("malformed signature: {}", e)),
     };
+    let Some(signed_by) = minisign_key_id(signature_b64) else {
+        return SignatureStatus::Invalid("malformed signature: no key id".to_string());
+    };
+    let candidates: Vec<&&str> = keys.iter().filter(|k| minisign_key_id(k) == Some(signed_by)).collect();
+    if candidates.is_empty() {
+        return SignatureStatus::Unsigned;
+    }
     let payload = signing_payload(manifest, code);
     let mut last_error = String::new();
-    for key in keys {
+    for key in candidates {
         let key_text = match decode_b64_text("public key", key) {
             Ok(t) => t,
             Err(e) => {
@@ -251,11 +280,32 @@ mod tests {
     }
 
     #[test]
-    fn test_an_untrusted_key_is_refused() {
-        assert!(matches!(
+    fn test_a_signature_by_an_unknown_key_reads_as_unsigned() {
+        // Not verified (it proves nothing), but not tampered either: refusing it
+        // would make every key rotation break plugins signed with a newer key.
+        assert_eq!(
             verify_with_keys(FIXTURE_MANIFEST, FIXTURE_CODE, FIXTURE_SIG, &[OTHER_PUBKEY.trim()]),
-            SignatureStatus::Invalid(_)
-        ));
+            SignatureStatus::Unsigned
+        );
+    }
+
+    #[test]
+    fn test_unknown_key_is_unsigned_even_over_changed_files() {
+        // Key id decides first: an untrusted signature over modified files is
+        // still just "not ours", never escalated to tampered.
+        let mut code = FIXTURE_CODE.to_vec();
+        code.extend_from_slice(b"\n// changed\n");
+        assert_eq!(
+            verify_with_keys(FIXTURE_MANIFEST, &code, FIXTURE_SIG, &[OTHER_PUBKEY.trim()]),
+            SignatureStatus::Unsigned
+        );
+    }
+
+    #[test]
+    fn test_key_id_is_read_from_both_keys_and_signatures() {
+        let k = minisign_key_id(TEST_PUBKEY.trim()).expect("key id of the test key");
+        assert_eq!(minisign_key_id(FIXTURE_SIG.trim()), Some(k));
+        assert_ne!(minisign_key_id(OTHER_PUBKEY.trim()), Some(k));
     }
 
     #[test]
@@ -268,10 +318,10 @@ mod tests {
 
     #[test]
     fn test_no_trusted_keys_means_nothing_verifies() {
-        assert!(matches!(
+        assert_eq!(
             verify_with_keys(FIXTURE_MANIFEST, FIXTURE_CODE, FIXTURE_SIG, &[]),
-            SignatureStatus::Invalid(_)
-        ));
+            SignatureStatus::Unsigned
+        );
     }
 
     #[test]
