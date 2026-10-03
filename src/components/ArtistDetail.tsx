@@ -8,6 +8,8 @@ import type { Artist, ColumnConfig, QueueTrack, Track } from "../types";
 
 import { ARTIST_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
+import { useEntityRadio } from "../hooks/useEntityRadio";
+import { seedCandidates } from "../utils/radioSeed";
 import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { AlbumCardArt } from "./AlbumCardArt";
 import { LikeDislikeButtons } from "./LikeDislikeButtons";
@@ -193,21 +195,6 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
       .catch(e => console.error("Failed to open image search:", e));
   }, [name]);
 
-  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
-    entityKind: "artist",
-    imageActions: {
-      onRefresh: handleRefreshImage,
-      onSetFromFile: handleSetImageFromFile,
-      onPasteFromClipboard: handlePasteImage,
-      onRemove: artistImagePath ? handleRemoveImage : undefined,
-      onSearchImage: handleSearchImageGoogle,
-    },
-    pluginItems: actions.buildPluginOverflowItems({
-      kind: "artist",
-      artistId: artist?.id ?? undefined,
-      artistName: name,
-    }),
-  });
 
   const handleEnqueueAll = useCallback(() => {
     actions.enqueueTracks(sortedTracks.filter(t => t.liked !== -1));
@@ -399,6 +386,31 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
   }
   const tabOrder = withHostTabs(belowTabOrder, customTabs.map(t => t.id));
 
+  // Hero: Radio takes Enqueue's place; Enqueue moves into the ⋯ menu. The seed
+  // is a weighted-random pick over every song the page lists (useEntityRadio).
+  const heroEnqueue = sortedTracks.length > 0 ? handleEnqueueAll : canPlayTopSongs ? enqueueAllTopSongs : undefined;
+  const radioCandidates = useMemo(() => topSongsTable
+    ? seedCandidates([], {}, rankedTracks.map((track, i) => ({ track, popularity: rankedValues[i] })))
+    : seedCandidates(sortedTracks, trackPopularity, missingRows),
+  [topSongsTable, rankedTracks, rankedValues, sortedTracks, trackPopularity, missingRows]);
+  const handleRadio = useEntityRadio(radioCandidates);
+  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
+    enqueue: heroEnqueue,
+    entityKind: "artist",
+    imageActions: {
+      onRefresh: handleRefreshImage,
+      onSetFromFile: handleSetImageFromFile,
+      onPasteFromClipboard: handlePasteImage,
+      onRemove: artistImagePath ? handleRemoveImage : undefined,
+      onSearchImage: handleSearchImageGoogle,
+    },
+    pluginItems: actions.buildPluginOverflowItems({
+      kind: "artist",
+      artistId: artist?.id ?? undefined,
+      artistName: name,
+    }),
+  });
+
   return (
     <div className="artist-detail">
       <DetailHero
@@ -420,7 +432,7 @@ export function ArtistDetail({ name }: ArtistDetailProps) {
         entityLabel="artist"
         meta={meta}
         onPlay={sortedTracks.length > 0 ? handlePlayAll : canPlayTopSongs ? playAllTopSongs : undefined}
-        onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : canPlayTopSongs ? enqueueAllTopSongs : undefined}
+        radio={{ onClick: handleRadio }}
         overflowItems={overflowItems}
         titleLine={placeholder ? undefined : <TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
       />

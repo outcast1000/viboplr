@@ -6,6 +6,8 @@ import type { Tag, ColumnConfig } from "../types";
 
 import { TAG_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
+import { useEntityRadio } from "../hooks/useEntityRadio";
+import { seedCandidates } from "../utils/radioSeed";
 import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { TrackList } from "./TrackList";
 import { DetailTrackFilter } from "./DetailTrackFilter";
@@ -18,6 +20,9 @@ import { DetailHero } from "./DetailHero";
 import { buildHeroOverflowItems, type HeroOverflowItem } from "../utils/heroOverflow";
 import { TitleLineInfo } from "./TitleLineInfo";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
+
+/** A tag page has no provider popularity (no ranked list for tags). */
+const NO_POPULARITY: Record<number, number> = {};
 
 interface TagDetailProps {
   name: string;
@@ -105,15 +110,6 @@ export function TagDetail({ name }: TagDetailProps) {
     } catch (e) { console.error("Failed to remove tag image:", e); }
   }, [actions.invalidateImage, name]);
 
-  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
-    entityKind: "tag",
-    imageActions: {
-      onSetFromFile: handleSetImageFromFile,
-      onPasteFromClipboard: handlePasteImage,
-      onRemove: tagImagePath ? handleRemoveImage : undefined,
-    },
-    pluginItems: [],
-  });
 
   const artistCount = new Set(sortedTracks.map(t => t.artist_name).filter(Boolean)).size;
 
@@ -133,6 +129,22 @@ export function TagDetail({ name }: TagDetailProps) {
   if (artistCount > 0) meta.push(`${artistCount} artists`);
 
   const handleInfoAction = useInfoSectionActions();
+
+  // Hero: Radio takes Enqueue's place; Enqueue moves into the ⋯ menu. A tag has
+  // no popularity data, so the weighted seed favours liked tracks instead.
+  const heroEnqueue = sortedTracks.length > 0 ? handleEnqueueAll : undefined;
+  const radioCandidates = useMemo(() => seedCandidates(sortedTracks, NO_POPULARITY, []), [sortedTracks]);
+  const handleRadio = useEntityRadio(radioCandidates);
+  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
+    enqueue: heroEnqueue,
+    entityKind: "tag",
+    imageActions: {
+      onSetFromFile: handleSetImageFromFile,
+      onPasteFromClipboard: handlePasteImage,
+      onRemove: tagImagePath ? handleRemoveImage : undefined,
+    },
+    pluginItems: [],
+  });
 
   return (
     <div className="album-detail">
@@ -154,7 +166,7 @@ export function TagDetail({ name }: TagDetailProps) {
         entityLabel="tag"
         meta={meta}
         onPlay={sortedTracks.length > 0 ? handlePlayAll : undefined}
-        onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : undefined}
+        radio={{ onClick: handleRadio }}
         overflowItems={overflowItems}
         titleLine={<TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
       />

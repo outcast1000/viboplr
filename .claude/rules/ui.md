@@ -444,6 +444,8 @@ All detail pages follow a consistent structure (see conventions.md for layout ru
 
 **Tag Detail:** Header + track list + information sections.
 
+**Hero buttons (artist / album / tag):** **Play** + **Radio**; Enqueue lives at the top of the ⋯ menu (`heroOverflow` `enqueue`, then a divider), owner decision — the track and playlist heroes keep Play + Enqueue. Radio seeds a station from a **weighted-random** track of what the page lists (`utils/radioSeed.ts` → `pickRadioSeed`, via `hooks/useEntityRadio.ts`): weight 1 + 4 × its share of the top listener count, so the most popular song is 5× as likely as one with no count; a tag page has no popularity data, so liked tracks weigh 3× instead; disliked tracks are never a seed. Each press is a new station. A library row starts through `startRadio`, a provider-only row (missing / Top Songs / non-library album) through `startRadioByName` — both the canonical "Start Radio" path. Disabled when nothing is pickable.
+
 **Track list filter (all three entity pages):** once the list draws **more than 10 rows** (`DETAIL_FILTER_MIN_ROWS`, counted over library + "Not in library" rows, unfiltered so the box can't vanish mid-typing), a `DetailTrackFilter` box sits above it — on artist/album pages inside the track tab, on the tag page above the list. Pure logic in `utils/detailTrackFilter.ts` (unit-tested; e2e `detail-track-filter.test.js`). Rules:
 - Matches title / artist / album / album artist via `normalizeForMatch` (case- and accent-insensitive) — the same matcher the playlist detail's filter now uses.
 - "Not in library" rows are **placed against the full list, then filtered** (`filterDetailRows` remaps their `before` index); placing them against the filtered list would make an owned-but-hidden track look missing.

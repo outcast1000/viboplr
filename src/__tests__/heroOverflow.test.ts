@@ -133,3 +133,25 @@ describe("buildPluginOverflowItems", () => {
     expect(buildPluginOverflowItems([], target, dispatch)).toEqual([]);
   });
 });
+
+describe("buildHeroOverflowItems — enqueue", () => {
+  const labels = (items: ReturnType<typeof buildHeroOverflowItems>) => items.map(i => i.kind === "divider" ? "---" : i.label);
+
+  it("leads with Enqueue, then a divider, then the rest", () => {
+    const items = buildHeroOverflowItems({
+      entityKind: "artist",
+      enqueue: noop,
+      imageActions: { onRefresh: noop },
+      pluginItems: [{ kind: "action", id: "p", label: "Plugin thing", onClick: noop }],
+    });
+    expect(labels(items)).toEqual(["Enqueue", "---", "Retrieve image", "---", "Plugin thing"]);
+  });
+
+  it("is Enqueue alone, with no trailing divider, when nothing else applies", () => {
+    expect(labels(buildHeroOverflowItems({ entityKind: "tag", enqueue: noop, imageActions: {}, pluginItems: [] }))).toEqual(["Enqueue"]);
+  });
+
+  it("leaves the menu unchanged without it", () => {
+    expect(labels(buildHeroOverflowItems({ entityKind: "album", imageActions: { onRefresh: noop }, pluginItems: [] }))).toEqual(["Retrieve image"]);
+  });
+});

@@ -55,6 +55,10 @@ interface DetailHeroProps {
   onEnqueue?: () => void;
   playDisabled?: boolean;
   enqueueDisabled?: boolean;
+  // Entity pages (artist / album / tag): a Radio button takes Enqueue's place,
+  // and the page moves Enqueue into the ⋯ menu (heroOverflow `enqueue`).
+  // Present = the button shows; no `onClick` = shown disabled.
+  radio?: { onClick?: () => void };
 
   overflowItems: HeroOverflowItem[];
   // The hero's own action buttons, replacing the fixed Play/Enqueue pair. For a
@@ -79,6 +83,7 @@ export function DetailHero({
   meta,
   description,
   onPlay, onEnqueue, playDisabled, enqueueDisabled,
+  radio,
   overflowItems,
   titleLine,
   buttons,
@@ -203,13 +208,24 @@ export function DetailHero({
                 >
                   <span aria-hidden>▶</span> Play
                 </button>
-                <button
-                  className="ds-btn ds-btn--secondary"
-                  onClick={onEnqueue}
-                  disabled={enqueueDisabled || !onEnqueue}
-                >
-                  <span aria-hidden>≡+</span> Enqueue
-                </button>
+                {radio ? (
+                  <button
+                    className="ds-btn ds-btn--secondary detail-hero-radio"
+                    onClick={radio.onClick}
+                    disabled={!radio.onClick}
+                    title="Start a radio station from this"
+                  >
+                    <svg aria-hidden viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="2"/><path d="M7.76 16.24a6 6 0 0 1 0-8.48M16.24 7.76a6 6 0 0 1 0 8.48M4.93 19.07a10 10 0 0 1 0-14.14M19.07 4.93a10 10 0 0 1 0 14.14"/></svg> Radio
+                  </button>
+                ) : (
+                  <button
+                    className="ds-btn ds-btn--secondary"
+                    onClick={onEnqueue}
+                    disabled={enqueueDisabled || !onEnqueue}
+                  >
+                    <span aria-hidden>≡+</span> Enqueue
+                  </button>
+                )}
               </>
             )}
             <HeroOverflowMenu items={overflowItems} />

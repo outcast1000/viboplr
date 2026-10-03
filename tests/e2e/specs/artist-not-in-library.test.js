@@ -1,7 +1,7 @@
 // An artist with no library tracks gets its Top Songs as the page's track
 // table — the same TrackList a library artist's All Tracks uses, every song a
 // "Not in library" row — in a "Top Songs" tab placed first, sortable by column,
-// with hero Play / Enqueue and a by-name like.
+// with hero Play + Radio (Enqueue in the ⋯ menu) and a by-name like.
 //
 // "Artist A" is made to read as not-in-library by answering find_artist_by_name
 // with null, and its Top Songs come from the real debug-only mock-info plugin
@@ -33,6 +33,7 @@ async function setup(page) {
       pluginPermissionGrants: { [plugin.id]: plugin.manifest.permissions },
     };
     window.__likeWrites = [];
+    window.__radioCalls = [];
     const base = window.__TAURI_INTERNALS__.invoke;
     window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       if (cmd === 'find_artist_by_name' && args && args.name === 'Artist A') return null;
@@ -41,6 +42,7 @@ async function setup(page) {
       }
       if (cmd === 'get_entity_like_state') return 0;
       if (cmd === 'set_entity_like_state') { window.__likeWrites.push(args); return null; }
+      if (cmd === 'build_radio_station') { window.__radioCalls.push(args); return { seedInLibrary: false, tracks: [] }; }
       return base(cmd, args);
     };
   }, PLUGIN);
@@ -82,14 +84,21 @@ test('Top Songs render as the library table, first, and sort', async ({ page }) 
   await expect(titleCells).toHaveText([...rankOrder].sort((a, b) => a.localeCompare(b)));
 });
 
-test('the hero plays the Top Songs and likes the artist by name', async ({ page }) => {
+test('the hero plays the Top Songs, starts a radio from one, and likes the artist by name', async ({ page }) => {
   await setup(page);
   await openArtistA(page);
   await expect(rows(page)).toHaveCount(12);
 
   const hero = page.locator('.detail-hero');
   await expect(hero.getByRole('button', { name: /^Play/ }).first()).toBeVisible();
-  await expect(hero.getByRole('button', { name: /Enqueue/ }).first()).toBeVisible();
+  // Radio took Enqueue's place in the hero (Enqueue moved into the ⋯ menu).
+  await expect(hero.getByRole('button', { name: /Enqueue/ })).toHaveCount(0);
+  const topSongs = await rows(page).locator('.col-title-text').allInnerTexts();
+  await hero.getByRole('button', { name: /Radio/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__radioCalls.length)).toBe(1);
+  const radio = await page.evaluate(() => window.__radioCalls[0]);
+  expect(radio.seedArtist).toBe('Artist A');
+  expect(topSongs).toContain(radio.seedTitle);
 
   await hero.getByRole('button', { name: 'Rate artist' }).click();
   await expect(hero.getByRole('button', { name: 'Liked artist' })).toBeVisible();

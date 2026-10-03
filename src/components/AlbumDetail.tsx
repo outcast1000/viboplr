@@ -7,6 +7,8 @@ import type { Album, ColumnConfig, QueueTrack, Track } from "../types";
 
 import { ALBUM_DETAIL_COLUMNS } from "../hooks/useLibrary";
 import { useEntityDetail } from "../hooks/useEntityDetail";
+import { useEntityRadio } from "../hooks/useEntityRadio";
+import { seedCandidates } from "../utils/radioSeed";
 import { useDetailActions, useDetailState, useInfoSectionActions } from "../contexts/DetailViewContext";
 import { TrackList } from "./TrackList";
 import { DetailTrackFilter } from "./DetailTrackFilter";
@@ -273,27 +275,6 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
     openUrl(`https://www.google.com/search?tbm=isch&q=${q}`).catch(e => console.error("Failed to open image search:", e));
   }, [displayArtist, name]);
 
-  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
-    entityKind: "album",
-    imageActions: {
-      onRefresh: handleRefreshImage,
-      onSetFromFile: handleSetImageFromFile,
-      onPasteFromClipboard: handlePasteImage,
-      onRemove: albumImagePath ? handleRemoveImage : undefined,
-      onSearchImage: handleSearchImageGoogle,
-    },
-    pluginItems: [
-      ...(isLibrary && album
-        ? [{ kind: "action" as const, id: "edit-year", label: "Edit year…", onClick: () => setEditingYear(true) }]
-        : []),
-      ...actions.buildPluginOverflowItems({
-        kind: "album",
-        albumId: album?.id ?? undefined,
-        albumTitle: name,
-        artistName: displayArtist ?? undefined,
-      }),
-    ],
-  });
 
   const handleEnqueueAll = useCallback(() => {
     actions.enqueueTracks(sortedTracks.filter(t => t.liked !== -1));
@@ -412,6 +393,37 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
   // they belong: Track List first, Tags right after it.
   const tabOrder = withHostTabs(belowTabOrder, customTabs.map(t => t.id));
 
+  // Hero: Radio takes Enqueue's place; Enqueue moves into the ⋯ menu. The seed
+  // is a weighted-random pick over every track the page lists (useEntityRadio).
+  const heroEnqueue = sortedTracks.length > 0 ? handleEnqueueAll : canPlayExternal ? handleEnqueueExternal : undefined;
+  const radioCandidates = useMemo(() => isLibrary
+    ? seedCandidates(sortedTracks, trackPopularity, missingRows)
+    : seedCandidates([], {}, rankedTracks.map((track, i) => ({ track, popularity: rankedValues[i] }))),
+  [isLibrary, sortedTracks, trackPopularity, missingRows, rankedTracks, rankedValues]);
+  const handleRadio = useEntityRadio(radioCandidates);
+  const overflowItems: HeroOverflowItem[] = buildHeroOverflowItems({
+    enqueue: heroEnqueue,
+    entityKind: "album",
+    imageActions: {
+      onRefresh: handleRefreshImage,
+      onSetFromFile: handleSetImageFromFile,
+      onPasteFromClipboard: handlePasteImage,
+      onRemove: albumImagePath ? handleRemoveImage : undefined,
+      onSearchImage: handleSearchImageGoogle,
+    },
+    pluginItems: [
+      ...(isLibrary && album
+        ? [{ kind: "action" as const, id: "edit-year", label: "Edit year…", onClick: () => setEditingYear(true) }]
+        : []),
+      ...actions.buildPluginOverflowItems({
+        kind: "album",
+        albumId: album?.id ?? undefined,
+        albumTitle: name,
+        artistName: displayArtist ?? undefined,
+      }),
+    ],
+  });
+
   return (
     <div className="album-detail">
       <DetailHero
@@ -437,7 +449,7 @@ export function AlbumDetail({ name, artistName }: AlbumDetailProps) {
         entityLabel="album"
         meta={meta}
         onPlay={sortedTracks.length > 0 ? handlePlayAll : canPlayExternal ? () => playExternal(rankedTracks, 0, externalContext) : undefined}
-        onEnqueue={sortedTracks.length > 0 ? handleEnqueueAll : canPlayExternal ? handleEnqueueExternal : undefined}
+        radio={{ onClick: handleRadio }}
         overflowItems={overflowItems}
         titleLine={<TitleLineInfo entity={infoEntity} invokeInfoFetch={actions.invokeInfoFetch} />}
       />

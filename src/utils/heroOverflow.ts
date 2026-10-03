@@ -22,11 +22,17 @@ export interface HeroOverflowArgs {
   entityKind: "track" | "album" | "artist" | "tag" | "playlist";
   imageActions: HeroImageActions;
   radio?: HeroRadioActions;           // honored only when entityKind === "track"
+  enqueue?: () => void;               // "Enqueue" — first, on pages whose hero shows Radio instead
   pluginItems: HeroOverflowItem[];
 }
 
 export function buildHeroOverflowItems(args: HeroOverflowArgs): HeroOverflowItem[] {
   const out: HeroOverflowItem[] = [];
+
+  // Enqueue leads, in its own group: on the entity pages it moved here from the
+  // hero to make room for Radio, and it is the item reached for most.
+  const lead: HeroOverflowItem[] = [];
+  if (args.enqueue) lead.push({ kind: "action", id: "enqueue", label: "Enqueue", onClick: args.enqueue, iconKey: "enqueue" });
 
   // Image actions (in display order)
   const ia = args.imageActions;
@@ -52,7 +58,8 @@ export function buildHeroOverflowItems(args: HeroOverflowArgs): HeroOverflowItem
     out.push(...args.pluginItems);
   }
 
-  return out;
+  if (lead.length === 0) return out;
+  return out.length > 0 ? [...lead, { kind: "divider" }, ...out] : lead;
 }
 
 /**
