@@ -674,6 +674,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
             bitPerfect={bitPerfect}
             pins={playerBarPins}
             onPinsChange={onPlayerBarPinsChange}
+            remoteHost="bar"
           />
           <VolumeControl
             volume={volume}

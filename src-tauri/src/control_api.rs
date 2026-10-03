@@ -343,6 +343,13 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/logs/frontend", get(|s| handle_bridge_get(s, "logs.frontend")))
         .route("/v1/window", get(|s| handle_bridge_get(s, "window.get"))
             .post(|s, b| handle_bridge_body(s, "window.set", json!({}), b)))
+        // UI verbs: read what is on screen, open a page, open/close a panel.
+        // They move the UI only — no library row, file, like or setting (bar
+        // the hero-look preference) — so they need no write scope. Validation
+        // is pure in `src/utils/uiControl.ts`.
+        .route("/v1/ui", get(|s| handle_bridge_get(s, "ui.get")))
+        .route("/v1/ui/navigate", post(|s, b| handle_bridge_body(s, "ui.navigate", json!({}), b)))
+        .route("/v1/ui/action", post(|s, b| handle_bridge_body(s, "ui.action", json!({}), b)))
         // GET serves the cached entity image's bytes; POST (bridged) asks the
         // image worker to resolve one through the provider chain.
         .route("/v1/images/{kind}", get(handle_image).post(handle_image_fetch))

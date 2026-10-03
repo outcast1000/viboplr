@@ -201,6 +201,7 @@ macro_rules! invoke_handler {
             commands::generate_playlist_composite,
             commands::get_startup_timings,
             commands::write_probe_dump,
+            commands::window_native_id,
             commands::record_frontend_startup_timings,
             commands::test_collection_connection,
             commands::subsonic_test_connection,

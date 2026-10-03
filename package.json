@@ -22,6 +22,7 @@
     "test:rust": "cd src-tauri && cargo test",
     "test:e2e": "playwright test --config tests/e2e/playwright.config.js",
     "test:all": "npm run lint && npm run test:rust && npm test && npm run test:e2e",
+    "capture:media": "node scripts/capture-site-media.mjs",
     "screenshots": "playwright test --config tests/e2e/playwright.config.js tests/e2e/specs/screenshots.test.js && node scripts/convert-screenshots.mjs"
   },
   "dependencies": {

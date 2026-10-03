@@ -265,6 +265,7 @@ export function FullscreenControls({
               bitPerfect={bitPerfect}
               pins={playerBarPins}
               onPinsChange={onPlayerBarPinsChange}
+              remoteHost="fullscreen"
               onHoldChange={handleAudioHold}
             />
           )}

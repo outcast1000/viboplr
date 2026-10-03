@@ -150,8 +150,16 @@ External results have no library ids — they are addressed only via `searchId` 
 
 | Endpoint | Body / notes |
 |---|---|
-| `GET /window` | `{visible, minimized, maximized, fullscreen, mini}` |
-| `POST /window` | any of `{visible, minimized, maximized, fullscreen, mini, focus}` as booleans — all idempotent sets (`mini` = the mini player). **The response snapshot lags the OS animation and React state — treat it as advisory and read `GET /window` ~2s later for the settled state.** Entering fullscreen needs a current track (the loaded/paused one counts) |
+| `GET /window` | `{visible, minimized, maximized, fullscreen, mini, windowId, scaleFactor, frame: {x, y, width, height}}` — `frame` in logical px; `windowId` is the macOS `CGWindowID` (`screencapture -l<windowId>`), null elsewhere |
+| `POST /window` | any of `{visible, minimized, maximized, fullscreen, mini, focus}` as booleans — all idempotent sets (`mini` = the mini player) — plus `width`+`height` (logical px, min 640×400) and/or `x`+`y`. **The response snapshot lags the OS animation and React state — treat it as advisory and read `GET /window` ~2s later for the settled state.** Entering fullscreen needs a current track (the loaded/paused one counts) |
+
+**What is on screen (UI)** — these change only the UI: no library row, file, like or setting (except `heroLook`, the same preference the page's picker writes), so no write switch applies. Each returns the UI state.
+
+| Endpoint | Body / notes |
+|---|---|
+| `GET /ui` | `{view, selection: {artistId, albumId, tagId, track}, settingsSection, panels: {queueCollapsed, nowPlayingAbout, lyricsHidden, eqPanel}, modals: [...], showcase, heroLook, bitPerfect}` |
+| `POST /ui/navigate` | exactly one of: `{view}` (library, home, history, nowplaying, playlists, collections, extensions, settings) · `{artist}` · `{album, artistName?}` · `{tag}` · `{track, artistName?, albumTitle?}` · `{settings: true \| "<section id>"}` (playback-engine, exclusive-audio, radio, auto-continue, player-bar, now-playing-info, app-update, control-api) · `{pluginView: {pluginId, viewId, query?}}` |
+| `POST /ui/action` | `{action, ...}`: `queuePanel` / `nowPlayingAbout` / `nowPlayingLyrics` / `eqPanel` `{open}` · `bitPerfect {on}` (may open a confirmation; `bitPerfectConfirm` accepts it) · `heroLook {look}` · `showcase {on}` (hides toasts, the update banner and the sync indicator this session) · `bulkEdit {trackIds}` and `download` (playing track) **open** their dialogs, nothing is saved · `closeModals` · `scroll {to: "top"\|"bottom"\|px, smooth?}` |
 
 **Logs & debugging**
 

@@ -14,8 +14,9 @@
 
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { appErrorEntries } from "../utils/errorLog";
+import { buildUiState, parseNavigateTarget, parseUiAction, parseWindowGeometry, type NavigateTarget, type UiAction, type UiStateInput } from "../utils/uiControl";
 import { resolverLogEntries } from "../utils/resolverLog";
 import { pluginLogEntries } from "../utils/pluginLog";
 import { notificationLogEntries } from "../utils/notificationLog";
@@ -177,6 +178,16 @@ export interface ControlApiDeps {
     setFullscreen: (on: boolean) => void;
     isFullscreen: () => boolean;
   };
+  /** The UI verbs (`ui.get` / `ui.navigate` / `ui.action`, validated by
+   *  `utils/uiControl.ts`). App implements them on its own handlers — the
+   *  same ones a click reaches — so a navigated page is the page a person
+   *  would have opened. Each resolves once the change is issued; React may
+   *  still be rendering it, which is why callers re-read `ui.get`. */
+  ui: {
+    navigate: (target: NavigateTarget) => Promise<void>;
+    action: (action: UiAction) => Promise<void>;
+    state: () => UiStateInput;
+  };
   logging: {
     enabled: boolean;
     setEnabled: (on: boolean) => void;
@@ -287,6 +298,31 @@ async function assertUserPlaylist(playlistId: number): Promise<void> {
  *  cache is what lets results be played WITHOUT the API ever accepting
  *  arbitrary track URIs off the wire. */
 const SEARCH_CACHE_CAP = 8;
+
+/** Window snapshot for `window.get` / `window.set`. Adds the OS window id and
+ *  the logical frame, which is what a capture script needs to grab exactly
+ *  this window (`screencapture -l<windowId>`, or ffmpeg cropped to `frame`). */
+async function readWindowState(): Promise<Record<string, unknown>> {
+  const w = getCurrentWindow();
+  const [visible, minimized, maximized, scale, pos, size, windowId] = await Promise.all([
+    w.isVisible(), w.isMinimized(), w.isMaximized(), w.scaleFactor(), w.outerPosition(), w.innerSize(),
+    invoke<number | null>("window_native_id").catch((e) => {
+      console.error("Control API: window_native_id failed:", e);
+      return null;
+    }),
+  ]);
+  return {
+    visible, minimized, maximized,
+    windowId,
+    scaleFactor: scale,
+    frame: {
+      x: Math.round(pos.x / scale),
+      y: Math.round(pos.y / scale),
+      width: Math.round(size.width / scale),
+      height: Math.round(size.height / scale),
+    },
+  };
+}
 
 export function useControlApi(deps: ControlApiDeps) {
   const depsRef = useLatestRef(deps);
@@ -415,6 +451,19 @@ export function useControlApi(deps: ControlApiDeps) {
     if (flight.cancelled) bad("cancelled");
     if (!resolved) bad("the provider could not resolve this track for download");
     return { resolved, meta, pluginId, providerName, quality };
+  }
+
+  /** The UI state after the change just issued has committed. `d` is the
+   *  render the request started in, so reading it straight back reports the
+   *  page *before* the navigation; wait out two frames (the setState flush,
+   *  then the commit that refreshes `depsRef`) and read the live deps. A
+   *  hidden or minimized window never runs rAF, hence the timeout race. */
+  async function settledUiState() {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, 250);
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve(); }));
+    });
+    return buildUiState(depsRef.current.ui.state());
   }
 
   async function dispatch(verb: string, payload: Record<string, unknown>): Promise<unknown> {
@@ -746,25 +795,17 @@ export function useControlApi(deps: ControlApiDeps) {
 
       // --- Window control ---
 
-      case "window.get": {
-        const w = getCurrentWindow();
-        const [visible, minimized, maximized] = await Promise.all([
-          w.isVisible(), w.isMinimized(), w.isMaximized(),
-        ]);
-        return {
-          visible, minimized, maximized,
-          fullscreen: d.window.isFullscreen(),
-          mini: d.mini.miniMode,
-        };
-      }
+      case "window.get":
+        return { ...(await readWindowState()), fullscreen: d.window.isFullscreen(), mini: d.mini.miniMode };
 
       case "window.set": {
         const fields = ["visible", "minimized", "maximized", "fullscreen", "mini", "focus"] as const;
         for (const f of fields) {
           if (payload[f] !== undefined && typeof payload[f] !== "boolean") bad(`${f} must be a boolean`);
         }
-        if (fields.every((f) => payload[f] === undefined)) {
-          bad(`window.set needs at least one of: ${fields.join(", ")}`);
+        const geometry = parseWindowGeometry(payload);
+        if (fields.every((f) => payload[f] === undefined) && !geometry) {
+          bad(`window.set needs at least one of: ${fields.join(", ")}, width+height, x+y`);
         }
         // Ordering mirrors the probe dispatcher: restore before anything else
         // (a miniaturized webview is throttled), leave fullscreen early and
@@ -778,15 +819,41 @@ export function useControlApi(deps: ControlApiDeps) {
         }
         if (payload.maximized === true) await w.maximize();
         if (payload.maximized === false) await w.unmaximize();
+        // Geometry after maximize/unmaximize (a maximized window ignores a
+        // resize) and before fullscreen. Logical pixels throughout — what the
+        // OS and screenshot tools call points — so a capture script can ask
+        // for "1440x900" and get exactly that on any display scale.
+        if (geometry) {
+          if (geometry.width !== undefined && geometry.height !== undefined) {
+            await w.setSize(new LogicalSize(geometry.width, geometry.height));
+          }
+          if (geometry.x !== undefined && geometry.y !== undefined) {
+            await w.setPosition(new LogicalPosition(geometry.x, geometry.y));
+          }
+        }
         if (payload.fullscreen === true) d.window.setFullscreen(true);
         if (payload.focus === true) await w.setFocus();
         if (payload.minimized === true) await w.minimize();
         if (payload.visible === false) await w.hide();
         // Best-effort snapshot — an OS window animation can lag these reads.
-        const [visible, minimized, maximized] = await Promise.all([
-          w.isVisible(), w.isMinimized(), w.isMaximized(),
-        ]);
-        return { visible, minimized, maximized, fullscreen: d.window.isFullscreen(), mini: d.mini.miniMode };
+        return { ...(await readWindowState()), fullscreen: d.window.isFullscreen(), mini: d.mini.miniMode };
+      }
+
+      // --- UI (what is on screen; no library or file changes) ---
+
+      case "ui.get":
+        return buildUiState(d.ui.state());
+
+      case "ui.navigate": {
+        const target = parseNavigateTarget(payload);
+        await d.ui.navigate(target);
+        return settledUiState();
+      }
+
+      case "ui.action": {
+        const action = parseUiAction(payload);
+        await d.ui.action(action);
+        return settledUiState();
       }
 
       // --- Logs ---
