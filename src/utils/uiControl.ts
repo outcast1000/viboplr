@@ -1,6 +1,8 @@
 import type { View } from "../types";
 import { isValidMode, type HeroEffectMode } from "../heroLooks";
 import { SETTINGS_SECTION_IDS } from "./settingsSections";
+import { MINI_RESTING_SIZES, MINI_WIDTH_SIZES, type MiniRestingSize, type MiniWidthSize } from "./miniSizes";
+import type { RedactRule } from "./showcaseRedact";
 
 /**
  * Validation for the control API's **UI verbs** — `ui.navigate`, `ui.action`
@@ -9,8 +11,9 @@ import { SETTINGS_SECTION_IDS } from "./settingsSections";
  * (`useControlApi.ts`) turns a parsed command into calls on App's handlers.
  *
  * These verbs move what is *on screen* and nothing else: no library row, file,
- * like or setting changes through them (the one exception, `heroLook`, writes
- * the same preference the detail-page dropdown writes). That is why they need
+ * like or setting changes through them (the exceptions, `heroLook` and the
+ * window's `miniSize` / `miniWidth`, write the same preferences the
+ * detail-page dropdown and the mini player's own menu write). That is why they need
  * no assistant write scope. They exist so an assistant — or
  * `scripts/capture-site-media.mjs` — can put the app on a given page with a
  * given panel open, which before this took scripted mouse clicks.
@@ -119,7 +122,7 @@ export type UiAction =
   | { action: "bitPerfect"; on: boolean }
   | { action: "bitPerfectConfirm" }
   | { action: "heroLook"; look: HeroEffectMode }
-  | { action: "showcase"; on: boolean }
+  | { action: "showcase"; on: boolean; redact: RedactRule[] }
   | { action: "bulkEdit"; trackIds: number[] }
   | { action: "download" }
   | { action: "closeModals" }
@@ -145,8 +148,9 @@ export function parseUiAction(payload: Record<string, unknown>): UiAction {
     case "eqPanel":
       return { action, open: bool(payload.open, "open") };
     case "bitPerfect":
-    case "showcase":
       return { action, on: bool(payload.on, "on") };
+    case "showcase":
+      return { action, on: bool(payload.on, "on"), redact: parseRedact(payload.redact) };
     case "bitPerfectConfirm":
     case "download":
     case "closeModals":
@@ -175,6 +179,57 @@ export function parseUiAction(payload: Record<string, unknown>): UiAction {
     default:
       throw new Error(`action must be one of: ${UI_ACTIONS.join(", ")}`);
   }
+}
+
+/** Most rules a showcase accepts — redaction walks every text node per rule. */
+export const MAX_REDACT_RULES = 20;
+/** Shortest text a rule may match: anything shorter would hit ordinary words. */
+export const MIN_REDACT_TEXT = 3;
+
+/**
+ * `showcase.redact`: strings to hide while showcase is on — a user name in a
+ * plugin header, a personal playlist title. Each entry is a string (replaced
+ * with `•••`) or `{ text, replacement }`. Absent means none.
+ */
+export function parseRedact(value: unknown): RedactRule[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("redact must be an array of strings or { text, replacement } objects");
+  if (value.length > MAX_REDACT_RULES) throw new Error(`redact takes at most ${MAX_REDACT_RULES} entries`);
+  return value.map((entry, i) => {
+    const rule = typeof entry === "string" ? { text: entry, replacement: undefined }
+      : entry && typeof entry === "object" ? entry as Record<string, unknown>
+      : null;
+    if (!rule || typeof rule.text !== "string") throw new Error(`redact[${i}] must be a string or { text, replacement }`);
+    if (rule.text.trim().length < MIN_REDACT_TEXT) throw new Error(`redact[${i}] must be at least ${MIN_REDACT_TEXT} characters`);
+    if (rule.replacement !== undefined && typeof rule.replacement !== "string") {
+      throw new Error(`redact[${i}].replacement must be a string`);
+    }
+    return { text: rule.text, replacement: rule.replacement ?? "•••" };
+  });
+}
+
+export interface MiniSizes {
+  miniSize?: MiniRestingSize;
+  miniWidth?: MiniWidthSize;
+}
+
+/** The mini-player half of `window.set`: resting layout and width preset.
+ *  Either may be given alone; both persist like the mini player's own menu. */
+export function parseMiniSizes(payload: Record<string, unknown>): MiniSizes | null {
+  const out: MiniSizes = {};
+  if (payload.miniSize !== undefined) {
+    if (!(MINI_RESTING_SIZES as readonly unknown[]).includes(payload.miniSize)) {
+      throw new Error(`miniSize must be one of: ${MINI_RESTING_SIZES.join(", ")}`);
+    }
+    out.miniSize = payload.miniSize as MiniRestingSize;
+  }
+  if (payload.miniWidth !== undefined) {
+    if (!(MINI_WIDTH_SIZES as readonly unknown[]).includes(payload.miniWidth)) {
+      throw new Error(`miniWidth must be one of: ${MINI_WIDTH_SIZES.join(", ")}`);
+    }
+    out.miniWidth = payload.miniWidth as MiniWidthSize;
+  }
+  return out.miniSize || out.miniWidth ? out : null;
 }
 
 export interface WindowGeometry {

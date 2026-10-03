@@ -16,7 +16,8 @@ import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { appErrorEntries } from "../utils/errorLog";
-import { buildUiState, parseNavigateTarget, parseUiAction, parseWindowGeometry, type NavigateTarget, type UiAction, type UiStateInput } from "../utils/uiControl";
+import type { MiniRestingSize, MiniWidthSize } from "../utils/miniSizes";
+import { buildUiState, parseMiniSizes, parseNavigateTarget, parseUiAction, parseWindowGeometry, type NavigateTarget, type UiAction, type UiStateInput } from "../utils/uiControl";
 import { resolverLogEntries } from "../utils/resolverLog";
 import { pluginLogEntries } from "../utils/pluginLog";
 import { notificationLogEntries } from "../utils/notificationLog";
@@ -171,6 +172,12 @@ export interface ControlApiDeps {
   mini: {
     miniMode: boolean;
     toggleMiniMode: () => Promise<void> | void;
+    /** Resting layout + width preset, and the mini player's own setters for
+     *  them (persisted; they resize the live window while the mini player is up). */
+    restingSize: MiniRestingSize;
+    setRestingSize: (size: MiniRestingSize) => void;
+    widthSize: MiniWidthSize;
+    setWidthSize: (size: MiniWidthSize) => Promise<void> | void;
   };
   window: {
     /** App's declarative fullscreen setter (the probe's) — no-ops when the
@@ -300,28 +307,37 @@ async function assertUserPlaylist(playlistId: number): Promise<void> {
 const SEARCH_CACHE_CAP = 8;
 
 /** Window snapshot for `window.get` / `window.set`. Adds the OS window id and
- *  the logical frame, which is what a capture script needs to grab exactly
- *  this window (`screencapture -l<windowId>`, or ffmpeg cropped to `frame`). */
+ *  two logical rectangles. `frame` is what `window.set` takes back (outer
+ *  position — `setPosition` places the outer frame — plus inner size), so a
+ *  saved frame restores exactly. `client` is the painted area, which is what a
+ *  capture script crops to (`screencapture -l<windowId>`, or ffmpeg cropped to
+ *  `client`): on Windows the outer frame includes an invisible ~8px resize
+ *  border, so cropping to `frame` there grabbed a strip of desktop. */
 async function readWindowState(): Promise<Record<string, unknown>> {
   const w = getCurrentWindow();
-  const [visible, minimized, maximized, scale, pos, size, windowId] = await Promise.all([
-    w.isVisible(), w.isMinimized(), w.isMaximized(), w.scaleFactor(), w.outerPosition(), w.innerSize(),
+  const [visible, minimized, maximized, scale, pos, innerPos, size, windowId] = await Promise.all([
+    w.isVisible(), w.isMinimized(), w.isMaximized(), w.scaleFactor(), w.outerPosition(), w.innerPosition(), w.innerSize(),
     invoke<number | null>("window_native_id").catch((e) => {
       console.error("Control API: window_native_id failed:", e);
       return null;
     }),
   ]);
+  const width = Math.round(size.width / scale);
+  const height = Math.round(size.height / scale);
   return {
     visible, minimized, maximized,
     windowId,
     scaleFactor: scale,
-    frame: {
-      x: Math.round(pos.x / scale),
-      y: Math.round(pos.y / scale),
-      width: Math.round(size.width / scale),
-      height: Math.round(size.height / scale),
-    },
+    frame: { x: Math.round(pos.x / scale), y: Math.round(pos.y / scale), width, height },
+    client: { x: Math.round(innerPos.x / scale), y: Math.round(innerPos.y / scale), width, height },
   };
+}
+
+/** The mini player half of a window snapshot. Read off the deps, so a size set
+ *  in the same request shows up only once App has re-rendered (the snapshot is
+ *  best-effort anyway — see `window.set`). */
+function miniState(d: ControlApiDeps) {
+  return { mini: d.mini.miniMode, miniSize: d.mini.restingSize, miniWidth: d.mini.widthSize };
 }
 
 export function useControlApi(deps: ControlApiDeps) {
@@ -796,7 +812,7 @@ export function useControlApi(deps: ControlApiDeps) {
       // --- Window control ---
 
       case "window.get":
-        return { ...(await readWindowState()), fullscreen: d.window.isFullscreen(), mini: d.mini.miniMode };
+        return { ...(await readWindowState()), fullscreen: d.window.isFullscreen(), ...miniState(d) };
 
       case "window.set": {
         const fields = ["visible", "minimized", "maximized", "fullscreen", "mini", "focus"] as const;
@@ -804,8 +820,9 @@ export function useControlApi(deps: ControlApiDeps) {
           if (payload[f] !== undefined && typeof payload[f] !== "boolean") bad(`${f} must be a boolean`);
         }
         const geometry = parseWindowGeometry(payload);
-        if (fields.every((f) => payload[f] === undefined) && !geometry) {
-          bad(`window.set needs at least one of: ${fields.join(", ")}, width+height, x+y`);
+        const miniSizes = parseMiniSizes(payload);
+        if (fields.every((f) => payload[f] === undefined) && !geometry && !miniSizes) {
+          bad(`window.set needs at least one of: ${fields.join(", ")}, width+height, x+y, miniSize, miniWidth`);
         }
         // Ordering mirrors the probe dispatcher: restore before anything else
         // (a miniaturized webview is throttled), leave fullscreen early and
@@ -817,6 +834,11 @@ export function useControlApi(deps: ControlApiDeps) {
         if (typeof payload.mini === "boolean" && payload.mini !== d.mini.miniMode) {
           await d.mini.toggleMiniMode();
         }
+        // After the mini toggle, so a request that enters mini mode and picks a
+        // size resizes the mini window rather than only storing the choice.
+        // Width first: the resting-size resize keeps whatever width it finds.
+        if (miniSizes?.miniWidth) await d.mini.setWidthSize(miniSizes.miniWidth);
+        if (miniSizes?.miniSize) d.mini.setRestingSize(miniSizes.miniSize);
         if (payload.maximized === true) await w.maximize();
         if (payload.maximized === false) await w.unmaximize();
         // Geometry after maximize/unmaximize (a maximized window ignores a
@@ -836,7 +858,7 @@ export function useControlApi(deps: ControlApiDeps) {
         if (payload.minimized === true) await w.minimize();
         if (payload.visible === false) await w.hide();
         // Best-effort snapshot — an OS window animation can lag these reads.
-        return { ...(await readWindowState()), fullscreen: d.window.isFullscreen(), mini: d.mini.miniMode };
+        return { ...(await readWindowState()), fullscreen: d.window.isFullscreen(), ...miniState(d) };
       }
 
       // --- UI (what is on screen; no library or file changes) ---

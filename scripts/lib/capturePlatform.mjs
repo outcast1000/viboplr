@@ -13,13 +13,16 @@
 // desktop to the window frame — which is why the window must be in front (the
 // runner focuses it for every scene anyway).
 
-import { join } from "node:path";
+import { posix, win32 } from "node:path";
 
 export const BUNDLE_ID = "com.alex.viboplr";
 
 /** The profiles directory, mirroring the app's own layout (and the MCP
  *  server's `profilesDir`). */
 export function profilesDir(platform, env, home) {
+  // Join with the *target* platform's separator, not the host's: the darwin
+  // case run on a Windows host otherwise comes back with backslashes.
+  const join = platform === "win32" ? win32.join : posix.join;
   if (platform === "darwin") return join(home, "Library", "Application Support", BUNDLE_ID, "profiles");
   if (platform === "win32") return join(env.APPDATA ?? join(home, "AppData", "Roaming"), BUNDLE_ID, "profiles");
   return join(env.XDG_DATA_HOME ?? join(home, ".local", "share"), BUNDLE_ID, "profiles");

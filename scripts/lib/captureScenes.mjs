@@ -23,6 +23,11 @@
 // the original track once the scene is done).
 
 /** Where each scene's media goes on the site, for the end-of-run report. */
+/** The mini player's layouts and width presets, smallest first (the app's own
+ *  names — `src/utils/miniSizes.ts`; the scene test checks they still parse). */
+export const MINI_LAYOUTS = ["compact", "normal", "full"];
+export const MINI_WIDTHS = ["small", "medium", "large"];
+
 export const SCENES = [
   // --- Audiophiles ---
   {
@@ -90,9 +95,22 @@ export const SCENES = [
     // No padding around the window: whatever sits behind the mini player is
     // the user's own desktop (the first run caught an editor full of branch
     // names), which has no business on a public page.
+    // Pinned to the full layout at the large width: the user's own resting
+    // size is whatever they last picked, and the compact one is a 24px strip.
     id: "mini-player", kind: "video", seconds: 8, needs: ["track"],
     page: "coders", slot: "Mini player over an editor",
-    steps: [{ playback: { play: true } }, { window: { mini: true } }, { wait: 1500 }],
+    steps: [{ playback: { play: true } }, { window: { mini: true, miniSize: "full", miniWidth: "large" } }, { wait: 1500 }],
+    after: [{ window: { mini: false } }, { wait: 1500 }],
+  },
+  {
+    // Every layout × width, composed into one transparent image: rows are the
+    // layouts (compact, normal, full), columns the widths. The sizes persist,
+    // so the run restores the user's own afterwards.
+    id: "mini-player-sizes", kind: "grid", needs: ["track"],
+    page: "coders", slot: "Mini player sizes",
+    rows: MINI_LAYOUTS.map((miniSize) => ({ miniSize })),
+    cols: MINI_WIDTHS.map((miniWidth) => ({ miniWidth })),
+    steps: [{ playback: { play: true } }],
     after: [{ window: { mini: false } }, { wait: 1500 }],
   },
   // --- Rediscoverers ---
@@ -165,7 +183,13 @@ export const SCENES = [
   {
     id: "spotify-view", kind: "still", needs: ["plugin:spotify-browse"], settleMs: 6000,
     page: "spotify", slot: "Your Spotify home in Viboplr",
-    steps: [{ navigate: { pluginView: { pluginId: "spotify-browse", viewId: "spotify" } } }],
+    // Scrolled just past the first shelf's heading: Spotify titles it with a
+    // personal greeting line (a song name it picked for this account).
+    steps: [
+      { navigate: { pluginView: { pluginId: "spotify-browse", viewId: "spotify" } } },
+      { wait: 2500 },
+      { action: { action: "scroll", to: 70 } },
+    ],
     expect: { view: "plugin:spotify-browse:spotify" },
   },
 ];
@@ -260,4 +284,60 @@ export function encodeArgs(raw, base, maxWidth = 1280) {
 export function parseScreenDevice(listing) {
   const m = /\[(\d+)\] Capture screen 0/.exec(listing);
   return m ? Number(m[1]) : null;
+}
+
+/** `--redact` value → showcase redaction rules: comma-separated entries, each
+ *  `text` (hidden as "•••") or `text=replacement`. */
+export function parseRedactArg(value) {
+  return String(value ?? "").split(",").map((s) => s.trim()).filter(Boolean).map((entry) => {
+    const eq = entry.indexOf("=");
+    return eq < 0 ? { text: entry } : { text: entry.slice(0, eq).trim(), replacement: entry.slice(eq + 1).trim() };
+  });
+}
+
+/** Where each cell of a `grid` scene goes. `cells[row][col]` is a captured
+ *  image's `{ width, height }`; a column is as wide as its widest cell and a
+ *  row as tall as its tallest, with `gap` between cells and around the edge.
+ *  Cells sit top-left in their slot, so each column reads as one width. */
+export function gridLayout(cells, gap) {
+  const cols = Math.max(0, ...cells.map((r) => r.length));
+  const colW = Array.from({ length: cols }, (_, c) => Math.max(0, ...cells.map((r) => r[c]?.width ?? 0)));
+  const rowH = cells.map((r) => Math.max(0, ...r.map((cell) => cell.height)));
+  const xs = colW.map((_, c) => gap + colW.slice(0, c).reduce((a, w) => a + w + gap, 0));
+  const ys = rowH.map((_, r) => gap + rowH.slice(0, r).reduce((a, h) => a + h + gap, 0));
+  const even = (n) => Math.ceil(n / 2) * 2;
+  return {
+    width: even(gap + colW.reduce((a, w) => a + w + gap, 0)),
+    height: even(gap + rowH.reduce((a, h) => a + h + gap, 0)),
+    at: cells.map((r, ri) => r.map((_, ci) => ({ x: xs[ci], y: ys[ri] }))),
+  };
+}
+
+/** ffmpeg arguments that paint `pngs` (row-major, matching `layout.at`) onto a
+ *  transparent canvas and write one RGBA PNG.
+ *
+ *  Each cell is a crop of the desktop, so wherever the window itself is
+ *  transparent — its rounded corners (Windows 11 rounds every window), its
+ *  1px edge — the grab holds whatever sat behind it. `inset` trims that edge
+ *  and `radius` gives the cell an anti-aliased rounded alpha mask, so the
+ *  composite carries no desktop pixels. `layout` must be built from the
+ *  already-inset sizes. */
+export function gridComposeArgs(pngs, layout, out, { inset = 0, radius = 0 } = {}) {
+  const positions = layout.at.flat();
+  if (positions.length !== pngs.length) throw new Error("one png per grid cell");
+  const r = radius;
+  // Distance past the nearest corner's centre, 0 everywhere but the corners.
+  const d = `hypot(max(max(${r}-X,X-(W-1-${r})),0),max(max(${r}-Y,Y-(H-1-${r})),0))`;
+  const mask = r > 0 ? `,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='clip((${r}+0.5-${d})*255,0,255)'` : "";
+  const crop = inset > 0 ? `crop=iw-${2 * inset}:ih-${2 * inset}:${inset}:${inset},` : "";
+  const chain = [`color=c=black@0.0:s=${layout.width}x${layout.height},format=rgba[c0]`];
+  pngs.forEach((_, i) => chain.push(`[${i}:v]${crop}format=rgba${mask}[m${i}]`));
+  positions.forEach(({ x, y }, i) => {
+    const next = i === positions.length - 1 ? "[out]" : `[c${i + 1}]`;
+    chain.push(`[c${i}][m${i}]overlay=${x}:${y}:format=auto${next}`);
+  });
+  return [
+    "-y", "-hide_banner", ...pngs.flatMap((p) => ["-i", p]),
+    "-filter_complex", chain.join(";"), "-map", "[out]", "-frames:v", "1", "-pix_fmt", "rgba", out,
+  ];
 }

@@ -5,6 +5,8 @@ import { subscribe } from "../utils/tauriEvents";
 import { invoke } from "@tauri-apps/api/core";
 import { store } from "../store";
 import { applyWebviewZoom } from "../utils/zoom";
+import type { MiniRestingSize, MiniWidthSize } from "../utils/miniSizes";
+export { MINI_RESTING_SIZES, MINI_WIDTH_SIZES, type MiniRestingSize, type MiniWidthSize } from "../utils/miniSizes";
 import {
   arrangementSignature,
   toMonitorInfo,
@@ -27,18 +29,14 @@ const MINI_HOVER_COLLAPSE_DELAY = 300;
 // Measured, not estimated; change it together with those caps or the CSS.
 const MINI_SEARCH_PANEL_HEIGHT = 460;
 
-export type MiniWidthSize = "small" | "medium" | "large";
-
 const MINI_WIDTHS: Record<MiniWidthSize, number> = {
   small: 280,
   medium: 400,
   large: 550,
 };
 
-/** Menu/select order and labels for the width presets, shared by the mini
- *  player's context menu and Settings — same reason as the resting sizes. */
-export const MINI_WIDTH_SIZES = ["small", "medium", "large"] as const;
-
+/** Labels for the width presets, shared by the mini player's context menu and
+ *  Settings — same reason as the resting sizes. */
 export const MINI_WIDTH_SIZE_LABELS: Record<MiniWidthSize, string> = {
   small: "Small",
   medium: "Medium",
@@ -245,8 +243,6 @@ async function geomForCurrentArrangement<T>(key: string): Promise<T | null> {
   return rec?.[sig] ?? null;
 }
 
-export type MiniRestingSize = "normal" | "compact" | "full";
-
 /** True for the resting size that already shows every row, so hover has nothing
  *  left to reveal (see `expandMini`). */
 export function isAlwaysExpanded(size: MiniRestingSize): boolean {
@@ -257,11 +253,9 @@ export function cycleRestingSize(current: MiniRestingSize): MiniRestingSize {
   return current === "normal" ? "compact" : current === "compact" ? "full" : "normal";
 }
 
-/** Menu/select order and labels for the resting size — shared by the mini
- *  player's own toggle, its context menu and Settings, so the three can't
- *  disagree about what a size is called. */
-export const MINI_RESTING_SIZES = ["normal", "compact", "full"] as const;
-
+/** Labels for the resting size — shared by the mini player's own toggle, its
+ *  context menu and Settings, so the three can't disagree about what a size is
+ *  called. */
 export const MINI_RESTING_SIZE_LABELS: Record<MiniRestingSize, string> = {
   normal: "Default",
   compact: "Compact",

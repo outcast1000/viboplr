@@ -39,7 +39,13 @@
 // Usage:
 //   npm run capture:media -- [--profile default] [--only home,lyrics] [--list]
 //     [--out docs/assets/media] [--width 1440 --height 900] [--settle 2500]
-//     [--no-video] [--keep-volume] [--artist "Name"] [--grab-scale 1]
+//     [--no-video] [--keep-volume] [--artist "Name"] [--lyrics-track <id>]
+//     [--redact "account-name=you,Private Playlist"] [--grab-scale 1]
+//
+// --redact hides text wherever the app renders it for the whole run (showcase
+// mode's redaction, undone when showcase goes off): `text` becomes "•••",
+// `text=replacement` becomes the replacement. Repeatable. Use it for account
+// names and personal playlist titles the captured views would otherwise show.
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -58,7 +64,10 @@ import {
   checkExpect,
   cropRect,
   encodeArgs,
+  gridComposeArgs,
+  gridLayout,
   missingNeeds,
+  parseRedactArg,
   parseScreenDevice,
   resolveRefs,
 } from "./lib/captureScenes.mjs";
@@ -69,7 +78,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function parseArgs(argv) {
   const o = {
     profile: "default", only: null, list: false, out: "docs/assets/media",
-    width: 1440, height: 900, x: 40, y: 60, settle: 2500, video: true, keepVolume: false, artist: null,
+    width: 1440, height: 900, x: 40, y: 60, settle: 2500, video: true, keepVolume: false, artist: null, lyricsTrack: null, redact: [],
     grabScale: null,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -85,6 +94,8 @@ function parseArgs(argv) {
     else if (a === "--no-video") o.video = false;
     else if (a === "--keep-volume") o.keepVolume = true;
     else if (a === "--artist") o.artist = next();
+    else if (a === "--lyrics-track") o.lyricsTrack = Number(next());
+    else if (a === "--redact") o.redact.push(...parseRedactArg(next()));
     else if (a === "--grab-scale") o.grabScale = Number(next());
     else throw new Error(`unknown argument: ${a}`);
   }
@@ -223,10 +234,13 @@ function toWebp(png, out, encoder, { quality = 90, cropBottom = 0 } = {}) {
   run(cmd, args);
 }
 
-/** The window's rectangle in the pixels the grabber uses. */
+/** The window's painted rectangle in the pixels the grabber uses. `client`,
+ *  not `frame`: on Windows the outer frame carries an invisible resize border,
+ *  and cropping to it grabbed a strip of desktop. `frame` is the fallback for
+ *  an app build that predates `client`. */
 async function windowRect(api, opts, screen, pad = 0) {
   const win = await api("GET", "/window");
-  return { win, rect: cropRect(win.frame, opts.grabScale ?? win.scaleFactor, screen, pad) };
+  return { win, rect: cropRect(win.client ?? win.frame, opts.grabScale ?? win.scaleFactor, screen, pad) };
 }
 
 async function captureStill(api, out, scene, opts, screen, encoder) {
@@ -256,6 +270,55 @@ function screenInfo() {
   const m = /, (\d{3,5})x(\d{3,5})/.exec(probe);
   if (!m) throw new Error("couldn't read the screen size from ffmpeg");
   return { device, width: Number(m[1]), height: Number(m[2]) };
+}
+
+/** A `grid` scene: the mini player at every `rows` × `cols` combination of
+ *  window settings, grabbed one by one and painted onto one transparent
+ *  canvas. The cells are grabbed at their own size, so the composite shows
+ *  the sizes as they really compare. */
+async function captureGrid(api, out, scene, opts, screen, encoder) {
+  const cells = [];
+  const pngs = [];
+  let scale = 1;
+  for (const [ri, row] of scene.rows.entries()) {
+    const sizes = [];
+    for (const [ci, col] of scene.cols.entries()) {
+      await api("POST", "/window", { mini: true, ...row, ...col, focus: true });
+      // Resizes animate, and the pointer must not rest on the window: hover
+      // expands every layout but full to the tallest one.
+      parkPointer();
+      await sleep(scene.cellSettleMs ?? 1500);
+      const { win, rect } = await windowRect(api, opts, screen);
+      scale = opts.grabScale ?? win.scaleFactor ?? 1;
+      const png = join(tmpdir(), `viboplr-${scene.id}-${ri}-${ci}.png`);
+      run("ffmpeg", stillGrabArgs(rect, png, screen));
+      pngs.push(png);
+      sizes.push({ width: rect.width, height: rect.height });
+    }
+    cells.push(sizes);
+  }
+  // Logical px in the scene, physical in the grab.
+  const inset = Math.round((scene.inset ?? 1) * scale);
+  const radius = Math.round((scene.cornerRadius ?? 8) * scale);
+  const layout = gridLayout(cells.map((r) => r.map((c) => ({ width: c.width - 2 * inset, height: c.height - 2 * inset }))), Math.round((scene.gap ?? 24) * scale));
+  const composite = join(tmpdir(), `viboplr-${scene.id}.png`);
+  try {
+    run("ffmpeg", gridComposeArgs(pngs, layout, composite, { inset, radius }));
+    toWebp(composite, join(out, `${scene.id}.webp`), encoder, { quality: 92 });
+  } finally {
+    for (const p of [...pngs, composite]) rmSync(p, { force: true });
+  }
+  return [`${scene.id}.webp`];
+}
+
+/** ffmpeg arguments for one PNG of `rect`. Ordinary stills on macOS go by
+ *  window id (`screencapture -l`), but a grid cell needs the window's own size
+ *  either way, so both platforms crop a rect here; avfoundation has no
+ *  single-frame mode, so it records one frame and crops it. */
+function stillGrabArgs(rect, png, screen) {
+  if (PLATFORM === "win32") return gdigrabStillArgs(rect, png);
+  const grab = grabInputArgs(PLATFORM, rect, { device: screen.device });
+  return ["-y", "-hide_banner", ...grab.input, ...(grab.filter ? ["-vf", grab.filter] : []), "-frames:v", "1", png];
 }
 
 async function captureVideo(api, out, scene, facts, screen, opts, encoder) {
@@ -311,10 +374,17 @@ async function discoverFacts(api, opts) {
   facts.albumTrackIds = ids.length ? ids : null;
   // A library track whose synced lyrics are already cached, so the lyrics
   // video doesn't depend on a provider answering mid-recording. Cached keys
-  // keep their original case, hence normalising both sides.
+  // keep their original case, hence normalising both sides. The page is
+  // public, so lyrics with obvious profanity are passed over (the first run
+  // picked a verse that scrolled straight past it); --lyrics-track overrides.
+  if (opts.lyricsTrack) {
+    facts.lyricsTrackId = opts.lyricsTrack;
+    return facts;
+  }
   const lyrics = await api("POST", "/query", {
     sql: "SELECT t.id FROM information_values iv JOIN information_types it ON it.id = iv.information_type_id "
       + "JOIN tracks t JOIN artists ar ON ar.id = t.artist_id WHERE it.type_id = 'lyrics' AND iv.value LIKE '%synced%' "
+      + "AND iv.value NOT LIKE '%fuck%' AND iv.value NOT LIKE '%shit%' AND iv.value NOT LIKE '%cunt%' "
       + "AND strip_diacritics(unicode_lower(iv.entity_key)) = 'track:' || strip_diacritics(unicode_lower(ar.name)) "
       + "|| ':' || strip_diacritics(unicode_lower(t.title)) LIMIT 1",
   });
@@ -355,7 +425,7 @@ async function main() {
   const results = [];
   try {
     await api("POST", "/window", { fullscreen: false, mini: false, maximized: false, width: opts.width, height: opts.height, x: opts.x, y: opts.y });
-    await api("POST", "/ui/action", { action: "showcase", on: true });
+    await api("POST", "/ui/action", { action: "showcase", on: true, redact: opts.redact });
     await api("POST", "/ui/action", { action: "heroLook", look: "aurora-drift" });
     // Silent capture. Bit-perfect mode refuses a volume change; then it plays aloud.
     if (!opts.keepVolume) await api("POST", "/playback", { volume: 0 }).catch((e) => console.error(`couldn't mute: ${e.message}`));
@@ -375,8 +445,8 @@ async function main() {
         const problems = await waitForExpect(api, scene.expect);
         if (problems.length) throw new Error(`page didn't land: ${problems.join("; ")}`);
         await sleep(scene.settleMs ?? opts.settle);
-        const files = scene.kind === "still"
-          ? await captureStill(api, out, scene, opts, screen, encoder)
+        const files = scene.kind === "still" ? await captureStill(api, out, scene, opts, screen, encoder)
+          : scene.kind === "grid" ? await captureGrid(api, out, scene, opts, screen, encoder)
           : await captureVideo(api, out, scene, facts, screen, opts, encoder);
         results.push({ scene, status: "saved", files });
         console.log(`saved ${files.join(", ")}`);
@@ -396,7 +466,13 @@ async function main() {
     await restore(() => api("POST", "/ui/action", { action: "showcase", on: false }));
     await restore(() => api("POST", "/ui/action", { action: "heroLook", look: ui0.heroLook }));
     if (skin0) await restore(() => api("POST", "/skins/apply", { id: skin0 }));
+    await restore(() => api("POST", "/window", { mini: false }));
     await restore(() => api("POST", "/window", { width: win0.frame.width, height: win0.frame.height, x: win0.frame.x, y: win0.frame.y }));
+    // The mini sizes persist (grid and mini-player scenes change them). An app
+    // build without them reports none, and then there is nothing to put back.
+    if (win0.miniSize && win0.miniWidth) {
+      await restore(() => api("POST", "/window", { miniSize: win0.miniSize, miniWidth: win0.miniWidth }));
+    }
     if (win0.mini) await restore(() => api("POST", "/window", { mini: true }));
     if (!opts.keepVolume) await restore(() => api("POST", "/playback", { volume: status0.volume }));
     await restore(() => api("POST", "/playback", { play: status0.playing }));

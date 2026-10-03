@@ -5,6 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { exit } from "@tauri-apps/plugin-process";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { applyWindowFullscreen } from "./utils/windowFullscreen";
+import { startRedaction, type RedactRule } from "./utils/showcaseRedact";
 import { getCurrent as getDeepLinkCurrent } from "@tauri-apps/plugin-deep-link";
 import { subscribe, combineUnlisten, safeUnlisten } from "./utils/tauriEvents";
 import { isAuto, decideAutoRerunAfterSync } from "./utils/autoPlaylist";
@@ -538,6 +539,13 @@ function App() {
   // not whatever happened to be announced at that moment. Session-only —
   // never persisted, so a capture run can't leave a user without update notices.
   const [showcase, setShowcase] = useState(false);
+  // Strings showcase hides wherever they render (`showcase { redact }`), e.g.
+  // an account name in a plugin header. See utils/showcaseRedact.ts.
+  const [showcaseRedact, setShowcaseRedact] = useState<RedactRule[]>([]);
+  useEffect(() => {
+    if (!showcase || showcaseRedact.length === 0) return;
+    return startRedaction(document.body, showcaseRedact);
+  }, [showcase, showcaseRedact]);
   // The lyrics button while About is open means "back to the lyrics", not
   // "toggle the lyrics preference" — which would hide lyrics nobody could see.
   const handleToggleNowPlayingLyrics = useCallback(() => {
@@ -4008,6 +4016,7 @@ function App() {
         return;
       case "showcase":
         setShowcase(a.on);
+        setShowcaseRedact(a.on ? a.redact : []);
         return;
       case "bulkEdit": {
         const tracks = await invoke<Track[]>("get_tracks_by_ids", { ids: a.trackIds });
@@ -4085,7 +4094,11 @@ function App() {
     startRadio: playActions.startRadio,
     queueOps: queueOpsDeps,
     bitPerfect: bitPerfect.control ? { pin: bitPerfect.pin, state: bitPerfect.state, output: bitPerfect.output } : null,
-    mini: { miniMode: mini.miniMode, toggleMiniMode: mini.toggleMiniMode },
+    mini: {
+      miniMode: mini.miniMode, toggleMiniMode: mini.toggleMiniMode,
+      restingSize: mini.miniRestingSize, setRestingSize: mini.setMiniRestingSize,
+      widthSize: mini.miniWidthSize, setWidthSize: mini.setMiniWidthSize,
+    },
     window: {
       setFullscreen: (on: boolean) => setProbeFullscreenRef.current(on),
       isFullscreen: fullscreenNow,

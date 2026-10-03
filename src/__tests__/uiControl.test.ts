@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_REDACT_RULES,
   buildUiState,
+  parseMiniSizes,
   parseNavigateTarget,
+  parseRedact,
   parseUiAction,
   parseWindowGeometry,
 } from "../utils/uiControl";
@@ -74,6 +77,37 @@ describe("parseUiAction", () => {
 
   it("names the valid actions on a miss", () => {
     expect(() => parseUiAction({ action: "click" })).toThrow(/one of: queuePanel/);
+  });
+
+  it("takes showcase redactions as strings or { text, replacement }", () => {
+    expect(parseUiAction({ action: "showcase", on: true })).toEqual({ action: "showcase", on: true, redact: [] });
+    expect(parseUiAction({ action: "showcase", on: true, redact: ["outcast", { text: "Poop Song", replacement: "Mix" }] }))
+      .toEqual({
+        action: "showcase", on: true,
+        redact: [{ text: "outcast", replacement: "•••" }, { text: "Poop Song", replacement: "Mix" }],
+      });
+  });
+});
+
+describe("parseRedact", () => {
+  it("refuses rules short enough to hit ordinary words, and too many rules", () => {
+    expect(() => parseRedact(["ab"])).toThrow(/at least 3/);
+    expect(() => parseRedact("name")).toThrow(/array/);
+    expect(() => parseRedact([{ text: "name", replacement: 5 }])).toThrow(/replacement/);
+    expect(() => parseRedact(Array.from({ length: MAX_REDACT_RULES + 1 }, (_, i) => `rule${i}`))).toThrow(/at most/);
+  });
+});
+
+describe("parseMiniSizes", () => {
+  it("is null when neither mini size is present", () => {
+    expect(parseMiniSizes({ mini: true })).toBeNull();
+  });
+
+  it("takes either size alone, by the app's own names", () => {
+    expect(parseMiniSizes({ miniSize: "full" })).toEqual({ miniSize: "full" });
+    expect(parseMiniSizes({ miniWidth: "small", miniSize: "compact" })).toEqual({ miniSize: "compact", miniWidth: "small" });
+    expect(() => parseMiniSizes({ miniSize: "huge" })).toThrow(/normal, compact, full/);
+    expect(() => parseMiniSizes({ miniWidth: 400 })).toThrow(/small, medium, large/);
   });
 });
 
