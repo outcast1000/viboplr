@@ -44,6 +44,37 @@ fn update_track_column<T: rusqlite::types::ToSql + Copy>(
     Ok(())
 }
 
+/// After a year Set, carry it onto every touched album whose tracks now ALL
+/// carry that year. `albums.year` is otherwise written only when the row is
+/// created (a rescan never refreshes it), so retagging a whole album's year
+/// left the album — its card, hero, and Year sort — on the old value.
+/// A partial edit (one track of a compilation) stays a track-level override,
+/// and Clear deliberately doesn't touch the album: clearing a track's override
+/// is what makes the album year resurface.
+fn sync_album_year_from_tracks(
+    conn: &rusqlite::Connection,
+    track_ids: &[i64],
+    year: i32,
+) -> SqlResult<()> {
+    for chunk in track_ids.chunks(500) {
+        let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "UPDATE albums SET year = ?1 \
+             WHERE id IN (SELECT album_id FROM tracks WHERE album_id IS NOT NULL AND id IN ({})) \
+             AND NOT EXISTS (SELECT 1 FROM tracks t WHERE t.album_id = albums.id \
+                             AND (t.year IS NULL OR t.year != ?1))",
+            placeholders
+        );
+        let mut params: Vec<&dyn rusqlite::types::ToSql> = Vec::with_capacity(chunk.len() + 1);
+        params.push(&year);
+        for id in chunk {
+            params.push(id);
+        }
+        conn.execute(&sql, params.as_slice())?;
+    }
+    Ok(())
+}
+
 /// How tag edits are applied in bulk_update_tracks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TagMode {
@@ -835,7 +866,10 @@ impl Database {
                 match year {
                     FieldUpdate::Unchanged => {}
                     FieldUpdate::Clear => update_track_column(&conn, track_ids, "year", None::<i32>)?,
-                    FieldUpdate::Set(y) => update_track_column(&conn, track_ids, "year", y)?,
+                    FieldUpdate::Set(y) => {
+                        update_track_column(&conn, track_ids, "year", y)?;
+                        sync_album_year_from_tracks(&conn, track_ids, y)?;
+                    }
                 }
 
                 // Step 3b: Title (single-value, applied to all given ids). Title is

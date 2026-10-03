@@ -4284,13 +4284,41 @@ fn test_bulk_update_clear_year_reverts_to_album_year() {
     let db = test_db();
     // Reported year is COALESCE(track.year, album.year). A track-level Set is an
     // override; clearing it is the consistent inverse — the album year resurfaces.
+    // Two tracks, so the Set is a partial edit and doesn't carry onto the album.
     let artist = db.get_or_create_artist("Artist").unwrap();
     let album = db.get_or_create_album("Album", Some(artist), Some(2001)).unwrap();
     let t1 = insert_track(&db, "x.mp3", "Song", Some(artist), Some(album));
+    insert_track(&db, "y.mp3", "Other", Some(artist), Some(album));
     db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set(1999), None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().year, Some(1999));
     db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Clear, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
     assert_eq!(db.get_track_by_id(t1).unwrap().year, Some(2001));
+}
+
+#[test]
+fn test_bulk_update_year_on_whole_album_updates_album_year() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("The Cure").unwrap();
+    let album = db.get_or_create_album("Disintegration", Some(artist), Some(2010)).unwrap();
+    let t1 = insert_track(&db, "a.flac", "Plainsong", Some(artist), Some(album));
+    let t2 = insert_track(&db, "b.flac", "Pictures of You", Some(artist), Some(album));
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set(1989), None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    assert_eq!(db.get_album_by_id(album).unwrap().unwrap().year, Some(1989));
+    // Clearing the track overrides leaves the album year in place (it resurfaces).
+    db.bulk_update_tracks(&[t1, t2], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Clear, None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    assert_eq!(db.get_album_by_id(album).unwrap().unwrap().year, Some(1989));
+    assert_eq!(db.get_track_by_id(t1).unwrap().year, Some(1989));
+}
+
+#[test]
+fn test_bulk_update_year_on_part_of_album_keeps_album_year() {
+    let db = test_db();
+    let artist = db.get_or_create_artist("Artist").unwrap();
+    let album = db.get_or_create_album("Album", Some(artist), Some(2001)).unwrap();
+    let t1 = insert_track(&db, "x.mp3", "One", Some(artist), Some(album));
+    insert_track(&db, "y.mp3", "Two", Some(artist), Some(album));
+    db.bulk_update_tracks(&[t1], FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Unchanged, FieldUpdate::Set(1999), None, FieldUpdate::Unchanged, None, TagMode::Replace).unwrap();
+    assert_eq!(db.get_album_by_id(album).unwrap().unwrap().year, Some(2001));
 }
 
 #[test]
