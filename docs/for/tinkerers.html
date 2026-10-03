@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Viboplr for tinkerers and plugin builders</title>
+  <meta name="description" content="Skins, animated detail pages, profiles and a small, documented JavaScript plugin API.">
+  <link rel="canonical" href="https://viboplr.com/for/tinkerers.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://viboplr.com/for/tinkerers.html">
+  <meta property="og:title" content="Viboplr for tinkerers and plugin builders">
+  <meta property="og:description" content="Skins, animated detail pages, profiles and a small, documented JavaScript plugin API.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Viboplr for tinkerers and plugin builders">
+  <meta name="twitter:description" content="Skins, animated detail pages, profiles and a small, documented JavaScript plugin API.">
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="nav-logo">
+        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
+          <path d="M138.24 138.24 L256 281.6 L373.76 138.24" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M138.24 235.52 L256 378.88 L373.76 235.52" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
+        </svg>
+        iboPLR
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="../index.html" class="nav-link">Home</a>
+        <a href="../plugins.html" class="nav-link">Plugins</a>
+        <a href="../skins.html" class="nav-link">Skins</a>
+        <a href="../servers.html" class="nav-link">Servers</a>
+        <a href="../help.html" class="nav-link">Help</a>
+        <a href="../support.html" class="nav-link nav-link--sponsor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          Support
+        </a>
+        <a href="../download.html" class="nav-cta">Get Viboplr</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Persona hero -->
+  <section class="persona-hero">
+    <div class="container">
+      <span class="feature-label animate-in">For tinkerers &amp; plugin builders</span>
+      <h1 class="animate-in animate-delay-1">Make it look like yours.<br><span class="gradient-text">Then make it do more.</span></h1>
+      <p class="hero-subtitle animate-in animate-delay-2">Skins, animated detail pages and separate profiles for the look. A small, documented plugin API for everything else &mdash; the lyrics, artwork and artist info Viboplr ships with are plugins built on it too.</p>
+      <figure class="persona-media animate-in animate-delay-3">
+        <img src="../assets/screenshots/skins.webp" alt="Viboplr's skin picker with several color themes" loading="eager" width="2560" height="1600">
+      </figure>
+    </div>
+  </section>
+
+  <!-- Skins -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Skins</span>
+          <h2>Any color, <span class="gradient-text">any mood</span></h2>
+          <p>Pick a built-in skin or install community favourites like Nord, Dracula, Catppuccin, Tokyo Night and Gruvbox from the gallery. Or make your own in the skin editor &mdash; colors, corner radius, spacing, even custom CSS &mdash; and submit it to the gallery from inside the app.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Dark and light skins, switched instantly</div>
+            <div class="feature-list-item">Built-in editor with &ldquo;Submit to gallery&rdquo;</div>
+          </div>
+          <a href="../skins.html" class="feature-link">Browse the skin gallery &rarr;</a>
+        </div>
+        <div class="persona-media persona-media--pending" role="img" aria-label="Video coming soon: switching skins">
+          <strong>Video: switching skins</strong>
+          <span>The same artist page going through four skins, dark to light</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Hero effects + profiles -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Details</span>
+          <h2>Pages with <span class="gradient-text">a little theatre</span></h2>
+          <p>Artist, album and track pages open on an animated hero: Late Night TV, Silent Film, Aurora Drift, Light Leak and more. Fix one look, shuffle them, or let each artist keep their own. And if the whole household shares a computer, profiles give everyone a completely separate Viboplr.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Hero looks per artist, random, fixed, or off</div>
+            <div class="feature-list-item">Profiles: separate library, history, settings, plugins and skin</div>
+            <div class="feature-list-item">A desktop shortcut straight into any profile</div>
+          </div>
+          <a href="../help.html#profiles" class="feature-link">About profiles &rarr;</a>
+        </div>
+        <figure class="persona-media">
+          <img src="../assets/screenshots/detail-artist-light.webp" alt="An artist page in Viboplr with an animated hero on a light skin" loading="lazy" width="2560" height="1600">
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- Plugin API -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Plugins</span>
+          <h2>A plugin is <span class="gradient-text">two files</span></h2>
+          <p>A manifest says what your plugin adds; a plain JavaScript file does it. Plugins can add tabs to detail pages, artwork and lyrics sources, sidebar views, home shelves, right-click actions, playback and download sources &mdash; even tools for AI assistants.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Point Viboplr at a dev folder and reload as you edit</div>
+            <div class="feature-list-item">Full API reference and a quickstart</div>
+          </div>
+          <a href="../plugin-dev.html" class="feature-link">Read the plugin docs &rarr;</a>
+        </div>
+        <pre class="code-card"><span class="code-file">index.js</span>function activate(api) {
+  api.informationTypes.onFetch("artist_facts", function (entity) {
+    var url = "https://api.example.com/facts?artist="
+      + encodeURIComponent(entity.name);
+    return api.network.fetch(url).then(function (resp) {
+      return resp.json().then(function (data) {
+        if (!data.summary) return { status: "not_found" };
+        return { status: "ok", value: { summary: data.summary } };
+      });
+    });
+  });
+}
+
+return { activate: activate };</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sandbox + publish -->
+  <section class="feature-section">
+    <div class="container">
+      <div class="feature-row reveal">
+        <div class="feature-content">
+          <span class="feature-label">Share it</span>
+          <h2>From your folder <span class="gradient-text">to the gallery</span></h2>
+          <p>Attach a zip to a GitHub release, submit its link, and a bot checks it and opens the pull request to the gallery. Once it&rsquo;s in, people install it with one click and get your updates automatically.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Sandboxed plugins ask for exactly the permissions they need, and users approve them first</div>
+            <div class="feature-list-item">Auto-updates for everyone who installed it</div>
+          </div>
+          <a href="../plugins.html" class="feature-link">See what others have built &rarr;</a>
+        </div>
+        <figure class="persona-media">
+          <img src="../assets/screenshots/plugins.webp" alt="The Viboplr plugin gallery" loading="lazy" width="2560" height="1600">
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- Related personas -->
+  <section class="section section-alt">
+    <div class="container">
+      <div class="section-header reveal">
+        <h2>Also <span class="gradient-text">for you</span></h2>
+      </div>
+      <div class="related-personas">
+        <a href="../for/coders.html" class="persona-card reveal">
+          <h3>Coders</h3>
+          <p>A control API, keyboard everything, and a mini player.</p>
+          <span class="persona-card-more">Read more &rarr;</span>
+        </a>
+        <a href="../for/ai.html" class="persona-card reveal">
+          <h3>AI-assistant users</h3>
+          <p>Give your plugin assistant tools and Claude can use it.</p>
+          <span class="persona-card-more">Read more &rarr;</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="bottom-cta">
+    <div class="container reveal">
+      <h2>Ready to try <span class="gradient-text">Viboplr</span>?</h2>
+      <p>Free, open source, and <a href="../story.html" class="cta-story-link">built end-to-end with an AI assistant</a> &mdash; every feature, every detail.</p>
+      <div class="hero-buttons">
+        <a href="../install-mac.html" class="btn btn-primary">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+          Download for macOS
+        </a>
+        <a href="../install-windows.html" class="btn btn-outline">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l8-1.25V12H3zm0 .5h8v6.5l-8-1.25V12.5zM11.5 5.35l9.5-1.6V12h-9.5V5.35zM11.5 12.5H21v7.75l-9.5-1.6V12.5z"/></svg>
+          Download for Windows
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="../support.html" class="footer-link">Support</a>
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <a href="../story.html" class="footer-link">Built with Tauri + React &mdash; and an AI assistant</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="../js/main.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>
