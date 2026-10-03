@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { open } from "@tauri-apps/plugin-dialog";
 import { IMAGE_PICKER_FILTERS } from "../utils/imageFileFilters";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
@@ -22,6 +23,9 @@ export function SavePlaylistModal({ title, defaultName, defaultImage, withDescri
   const [imagePath, setImagePath] = useState<string | null>(defaultImage ?? null);
   const [description, setDescription] = useState(defaultDescription ?? "");
   const [imageError, setImageError] = useState<string | null>(null);
+  // The cover that failed to load (e.g. an expired remote URL) — preview falls
+  // back to the default art for it, and recovers when the user picks another.
+  const [failedImage, setFailedImage] = useState<string | null>(null);
 
   async function handlePasteImage() {
     try {
@@ -86,7 +90,14 @@ export function SavePlaylistModal({ title, defaultName, defaultImage, withDescri
         <h2 className="ds-modal-title">{title ?? "Save Playlist"}</h2>
         <div className="save-playlist-image-row">
           <div className="save-playlist-image-preview">
-            <img src={imagePath ? convertFileSrc(imagePath) : playlistDefault} alt="" />
+            {/* The default cover can be a remote URL (a plugin playlist's art) —
+                resolveImageSrc passes http(s) through instead of handing it to
+                convertFileSrc, which mangled it into a broken asset URL. */}
+            <img
+              src={(imagePath !== failedImage && resolveImageSrc(imagePath)) || playlistDefault}
+              alt=""
+              onError={() => { if (imagePath) setFailedImage(imagePath); }}
+            />
             <div className="artist-image-menu-wrapper">
               <button
                 className="artist-image-menu-trigger"
