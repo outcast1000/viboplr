@@ -728,6 +728,21 @@ fn scan_plugins_dir(
                             .and_then(|n| n.to_str())
                             .unwrap_or("")
                             .to_string();
+                        // A folder in the bundled-plugins dir that this build
+                        // doesn't ship is a leftover from an older install, not a
+                        // built-in. Loading it as one froze it at its old version
+                        // with no Uninstall and no updates (genius 1.0.0 on
+                        // Windows, years after it moved to its own repo). Skipping
+                        // it lets the user's installed copy — or a gallery
+                        // install — take the id as an ordinary plugin.
+                        if builtin && !crate::plugins::is_bundled_plugin_id(&dir_name) {
+                            log::info!(
+                                "Ignoring stale bundled plugin '{}' at {} — this build does not ship it",
+                                dir_name,
+                                path.display()
+                            );
+                            continue;
+                        }
                         // Bundle index.js content alongside the manifest so the
                         // frontend can activate plugins without a second IPC
                         // round-trip per plugin — but only for plugins that will

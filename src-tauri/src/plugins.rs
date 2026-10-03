@@ -1,6 +1,18 @@
 use std::path::{Path, PathBuf};
 use std::io::Read;
 
+/// Ids of the plugins this build bundles, baked in by build.rs from
+/// `src-tauri/plugins/<id>/` (those with a manifest).
+pub const BUNDLED_PLUGIN_IDS: &str = env!("VIBOPLR_BUNDLED_PLUGINS");
+
+/// Is `id` a plugin this build ships? A folder in the bundled-plugins directory
+/// that isn't is a leftover from an older install (the Windows installer never
+/// deletes files a later version stopped shipping) and must not be treated as
+/// built-in — see `commands::scan_plugins_dir`.
+pub fn is_bundled_plugin_id(id: &str) -> bool {
+    !id.is_empty() && BUNDLED_PLUGIN_IDS.split(',').any(|b| b == id)
+}
+
 pub fn plugins_dir(app_dir: &Path) -> PathBuf {
     let dir = app_dir.join("plugins");
     std::fs::create_dir_all(&dir).ok();
@@ -283,6 +295,35 @@ fn normalize_github_url(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_bundled_ids_match_the_plugins_folder() {
+        // build.rs bakes the list from src-tauri/plugins; it must name exactly
+        // the folders there, or a real built-in would be skipped as stale.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("plugins");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().join("manifest.json").is_file())
+            .map(|e| e.file_name().into_string().unwrap())
+            .collect();
+        on_disk.sort();
+        assert!(!on_disk.is_empty());
+        assert_eq!(BUNDLED_PLUGIN_IDS, on_disk.join(","));
+        for id in &on_disk {
+            assert!(is_bundled_plugin_id(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn test_externalized_plugins_are_not_bundled() {
+        // genius and auto-tagger left the bundle for their own repos; a copy left
+        // in an old install's resources must not pass for a built-in.
+        assert!(!is_bundled_plugin_id("genius"));
+        assert!(!is_bundled_plugin_id("auto-tagger"));
+        assert!(!is_bundled_plugin_id(""));
+        assert!(!is_bundled_plugin_id("lastfm,deezer"));
+    }
     use tempfile::TempDir;
 
     #[test]
