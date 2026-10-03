@@ -397,6 +397,9 @@ export function usePlugins(
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const permissionGrantsRef = useRef<Record<string, string[]>>({});
+  /** The states the last loadPlugins produced, for callers that act right after
+   *  an install/update and can't wait for a re-render (approval prompts). */
+  const pluginStatesRef = useRef<PluginState[]>([]);
   const appVersionRef = useRef<string>("0.0.0");
   const viewDataRef = useRef<Map<string, PluginViewData>>(new Map());
   const viewScrollKeyRef = useRef<Map<string, string>>(new Map());
@@ -2569,6 +2572,7 @@ export function usePlugins(
 
       settings.sort((a, b) => a.order - b.order);
 
+      pluginStatesRef.current = states;
       setPluginStates(states);
       setSidebarItems(sidebar);
       setMenuItems(menus);
@@ -2726,15 +2730,31 @@ export function usePlugins(
   // Approve everything a worker plugin's current manifest asks for, then load
   // it. The approval is exactly the requested list — not a union with older
   // approvals — so revoking a permission in a later version really drops it.
+  //
+  // Reads the latest loaded states, not this render's: the install dialog and
+  // the after-update prompt call it straight after a reload, before React has
+  // re-rendered, and a stale manifest would grant the previous version's list.
   const approvePermissions = useCallback(
     async (pluginId: string) => {
-      const requested = pluginStates.find((s) => s.id === pluginId)?.manifest.permissions ?? [];
+      const requested = pluginStatesRef.current.find((s) => s.id === pluginId)?.manifest.permissions ?? [];
       permissionGrantsRef.current = { ...permissionGrantsRef.current, [pluginId]: Array.from(new Set(requested)) };
       await store.set(PERMISSION_GRANTS_KEY, permissionGrantsRef.current);
       await loadPlugins();
     },
-    [pluginStates, loadPlugins],
+    [loadPlugins],
   );
+
+  // What the user would be asked to approve for this plugin right now: the
+  // requested permissions not yet approved. Empty for built-ins (pre-approved),
+  // main-realm plugins (no permission model) and anything fully approved — so
+  // an update asks only when it brings a NEW permission (owner decision,
+  // 2026-10-03). Works for a disabled plugin too, which is what a fresh install
+  // is until its install dialog enables it.
+  const permissionsToApprove = useCallback((pluginId: string): string[] => {
+    const s = pluginStatesRef.current.find((p) => p.id === pluginId);
+    if (!s || s.builtin || s.manifest.runtime !== "worker") return [];
+    return pendingPermissions(s.manifest.permissions ?? [], permissionGrantsRef.current[pluginId] ?? []);
+  }, []);
 
   // Withdraw every approval: the plugin stops now and waits for approval again.
   const revokePermissions = useCallback(
@@ -3531,6 +3551,7 @@ export function usePlugins(
     togglePlugin,
     reloadPlugin,
     approvePermissions,
+    permissionsToApprove,
     revokePermissions,
     reloadAllPlugins,
     forwardDeepLink,

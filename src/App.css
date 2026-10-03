@@ -1020,6 +1020,14 @@
 .plugin-install-body {
   margin: 6px 0 20px;
 }
+/* The permission list on the install dialog's last step and in the
+   after-update approval prompt. Scrolls rather than growing the modal past the
+   window: a plugin can ask for a dozen hosts. */
+.plugin-install-perms {
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0 0 16px;
+}
 .plugin-install-phase {
   display: flex;
   align-items: baseline;

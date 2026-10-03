@@ -1,4 +1,5 @@
 import { formatFileSize } from "../utils";
+import { PermissionList } from "./PermissionList";
 
 // Progress dialog for a gallery plugin install. Opens the instant "Install" is
 // pressed and walks the backend phases (resolving → downloading → installing),
@@ -24,6 +25,13 @@ export interface InstallFlowState {
   cancelling?: boolean;
   // "done" step: the freshly installed plugin landed disabled, so offer Enable.
   needsEnable?: boolean;
+  /**
+   * "done" step: what a worker-runtime plugin asks for. Installing is where the
+   * user is asked (owner decision) — so the enable step shows the list and
+   * enabling grants exactly it. Empty/absent = nothing to ask (no permissions,
+   * a main-realm plugin, or one whose list was already approved).
+   */
+  permissions?: string[];
 }
 
 interface Props {
@@ -92,6 +100,7 @@ function ErrorIcon() {
 export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry }: Props) {
   const working = flow.phase === "resolving" || flow.phase === "downloading" || flow.phase === "installing";
   const canCancel = flow.phase === "resolving" || flow.phase === "downloading";
+  const asks = (flow.permissions?.length ?? 0) > 0;
 
   // Determinate only while downloading with a known content length; otherwise the
   // bar pulses to signal indeterminate work.
@@ -143,15 +152,24 @@ export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry 
               {flow.name} installed
             </h2>
             <p className="delete-confirm-warning">
-              {flow.needsEnable
-                ? `${flow.name} is installed but not active yet. Enable it now?`
-                : `${flow.name} is ready to use.`}
+              {flow.needsEnable && asks
+                ? `${flow.name} asks for the permissions below. It can't do anything outside this list.`
+                : flow.needsEnable
+                  ? `${flow.name} is installed but not active yet. Enable it now?`
+                  : `${flow.name} is ready to use.`}
             </p>
+            {flow.needsEnable && asks && (
+              <div className="plugin-install-perms">
+                <PermissionList requested={flow.permissions!} />
+              </div>
+            )}
             <div className="ds-modal-actions">
               {flow.needsEnable ? (
                 <>
                   <button className="ds-btn ds-btn--ghost" onClick={onClose}>Not now</button>
-                  <button className="ds-btn ds-btn--primary" autoFocus onClick={onEnable}>Enable</button>
+                  <button className="ds-btn ds-btn--primary" autoFocus onClick={onEnable}>
+                    {asks ? "Allow and enable" : "Enable"}
+                  </button>
                 </>
               ) : (
                 <button className="ds-btn ds-btn--primary" autoFocus onClick={onClose}>Done</button>

@@ -101,7 +101,8 @@ import { useNowPlayingInfo } from "./hooks/useNowPlayingInfo";
 import { useImageResolver } from "./hooks/useImageResolver";
 import { useRetrieveModal } from "./hooks/useRetrieveModal";
 import { RetrieveModal } from "./components/RetrieveModal";
-import { useExtensions } from "./hooks/useExtensions";
+import { useExtensions, type PermissionRequest } from "./hooks/useExtensions";
+import { PluginPermissionPrompt } from "./components/PluginPermissionPrompt";
 
 import { useLikeActions } from "./hooks/useLikeActions";
 import { nextTriState } from "./likeKeys";
@@ -1535,6 +1536,17 @@ function App() {
   const skins = useSkins();
 
   // Extensions
+  // Plugins waiting for the user's word on their permissions, asked one at a
+  // time (PluginPermissionPrompt). Fed by updates that brought a new
+  // permission and by installs without a dialog of their own; gallery installs
+  // ask in their install dialog. De-duplicated by plugin id.
+  const [permissionQueue, setPermissionQueue] = useState<PermissionRequest[]>([]);
+  const enqueuePermissionRequests = useCallback((requests: PermissionRequest[]) => {
+    setPermissionQueue((prev) => {
+      const seen = new Set(prev.map((r) => r.pluginId));
+      return [...prev, ...requests.filter((r) => !seen.has(r.pluginId))];
+    });
+  }, []);
   const extensionsHook = useExtensions({
     pluginStates: plugins.pluginStates,
     installedSkins: skins.installedSkins,
@@ -1560,6 +1572,8 @@ function App() {
     onFetchSkinGallery: skins.fetchGallery,
     onReloadAllPlugins: plugins.reloadAllPlugins,
     onNotify: notify,
+    getPermissionsToApprove: plugins.permissionsToApprove,
+    onPermissionsNeeded: enqueuePermissionRequests,
   });
 
   // Update notice banner (top of the content column). The sidebar's Settings
@@ -5956,6 +5970,7 @@ function App() {
               contributionVisibility={plugins.contributionVisibility}
               onSetContributionEnabled={plugins.setContributionEnabled}
               onApprovePermissions={plugins.approvePermissions}
+              getPermissionsToApprove={plugins.permissionsToApprove}
               onRevokePermissions={plugins.revokePermissions}
               pluginGalleryLoading={plugins.galleryLoading}
               pluginGalleryError={plugins.galleryError}
@@ -6388,7 +6403,14 @@ function App() {
             installedPluginIds={new Set(plugins.pluginStates.map((p) => p.id))}
             onFetchGallery={() => plugins.fetchPluginGallery(true)}
             onInstallPlugin={(entry) => plugins.installFromGallery(entry)}
-            onEnablePlugin={(id) => plugins.togglePlugin(id, true)}
+            onEnablePlugin={async (id) => {
+              await plugins.togglePlugin(id, true);
+              // The wizard has no permission step of its own: a recommended
+              // plugin that asks for permissions is asked about here.
+              if (plugins.permissionsToApprove(id).length > 0) {
+                enqueuePermissionRequests([{ pluginId: id, mode: "install" }]);
+              }
+            }}
             lastfmInstalled={!!lastfmState}
             lastfmActive={lastfmState?.status === "active"}
             lastfmPanelData={lastfmPanelId ? plugins.getViewData("lastfm", lastfmPanelId) : undefined}
@@ -6414,6 +6436,43 @@ function App() {
             resyncComplete={resyncComplete}
             initialProfile={onboardingProfile}
             onClose={handleOnboardingClose}
+          />
+        );
+      })()}
+      {/* After the wizard in the tree so it stacks above it: the wizard's
+          plugin step can enable a plugin that asks for permissions. */}
+      {permissionQueue.length > 0 && (() => {
+        const req = permissionQueue[0];
+        const state = plugins.pluginStates.find((p) => p.id === req.pluginId);
+        const pending = plugins.permissionsToApprove(req.pluginId);
+        const next = () => setPermissionQueue((q) => q.slice(1));
+        // Approved meanwhile (the detail pane), uninstalled, or turned into a
+        // plugin with nothing to ask: skip it rather than ask about nothing.
+        if (!state || pending.length === 0) {
+          queueMicrotask(next);
+          return null;
+        }
+        return (
+          <PluginPermissionPrompt
+            key={req.pluginId}
+            pluginName={state.manifest.name}
+            mode={req.mode}
+            requested={state.manifest.permissions ?? []}
+            pending={pending}
+            onNotNow={next}
+            onAllow={async () => {
+              try {
+                await plugins.approvePermissions(req.pluginId);
+                // A fresh install lands disabled; allowing it is the enable.
+                if (req.mode === "install" && state.status === "disabled") {
+                  await plugins.togglePlugin(req.pluginId, true);
+                }
+              } catch (e) {
+                console.error(`Failed to allow permissions for ${req.pluginId}:`, e);
+                notify(`Couldn't allow ${state.manifest.name}'s permissions — ${e instanceof Error ? e.message : String(e)}`);
+              }
+              next();
+            }}
           />
         );
       })()}

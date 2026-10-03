@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { describePermission } from "../pluginWorker/permissions";
+import { PermissionList } from "./PermissionList";
 import type {
   ExtensionItem,
   ExtensionUpdate,
@@ -65,6 +65,9 @@ interface ExtensionsViewProps {
   // starts), or withdraw it (the plugin stops and waits again). Owned by usePlugins.
   onApprovePermissions?: (pluginId: string) => Promise<void>;
   onRevokePermissions?: (pluginId: string) => Promise<void>;
+  /** What enabling this plugin would have the user approve — read fresh from
+   *  plugin state, since this view's props lag the install by a render. */
+  getPermissionsToApprove?: (pluginId: string) => string[];
   // Gallery network state — drives skeletons + error/retry so the panel never
   // shows a silent gap while installable items load.
   pluginGalleryLoading?: boolean;
@@ -453,23 +456,11 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
                 ? "Included with Viboplr, so these are allowed automatically. It can't do anything outside this list."
                 : "What you allowed this plugin to do. It can't do anything outside this list."}
           </div>
-          <ul className="ext-perms-list">
-            {requested.map((perm) => {
-              const d = describePermission(perm);
-              return (
-                <li key={perm} className={`ext-perms-item${pending.has(perm) ? " is-pending" : ""}`}>
-                  <div className="ext-perms-label">
-                    {d.label}
-                    {d.sensitive && <span className="ext-badge ext-badge--attention">sensitive</span>}
-                    {waiting && pending.has(perm) && pending.size < requested.length && (
-                      <span className="ext-badge ext-badge--update">new</span>
-                    )}
-                  </div>
-                  <div className="ext-perms-detail">{d.detail}</div>
-                </li>
-              );
-            })}
-          </ul>
+          <PermissionList
+            requested={requested}
+            pending={pending}
+            markNew={waiting && pending.size < requested.length}
+          />
           <div className="ext-perms-actions">
             {waiting ? (
               <button
@@ -860,7 +851,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onUninstall, onToggleEnabled, onFetchPluginGallery, onFetchSkinGallery,
     onInstallFromUrl, onNotify, busy, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
     contributions, contributionVisibility, onSetContributionEnabled,
-    onApprovePermissions, onRevokePermissions,
+    onApprovePermissions, onRevokePermissions, getPermissionsToApprove,
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
     pluginViewMode = "list", onSetPluginViewMode,
@@ -1070,7 +1061,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     }
     setInstallFlow((prev) => {
       if (!prev || prev.id !== ext.id) return prev;
-      if (res.ok) return { ...prev, phase: "done", needsEnable: true };
+      if (res.ok) return { ...prev, phase: "done", needsEnable: true, permissions: getPermissionsToApprove?.(ext.id) };
       if (res.error === INSTALL_CANCELLED) return null; // cancelled → close silently
       return { ...prev, phase: "error", error: res.error };
     });
@@ -1082,8 +1073,19 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     invoke("cancel_plugin_install", { pluginId: flow.id }).catch(console.error);
   };
 
-  const enableInstalled = (flow: InstallFlowState) => {
+  // With a permission list on screen, "Allow and enable" grants exactly that
+  // list first, so the plugin starts instead of landing in "needs approval".
+  const enableInstalled = async (flow: InstallFlowState) => {
     setInstallFlow(null);
+    if (flow.permissions?.length && onApprovePermissions) {
+      try {
+        await onApprovePermissions(flow.id);
+      } catch (e) {
+        console.error(`Failed to allow permissions for ${flow.id}:`, e);
+        onNotify?.(`Couldn't allow ${flow.name}'s permissions — ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
     onToggleEnabled(flow.id, "plugin");
   };
 

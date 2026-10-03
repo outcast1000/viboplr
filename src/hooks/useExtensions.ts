@@ -35,6 +35,20 @@ interface UseExtensionsProps {
   onReloadAllPlugins: () => void | Promise<void>;
   /** Lightweight feedback for operations that used to fail into console.error only. */
   onNotify?: (message: string) => void;
+  /** What a plugin would ask the user to approve now (usePlugins.permissionsToApprove). */
+  getPermissionsToApprove?: (pluginId: string) => string[];
+  /**
+   * Plugins that just landed with permissions still to approve — an update that
+   * brought a new one, or an install with no dialog of its own (from a URL).
+   * App asks, one plugin at a time.
+   */
+  onPermissionsNeeded?: (requests: PermissionRequest[]) => void;
+}
+
+/** One plugin to ask about: `install` = grant and enable, `update` = grant. */
+export interface PermissionRequest {
+  pluginId: string;
+  mode: "install" | "update";
 }
 
 /** Live download progress for one extension, from `plugin-install-progress`. */
@@ -62,7 +76,23 @@ export function useExtensions(props: UseExtensionsProps) {
     onFetchSkinGallery,
     onReloadAllPlugins,
     onNotify,
+    getPermissionsToApprove,
+    onPermissionsNeeded,
   } = props;
+
+  // After an update lands (and its plugin reloaded), ask about the ones that
+  // now want something the user hasn't allowed. An update that brings no new
+  // permission asks nothing — owner decision, 2026-10-03.
+  const askAboutNewPermissions = useCallback(
+    (pluginIds: string[], mode: PermissionRequest["mode"]) => {
+      if (!getPermissionsToApprove || !onPermissionsNeeded) return;
+      const requests = pluginIds
+        .filter((id) => getPermissionsToApprove(id).length > 0)
+        .map((pluginId) => ({ pluginId, mode }));
+      if (requests.length > 0) onPermissionsNeeded(requests);
+    },
+    [getPermissionsToApprove, onPermissionsNeeded],
+  );
 
   const [updates, setUpdates] = useState<ExtensionUpdate[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -215,7 +245,10 @@ export function useExtensions(props: UseExtensionsProps) {
           // Each reload rebuilds the ENTIRE plugin runtime, so a batch defers
           // it and reloads once at the end instead of N times. Awaited either
           // way — it used to be fire-and-forget, letting N rebuilds overlap.
-          if (!opts?.deferReload) await onReloadPlugin(id);
+          if (!opts?.deferReload) {
+            await onReloadPlugin(id);
+            askAboutNewPermissions([id], "update");
+          }
         } else {
           await invoke("download_and_install_skin_update", {
             skinId: id,
@@ -237,7 +270,7 @@ export function useExtensions(props: UseExtensionsProps) {
         });
       }
     },
-    [updates, onReloadPlugin, clearProgress],
+    [updates, onReloadPlugin, clearProgress, askAboutNewPermissions],
   );
 
   const updateExtension = useCallback(
@@ -270,6 +303,7 @@ export function useExtensions(props: UseExtensionsProps) {
     if (available.length === 0) return;
     let succeeded = 0;
     let anyPlugin = false;
+    const updatedPlugins: string[] = [];
     const failed: string[] = [];
     try {
       // Downloads stay sequential on purpose — parallel installs would race on
@@ -281,7 +315,10 @@ export function useExtensions(props: UseExtensionsProps) {
         );
         if (await performUpdate(available[i].id, { deferReload: true })) {
           succeeded++;
-          if (available[i].kind === "plugin") anyPlugin = true;
+          if (available[i].kind === "plugin") {
+            anyPlugin = true;
+            updatedPlugins.push(available[i].id);
+          }
         } else {
           failed.push(available[i].name);
         }
@@ -294,6 +331,7 @@ export function useExtensions(props: UseExtensionsProps) {
     } finally {
       setBusyMessage(null);
     }
+    askAboutNewPermissions(updatedPlugins, "update");
     // Only a partial failure is worth a box — see `updateExtension` above for
     // why an all-succeeded batch reports nothing.
     if (failed.length > 0) {
@@ -302,7 +340,7 @@ export function useExtensions(props: UseExtensionsProps) {
         message: `${succeeded} of ${available.length} updated. Failed: ${failed.join(", ")}.`,
       });
     }
-  }, [updates, performUpdate, onReloadAllPlugins]);
+  }, [updates, performUpdate, onReloadAllPlugins, askAboutNewPermissions]);
 
   const installFromGallery = useCallback(
     async (
@@ -382,9 +420,12 @@ export function useExtensions(props: UseExtensionsProps) {
     async (url: string): Promise<boolean> => {
       setBusyMessage("Installing plugin…");
       try {
-        await invoke<string>("install_plugin_from_url", { url });
+        const pluginId = await invoke<string>("install_plugin_from_url", { url });
         await onReloadAllPlugins();
         onNotify?.("Plugin installed");
+        // No install dialog on this path, so a plugin that asks for
+        // permissions is asked about here — enabling it grants them.
+        askAboutNewPermissions([pluginId], "install");
         return true;
       } catch (e) {
         console.error("Failed to install from URL:", e);
@@ -397,7 +438,7 @@ export function useExtensions(props: UseExtensionsProps) {
         setBusyMessage(null);
       }
     },
-    [onReloadAllPlugins, onNotify],
+    [onReloadAllPlugins, onNotify, askAboutNewPermissions],
   );
 
   const extensions: ExtensionItem[] = useMemo(() => {
