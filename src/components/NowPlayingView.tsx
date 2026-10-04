@@ -15,6 +15,7 @@ import { TrackArtFallback } from "./TrackArtFallback";
 import { NowPlayingAbout } from "./NowPlayingAbout";
 import type { NowPlayingAboutData } from "../hooks/useNowPlayingAbout";
 import { CueOverlay } from "./CueOverlay";
+import { CueClipOverlay } from "./CueClipOverlay";
 import type { CueSheetRow } from "../utils/cueSheet";
 import "./NowPlayingView.css";
 
@@ -390,12 +391,17 @@ export function NowPlayingView({
   // column", whether because the track has no lyrics or because the user
   // collapsed them — and the art column (and so a visualizer sitting in it)
   // takes the whole stage either way.
-  const showAbout = aboutOpen && !!about;
-  const showLyrics = hasLyrics && !lyricsHidden && !showAbout;
-  const sideEmpty = !showLyrics && !showAbout;
   const cues = cueSheet?.sheet.cues ?? [];
   const hasCues = cues.length > 0;
   const showCues = hasCues && !cuesHidden;
+  const isClip = cueSheet?.sheet.mode === "clip";
+  // A clip owns the whole view while it plays: the side column (lyrics or
+  // About) steps aside, so the art takes the stage the clip draws over.
+  // Hiding the clip (the cue button) brings the column back.
+  const clipOwnsView = isClip && showCues;
+  const showAbout = aboutOpen && !!about && !clipOwnsView;
+  const showLyrics = hasLyrics && !lyricsHidden && !showAbout && !clipOwnsView;
+  const sideEmpty = !showLyrics && !showAbout;
   return (
     <div
       ref={surfaceRef}
@@ -440,9 +446,11 @@ export function NowPlayingView({
               onClick={onToggleLyrics}
               // Disabled rather than hidden, so the row doesn't reshuffle as the
               // queue moves between tracks that have lyrics and tracks that don't.
-              disabled={!hasLyrics}
+              disabled={!hasLyrics || clipOwnsView}
               title={
-                hasLyrics
+                clipOwnsView
+                  ? "Lyrics are hidden while the clip plays"
+                  : hasLyrics
                   ? showLyrics
                     ? "Hide lyrics"
                     : "Show lyrics"
@@ -464,7 +472,8 @@ export function NowPlayingView({
             <button
               className={`np-action-btn${showAbout ? "" : " is-off"}`}
               onClick={onToggleAbout}
-              title={showAbout ? "Hide info" : "About this track"}
+              disabled={clipOwnsView}
+              title={clipOwnsView ? "Info is hidden while the clip plays" : showAbout ? "Hide info" : "About this track"}
               aria-label={showAbout ? "Hide info" : "About this track"}
               aria-pressed={showAbout}
             >
@@ -485,8 +494,8 @@ export function NowPlayingView({
             <button
               className={`np-action-btn${showCues ? "" : " is-off"}`}
               onClick={onToggleCues}
-              title={showCues ? "Hide cue cards" : "Show cue cards"}
-              aria-label={showCues ? "Hide cue cards" : "Show cue cards"}
+              title={isClip ? (showCues ? "Hide clip" : "Show clip") : showCues ? "Hide cue cards" : "Show cue cards"}
+              aria-label={isClip ? (showCues ? "Hide clip" : "Show clip") : showCues ? "Hide cue cards" : "Show cue cards"}
               aria-pressed={showCues}
             >
               {/* A card with a spark: notes written about the song. */}
@@ -564,12 +573,12 @@ export function NowPlayingView({
               <TrackArtFallback track={track} size={variant === "fullscreen" ? 128 : 72} />
             </div>
           )}
-          {showCues && <CueOverlay key={track.key} cues={cues} source={cueSheet?.source} />}
+          {showCues && !isClip && <CueOverlay key={track.key} cues={cues} source={cueSheet?.source} />}
         </div>
         {/* Unmounted, not just hidden, when collapsed — the synced panel runs a
             position-driven auto-scroll, and leaving that ticking behind
             `display: none` would burn frames on something nobody can see. */}
-        {showAbout && about ? (
+        {clipOwnsView ? null : showAbout && about ? (
           <div className="np-lyrics-col np-lyrics-col--about">
             <NowPlayingAbout data={about} trackKey={track.key} />
           </div>
@@ -592,6 +601,17 @@ export function NowPlayingView({
           </div>
         )}
       </div>
+      {/* Keyed by the sheet's save time as well as the track, so a sheet
+          rewritten mid-song remounts cleanly rather than diffing elements
+          keyed by their index in the old sheet. */}
+      {clipOwnsView && (
+        <CueClipOverlay
+          key={`${track.key}:${cueSheet?.updatedAt ?? 0}`}
+          cues={cues}
+          playing={!!playing}
+          source={cueSheet?.source}
+        />
+      )}
       {/* No identity block in either variant. The chrome around this surface
           already carries the title/artist/album (the now-playing bar in-grid,
           FullscreenControls in fullscreen), so drawing them here too was the

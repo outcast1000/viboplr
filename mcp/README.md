@@ -67,9 +67,10 @@ playlists, likes, tags, lyrics/info (incl. `search_info`, a substring search
 over the cached plugin info values — find a track by a lyric phrase, local file
 lyrics included), Now Playing **cue sheets** (`get_cue_context` gathers a
 song's lyrics with timestamps, its meaning/bio/review prose, quality and tags
-plus the format guide; `cue_sheet` saves timed fact / lyric-meaning / image
-cards that the Now Playing view plays over the artwork — database only, no
-permission switch), plugin catalogs (YouTube/Spotify/TIDAL search + play), plugin
+plus the format guides; `cue_sheet` saves either timed fact / lyric-meaning /
+image cards played over the artwork, or — `mode: "clip"` — a text-and-image
+video clip over the whole Now Playing view: positioned elements, colours,
+motion presets and keyframes — database only, no permission switch), plugin catalogs (YouTube/Spotify/TIDAL search + play), plugin
 home shelves, collections (list + rescan — never add/remove), ad-hoc read-only
 SQL over the library database (`query_library` — writes and the credential
 tables are refused server-side), the app version (`app_version` — with

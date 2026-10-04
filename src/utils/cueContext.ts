@@ -12,7 +12,7 @@ import type { DisplayKind, InfoEntity, LyricsData } from "../types/informationTy
 import { fetchInfoValue, resolveInfoEntityId, type InvokeInfoFetch, type InfoTypeRow } from "./infoFetchChain";
 import { parseLrc } from "./lyrics";
 import { resolveTrackQuality } from "../hooks/useNowPlayingInfo";
-import { CUE_SHEET_GUIDE, type CueSheetRow } from "./cueSheet";
+import { CUE_CLIP_GUIDE, CUE_SHEET_GUIDE, type CueSheetRow } from "./cueSheet";
 
 /** Display kinds that carry readable prose about an entity. A superset of the
  *  About panel's (`ABOUT_DISPLAY_KINDS`): lyric annotations are noise on a
@@ -92,6 +92,8 @@ export interface CueContextLyrics {
   lines?: Array<{ at: number; text: string }>;
   /** Plain only. */
   text?: string;
+  /** Set when the lines don't fit this track's length (`lyricsTimingNote`). */
+  note?: string;
 }
 
 /** Lyrics shaped for the assistant: synced → timed lines (blank gap lines
@@ -106,6 +108,25 @@ export function lyricsForContext(value: unknown): CueContextLyrics | null {
     if (lines.length > 0) return { kind: "synced", lines };
   }
   return { kind: "plain", text: data.text.trim() };
+}
+
+/** A warning when synced lyrics evidently belong to a different cut of the
+ *  song: lines running past the track's end (an album version against a
+ *  radio edit — the self-test's lyrics ran to 325s on a 294s track), or
+ *  ending far short of it (a long live take). Same two-sided rule as the
+ *  video subtitles' `syncedLyricsFitMedia`; null when they fit or nothing is
+ *  known. Without it an assistant times cues to lines that will drift. */
+export function lyricsTimingNote(lyrics: CueContextLyrics | null, durationSecs: number | null): string | null {
+  if (!lyrics?.lines?.length || !durationSecs) return null;
+  const last = lyrics.lines[lyrics.lines.length - 1].at;
+  const past = lyrics.lines.filter((l) => l.at >= durationSecs).length;
+  if (last > durationSecs + 10) {
+    return `These synced lyrics run to ${Math.round(last)}s but the track is ${Math.round(durationSecs)}s long — they were timed to a different version, so line times may drift. ${past} line(s) fall after the end; cues there are rejected.`;
+  }
+  if (last < durationSecs * 0.6) {
+    return `These synced lyrics end at ${Math.round(last)}s of a ${Math.round(durationSecs)}s track — probably timed to a shorter version, so line times may not match this one.`;
+  }
+  return null;
 }
 
 export interface CueContextProse {
@@ -130,6 +151,8 @@ export interface CueContext {
   tags: string[];
   existingSheet: CueSheetRow | null;
   guide: string;
+  /** The clip (`mode: "clip"`) half of the format. */
+  clipGuide: string;
 }
 
 interface GatherOpts {
@@ -218,6 +241,7 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
     existingP,
   ]);
 
+  const lyricsNote = lyricsTimingNote(lyrics, track.duration_secs ?? null);
   return {
     track: {
       title,
@@ -228,10 +252,11 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
       quality,
       isPlaying: opts.isPlaying,
     },
-    lyrics,
+    lyrics: lyricsNote && lyrics ? { ...lyrics, note: lyricsNote } : lyrics,
     prose: [...songProse, ...artistProse, ...albumProse],
     tags,
     existingSheet,
     guide: CUE_SHEET_GUIDE,
+    clipGuide: CUE_CLIP_GUIDE,
   };
 }

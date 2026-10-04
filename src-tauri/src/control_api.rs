@@ -463,7 +463,7 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         // `context` walks the info chain for lyrics + prose, hence slow.
         .route("/v1/cues", get(|s, q| handle_bridge_query(s, "cues.get", q))
             .put(|s, b| handle_bridge_body(s, "cues.set", json!({}), b))
-            .delete(|s, b| handle_bridge_body(s, "cues.delete", json!({}), b)))
+            .delete(|s, q, b| handle_bridge_query_or_body(s, "cues.delete", q, b)))
         .route("/v1/cues/context", get(|s, q| handle_bridge_query_slow(s, "cues.context", q)))
         .route("/v1/artists/{id}/tracks", get(handle_artist_tracks))
         .route("/v1/artists/{id}/albums", get(handle_artist_albums))
@@ -1081,6 +1081,32 @@ async fn handle_bridge_query(
 ) -> Response {
     let timeout = state.0.bridge_timeout;
     bridge(&state.0, verb, query_payload(params), timeout).await
+}
+
+/// The query params and a JSON body merged into one payload (body fields win).
+/// For verbs whose GET sibling takes a query string: a caller that addresses
+/// `DELETE /v1/cues?title=…` the way it just read `GET /v1/cues?title=…`
+/// must not have the song silently dropped — the verb would then default to
+/// the playing track and delete the wrong sheet.
+fn merge_query_body(params: HashMap<String, String>, body: &Bytes) -> Result<Value, String> {
+    let mut payload = query_payload(params);
+    if let (Some(base), Value::Object(fields)) = (payload.as_object_mut(), parse_body(json!({}), body)?) {
+        base.extend(fields);
+    }
+    Ok(payload)
+}
+
+async fn handle_bridge_query_or_body(
+    state: AxumState<ServerState>,
+    verb: &'static str,
+    Query(params): Query<HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    let timeout = state.0.bridge_timeout;
+    match merge_query_body(params, &body) {
+        Ok(payload) => bridge(&state.0, verb, payload, timeout).await,
+        Err(e) => error_response(StatusCode::BAD_REQUEST, e),
+    }
 }
 
 /// Query-param bridge with the long wait — for GET verbs that may walk a
@@ -2647,6 +2673,21 @@ mod tests {
         assert_eq!(parse_body(json!({}), &Bytes::new()).unwrap(), json!({}));
         assert!(parse_body(json!({}), &Bytes::from("not json")).is_err());
         assert!(parse_body(json!({}), &Bytes::from("[1,2]")).is_err());
+    }
+
+    #[test]
+    fn test_query_addressed_delete_keeps_its_song() {
+        // DELETE /v1/cues?title=… with no body: the query must reach the verb,
+        // or it defaults to the playing track and deletes the wrong sheet.
+        let q = HashMap::from([("title".to_string(), "Zz Test".to_string())]);
+        assert_eq!(merge_query_body(q.clone(), &Bytes::new()).unwrap(), json!({ "title": "Zz Test" }));
+        // A body still works, and wins over the query field by field.
+        let body = Bytes::from(r#"{"title": "Roman Holiday", "artistName": "Fontaines D.C."}"#);
+        assert_eq!(
+            merge_query_body(q, &body).unwrap(),
+            json!({ "title": "Roman Holiday", "artistName": "Fontaines D.C." }),
+        );
+        assert!(merge_query_body(HashMap::new(), &Bytes::from("[1]")).is_err());
     }
 
     #[test]

@@ -47,7 +47,8 @@ import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDep
 import { sameSong } from "./useLikeActions";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
-import { sameCueSong, type CueSheetRow } from "../utils/cueSheet";
+import { cueCountBucket, cueErrorField, cuePastEndError, sameCueSong, type CueSheetRow } from "../utils/cueSheet";
+import { track } from "../telemetry";
 import { gatherCueContext } from "../utils/cueContext";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { errorText } from "../utils/errorKind";
@@ -260,6 +261,26 @@ function cueSong(d: ControlApiDeps, payload: Record<string, unknown>): { title: 
   if (title) return { title, artistName: optionalString(payload.artistName) ?? null };
   const t = d.playback.currentTrack ?? bad("nothing is playing — pass title (and artistName)");
   return { title: t.title, artistName: t.artist_name ?? null };
+}
+
+/** The addressed song's length, when anything knows it: the engine's figure
+ *  for the playing track, a queue entry's, else the library row's. */
+async function cueSongDuration(d: ControlApiDeps, song: { title: string; artistName: string | null }): Promise<number | null> {
+  const current = d.playback.currentTrack;
+  if (current && sameCueSong({ title: current.title, artistName: current.artist_name }, song)) {
+    return d.playback.durationSecs ?? current.duration_secs ?? null;
+  }
+  const queued = d.queueHook.queue.find((t) => sameCueSong({ title: t.title, artistName: t.artist_name }, song));
+  if (queued?.duration_secs) return queued.duration_secs;
+  try {
+    const row = await invoke<Track | null>("find_track_by_metadata", {
+      title: song.title, artistName: song.artistName, albumName: null,
+    });
+    return row?.duration_secs ?? null;
+  } catch (e) {
+    console.error("Failed to look up the cue sheet song's duration:", e);
+    return null;
+  }
 }
 
 /** Resolve request trackIds to library tracks, preserving request order. */
@@ -741,11 +762,27 @@ export function useControlApi(deps: ControlApiDeps) {
       case "cues.set": {
         const song = cueSong(d, payload);
         if (payload.sheet === undefined) bad("sheet is required: { cues: [...] } — GET /v1/cues/context describes the format");
-        return await invoke<CueSheetRow>("cue_sheet_set", {
-          ...song,
-          sheet: payload.sheet,
-          source: optionalString(payload.source) ?? null,
-        });
+        // Both outcomes are counted (anonymously: mode, cue-count bucket, the
+        // rejected field's name) — whether assistants use this and where they
+        // trip over the format is what the field test is for.
+        const pastEnd = cuePastEndError(payload.sheet, await cueSongDuration(d, song));
+        if (pastEnd) {
+          track("cue_sheet_rejected", { field: cueErrorField(pastEnd) });
+          bad(pastEnd);
+        }
+        let row: CueSheetRow;
+        try {
+          row = await invoke<CueSheetRow>("cue_sheet_set", {
+            ...song,
+            sheet: payload.sheet,
+            source: optionalString(payload.source) ?? null,
+          });
+        } catch (e) {
+          track("cue_sheet_rejected", { field: cueErrorField(errorText(e)) });
+          throw e;
+        }
+        track("cue_sheet_saved", { mode: row.sheet.mode ?? "cards", cues: cueCountBucket(row.sheet.cues.length) });
+        return row;
       }
 
       case "cues.delete": {

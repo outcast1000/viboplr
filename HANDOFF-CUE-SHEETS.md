@@ -1,6 +1,41 @@
 # Handoff: Now Playing cue sheets
 
-Branch: `feat/now-playing-cue-sheets` (from `main` at `84d82fbc`). Status: **first working version, not yet tried in the real app.**
+Branch: `feat/now-playing-cue-sheets` (from `main` at `84d82fbc`). Status: **working; live-tested 2026-10-04 in `tauri dev` on the `dev-3` profile, with Claude writing the sheet over HTTP (not yet via an MCP client).**
+
+## Clip mode (2026-10-04)
+
+`sheet.mode = "clip"` turns a sheet into a text-and-image video clip over the **whole** Now Playing view (owner decisions: whole view, presets + keyframes, tokens + custom hex colours, a cue may cover the art).
+
+- **Format:** `box {x,y,w,h}` (% of the view), `align` / `valign`, `size` (% of view height; a ceiling, see auto-fit), `fit`, `layer`, `opacity`, `color` / `backgroundColor` (token or hex), `background` none/scrim/card/solid, `weight` / `italic` / `case` / `shadow`, `dim`, `enter` / `exit` presets (+ typewriter / words reveals), `during` (ken-burns, drift-*, zoom-slow, pulse), `keyframes [{t,x,y,scale,opacity,rotate,ease}]`. New kind `shape` (clip only).
+- **Code:** validation in `db/cue_sheets.rs` (`normalize_clip_fields`, Rust tests); frame maths in `src/utils/cueClip.ts` (pure, `cueClip.test.ts`); renderer `CueClipOverlay.tsx/.css`; integration in `NowPlayingView.tsx`; guide `CUE_CLIP_GUIDE` served as `clipGuide` by the context; MCP `cue_sheet` gained `mode` and the clip fields; e2e test in `now-playing-cues.test.js`.
+- **Live-tested** with a 22-element clip for Roman Holiday (still saved on `dev-3`): title card, lyric words timed to the synced lines, colour field over the art, keyframed wipe, end titles. That run found that text overflowing its box got clipped, so the overlay now **auto-fits text** (`fitText`, `--fit`).
+- **Screenshots need the window visible**: an occluded WKWebView doesn't repaint, so a background `screencapture -l` returns a stale frame.
+- **Not done:** image cues with real URLs (still untested); fonts (none bundled); a clip preview/editor UI; `during` effects timed to the beat (the pulse is a fixed 1.6s cycle).
+
+## Release prep (2026-10-04)
+
+- **Field-test signals:** rejections are logged (`Cue sheet rejected: … : <error>`) next to saves (which now log the mode). Telemetry sends `cue_sheet_saved {mode, cues bucket}` and `cue_sheet_rejected {field}`; the field label comes only from a closed list of names (`cueErrorField`). Issue template `.github/ISSUE_TEMPLATE/cue_sheet_feedback.yml`.
+- **Unaided self-test:** a fresh agent with only the API and the guides wrote a 58-element clip for The Killing Moon, saved on the first try (still saved on `dev-3`). Its report led to these changes:
+  - a shape now fills with `color` when `backgroundColor` is missing
+  - saves return `warnings` for dropped or unknown fields (`ignored_fields`)
+  - context `lyrics.note` flags synced lyrics timed to a different cut (`lyricsTimingNote`)
+  - `\n` breaks lines
+  - `CUE_CLIP_GUIDE` now spells out the array name, the clip pacing rules, defaults, how dim and opacity combine, the rotation origin and the quote/image layout
+- **Perf:** not measured. `scratchpad/clip-cpu.sh` gives a rough A/B with the window visible; the real measure is `npm run perf:probe` on a release build.
+- **Migration:** #14 (`cue_sheets`) is free on origin/main (main stops at #13). origin/main b5004200 touches the control API / MCP, so expect a merge conflict there.
+
+## Live test (2026-10-04)
+
+Song: Fontaines D.C. – Roman Holiday (synced lyrics, Genius song bio + annotated meaning, Last.fm bio + album wiki). `GET /v1/cues/context` returned all of it. An 11-cue sheet written from it rendered correctly: quote cards timed to their lines, text cards in the instrumental breaks, and the cards stayed over the art when the slideshow switched to the band photo. The scratch sheet is still saved on `dev-3`.
+
+Found and fixed:
+- **`DELETE /v1/cues?title=…` deleted the playing song's sheet.** DELETE read only the body, so the query was dropped and the verb fell back to the current track, while reporting `deleted: true`. It now takes the query or the body (`control_api.rs` → `handle_bridge_query_or_body`, Rust test). The MCP tool sends a body and was never affected.
+- **A cue past the song's end saved silently** (e.g. `at: 65000`, milliseconds for seconds), so the sheet would never show a card. `cues.set` now rejects it and names the cue (`cuePastEndError`, unit-tested). The backend can't check this because it never learns the duration.
+- **Guide pacing.** Quote cards tied to fast lyric lines got 3–4s, too short to read the caption. `CUE_SHEET_GUIDE` now asks for ≥6s per card (≈2s + 1s per 3 words), lets a quote outlast its line, wants cue starts ≥8s apart with long texts in instrumental gaps, and spells out "seconds, not ms or m:ss".
+
+Validation errors for the other likely LLM mistakes ("1:05" strings, unknown kind, until < at, file:// image, empty text, cues at the top level) were all clear and named the cue.
+
+Not checked live: the corner hide button. It is on the idle-fading `.np-actions` row and needs real mouse movement; the e2e spec covers it.
 
 ## What it is
 
@@ -56,12 +91,12 @@ Cue shape: `{ at, until?, kind: "text" | "quote" | "image", text?, caption?, lab
 
 ## Not done / next steps
 
-1. **End-to-end with a real assistant.** Run `npm run tauri dev`, enable Settings → AI control, connect Claude via MCP, play a song with synced lyrics and ask it to make a cue sheet. Judge the pacing and the guide text (`CUE_SHEET_GUIDE`) on real output, and tune it.
+1. **Through an MCP client.** Done over HTTP (see Live test). Still worth one run with Claude connected via MCP, to see whether a model left to itself follows the guide's pacing rules.
 2. **Image cues are untested with real URLs.** Text and quote cues are the reliable part. Consider whether image cues should stay, or need an allow-list of hosts.
 3. **No UI to delete or inspect a sheet** except the hide toggle and the API. Possibly add "Remove cue sheet" somewhere (a native menu item on the button?).
 4. **Precompute ahead of playback.** The recipe tells the assistant it *may* do upcoming queue tracks, but nothing in-app triggers generation. An in-app path would be a plugin using `api.assistant.host` + an LLM key.
 5. **`nowPlayingInfo` push API.** Text cues could also flash in the mini player's info line, but that API has no mid-track push yet (see plugins.md `api.nowPlayingInfo`).
-6. Confirm whether the 3 unrelated test failures also fail on `main`.
+6. ~~Unrelated test failures~~: `sitePersonas` fails on `main` too (`docs/index.html` links `for/ai.html` twice since a265744e). `pluginSigningScript` passed on a re-run, so it looks flaky.
 
 ## How to try it quickly without an AI
 

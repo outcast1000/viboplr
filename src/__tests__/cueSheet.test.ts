@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeCueIndex, cueEnd, DEFAULT_CUE_SECS, sameCueSong, type Cue } from "../utils/cueSheet";
+import { activeCueIndex, cueCountBucket, cueEnd, cueErrorField, cuePastEndError, DEFAULT_CUE_SECS, sameCueSong, type Cue } from "../utils/cueSheet";
 import { lyricsForContext, proseText, PROSE_CHAR_CAP } from "../utils/cueContext";
 
 const cues: Cue[] = [
@@ -63,5 +63,41 @@ describe("cue context shaping", () => {
     const text = proseText("html", { content: "x".repeat(PROSE_CHAR_CAP + 50) })!;
     expect(text.length).toBeLessThanOrEqual(PROSE_CHAR_CAP + 2);
     expect(text.endsWith("…")).toBe(true);
+  });
+});
+
+describe("cuePastEndError", () => {
+  it("names the first cue past the song's end — the milliseconds-for-seconds mistake", () => {
+    const sheet = { cues: [{ at: 12, kind: "text" }, { at: 65000, kind: "text" }] };
+    expect(cuePastEndError(sheet, 268.9)).toBe(
+      "cues[1].at is 65000s but the song is 269s long — times are seconds into the track, not milliseconds",
+    );
+  });
+
+  it("passes a sheet that fits, an unknown duration, and malformed input (the backend names those)", () => {
+    expect(cuePastEndError({ cues: [{ at: 12 }, { at: 268 }] }, 268.9)).toBeNull();
+    expect(cuePastEndError({ cues: [{ at: 65000 }] }, null)).toBeNull();
+    expect(cuePastEndError({ cues: [{ at: "1:05" }] }, 268.9)).toBeNull();
+    expect(cuePastEndError("nonsense", 268.9)).toBeNull();
+  });
+
+  it("reads a bare cue array, which the backend also accepts", () => {
+    expect(cuePastEndError([{ at: 300 }], 268.9)).toMatch(/^cues\[0\]\.at is 300s/);
+  });
+});
+
+describe("cue telemetry labels", () => {
+  it("names only a known field, never the message", () => {
+    expect(cueErrorField("cues[3].color must be one of light, dark")).toBe("color");
+    expect(cueErrorField("cues[0].keyframes[2].t must be between 0 and 5")).toBe("keyframes");
+    expect(cueErrorField("cues[1].at is 65000s but the song is 269s long")).toBe("at");
+    expect(cueErrorField("cues[2] is a text cue and needs text")).toBe("cue");
+    expect(cueErrorField("cues[2].myPrivateNote must be")).toBe("other");
+    expect(cueErrorField("sheet.mode must be one of cards, clip")).toBe("sheet");
+    expect(cueErrorField("database is locked")).toBe("other");
+  });
+
+  it("buckets cue counts", () => {
+    expect([1, 9, 10, 29, 30, 200].map(cueCountBucket)).toEqual(["1-9", "1-9", "10-29", "10-29", "30-99", "100+"]);
   });
 });

@@ -1,0 +1,126 @@
+/* Clip-mode cue sheets over the whole Now Playing view (CueClipOverlay.tsx).
+   The clip paints over ARTWORK, never a skin surface, so every default uses
+   the never-flipped --scrim-rgb / --on-image-rgb / --hero-text-* set
+   (--overlay-* inverts under light skins). Per-element geometry, colour and
+   motion arrive as inline styles from utils/cueClip.ts. */
+
+.np-clip {
+  position: absolute;
+  inset: 0;
+  /* Positions and text size are percent of the view: cqw / cqh resolve
+     against this box, in the windowed view and in fullscreen alike. */
+  container-type: size;
+  overflow: hidden;
+  /* Above the stage, under the .np-actions row (z 3). */
+  z-index: 2;
+  pointer-events: none;
+}
+
+.np-clip-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgb(var(--scrim-rgb));
+}
+
+.np-clip-el {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  overflow: hidden;
+  transform-origin: center;
+  will-change: transform, opacity;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  /* A "\n" in a sheet's text is a deliberate line break (a two-line title). */
+  white-space: pre-line;
+}
+
+.np-clip-bg--scrim {
+  background: rgba(var(--scrim-rgb), 0.55);
+}
+.np-clip-bg--card {
+  background: rgba(var(--scrim-rgb), 0.58);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid rgba(var(--on-image-rgb), 0.12);
+  border-radius: var(--ds-radius-card);
+}
+.np-clip-bg--scrim,
+.np-clip-bg--card,
+.np-clip-bg--solid {
+  padding: 0.4em 0.6em;
+}
+.np-clip-el--image.np-clip-bg--scrim,
+.np-clip-el--image.np-clip-bg--card,
+.np-clip-el--image.np-clip-bg--solid,
+.np-clip-el--shape {
+  padding: 0;
+}
+
+.np-clip-el--shadow {
+  text-shadow:
+    0 1px 2px rgba(var(--scrim-rgb), 0.7),
+    0 2px 18px rgba(var(--scrim-rgb), 0.55);
+}
+
+.np-clip-text-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  max-width: 100%;
+}
+
+.np-clip-label {
+  font-size: 0.38em;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.np-clip-caption {
+  font-size: 0.5em;
+  font-style: normal;
+  font-weight: 400;
+  text-transform: none;
+  opacity: 0.85;
+  line-height: 1.35;
+}
+
+/* The not-yet-revealed text keeps its space, so a typewriter line doesn't
+   reflow (and re-centre) on every character. */
+.np-clip-unrevealed {
+  visibility: hidden;
+}
+
+.np-clip-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.np-clip-image-caption {
+  position: relative;
+  margin-top: auto;
+  padding: 0.4em 0.6em;
+  font-size: max(var(--fs-xs), 0.45em);
+  font-style: normal;
+  color: var(--hero-text-primary);
+  background: linear-gradient(transparent, rgba(var(--scrim-rgb), 0.7));
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.np-clip-source {
+  position: absolute;
+  right: 14px;
+  bottom: 10px;
+  z-index: 40;
+  font-size: var(--fs-2xs);
+  color: var(--hero-text-tertiary);
+}

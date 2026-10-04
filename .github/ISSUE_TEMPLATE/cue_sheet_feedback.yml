@@ -1,0 +1,91 @@
+name: Cue sheet / clip feedback (experimental)
+description: How an AI-written cue sheet or lyric-video clip played on the Now Playing screen
+title: "[Cue sheet] "
+labels: ["cue-sheets", "feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cue sheets are experimental: an AI assistant connected through AI control
+        writes timed cards, or a lyric-video clip, that play on the Now Playing
+        screen. Good and bad results are both useful. The sheet itself (step 4)
+        matters most, because it lets us replay exactly what you saw.
+  - type: dropdown
+    id: mode
+    attributes:
+      label: What did the AI make?
+      options:
+        - Cue cards
+        - A clip (lyric video)
+        - It failed to make one
+    validations:
+      required: true
+  - type: input
+    id: song
+    attributes:
+      label: Song
+      description: Artist — title. Mention if it played from a stream (YouTube, Spotify…) rather than a local file.
+      placeholder: Fontaines D.C. — Roman Holiday
+    validations:
+      required: true
+  - type: input
+    id: assistant
+    attributes:
+      label: AI assistant and model
+      placeholder: Claude Desktop, Claude Sonnet 5.5
+    validations:
+      required: true
+  - type: textarea
+    id: sheet
+    attributes:
+      label: The sheet
+      description: |
+        Ask the assistant to "paste the cue sheet for this song" (cue_sheet, action get), or run
+        `GET /v1/cues` against the control API. Paste the JSON here.
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: prompt
+    attributes:
+      label: What you asked for
+      placeholder: Make a lyric video for what's playing
+    validations:
+      required: false
+  - type: dropdown
+    id: watchable
+    attributes:
+      label: Was it worth watching?
+      options:
+        - 5 — great, I'd want this on every song
+        - 4 — good
+        - 3 — fine
+        - 2 — distracting
+        - 1 — broken or unwatchable
+    validations:
+      required: true
+  - type: dropdown
+    id: timing
+    attributes:
+      label: Did the timing match the music?
+      options:
+        - Spot on
+        - Mostly
+        - Noticeably off
+        - Not at all
+    validations:
+      required: true
+  - type: textarea
+    id: issues
+    attributes:
+      label: What went wrong or looked off?
+      description: Text cut off or overlapping, unreadable colours, wrong facts, images that didn't load, stutter, high CPU, anything. A screenshot or screen recording of a bad moment helps a lot.
+    validations:
+      required: false
+  - type: input
+    id: platform
+    attributes:
+      label: OS and app version
+      placeholder: macOS 26.1, Viboplr 1.0.90-beta.1
+    validations:
+      required: true
