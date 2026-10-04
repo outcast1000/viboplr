@@ -1,0 +1,104 @@
+/* Cue cards over the Now Playing art column (CueOverlay.tsx). They paint on
+   ARTWORK (or a visualizer), never on a skin surface, so the card uses the
+   never-flipped scrim/on-image pair and --hero-text-*: --overlay-* inverts
+   under light skins and would put light text on a white wash. */
+
+.np-cues {
+  position: absolute;
+  left: 50%;
+  bottom: 6%;
+  transform: translateX(-50%);
+  width: min(440px, 92%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.np-cue {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--ds-radius-card);
+  background: rgba(var(--scrim-rgb), 0.58);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: 0 8px 28px rgba(var(--scrim-rgb), 0.35);
+  border: 1px solid rgba(var(--on-image-rgb), 0.12);
+  color: var(--hero-text-primary);
+  animation: np-cue-in 420ms var(--ease-out-quart) both;
+}
+
+.np-cue-image {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+}
+
+.np-cue-body {
+  padding: 12px 16px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.np-cue-label {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hero-text-tertiary);
+}
+
+.np-cue-text {
+  font-size: var(--fs-base);
+  line-height: 1.4;
+  color: var(--hero-text-primary);
+}
+
+.np-cue--quote .np-cue-text {
+  font-style: italic;
+  font-weight: 600;
+}
+
+.np-cue-caption {
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--hero-text-secondary);
+}
+
+.np-cue-source {
+  align-self: flex-end;
+  font-size: var(--fs-2xs);
+  color: var(--hero-text-tertiary);
+}
+
+/* Fullscreen has the whole display: a wider, larger card reads from a sofa. */
+.now-playing-view--fs .np-cues {
+  width: min(620px, 92%);
+}
+.now-playing-view--fs .np-cue-text {
+  font-size: var(--fs-lg);
+}
+.now-playing-view--fs .np-cue-caption {
+  font-size: var(--fs-base);
+}
+.now-playing-view--fs .np-cue-image {
+  max-height: 320px;
+}
+
+@keyframes np-cue-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-cue {
+    animation: none;
+  }
+}

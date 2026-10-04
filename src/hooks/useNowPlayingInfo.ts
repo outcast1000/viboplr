@@ -345,6 +345,50 @@ function withTimeout<T>(p: Promise<T>, fallback: T): Promise<T> {
   ]);
 }
 
+/** The Quality text for a track ("FLAC · 96.0 kHz · 24-bit", "H264 · 1080p ·
+ *  30fps"), or null. Shared by the Quality info item and the cue-sheet
+ *  context (`utils/cueContext.ts`). `playing` says the engine's live decode
+ *  facts describe THIS track — pass false for any other track, or it would be
+ *  labelled with whatever is playing. */
+export async function resolveTrackQuality(
+  track: QueueTrack,
+  { playing }: { playing: boolean },
+): Promise<string | null> {
+  let engineInfo: EngineMediaInfo | null = null;
+  if (playing) {
+    try {
+      engineInfo = await withTimeout(nativeEngine.getMediaInfo(), null);
+    } catch (e) {
+      console.error("Failed to resolve engine media quality:", e);
+    }
+  }
+  // Video is the engine's alone — resolution is the answer there, and no
+  // tag reader supplies it.
+  const videoText = formatEngineVideoQuality(engineInfo);
+  if (videoText) return videoText;
+  // For audio, a file on disk beats the engine: lofty reports the depth
+  // the FILE carries, while `audio-params/format` reports what the
+  // decoder is emitting — s32 for a 24-bit FLAC (see
+  // `bitDepthFromMpvFormat`). The engine stays the only source for
+  // anything streamed.
+  let props: AudioProps | null = null;
+  if (track.path && isLocalTrack(track)) {
+    try {
+      props = await withTimeout(
+        invoke<AudioProps | null>("get_audio_properties_by_path", { path: track.path }),
+        null,
+      );
+    } catch (e) {
+      console.error("Failed to resolve audio quality:", e);
+    }
+  }
+  if (props) {
+    const text = formatQuality(track.format, props);
+    if (text) return text;
+  }
+  return formatEngineQuality(engineInfo) ?? formatQuality(track.format, null);
+}
+
 function artistSegment(track: QueueTrack, badge?: number | null): NowPlayingInfoSegment {
   const name = track.artist_name || "Unknown";
   return {
@@ -555,39 +599,7 @@ export function useNowPlayingInfo({
         return track.duration_secs ? { id, segments: [{ text: formatDuration(track.duration_secs) }] } : null;
       }
       if (id === "builtin:quality") {
-        let engineInfo: EngineMediaInfo | null = null;
-        try {
-          engineInfo = await withTimeout(nativeEngine.getMediaInfo(), null);
-        } catch (e) {
-          console.error("Failed to resolve engine media quality:", e);
-        }
-        // Video is the engine's alone — resolution is the answer there, and no
-        // tag reader supplies it.
-        const videoText = formatEngineVideoQuality(engineInfo);
-        if (videoText) return { id, segments: [{ text: videoText }] };
-        // For audio, a file on disk beats the engine: lofty reports the depth
-        // the FILE carries, while `audio-params/format` reports what the
-        // decoder is emitting — s32 for a 24-bit FLAC (see
-        // `bitDepthFromMpvFormat`). The engine stays the only source for
-        // anything streamed.
-        let props: AudioProps | null = null;
-        if (track.path && isLocalTrack(track)) {
-          try {
-            props = await withTimeout(
-              invoke<AudioProps | null>("get_audio_properties_by_path", { path: track.path }),
-              null,
-            );
-          } catch (e) {
-            console.error("Failed to resolve audio quality for now-playing info:", e);
-          }
-        }
-        if (props) {
-          const text = formatQuality(track.format, props);
-          if (text) return { id, segments: [{ text }] };
-        }
-        const engineText = formatEngineQuality(engineInfo);
-        if (engineText) return { id, segments: [{ text: engineText }] };
-        const text = formatQuality(track.format, null);
+        const text = await resolveTrackQuality(track, { playing: true });
         return text ? { id, segments: [{ text }] } : null;
       }
       if (id === "builtin:tags") {

@@ -457,6 +457,14 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/info/entity", get(|s, q| handle_bridge_query(s, "info.get", q)))
         .route("/v1/info/fetch", post(|s, b| handle_bridge_body_slow(s, "info.fetch", b)))
         .route("/v1/lyrics", get(|s, q| handle_bridge_query_slow(s, "lyrics.get", q)))
+        // Now Playing cue sheets (db/cue_sheets.rs). Bridged so a missing
+        // title defaults to what's playing and the open view reloads; DB-only
+        // (no file touched), so no write scope — same footing as /v1/likes.
+        // `context` walks the info chain for lyrics + prose, hence slow.
+        .route("/v1/cues", get(|s, q| handle_bridge_query(s, "cues.get", q))
+            .put(|s, b| handle_bridge_body(s, "cues.set", json!({}), b))
+            .delete(|s, b| handle_bridge_body(s, "cues.delete", json!({}), b)))
+        .route("/v1/cues/context", get(|s, q| handle_bridge_query_slow(s, "cues.context", q)))
         .route("/v1/artists/{id}/tracks", get(handle_artist_tracks))
         .route("/v1/artists/{id}/albums", get(handle_artist_albums))
         .route("/v1/albums/{id}/tracks", get(handle_album_tracks))

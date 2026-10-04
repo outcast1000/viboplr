@@ -193,6 +193,7 @@ import { NowPlayingView } from "./components/NowPlayingView";
 import { MusicQuizView } from "./components/MusicQuizView";
 import { useLyrics } from "./hooks/useLyrics";
 import { useNowPlayingAbout } from "./hooks/useNowPlayingAbout";
+import { useCueSheet } from "./hooks/useCueSheet";
 import type { ResolvedShelf } from "./hooks/useHome";
 import { LATEST_PLAY_SHELF_ID } from "./hooks/useHome";
 import type { HomeShelfItem } from "./types/plugin";
@@ -560,6 +561,11 @@ function App() {
     }
   }, [nowPlayingAboutOpen, setNowPlayingLyricsHidden]);
   const handleToggleNowPlayingAbout = useCallback(() => setNowPlayingAboutOpen((v) => !v), []);
+  // The user turned the Now Playing cue cards off. Persisted for the same
+  // reason as the lyrics flag: "I don't want notes over my artwork" is a
+  // standing preference, not a per-song one.
+  const [nowPlayingCuesHidden, setNowPlayingCuesHidden] = usePersistedSetting("nowPlayingCuesHidden", false, restoredRef);
+  const handleToggleNowPlayingCues = useCallback(() => setNowPlayingCuesHidden((v) => !v), [setNowPlayingCuesHidden]);
   // Lyrics timing offsets, per track, keyed by metadata (`lyricOffsetKey`).
   // Persisted rather than session-scoped: fetched LRC is timed against the audio
   // release, so a music video is out by its intro EVERY time it plays — making
@@ -3051,7 +3057,8 @@ function App() {
           eqShowBarControlSimple: savedEqShowBarSimple, eqShowBarControlAdvanced: savedEqShowBarAdvanced,
           rgMode: savedRgMode, rgPreampDb: savedRgPreampDb, rgPreventClip: savedRgPreventClip,
           nowPlayingInfoSelection: savedNowPlayingInfo, visualizerSlots: savedVisualizerSlots,
-          nowPlayingLyricsHidden: savedLyricsHidden, nowPlayingInfoPersistence: savedNowPlayingInfoTop,
+          nowPlayingLyricsHidden: savedLyricsHidden, nowPlayingCuesHidden: savedCuesHidden,
+          nowPlayingInfoPersistence: savedNowPlayingInfoTop,
           nowPlayingInfoOrder: savedNowPlayingInfoOrder,
           loggingEnabled: savedLoggingEnabled, debugLogging: savedDebugLogging, debugMode: savedDebugMode,
           devPluginPath: savedDevPluginPath, autoUpdateManagedDeps: savedAutoUpdateDeps,
@@ -3167,6 +3174,7 @@ function App() {
         if (savedNowPlayingInfo && typeof savedNowPlayingInfo === "object") setNowPlayingInfoSelection(savedNowPlayingInfo);
         if (savedVisualizerSlots && typeof savedVisualizerSlots === "object") setVisualizerSlots(savedVisualizerSlots);
         if (typeof savedLyricsHidden === "boolean") setNowPlayingLyricsHidden(savedLyricsHidden);
+        if (typeof savedCuesHidden === "boolean") setNowPlayingCuesHidden(savedCuesHidden);
         if (savedNowPlayingInfoTop && typeof savedNowPlayingInfoTop === "object") setNowPlayingInfoPersistence(savedNowPlayingInfoTop);
         if (Array.isArray(savedNowPlayingInfoOrder)) {
           setNowPlayingInfoOrder(savedNowPlayingInfoOrder.filter((id): id is string => typeof id === "string"));
@@ -4707,6 +4715,13 @@ function App() {
     invokeInfoFetch: plugins.invokeInfoFetch,
     pluginNames: plugins.pluginNames,
   });
+  // The assistant-written cue sheet for the playing song (utils/cueSheet.ts),
+  // read while an audio Now Playing surface is up — the cards render nowhere else.
+  const nowPlayingCueSheet = useCueSheet(
+    playback.currentTrack,
+    (library.view === "nowplaying" || audioFullscreen) &&
+      !!playback.currentTrack && !isVideoTrack(playback.currentTrack),
+  );
   // Synced lyrics for the video subtitle overlay: only when the current track is
   // video, synced lyrics exist, and they fit the media length in BOTH directions
   // — not running past it (a short edit/preview) and not covering only a sliver
@@ -5850,6 +5865,9 @@ function App() {
               about={nowPlayingAbout}
               aboutOpen={nowPlayingAboutOpen}
               onToggleAbout={handleToggleNowPlayingAbout}
+              cueSheet={nowPlayingCueSheet}
+              cuesHidden={nowPlayingCuesHidden}
+              onToggleCues={handleToggleNowPlayingCues}
               visualizerSlot={
                 nowPlayingVisualizer
                   ? renderVisualizerSlot("nowplaying", nowPlayingVisualizer)
@@ -7034,6 +7052,9 @@ function App() {
               about={nowPlayingAbout}
               aboutOpen={nowPlayingAboutOpen}
               onToggleAbout={handleToggleNowPlayingAbout}
+              cueSheet={nowPlayingCueSheet}
+              cuesHidden={nowPlayingCuesHidden}
+              onToggleCues={handleToggleNowPlayingCues}
               visualizerSlot={
                 fullscreenVisualizer
                   ? renderVisualizerSlot("fullscreen", fullscreenVisualizer)

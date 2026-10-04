@@ -164,6 +164,8 @@
    two-class `--nolyrics`/`--fs` selectors out-specify anything scoped narrower.
    One property, declared on the column both readers sit in, can't disagree. */
 .np-art-col {
+  /* Positioning context for the cue cards (CueOverlay.css). */
+  position: relative;
   flex: 0 0 auto;
   display: flex;
   align-items: center;

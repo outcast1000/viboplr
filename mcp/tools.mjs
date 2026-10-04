@@ -53,6 +53,7 @@ export const INSTRUCTIONS = [
   "Plugin-fetched info (lyrics — local file lyrics included — bios, reviews) is cached in the plugins' database storage; search_info searches that cache, e.g. to find which track contains a lyric phrase.",
   "Bulk-tagging recipe (when asked to tag the library properly): work artist by artist, biggest first (query_library: artists ordered by track_count); fetch an artist's community tags once via get_entity_info (kind=track, typeId=track_tags, using any one track of theirs — artist-level tags return as artistTags), pick the top few, then apply them to every track of that artist with edit_track_tags.",
   "If tools report the app unreachable, ask the user to start Viboplr and enable Settings → AI control.",
+  "Cue sheet recipe (when asked to make the Now Playing screen show notes, meanings or pictures for a song): get_cue_context for the song, read its guide, write cues grounded in that material — lyric meanings timed to the synced lines, facts in the quiet stretches — then cue_sheet action=set. Do it for upcoming queue tracks too if asked (get_queue), so the cards are ready when each song starts. Never invent image URLs or facts.",
   "Renaming recipe (when asked to correct an artist/album/title — a transliteration like greeklish, a typo, mojibake): a name lives in more places than the tags, and the order matters. (1) Propose the corrected spelling and get a yes before writing — greeklish cannot be reversed mechanically, only from knowing the song. (2) BEFORE writing, read which affected tracks/artists/albums are liked (query_library on entity_likes or the track rows): likes are keyed by name and will read as neutral afterwards. (3) write_file_tags — artist per batch, then title per track (title is single-track); the library merges into an existing artist/album automatically (accent/case-insensitive). (4) rename_history the same way — artist first, then each retitled track; when the target already has history, dryRun first and show the counts (a merge is permanent). (5) set_like again under the new names for anything that was liked. (6) Say plainly what does not follow: playlist entries keep their own copy of the names and no tool edits them yet; the live queue keeps its snapshot until the next play; cached lyrics/bios/images simply refetch under the new name.",
   "If the user asks what you (or this MCP server) can do with Viboplr, answer warmly and in plain language, never as a list of tool names. Lead with the high-value jobs that are tedious by hand: fixing names across the library — greeklish back into Greek, mojibake (garbled accents like 'BjÃ¶rk'), typos, messy downloaded titles like 'Artist - Song (Official Video)', one artist split under several spellings — with the tags, the files and the play history all following (see the renaming recipe); tagging the whole library properly from community genres (see the bulk-tagging recipe); saving lyrics and cover art next to the files and tidying folders, always showing the plan first. Then the everyday things: play, queue or start a radio by mood or artist; build and edit playlists; answer questions about the library and listening history (most played per year, liked but forgotten, never played) and find a song from a half-remembered lyric (search_info); download a track from its own source or through a plugin such as yt-dlp. Check writeScopes (app_version) first and mention which of these need a permission switch the user hasn't turned on yet. Close by asking which they'd like to start with — or offer to look through the library for names that need fixing.",
   "Plugins' own tools are listed as tools named <pluginId>__<tool>, described with the plugin's name — e.g. spotify-browse__list_playlists lists the user's Spotify playlists and spotify-browse__get_playlist_tracks reads one playlist's tracks without playing it. plugin_tools action=list returns the same roster with each plugin's notes, and is the fallback when those tools are missing (the app wasn't running when tools were listed). Read-only plugin tools (readOnlyHint) always run; the others, plus plugin_actions invoke and plugin_deep_link, need the \"Plugin actions\" switch.",
@@ -449,6 +450,66 @@ export const TOOLS = [
       typeId
         ? ctx.request("POST", "/v1/info/fetch", { kind, name, title, artistName, typeId, pluginId }, { timeoutMs: SLOW_MS })
         : ctx.request("GET", `/v1/info/entity${qs({ kind, name, title, artistName })}`),
+  },
+  {
+    name: "get_cue_context",
+    readOnly: true,
+    categories: ["info"],
+    description:
+      "Everything needed to write a Now Playing cue sheet for a song — omit title/artistName to use what's playing. Returns the track (title, artist, album, duration, quality), its lyrics (synced lyrics as timed lines: lines[].at seconds — the clock to place cues on), every prose info value for the song/artist/album (song story or meaning, lyric annotations, bio, album review; plain text, capped), library tags, any sheet already saved (existingSheet), and `guide` — the cue format and how to pace it. Read the guide before writing. Walks the info provider chain, so it can take a while on a song not fetched before.",
+    inputSchema: obj({
+      title: str("Track title (omit to use the playing track)"),
+      artistName: str("Artist (with title)"),
+      albumTitle: str("Album (with title, optional — helps find the library copy)"),
+    }),
+    run: (args, ctx) => ctx.request("GET", `/v1/cues/context${qs(args)}`, undefined, { timeoutMs: SLOW_MS }),
+  },
+  {
+    name: "cue_sheet",
+    readOnly: false,
+    readOnlyWhen: { action: ["get"] },
+    categories: ["info"],
+    description:
+      "Read, save or delete a song's Now Playing cue sheet — timed cards (facts, lyric meanings, images) shown over the album art while the song plays; an open Now Playing view picks a save up immediately. Omit title/artistName to address what's playing. action=set replaces any earlier sheet and returns the normalized sheet (sorted, unknown fields dropped); a 400 names the offending cue. Build it from get_cue_context, whose `guide` is the format. Database only — no file is touched and no permission switch is needed; the user can hide the cards with a button on the Now Playing view.",
+    inputSchema: obj(
+      {
+        action: en(["get", "set", "delete"], "get / set (replace) / delete"),
+        title: str("Track title (omit to use the playing track)"),
+        artistName: str("Artist (with title)"),
+        cues: {
+          type: "array",
+          description: "action=set: the cues, in any order",
+          items: obj(
+            {
+              at: num("Seconds into the track the card appears"),
+              until: num("Seconds it leaves (default at+10, always cut short by the next cue)"),
+              kind: en(["text", "quote", "image"], "text: a fact; quote: lyric words + meaning; image: a picture"),
+              text: str("text: the fact (≤400 chars). quote: the lyric words"),
+              caption: str("quote: what the words mean; image: what it shows (≤200 chars)"),
+              label: str("Optional 1–3 word eyebrow, e.g. Meaning, Recording, Trivia"),
+              imageUrl: str("image: an https URL you are sure exists — never invent one"),
+            },
+            ["at", "kind"],
+          ),
+        },
+        source: str("action=set: who wrote it, shown small on each card (e.g. your name)"),
+      },
+      ["action"],
+    ),
+    run: ({ action, title, artistName, cues, source }, ctx) => {
+      const song = { title, artistName };
+      switch (action) {
+        case "get":
+          return ctx.request("GET", `/v1/cues${qs(song)}`);
+        case "set":
+          need({ cues }, ["cues"], "action=set");
+          return ctx.request("PUT", "/v1/cues", { ...song, sheet: { cues }, source });
+        case "delete":
+          return ctx.request("DELETE", "/v1/cues", song);
+        default:
+          throw new Error(`unknown cue_sheet action: ${action}`);
+      }
+    },
   },
   {
     name: "search_info",

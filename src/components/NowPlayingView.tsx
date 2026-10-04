@@ -14,6 +14,8 @@ import { useIdleVisibility } from "../hooks/useIdleVisibility";
 import { TrackArtFallback } from "./TrackArtFallback";
 import { NowPlayingAbout } from "./NowPlayingAbout";
 import type { NowPlayingAboutData } from "../hooks/useNowPlayingAbout";
+import { CueOverlay } from "./CueOverlay";
+import type { CueSheetRow } from "../utils/cueSheet";
 import "./NowPlayingView.css";
 
 interface NowPlayingViewProps {
@@ -94,6 +96,15 @@ interface NowPlayingViewProps {
   /** Omit to hide the offset control (it is also hidden for plain lyrics, which
       have no timeline to shift). */
   onLyricsOffsetChange?: (secs: number) => void;
+  /** This song's assistant-written cue sheet (`useCueSheet`), or null. Its
+      cards play over the art column — over a visualizer too, since the cues
+      describe the song, not the picture. */
+  cueSheet?: CueSheetRow | null;
+  /** The user turned the cue cards off (persisted, `nowPlayingCuesHidden`). */
+  cuesHidden?: boolean;
+  /** Show/hide the cue cards. The button only appears for a track that has a
+      sheet. */
+  onToggleCues?: () => void;
 }
 
 /** Centered, lean-back lyrics display. Synced (karaoke) when LRC timing is
@@ -284,6 +295,9 @@ export function NowPlayingView({
   onToggleAbout,
   lyricsOffsetSecs = 0,
   onLyricsOffsetChange,
+  cueSheet,
+  cuesHidden = false,
+  onToggleCues,
 }: NowPlayingViewProps) {
   const isVideo = track ? isVideoTrack(track) : false;
   const isFullscreen = variant === "fullscreen";
@@ -379,6 +393,9 @@ export function NowPlayingView({
   const showAbout = aboutOpen && !!about;
   const showLyrics = hasLyrics && !lyricsHidden && !showAbout;
   const sideEmpty = !showLyrics && !showAbout;
+  const cues = cueSheet?.sheet.cues ?? [];
+  const hasCues = cues.length > 0;
+  const showCues = hasCues && !cuesHidden;
   return (
     <div
       ref={surfaceRef}
@@ -396,7 +413,7 @@ export function NowPlayingView({
 
           The row travels into fullscreen unchanged; only "enter fullscreen" drops
           out there, because the control bar under it owns the exit. */}
-      {(onOpenVisualizerPicker || onToggleLyrics || onToggleAbout || onToggleFullscreen) && (
+      {(onOpenVisualizerPicker || onToggleLyrics || onToggleAbout || onToggleFullscreen || (onToggleCues && hasCues)) && (
         <div className={`np-actions${actionsVisible ? " is-visible" : ""}`}>
           {onOpenVisualizerPicker && (
             <button
@@ -458,6 +475,26 @@ export function NowPlayingView({
                 <circle cx="12" cy="12" r="9" />
                 <line x1="12" y1="11" x2="12" y2="16.5" />
                 <line x1="12" y1="7.5" x2="12" y2="7.5" />
+              </svg>
+            </button>
+          )}
+          {/* Hidden, not disabled, without a sheet — unlike Lyrics. Almost no
+              track has one, so a permanently greyed button would be noise on
+              every song for the sake of the few that do. */}
+          {onToggleCues && hasCues && (
+            <button
+              className={`np-action-btn${showCues ? "" : " is-off"}`}
+              onClick={onToggleCues}
+              title={showCues ? "Hide cue cards" : "Show cue cards"}
+              aria-label={showCues ? "Hide cue cards" : "Show cue cards"}
+              aria-pressed={showCues}
+            >
+              {/* A card with a spark: notes written about the song. */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="6" width="14" height="12" rx="2" />
+                <line x1="6.5" y1="10.5" x2="13.5" y2="10.5" />
+                <line x1="6.5" y1="14" x2="11" y2="14" />
+                <path d="M20 3v4M18 5h4" />
               </svg>
             </button>
           )}
@@ -527,6 +564,7 @@ export function NowPlayingView({
               <TrackArtFallback track={track} size={variant === "fullscreen" ? 128 : 72} />
             </div>
           )}
+          {showCues && <CueOverlay key={track.key} cues={cues} source={cueSheet?.source} />}
         </div>
         {/* Unmounted, not just hidden, when collapsed — the synced panel runs a
             position-driven auto-scroll, and leaving that ticking behind

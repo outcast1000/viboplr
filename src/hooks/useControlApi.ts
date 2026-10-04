@@ -47,6 +47,9 @@ import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDep
 import { sameSong } from "./useLikeActions";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
+import { sameCueSong, type CueSheetRow } from "../utils/cueSheet";
+import { gatherCueContext } from "../utils/cueContext";
+import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { errorText } from "../utils/errorKind";
 import { stabilityTier } from "../utils/pluginStability";
 import {
@@ -248,6 +251,15 @@ function bad(message: string): never {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** The song a cue-sheet verb addresses: `title` (+ `artistName`) from the
+ *  request, else the playing track. */
+function cueSong(d: ControlApiDeps, payload: Record<string, unknown>): { title: string; artistName: string | null } {
+  const title = optionalString(payload.title);
+  if (title) return { title, artistName: optionalString(payload.artistName) ?? null };
+  const t = d.playback.currentTrack ?? bad("nothing is playing — pass title (and artistName)");
+  return { title: t.title, artistName: t.artist_name ?? null };
 }
 
 /** Resolve request trackIds to library tracks, preserving request order. */
@@ -711,6 +723,59 @@ export function useControlApi(deps: ControlApiDeps) {
           kind: "track", title, artistName, albumTitle, typeId: "lyrics",
           // Optional provider pin rides through (e.g. force LRCLIB vs local).
           pluginId: payload.pluginId,
+        });
+      }
+
+      // --- Now Playing cue sheets (db/cue_sheets.rs, utils/cueSheet.ts) ---
+      //
+      // Song addressed by title (+ artistName), defaulting to what's playing.
+      // The writes are the cue_sheet_* commands themselves: they emit
+      // `cue-sheet-changed`, which is how the open Now Playing view reloads,
+      // so there is no React state here to keep in step.
+
+      case "cues.get": {
+        const song = cueSong(d, payload);
+        return await invoke<CueSheetRow | null>("cue_sheet_get", song);
+      }
+
+      case "cues.set": {
+        const song = cueSong(d, payload);
+        if (payload.sheet === undefined) bad("sheet is required: { cues: [...] } — GET /v1/cues/context describes the format");
+        return await invoke<CueSheetRow>("cue_sheet_set", {
+          ...song,
+          sheet: payload.sheet,
+          source: optionalString(payload.source) ?? null,
+        });
+      }
+
+      case "cues.delete": {
+        const song = cueSong(d, payload);
+        return { deleted: await invoke<boolean>("cue_sheet_delete", song) };
+      }
+
+      case "cues.context": {
+        const song = cueSong(d, payload);
+        const current = d.playback.currentTrack;
+        const isPlaying = !!current && sameCueSong(
+          { title: current.title, artistName: current.artist_name }, song,
+        );
+        // The playing entry is the richest description of this song (its
+        // path probes local lyrics and the file's real quality); otherwise
+        // the library row, otherwise metadata alone.
+        let track: QueueTrack;
+        if (isPlaying && current) {
+          track = current;
+        } else {
+          const row = await invoke<Track | null>("find_track_by_metadata", {
+            title: song.title, artistName: song.artistName, albumName: optionalString(payload.albumTitle) ?? null,
+          });
+          track = row ? trackToQueueTrack(row) : buildExternalQueueTrack(song.title, song.artistName);
+        }
+        return await gatherCueContext({
+          track,
+          isPlaying,
+          invokeInfoFetch: d.plugins.invokeInfoFetch,
+          pluginNames: d.plugins.pluginNames,
         });
       }
 

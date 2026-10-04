@@ -310,6 +310,7 @@ mod artists;
 mod auto_playlists;
 pub mod collections;
 pub mod control_query;
+pub mod cue_sheets;
 mod history;
 mod image_failures;
 pub mod likes;
@@ -674,6 +675,17 @@ impl Database {
                 created_at  INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
             );
 
+            -- Assistant-written cue sheets for the Now Playing view, keyed by
+            -- the likes store's metadata entity key — see db/cue_sheets.rs.
+            CREATE TABLE IF NOT EXISTS cue_sheets (
+                entity_key  TEXT PRIMARY KEY,
+                title       TEXT NOT NULL,
+                artist_name TEXT,
+                sheet       TEXT NOT NULL,
+                source      TEXT,
+                updated_at  INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS db_version (
                 version INTEGER NOT NULL
             );
@@ -996,6 +1008,24 @@ impl Database {
                  VALUES ('lyrics', 'Lyrics', 'track', 'lyrics', 'core:local-lyrics', 7776000, 200, 50, 1,
                          'Song lyrics, synced or plain text')
                  ON CONFLICT(type_id, plugin_id) DO NOTHING",
+                [],
+            )?;
+        }
+
+        // 14. Cue sheets (assistant-written Now Playing cues — db/cue_sheets.rs).
+        //     Fresh DBs get the table via init_tables; pre-feature DBs here.
+        //     Schema-presence gated (CREATE TABLE IF NOT EXISTS), like #7.
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS cue_sheets (
+                    entity_key  TEXT PRIMARY KEY,
+                    title       TEXT NOT NULL,
+                    artist_name TEXT,
+                    sheet       TEXT NOT NULL,
+                    source      TEXT,
+                    updated_at  INTEGER NOT NULL
+                )",
                 [],
             )?;
         }

@@ -461,6 +461,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
         failed: [],
         unchecked: [],
       };
+    // Now Playing cue sheets: none unless a spec opts in with
+    // `window.__E2E_CUES__` (a CueSheetRow-shaped object), served for any song.
+    case 'cue_sheet_get':
+      return (typeof window !== 'undefined' && window.__E2E_CUES__) || null;
     case 'search_youtube':
       return { url: 'https://www.youtube.com/watch?v=mock123', video_title: args.title };
     case 'yt_dlp_check':

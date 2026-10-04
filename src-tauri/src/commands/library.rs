@@ -550,6 +550,71 @@ pub fn toggle_liked(
     state.db.toggle_liked(table, id, liked).map_err(|e| e.to_string())
 }
 
+/// The Now Playing cue sheet for a song (`db/cue_sheets.rs`), or null.
+#[tauri::command]
+pub fn cue_sheet_get(
+    state: State<'_, AppState>,
+    title: String,
+    artist_name: Option<String>,
+) -> Result<Option<crate::db::cue_sheets::CueSheetRow>, String> {
+    state.db.get_cue_sheet(&title, artist_name.as_deref()).map_err(|e| e.to_string())
+}
+
+/// Validate, normalize and store a cue sheet; returns the stored row so the
+/// caller sees exactly what will play (the normalizer drops and sorts).
+/// Emits `cue-sheet-changed` so an open Now Playing view reloads it.
+#[tauri::command]
+pub fn cue_sheet_set(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    title: String,
+    artist_name: Option<String>,
+    sheet: serde_json::Value,
+    source: Option<String>,
+) -> Result<crate::db::cue_sheets::CueSheetRow, String> {
+    use crate::db::cue_sheets::{normalize_cue_sheet, normalize_source};
+    let title = title.trim().to_string();
+    if title.is_empty() {
+        return Err("title is required".into());
+    }
+    let artist_name = artist_name.map(|a| a.trim().to_string()).filter(|a| !a.is_empty());
+    let sheet = normalize_cue_sheet(&sheet)?;
+    let source = normalize_source(source.as_deref());
+    let now_ts: i64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    state
+        .db
+        .set_cue_sheet(&title, artist_name.as_deref(), &sheet, source.as_deref(), now_ts)
+        .map_err(|e| e.to_string())?;
+    log::info!(
+        "Cue sheet saved: {} — {} ({} cues, source {})",
+        artist_name.as_deref().unwrap_or("?"),
+        title,
+        sheet["cues"].as_array().map_or(0, |c| c.len()),
+        source.as_deref().unwrap_or("unknown"),
+    );
+    let _ = app.emit("cue-sheet-changed", serde_json::json!({ "title": title, "artistName": artist_name }));
+    Ok(crate::db::cue_sheets::CueSheetRow { title, artist_name, sheet, source, updated_at: now_ts })
+}
+
+/// Returns whether a sheet existed.
+#[tauri::command]
+pub fn cue_sheet_delete(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    title: String,
+    artist_name: Option<String>,
+) -> Result<bool, String> {
+    let existed = state.db.delete_cue_sheet(&title, artist_name.as_deref()).map_err(|e| e.to_string())?;
+    if existed {
+        log::info!("Cue sheet deleted: {} — {}", artist_name.as_deref().unwrap_or("?"), title);
+        let _ = app.emit("cue-sheet-changed", serde_json::json!({ "title": title, "artistName": artist_name }));
+    }
+    Ok(existed)
+}
+
 #[tauri::command]
 pub fn set_entity_like_state(
     app: AppHandle,

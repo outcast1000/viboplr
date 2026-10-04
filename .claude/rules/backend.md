@@ -193,6 +193,15 @@ It is a correlated subquery evaluated once per album, which makes the covering i
 - `get_track_like_states(&[(title, artist)])` batch-reads track like states from `entity_likes` (0 when no row). Used on startup to reconcile the restored queue / now-playing tracks, whose `QueueTrack`s carry no DB id — `tracksFromManifest` hardcodes `liked: 0`, so the restore path patches it from this command.
 - Commands: `set_entity_like_state` (frontend `useLikeActions` calls this with `{ kind, entity, likeState }`), `get_track_like_states`, `get_entity_like_state` (one artist/album/tag by name — the like of a detail page whose entity isn't in the library) (in `commands/library.rs`).
 
+### Cue sheets (cue_sheets)
+
+Timed cards an assistant writes for one song, played over the Now Playing art (`src/utils/cueSheet.ts`, `components/CueOverlay.tsx`). Logic in `db/cue_sheets.rs`; table created in `init_tables` and by migration #14.
+
+- **Keyed like likes** — `entity_key` = `build_entity_key("track", title, artist)`, so a sheet follows the song onto any copy (library, stream, id-less queue entry). One sheet per song; `set_cue_sheet` upserts.
+- **`normalize_cue_sheet` is the trust boundary.** The author is an LLM, so the sheet is rebuilt field by field: unknown fields dropped, `kind` ∈ text/quote/image (default text), `at`/`until` finite seconds in [0, 86400] with `until > at`, text ≤ 400 / caption ≤ 200 / label ≤ 40 chars, ≤ 200 cues, **image URLs http(s) only** (a file path or data URI from a model is a mistake or an attempt to read the disk through `<img>`), sorted by `at`. Every error names the cue index — the caller fixes and resends, and a vague error just gets resent unchanged.
+- Commands `cue_sheet_get` / `cue_sheet_set` / `cue_sheet_delete` (`commands/library.rs`); writes emit **`cue-sheet-changed`** `{ title, artistName }`, which is how an open Now Playing view reloads a sheet written mid-song.
+- Control API: `GET/PUT/DELETE /v1/cues` and `GET /v1/cues/context` (slow), all bridged (`cues.*` verbs in `useControlApi.ts`) so a missing title defaults to what's playing. **No write scope** — DB only, no file touched, same footing as `/v1/likes`; the user can hide the cards from the view. MCP: `get_cue_context` + `cue_sheet`.
+
 ## Profiles
 
 Chrome-like profile isolation: `{app_data_dir}/profiles/{name}/`. Default profile is `default`. Set via `VIBOPLR_PROFILE` env var or `--profile` CLI arg. Non-default profiles show name in window title.

@@ -75,6 +75,7 @@ export interface PersistedSettings {
   nowPlayingInfoSelection: Record<string, boolean> | undefined;
   visualizerSlots: VisualizerSlotSelection | undefined;
   nowPlayingLyricsHidden: boolean | undefined;
+  nowPlayingCuesHidden: boolean | undefined;
   nowPlayingInfoPersistence: Record<string, number> | undefined;
   nowPlayingInfoOrder: string[] | undefined;
   // Debug / logging flags.
@@ -166,6 +167,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     nowPlayingInfoSelection: read<Record<string, boolean>>("nowPlayingInfoSelection"),
     visualizerSlots: read<VisualizerSlotSelection>("visualizerSlots"),
     nowPlayingLyricsHidden: read<boolean>("nowPlayingLyricsHidden"),
+    nowPlayingCuesHidden: read<boolean>("nowPlayingCuesHidden"),
     nowPlayingInfoPersistence: read<Record<string, number>>("nowPlayingInfoPersistence"),
     nowPlayingInfoOrder: read<string[]>("nowPlayingInfoOrder"),
     loggingEnabled: read<boolean>("loggingEnabled"),

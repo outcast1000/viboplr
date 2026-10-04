@@ -1,0 +1,67 @@
+import { describe, expect, it } from "vitest";
+import { activeCueIndex, cueEnd, DEFAULT_CUE_SECS, sameCueSong, type Cue } from "../utils/cueSheet";
+import { lyricsForContext, proseText, PROSE_CHAR_CAP } from "../utils/cueContext";
+
+const cues: Cue[] = [
+  { at: 5, kind: "text", text: "intro" },
+  { at: 12, until: 30, kind: "quote", text: "line", caption: "meaning" },
+  { at: 20, kind: "text", text: "cuts the quote short" },
+  { at: 60, until: 62, kind: "text", text: "brief" },
+];
+
+describe("cue timing", () => {
+  it("defaults the dwell and never runs into the next cue", () => {
+    expect(cueEnd(cues, 0)).toBe(5 + DEFAULT_CUE_SECS > 12 ? 12 : 5 + DEFAULT_CUE_SECS);
+    expect(cueEnd(cues, 1)).toBe(20); // own until (30) cut by the next cue at 20
+    expect(cueEnd(cues, 2)).toBe(20 + DEFAULT_CUE_SECS);
+    expect(cueEnd(cues, 3)).toBe(62);
+  });
+
+  it("finds the card on screen, and nothing in the gaps", () => {
+    expect(activeCueIndex(cues, 0)).toBe(-1);
+    expect(activeCueIndex(cues, 5)).toBe(0);
+    expect(activeCueIndex(cues, 11.9)).toBe(0);
+    expect(activeCueIndex(cues, 12)).toBe(1);
+    expect(activeCueIndex(cues, 25)).toBe(2);
+    expect(activeCueIndex(cues, 45)).toBe(-1); // 2 ended at 30
+    expect(activeCueIndex(cues, 61)).toBe(3);
+    expect(activeCueIndex(cues, 62)).toBe(-1);
+    expect(activeCueIndex([], 10)).toBe(-1);
+  });
+
+  it("matches songs the way the backend keys them", () => {
+    expect(sameCueSong({ title: "Jóga", artistName: "Björk" }, { title: "joga", artistName: "BJORK" })).toBe(true);
+    expect(sameCueSong({ title: "Joga", artistName: null }, { title: "joga" })).toBe(true);
+    expect(sameCueSong({ title: "Joga", artistName: "Björk" }, { title: "Joga", artistName: "Other" })).toBe(false);
+  });
+});
+
+describe("cue context shaping", () => {
+  it("turns synced LRC into timed lines and drops instrumental gaps", () => {
+    const out = lyricsForContext({ kind: "synced", text: "[00:01.50]First\n[00:04.00]\n[00:07.25]Second" });
+    expect(out).toEqual({ kind: "synced", lines: [{ at: 1.5, text: "First" }, { at: 7.25, text: "Second" }] });
+  });
+
+  it("passes plain lyrics through and ignores empty ones", () => {
+    expect(lyricsForContext({ kind: "plain", text: " la la \n" })).toEqual({ kind: "plain", text: "la la" });
+    expect(lyricsForContext({ kind: "plain", text: "  " })).toBeNull();
+    expect(lyricsForContext(null)).toBeNull();
+  });
+
+  it("extracts plain prose from every prose display kind", () => {
+    expect(proseText("rich_text", { summary: "short", full: "<p>Long &amp; full</p>" })).toBe("Long & full");
+    expect(proseText("html", { content: "a<br>b" })).toBe("a\nb");
+    expect(proseText("annotated_text", { overview: "Over", sections: [{ heading: "Story", text: "told" }] }))
+      .toBe("Over\n\nStory: told");
+    expect(proseText("annotations", { annotations: [{ fragment: "line", explanation: "means x" }] }))
+      .toBe('"line" — means x');
+    expect(proseText("entity_list", { items: [] })).toBeNull();
+    expect(proseText("rich_text", { summary: "<a href='x'></a>" })).toBeNull();
+  });
+
+  it("caps long prose", () => {
+    const text = proseText("html", { content: "x".repeat(PROSE_CHAR_CAP + 50) })!;
+    expect(text.length).toBeLessThanOrEqual(PROSE_CHAR_CAP + 2);
+    expect(text.endsWith("…")).toBe(true);
+  });
+});
