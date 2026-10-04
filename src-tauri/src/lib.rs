@@ -3,6 +3,7 @@ mod browse_window;
 mod commands;
 mod composite_image;
 mod control_api;
+mod cue_sheets;
 mod db;
 pub mod dependencies;
 mod entity_image;

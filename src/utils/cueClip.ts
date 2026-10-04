@@ -10,7 +10,7 @@
 //
 // Units: positions and offsets are percent of the view (the overlay is a size
 // container, so they render as cqw / cqh); text size is percent of the view's
-// height. The backend (`db/cue_sheets.rs`) has already validated every value
+// height. The backend (`cue_sheets.rs`) has already validated every value
 // against the same closed vocabularies, so nothing here parses CSS.
 
 import { DEFAULT_CUE_SECS, type Cue, type CueColor, type CueEase, type CueKeyframe } from "./cueSheet";

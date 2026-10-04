@@ -1,7 +1,7 @@
 // Cue sheets: timed text/image cues for one song, written by an assistant
 // through the control API (PUT /v1/cues) and played back over the Now
 // Playing art by `components/CueOverlay.tsx`. The Rust side
-// (`src-tauri/src/db/cue_sheets.rs`) validates and normalizes every sheet
+// (`src-tauri/src/cue_sheets.rs`) validates and normalizes every sheet
 // before storing it, so what arrives here is already sorted and well-formed;
 // this module only decides what is on screen at a given second.
 
@@ -134,7 +134,7 @@ export function sameCueSong(
 }
 
 /** Every field name a sheet error can name — the closed set telemetry may
- *  report. Mirrors the fields `db/cue_sheets.rs` validates. */
+ *  report. Mirrors the fields `cue_sheets.rs` validates. */
 const CUE_FIELDS = new Set([
   "at", "until", "kind", "text", "caption", "label", "imageUrl", "box", "align", "valign", "size", "fit",
   "layer", "opacity", "color", "backgroundColor", "background", "weight", "italic", "case", "shadow", "dim",
@@ -191,7 +191,7 @@ export const CUE_SHEET_GUIDE = [
 ].join(" ");
 
 /** The clip half of the format (`mode: "clip"`), served next to the cards
- *  guide. Every name here is a closed vocabulary in `db/cue_sheets.rs`. */
+ *  guide. Every name here is a closed vocabulary in `cue_sheets.rs`. */
 export const CUE_CLIP_GUIDE = [
   "CLIP MODE — a text-and-image video clip over the whole Now Playing view. The sheet is { mode: \"clip\", cues: [...] } — the same `cues` array as cards. The lyrics column hides while a clip plays, so a clip that carries the words should show them itself.",
   "Timing: each element stays from `at` to `until` (else 10s), overlapping freely — the next element never cuts one short. Cues at or past the track's end are rejected. The cards pacing rules (one at a time, 8s apart) do not apply; instead keep 1–3 elements on screen and give text time to be read (about 2s + 1s per 3 words; a single-word hit can be shorter). Without `enter` / `exit` an element appears and leaves instantly.",

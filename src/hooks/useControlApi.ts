@@ -787,7 +787,7 @@ export function useControlApi(deps: ControlApiDeps) {
         });
       }
 
-      // --- Now Playing cue sheets (db/cue_sheets.rs, utils/cueSheet.ts) ---
+      // --- Now Playing cue sheets (cue_sheets.rs, utils/cueSheet.ts) ---
       //
       // Song addressed by title (+ artistName), defaulting to what's playing.
       // The writes are the cue_sheet_* commands themselves: they emit

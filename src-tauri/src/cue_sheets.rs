@@ -8,13 +8,21 @@
 // The sheet is authored by an LLM through the control API, so this module is
 // also the trust boundary for its shape: `normalize_cue_sheet` rebuilds the
 // sheet field by field (unknown fields dropped, lengths capped, cues sorted)
-// rather than storing what arrived. Shared types/helpers live in db/mod.rs;
-// these are inherent impl Database methods.
+// rather than storing what arrived.
+//
+// Storage is one JSON file per song under `{profile}/cue-sheets/`, not a
+// database table: the sheets are presentation content an assistant writes,
+// nothing queries across them, and keeping them out of the schema means the
+// feature ships no migration.
 
-use serde::Serialize;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::*;
+use crate::db::likes::build_entity_key;
+
+const DIR_NAME: &str = "cue-sheets";
 
 /// Cues per sheet. A four-minute song with a cue every five seconds is ~50;
 /// anything near this is a runaway generation, not a sheet.
@@ -72,6 +80,18 @@ pub struct CueSheetRow {
     /// Save only: fields the normalizer dropped (`ignored_fields`). Not stored.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+}
+
+/// The on-disk form. Title/artist are kept as written (the filename is a hash
+/// of the normalized key), so a read returns the spelling that was saved.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredSheet {
+    title: String,
+    artist_name: Option<String>,
+    sheet: Value,
+    source: Option<String>,
+    updated_at: i64,
 }
 
 const SHEET_FIELDS: &[&str] = &["mode", "cues"];
@@ -391,61 +411,85 @@ pub fn normalize_source(source: Option<&str>) -> Option<String> {
         .map(|s| s.chars().take(MAX_SOURCE_CHARS).collect())
 }
 
-impl Database {
-    pub fn get_cue_sheet(&self, title: &str, artist_name: Option<&str>) -> SqlResult<Option<CueSheetRow>> {
-        let key = likes::build_entity_key("track", title, artist_name);
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT title, artist_name, sheet, source, updated_at FROM cue_sheets WHERE entity_key = ?1",
-            params![key],
-            |r| {
-                let sheet: String = r.get(2)?;
-                Ok(CueSheetRow {
-                    title: r.get(0)?,
-                    artist_name: r.get(1)?,
-                    // A row is only ever written normalized, so a parse
-                    // failure means a hand-edited DB; read it as no cues.
-                    sheet: serde_json::from_str(&sheet).unwrap_or_else(|_| json!({ "cues": [] })),
-                    source: r.get(3)?,
-                    updated_at: r.get(4)?,
-                    warnings: Vec::new(),
-                })
-            },
-        )
-        .optional()
-    }
+/// Where a profile's sheets live: one JSON file per song, named by the md5 of
+/// its entity key (the key holds `:` and arbitrary title text, neither of
+/// which belongs in a filename on every platform).
+pub fn dir(profile_dir: &Path) -> PathBuf {
+    profile_dir.join(DIR_NAME)
+}
 
-    /// Upsert. `sheet` must already be normalized (`normalize_cue_sheet`).
-    pub fn set_cue_sheet(
-        &self,
-        title: &str,
-        artist_name: Option<&str>,
-        sheet: &Value,
-        source: Option<&str>,
-        updated_at: i64,
-    ) -> SqlResult<()> {
-        let key = likes::build_entity_key("track", title, artist_name);
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO cue_sheets (entity_key, title, artist_name, sheet, source, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(entity_key) DO UPDATE SET
-               title = excluded.title,
-               artist_name = excluded.artist_name,
-               sheet = excluded.sheet,
-               source = excluded.source,
-               updated_at = excluded.updated_at",
-            params![key, title, artist_name, sheet.to_string(), source, updated_at],
-        )?;
-        Ok(())
-    }
+fn file_for(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> PathBuf {
+    let key = build_entity_key("track", title, artist_name);
+    dir(profile_dir).join(format!("{:x}.json", md5::compute(key)))
+}
 
-    /// Returns whether a sheet existed.
-    pub fn delete_cue_sheet(&self, title: &str, artist_name: Option<&str>) -> SqlResult<bool> {
-        let key = likes::build_entity_key("track", title, artist_name);
-        let conn = self.conn.lock().unwrap();
-        Ok(conn.execute("DELETE FROM cue_sheets WHERE entity_key = ?1", params![key])? > 0)
+pub fn get_cue_sheet(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> Result<Option<CueSheetRow>, String> {
+    let path = file_for(profile_dir, title, artist_name);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("read cue sheet: {e}")),
+    };
+    // A file is only ever written normalized, so a parse failure means a
+    // hand-edited or truncated file; read it as no sheet rather than failing
+    // the Now Playing view.
+    match serde_json::from_slice::<StoredSheet>(&bytes) {
+        Ok(s) => Ok(Some(CueSheetRow {
+            title: s.title,
+            artist_name: s.artist_name,
+            sheet: s.sheet,
+            source: s.source,
+            updated_at: s.updated_at,
+            warnings: Vec::new(),
+        })),
+        Err(e) => {
+            log::warn!("Unreadable cue sheet {}: {e}", path.display());
+            Ok(None)
+        }
     }
+}
+
+/// Upsert. `sheet` must already be normalized (`normalize_cue_sheet`).
+pub fn set_cue_sheet(
+    profile_dir: &Path,
+    title: &str,
+    artist_name: Option<&str>,
+    sheet: &Value,
+    source: Option<&str>,
+    updated_at: i64,
+) -> Result<(), String> {
+    std::fs::create_dir_all(dir(profile_dir)).map_err(|e| format!("create cue-sheets dir: {e}"))?;
+    let stored = StoredSheet {
+        title: title.to_string(),
+        artist_name: artist_name.map(str::to_string),
+        sheet: sheet.clone(),
+        source: source.map(str::to_string),
+        updated_at,
+    };
+    let bytes = serde_json::to_vec_pretty(&stored).map_err(|e| format!("serialize cue sheet: {e}"))?;
+    atomic_write(&file_for(profile_dir, title, artist_name), &bytes)
+}
+
+/// Returns whether a sheet existed.
+pub fn delete_cue_sheet(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> Result<bool, String> {
+    match std::fs::remove_file(file_for(profile_dir, title, artist_name)) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("delete cue sheet: {e}")),
+    }
+}
+
+/// Write-then-rename, so a crash mid-write leaves the old sheet or the new
+/// one, never half of either.
+fn atomic_write(dest: &Path, bytes: &[u8]) -> Result<(), String> {
+    let mut tmp_os = dest.as_os_str().to_owned();
+    tmp_os.push(".tmp");
+    let tmp = PathBuf::from(tmp_os);
+    std::fs::write(&tmp, bytes).map_err(|e| format!("write cue sheet: {e}"))?;
+    std::fs::rename(&tmp, dest).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("write cue sheet: {e}")
+    })
 }
 
 #[cfg(test)]
@@ -562,24 +606,36 @@ mod cue_tests {
 
     #[test]
     fn sheets_are_keyed_by_normalized_metadata() {
-        let db = Database::new_in_memory().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let sheet = normalize_cue_sheet(&json!([{ "at": 0, "text": "hi" }])).unwrap();
-        db.set_cue_sheet("Jóga", Some("Björk"), &sheet, Some("Claude"), 10).unwrap();
+        assert!(get_cue_sheet(dir, "Jóga", Some("Björk")).unwrap().is_none());
+        set_cue_sheet(dir, "Jóga", Some("Björk"), &sheet, Some("Claude"), 10).unwrap();
 
-        let row = db.get_cue_sheet("joga", Some("BJORK")).unwrap().unwrap();
+        let row = get_cue_sheet(dir, "joga", Some("BJORK")).unwrap().unwrap();
         assert_eq!(row.title, "Jóga");
         assert_eq!(row.source.as_deref(), Some("Claude"));
         assert_eq!(row.sheet, sheet);
 
-        // Upsert replaces, keeping one row.
+        // Upsert replaces, keeping one file.
         let sheet2 = normalize_cue_sheet(&json!([{ "at": 3, "text": "again" }])).unwrap();
-        db.set_cue_sheet("Joga", Some("Bjork"), &sheet2, None, 20).unwrap();
-        let row = db.get_cue_sheet("Jóga", Some("Björk")).unwrap().unwrap();
+        set_cue_sheet(dir, "Joga", Some("Bjork"), &sheet2, None, 20).unwrap();
+        let row = get_cue_sheet(dir, "Jóga", Some("Björk")).unwrap().unwrap();
         assert_eq!(row.sheet, sheet2);
         assert_eq!(row.updated_at, 20);
+        assert_eq!(std::fs::read_dir(super::dir(dir)).unwrap().count(), 1);
 
-        assert!(db.delete_cue_sheet("Jóga", Some("Björk")).unwrap());
-        assert!(!db.delete_cue_sheet("Jóga", Some("Björk")).unwrap());
-        assert!(db.get_cue_sheet("Jóga", Some("Björk")).unwrap().is_none());
+        assert!(delete_cue_sheet(dir, "Jóga", Some("Björk")).unwrap());
+        assert!(!delete_cue_sheet(dir, "Jóga", Some("Björk")).unwrap());
+        assert!(get_cue_sheet(dir, "Jóga", Some("Björk")).unwrap().is_none());
+    }
+
+    #[test]
+    fn an_unreadable_file_reads_as_no_sheet() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sheet = normalize_cue_sheet(&json!([{ "at": 0, "text": "hi" }])).unwrap();
+        set_cue_sheet(tmp.path(), "Song", None, &sheet, None, 1).unwrap();
+        std::fs::write(file_for(tmp.path(), "Song", None), b"{ truncated").unwrap();
+        assert!(get_cue_sheet(tmp.path(), "Song", None).unwrap().is_none());
     }
 }

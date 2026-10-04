@@ -44,7 +44,7 @@ pub fn query_blocked_table(sql: &str) -> Option<&'static str> {
 /// beside the CREATE statements so an assistant's first query joins the right
 /// way — the classic silent mistake is `history_tracks.canonical_title =
 /// tracks.title`, which runs fine and matches nothing accented.
-const SCHEMA_NOTES: [&str; 9] = [
+const SCHEMA_NOTES: [&str; 8] = [
     "History is name-keyed and deliberately decoupled from library ids: history_plays -> history_tracks (canonical_title) -> history_artists (canonical_name). canonical_* = strip_diacritics(unicode_lower(text)); join history to library rows through that expression, never by id and never by raw title equality.",
     "tracks.path is RELATIVE to its collection's root, and the collections table is off-limits here — full playable URIs are not derivable via SQL; use the typed endpoints (/v1/tracks/{id}, /v1/status) for locations.",
     "entity_likes is the authoritative like store, keyed by normalized names: 'track:{artist}:{title}', 'artist:{name}', 'album:{album artist}:{title}', 'tag:{name}' — each segment strip_diacritics(lowercased). liked is 1 (like) or -1 (dislike); a 0 state is an absent row. tracks.liked is a mirror kept for list rendering.",
@@ -53,7 +53,6 @@ const SCHEMA_NOTES: [&str; 9] = [
     "Genres are tags: the tags table plus the track_tags join table. There is no genre column.",
     "For accent/case-insensitive matching use strip_diacritics(unicode_lower(col)) — that exact expression is also what the normalized indexes serve, so it stays fast.",
     "tracks_fts is an FTS5 table over tracks (MATCH syntax) — usually LIKE on the normalized expression is simpler.",
-    "cue_sheets holds the Now Playing cue sheets, one per song, keyed like entity_likes ('track:{artist}:{title}', normalized); sheet is the normalized JSON { cues: [...] }. Write them through the cue_sheet tool (PUT /v1/cues), never SQL — this endpoint is read-only anyway.",
 ];
 
 #[derive(serde::Serialize, Debug)]

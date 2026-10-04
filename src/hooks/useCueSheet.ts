@@ -5,7 +5,7 @@ import { sameCueSong, type CueSheetRow } from "../utils/cueSheet";
 import { subscribe } from "../utils/tauriEvents";
 
 /**
- * The cue sheet for the playing track (`db/cue_sheets.rs`), or null. Reads
+ * The cue sheet for the playing track (`cue_sheets.rs`), or null. Reads
  * once per song and again whenever `cue-sheet-changed` names it — which is how
  * a sheet an assistant writes mid-song lands on screen without a replay.
  * `enabled` gates the read to while a Now Playing surface is up.
