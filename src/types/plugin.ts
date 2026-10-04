@@ -551,6 +551,22 @@ export type PluginViewData =
 
 // -- Plugin API (what plugins receive) --
 
+/** `api.library.replaceTrackFile` input. */
+export interface ReplaceTrackFileRequest {
+  /** The local library track to replace. */
+  trackId: number;
+  /** The new file — an absolute local path (bare or `file://`). */
+  path: string;
+  /** Where the copy came from, shown in the dialog ("from user123 on Soulseek"). */
+  source?: string;
+  /** One line on why it is better (the plugin's own check), shown in the dialog. */
+  note?: string;
+}
+
+export type ReplaceTrackFileResult =
+  | { status: "replaced"; trackId: number; path: string; previousPath: string }
+  | { status: "declined" };
+
 export interface PluginLibraryAPI {
   getTrackCount(): Promise<number>;
   getTracks(opts?: {
@@ -657,6 +673,18 @@ export interface PluginLibraryAPI {
      *  every existing tag instead, so pass it explicitly when that matters. */
     tag_mode?: "add" | "remove" | "replace";
   }): Promise<string[]>;
+  /**
+   * Offer a better copy of a LOCAL library track to the user: the host shows
+   * its own Replace dialog (current vs new quality), and only on the user's
+   * yes swaps the file under the same library row — id, likes, playlists and
+   * history survive, the row's title/artist/album are written into the new
+   * file, the old file goes to the Trash. A track that is playing is released,
+   * swapped and resumed at the same position. `path` is the new file (it is
+   * copied, never moved, so a "Keep current" leaves it where it was).
+   * Resolves `{ status: "declined" }` when the user says no; rejects when the
+   * swap itself fails. Feature-detect: older hosts don't have it.
+   */
+  replaceTrackFile?(opts: ReplaceTrackFileRequest): Promise<ReplaceTrackFileResult>;
   /**
    * Find duplicate tracks grouped by diacritic-normalized title + artist.
    * Optionally require copies to also match on duration and/or file size

@@ -61,6 +61,8 @@ import type {
   InfoValueMatch,
   StreamCandidate,
   StreamResolveResult,
+  ReplaceTrackFileRequest,
+  ReplaceTrackFileResult,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
@@ -295,6 +297,8 @@ export interface PluginHostCallbacks {
   navigateToPluginView: (pluginId: string, viewId: string) => void;
   requestAction: (pluginId: string, action: string, payload: Record<string, unknown>) => void;
   showNotification: (message: string, action?: ToastAction) => void;
+  /** `api.library.replaceTrackFile`: the host's Replace dialog, then the swap. */
+  replaceTrackFile?: (pluginId: string, request: ReplaceTrackFileRequest) => Promise<ReplaceTrackFileResult>;
 }
 
 export function usePlugins(
@@ -743,6 +747,14 @@ export function usePlugins(
             if (fields.tag_names !== undefined) edit.tagNames = fields.tag_names;
             if (fields.tag_mode !== undefined) edit.tagMode = fields.tag_mode;
             return writeFileMetadata(hostCallbacksRef?.current?.tagOps ?? NO_TAG_REFRESH, trackIds, edit);
+          },
+          async replaceTrackFile(request) {
+            const replace = hostCallbacksRef?.current?.replaceTrackFile;
+            if (!replace) throw new Error("This Viboplr can't replace library files for plugins yet");
+            if (typeof request?.trackId !== "number" || typeof request.path !== "string" || !request.path) {
+              throw new Error("replaceTrackFile needs { trackId: number, path: string }");
+            }
+            return replace(pluginId, request);
           },
           async findDuplicates(opts) {
             // Backend groups by diacritic-normalized title+artist (reusing the

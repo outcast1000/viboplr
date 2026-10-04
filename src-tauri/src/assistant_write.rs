@@ -586,6 +586,10 @@ pub enum DownloadSource {
     /// (yt-dlp downloads + merges into a temp file and reports its path). The
     /// file is MOVED into the collection, so the temp copy doesn't linger.
     LocalFile(PathBuf),
+    /// A file already on disk that stays where it is — the in-app replace
+    /// (`api.library.replaceTrackFile`) stages a COPY, so declining the
+    /// Replace dialog leaves the plugin's download untouched.
+    CopyOf(PathBuf),
 }
 
 /// Tag metadata a plugin resolve reported (`DownloadResolveResult.metadata`) —
@@ -628,6 +632,15 @@ fn fetch_into(source: &DownloadSource, temp: &Path) -> Result<(), String> {
                 let _ = std::fs::remove_file(path);
             }
         }
+        DownloadSource::CopyOf(path) => {
+            if !path.is_file() {
+                return Err(format!("file {} does not exist", path.display()));
+            }
+            std::fs::copy(path, temp).map_err(|e| {
+                let _ = std::fs::remove_file(temp);
+                format!("failed to copy {} beside the library file: {}", path.display(), e)
+            })?;
+        }
     }
     Ok(())
 }
@@ -636,10 +649,11 @@ fn fetch_into(source: &DownloadSource, temp: &Path) -> Result<(), String> {
 /// else sniff the bytes, else mp3.
 fn settle_ext(named_ext: String, source: &DownloadSource, temp: &Path) -> String {
     let file_ext = if named_ext.is_empty() {
-        if let DownloadSource::LocalFile(path) = source {
-            path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
-        } else {
-            String::new()
+        match source {
+            DownloadSource::LocalFile(path) | DownloadSource::CopyOf(path) => {
+                path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase()
+            }
+            DownloadSource::Url(..) => String::new(),
         }
     } else {
         named_ext
@@ -1007,6 +1021,34 @@ fn write_library_identity(path: &Path, track: &crate::models::Track) -> Result<(
 /// remove on network shares (no recycle bin there).
 pub fn trash_replaced(path: &Path) -> Result<(), String> {
     displace_existing(path)
+}
+
+/// `trash_replaced` for the in-app replace, which swaps the file of the track
+/// that may be playing: the player has just been told to let go of it, but
+/// the engine closes its handle on its own thread a moment later (on Windows
+/// an open handle makes the move fail). A short bounded retry covers that
+/// gap; a file some other program holds still fails, after ~2.5s.
+pub fn trash_replaced_patiently(path: &Path) -> Result<(), String> {
+    retry_displace(path, &trash_replaced, 10, std::time::Duration::from_millis(250))
+}
+
+fn retry_displace(
+    path: &Path,
+    displace: &dyn Fn(&Path) -> Result<(), String>,
+    attempts: u32,
+    wait: std::time::Duration,
+) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 0..attempts.max(1) {
+        if attempt > 0 {
+            std::thread::sleep(wait);
+        }
+        match displace(path) {
+            Ok(()) => return Ok(()),
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
 }
 
 /// Download a track's *own* source — `subsonic://` or a direct `http(s)://`
@@ -1409,6 +1451,42 @@ mod tests {
         assert!(err.contains("never overwrites"), "got: {}", err);
         assert_eq!(std::fs::read(root.path().join("a.flac")).unwrap(), b"someone else");
         assert!(root.path().join("a.mp3").exists(), "the original is untouched");
+    }
+
+    #[test]
+    fn test_staging_a_copy_leaves_the_source_where_it_was() {
+        // The in-app replace stages a COPY of the plugin's download: declining
+        // the Replace dialog (a discard) must not cost the user that file.
+        let root = tempfile::tempdir().unwrap();
+        let (db, track_id, _) = seed_local(root.path());
+        let (_d, src) = resolved_file(b"fLaCstagedbytes!", "download.flac");
+        let staged = stage_replacement(&db, track_id, "", DownloadSource::CopyOf(src.clone())).unwrap();
+        assert!(staged["stageId"].as_str().unwrap().ends_with(".flac"), "extension taken from the source");
+        assert_eq!(std::fs::read(&src).unwrap(), b"fLaCstagedbytes!", "the source is untouched");
+        discard_replacement(&db, track_id, staged["stageId"].as_str().unwrap()).unwrap();
+        assert!(src.is_file(), "and still there after a discard");
+    }
+
+    #[test]
+    fn test_patient_displace_retries_until_the_file_is_released() {
+        // The playing file is let go of a moment after the player is told to;
+        // the swap waits that moment out instead of failing on the first try.
+        let calls = std::cell::Cell::new(0);
+        let held_twice = |_: &Path| {
+            calls.set(calls.get() + 1);
+            if calls.get() < 3 { Err("in use".to_string()) } else { Ok(()) }
+        };
+        retry_displace(Path::new("x"), &held_twice, 5, std::time::Duration::ZERO).unwrap();
+        assert_eq!(calls.get(), 3);
+
+        calls.set(0);
+        let held = |_: &Path| {
+            calls.set(calls.get() + 1);
+            Err("in use".to_string())
+        };
+        let err = retry_displace(Path::new("x"), &held, 4, std::time::Duration::ZERO).unwrap_err();
+        assert_eq!(err, "in use", "the last error is the one reported");
+        assert_eq!(calls.get(), 4, "bounded");
     }
 
     #[test]

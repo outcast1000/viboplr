@@ -391,6 +391,11 @@ export function usePlayback(
   const lastPlaySrcRef = useRef<string | null>(null);
   const [loadingTrack, setLoadingTrack] = useState<QueueTrack | null>(null);
   const playStartedAtRef = useRef(0);
+  // Set by swapCurrentFile: the scrobble state of a session that is resuming
+  // on a replaced file, restored by playWithSrc for that key instead of reset.
+  const resumeScrobbleRef = useRef<{ key: string; scrobbled: boolean; startedAt: number } | null>(null);
+  const playingRef = useRef(playing);
+  useAssignRef(playingRef, playing);
 
   // Preload state (refs for use in event handlers without stale closures)
   const preloadedTrackRef = useRef<QueueTrack | null>(null);
@@ -1825,9 +1830,13 @@ export function usePlayback(
     setPlaybackPosition(seekTo > 0 ? seekTo : 0);
     setDurationSecs(track.duration_secs ?? 0);
     clearStreamReadouts();
-    scrobbledRef.current = false;
-    setScrobbled(false);
-    playStartedAtRef.current = Math.floor(Date.now() / 1000);
+    // A session resuming on a replaced file (swapCurrentFile) keeps its
+    // scrobble state; any other play starts fresh. Consumed either way.
+    const resumed = resumeScrobbleRef.current?.key === track.key ? resumeScrobbleRef.current : null;
+    resumeScrobbleRef.current = null;
+    scrobbledRef.current = resumed?.scrobbled ?? false;
+    setScrobbled(resumed?.scrobbled ?? false);
+    playStartedAtRef.current = resumed?.startedAt ?? Math.floor(Date.now() / 1000);
 
     // Always reset to slot A on explicit play
     setActiveSlot("A");
@@ -2016,6 +2025,48 @@ export function usePlayback(
     setCurrentAssetUrl(null);
     setPendingSeek(Math.max(0, positionSecs));
     setPlaybackPosition(Math.max(0, positionSecs));
+  }
+
+  /**
+   * Replace the file under the track that is playing (the in-app replace).
+   * The player lets go of the file first — the engine is stopped and awaited,
+   * the media elements detached, since on Windows an open handle makes the
+   * swap fail — then `apply` runs, and the same session resumes: same key,
+   * same position, playing only if it was, and the scrobble state carried
+   * over, so the resumed track is neither announced as a new play nor counted
+   * twice. `next` maps apply's result to the track to resume (the new file);
+   * when apply throws, the original track resumes and the error is rethrown.
+   */
+  async function swapCurrentFile<T>(apply: () => Promise<T>, next: (result: T) => QueueTrack): Promise<T> {
+    const track = currentTrackRef.current;
+    if (!track) return apply();
+    const position = getPlaybackPosition();
+    const wasPlaying = playingRef.current;
+    resumeScrobbleRef.current = { key: track.key, scrobbled: scrobbledRef.current, startedAt: playStartedAtRef.current };
+    cancelCrossfade();
+    invalidatePreload();
+    if (nativeSessionRef.current) {
+      nativeSessionRef.current = null;
+      nativePreloadedRef.current = null;
+      nativeFadingRef.current = false;
+      await nativeEngine.stop().catch((e) => console.error("Failed to stop the engine before a file swap:", e));
+    }
+    [audioRefA.current, audioRefB.current, videoRef.current].forEach(stopMediaElement);
+    setLoadingTrack(track);
+    let resumeWith = track;
+    try {
+      const result = await apply();
+      resumeWith = { ...next(result), key: track.key };
+      return result;
+    } finally {
+      setLoadingTrack(null);
+      if (wasPlaying) {
+        pendingSeekRef.current = position;
+        handlePlay(resumeWith, "auto").catch((e) => console.error("Failed to resume after a file swap:", e));
+      } else {
+        loadPaused(resumeWith, position);
+      }
+    }
   }
 
   function handleStop() {
@@ -2470,7 +2521,7 @@ export function usePlayback(
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,
-    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop, loadPaused,
+    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop, loadPaused, swapCurrentFile,
     loadRestoredVideoPreview,
     handleVolume, volumeOverrideRef, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,

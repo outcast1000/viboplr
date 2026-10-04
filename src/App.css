@@ -1225,6 +1225,43 @@
   cursor: pointer;
 }
 
+/* ReplaceTrackFileModal: the Now / New comparison and its notes. */
+.replace-file-compare {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--ds-radius);
+  background: var(--bg-tertiary);
+  font-size: var(--fs-sm);
+}
+
+.replace-file-compare dt {
+  color: var(--text-tertiary);
+}
+
+.replace-file-compare dd {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.replace-file-compare .replace-file-compare__new {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.replace-file-note,
+.replace-file-warning {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+.replace-file-warning {
+  color: var(--warning);
+}
+
 .delete-failure-list {
   list-style: none;
   padding: 0;

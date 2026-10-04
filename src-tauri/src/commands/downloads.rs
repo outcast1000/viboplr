@@ -289,6 +289,51 @@ pub async fn assistant_confirm_replacement(
     .map_err(|e| e.to_string())?
 }
 
+/// The in-app replace (plugin `api.library.replaceTrackFile`), phase one:
+/// stage a COPY of a local file beside the track's file and report
+/// old-vs-new — the facts the host's Replace dialog shows. Unscoped, unlike
+/// the assistant pair above: the dialog the user answers next is the consent,
+/// and staging changes nothing (the source stays where it was).
+#[tauri::command]
+pub async fn stage_track_replacement(
+    state: State<'_, AppState>,
+    track_id: i64,
+    source_path: String,
+) -> Result<serde_json::Value, String> {
+    use crate::assistant_write::{self, DownloadSource};
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bare = source_path.strip_prefix("file://").unwrap_or(&source_path).to_string();
+        assistant_write::stage_replacement(&db, track_id, "", DownloadSource::CopyOf(std::path::PathBuf::from(bare)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Phase two, called only from the host's Replace dialog: swap the stage in
+/// under the same row (library tags written into the new file), old file to
+/// the Trash. Displacement retries briefly, because the file being replaced
+/// may be the one the player was holding a moment ago.
+#[tauri::command]
+pub async fn confirm_track_replacement(
+    state: State<'_, AppState>,
+    track_id: i64,
+    stage_id: String,
+) -> Result<serde_json::Value, String> {
+    let db = state.db.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::assistant_write::confirm_replacement(
+            &db,
+            track_id,
+            &stage_id,
+            true,
+            &crate::assistant_write::trash_replaced_patiently,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Throw a staged replacement away. Unscoped like the plugin-download cancel:
 /// it can only delete a `.viboplr-replace` stage beside a library track.
 #[tauri::command]

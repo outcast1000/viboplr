@@ -377,6 +377,8 @@ macro_rules! invoke_handler {
             commands::assistant_stage_replacement,
             commands::assistant_confirm_replacement,
             commands::assistant_discard_replacement,
+            commands::stage_track_replacement,
+            commands::confirm_track_replacement,
             commands::mcp_setup_info,
             $($extra,)*
         ]

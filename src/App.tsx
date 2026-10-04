@@ -109,7 +109,9 @@ import { nextTriState } from "./likeKeys";
 import { useControlApi } from "./hooks/useControlApi";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { PluginTrack, PluginBadge, PluginPlayContext } from "./types/plugin";
+import type { PluginTrack, PluginBadge, PluginPlayContext, ReplaceTrackFileRequest, ReplaceTrackFileResult } from "./types/plugin";
+import { ReplaceTrackFileModal } from "./components/ReplaceTrackFileModal";
+import { isTrackBeingReplaced, type StagedReplacement } from "./utils/replaceTrackFile";
 import { HOST_SEARCH_ACTION } from "./types/plugin";
 import { useViewSearchState } from "./hooks/useViewSearchState";
 import { useCentralSearch } from "./hooks/useCentralSearch";
@@ -2079,8 +2081,78 @@ function App() {
   }, [contextMenuActions, videoLayout, queueHook, library, plugins, resolveNativeDownload, openNativeDownload, artistImageCache, albumImageCache, tagImageCache, beginRetrieveImage, setSearchInitialQuery, setSearchQueryKey, setDeleteTagConfirm, trashLabel, handleExportAsMixtapeRef, openPublishMusicSourceRef, openEditTrackInfoRef, userPlaylists, handleAddToPlaylist, handleAddToNewPlaylist, handleBrowsePlaylists]);
   useAssignRef(showNativeMenuRef, buildAndShowNativeMenu);
 
+  // api.library.replaceTrackFile: a plugin offers a better copy of a local
+  // library track. Stage a copy beside the file, ask in the host's own Replace
+  // dialog, and only on a yes swap it in under the same row — through the
+  // player's swapCurrentFile when it is the track playing, so the file is let
+  // go of first and playback resumes where it was. Requests run one at a time
+  // (the chain), so two plugins can never stack two dialogs.
+  const [replacePrompt, setReplacePrompt] = useState<{
+    staged: StagedReplacement;
+    pluginName: string;
+    source: string | null;
+    note: string | null;
+    playing: boolean;
+    answer: (replace: boolean) => void;
+  } | null>(null);
+  const replaceChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  // Read at the moment of the swap, which is after the user answered — the
+  // render that opened the dialog may be long gone by then.
+  const replaceLiveRef = useRef({ playback, queueHook, tagOpsDeps, pluginStates: plugins.pluginStates });
+  useAssignRef(replaceLiveRef, { playback, queueHook, tagOpsDeps, pluginStates: plugins.pluginStates });
+
+  const replaceTrackFileForPlugin = useCallback((pluginId: string, request: ReplaceTrackFileRequest): Promise<ReplaceTrackFileResult> => {
+    const run = async (): Promise<ReplaceTrackFileResult> => {
+      const { trackId } = request;
+      const [row] = await invoke<Track[]>("get_tracks_by_ids", { ids: [trackId] });
+      if (!row) throw new Error(`No library track with id ${trackId}`);
+      const staged = await invoke<StagedReplacement>("stage_track_replacement", { trackId, sourcePath: request.path });
+      const live = replaceLiveRef.current;
+      const pluginName = live.pluginStates.find((p) => p.id === pluginId)?.manifest.name ?? pluginId;
+      const replace = await new Promise<boolean>((answer) => setReplacePrompt({
+        staged,
+        pluginName,
+        source: request.source ?? null,
+        note: request.note ?? null,
+        playing: isTrackBeingReplaced(pluginTrackRef.current, trackId, row.path),
+        answer,
+      }));
+      setReplacePrompt(null);
+      if (!replace) {
+        await invoke("assistant_discard_replacement", { trackId, stageId: staged.stageId })
+          .catch((e) => console.error("Failed to discard a declined replacement:", e));
+        return { status: "declined" };
+      }
+      const apply = async () => {
+        const result = await invoke<{ path: string; previousPath: string }>("confirm_track_replacement", { trackId, stageId: staged.stageId });
+        const [updated] = await invoke<Track[]>("get_tracks_by_ids", { ids: [trackId] });
+        return { result, updated: updated ?? null };
+      };
+      try {
+        const { playback: player, queueHook: queue, tagOpsDeps: refresh } = replaceLiveRef.current;
+        const playing = pluginTrackRef.current;
+        const { result, updated } = playing && isTrackBeingReplaced(playing, trackId, row.path)
+          ? await player.swapCurrentFile(apply, ({ updated: u }) => u
+            ? { ...playing, path: u.path, format: u.format, duration_secs: u.duration_secs ?? playing.duration_secs }
+            : playing)
+          : await apply();
+        if (row.path && updated?.path && updated.path !== row.path) queue.replaceTrackPath(row.path, updated.path, updated.format);
+        refresh.filesWritten();
+        return { status: "replaced", trackId, path: result.path, previousPath: result.previousPath };
+      } catch (e) {
+        console.error("Failed to replace a library file:", e);
+        notify(`Couldn't replace “${row.title}”: ${e instanceof Error ? e.message : String(e)}`);
+        throw e;
+      }
+    };
+    const next = replaceChainRef.current.then(run, run);
+    replaceChainRef.current = next.catch(() => undefined);
+    return next;
+  }, [notify]);
+
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   useAssignRef(pluginHostCallbacksRef, {
+    replaceTrackFile: replaceTrackFileForPlugin,
     tagOps: tagOpsDeps,
     navigateToPluginView: (pluginId, viewId) => {
       library.setView(`plugin:${pluginId}:${viewId}`);
@@ -6566,6 +6638,19 @@ function App() {
           invokeInfoFetch={plugins.invokeInfoFetch}
           onClose={() => contextMenuActions.setBulkEditTracks(null)}
           onSave={handleBulkEditSaved}
+        />
+      )}
+
+      {replacePrompt && (
+        <ReplaceTrackFileModal
+          staged={replacePrompt.staged}
+          pluginName={replacePrompt.pluginName}
+          source={replacePrompt.source}
+          note={replacePrompt.note}
+          playing={replacePrompt.playing}
+          trashLabel={trashLabel}
+          onReplace={() => replacePrompt.answer(true)}
+          onKeep={() => replacePrompt.answer(false)}
         />
       )}
 

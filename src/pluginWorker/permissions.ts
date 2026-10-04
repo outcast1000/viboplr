@@ -75,6 +75,8 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "library.applyTagsBulk": need("library:write"),
   "library.removeTags": need("library:write"),
   "library.bulkUpdateTracks": need("library:write"),
+  // Gated twice: the permission, then the host's own Replace dialog per call.
+  "library.replaceTrackFile": need("library:write"),
   "library.setTrackLikesBatch": need("library:write"),
 
   "playback.getCurrentTrack": need("playback:read"),

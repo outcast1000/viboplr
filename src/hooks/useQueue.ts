@@ -443,6 +443,17 @@ export function useQueue(
       : prev);
   }
 
+  // A library file was replaced by a better copy and the extension changed
+  // (a.mp3 → a.flac): every entry holding the old file URI follows it, or it
+  // would stop resolving. Exact match, unlike rewritePathPrefix. Keeps the
+  // previous array when nothing matches.
+  function replaceTrackPath(oldPath: string, newPath: string, format: string | null) {
+    if (oldPath === newPath) return;
+    setQueue(prev => prev.some(t => t.path === oldPath)
+      ? prev.map(t => t.path === oldPath ? { ...t, path: newPath, format: format ?? t.format } : t)
+      : prev);
+  }
+
   function removeFromQueue(index: number) {
     setQueue(prev => {
       const next = [...prev];
@@ -792,7 +803,7 @@ export function useQueue(
     backfillPending: pendingBackfillGen !== null, markBackfillPending, settleBackfill,
     holdForBackfillTail,
     playNext, playPrevious,
-    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, rewritePathPrefix, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
+    removeFromQueue, removeMultiple, removeAndAdvance, updateTrackMetadata, patchTrackFormat, rewritePathPrefix, replaceTrackPath, moveInQueue, moveMultiple, moveToTop, moveToBottom, clearQueue, insertAtPosition,
     toggleQueueMode, randomizeQueue, playNextInQueue, addToQueue, addToQueueAndPlay,
     peekNext, advanceIndex, reconcileLibraryIds,
     playlistContext, setPlaylistContext, savePlaylist, loadPlaylist,
