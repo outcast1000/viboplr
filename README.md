@@ -1,8 +1,13 @@
 # Viboplr
 
-**The music player you can just talk to.** A free, open-source desktop music player for macOS and Windows with a built-in [MCP](https://modelcontextprotocol.io) server. Connect Claude or any AI assistant and ask it to build playlists, fix tags, organise your library and download tracks. Built with Tauri 2, React, and Rust.
+**The music player you can just talk to, built by talking to an AI.**
 
-Viboplr plays audio and video from local folders and remote music services. It acts as an orchestrator — a plugin system connects to streaming providers, metadata services, lyric databases, and image sources, while the core app handles playback, library management, and UI. It scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
+Viboplr is a free, open-source desktop music player for macOS and Windows, and it is AI-native in both directions:
+
+- **Driven by AI.** A built-in [MCP](https://modelcontextprotocol.io) server lets Claude, or any AI assistant, run your music library. Ask it to build playlists, fix tags, organise folders, download tracks, or tell you what you played most last March.
+- **Built by AI.** Every line of code was written by an AI coding assistant (Claude Code). The human role is tech lead and product owner: decide what to build, define how it behaves, review, test, and push back until it's right. [The story →](https://viboplr.com/story.html)
+
+Under the hood it's a Tauri 2 app with a Rust backend and a React frontend. It plays audio and video from local folders and Subsonic/Navidrome servers, and works as an orchestrator: a plugin system connects streaming providers, metadata services, lyric databases and image sources, while the core handles playback, the library and the UI. Its SQLite library starts fast, plays instantly and searches big collections in milliseconds.
 
 ## AI Control (MCP)
 
@@ -68,6 +73,19 @@ flowchart TB
 - **The control API answers pure reads from the database directly.** Everything else (playback, the live queue, every mutation) is bridged into the webview and runs through those same canonical actions. A request from an assistant therefore takes the same path as a click, and the UI, plugin events and persisted state stay in sync.
 - **The MCP server** is a thin, dependency-free translation layer. It discovers the running app, holds the token, and presents `tools.mjs` as typed tools. Capability decisions belong to the Rust API alone.
 - **Plugins** run in their own Web Workers with no Tauri IPC, no DOM and no network globals. Their only way out is the `api.*` proxy, which the plugin host checks against each manifest's declared permissions. Network access goes through a host-scoped fetch in Rust. Plugins can also contribute MCP tools, and in-app agent plugins reach the same tool catalog through `api.assistant.host`.
+
+## Built with AI
+
+Viboplr is also an experiment in how software gets made. It's a full-featured player (bit-perfect gapless playback, synced lyrics, radio, mixtapes, skins, a sandboxed plugin runtime, its own MCP server) built by one person directing an AI coding assistant, with every line of code written by the AI.
+
+The repository is set up for that way of working, and it is the same setup a contributor's assistant picks up:
+
+- **[`CLAUDE.md`](CLAUDE.md)** is the project brief: build commands, architecture, and the features that were removed on purpose and must not come back.
+- **[`.claude/rules/`](.claude/rules)** holds the detailed rules, loaded only when matching files are touched: `conventions.md` (the canonical implementation of every repeated user action, plus cross-cutting rules), and `backend`, `frontend`, `queue`, `plugins`, `ui`, `testing` and `site`.
+- **[`.claude/skills/`](.claude/skills)** contains repeatable workflows such as releasing, code-health and CSS audits, DB benchmarks, and the drag-and-drop pattern for WKWebView.
+- **Guardrails are machine-checked.** ESLint enforces the conventions that matter (no silent `catch`, no ref writes during render), and `npm run test:all` runs lint, Rust, TypeScript and Playwright E2E tests before anything ships.
+
+The two halves meet in the product: an app written by an AI, designed from day one to be operated by one.
 
 ## Features
 
@@ -248,81 +266,6 @@ ssh-copy-id -i viboplr-deploy.pub youruser@your.vps.ip.or.domain
 ```
 
 Then paste the contents of the private key file (`viboplr-deploy`) into the `VPS_SSH_PRIVATE_KEY` secret. The workflow pins the host key via `ssh-keyscan` and uses `rsync -az --delete` for a clean synced deploy.
-
-## Project Structure
-
-```text
-viboplr/
-├── src/                    # React frontend
-│   ├── App.tsx             # Main app (state, views, layout)
-│   ├── App.css             # All styles (CSS custom properties for skinning)
-│   ├── types.ts            # Shared TypeScript types
-│   ├── skinUtils.ts        # Skin validation, CSS generation, sanitization
-│   ├── skins/              # Built-in skin JSON files (8 skins)
-│   ├── components/         # UI components (~95 files)
-│   │   ├── TrackList.tsx       # Track table/list/tile views
-│   │   ├── NowPlayingBar.tsx   # Playback footer controls
-│   │   ├── NowPlayingView.tsx  # Lean-back now-playing view
-│   │   ├── HomeView.tsx        # Home landing surface (carousel + shelves)
-│   │   ├── QueuePanel.tsx      # Queue management
-│   │   ├── Sidebar.tsx         # Navigation sidebar
-│   │   ├── SettingsPanel.tsx   # Settings (General, Playback, Providers, Debug)
-│   │   ├── ExtensionsView.tsx  # Plugin/skin management
-│   │   ├── PluginViewRenderer.tsx  # Plugin structured view rendering
-│   │   ├── InformationSections.tsx # Plugin-provided metadata sections
-│   │   └── ...
-│   ├── pluginWorker/       # Sandboxed Web Worker plugin runtime + host bridge
-│   ├── playback/           # Playback engine seam (nativeEngine bridge, progress machine)
-│   ├── types/              # Skin, plugin, and information-type definitions
-│   ├── utils/              # Pure helpers (download planning, diagnostics, lyrics, ...)
-│   └── hooks/              # React hooks (~50 files)
-│       ├── usePlayback.ts      # Playback state (browser + native engine)
-│       ├── useQueue.ts         # Queue management
-│       ├── useLibrary.ts       # Library queries
-│       ├── useHome.ts          # Home shelves and radio stations
-│       ├── useSkins.ts         # Skin management and CSS injection
-│       ├── usePlugins.ts       # Plugin discovery, loading, and runtime
-│       └── ...
-├── src-tauri/              # Rust backend
-│   ├── src/
-│   │   ├── main.rs             # Entry point
-│   │   ├── control_api.rs      # Localhost control API for AI assistants
-│   │   ├── assistant_write.rs  # Permission-gated file writes for the API
-│   │   ├── mcp_setup.rs        # Copy config / Copy command for MCP clients
-│   │   ├── lib.rs              # Tauri setup, plugin/command registration
-│   │   ├── commands/           # Tauri commands, split by area (app, library, media, ...)
-│   │   ├── db/                 # SQLite layer, split by entity (tracks, albums, likes, ...)
-│   │   ├── mpv_engine/         # Native libmpv playback engine (dual decks, video layers)
-│   │   ├── models.rs           # Shared data models
-│   │   ├── scanner.rs          # Folder scanning
-│   │   ├── watcher.rs          # File watching
-│   │   ├── subsonic.rs         # Subsonic API client
-│   │   ├── sync.rs             # Subsonic collection sync
-│   │   ├── manifest_sync.rs    # Subscribed music-source sync
-│   │   ├── music_publish.rs    # Publish local tracks as a hostable source
-│   │   ├── mixtape.rs          # Mixtape export/import
-│   │   ├── skins.rs            # Skin file I/O and gallery fetching
-│   │   ├── downloader.rs       # Download helpers (tags, cover embed)
-│   │   ├── dependencies.rs     # Managed external binaries (ffmpeg, yt-dlp)
-│   │   ├── profiles.rs         # Profile management
-│   │   ├── entity_image.rs     # Image slug management
-│   │   ├── composite_image.rs  # Tag composite image generation
-│   │   ├── plugins.rs          # Plugin management and file I/O
-│   │   ├── image_provider/     # Image provider Rust-JS bridge
-│   │   ├── lyric_provider/     # Lyric provider fallback chain
-│   │   ├── video_frames.rs     # Video thumbnails via ffmpeg
-│   │   ├── storyboard.rs       # Seek-preview sprite sheets
-│   │   └── timing.rs           # Startup profiling
-│   ├── plugins/            # Built-in plugins (Last.fm, lyrics, artwork)
-│   └── Cargo.toml
-├── mcp/                    # Bundled MCP server + tool catalog (tools.mjs)
-├── skills/viboplr-control/ # Claude skill documenting the control API
-├── docs/                   # Marketing/docs website (viboplr.com)
-├── scripts/                # Build, release, benchmarking, and libmpv vendoring scripts
-├── DEVELOPMENT.md          # Developer guide
-├── PLUGIN-API-REFERENCE.md # Plugin API reference
-└── CLAUDE.md               # AI assistant guidance
-```
 
 ## License
 
