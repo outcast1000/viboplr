@@ -49,7 +49,7 @@ export const INSTRUCTIONS = [
   "Viboplr is the user's desktop music player.",
   "Track ids from search_library/browse are library ids; playlist rows use a separate row-id space (browse kind=playlist_tracks) and those row ids are what edit_playlist remove/reorder take.",
   "Mutation commands return before UI state settles — read get_status afterwards for the truth.",
-  "External/plugin tracks resolve their stream at play time; get_status can show the previous track for 10–20s after playing one. Wait and re-read before concluding a play failed.",
+  "External/plugin tracks resolve their stream at play time — tens of seconds, during which the previous track keeps playing. play_tracks and edit_queue jump wait for the new track (default 15s, `wait` up to 60) and report `landed` plus what is actually playing (`nowPlaying`) and still resolving (`loading`); landed=false with no error means it is still on its way. get_status carries the same `settled` / `loading` fields.",
   "Plugin-fetched info (lyrics — local file lyrics included — bios, reviews) is cached in the plugins' database storage; search_info searches that cache, e.g. to find which track contains a lyric phrase.",
   "Bulk-tagging recipe (when asked to tag the library properly): work artist by artist, biggest first (query_library: artists ordered by track_count); fetch an artist's community tags once via get_entity_info (kind=track, typeId=track_tags, using any one track of theirs — artist-level tags return as artistTags), pick the top few, then apply them to every track of that artist with edit_track_tags.",
   "If tools report the app unreachable, ask the user to start Viboplr and enable Settings → AI control.",
@@ -85,6 +85,15 @@ export function versionCmp(a, b) {
   }
   return 0;
 }
+
+// play_tracks / edit_queue jump wait this long for the track to actually play
+// before answering: a local file lands in well under a second, a plugin track
+// resolving through a fallback chain can take far longer — past it the answer
+// says landed=false and what is still loading. The app caps `wait` at 60.
+const DEFAULT_PLAY_WAIT_SECS = 15;
+const PLAY_WAIT_DESCRIPTION =
+  "Seconds to wait for the track to actually start playing before answering (default 15, max 60, 0 = answer at once). The answer's `landed` says whether it did; `nowPlaying` / `loading` say what is playing and what is still resolving.";
+const playWaitTimeout = (wait) => (Math.max(0, Number(wait) || 0) + 15) * 1000;
 
 // ---------------------------------------------------------------------------
 // Tool table — JSON Schema helpers
@@ -203,7 +212,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["playback"],
     description:
-      "What is playing right now: playing flag, position, volume, queue index/length, and the current track (with its libraryId when it is a library track).",
+      "What is playing right now: playing flag, position, volume, queue index/length, and the current track (with its libraryId when it is a library track). settled=false while a play is still resolving its source: currentTrack is then still the PREVIOUS track and `loading` names the one on its way.",
     inputSchema: obj({}),
     run: (_args, ctx) => ctx.request("GET", "/v1/status"),
   },
@@ -235,22 +244,25 @@ export const TOOLS = [
     name: "play_tracks",
     readOnly: false,
     categories: ["playback", "queue"],
-    description: "Replace the queue with these library track ids and start playing.",
+    description:
+      "Replace the queue with these library track ids and start playing. Waits for the first track to actually play (see `wait`) and reports landed / nowPlaying / loading / error.",
     inputSchema: obj(
       {
         trackIds: numArr("Library track ids, in play order"),
         contextName: str("Optional context label shown in the queue banner"),
+        wait: num(PLAY_WAIT_DESCRIPTION),
       },
       ["trackIds"],
     ),
-    run: (args, ctx) => ctx.request("POST", "/v1/queue/play", args),
+    run: ({ wait = DEFAULT_PLAY_WAIT_SECS, ...args }, ctx) =>
+      ctx.request("POST", "/v1/queue/play", { ...args, wait }, { timeoutMs: playWaitTimeout(wait) }),
   },
   {
     name: "edit_queue",
     readOnly: false,
     categories: ["queue"],
     description:
-      "Edit the live queue without replacing it: add (to end) / add_next, remove by queue positions, clear, one-shot randomize, or jump to a position. Positions come from get_queue. Duplicates are skipped and counted unless allowDuplicates.",
+      "Edit the live queue without replacing it: add (to end) / add_next, remove by queue positions, clear, one-shot randomize, or jump to a position. Positions come from get_queue. Duplicates are skipped and counted unless allowDuplicates. jump waits for the track to actually play (see `wait`) and reports landed / nowPlaying / loading / error.",
     inputSchema: obj(
       {
         action: en(["add", "add_next", "remove", "clear", "randomize", "jump"], "What to do"),
@@ -258,10 +270,11 @@ export const TOOLS = [
         indices: numArr("Queue positions (remove)"),
         index: num("Queue position (jump)"),
         allowDuplicates: bool("Add tracks already in the queue instead of skipping them"),
+        wait: num(`jump: ${PLAY_WAIT_DESCRIPTION}`),
       },
       ["action"],
     ),
-    run: ({ action, trackIds, indices, index, allowDuplicates }, ctx) => {
+    run: ({ action, trackIds, indices, index, allowDuplicates, wait = DEFAULT_PLAY_WAIT_SECS }, ctx) => {
       switch (action) {
         case "add":
         case "add_next":
@@ -280,7 +293,7 @@ export const TOOLS = [
           return ctx.request("POST", "/v1/queue/randomize", {});
         case "jump":
           need({ index }, ["index"], "action=jump");
-          return ctx.request("POST", "/v1/queue/jump", { index });
+          return ctx.request("POST", "/v1/queue/jump", { index, wait }, { timeoutMs: playWaitTimeout(wait) });
         default:
           throw new Error(`unknown queue action: ${action}`);
       }
@@ -307,7 +320,7 @@ export const TOOLS = [
       "Play a saved playlist (replaces the queue), or enqueue it at the end / next without replacing. Playlist ids come from browse kind=playlists; system/auto playlists can be played too.",
     inputSchema: obj(
       {
-        playlistId: num("Playlist id"),
+        playlistId: num("Playlist id — the `id` of a row from browse kind=playlists"),
         mode: en(["play", "end", "next"], "play = replace queue (default); end/next = enqueue"),
         allowDuplicates: bool("For enqueue: add tracks already in the queue"),
       },
@@ -327,7 +340,7 @@ export const TOOLS = [
     inputSchema: obj(
       {
         action: en(["create", "add_tracks", "remove_tracks", "reorder", "rename"], "What to do"),
-        playlistId: num("Playlist id (everything except create)"),
+        playlistId: num("Playlist id — the `id` of a row from browse kind=playlists (everything except create)"),
         name: str("Playlist name (create / rename)"),
         description: str("Playlist description (create / rename)"),
         trackIds: numArr("Library track ids (create / add_tracks)"),
@@ -698,7 +711,7 @@ export const TOOLS = [
     inputSchema: obj(
       {
         action: en(["list", "fetch", "play"], "What to do"),
-        shelf: str("Shelf key from action=list (fetch)"),
+        shelf: str("fetch: the shelf's `key` from action=list (not its shelfId)"),
         fetchId: str("From action=fetch (play)"),
         index: num("Card index (play)"),
         limit: num("Max cards (fetch)"),
@@ -1120,6 +1133,80 @@ export function isReadOnlyCall(tool, args = {}) {
   const when = tool?.readOnlyWhen;
   if (!when || typeof when !== "object") return false;
   return Object.entries(when).some(([key, values]) => Array.isArray(values) && values.includes(args?.[key]));
+}
+
+// ---------------------------------------------------------------------------
+// Argument checking
+//
+// A client is not obliged to validate against inputSchema, and most don't: an
+// unknown argument (`id` where the tool takes `playlistId`) was dropped
+// silently and the call failed further down with an error about something
+// else — `/v1/playlists/undefined/play`. Both transports therefore check here
+// first, and every refusal lists what the tool DOES take, so a model can
+// correct itself in one step instead of guessing.
+
+function typeOfArg(v) {
+  if (Array.isArray(v)) return "array";
+  if (v === null) return "null";
+  return typeof v;
+}
+
+function describeParam(key, prop, required) {
+  const bits = [];
+  if (required) bits.push("required");
+  if (prop?.type) bits.push(prop.type);
+  if (Array.isArray(prop?.enum)) bits.push(prop.enum.map((v) => JSON.stringify(v)).join("|"));
+  return bits.length ? `${key} (${bits.join(", ")})` : key;
+}
+
+/** Pure: the reasons `args` doesn't fit `schema` (top level: unknown, missing,
+ *  wrong type, not in enum) — empty when it fits. Absent and null both mean
+ *  "not given". Exported for tests. */
+export function argProblems(schema, args) {
+  const props = schema?.properties ?? {};
+  const known = Object.keys(props);
+  const problems = [];
+  if (schema?.additionalProperties === false) {
+    for (const key of Object.keys(args)) {
+      if (key in props) continue;
+      // `id` vs `playlistId`, `shelfId` vs `shelf`: name the near misses.
+      const k = key.toLowerCase();
+      const near = known.filter((p) => {
+        const q = p.toLowerCase();
+        return q.includes(k) || k.includes(q);
+      });
+      problems.push(`unknown argument "${key}"` + (near.length ? ` (did you mean ${near.map((n) => `"${n}"`).join(" or ")}?)` : ""));
+    }
+  }
+  for (const key of schema?.required ?? []) {
+    if (args[key] === undefined || args[key] === null) problems.push(`"${key}" is required`);
+  }
+  for (const [key, value] of Object.entries(args)) {
+    const prop = props[key];
+    if (!prop || value === undefined || value === null) continue;
+    const got = typeOfArg(value);
+    if (prop.type && prop.type !== got) {
+      problems.push(`"${key}" must be ${prop.type === "array" || prop.type === "object" ? "an" : "a"} ${prop.type}, got ${got}`);
+    } else if (Array.isArray(prop.enum) && !prop.enum.includes(value)) {
+      problems.push(`"${key}" must be one of ${prop.enum.map((v) => JSON.stringify(v)).join(", ")}, got ${JSON.stringify(value)}`);
+    }
+  }
+  return problems;
+}
+
+/** Run a catalog tool after checking its arguments. Every transport calls
+ *  this, never `tool.run` directly. */
+export async function runTool(tool, args, ctx) {
+  const problems = argProblems(tool.inputSchema, args ?? {});
+  if (problems.length) {
+    const props = tool.inputSchema?.properties ?? {};
+    const required = new Set(tool.inputSchema?.required ?? []);
+    const accepted = Object.keys(props).map((k) => describeParam(k, props[k], required.has(k)));
+    throw new Error(
+      `${tool.name}: ${problems.join("; ")}. Accepted arguments: ${accepted.length ? accepted.join(", ") : "none"}.`,
+    );
+  }
+  return tool.run(args ?? {}, ctx);
 }
 
 /** The tools a transport can run (`transports` omitted = every transport). */

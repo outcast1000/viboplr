@@ -13,6 +13,8 @@ import {
   partitionEnqueue,
   serializeQueue,
   serializeStatus,
+  playbackLanded,
+  parsePlayWait,
   parseLikeState,
   parsePlaybackSet,
   resolveSkin,
@@ -176,6 +178,48 @@ describe("serializeQueue / serializeStatus", () => {
     expect(withTrack.currentTrack).toMatchObject({ title: "Song", artistName: "Artist", liked: 0 });
     expect(withTrack.playing).toBe(true);
     expect(withTrack.positionSecs).toBe(12.5);
+  });
+
+  // A plugin track resolves for tens of seconds while the previous one keeps
+  // playing; status must say so rather than present the old track as current.
+  it("is unsettled while a play is still loading, and names what is loading", () => {
+    const base = {
+      playing: true, positionSecs: 0, durationSecs: 200, volume: 1, muted: false,
+      queueLength: 2, queueIndex: 1, queueMode: "normal" as const, view: "home",
+      currentTrack: qt({ title: "Old" }),
+    };
+    expect(serializeStatus(base)).toMatchObject({ settled: true, loading: null });
+    expect(serializeStatus({ ...base, loadingTrack: qt({ title: "Wish", artist_name: "Nine Inch Nails" }) })).toMatchObject({
+      settled: false,
+      loading: { title: "Wish", artistName: "Nine Inch Nails" },
+      currentTrack: { title: "Old" },
+    });
+  });
+});
+
+describe("playbackLanded / parsePlayWait", () => {
+  const target = qt({ key: "q:207", title: "In the End", artist_name: "Linkin Park" });
+
+  it("lands only once nothing is loading and the target is current", () => {
+    expect(playbackLanded(target, qt({ key: "q:207", title: "In the End", artist_name: "Linkin Park" }), null)).toBe(true);
+    expect(playbackLanded(target, qt({ key: "q:1", title: "Old" }), null)).toBe(false);
+    expect(playbackLanded(target, qt({ key: "q:207" }), target), "still loading").toBe(false);
+    expect(playbackLanded(target, null, null)).toBe(false);
+  });
+
+  it("falls back to title + artist when the queue re-keyed the entry", () => {
+    expect(playbackLanded(target, qt({ key: "q:999", title: "In the End", artist_name: "Linkin Park" }), null)).toBe(true);
+    expect(playbackLanded(target, qt({ key: "q:999", title: "In the End", artist_name: "Someone Else" }), null)).toBe(false);
+  });
+
+  it("accepts an absent wait or seconds in [0, 60]", () => {
+    expect(parsePlayWait(undefined)).toBe(0);
+    expect(parsePlayWait(null)).toBe(0);
+    expect(parsePlayWait(15)).toBe(15);
+    expect(parsePlayWait(60)).toBe(60);
+    expect(parsePlayWait(61)).toMatch(/wait must be/);
+    expect(parsePlayWait(-1)).toMatch(/wait must be/);
+    expect(parsePlayWait("15")).toMatch(/wait must be/);
   });
 });
 

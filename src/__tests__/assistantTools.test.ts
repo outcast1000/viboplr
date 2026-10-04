@@ -6,7 +6,7 @@
 // would either be invisible to every feature or run a write unasked.
 import { describe, expect, it, vi } from "vitest";
 import {
-  TOOLS, TOOL_CATEGORIES, PROXY_SEP, buildPluginProxies, isReadOnlyCall, toolsFor,
+  TOOLS, TOOL_CATEGORIES, PROXY_SEP, argProblems, buildPluginProxies, isReadOnlyCall, toolsFor,
 } from "../../mcp/tools.mjs";
 import { inProcessContext, invokeHostTool, listHostTools } from "../utils/hostAssistantTools";
 import { checkPermission, describePermission, PermissionError } from "../pluginWorker/permissions";
@@ -143,6 +143,54 @@ describe("in-process transport", () => {
     expect(names).not.toContain("launch_app");
     for (const t of tools) expect(t).not.toHaveProperty("run");
     expect(tools.find((t) => t.name === "slskd__search")).toMatchObject({ pluginId: "slskd", readOnly: true });
+  });
+});
+
+describe("argument checking", () => {
+  const tool = (name: string) => TOOLS.find((t) => t.name === name)!;
+
+  it("every catalog schema is checkable: an object with properties and only known required keys", () => {
+    for (const t of TOOLS) {
+      const s = t.inputSchema as { type?: string; properties?: Record<string, unknown>; required?: string[]; additionalProperties?: unknown };
+      expect(s.type, t.name).toBe("object");
+      expect(s.additionalProperties, t.name).toBe(false);
+      for (const r of s.required ?? []) expect(Object.keys(s.properties ?? {}), t.name).toContain(r);
+    }
+  });
+
+  it("names the near miss for a wrong argument name", () => {
+    expect(argProblems(tool("play_playlist").inputSchema, { id: 5 })).toEqual([
+      'unknown argument "id" (did you mean "playlistId"?)',
+      '"playlistId" is required',
+    ]);
+    expect(argProblems(tool("home_shelves").inputSchema, { action: "fetch", shelfId: "x" })).toEqual([
+      'unknown argument "shelfId" (did you mean "shelf"?)',
+    ]);
+  });
+
+  it("checks types and enums, and treats null as not given", () => {
+    const s = tool("edit_queue").inputSchema;
+    expect(argProblems(s, { action: "jump", index: "3" })).toEqual(['"index" must be a number, got string']);
+    expect(argProblems(s, { action: "skip" })[0]).toMatch(/"action" must be one of "add", .*got "skip"/);
+    expect(argProblems(s, { action: "jump", index: 2, trackIds: null })).toEqual([]);
+  });
+
+  it("refuses before any request, listing what the tool accepts", async () => {
+    const { call, calls } = fakeInvoke(() => ({ status: 200, body: {} }));
+    const ctx = inProcessContext("plugin:llm", call);
+    await expect(invokeHostTool(ctx, "play_playlist", { id: 5 })).rejects.toThrow(
+      'play_playlist: unknown argument "id" (did you mean "playlistId"?); "playlistId" is required. ' +
+        'Accepted arguments: playlistId (required, number), mode (string, "play"|"end"|"next"), allowDuplicates (boolean).',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("leaves plugin tools to the plugin", async () => {
+    const { call, calls } = fakeInvoke((_m, path) =>
+      path === "/v1/assistant/tools" ? { status: 200, body: ROSTER } : { status: 200, body: { result: null } },
+    );
+    await invokeHostTool(inProcessContext("plugin:llm", call), "slskd__search", { anything: 1 });
+    expect(calls[1].body).toMatchObject({ args: { anything: 1 } });
   });
 });
 

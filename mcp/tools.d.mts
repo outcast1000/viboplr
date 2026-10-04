@@ -66,5 +66,7 @@ export const TOOLS: CatalogTool[];
 export const PROXY_SEP: string;
 export function versionCmp(a: string, b: string): number;
 export function isReadOnlyCall(tool: Pick<CatalogTool, "readOnly" | "readOnlyWhen"> | null | undefined, args?: Record<string, unknown>): boolean;
+export function argProblems(schema: Record<string, any> | null | undefined, args: Record<string, unknown>): string[];
+export function runTool(tool: CatalogTool, args: Record<string, any> | null | undefined, ctx: ToolContext): Promise<unknown>;
 export function toolsFor(transport: string): CatalogTool[];
 export function buildPluginProxies(roster: AssistantRoster | null | undefined): PluginProxyTool[];

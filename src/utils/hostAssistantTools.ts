@@ -14,7 +14,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import {
-  INSTRUCTIONS, PROXY_SEP, buildPluginProxies, toolsFor,
+  INSTRUCTIONS, PROXY_SEP, buildPluginProxies, runTool, toolsFor,
   type AssistantRoster, type CatalogTool, type ToolCategory, type ToolContext,
 } from "../../mcp/tools.mjs";
 
@@ -104,7 +104,7 @@ export async function invokeHostTool(
     throw new Error("args must be an object");
   }
   const tool = toolsFor(TRANSPORT).find((t) => t.name === name);
-  if (tool) return tool.run(args, ctx);
+  if (tool) return runTool(tool, args, ctx);
   if (name.includes(PROXY_SEP)) {
     const roster = (await ctx.request("GET", "/v1/assistant/tools")) as AssistantRoster;
     const proxy = buildPluginProxies(roster).find((p) => p.name === name);
