@@ -579,19 +579,20 @@ export const TOOLS = [
     readOnly: true,
     categories: ["info", "library"],
     description:
-      "Substring search across the CACHED plugin info values — the plugins' database storage of lyrics, bios, reviews, similar lists. This is how to find a track from a lyric phrase: typeId=lyrics + resolveTracks=true returns each hit with a snippet and the resolved library track (`track`). Cached-only and instant — a value is here once any surface has fetched it (local .lrc/embedded file lyrics included, via the built-in local provider); nothing triggers a live provider fetch, so absence means not-yet-fetched, not not-existing.",
+      "Phrase search across the CACHED plugin info values — the plugins' database storage of lyrics, bios, reviews, similar lists. This is how to find a track from a lyric phrase: typeId=lyrics + resolveTracks=true returns each hit with a snippet (the matched line) and the resolved library track (`track`). Matches the readable text only (lyric lines, bio prose — not links or provider names); a phrase may run across a lyric's line break. One hit per entity per type, newest first. Hits carry no stored value unless includeValue=true — the snippet is usually enough; fetch a full lyric/bio with get_lyrics / get_entity_info instead. Cached-only and instant — a value is here once any surface has fetched it (local .lrc/embedded file lyrics included, via the built-in local provider); nothing triggers a live provider fetch, so absence means not-yet-fetched, not not-existing.",
     inputSchema: obj(
       {
-        query: str("Search text (matched accent/case-insensitively inside the stored values)"),
+        query: str("Phrase to find (matched accent/case-insensitively, whitespace-tolerant, inside the values' readable text)"),
         typeId: str('Restrict to one info type, e.g. "lyrics", "artist_bio" (ids from get_entity_info without typeId)'),
         entity: en(["track", "artist", "album", "tag"], "Restrict to values about this entity kind"),
         resolveTracks: bool("Resolve track-entity hits to playable library track rows"),
+        includeValue: bool("Also return each hit's full stored value (parsed JSON) — large; off by default"),
         limit: num("Max matches (default 20, max 100)"),
       },
       ["query"],
     ),
-    run: ({ query, typeId, entity, resolveTracks, limit }, ctx) =>
-      ctx.request("GET", `/v1/info/search${qs({ q: query, typeId, entity, resolveTracks, limit })}`),
+    run: ({ query, typeId, entity, resolveTracks, includeValue, limit }, ctx) =>
+      ctx.request("GET", `/v1/info/search${qs({ q: query, typeId, entity, resolveTracks, includeValue, limit })}`),
   },
   {
     name: "launch_app",

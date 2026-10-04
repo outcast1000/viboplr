@@ -798,28 +798,54 @@ struct InfoSearchParams {
     display_kind: Option<String>,
     entity: Option<String>,
     resolve_tracks: Option<bool>,
+    include_value: Option<bool>,
     limit: Option<i64>,
 }
 
-/// Substring search across the CACHED plugin info values (lyrics, bios,
+/// Phrase search across the CACHED plugin info values (lyrics, bios,
 /// reviews, similar lists…) — the same store `api.informationTypes.searchValues`
 /// serves. Cached-only: nothing here triggers a live provider fetch.
+///
+/// Hits omit the stored `value` unless `includeValue` is set — it is the whole
+/// lyric sheet or bio per hit, which the snippet already excerpts, and an
+/// assistant pays for every byte — and drop `status`, which is always "ok"
+/// here. An included `value` is parsed JSON, not the stored string.
 async fn handle_info_search(
     AxumState(state): AxumState<ServerState>,
     Query(params): Query<InfoSearchParams>,
 ) -> Response {
     let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let include_value = params.include_value.unwrap_or(false);
     db_read(state.db.clone(), move |db| {
-        db.search_information_values(
-            &params.q,
-            params.type_id.as_deref(),
-            params.display_kind.as_deref(),
-            params.entity.as_deref(),
-            None,
-            params.resolve_tracks.unwrap_or(false),
-            limit,
-        )
-        .map_err(|e| e.to_string())
+        let matches = db
+            .search_information_values(
+                &params.q,
+                params.type_id.as_deref(),
+                params.display_kind.as_deref(),
+                params.entity.as_deref(),
+                None,
+                params.resolve_tracks.unwrap_or(false),
+                limit,
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(matches
+            .into_iter()
+            .map(|m| {
+                let raw = m.value.clone();
+                let mut hit = serde_json::to_value(m).unwrap_or_default();
+                if let Some(obj) = hit.as_object_mut() {
+                    obj.remove("status");
+                    if include_value {
+                        let parsed = serde_json::from_str(&raw)
+                            .unwrap_or(serde_json::Value::String(raw));
+                        obj.insert("value".into(), parsed);
+                    } else {
+                        obj.remove("value");
+                    }
+                }
+                hit
+            })
+            .collect::<Vec<_>>())
     })
     .await
 }

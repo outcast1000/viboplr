@@ -418,21 +418,36 @@ impl Database {
         }
     }
 
-    /// Substring-search the values cached in `information_values` across ANY info
-    /// type (lyrics, bios, reviews, similar lists, …) and return the matches.
+    /// Search the values cached in `information_values` across ANY info type
+    /// (lyrics, bios, reviews, similar lists, …) for a phrase and return the
+    /// matches, newest first, at most one per (type, entity).
     ///
     /// Filters (all optional, AND-combined): `type_id` (e.g. "lyrics"),
     /// `display_kind` (e.g. "rich_text"), `entity` ("artist"/"album"/"track"/"tag").
     /// `json_path` restricts matching to one JSON field of the stored value
-    /// (e.g. "$.text" for lyrics, "$.summary" for bios); when None, the whole
-    /// stored JSON is searched. Matching is case/diacritic-insensitive to mirror
-    /// the rest of search, and LIKE metacharacters in the query are escaped.
+    /// (e.g. "$.text" for lyrics, "$.summary" for bios).
+    ///
+    /// Matching runs on the value's **readable text**, never on its raw JSON:
+    /// without a `json_path`, a lyrics value contributes only its `text`, and any
+    /// other value its string fields minus the plumbing ones (`_meta`, `kind`,
+    /// urls, images — see `readable_strings`). Searching the raw JSON made
+    /// "text", "plain" or "lrclib" match every cached lyric, and — because the
+    /// stored newlines are `\n` escapes — left the snippet as the first 140
+    /// chars of JSON instead of the matched line. LRC timestamps are stripped
+    /// and lines are joined with a space, so a phrase that runs across a line
+    /// break of a synced lyric still matches. Case/diacritic-insensitive to
+    /// mirror the rest of search.
+    ///
+    /// SQL only pre-filters on the query's alphanumeric runs (which appear
+    /// verbatim in the stored JSON — escaping never touches them); the phrase
+    /// itself is checked here, row by row, until `limit` distinct hits land.
     ///
     /// When `resolve_tracks` is set, `track`-entity matches are resolved back to
     /// the library `Track` (by reconstructing the un-normalized `track:{artist}:
     /// {title}` key the TS `buildEntityKey` writes) so the caller can play them.
-    /// Backs `api.informationTypes.searchValues` — plugins can't read stored info
-    /// values directly.
+    /// Backs `api.informationTypes.searchValues` and the control API's
+    /// `/v1/info/search` — neither plugins nor assistants read stored info values
+    /// directly.
     pub fn search_information_values(
         &self,
         query: &str,
@@ -443,78 +458,98 @@ impl Database {
         resolve_tracks: bool,
         limit: i64,
     ) -> SqlResult<Vec<InfoValueMatch>> {
-        let norm = strip_diacritics(&query.trim().to_lowercase());
-        if norm.is_empty() {
+        let needle = normalize_for_match(query);
+        if needle.is_empty() {
             return Ok(vec![]);
         }
-        // Escape LIKE metacharacters so a literal `%`/`_`/`\` in the query isn't
-        // treated as a wildcard (paired with `ESCAPE '\'` in the SQL below).
-        let q_like = norm.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let limit = limit.max(0) as usize;
         let conn = self.conn.lock().unwrap();
 
-        // The text we match (and excerpt) on: a single JSON field when json_path
-        // is given, else the whole stored value. Bind the path as ?1 (reused) so
-        // it can't be injected.
+        // The text we pre-filter on: a single JSON field when json_path is given,
+        // else the whole stored value. Bind the path as ?1 (reused) so it can't
+        // be injected. `json_type` tells a string field (plain text) from an
+        // object/array one (walked like a whole value).
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-        let searched = if let Some(path) = json_path {
+        let (searched, searched_type) = if let Some(path) = json_path {
             params.push(Box::new(path.to_string())); // ?1
-            "json_extract(iv.value, ?1)".to_string()
+            ("json_extract(iv.value, ?1)", "json_type(iv.value, ?1)")
         } else {
-            "iv.value".to_string()
+            ("iv.value", "NULL")
         };
 
         let mut sql = format!(
             "SELECT it.type_id, it.plugin_id, it.entity, it.display_kind, iv.entity_key, \
-                    iv.value, iv.status, iv.fetched_at, {searched} AS searched_text \
+                    iv.value, iv.status, iv.fetched_at, {searched} AS searched_text, \
+                    {searched_type} AS searched_type \
              FROM information_values iv \
              JOIN information_types it ON it.id = iv.information_type_id \
-             WHERE iv.status = 'ok'"
+             WHERE iv.status = 'ok' AND {searched} IS NOT NULL"
         );
         let mut next = params.len() + 1;
-        if let Some(t) = type_id {
-            sql.push_str(&format!(" AND it.type_id = ?{next}"));
-            params.push(Box::new(t.to_string()));
+        let mut push_filter = |sql: &mut String, clause: &str, value: String| {
+            sql.push_str(&format!(" AND {clause} ?{next}"));
+            params.push(Box::new(value));
             next += 1;
+        };
+        if let Some(t) = type_id {
+            push_filter(&mut sql, "it.type_id =", t.to_string());
         }
         if let Some(d) = display_kind {
-            sql.push_str(&format!(" AND it.display_kind = ?{next}"));
-            params.push(Box::new(d.to_string()));
-            next += 1;
+            push_filter(&mut sql, "it.display_kind =", d.to_string());
         }
         if let Some(e) = entity {
-            sql.push_str(&format!(" AND it.entity = ?{next}"));
-            params.push(Box::new(e.to_string()));
-            next += 1;
+            push_filter(&mut sql, "it.entity =", e.to_string());
         }
-        sql.push_str(&format!(
-            " AND {searched} IS NOT NULL \
-              AND strip_diacritics(unicode_lower({searched})) LIKE '%' || ?{next} || '%' ESCAPE '\\'"
-        ));
-        params.push(Box::new(q_like));
-        next += 1;
-        sql.push_str(&format!(" ORDER BY iv.fetched_at DESC LIMIT ?{next}"));
-        params.push(Box::new(limit));
+        // LIKE metacharacters can't occur in an alphanumeric run, so no escaping.
+        for token in needle.split(|c: char| !c.is_alphanumeric()).filter(|t| !t.is_empty()) {
+            let clause = format!("strip_diacritics(unicode_lower({searched})) LIKE '%' ||");
+            push_filter(&mut sql, &clause, token.to_string());
+            sql.push_str(" || '%'");
+        }
+        sql.push_str(" ORDER BY iv.fetched_at DESC, iv.rowid DESC");
 
-        let mut matches: Vec<InfoValueMatch> = {
+        let mut matches: Vec<InfoValueMatch> = Vec::new();
+        {
             let mut stmt = conn.prepare(&sql)?;
             let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-            let rows = stmt.query_map(refs.as_slice(), |row| {
+            let mut rows = stmt.query(refs.as_slice())?;
+            let mut seen: std::collections::HashSet<(String, String)> =
+                std::collections::HashSet::new();
+            while matches.len() < limit {
+                let Some(row) = rows.next()? else { break };
+                let type_id: String = row.get(0)?;
+                let entity_key: String = row.get(4)?;
+                // Several providers can cache the same entity under one type
+                // (core:local-lyrics, lrclib, lyrics-ovh): the newest stands for
+                // all of them, so one song can't fill the page.
+                if seen.contains(&(type_id.clone(), entity_key.clone())) {
+                    continue;
+                }
+                let display_kind: String = row.get(3)?;
                 let searched_text: String = row.get(8)?;
-                Ok(InfoValueMatch {
-                    type_id: row.get(0)?,
+                let searched_type: Option<String> = row.get(9)?;
+                let lines = readable_lines(
+                    &searched_text,
+                    searched_type.as_deref(),
+                    json_path.is_some(),
+                    &display_kind,
+                );
+                let Some(snippet) = phrase_snippet(&lines, &needle) else { continue };
+                seen.insert((type_id.clone(), entity_key.clone()));
+                matches.push(InfoValueMatch {
+                    type_id,
                     plugin_id: row.get(1)?,
                     entity: row.get(2)?,
-                    display_kind: row.get(3)?,
-                    entity_key: row.get(4)?,
+                    display_kind,
+                    entity_key,
                     value: row.get(5)?,
                     status: row.get(6)?,
                     fetched_at: row.get(7)?,
-                    snippet: value_snippet(&searched_text, &norm),
+                    snippet,
                     track: None,
-                })
-            })?;
-            rows.collect::<SqlResult<Vec<_>>>()?
-        };
+                });
+            }
+        }
 
         // Resolve track-entity matches to playable library tracks. Reuse
         // TRACK_SELECT and reconstruct the same un-normalized key per row so the
@@ -563,34 +598,172 @@ impl Database {
     }
 }
 
-/// Pull a short, human-readable snippet from `text` for a search hit: the first
-/// line that contains `norm_query` (matched case/diacritic-insensitively), else
-/// the first non-empty line. Leading LRC-style timestamps are stripped so synced
-/// lyrics read cleanly; harmless for other content.
-fn value_snippet(text: &str, norm_query: &str) -> String {
-    const MAX: usize = 140;
-    let mut fallback: Option<&str> = None;
-    for raw in text.lines() {
-        let line = strip_leading_timestamp(raw).trim();
-        if line.is_empty() {
-            continue;
-        }
-        if fallback.is_none() {
-            fallback = Some(line);
-        }
-        if strip_diacritics(&line.to_lowercase()).contains(norm_query) {
-            return truncate_chars(line, MAX);
-        }
-    }
-    fallback.map(|f| truncate_chars(f, MAX)).unwrap_or_default()
+/// Lowercase, strip diacritics and collapse whitespace runs to one space — the
+/// form both sides of an info-value match are compared in.
+fn normalize_for_match(s: &str) -> String {
+    strip_diacritics(&s.to_lowercase())
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
-/// Drop a leading LRC timestamp like `[00:12.34]` from a synced-lyrics line.
-fn strip_leading_timestamp(line: &str) -> &str {
-    let t = line.trim_start();
-    if t.starts_with('[') {
-        if let Some(end) = t.find(']') {
-            return t[end + 1..].trim_start();
+/// Object keys whose values are plumbing rather than prose, per the display-kind
+/// schemas in `src/types/informationTypes.ts`: provider metadata, enum tags,
+/// links, images, and lyrics' `lines` (a timed duplicate of `text`).
+const NON_READABLE_KEYS: &[&str] = &[
+    "_meta", "kind", "itemKind", "libraryKind", "url", "image", "source", "lines", "local",
+];
+
+/// Collect the human-readable string leaves of a stored info value.
+fn readable_strings(v: &serde_json::Value, out: &mut Vec<String>) {
+    match v {
+        serde_json::Value::String(s) => {
+            let lower = s.trim_start().to_ascii_lowercase();
+            let is_link = ["http://", "https://", "file://", "data:"]
+                .iter()
+                .any(|p| lower.starts_with(p));
+            if !is_link {
+                out.push(s.clone());
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|x| readable_strings(x, out)),
+        serde_json::Value::Object(map) => {
+            for (k, x) in map {
+                if !NON_READABLE_KEYS.contains(&k.as_str()) {
+                    readable_strings(x, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The readable text of one searched value, as trimmed non-empty lines with LRC
+/// timestamps removed. `searched` is the stored value — or, when the caller gave
+/// a `json_path`, the extracted field, with `searched_type` its `json_type`.
+/// A lyrics value searched whole contributes only its `text`.
+fn readable_lines(
+    searched: &str,
+    searched_type: Option<&str>,
+    has_path: bool,
+    display_kind: &str,
+) -> Vec<String> {
+    let mut strings = Vec::new();
+    let is_structured = matches!(searched_type, Some("object") | Some("array"));
+    if has_path && !is_structured {
+        strings.push(searched.to_string());
+    } else {
+        match serde_json::from_str::<serde_json::Value>(searched) {
+            Ok(v) => {
+                if !has_path && display_kind == "lyrics" {
+                    if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
+                        strings.push(text.to_string());
+                    }
+                }
+                if strings.is_empty() {
+                    readable_strings(&v, &mut strings);
+                }
+            }
+            Err(_) => strings.push(searched.to_string()),
+        }
+    }
+    let html = display_kind == "html";
+    strings
+        .iter()
+        .flat_map(|s| {
+            let text = if html { strip_tags(s) } else { s.clone() };
+            text.lines()
+                .map(|l| strip_leading_timestamps(l).trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+/// Replace `<…>` markup with a space (html display kind).
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => {
+                in_tag = false;
+                out.push(' ');
+            }
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The snippet for a hit, or None when the phrase isn't in `lines`. The phrase
+/// may sit inside one line, or run across consecutive ones (the lines of a
+/// lyric); the latter reads as the lines joined with " / ".
+fn phrase_snippet(lines: &[String], needle: &str) -> Option<String> {
+    const MAX: usize = 140;
+    let norm: Vec<String> = lines.iter().map(|l| normalize_for_match(l)).collect();
+    if !norm.join(" ").contains(needle) {
+        return None;
+    }
+    if let Some(i) = norm.iter().position(|n| n.contains(needle)) {
+        return Some(snippet_window(&lines[i], needle, MAX));
+    }
+    // A phrase of w words spans at most w lines; +1 for a punctuation-only line.
+    let span = needle.split(' ').count() + 1;
+    for i in 0..norm.len() {
+        let mut acc = norm[i].clone();
+        for j in (i + 1)..norm.len().min(i + span + 1) {
+            acc.push(' ');
+            acc.push_str(&norm[j]);
+            if acc.contains(needle) {
+                return Some(truncate_chars(&lines[i..=j].join(" / "), MAX));
+            }
+        }
+    }
+    None
+}
+
+/// At most `max` chars of `line`, positioned so the match is visible: a long
+/// line (a bio paragraph) is cut to a window starting a little before the
+/// first occurrence of `needle`, with ellipses on the cut sides.
+fn snippet_window(line: &str, needle: &str, max: usize) -> String {
+    const LEAD: usize = 40;
+    let chars: Vec<char> = line.chars().collect();
+    if chars.len() <= max {
+        return line.to_string();
+    }
+    // Normalize char by char, remembering the source char of every byte, so a
+    // byte offset in the normalized text maps back to a char offset in `line`.
+    let mut norm = String::new();
+    let mut origin: Vec<usize> = Vec::new();
+    for (ci, c) in chars.iter().enumerate() {
+        for nc in strip_diacritics(&c.to_lowercase().to_string()).chars() {
+            origin.extend(std::iter::repeat(ci).take(nc.len_utf8()));
+            norm.push(nc);
+        }
+    }
+    let at = norm.find(needle).map(|b| origin[b]).unwrap_or(0);
+    let start = at.saturating_sub(LEAD).min(chars.len() - max);
+    let mut out = String::new();
+    if start > 0 {
+        out.push('…');
+    }
+    out.extend(&chars[start..start + max]);
+    if start + max < chars.len() {
+        out.push('…');
+    }
+    out
+}
+
+/// Drop leading LRC tags like `[00:12.34]` (repeated tags included) from a line.
+fn strip_leading_timestamps(line: &str) -> &str {
+    let mut t = line.trim_start();
+    while t.starts_with('[') {
+        match t.find(']') {
+            Some(end) => t = t[end + 1..].trim_start(),
+            None => break,
         }
     }
     t
@@ -942,5 +1115,134 @@ mod tests {
             .unwrap();
         assert_eq!(hits.len(), 1);
         assert!(hits[0].track.is_none());
+    }
+
+    /// Register info types (type_id, entity, display_kind, plugin_id) in one sync
+    /// and return their row ids in the same order.
+    fn info_type_ids(db: &Database, types: &[(&str, &str, &str, &str)]) -> Vec<i64> {
+        let rows: Vec<_> = types
+            .iter()
+            .map(|(t, e, d, p)| {
+                (t.to_string(), t.to_string(), e.to_string(), d.to_string(), p.to_string(),
+                 7_776_000, 0, 500, String::new())
+            })
+            .collect();
+        db.info_sync_types(&rows).unwrap();
+        let conn = db.conn.lock().unwrap();
+        types
+            .iter()
+            .map(|(t, _, _, p)| {
+                conn.query_row(
+                    "SELECT id FROM information_types WHERE type_id = ?1 AND plugin_id = ?2",
+                    [t, p],
+                    |r| r.get(0),
+                )
+                .unwrap()
+            })
+            .collect()
+    }
+
+    const SYNCED: &str = "{\"text\":\"[00:01.00] Karma police, arrest this man\\n[00:04.50] He talks in maths\",\"kind\":\"synced\",\"_meta\":{\"providerName\":\"LRCLIB\",\"homepageUrl\":\"https://lrclib.net\"}}";
+
+    #[test]
+    fn test_search_information_values_matches_readable_text_not_json() {
+        // The control API searches whole values (no json_path) — it must still
+        // look only at the lyric text, never at keys, enum tags or provider meta.
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        db.info_upsert_value(lyrics, "track:Radiohead:Karma Police", SYNCED, "ok").unwrap();
+
+        for junk in ["text", "synced", "lrclib", "providerName", "https", "00:04"] {
+            assert!(
+                db.search_information_values(junk, None, None, None, None, false, 50).unwrap().is_empty(),
+                "{junk} must not match the stored JSON"
+            );
+        }
+
+        // The snippet is the matched line, timestamp stripped — not raw JSON.
+        let hits = db
+            .search_information_values("TALKS  in", None, None, None, None, false, 50)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "He talks in maths");
+    }
+
+    #[test]
+    fn test_search_information_values_phrase_across_lyric_lines() {
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        db.info_upsert_value(lyrics, "track:Radiohead:Karma Police", SYNCED, "ok").unwrap();
+
+        // Whole-value search and the plugin API's `$.text` scope both see it.
+        for path in [None, Some("$.text")] {
+            let hits = db
+                .search_information_values("arrest this man he talks", Some("lyrics"), None, None, path, false, 50)
+                .unwrap();
+            assert_eq!(hits.len(), 1, "path {path:?}");
+            assert_eq!(hits[0].snippet, "Karma police, arrest this man / He talks in maths");
+        }
+        // Words that are all present but not in that order are not the phrase.
+        assert!(db
+            .search_information_values("talks arrest", None, None, None, None, false, 50)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_search_information_values_one_hit_per_entity_and_type() {
+        // Several providers caching the same song's lyrics count once (the
+        // newest), so one song can't fill the page and starve `limit`.
+        let db = Database::new_in_memory().unwrap();
+        let ids = info_type_ids(&db, &[
+            ("lyrics", "track", "lyrics", "lrclib"),
+            ("lyrics", "track", "lyrics", "lyrics-ovh"),
+        ]);
+        let plain = "{\"text\":\"karma police\",\"kind\":\"plain\"}";
+        db.info_upsert_value(ids[0], "track:Radiohead:Karma Police", plain, "ok").unwrap();
+        db.info_upsert_value(ids[1], "track:Radiohead:Karma Police", plain, "ok").unwrap();
+        db.info_upsert_value(ids[1], "track:Other:Karma Police (cover)", plain, "ok").unwrap();
+
+        let hits = db
+            .search_information_values("karma", Some("lyrics"), None, None, None, false, 50)
+            .unwrap();
+        let keys: Vec<&str> = hits.iter().map(|h| h.entity_key.as_str()).collect();
+        assert_eq!(keys.len(), 2, "{keys:?}");
+        assert!(keys.contains(&"track:Radiohead:Karma Police"));
+        assert!(keys.contains(&"track:Other:Karma Police (cover)"));
+
+        // `limit` counts distinct hits, not raw rows.
+        assert_eq!(
+            db.search_information_values("karma", None, None, None, None, false, 1).unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_search_information_values_long_text_snippet_shows_the_match() {
+        // A bio is one long paragraph: the snippet must be a window around the
+        // match, not the paragraph's first 140 chars. Links never match.
+        let db = Database::new_in_memory().unwrap();
+        let bio = info_type_ids(&db, &[("artist_bio", "artist", "rich_text", "lastfm")])[0];
+        let filler = "Formed in Abingdon, the band spent years playing small venues. ".repeat(5);
+        let value = serde_json::json!({
+            "summary": format!("{filler}Their third album, OK Computer, was released in 1997."),
+            "_meta": { "providerName": "Last.fm", "homepageUrl": "https://www.last.fm/music/Radiohead" },
+        })
+        .to_string();
+        db.info_upsert_value(bio, "artist:Radiohead", &value, "ok").unwrap();
+
+        let hits = db
+            .search_information_values("ok computer", None, None, Some("artist"), None, false, 50)
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        let snippet = &hits[0].snippet;
+        assert!(snippet.contains("OK Computer"), "{snippet}");
+        assert!(snippet.starts_with('…'), "{snippet}");
+        assert!(snippet.chars().count() <= 142, "{snippet}");
+
+        assert!(db
+            .search_information_values("last.fm/music", None, None, None, None, false, 50)
+            .unwrap()
+            .is_empty());
     }
 }

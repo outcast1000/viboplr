@@ -63,9 +63,10 @@ so a launched app brings the API up on its own).
 ## Tools
 
 Every tool is always listed: search/browse, playback and queue control,
-playlists, likes, tags, lyrics/info (incl. `search_info`, a substring search
-over the cached plugin info values — find a track by a lyric phrase, local file
-lyrics included), Now Playing **cue sheets** (`get_cue_context` gathers a
+playlists, likes, tags, lyrics/info (incl. `search_info`, a phrase search
+over the readable text of the cached plugin info values — find a track by a
+lyric phrase, local file lyrics included; hits carry a snippet, the full value
+only with `includeValue`), Now Playing **cue sheets** (`get_cue_context` gathers a
 song's lyrics with timestamps, its meaning/bio/review prose, quality and tags
 plus the format guides; `cue_sheet` saves either timed fact / lyric-meaning /
 image cards played over the artwork, or — `mode: "clip"` — a text-and-image

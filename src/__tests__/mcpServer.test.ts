@@ -476,6 +476,15 @@ describe("MCP server over stdio", () => {
     expect(req?.url).toContain("typeId=lyrics");
     expect(req?.url).toContain("resolveTracks=true");
     expect(req?.url).toContain("limit=10");
+    // The full stored value is opt-in — off unless asked for.
+    expect(req?.url).not.toContain("includeValue");
+
+    await rpc.request("tools/call", {
+      name: "search_info",
+      arguments: { query: "jóga", includeValue: true },
+    });
+    const withValue = api.seen.filter((r) => r.url.startsWith("/v1/info/search")).at(-1);
+    expect(withValue?.url).toContain("includeValue=true");
   });
 
   it("lists collections and posts a rescan with the full flag", async () => {
