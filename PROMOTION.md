@@ -320,7 +320,7 @@ adds bulk convert + a media-info probe). Two different risk profiles:
 ```
 I built a music player (Viboplr) with a plugin system, and one of the plugins turns ffmpeg
 into a GUI: right-click any track(s) for a "Convert to…" submenu (bulk transcode), plus a
-Media Info tab that probes container/streams/tags and loudness — all parsed from plain
+"Media Info" item that probes container/streams/tags and loudness — all parsed from plain
 ffmpeg's output (no ffprobe needed). The player itself decodes everything through a bundled
 libmpv/ffmpeg, so format support is wide (FLAC, ALAC, DSD, WavPack, APE, OPUS, …).
 
@@ -329,7 +329,7 @@ Site: https://viboplr.com  •  Source: https://github.com/outcast1000/viboplr
 
 Feedback on the convert/probe UX welcome.
 ```
-**Media:** a shot of the "Convert to…" submenu + the Media Info tab (see SHOT-14), SHOT-01.
+**Media:** a shot of the "Convert to…" submenu + the Media Info view (see SHOT-14), SHOT-01.
 
 **Post text — r/youtubedl (plugin-scoped):**
 ```
@@ -530,7 +530,7 @@ not on the download button.
 | **SHOT-11** | Mini player (compact, on top of a desktop) | PH, social |
 | **SHOT-12** | Settings → Playback (engine, crossfade, EQ, exclusive/bit-perfect audio) | Tech + audiophile posts |
 | **SHOT-13** | Editor view of `CLAUDE.md` + `.claude/rules/` file tree (the "how it was vibecoded" shot) | r/vibecoding, r/ClaudeAI, r/ClaudeCode |
-| **SHOT-14** | ffmpeg-tools plugin: the "Convert to…" context submenu + the Media Info probe tab | r/ffmpeg |
+| **SHOT-14** | ffmpeg-tools plugin: the "Convert to…" context submenu + the Media Info view (FFmpeg Tools sidebar) | r/ffmpeg |
 
 ### Icon / branding
 
