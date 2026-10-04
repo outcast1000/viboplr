@@ -440,7 +440,12 @@ impl Database {
     ///
     /// SQL only pre-filters on the query's alphanumeric runs (which appear
     /// verbatim in the stored JSON — escaping never touches them); the phrase
-    /// itself is checked here, row by row, until `limit` distinct hits land.
+    /// itself is checked here, row by row.
+    ///
+    /// Hits are ranked by `MatchTier` — the phrase as whole words inside one
+    /// line, then as whole words across a line break, then inside a word
+    /// ("love" in "glove") — and newest first within a tier. The scan stops
+    /// early once `limit` top-tier hits are in, since nothing can outrank them.
     ///
     /// When `resolve_tracks` is set, `track`-entity matches are resolved back to
     /// the library `Track` (by reconstructing the un-normalized `track:{artist}:
@@ -508,14 +513,15 @@ impl Database {
         }
         sql.push_str(" ORDER BY iv.fetched_at DESC, iv.rowid DESC");
 
-        let mut matches: Vec<InfoValueMatch> = Vec::new();
+        let mut ranked: Vec<(MatchTier, InfoValueMatch)> = Vec::new();
         {
             let mut stmt = conn.prepare(&sql)?;
             let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
             let mut rows = stmt.query(refs.as_slice())?;
             let mut seen: std::collections::HashSet<(String, String)> =
                 std::collections::HashSet::new();
-            while matches.len() < limit {
+            let mut top_tier = 0usize;
+            while top_tier < limit {
                 let Some(row) = rows.next()? else { break };
                 let type_id: String = row.get(0)?;
                 let entity_key: String = row.get(4)?;
@@ -534,9 +540,12 @@ impl Database {
                     json_path.is_some(),
                     &display_kind,
                 );
-                let Some(snippet) = phrase_snippet(&lines, &needle) else { continue };
+                let Some((snippet, tier)) = phrase_snippet(&lines, &needle) else { continue };
                 seen.insert((type_id.clone(), entity_key.clone()));
-                matches.push(InfoValueMatch {
+                if tier == MatchTier::WordsInLine {
+                    top_tier += 1;
+                }
+                ranked.push((tier, InfoValueMatch {
                     type_id,
                     plugin_id: row.get(1)?,
                     entity: row.get(2)?,
@@ -547,9 +556,13 @@ impl Database {
                     fetched_at: row.get(7)?,
                     snippet,
                     track: None,
-                });
+                }));
             }
         }
+        // Stable: rows arrived newest first, so that order holds within a tier.
+        ranked.sort_by_key(|(tier, _)| *tier);
+        let mut matches: Vec<InfoValueMatch> =
+            ranked.into_iter().take(limit).map(|(_, m)| m).collect();
 
         // Resolve track-entity matches to playable library tracks. Reuse
         // TRACK_SELECT and reconstruct the same un-normalized key per row so the
@@ -701,28 +714,75 @@ fn strip_tags(s: &str) -> String {
 /// The snippet for a hit, or None when the phrase isn't in `lines`. The phrase
 /// may sit inside one line, or run across consecutive ones (the lines of a
 /// lyric); the latter reads as the lines joined with " / ".
-fn phrase_snippet(lines: &[String], needle: &str) -> Option<String> {
+fn phrase_snippet(lines: &[String], needle: &str) -> Option<(String, MatchTier)> {
     const MAX: usize = 140;
     let norm: Vec<String> = lines.iter().map(|l| normalize_for_match(l)).collect();
-    if !norm.join(" ").contains(needle) {
-        return None;
+    // Whether the phrase occurs as whole words anywhere: if so, a mid-word
+    // occurrence found first must not be what the hit is ranked and shown by.
+    let (_, whole_somewhere) = find_phrase(&norm.join(" "), needle)?;
+
+    // Inside one line, preferring a line where it stands as whole words.
+    let mut single: Option<(usize, bool)> = None;
+    for (i, n) in norm.iter().enumerate() {
+        if let Some((_, whole)) = find_phrase(n, needle) {
+            if whole {
+                single = Some((i, true));
+                break;
+            }
+            single.get_or_insert((i, false));
+        }
     }
-    if let Some(i) = norm.iter().position(|n| n.contains(needle)) {
-        return Some(snippet_window(&lines[i], needle, MAX));
+    if let Some((i, whole)) = single {
+        if whole || !whole_somewhere {
+            let tier = if whole { MatchTier::WordsInLine } else { MatchTier::InsideWord };
+            return Some((snippet_window(&lines[i], needle, MAX), tier));
+        }
     }
-    // A phrase of w words spans at most w lines; +1 for a punctuation-only line.
+
+    // Across consecutive lines. A phrase of w words spans at most w lines; +1
+    // for a punctuation-only line.
     let span = needle.split(' ').count() + 1;
     for i in 0..norm.len() {
         let mut acc = norm[i].clone();
         for j in (i + 1)..norm.len().min(i + span + 1) {
             acc.push(' ');
             acc.push_str(&norm[j]);
-            if acc.contains(needle) {
-                return Some(truncate_chars(&lines[i..=j].join(" / "), MAX));
+            if let Some((_, whole)) = find_phrase(&acc, needle) {
+                if whole || !whole_somewhere {
+                    let tier = if whole { MatchTier::WordsAcrossLines } else { MatchTier::InsideWord };
+                    return Some((truncate_chars(&lines[i..=j].join(" / "), MAX), tier));
+                }
             }
         }
     }
-    None
+    single.map(|(i, _)| (snippet_window(&lines[i], needle, MAX), MatchTier::InsideWord))
+}
+
+/// How well an info value matched a phrase search — the rank order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum MatchTier {
+    /// The phrase as whole words inside one line.
+    WordsInLine,
+    /// The phrase as whole words, running across a line break.
+    WordsAcrossLines,
+    /// Only inside a longer word ("love" in "glove").
+    InsideWord,
+}
+
+/// Byte offset of `needle` in `hay`, preferring an occurrence that stands as
+/// whole words (no alphanumeric directly before or after it); the flag says
+/// whether the returned one does.
+fn find_phrase(hay: &str, needle: &str) -> Option<(usize, bool)> {
+    let mut first = None;
+    for (at, _) in hay.match_indices(needle) {
+        let before = hay[..at].chars().next_back().map_or(true, |c| !c.is_alphanumeric());
+        let after = hay[at + needle.len()..].chars().next().map_or(true, |c| !c.is_alphanumeric());
+        if before && after {
+            return Some((at, true));
+        }
+        first.get_or_insert(at);
+    }
+    first.map(|at| (at, false))
 }
 
 /// At most `max` chars of `line`, positioned so the match is visible: a long
@@ -744,7 +804,7 @@ fn snippet_window(line: &str, needle: &str, max: usize) -> String {
             norm.push(nc);
         }
     }
-    let at = norm.find(needle).map(|b| origin[b]).unwrap_or(0);
+    let at = find_phrase(&norm, needle).map(|(b, _)| origin[b]).unwrap_or(0);
     let start = at.saturating_sub(LEAD).min(chars.len() - max);
     let mut out = String::new();
     if start > 0 {
@@ -1244,5 +1304,31 @@ mod tests {
             .search_information_values("last.fm/music", None, None, None, None, false, 50)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn test_search_information_values_ranks_whole_words_before_line_breaks_and_partial_words() {
+        // Inserted oldest → newest, so recency alone would list them C, B, A.
+        let db = Database::new_in_memory().unwrap();
+        let lyrics = lyrics_type_id(&db);
+        let put = |key: &str, text: &str| {
+            let value = serde_json::json!({ "text": text, "kind": "plain" }).to_string();
+            db.info_upsert_value(lyrics, key, &value, "ok").unwrap();
+        };
+        put("track:A:Whole", "I love you so");
+        put("track:B:Partial", "Put on a glove you found");
+        put("track:C:Across", "All my love\nyou know");
+
+        let hits = db
+            .search_information_values("love you", None, None, None, None, false, 50)
+            .unwrap();
+        let keys: Vec<&str> = hits.iter().map(|h| h.entity_key.as_str()).collect();
+        assert_eq!(keys, ["track:A:Whole", "track:C:Across", "track:B:Partial"]);
+
+        // `limit` takes from the top of the ranking, not from the newest rows.
+        let top = db
+            .search_information_values("love you", None, None, None, None, false, 1)
+            .unwrap();
+        assert_eq!(top[0].entity_key, "track:A:Whole");
     }
 }

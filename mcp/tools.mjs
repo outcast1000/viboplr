@@ -579,11 +579,12 @@ export const TOOLS = [
     readOnly: true,
     categories: ["info", "library"],
     description:
-      "Phrase search across the CACHED plugin info values — the plugins' database storage of lyrics, bios, reviews, similar lists. This is how to find a track from a lyric phrase: typeId=lyrics + resolveTracks=true returns each hit with a snippet (the matched line) and the resolved library track (`track`). Matches the readable text only (lyric lines, bio prose — not links or provider names); a phrase may run across a lyric's line break. One hit per entity per type, newest first. Hits carry no stored value unless includeValue=true — the snippet is usually enough; fetch a full lyric/bio with get_lyrics / get_entity_info instead. Cached-only and instant — a value is here once any surface has fetched it (local .lrc/embedded file lyrics included, via the built-in local provider); nothing triggers a live provider fetch, so absence means not-yet-fetched, not not-existing.",
+      "Phrase search across the CACHED plugin info values — the plugins' database storage of lyrics, bios, reviews, similar lists. This is how to find a track from a lyric phrase: typeId=lyrics + resolveTracks=true returns each hit with a snippet (the matched line) and the resolved library track (`track`). Matches the readable text only (lyric lines, bio prose — not links or provider names); a phrase may run across a lyric's line break. One hit per entity per type, ranked: the phrase as whole words in one line, then across a line break, then inside a word; newest first within each. Hits carry no stored value unless includeValue=true — the snippet is usually enough; fetch a full lyric/bio with get_lyrics / get_entity_info instead. Cached-only and instant — a value is here once any surface has fetched it (local .lrc/embedded file lyrics included, via the built-in local provider); nothing triggers a live provider fetch, so absence means not-yet-fetched, not not-existing.",
     inputSchema: obj(
       {
         query: str("Phrase to find (matched accent/case-insensitively, whitespace-tolerant, inside the values' readable text)"),
         typeId: str('Restrict to one info type, e.g. "lyrics", "artist_bio" (ids from get_entity_info without typeId)'),
+        displayKind: str('Restrict to one display kind, e.g. "rich_text" (bios, reviews), "lyrics", "entity_list" (similar lists)'),
         entity: en(["track", "artist", "album", "tag"], "Restrict to values about this entity kind"),
         resolveTracks: bool("Resolve track-entity hits to playable library track rows"),
         includeValue: bool("Also return each hit's full stored value (parsed JSON) — large; off by default"),
@@ -591,8 +592,8 @@ export const TOOLS = [
       },
       ["query"],
     ),
-    run: ({ query, typeId, entity, resolveTracks, includeValue, limit }, ctx) =>
-      ctx.request("GET", `/v1/info/search${qs({ q: query, typeId, entity, resolveTracks, includeValue, limit })}`),
+    run: ({ query, typeId, displayKind, entity, resolveTracks, includeValue, limit }, ctx) =>
+      ctx.request("GET", `/v1/info/search${qs({ q: query, typeId, displayKind, entity, resolveTracks, includeValue, limit })}`),
   },
   {
     name: "launch_app",

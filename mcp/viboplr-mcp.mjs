@@ -77,6 +77,23 @@ function profilesDir() {
   return join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), BUNDLE_ID, "profiles");
 }
 
+// Whether the process that wrote a discovery file is still alive. A crash or a
+// force-quit leaves control-api.json behind, so without this a dead profile was
+// listed as "running" and could even be auto-picked. Signal 0 only probes;
+// EPERM means the pid exists but belongs to someone else (alive), ESRCH that it
+// is gone. A file with no pid predates the field and is given the benefit of
+// the doubt. Pid reuse can still read as alive — the request then fails to
+// connect and lands on NOT_RUNNING, which is no worse than before.
+export function discoveryPidAlive(pid) {
+  if (typeof pid !== "number") return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e?.code === "EPERM";
+  }
+}
+
 // Re-read per request: an app restart rotates port + token, and the file is
 // tiny. The token never leaves this function's caller (apiRequest).
 function readDiscovery() {
@@ -90,7 +107,7 @@ function readDiscovery() {
   for (const d of dirs) {
     try {
       const data = JSON.parse(readFileSync(join(profilesDir(), d, "control-api.json"), "utf8"));
-      if (data && typeof data.port === "number" && typeof data.token === "string") {
+      if (data && typeof data.port === "number" && typeof data.token === "string" && discoveryPidAlive(data.pid)) {
         found.push({ profile: data.profile ?? d, data });
       }
     } catch {

@@ -1982,6 +1982,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_info_search_returns_snippets_and_value_only_on_request() {
+        let state = test_state(noop_emit());
+        state
+            .db
+            .info_sync_types(&[(
+                "lyrics".into(), "Lyrics".into(), "track".into(), "lyrics".into(),
+                "lrclib".into(), 7_776_000, 0, 500, String::new(),
+            )])
+            .unwrap();
+        let type_row: i64 = state.db.info_get_types_for_entity("track").unwrap()[0].5[0].1;
+        state
+            .db
+            .info_upsert_value(
+                type_row,
+                "track:Radiohead:Karma Police",
+                r#"{"text":"[00:01.00] Karma police\n[00:04.50] He talks in maths","kind":"synced"}"#,
+                "ok",
+            )
+            .unwrap();
+        let router = build_router(state);
+
+        let res = router
+            .clone()
+            .oneshot(request("GET", "/v1/info/search?q=talks&typeId=lyrics", Some(TEST_TOKEN)))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let json = body_json(res).await;
+        let hit = &json.as_array().expect("hits array")[0];
+        assert_eq!(hit["snippet"], json!("He talks in maths"));
+        assert_eq!(hit["entityKey"], json!("track:Radiohead:Karma Police"));
+        // The whole stored value and the always-"ok" status stay home by default.
+        assert!(hit.get("value").is_none(), "{hit}");
+        assert!(hit.get("status").is_none(), "{hit}");
+
+        let res = router
+            .oneshot(request("GET", "/v1/info/search?q=talks&includeValue=true", Some(TEST_TOKEN)))
+            .await
+            .unwrap();
+        let json = body_json(res).await;
+        // Opted in, the value arrives parsed — an object, not a JSON string.
+        assert_eq!(json[0]["value"]["kind"], json!("synced"));
+    }
+
+    #[tokio::test]
     async fn test_query_route_reads_and_refuses_writes_and_credentials() {
         let state = test_state(noop_emit());
         let artist_id = state.db.get_or_create_artist("Query Artist").unwrap();

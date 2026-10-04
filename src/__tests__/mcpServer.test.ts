@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import http from "node:http";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no type declarations
-import { TOOLS, buildPluginProxies, parseCliArgs, versionCmp, launchCommands } from "../../mcp/viboplr-mcp.mjs";
+import { TOOLS, buildPluginProxies, discoveryPidAlive, parseCliArgs, versionCmp, launchCommands } from "../../mcp/viboplr-mcp.mjs";
 
 // The MCP server is the one satellite that talks to the control API on the
 // user's behalf from clients we don't control, so the protocol handshake, the
@@ -341,6 +341,14 @@ describe("tool table (static)", () => {
     expect(launchCommands("linux", {})).toEqual([{ cmd: "viboplr", args: [] }]);
   });
 
+  it("tells a live discovery pid from a dead one", () => {
+    expect(discoveryPidAlive(process.pid)).toBe(true);
+    // Exited by the time spawnSync returns — the crashed-app case.
+    expect(discoveryPidAlive(spawnSync(process.execPath, ["-e", ""]).pid)).toBe(false);
+    // A file written before the pid field existed is not second-guessed.
+    expect(discoveryPidAlive(undefined)).toBe(true);
+  });
+
   it("parses the profile from argv and env, rejecting garbage", () => {
     expect(parseCliArgs([], {})).toEqual({ profile: undefined });
     expect(parseCliArgs(["--profile", "perf"], {})).toEqual({ profile: "perf" });
@@ -481,10 +489,11 @@ describe("MCP server over stdio", () => {
 
     await rpc.request("tools/call", {
       name: "search_info",
-      arguments: { query: "jóga", includeValue: true },
+      arguments: { query: "jóga", includeValue: true, displayKind: "rich_text" },
     });
     const withValue = api.seen.filter((r) => r.url.startsWith("/v1/info/search")).at(-1);
     expect(withValue?.url).toContain("includeValue=true");
+    expect(withValue?.url).toContain("displayKind=rich_text");
   });
 
   it("lists collections and posts a rescan with the full flag", async () => {
@@ -892,6 +901,41 @@ describe("MCP server without a reachable app", () => {
       expect(toolText(res.result)).toContain("AI control");
     } finally {
       rpc.kill();
+    }
+  });
+
+  it("does not list a profile whose app has exited as running", async () => {
+    // `default` crashed and left its file; `other` is up (this test's own pid).
+    const deadPid = spawnSync(process.execPath, ["-e", ""]).pid;
+    const dir = mkdtempSync(join(tmpdir(), "viboplr-mcp-test-"));
+    for (const [profile, pid] of [["default", deadPid], ["other", process.pid]] as const) {
+      mkdirSync(join(dir, profile));
+      writeFileSync(
+        join(dir, profile, "control-api.json"),
+        JSON.stringify({ port: 1, token: TEST_TOKEN, profile, pid, startedAt: "now" }),
+      );
+    }
+    const rpc = startServer(dir, ["--profile=default"]);
+    try {
+      const res = await rpc.request("tools/call", { name: "get_status", arguments: {} });
+      const text = toolText(res.result);
+      expect(text).toContain("Running profiles: other —");
+      expect(text).not.toContain("Running profiles: default");
+    } finally {
+      rpc.kill();
+    }
+
+    // With every file stale there is nothing running at all.
+    writeFileSync(
+      join(dir, "other", "control-api.json"),
+      JSON.stringify({ port: 1, token: TEST_TOKEN, profile: "other", pid: deadPid, startedAt: "now" }),
+    );
+    const rpc2 = startServer(dir, ["--profile=default"]);
+    try {
+      const res = await rpc2.request("tools/call", { name: "get_status", arguments: {} });
+      expect(toolText(res.result)).toContain("AI control");
+    } finally {
+      rpc2.kill();
     }
   });
 });
