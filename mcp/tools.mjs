@@ -14,6 +14,8 @@
 //       { base64, mimeType } for raw:true; throws on a non-2xx answer
 //   ctx.launchApp?()            — MCP only (spawns the installed app)
 //   ctx.fetchLatestRelease?()   — MCP only (GitHub releases/latest)
+//   ctx.readTextFile?(path, maxBytes) — MCP only: a local file's text, for an
+//       argument too large to pass inline (cue_sheet sheetFile)
 //   ctx.mcpVersion?             — reported by app_version when present
 //
 // Every tool declares (unit-tested, src/__tests__/assistantTools.test.ts):
@@ -74,6 +76,28 @@ function need(args, keys, context) {
   for (const k of keys) {
     if (args[k] === undefined) throw new Error(`"${k}" is required for ${context}`);
   }
+}
+
+/** Cap on a cue_sheet `sheetFile`: roomy for any real sheet (200 fully loaded
+ *  cues are ~0.5 MB) and under the control API's 2 MB body limit, so a wrong
+ *  path can't ship a large file to the app. */
+export const SHEET_FILE_MAX_BYTES = 1_000_000;
+
+/** A `sheetFile`'s text → `{ mode?, cues }`. Shape only — the app validates
+ *  the cues. Errors never quote the file: it may not be a sheet at all. */
+export function parseSheetFile(text, path) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    const at = /position (\d+)/.exec(String(e?.message))?.[1];
+    throw new Error(`sheetFile ${path} is not valid JSON${at ? ` (at character ${at})` : ""}`);
+  }
+  if (Array.isArray(parsed)) return { cues: parsed };
+  if (parsed && typeof parsed === "object" && Array.isArray(parsed.cues)) {
+    return { mode: parsed.mode, cues: parsed.cues };
+  }
+  throw new Error(`sheetFile ${path} must hold { cues: [...] } (optionally with mode) or a bare cues array`);
 }
 
 export function versionCmp(a, b) {
@@ -483,7 +507,7 @@ export const TOOLS = [
     readOnlyWhen: { action: ["get"] },
     categories: ["info"],
     description:
-      "Read, save or delete a song's Now Playing cue sheet, played on the song's own clock; an open Now Playing view picks a save up immediately. Two modes: `cards` (default) — one captioned card at a time over the album art (facts, lyric meanings, images); `clip` — a text-and-image video clip over the whole Now Playing view: positioned, overlapping elements with sizes in percent of the view, colours, enter/exit/during motion presets and keyframes, able to cover the art entirely. Omit title/artistName to address what's playing. action=set replaces any earlier sheet and returns the normalized sheet (sorted, unknown fields dropped); a 400 names the offending cue and field. Build it from get_cue_context, whose `guide` (cards) and `clipGuide` (clip) are the format. Database only — no file is touched and no permission switch is needed; the user can hide cards or the clip with a button on the Now Playing view.",
+      "Read, save or delete a song's Now Playing cue sheet, played on the song's own clock; an open Now Playing view picks a save up immediately. Two modes: `cards` (default) — one captioned card at a time over the album art (facts, lyric meanings, images); `clip` — a text-and-image video clip over the whole Now Playing view: positioned, overlapping elements with sizes in percent of the view, colours, enter/exit/during motion presets and keyframes, able to cover the art entirely. Omit title/artistName to address what's playing. action=set replaces any earlier sheet and returns the normalized sheet (sorted, unknown fields dropped); a 400 names the offending cue and field. Build it from get_cue_context, whose `guide` (cards) and `clipGuide` (clip) are the format. A sheet too large to pass inline (a busy clip runs to tens of KB) can be written to a JSON file and passed as `sheetFile` instead of `cues`. Saved in the app's profile — no music file is touched and no permission switch is needed; the user can hide cards or the clip with a button on the Now Playing view.",
     inputSchema: obj(
       {
         action: en(["get", "set", "delete"], "get / set (replace) / delete"),
@@ -555,18 +579,33 @@ export const TOOLS = [
             ["at", "kind"],
           ),
         },
+        sheetFile: str(
+          "action=set, instead of cues (MCP only): absolute path to a UTF-8 JSON file holding the sheet — { mode?, cues: [...] } or a bare cues array, in the cues format above (≤1 MB). For sheets too large to pass inline. A mode argument overrides the file's.",
+        ),
         source: str("action=set: who wrote it, shown small on the cards / clip (e.g. your name)"),
       },
       ["action"],
     ),
-    run: ({ action, title, artistName, mode, cues, source }, ctx) => {
+    run: async ({ action, title, artistName, mode, cues, sheetFile, source }, ctx) => {
       const song = { title, artistName };
       switch (action) {
         case "get":
           return ctx.request("GET", `/v1/cues${qs(song)}`);
-        case "set":
-          need({ cues }, ["cues"], "action=set");
-          return ctx.request("PUT", "/v1/cues", { ...song, sheet: { mode, cues }, source });
+        case "set": {
+          let sheet;
+          if (sheetFile !== undefined && sheetFile !== null) {
+            if (cues !== undefined && cues !== null) throw new Error("pass either cues or sheetFile, not both");
+            if (!ctx.readTextFile) {
+              throw new Error("sheetFile is only available through the MCP server — pass the cues inline");
+            }
+            const fromFile = parseSheetFile(await ctx.readTextFile(sheetFile, SHEET_FILE_MAX_BYTES), sheetFile);
+            sheet = { mode: mode ?? fromFile.mode, cues: fromFile.cues };
+          } else {
+            need({ cues }, ["cues"], "action=set (or pass sheetFile)");
+            sheet = { mode, cues };
+          }
+          return ctx.request("PUT", "/v1/cues", { ...song, sheet, source });
+        }
         case "delete":
           return ctx.request("DELETE", "/v1/cues", song);
         default:

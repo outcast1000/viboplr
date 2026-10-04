@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no type declarations
-import { TOOLS, buildPluginProxies, discoveryPidAlive, parseCliArgs, versionCmp, launchCommands } from "../../mcp/viboplr-mcp.mjs";
+import { TOOLS, buildPluginProxies, discoveryPidAlive, parseCliArgs, versionCmp, launchCommands, readTextFile } from "../../mcp/viboplr-mcp.mjs";
 
 // The MCP server is the one satellite that talks to the control API on the
 // user's behalf from clients we don't control, so the protocol handshake, the
@@ -776,6 +776,26 @@ describe("MCP server started with the retired --tier=full flag", () => {
       arguments: { action: "get" },
     });
     expect((missing.result as { isError?: boolean }).isError).toBe(true);
+  });
+});
+
+// The file reader behind cue_sheet sheetFile (the one tool argument that names
+// a local file): absolute paths only, a size cap, and errors that name the
+// path but never the contents.
+describe("readTextFile (sheetFile transport)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "viboplr-mcp-file-"));
+  const file = join(dir, "sheet.json");
+  writeFileSync(file, '{"cues":[]}');
+
+  it("reads an absolute path under the cap", () => {
+    expect(readTextFile(file, 1000)).toBe('{"cues":[]}');
+  });
+
+  it("refuses relative paths, missing files, directories and oversize files", () => {
+    expect(() => readTextFile("sheet.json", 1000)).toThrow(/must be absolute/);
+    expect(() => readTextFile(join(dir, "nope.json"), 1000)).toThrow(/does not exist/);
+    expect(() => readTextFile(dir, 1000)).toThrow(/is not a file/);
+    expect(() => readTextFile(file, 5)).toThrow(/is 11 bytes; the limit is 5/);
   });
 });
 

@@ -71,7 +71,9 @@ song's lyrics with timestamps, its meaning/bio/review prose, quality and tags
 plus the format guides; `cue_sheet` saves either timed fact / lyric-meaning /
 image cards played over the artwork, or — `mode: "clip"` — a text-and-image
 video clip over the whole Now Playing view: positioned elements, colours,
-motion presets and keyframes — database only, no permission switch), plugin catalogs (YouTube/Spotify/TIDAL search + play), plugin
+motion presets and keyframes — saved in the app's profile, no permission
+switch; a sheet too large to pass inline can be written to a JSON file and
+passed as `sheetFile`, an absolute path ≤ 1 MB the MCP server reads itself), plugin catalogs (YouTube/Spotify/TIDAL search + play), plugin
 home shelves, collections (list + rescan — never add/remove), ad-hoc read-only
 SQL over the library database (`query_library` — writes and the credential
 tables are refused server-side), the app version (`app_version` — with

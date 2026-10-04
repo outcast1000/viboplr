@@ -26,9 +26,9 @@
 //         VIBOPLR_MCP_DISCOVERY_DIR (profiles dir override, mainly for tests)
 
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, win32 } from "node:path";
+import { isAbsolute, join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_MS, INSTRUCTIONS, PROXY_SEP, SLOW_MS, TOOLS, buildPluginProxies, runTool, toolsFor, versionCmp } from "./tools.mjs";
 
@@ -299,11 +299,35 @@ async function launchApp() {
   );
 }
 
+/** A local file's text for an argument too large to pass inline (cue_sheet
+ *  sheetFile). Absolute paths only: this process's cwd is wherever the client
+ *  started it, so a relative path would resolve somewhere the model can't see.
+ *  Errors name the path, never the contents. */
+export function readTextFile(path, maxBytes) {
+  if (typeof path !== "string" || !isAbsolute(path)) {
+    throw new Error(`file path must be absolute, got ${JSON.stringify(path)}`);
+  }
+  let size;
+  try {
+    const st = statSync(path);
+    if (!st.isFile()) throw new Error(`${path} is not a file`);
+    size = st.size;
+  } catch (e) {
+    if (e?.code === "ENOENT") throw new Error(`${path} does not exist`);
+    throw e;
+  }
+  if (size > maxBytes) {
+    throw new Error(`${path} is ${size} bytes; the limit is ${maxBytes}`);
+  }
+  return readFileSync(path, "utf8");
+}
+
 // The transport binding every shared tool runs with (see tools.mjs).
 const ctx = {
   request: apiRequest,
   launchApp,
   fetchLatestRelease,
+  readTextFile: async (path, maxBytes) => readTextFile(path, maxBytes),
   mcpVersion: VERSION,
 };
 

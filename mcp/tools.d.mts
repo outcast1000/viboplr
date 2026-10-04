@@ -23,6 +23,7 @@ export interface ToolContext {
   request(method: string, path: string, body?: unknown, opts?: ToolRequestOptions): Promise<any>;
   launchApp?: () => Promise<unknown>;
   fetchLatestRelease?: () => Promise<{ version: string; url: string; publishedAt: string }>;
+  readTextFile?: (path: string, maxBytes: number) => Promise<string>;
   mcpVersion?: string;
 }
 
@@ -64,6 +65,8 @@ export const TOOL_CATEGORIES: ToolCategory[];
 export const INSTRUCTIONS: string;
 export const TOOLS: CatalogTool[];
 export const PROXY_SEP: string;
+export const SHEET_FILE_MAX_BYTES: number;
+export function parseSheetFile(text: string, path: string): { mode?: unknown; cues: unknown[] };
 export function versionCmp(a: string, b: string): number;
 export function isReadOnlyCall(tool: Pick<CatalogTool, "readOnly" | "readOnlyWhen"> | null | undefined, args?: Record<string, unknown>): boolean;
 export function argProblems(schema: Record<string, any> | null | undefined, args: Record<string, unknown>): string[];
