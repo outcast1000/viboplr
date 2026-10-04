@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// Generate the fictional music library the website is captured from —
+// Generate the music library the website is captured from —
 // `npm run demo:library -- --out ~/ViboplrDemo`.
 //
 // Why it exists: the site's screenshots and videos used to come from a real
-// profile, which published its owner's collection. This writes a library that
-// is invented end to end (see scripts/lib/demoCatalog.mjs): procedural covers
-// and artist portraits as folder art, synthesised audio tagged like a real
-// rip, and sidecar .lrc lyrics for the songs the lyrics scene uses.
+// profile, which published its owner's collection. This writes well-known
+// albums as synthesised audio tagged like a real rip (see
+// scripts/lib/demoCatalog.mjs) — the app then fetches their covers, photos
+// and bios itself — plus one invented album with procedural folder art and
+// sidecar .lrc lyrics for the lyrics scenes.
 //
 // Layout (what the scanner and the folder image provider expect):
-//   <out>/<Artist>/artist.png
-//   <out>/<Artist>/<Year> - <Album>/cover.png
 //   <out>/<Artist>/<Year> - <Album>/NN - <Title>.mp3|flac  (+ .lrc)
+//   <out>/<Artist>/artist.png, <Album dir>/cover.png   — invented album only
 //   <out>/demo-library.json   — manifest read by setup-demo-profile and
 //                               capture-site-media --demo
 //
@@ -28,7 +28,7 @@ import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { cpus, homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { encodePng, paint } from "./lib/demoArt.mjs";
-import { ARTISTS, SHOWCASE, catalogTracks, lrcText, synthExpression } from "./lib/demoCatalog.mjs";
+import { ALBUMS, ARTISTS, SHOWCASE, catalogTracks, lrcText, synthExpression } from "./lib/demoCatalog.mjs";
 
 function parseArgs(argv) {
   const o = { out: null, jobs: Math.max(2, Math.min(8, cpus().length - 1)), force: false, maxTracks: Infinity };
@@ -115,20 +115,17 @@ async function main() {
   mkdirSync(opts.out, { recursive: true });
   console.log(`Demo library → ${opts.out} (${tracks.length} tracks)`);
 
-  // Art: one portrait per artist, one cover per album.
-  for (const artist of ARTISTS) {
-    const artistDir = join(opts.out, tracks.find((t) => t.artist === artist.name).dir.split("/")[0]);
-    mkdirSync(artistDir, { recursive: true });
-    const portrait = join(artistDir, "artist.png");
-    if (opts.force || !existsSync(portrait)) writeFileSync(portrait, encodePng(paint("portrait", `artist|${artist.name}`)));
-    for (const album of artist.albums) {
-      const dir = join(opts.out, tracks.find((t) => t.artist === artist.name && t.album === album.title).dir);
-      mkdirSync(dir, { recursive: true });
-      const cover = join(dir, "cover.png");
-      if (opts.force || !existsSync(cover)) writeFileSync(cover, encodePng(paint("auto", `album|${artist.name}|${album.title}`)));
-    }
+  for (const t of tracks) mkdirSync(join(opts.out, t.dir), { recursive: true });
+  // Folder art for the invented album only: real albums get theirs from the
+  // app's image providers, like any user's library.
+  for (const album of ALBUMS.filter((a) => a.art)) {
+    const first = tracks.find((t) => t.artist === album.artist && t.album === album.title);
+    if (!first) continue;
+    const portrait = join(opts.out, first.dir.split("/")[0], "artist.png");
+    if (opts.force || !existsSync(portrait)) writeFileSync(portrait, encodePng(paint("portrait", `artist|${album.artist}`)));
+    const cover = join(opts.out, first.dir, "cover.png");
+    if (opts.force || !existsSync(cover)) writeFileSync(cover, encodePng(paint("auto", `album|${album.artist}|${album.title}`)));
   }
-  console.log("  art written");
 
   for (const t of tracks) {
     if (!t.lyrics) continue;
@@ -144,7 +141,8 @@ async function main() {
   const manifest = {
     generator: "scripts/make-demo-library.mjs",
     showcase: SHOWCASE,
-    artists: ARTISTS.map((a) => a.name),
+    artists: ARTISTS,
+    albums: ALBUMS.map(({ artist, title }) => ({ artist, title })),
     tracks: tracks.map(({ artist, album, title, durationSecs, dir, file }) => ({ artist, album, title, durationSecs, path: `${dir}/${file}` })),
   };
   writeFileSync(join(opts.out, "demo-library.json"), `${JSON.stringify(manifest, null, 2)}\n`);

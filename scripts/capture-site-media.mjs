@@ -482,6 +482,10 @@ async function main() {
     return;
   }
   if (PLATFORM !== "darwin" && PLATFORM !== "win32") throw new Error("capture-site-media runs on macOS and Windows only");
+  // A run takes minutes; a display that sleeps or locks halfway turns every
+  // later grab into a failure (macOS refuses to capture a window then). Hold
+  // the display awake for as long as this process lives.
+  if (PLATFORM === "darwin") spawn("caffeinate", ["-d", "-w", String(process.pid)], { stdio: "ignore", detached: true }).unref();
   const encoder = pickWebpEncoder();
 
   const api = makeApi(opts.profile);
@@ -506,6 +510,9 @@ async function main() {
   try {
     await api("POST", "/window", { fullscreen: false, mini: false, maximized: false, width: opts.width, height: opts.height, x: opts.x, y: opts.y });
     await api("POST", "/ui/action", { action: "showcase", on: true, redact: opts.redact });
+    // The queue panel is part of nearly every shot; a profile that last left
+    // it collapsed would put a bare strip down the right edge of all of them.
+    await api("POST", "/ui/action", { action: "queuePanel", open: true });
     await api("POST", "/ui/action", { action: "heroLook", look: "aurora-drift" });
     // Silent capture. On macOS the system output is muted rather than the app,
     // so the volume slider in every shot reads as a normal level instead of a
@@ -554,6 +561,7 @@ async function main() {
     // Put the app back the way we found it.
     const restore = async (fn) => { try { await fn(); } catch (e) { console.error(`restore: ${e.message}`); } };
     await restore(() => api("POST", "/ui/action", { action: "showcase", on: false }));
+    await restore(() => api("POST", "/ui/action", { action: "queuePanel", open: !ui0.panels?.queueCollapsed }));
     await restore(() => api("POST", "/ui/action", { action: "heroLook", look: ui0.heroLook }));
     if (skin0) await restore(() => api("POST", "/skins/apply", { id: skin0 }));
     await restore(() => api("POST", "/window", { mini: false }));

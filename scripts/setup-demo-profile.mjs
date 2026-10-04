@@ -59,13 +59,17 @@ function editStore(fn) {
 
 function controlApi() {
   const file = join(PROFILE_DIR, "control-api.json");
-  return async (method, path, body) => {
+  return async (method, path, body, { raw = false } = {}) => {
     const { port, token } = JSON.parse(readFileSync(file, "utf8"));
     const res = await fetch(`http://127.0.0.1:${port}/v1${path}`, {
       method,
       headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
+    if (raw) {
+      if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+      return res.arrayBuffer();
+    }
     const text = await res.text();
     if (!res.ok) throw new Error(`${method} ${path} → ${res.status}: ${text}`);
     return text ? JSON.parse(text) : null;
@@ -132,6 +136,31 @@ async function main() {
   for (const name of likes.artists) await api("POST", "/likes", { kind: "artist", likeState: 1, name });
   console.log(`✓ ${likes.tracks.length} tracks, ${likes.albums.length} albums, ${likes.artists.length} artists liked`);
 
+  // Real songs' lyrics are copyrighted: switch the online lyrics providers
+  // off, so the only lyrics on screen are the invented album's sidecar .lrc
+  // (the local provider needs no plugin).
+  const installed = (await api("GET", "/extensions")).plugins ?? [];
+  for (const id of ["lrclib", "lyrics-ovh", "genius"]) {
+    if (installed.some((p) => p.id === id && p.enabled)) await api("POST", `/extensions/${id}/enabled`, { enabled: false });
+  }
+  console.log("✓ online lyrics providers off");
+
+  // Covers and artist photos come from the app's own providers; ask for them
+  // now (queued on the image worker) so the captures don't race the network.
+  // Spaced out: a burst of 45 got one album rate-limited, and a failed lookup
+  // is remembered (image_fetch_failures) and not retried for a while.
+  for (const name of manifest.artists) { await api("POST", "/images/artist", { name }); await sleep(500); }
+  for (const a of manifest.albums) { await api("POST", "/images/album", { name: a.title, artistName: a.artist }); await sleep(500); }
+  await sleep(20000);
+  const missing = [];
+  for (const a of manifest.albums) {
+    // 404 until a cover is cached; the body is the image itself otherwise.
+    await api("GET", `/images/album?name=${encodeURIComponent(a.title)}&artistName=${encodeURIComponent(a.artist)}`, undefined, { raw: true })
+      .catch(() => missing.push(a.title));
+  }
+  console.log(`✓ images requested for ${manifest.artists.length} artists, ${manifest.albums.length} albums`
+    + (missing.length ? ` — no cover yet for: ${missing.join(", ")} (retried on display)` : ""));
+
   const seed = manifest.showcase.radioSeed;
   await api("POST", "/radio", { title: seed.title, artistName: seed.artist });
   await sleep(4000);
@@ -140,6 +169,9 @@ async function main() {
   console.log(`✓ queue: Radio: ${seed.title}`);
 
   await quitApp();
+  // Forget failed image lookups, so a cover that missed above is fetched again
+  // the first time a capture shows it.
+  spawnSync("sqlite3", [DB_PATH], { input: "DELETE FROM image_fetch_failures;\n", encoding: "utf8" });
   console.log(`\nReady. Launch it with:  open -a Viboplr --args --profile ${PROBE_PROFILE}`);
   console.log(`then:  npm run capture:media -- --demo ${music}`);
 }

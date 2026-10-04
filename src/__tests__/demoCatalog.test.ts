@@ -3,6 +3,7 @@ import {
   ARTISTS,
   LYRICS,
   SHOWCASE,
+  canonicalName,
   catalogTracks,
   historyPlan,
   historySql,
@@ -14,15 +15,26 @@ import {
 // @ts-expect-error — plain .mjs dev script, no type declarations
 import { encodePng, paint } from "../../scripts/lib/demoArt.mjs";
 
-type T = { artist: string; album: string; title: string; durationSecs: number; dir: string; file: string; lyrics: unknown };
+type T = { artist: string; album: string; title: string; durationSecs: number; dir: string; file: string; lyrics: unknown; art: boolean };
 const tracks: T[] = catalogTracks();
 const has = (artist: string, title: string) => tracks.some((t) => t.artist === artist && t.title === title);
 
 describe("demo catalogue", () => {
-  it("is ASCII, so canonical history names are just lowercase", () => {
-    // historySql writes canonical names as `name.toLowerCase()`; the app
-    // also strips diacritics, so a non-ASCII name would never match.
-    for (const t of tracks) expect(/^[\x20-\x7e]+$/.test(`${t.artist}${t.album}${t.title}`)).toBe(true);
+  it("keys history the way the app does: lowercase, diacritics stripped", () => {
+    // Mirrors strip_diacritics(to_lowercase()) — a mismatch and the plays of
+    // "Haïti" would never reach its track.
+    expect(canonicalName("Haïti")).toBe("haiti");
+    expect(canonicalName("Une Année Sans Lumière")).toBe("une annee sans lumiere");
+  });
+
+  it("puts lyrics and folder art only on the invented album", () => {
+    // Real songs' lyrics are copyrighted; real covers come from the app's
+    // own image providers.
+    for (const t of tracks) {
+      if (t.lyrics) expect(t.artist).toBe(SHOWCASE.lyrics.artist);
+      if (t.art) expect(t.artist).toBe(SHOWCASE.lyrics.artist);
+    }
+    expect(tracks.filter((t) => t.art).length).toBeGreaterThan(0);
   });
 
   it("has unique files and a showcase that points at real tracks", () => {
@@ -32,7 +44,9 @@ describe("demo catalogue", () => {
     expect(has(SHOWCASE.radioSeed.artist, SHOWCASE.radioSeed.title)).toBe(true);
     expect(has(SHOWCASE.detailTrack.artist, SHOWCASE.detailTrack.title)).toBe(true);
     expect(tracks.some((t) => t.album === SHOWCASE.detailAlbum.title && t.artist === SHOWCASE.detailAlbum.artist)).toBe(true);
-    expect(ARTISTS.some((a: { name: string }) => a.name === SHOWCASE.heroArtist)).toBe(true);
+    expect(ARTISTS).toContain(SHOWCASE.heroArtist);
+    expect(has(SHOWCASE.lossless.artist, SHOWCASE.lossless.title)).toBe(true);
+    for (const album of [SHOWCASE.obsession, ...SHOWCASE.forgotten]) expect(tracks.some((t) => t.album === album)).toBe(true);
   });
 
   it("gives every lyric sheet a track long enough to hold it", () => {
@@ -60,8 +74,9 @@ describe("demo history and likes", () => {
   });
 
   it("leaves the forgotten favourites unplayed for months", () => {
-    const recent = plays.filter((p: { album?: string; playedAt: number; title: string }) => p.playedAt > now - 150 * 86400);
-    expect(recent.some((p: { title: string }) => p.title === "Velvet Hours")).toBe(false);
+    const forgotten = new Set(tracks.filter((t) => SHOWCASE.forgotten.includes(t.album)).map((t) => `${t.artist}|${t.title}`));
+    const recent = plays.filter((p: { artist: string; title: string; playedAt: number }) => p.playedAt > now - 150 * 86400);
+    expect(recent.some((p: { artist: string; title: string }) => forgotten.has(`${p.artist}|${p.title}`))).toBe(false);
   });
 
   it("writes SQL that quotes every name", () => {
