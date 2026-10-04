@@ -521,7 +521,7 @@ Success TTL is per-type (e.g., 90 days for bios, 7 days for popularity). Error T
 | `annotated_text` | `{overview?, sections: [{heading?, text}]}` |
 | `annotations` | `{overview?, annotations: [{fragment, explanation}]}` |
 | `key_value` | `{items: [{key, value}]}` |
-| `image_gallery` | `{images: [{url, caption?, source?}]}` |
+| `image_gallery` | `{images: [{url, caption?, source?, pageUrl?, author?, license?, width?, height?}]}` — `source` is the attribution line; with `pageUrl` it becomes a link to the image's page. Galleries also feed `get_cue_context`'s `images` (https only, capped), so an assistant writing a cue sheet uses real, credited photos — keep `author`/`license` filled when the source has them |
 | `title_line` | `{items: [{label, value}]}` |
 
 ### Built-in Actions

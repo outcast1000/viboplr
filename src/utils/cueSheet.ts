@@ -181,7 +181,7 @@ export const CUE_SHEET_GUIDE = [
   "Each cue: { at: seconds, until?: seconds, kind: 'text' | 'quote' | 'image', text?, caption?, label?, imageUrl? }.",
   "kind 'text': a short fact in `text` (≤ 400 chars, aim for one or two sentences) — where it was recorded, who plays what, what was happening in the band's life.",
   "kind 'quote': the lyric words being sung in `text` and what they mean in `caption` (≤ 200 chars). Time it to the synced lyric line (`lyrics.lines[].at`), a beat after the line starts.",
-  "kind 'image': `imageUrl` must be an https URL you are confident exists (a Wikimedia Commons photo, the artist's own site); `caption` says what it shows. Never invent a URL — leave images out rather than guess.",
+  "kind 'image': `imageUrl` must be an https URL you are confident exists. Take it from `images` in this context first — real photos from the user's image providers, each with its own caption and credit; use the caption only as far as you can check it, and credit the author in your `caption` when one is given (e.g. 'Live in Oslo, 1994 — photo: Jane Doe, CC BY-SA'). Otherwise only a URL you are certain of (the artist's own site). Never invent a URL — leave images out rather than guess.",
   "`label` is an optional 1–3 word eyebrow ('Meaning', 'Recording', 'Trivia').",
   "Ground every cue in the supplied material (lyrics, prose, quality, tags) or knowledge you are sure of; do not state guesses as facts.",
   "Pace it: leave the first ~10 seconds and instrumental gaps quiet or use them for context; 6–15 cues suit a typical song; never cover a line with an unrelated card.",

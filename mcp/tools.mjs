@@ -493,7 +493,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["info"],
     description:
-      "Everything needed to write a Now Playing cue sheet for a song — omit title/artistName to use what's playing. Returns the track (title, artist, album, duration, quality), its lyrics (synced lyrics as timed lines: lines[].at seconds — the clock to place cues on), every prose info value for the song/artist/album (song story or meaning, lyric annotations, bio, album review; plain text, capped), library tags, any sheet already saved (existingSheet), and `guide` — the cue format and how to pace it. Read the guide before writing. Walks the info provider chain, so it can take a while on a song not fetched before.",
+      "Everything needed to write a Now Playing cue sheet for a song — omit title/artistName to use what's playing. Returns the track (title, artist, album, duration, quality), its lyrics (synced lyrics as timed lines: lines[].at seconds — the clock to place cues on), every prose info value for the song/artist/album (song story or meaning, lyric annotations, bio, album review; plain text, capped), `images` — photo galleries from the user's image providers (e.g. Wikimedia Commons), each image with url, caption, author, licence and page link: the image URLs to use in cues — library tags, any sheet already saved (existingSheet), and `guide` — the cue format and how to pace it. Read the guide before writing. Walks the info provider chain, so it can take a while on a song not fetched before.",
     inputSchema: obj({
       title: str("Track title (omit to use the playing track)"),
       artistName: str("Artist (with title)"),

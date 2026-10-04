@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activeCueIndex, cueCountBucket, cueEnd, cueErrorField, cuePastEndError, DEFAULT_CUE_SECS, sameCueSong, type Cue } from "../utils/cueSheet";
-import { lyricsForContext, proseText, PROSE_CHAR_CAP } from "../utils/cueContext";
+import { CONTEXT_IMAGE_CAP, galleryImages, lyricsForContext, proseText, PROSE_CHAR_CAP } from "../utils/cueContext";
 
 const cues: Cue[] = [
   { at: 5, kind: "text", text: "intro" },
@@ -63,6 +63,29 @@ describe("cue context shaping", () => {
     const text = proseText("html", { content: "x".repeat(PROSE_CHAR_CAP + 50) })!;
     expect(text.length).toBeLessThanOrEqual(PROSE_CHAR_CAP + 2);
     expect(text.endsWith("…")).toBe(true);
+  });
+
+  it("keeps https gallery images with their attribution, drops the rest", () => {
+    const out = galleryImages({
+      images: [
+        { url: "https://upload.wikimedia.org/a.jpg", caption: " On stage ", source: "Jane · CC BY-SA 4.0", author: "Jane", license: "CC BY-SA 4.0", pageUrl: "https://commons.wikimedia.org/wiki/File:A.jpg", width: 800, height: 600, extra: "x" },
+        { url: "http://example.com/b.jpg" },
+        { url: "data:image/png;base64,AAAA" },
+        { caption: "no url" },
+        null,
+      ],
+    });
+    expect(out).toEqual([{
+      url: "https://upload.wikimedia.org/a.jpg", caption: "On stage", source: "Jane · CC BY-SA 4.0", author: "Jane",
+      license: "CC BY-SA 4.0", pageUrl: "https://commons.wikimedia.org/wiki/File:A.jpg", width: 800, height: 600,
+    }]);
+    expect(galleryImages(null)).toEqual([]);
+    expect(galleryImages({ images: "nope" })).toEqual([]);
+  });
+
+  it("caps a gallery", () => {
+    const images = Array.from({ length: CONTEXT_IMAGE_CAP + 5 }, (_, i) => ({ url: `https://x.org/${i}.jpg` }));
+    expect(galleryImages({ images })).toHaveLength(CONTEXT_IMAGE_CAP);
   });
 });
 

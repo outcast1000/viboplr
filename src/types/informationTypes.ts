@@ -147,7 +147,14 @@ export interface KeyValueData {
 export interface ImageGalleryImage {
   url: string;
   caption?: string;
+  /** Attribution line shown under the image (e.g. "Jane Doe · CC BY-SA 4.0"). */
   source?: string;
+  /** Where the image is described — makes `source` a link. */
+  pageUrl?: string;
+  author?: string;
+  license?: string;
+  width?: number;
+  height?: number;
 }
 
 export interface ImageGalleryData {

@@ -1,6 +1,7 @@
 import type { RendererProps } from "./index";
 import type { ImageGalleryData } from "../../types/informationTypes";
 import { useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export function ImageGalleryRenderer({ data }: RendererProps) {
   const d = data as ImageGalleryData;
@@ -26,7 +27,21 @@ export function ImageGalleryRenderer({ data }: RendererProps) {
         )}
       </div>
       {image.caption && <p className="gallery-caption">{image.caption}</p>}
-      {image.source && <span className="gallery-source">{image.source}</span>}
+      {image.source && (image.pageUrl
+        ? (
+          <a
+            href="#"
+            className="gallery-source"
+            title={image.pageUrl}
+            onClick={(e) => {
+              e.preventDefault();
+              openUrl(image.pageUrl!).catch((err) => console.error("Failed to open image page:", err));
+            }}
+          >
+            {image.source}
+          </a>
+        )
+        : <span className="gallery-source">{image.source}</span>)}
       {isGallery && (
         <div className="gallery-dots">
           {d.images.map((_, i) => (

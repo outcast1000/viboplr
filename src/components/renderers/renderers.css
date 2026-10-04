@@ -52,6 +52,8 @@
 .gallery-next { right: 4px; }
 .gallery-caption { font-size: var(--fs-sm); margin: 4px 0 0; }
 .gallery-source { font-size: var(--fs-xs); opacity: 0.5; }
+a.gallery-source { color: inherit; text-decoration: none; }
+a.gallery-source:hover { opacity: 0.8; text-decoration: underline; }
 .gallery-dots { display: flex; justify-content: center; gap: 4px; margin-top: 8px; }
 .gallery-dot { width: 8px; height: 8px; border-radius: 50%; border: none; background: var(--border-color); cursor: pointer; padding: 0; }
 .gallery-dot.active { background: var(--accent); }

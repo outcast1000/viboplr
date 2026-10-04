@@ -1,14 +1,15 @@
 // The material an assistant writes a cue sheet from (GET /v1/cues/context):
 // the track's identity and quality, its lyrics (synced lines carry their
 // timestamps — the clock every cue is placed on), every prose info value for
-// the song / artist / album (bio, review, song story, lyric annotations), its
+// the song / artist / album (bio, review, song story, lyric annotations),
+// every gallery image for them (real photos with their credit + licence), its
 // library tags, any sheet already saved, and the format guide. Everything
 // comes through the same provider chain + cache the detail pages use, so a
 // value fetched here is free on the next page visit and vice versa.
 
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack } from "../types";
-import type { DisplayKind, InfoEntity, LyricsData } from "../types/informationTypes";
+import type { DisplayKind, ImageGalleryData, InfoEntity, LyricsData } from "../types/informationTypes";
 import { fetchInfoValue, resolveInfoEntityId, type InvokeInfoFetch, type InfoTypeRow } from "./infoFetchChain";
 import { parseLrc } from "./lyrics";
 import { resolveTrackQuality } from "../hooks/useNowPlayingInfo";
@@ -23,6 +24,14 @@ export const CONTEXT_DISPLAY_KINDS: DisplayKind[] = ["rich_text", "html", "annot
  *  needs the substance, and the whole context should fit comfortably in one
  *  tool result. */
 export const PROSE_CHAR_CAP = 6000;
+
+/** Display kinds whose values are pictures of an entity. An assistant may only
+ *  use image URLs it can trust, so a provider's gallery is the safe source. */
+export const CONTEXT_IMAGE_DISPLAY_KINDS: DisplayKind[] = ["image_gallery"];
+
+/** Per-gallery cap — enough to choose from, small enough to keep the context
+ *  one tool result. */
+export const CONTEXT_IMAGE_CAP = 12;
 
 function htmlToText(html: string): string {
   return html
@@ -86,6 +95,39 @@ export function proseText(displayKind: DisplayKind | string, value: unknown): st
   return text ? cap(text) : null;
 }
 
+export interface CueContextImageItem {
+  url: string;
+  caption?: string;
+  /** Attribution line as the gallery shows it. */
+  source?: string;
+  author?: string;
+  license?: string;
+  pageUrl?: string;
+  width?: number;
+  height?: number;
+}
+
+/** The https images of one `image_gallery` value, capped, attribution kept.
+ *  Anything without a usable https URL is dropped — cue images must be https. */
+export function galleryImages(value: unknown): CueContextImageItem[] {
+  const images = (value as ImageGalleryData | null)?.images;
+  if (!Array.isArray(images)) return [];
+  const out: CueContextImageItem[] = [];
+  for (const img of images) {
+    if (!img || typeof img.url !== "string" || !/^https:\/\//i.test(img.url)) continue;
+    const item: CueContextImageItem = { url: img.url };
+    for (const k of ["caption", "source", "author", "license", "pageUrl"] as const) {
+      const v = img[k];
+      if (typeof v === "string" && v.trim()) item[k] = v.trim();
+    }
+    if (typeof img.width === "number") item.width = img.width;
+    if (typeof img.height === "number") item.height = img.height;
+    out.push(item);
+    if (out.length >= CONTEXT_IMAGE_CAP) break;
+  }
+  return out;
+}
+
 export interface CueContextLyrics {
   kind: "synced" | "plain";
   /** Synced only: one entry per sung line, `at` in seconds. */
@@ -136,6 +178,13 @@ export interface CueContextProse {
   text: string;
 }
 
+export interface CueContextImages {
+  about: "song" | "artist" | "album";
+  typeId: string;
+  name: string;
+  images: CueContextImageItem[];
+}
+
 export interface CueContext {
   track: {
     title: string;
@@ -148,6 +197,9 @@ export interface CueContext {
   };
   lyrics: CueContextLyrics | null;
   prose: CueContextProse[];
+  /** Galleries from image providers — the only image URLs to use in cues
+   *  besides ones the assistant is certain of. */
+  images: CueContextImages[];
   tags: string[];
   existingSheet: CueSheetRow | null;
   guide: string;
@@ -163,34 +215,54 @@ interface GatherOpts {
   pluginNames?: Map<string, string>;
 }
 
-async function proseFor(
+interface EntityMaterial {
+  prose: CueContextProse[];
+  images: CueContextImages[];
+}
+
+/** Every prose and gallery info value for one entity, through the provider
+ *  chain. One type listing serves both. */
+async function materialFor(
   about: CueContextProse["about"],
   entity: InfoEntity,
   opts: GatherOpts,
-): Promise<CueContextProse[]> {
+): Promise<EntityMaterial> {
   let types: InfoTypeRow[];
   try {
     types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
   } catch (e) {
     console.error(`Failed to list ${entity.kind} info types for cue context:`, e);
-    return [];
+    return { prose: [], images: [] };
   }
-  const wanted = types.filter(([, , displayKind]) => CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind));
+  const wanted = types.filter(([, , displayKind]) =>
+    CONTEXT_DISPLAY_KINDS.includes(displayKind as DisplayKind)
+    || CONTEXT_IMAGE_DISPLAY_KINDS.includes(displayKind as DisplayKind));
   const results = await Promise.all(wanted.map(async ([typeId]) => {
     try {
       const out = await fetchInfoValue({
         typeId, entity, invokeInfoFetch: opts.invokeInfoFetch, pluginNames: opts.pluginNames,
       });
       if (out.status !== "ok") return null;
+      if (CONTEXT_IMAGE_DISPLAY_KINDS.includes(out.displayKind as DisplayKind)) {
+        const images = galleryImages(out.value);
+        return images.length ? { images: { about, typeId, name: out.name, images } } : null;
+      }
       const text = proseText(out.displayKind, out.value);
-      return text ? { about, typeId, name: out.name, text } : null;
+      return text ? { prose: { about, typeId, name: out.name, text } } : null;
     } catch (e) {
       console.error(`Failed to fetch ${typeId} for cue context:`, e);
       return null;
     }
   }));
-  return results.filter((r): r is CueContextProse => r !== null);
+  const material: EntityMaterial = { prose: [], images: [] };
+  for (const r of results) {
+    if (r?.prose) material.prose.push(r.prose);
+    if (r?.images) material.images.push(r.images);
+  }
+  return material;
 }
+
+const NO_MATERIAL: EntityMaterial = { prose: [], images: [] };
 
 export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
   const { track } = opts;
@@ -231,11 +303,11 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
   const existingP = invoke<CueSheetRow | null>("cue_sheet_get", { title, artistName })
     .catch((e) => { console.error("Failed to read cue sheet for cue context:", e); return null; });
 
-  const [lyrics, songProse, artistProse, albumProse, tags, quality, existingSheet] = await Promise.all([
+  const [lyrics, song, artist, album, tags, quality, existingSheet] = await Promise.all([
     lyricsP,
-    proseFor("song", songEntity, opts),
-    artistEntity ? proseFor("artist", artistEntity, opts) : Promise.resolve([]),
-    albumEntity ? proseFor("album", albumEntity, opts) : Promise.resolve([]),
+    materialFor("song", songEntity, opts),
+    artistEntity ? materialFor("artist", artistEntity, opts) : Promise.resolve(NO_MATERIAL),
+    albumEntity ? materialFor("album", albumEntity, opts) : Promise.resolve(NO_MATERIAL),
     tagsP,
     resolveTrackQuality(track, { playing: opts.isPlaying }),
     existingP,
@@ -253,7 +325,8 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
       isPlaying: opts.isPlaying,
     },
     lyrics: lyricsNote && lyrics ? { ...lyrics, note: lyricsNote } : lyrics,
-    prose: [...songProse, ...artistProse, ...albumProse],
+    prose: [...song.prose, ...artist.prose, ...album.prose],
+    images: [...song.images, ...artist.images, ...album.images],
     tags,
     existingSheet,
     guide: CUE_SHEET_GUIDE,
