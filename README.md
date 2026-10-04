@@ -1,8 +1,73 @@
 # Viboplr
 
-A cross-platform desktop music player for macOS and Windows built with Tauri 2, React, and Rust.
+**The music player you can just talk to.** A free, open-source desktop music player for macOS and Windows with a built-in [MCP](https://modelcontextprotocol.io) server. Connect Claude or any AI assistant and ask it to build playlists, fix tags, organise your library and download tracks. Built with Tauri 2, React, and Rust.
 
 Viboplr plays audio and video from local folders and remote music services. It acts as an orchestrator — a plugin system connects to streaming providers, metadata services, lyric databases, and image sources, while the core app handles playback, library management, and UI. It scans local folders in the background, reads metadata tags, and builds a searchable library backed by SQLite. The player prioritizes fast startup, instant playback, and quick search.
+
+## AI Control (MCP)
+
+Viboplr ships its own MCP server, so an AI assistant gets real, typed tools for your music library instead of screen-scraping. Turn on **Settings → AI control**, press **Copy config** (Claude Desktop) or **Copy command** (Claude Code), and paste it into your client.
+
+> *"Tag everything by Boards of Canada as ambient, and file the compilations under Various Artists."*
+> *"Sort the loose files in my Music folder into Artist/Album."*
+> *"Make me a playlist of songs I loved and haven't played this year."*
+
+- **Listen**: search, play, queue, skip, start radio, like, and drive the window and views
+- **Curate**: create and edit playlists, edit tags in bulk, rename listening history
+- **Ask**: read-only SQL over the library and play history ("what did I play most last March?"), lyrics, bios, and reviews
+- **Care for the collection**: write tags into the files, file compilations under an album artist, save lyrics and cover files, move and rename files into a clean layout
+- **Get music**: download a track from its own source (Subsonic or a direct URL) or through a download plugin, and upgrade a file in place (MP3 → FLAC) after a side-by-side quality check
+- **Use plugins**: every installed plugin can expose its own tools (read a Spotify playlist, search Soulseek, …), surfaced as `<pluginId>__<tool>`
+
+**Bounded by design.** It's off by default, binds to `127.0.0.1` only, and every request needs a bearer token that never reaches the model. Reading and playback need nothing more than the toggle. Anything that touches files (tag writes, file management, downloads, plugin actions) has its own permission switch, and all of them start off. Moves and file swaps are planned first and applied only on a second, confirming call. Every applied write is logged. The API can never delete tracks, playlists or files, and can never install extensions.
+
+The tool catalog lives in [`mcp/tools.mjs`](mcp/tools.mjs). Setup details are in [`mcp/README.md`](mcp/README.md), and the HTTP surface is documented in [`skills/viboplr-control/SKILL.md`](skills/viboplr-control/SKILL.md).
+
+## Architecture
+
+```mermaid
+flowchart TB
+    A["AI assistant<br/>Claude Desktop · Claude Code · Cursor · any MCP client"]
+    MCP["MCP server (Node, bundled)<br/>mcp/viboplr-mcp.mjs · tool catalog mcp/tools.mjs"]
+
+    subgraph App["Viboplr app (Tauri 2)"]
+        subgraph Rust["Rust backend"]
+            API["Control API<br/>axum · 127.0.0.1 · bearer token · permission switches"]
+            CORE["Library core<br/>scanner · watcher · Subsonic sync<br/>downloads · file ops · scoped fetch<br/><i>music folders · servers · internet</i>"]
+            DB[("SQLite + FTS5<br/>library · history · likes")]
+            MPV["mpv engine<br/>bundled libmpv<br/><i>audio device · video</i>"]
+        end
+        subgraph Web["Webview: React + TypeScript"]
+            DISP["Control-API dispatcher<br/>useControlApi.ts"]
+            UI["UI"]
+            ACT["Canonical actions<br/>queue · playlists · tags · likes · radio"]
+            HOST["Plugin host<br/>permission checks"]
+        end
+        subgraph Plugins["Plugins: sandboxed Web Workers"]
+            PL["Streaming · metadata · lyrics · artwork<br/>downloads · plugin tools"]
+        end
+    end
+
+    A <-->|"MCP over stdio"| MCP
+    MCP <-->|"HTTP + token"| API
+    API -->|"reads"| DB
+    API <-->|"mutations & playback<br/>(control-api-request event)"| DISP
+    UI --> ACT
+    DISP --> ACT
+    DISP -->|"plugin tools"| HOST
+    ACT -->|"Tauri invoke"| CORE
+    ACT -->|"Tauri invoke"| MPV
+    HOST <-->|"api.* RPC"| PL
+    PL -.->|"api.assistant.host<br/>same tool catalog"| HOST
+    HOST -->|"scoped fetch"| CORE
+    CORE --> DB
+```
+
+- **Rust backend** owns everything stateful or native: the SQLite library, folder scanning and watching, Subsonic sync, file operations and downloads, the libmpv playback engine, and the localhost control API.
+- **The webview** (React + TypeScript) renders the UI and holds the *canonical actions*, the one code path for each user action (enqueue, like, tag, start radio, …).
+- **The control API answers pure reads from the database directly.** Everything else (playback, the live queue, every mutation) is bridged into the webview and runs through those same canonical actions. A request from an assistant therefore takes the same path as a click, and the UI, plugin events and persisted state stay in sync.
+- **The MCP server** is a thin, dependency-free translation layer. It discovers the running app, holds the token, and presents `tools.mjs` as typed tools. Capability decisions belong to the Rust API alone.
+- **Plugins** run in their own Web Workers with no Tauri IPC, no DOM and no network globals. Their only way out is the `api.*` proxy, which the plugin host checks against each manifest's declared permissions. Network access goes through a host-scoped fetch in Rust. Plugins can also contribute MCP tools, and in-app agent plugins reach the same tool catalog through `api.assistant.host`.
 
 ## Features
 
@@ -79,6 +144,7 @@ Viboplr plays audio and video from local folders and remote music services. It a
 | Tag reading | `lofty` | ID3v1/v2, Vorbis, FLAC, MP4, Opus tags |
 | File watching | `notify` | Cross-platform filesystem events |
 | Integrations | Plugin system | Streaming, scrobbling, metadata, lyrics, images |
+| AI control | `axum` control API + Node MCP server | Localhost, token-protected API presented to assistants as MCP tools |
 | State persistence | `tauri-plugin-store` v2 | Save/restore UI state across restarts |
 
 ## Supported Formats
@@ -205,6 +271,7 @@ viboplr/
 │   │   ├── PluginViewRenderer.tsx  # Plugin structured view rendering
 │   │   ├── InformationSections.tsx # Plugin-provided metadata sections
 │   │   └── ...
+│   ├── pluginWorker/       # Sandboxed Web Worker plugin runtime + host bridge
 │   ├── playback/           # Playback engine seam (nativeEngine bridge, progress machine)
 │   ├── types/              # Skin, plugin, and information-type definitions
 │   ├── utils/              # Pure helpers (download planning, diagnostics, lyrics, ...)
@@ -219,6 +286,9 @@ viboplr/
 ├── src-tauri/              # Rust backend
 │   ├── src/
 │   │   ├── main.rs             # Entry point
+│   │   ├── control_api.rs      # Localhost control API for AI assistants
+│   │   ├── assistant_write.rs  # Permission-gated file writes for the API
+│   │   ├── mcp_setup.rs        # Copy config / Copy command for MCP clients
 │   │   ├── lib.rs              # Tauri setup, plugin/command registration
 │   │   ├── commands/           # Tauri commands, split by area (app, library, media, ...)
 │   │   ├── db/                 # SQLite layer, split by entity (tracks, albums, likes, ...)
@@ -245,6 +315,8 @@ viboplr/
 │   │   └── timing.rs           # Startup profiling
 │   ├── plugins/            # Built-in plugins (Last.fm, lyrics, artwork)
 │   └── Cargo.toml
+├── mcp/                    # Bundled MCP server + tool catalog (tools.mjs)
+├── skills/viboplr-control/ # Claude skill documenting the control API
 ├── docs/                   # Marketing/docs website (viboplr.com)
 ├── scripts/                # Build, release, benchmarking, and libmpv vendoring scripts
 ├── DEVELOPMENT.md          # Developer guide
