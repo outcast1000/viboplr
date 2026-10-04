@@ -23,6 +23,8 @@
     "test:e2e": "playwright test --config tests/e2e/playwright.config.js",
     "test:all": "npm run lint && npm run test:rust && npm test && npm run test:e2e",
     "capture:media": "node scripts/capture-site-media.mjs",
+    "demo:library": "node scripts/make-demo-library.mjs",
+    "demo:setup": "node scripts/setup-demo-profile.mjs",
     "screenshots": "playwright test --config tests/e2e/playwright.config.js tests/e2e/specs/screenshots.test.js && node scripts/convert-screenshots.mjs"
   },
   "dependencies": {

@@ -33,7 +33,24 @@ const IS_WIN = process.platform === "win32";
 
 // The probe route is gated on this profile name; a default-profile app ignores
 // the links entirely, which would silently produce a run of wrong results.
-export const PROBE_PROFILE = "perf";
+// `VIBOPLR_PROBE_PROFILE` picks another gated profile (`perf-*`) — the demo
+// library the website is captured from lives in `perf-demo`, apart from the
+// perf series (scripts/setup-demo-profile.mjs).
+export const PROBE_PROFILE = probeProfileFromEnv(process.env.VIBOPLR_PROBE_PROFILE);
+
+export function probeProfileFromEnv(value) {
+  if (!value) return "perf";
+  // Mirrors the gate in profiles.rs / probeControl.ts: anything else would
+  // launch an app that ignores every link.
+  if (!/^perf(-[a-z0-9-]+)?$/i.test(value)) {
+    throw new Error(`VIBOPLR_PROBE_PROFILE must be "perf" or "perf-<name>" (got "${value}")`);
+  }
+  return value;
+}
+
+/** `--profile <name>` on a command line, as a whole word: `perf` must not
+ *  match an app running `perf-demo`. */
+const profileArgPattern = () => new RegExp(`--profile[= ]${PROBE_PROFILE}(?![\\w-])`);
 export const APP_NAME = "Viboplr";
 export const BUNDLE_ID = "com.alex.viboplr";
 // Time from "the process exists" to "the webview is listening for deep links".
@@ -92,7 +109,7 @@ export function processArgs(pid) {
 /** Non-throwing form of assertProbeProfile, for deciding how to quit. */
 export function onProbeProfile() {
   const args = appPids().map(processArgs).join(" ");
-  return new RegExp(`--profile[= ]${PROBE_PROFILE}\\b`).test(args);
+  return profileArgPattern().test(args);
 }
 
 export async function quitApp() {
@@ -150,7 +167,7 @@ export async function launchApp() {
 export function assertProbeProfile() {
   const pids = appPids();
   const args = pids.map(processArgs).join(" ");
-  if (!new RegExp(`--profile[= ]${PROBE_PROFILE}\\b`).test(args)) {
+  if (!profileArgPattern().test(args)) {
     throw new Error(
       `Viboplr is running but not under the "${PROBE_PROFILE}" profile, so viboplr://probe ` +
         `links are ignored. Quit it and let the script launch it, or see CLAUDE.md for the ` +

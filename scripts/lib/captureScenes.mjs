@@ -194,6 +194,104 @@ export const SCENES = [
   },
 ];
 
+/**
+ * The site's general screenshots (`docs/assets/screenshots/`, used by the home
+ * page, features.html and the persona pages). Same machinery as SCENES; `dir`
+ * routes the output and `file` keeps the names the pages already link to.
+ * Meant to run against the demo library (`--demo`) — these are the images the
+ * pages show first, and they used to be cut from a real profile.
+ *
+ * Not covered: `keyboard.webp` (the shortcuts overlay it shows no longer
+ * exists) and `skins.webp` (the Extensions view's Skins tab has no API route;
+ * the `skins` video above covers skins).
+ */
+export const SCREENSHOT_SCENES = [
+  {
+    id: "shot-hero", file: "hero", dir: "screenshots", kind: "still", needs: ["track"],
+    steps: [{ navigate: { view: "home" } }, { action: { action: "queuePanel", open: true } }, { action: { action: "scroll", to: "top" } }],
+    expect: { view: "home" },
+  },
+  {
+    id: "shot-home", file: "home", dir: "screenshots", kind: "still",
+    steps: [{ navigate: { view: "home" } }, { action: { action: "scroll", to: 620 } }],
+    expect: { view: "home" },
+    after: [{ action: { action: "scroll", to: "top" } }],
+  },
+  {
+    // The Albums tab: setup-demo-profile persists it as the Library's tab.
+    id: "shot-library", file: "library", dir: "screenshots", kind: "still",
+    steps: [{ navigate: { view: "library" } }],
+    expect: { view: "search" },
+  },
+  {
+    // A lossless track on an artist page, EQ sliders in the bar.
+    id: "shot-playback", file: "playback", dir: "screenshots", kind: "still", needs: ["flac"],
+    steps: [
+      { navigate: { artist: "$flacArtist" } },
+      { playTemp: "$flacTrackId" },
+      { seekSecs: 64 },
+    ],
+    expect: { view: "artists" },
+  },
+  {
+    id: "shot-now-playing", file: "now-playing", dir: "screenshots", kind: "still", needs: ["lyrics"],
+    steps: [
+      { navigate: { view: "nowplaying" } },
+      { playTemp: "$lyricsTrackId" },
+      { action: { action: "nowPlayingLyrics", open: true } },
+      { seekSecs: 50 },
+      { wait: 2500 },
+    ],
+    expect: { view: "nowplaying", panels: { lyricsHidden: false } },
+  },
+  {
+    id: "shot-discovery", file: "discovery", dir: "screenshots", kind: "still", settleMs: 4000,
+    steps: [{ navigate: { track: "$detailTrackTitle", artistName: "$detailTrackArtist" } }],
+    expect: { track: true },
+  },
+  {
+    id: "shot-search", file: "search", dir: "screenshots", kind: "still", needs: ["track"],
+    steps: [{ navigate: { view: "nowplaying" } }, { action: { action: "search", query: "$searchQuery" } }, { wait: 1200 }],
+    expect: { modals: ["search"] },
+    after: [{ action: { action: "search", query: "" } }],
+  },
+  {
+    id: "shot-plugins", file: "plugins", dir: "screenshots", kind: "still",
+    steps: [{ navigate: { view: "extensions" } }],
+    expect: { view: "extensions" },
+  },
+  {
+    id: "shot-servers", file: "servers", dir: "screenshots", kind: "still",
+    steps: [{ navigate: { view: "collections" } }],
+    expect: { view: "collections" },
+  },
+  {
+    id: "shot-mini-player", file: "mini-player", dir: "screenshots", kind: "still", needs: ["track"],
+    steps: [{ window: { mini: true, miniSize: "full", miniWidth: "large" } }, { wait: 1500 }],
+    after: [{ window: { mini: false } }, { wait: 1500 }],
+  },
+  {
+    id: "shot-detail-album", file: "detail-album-viboplr", dir: "screenshots", kind: "still", settleMs: 4000,
+    steps: [{ navigate: { album: "$detailAlbumTitle", artistName: "$detailAlbumArtist" } }],
+    expect: { album: true },
+  },
+  {
+    id: "shot-detail-artist", file: "detail-artist-light", dir: "screenshots", kind: "still", settleMs: 4000,
+    steps: [{ navigate: { artist: "$artist" } }, { skin: "Arctic Light" }, { wait: 800 }],
+    expect: { view: "artists" },
+    after: [{ skin: "$skin0" }, { wait: 800 }],
+  },
+  {
+    id: "shot-detail-track", file: "detail-track-sunset", dir: "screenshots", kind: "still", settleMs: 4000,
+    steps: [{ navigate: { track: "$detailTrackTitle", artistName: "$detailTrackArtist" } }, { skin: "Sunset" }, { wait: 800 }],
+    expect: { track: true },
+    after: [{ skin: "$skin0" }, { wait: 800 }],
+  },
+];
+
+/** The file name a scene writes (without extension). */
+export const sceneFile = (scene) => scene.file ?? scene.id;
+
 /** Placeholders a person has to record: they depend on outside services or
  *  on a pointer gesture the API deliberately does not have. */
 export const MANUAL_CAPTURES = [
@@ -215,6 +313,10 @@ export function checkExpect(state, expect) {
   if (expect.view !== undefined && state?.view !== expect.view) {
     problems.push(`view is "${state?.view}", wanted "${expect.view}"`);
   }
+  // Track and album pages are a selection over whatever view opened them
+  // (an album reached from its artist reports view "artists"), not views.
+  if (expect.track && !state?.selection?.track) problems.push("no track page is open");
+  if (expect.album && !state?.selection?.albumId) problems.push("no album page is open");
   for (const [k, v] of Object.entries(expect.panels ?? {})) {
     if (state?.panels?.[k] !== v) problems.push(`panels.${k} is ${state?.panels?.[k]}, wanted ${v}`);
   }
@@ -240,10 +342,11 @@ export function resolveRefs(value, facts) {
 }
 
 /** Which preconditions a scene is missing, given what the app reported. */
-export function missingNeeds(scene, { hasTrack, hasLyricsTrack = false, pluginIds }) {
+export function missingNeeds(scene, { hasTrack, hasLyricsTrack = false, hasFlacTrack = false, pluginIds }) {
   const missing = [];
   for (const need of scene.needs ?? []) {
     if (need === "track" && !hasTrack) missing.push("nothing loaded to play");
+    if (need === "flac" && !hasFlacTrack) missing.push("no FLAC track in the library");
     if (need === "lyrics" && !hasLyricsTrack) missing.push("no library track with cached synced lyrics");
     if (need.startsWith("plugin:") && !pluginIds.includes(need.slice(7))) {
       missing.push(`plugin ${need.slice(7)} not enabled`);

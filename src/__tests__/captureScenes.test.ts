@@ -3,6 +3,7 @@ import {
   MINI_LAYOUTS,
   MINI_WIDTHS,
   SCENES,
+  SCREENSHOT_SCENES,
   checkExpect,
   cropRect,
   encodeArgs,
@@ -12,17 +13,25 @@ import {
   parseRedactArg,
   parseScreenDevice,
   resolveRefs,
+  sceneFile,
   // @ts-expect-error — plain .mjs dev script, no type declarations
 } from "../../scripts/lib/captureScenes.mjs";
 import { parseMiniSizes, parseNavigateTarget, parseRedact, parseUiAction } from "../utils/uiControl";
 import { MINI_RESTING_SIZES, MINI_WIDTH_SIZES } from "../utils/miniSizes";
+import { existsSync } from "node:fs";
 
 describe("SCENES", () => {
   it("have unique ids and only use API verbs the app accepts", () => {
-    const ids = SCENES.map((s: { id: string }) => s.id);
+    const all = [...SCENES, ...SCREENSHOT_SCENES];
+    const ids = all.map((s: { id: string }) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
-    const facts = { artist: "Kyuss", albumTrackIds: [1, 2], lyricsTrackId: 6, skin0: "default" };
-    for (const scene of SCENES) {
+    const facts = {
+      artist: "Glass Harbour", albumTrackIds: [1, 2], lyricsTrackId: 6, skin0: "default",
+      flacTrackId: 9, flacArtist: "Low Saturn Club", detailAlbumTitle: "Afterglow Arcade",
+      detailAlbumArtist: "Neon Orchard", detailTrackTitle: "Paper Lanterns",
+      detailTrackArtist: "Glass Harbour", searchQuery: "harbour",
+    };
+    for (const scene of all) {
       const steps = [...(scene.steps ?? []), ...(scene.during ?? []), ...(scene.after ?? [])];
       for (const step of resolveRefs(steps, facts)) {
         // The same validators the dispatcher runs, so a scene can't ship a
@@ -36,6 +45,12 @@ describe("SCENES", () => {
         for (const col of scene.cols ?? []) expect(parseMiniSizes({ ...row, ...col })).not.toBeNull();
       }
     }
+  });
+
+  it("write the screenshot names the site already links to", () => {
+    const files = SCREENSHOT_SCENES.map(sceneFile);
+    expect(new Set(files).size).toBe(files.length);
+    for (const f of files) expect(existsSync(`docs/assets/screenshots/${f}.webp`)).toBe(true);
   });
 
   it("name the mini sizes the app knows, every one of them", () => {
@@ -98,6 +113,13 @@ describe("checkExpect", () => {
     expect(problems).toHaveLength(3);
   });
 
+  it("checks for an open track page, which is a selection rather than a view", () => {
+    expect(checkExpect({ ...state, selection: { track: "lib:4" } }, { track: true })).toEqual([]);
+    expect(checkExpect({ ...state, selection: { track: null } }, { track: true })).toHaveLength(1);
+    expect(checkExpect({ ...state, view: "artists", selection: { albumId: 13 } }, { album: true })).toEqual([]);
+    expect(checkExpect({ ...state, selection: { albumId: null } }, { album: true })).toHaveLength(1);
+  });
+
   it("treats no expectation as a pass", () => {
     expect(checkExpect(state, undefined)).toEqual([]);
   });
@@ -115,6 +137,8 @@ describe("missingNeeds", () => {
     const scene = { needs: ["track", "plugin:ytdlp"] };
     expect(missingNeeds(scene, { hasTrack: true, pluginIds: ["ytdlp"] })).toEqual([]);
     expect(missingNeeds(scene, { hasTrack: false, pluginIds: [] })).toHaveLength(2);
+    expect(missingNeeds({ needs: ["flac"] }, { hasTrack: true, pluginIds: [] })).toHaveLength(1);
+    expect(missingNeeds({ needs: ["flac"] }, { hasTrack: true, hasFlacTrack: true, pluginIds: [] })).toEqual([]);
   });
 });
 

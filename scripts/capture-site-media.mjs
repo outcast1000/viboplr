@@ -46,6 +46,15 @@
 // mode's redaction, undone when showcase goes off): `text` becomes "•••",
 // `text=replacement` becomes the replacement. Repeatable. Use it for account
 // names and personal playlist titles the captured views would otherwise show.
+//
+// --demo <dir> captures from the generated demo library instead of a real
+// profile (make-demo-library.mjs + setup-demo-profile.mjs) — what the
+// published site should always use: captures of a real profile publish its
+// owner's collection. It switches the profile to `perf-demo`, takes the
+// scenes' artist / tracks from the library's manifest, redacts the home
+// folder out of any path on screen, and adds the general screenshots
+// (SCREENSHOT_SCENES → docs/assets/screenshots/) to the run.
+//   --set media|screenshots|all   which scenes (default: media; all with --demo)
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -61,6 +70,8 @@ import {
 import {
   MANUAL_CAPTURES,
   SCENES,
+  SCREENSHOT_SCENES,
+  sceneFile,
   checkExpect,
   cropRect,
   encodeArgs,
@@ -79,7 +90,7 @@ function parseArgs(argv) {
   const o = {
     profile: "default", only: null, list: false, out: "docs/assets/media",
     width: 1440, height: 900, x: 40, y: 60, settle: 2500, video: true, keepVolume: false, artist: null, lyricsTrack: null, redact: [],
-    grabScale: null,
+    grabScale: null, demo: null, set: null, shotsOut: "docs/assets/screenshots",
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -97,8 +108,19 @@ function parseArgs(argv) {
     else if (a === "--lyrics-track") o.lyricsTrack = Number(next());
     else if (a === "--redact") o.redact.push(...parseRedactArg(next()));
     else if (a === "--grab-scale") o.grabScale = Number(next());
+    else if (a === "--demo") o.demo = next();
+    else if (a === "--set") o.set = next();
+    else if (a === "--shots-out") o.shotsOut = next();
     else throw new Error(`unknown argument: ${a}`);
   }
+  if (o.demo) {
+    o.demo = resolve(o.demo.replace(/^~(?=$|[\\/])/, homedir()));
+    if (!argv.includes("--profile")) o.profile = "perf-demo";
+    // Paths on screen (Collections, track details) name the home folder.
+    o.redact.push({ text: homedir(), replacement: "~" });
+  }
+  o.set ??= o.demo ? "all" : "media";
+  if (!["media", "screenshots", "all"].includes(o.set)) throw new Error("--set must be media, screenshots or all");
   return o;
 }
 
@@ -157,8 +179,13 @@ async function runStep(api, step, facts) {
 async function playTemp(api, trackId, facts) {
   const before = await api("GET", "/status");
   await api("POST", "/queue/tracks", { trackIds: [trackId], mode: "next", allowDuplicates: true });
-  const queue = await api("GET", "/queue");
-  const index = queue.tracks.findIndex((t, i) => i > queue.index && t.libraryId === trackId);
+  // The add lands through React state, so the first read can predate it.
+  let index = -1;
+  for (let tries = 0; tries < 15 && index < 0; tries++) {
+    if (tries) await sleep(200);
+    const queue = await api("GET", "/queue");
+    index = queue.tracks.findIndex((t, i) => i > queue.index && t.libraryId === trackId);
+  }
   if (index < 0) throw new Error(`track ${trackId} didn't land in the queue`);
   await api("POST", "/queue/jump", { index });
   await api("POST", "/playback", { play: true });
@@ -206,6 +233,16 @@ async function waitForExpect(api, expect, timeoutMs = 8000) {
   return problems;
 }
 
+/** macOS output mute state, or null when it can't be read. */
+function systemMuted() {
+  const r = spawnSync("osascript", ["-e", "output muted of (get volume settings)"], { encoding: "utf8" });
+  return r.status === 0 ? r.stdout.trim() === "true" : null;
+}
+
+function setSystemMuted(on) {
+  spawnSync("osascript", ["-e", `set volume output muted ${on}`]);
+}
+
 // --- capture --------------------------------------------------------------
 
 function run(cmd, args) {
@@ -244,7 +281,7 @@ async function windowRect(api, opts, screen, pad = 0) {
 }
 
 async function captureStill(api, out, scene, opts, screen, encoder) {
-  const id = scene.id;
+  const id = sceneFile(scene);
   const png = join(tmpdir(), `viboplr-${id}.png`);
   if (PLATFORM === "darwin") {
     const win = await api("GET", "/window");
@@ -304,11 +341,11 @@ async function captureGrid(api, out, scene, opts, screen, encoder) {
   const composite = join(tmpdir(), `viboplr-${scene.id}.png`);
   try {
     run("ffmpeg", gridComposeArgs(pngs, layout, composite, { inset, radius }));
-    toWebp(composite, join(out, `${scene.id}.webp`), encoder, { quality: 92 });
+    toWebp(composite, join(out, `${sceneFile(scene)}.webp`), encoder, { quality: 92 });
   } finally {
     for (const p of [...pngs, composite]) rmSync(p, { force: true });
   }
-  return [`${scene.id}.webp`];
+  return [`${sceneFile(scene)}.webp`];
 }
 
 /** ffmpeg arguments for one PNG of `rect`. Ordinary stills on macOS go by
@@ -343,7 +380,8 @@ async function captureVideo(api, out, scene, facts, screen, opts, encoder) {
   const code = await exited;
   await Promise.all(timers);
   if (code !== 0) throw new Error(`ffmpeg recording failed: ${log.trim().split("\n").slice(-2).join(" ")}`);
-  const base = join(out, scene.id);
+  const name = sceneFile(scene);
+  const base = join(out, name);
   const args = encodeArgs(raw, base);
   run("ffmpeg", args.mp4);
   run("ffmpeg", args.webm);
@@ -351,13 +389,47 @@ async function captureVideo(api, out, scene, facts, screen, opts, encoder) {
   toWebp(`${base}-poster.png`, `${base}-poster.webp`, encoder, { quality: 85 });
   rmSync(`${base}-poster.png`, { force: true });
   rmSync(raw, { force: true });
-  return [`${scene.id}.mp4`, `${scene.id}.webm`, `${scene.id}-poster.webp`];
+  return [`${name}.mp4`, `${name}.webm`, `${name}-poster.webp`];
 }
 
 // --- main -----------------------------------------------------------------
 
+/** One library track id by title + artist, or null. */
+async function trackIdByName(api, title, artist) {
+  const r = await api("POST", "/query", {
+    sql: "SELECT t.id FROM tracks t JOIN artists ar ON ar.id = t.artist_id WHERE t.title = ?1 AND ar.name = ?2 LIMIT 1",
+    params: [title, artist],
+  });
+  return r.rows?.[0]?.[0] ?? null;
+}
+
+/** Facts for a demo run, from the library's own manifest: no guessing which
+ *  artist is biggest or which track has cached lyrics. */
+async function demoFacts(api, opts, facts) {
+  const manifest = JSON.parse(readFileSync(join(opts.demo, "demo-library.json"), "utf8"));
+  const sc = manifest.showcase;
+  facts.artist = opts.artist ?? sc.heroArtist;
+  facts.lyricsTrackId = opts.lyricsTrack ?? await trackIdByName(api, sc.lyrics.title, sc.lyrics.artist);
+  facts.detailAlbumTitle = sc.detailAlbum.title;
+  facts.detailAlbumArtist = sc.detailAlbum.artist;
+  facts.detailTrackTitle = sc.detailTrack.title;
+  facts.detailTrackArtist = sc.detailTrack.artist;
+  facts.searchQuery = sc.searchQuery;
+  const album = await api("POST", "/query", {
+    sql: "SELECT t.id FROM tracks t JOIN albums al ON al.id = t.album_id JOIN artists ar ON ar.id = al.artist_id "
+      + "WHERE al.title = ?1 AND ar.name = ?2 ORDER BY t.track_number",
+    params: [sc.detailAlbum.title, sc.detailAlbum.artist],
+  });
+  const ids = (album.rows ?? []).map((row) => row[0]);
+  facts.albumTrackIds = ids.length ? ids : null;
+  facts.flacTrackId = await trackIdByName(api, sc.lossless.title, sc.lossless.artist);
+  facts.flacArtist = sc.lossless.artist;
+  return facts;
+}
+
 async function discoverFacts(api, opts) {
-  const facts = { artist: opts.artist, albumTrackIds: null, lyricsTrackId: null, skin0: null, undo: [] };
+  const facts = { artist: opts.artist, albumTrackIds: null, lyricsTrackId: null, flacTrackId: null, skin0: null, undo: [] };
+  if (opts.demo) return demoFacts(api, opts, facts);
   if (!facts.artist) {
     const r = await api("POST", "/query", {
       sql: "SELECT ar.name FROM artists ar JOIN tracks t ON t.artist_id = ar.id GROUP BY ar.id ORDER BY COUNT(*) DESC LIMIT 1",
@@ -394,11 +466,17 @@ async function discoverFacts(api, opts) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  let scenes = SCENES.filter((s) => !opts.only || opts.only.includes(s.id));
+  const pool = [
+    ...(opts.set !== "screenshots" ? SCENES : []),
+    ...(opts.set !== "media" ? SCREENSHOT_SCENES : []),
+  ];
+  let scenes = pool.filter((s) => !opts.only || opts.only.includes(s.id));
   if (!opts.video) scenes = scenes.filter((s) => s.kind !== "video");
 
   if (opts.list) {
-    for (const s of SCENES) console.log(`${s.id.padEnd(18)} ${s.kind.padEnd(6)} ${s.page.padEnd(13)} ${s.slot}`);
+    for (const s of SCENES) console.log(`${s.id.padEnd(20)} ${s.kind.padEnd(6)} ${s.page.padEnd(13)} ${s.slot}`);
+    console.log("\nGeneral screenshots (--set screenshots, or --demo):");
+    for (const s of SCREENSHOT_SCENES) console.log(`${s.id.padEnd(20)} ${s.kind.padEnd(6)} screenshots/${sceneFile(s)}.webp`);
     console.log("\nRecord by hand:");
     for (const m of MANUAL_CAPTURES) console.log(`  ${m.page.padEnd(13)} ${m.slot} — ${m.why}`);
     return;
@@ -409,7 +487,8 @@ async function main() {
   const api = makeApi(opts.profile);
   await api("GET", "/health");
   const out = resolve(opts.out);
-  mkdirSync(out, { recursive: true });
+  const shotsOut = resolve(opts.shotsOut);
+  for (const dir of [out, shotsOut]) mkdirSync(dir, { recursive: true });
 
   // Snapshot what we change, to put it back afterwards.
   const [ui0, win0, status0, ext0] = await Promise.all([
@@ -423,16 +502,26 @@ async function main() {
   const screen = screenInfo();
 
   const results = [];
+  let systemMuted0 = null;
   try {
     await api("POST", "/window", { fullscreen: false, mini: false, maximized: false, width: opts.width, height: opts.height, x: opts.x, y: opts.y });
     await api("POST", "/ui/action", { action: "showcase", on: true, redact: opts.redact });
     await api("POST", "/ui/action", { action: "heroLook", look: "aurora-drift" });
-    // Silent capture. Bit-perfect mode refuses a volume change; then it plays aloud.
-    if (!opts.keepVolume) await api("POST", "/playback", { volume: 0 }).catch((e) => console.error(`couldn't mute: ${e.message}`));
+    // Silent capture. On macOS the system output is muted rather than the app,
+    // so the volume slider in every shot reads as a normal level instead of a
+    // muted 0. Elsewhere (and if osascript fails) the app goes to 0 — note
+    // Bit-perfect mode refuses that change, and then it plays aloud.
+    if (!opts.keepVolume) {
+      systemMuted0 = PLATFORM === "darwin" ? systemMuted() : null;
+      if (systemMuted0 !== null) setSystemMuted(true);
+      else await api("POST", "/playback", { volume: 0 }).catch((e) => console.error(`couldn't mute: ${e.message}`));
+    }
     await sleep(1500);
 
     for (const scene of scenes) {
-      const missing = missingNeeds(scene, { hasTrack, hasLyricsTrack: facts.lyricsTrackId !== null, pluginIds });
+      const missing = missingNeeds(scene, {
+        hasTrack, hasLyricsTrack: facts.lyricsTrackId !== null, hasFlacTrack: facts.flacTrackId !== null, pluginIds,
+      });
       if (missing.length) {
         results.push({ scene, status: "skipped", why: missing.join("; ") });
         continue;
@@ -445,9 +534,10 @@ async function main() {
         const problems = await waitForExpect(api, scene.expect);
         if (problems.length) throw new Error(`page didn't land: ${problems.join("; ")}`);
         await sleep(scene.settleMs ?? opts.settle);
-        const files = scene.kind === "still" ? await captureStill(api, out, scene, opts, screen, encoder)
-          : scene.kind === "grid" ? await captureGrid(api, out, scene, opts, screen, encoder)
-          : await captureVideo(api, out, scene, facts, screen, opts, encoder);
+        const dest = scene.dir === "screenshots" ? shotsOut : out;
+        const files = scene.kind === "still" ? await captureStill(api, dest, scene, opts, screen, encoder)
+          : scene.kind === "grid" ? await captureGrid(api, dest, scene, opts, screen, encoder)
+          : await captureVideo(api, dest, scene, facts, screen, opts, encoder);
         results.push({ scene, status: "saved", files });
         console.log(`saved ${files.join(", ")}`);
       } catch (e) {
@@ -474,19 +564,24 @@ async function main() {
       await restore(() => api("POST", "/window", { miniSize: win0.miniSize, miniWidth: win0.miniWidth }));
     }
     if (win0.mini) await restore(() => api("POST", "/window", { mini: true }));
-    if (!opts.keepVolume) await restore(() => api("POST", "/playback", { volume: status0.volume }));
+    if (!opts.keepVolume) {
+      if (systemMuted0 !== null) setSystemMuted(systemMuted0);
+      else await restore(() => api("POST", "/playback", { volume: status0.volume }));
+    }
     await restore(() => api("POST", "/playback", { play: status0.playing }));
     await restore(() => api("POST", "/ui/navigate", { view: "home" }));
   }
 
-  console.log(`\nMedia in ${out}:`);
+  console.log(`\nMedia in ${out}${opts.set !== "media" ? ` and ${shotsOut}` : ""}:`);
   for (const r of results) {
-    const where = `${r.scene.page} → ${r.scene.slot}`;
+    const where = r.scene.page ? `${r.scene.page} → ${r.scene.slot}` : `screenshots/${sceneFile(r.scene)}.webp`;
     console.log(r.status === "saved" ? `  ✓ ${r.scene.id.padEnd(18)} ${where}` : `  – ${r.scene.id.padEnd(18)} skipped: ${r.why}`);
   }
   console.log("\nStill to record by hand:");
   for (const m of MANUAL_CAPTURES) console.log(`  ${m.page} → ${m.slot} (${m.why})`);
-  console.log("\nReview the files before committing: they show this profile's library.");
+  console.log(opts.demo
+    ? "\nReview the files before committing (demo library; plugin views can still show account data)."
+    : "\nReview the files before committing: they show this profile's library. For the public site, use --demo.");
 }
 
 main().catch((e) => {
