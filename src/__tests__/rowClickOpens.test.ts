@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { presetIds, rowActions, rowClickOpens } from "../components/pluginViews/pluginViews";
+import { presetIds, rowActions, rowClickOpens, toolbarActionIds } from "../components/pluginViews/pluginViews";
 
 // A list of TRACKS wants the library's behaviour: click selects, double-click
 // plays. A list of CONTAINERS (torrents, folders) wants the opposite — clicking
@@ -135,5 +135,29 @@ describe("rowActions", () => {
     expect(rowActions(declared, [])).toEqual([]);
     expect(rowActions([], ["play"])).toEqual([]);
     expect(rowActions(undefined, ["play"])).toEqual([]);
+  });
+});
+
+// The selection toolbar declares every action once, but must only offer one a
+// selected row actually shows — and hand the plugin only those rows.
+describe("toolbarActionIds", () => {
+  const items = [
+    { id: "a", actions: ["play", "replace"] },
+    { id: "b", actions: ["play"] },
+    { id: "c" },
+  ];
+
+  it("is empty (button disabled) when no selected row offers the action", () => {
+    expect(toolbarActionIds("replace", items, new Set(["b"]))).toEqual([]);
+    expect(toolbarActionIds("play", items, new Set())).toEqual([]);
+  });
+
+  it("sends only the selected rows that offer it", () => {
+    expect(toolbarActionIds("replace", items, new Set(["a", "b"]))).toEqual(["a"]);
+    expect(toolbarActionIds("play", items, new Set(["a", "b"]))).toEqual(["a", "b"]);
+  });
+
+  it("treats a row without the field as offering everything", () => {
+    expect(toolbarActionIds("replace", items, new Set(["c"]))).toEqual(["c"]);
   });
 });

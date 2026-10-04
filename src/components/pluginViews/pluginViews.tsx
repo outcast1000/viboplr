@@ -652,6 +652,25 @@ export function rowActions<T extends { id: string }>(
   return declared.filter((a) => want.has(a.id));
 }
 
+/**
+ * The selected rows a toolbar action applies to — those whose `item.actions`
+ * offer it (absent = all). The toolbar disables an action this returns nothing
+ * for, and sends only these ids: offering a row-specific action for a selection
+ * none of whose rows show it was a dead button (the Soulseek "Replace in
+ * library…" on a plain download — "That file isn't a finished upgrade").
+ *
+ * Exported for unit testing.
+ */
+export function toolbarActionIds<T extends { id: string; actions?: string[] }>(
+  actionId: string,
+  items: T[],
+  selected: Set<string>,
+): string[] {
+  return items
+    .filter((it) => selected.has(it.id) && (!it.actions || it.actions.includes(actionId)))
+    .map((it) => it.id);
+}
+
 export function rowClickOpens(
   openOnClick: boolean | "title" | undefined,
   mods: { meta?: boolean; ctrl?: boolean; shift?: boolean },
@@ -964,17 +983,20 @@ function PluginTrackRowsSelectable({
         </div>
         {hasActions && (
           <div className="ptr-toolbar-right">
-            {actions!.map(a => (
-              <button
-                key={a.id}
-                className="ptr-toolbar-btn"
-                disabled={selected.size === 0}
-                onClick={() => onAction?.(a.id, { selectedIds: Array.from(selected) })}
-              >
-                {a.icon && <span className="ptr-toolbar-icon">{a.icon}</span>}
-                {a.label}
-              </button>
-            ))}
+            {actions!.map(a => {
+              const ids = toolbarActionIds(a.id, items, selected);
+              return (
+                <button
+                  key={a.id}
+                  className="ptr-toolbar-btn"
+                  disabled={ids.length === 0}
+                  onClick={() => onAction?.(a.id, { selectedIds: ids })}
+                >
+                  {a.icon && <span className="ptr-toolbar-icon">{a.icon}</span>}
+                  {a.label}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
