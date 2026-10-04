@@ -19,7 +19,7 @@ an in-app agent get them. Both files ship in the bundle side by side.
 
 ## Setup
 
-1. In Viboplr: **Settings → General → AI control** — switch it on.
+1. In Viboplr: **Settings → AI control** — switch it on.
 2. Register the server with your client.
 
 **From the app (easiest).** This script **ships in the bundle**
@@ -123,7 +123,7 @@ needs both the Downloads and Manage files switches, and the old file goes to
 the Trash).
 
 Their authorization is a **per-category switch in Viboplr → Settings →
-General → AI control**, all off by default, enforced in Rust on
+AI control**, all off by default, enforced in Rust on
 every request and re-read from disk each time (flipping a switch applies
 immediately; a missing/corrupt permissions file means *no*). A refused call is
 a 403 naming the switch.

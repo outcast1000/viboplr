@@ -389,7 +389,7 @@ function App() {
     setVideoSubtitlesOn((on) => !on); // persistence: usePersistedSetting
   }, []);
   const [loggingEnabled, setLoggingEnabled] = usePersistedSetting("loggingEnabled", false, restoredRef);
-  // Localhost control API for AI assistants (Settings → General → "AI remote
+  // Localhost control API for AI assistants (Settings → "AI
   // control"). The flag is read again at startup in Rust (lib.rs) to start the
   // server before the webview exists; the handler below covers live toggles.
   const [controlApiEnabled, setControlApiEnabled] = usePersistedSetting("controlApiEnabled", false, restoredRef);

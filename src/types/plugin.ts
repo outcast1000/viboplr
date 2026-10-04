@@ -1346,7 +1346,7 @@ export interface PluginAssistantToolDescriptor {
    * `true` when the tool only reads — it changes nothing in the app, the
    * user's files, or any remote account (a lookup, a search, a cached list).
    * Read-only tools are always callable by an AI assistant; every other tool
-   * is refused until the user switches on Settings → General → AI control →
+   * is refused until the user switches on Settings → AI control →
    * "Plugin actions". Omitted counts as **not** read-only, so declare it on
    * every tool it is true for. Plugin-to-plugin calls are not gated.
    */
@@ -1411,7 +1411,7 @@ export interface PluginAssistantAPI {
    * The APP's own assistant tools — exactly the catalog the Viboplr MCP server
    * offers an outside assistant (`mcp/tools.mjs`), plus every plugin-published
    * tool as `<pluginId>__<tool>`. Calls run in-process through the control
-   * API, so they need Settings → General → AI control on and pass the same
+   * API, so they need Settings → AI control on and pass the same
    * per-category write switches an MCP client does (a refused write rejects
    * with the 403 text naming the switch). This is the surface for an in-app
    * agent: a tool added to the catalog reaches it with no plugin release.

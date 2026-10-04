@@ -274,7 +274,7 @@ export function describePermission(perm: string): PermissionDescription {
     case "assistant:host":
       return {
         label: "Control Viboplr like an AI assistant",
-        detail: "Use the tools an AI assistant gets when AI control is on. Changes still need the switches you've turned on in Settings → General → AI control.",
+        detail: "Use the tools an AI assistant gets when AI control is on. Changes still need the switches you've turned on in Settings → AI control.",
         sensitive: true,
       };
   }

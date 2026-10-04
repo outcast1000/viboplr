@@ -1,7 +1,7 @@
 //! Localhost control API for AI assistants (and any local automation).
 //!
 //! A small axum server bound to `127.0.0.1:0`, started only when the user
-//! enables Settings → General → "AI control" (`controlApiEnabled`).
+//! enables Settings → "AI control" (`controlApiEnabled`).
 //! Clients discover it through `control-api.json` in the profile directory
 //! (port + bearer token) and must probe `GET /v1/health` before trusting the
 //! file — a crash leaves a stale one behind.
@@ -137,7 +137,7 @@ impl ControlApi {
             .unwrap()
             .as_ref()
             .map(|r| r.router.clone())
-            .ok_or_else(|| "AI control is off — enable it in Settings → General → AI control.".to_string())?;
+            .ok_or_else(|| "AI control is off — enable it in Settings → AI control.".to_string())?;
         let token = self.token().ok_or_else(|| "Control API has no session token".to_string())?;
         call_router(router, &token, method, path, body).await
     }
@@ -490,7 +490,7 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/likes", post(|s, b| handle_bridge_body(s, "likes.set", json!({}), b)))
         .route("/v1/tracks/{id}/tags", post(|s, p, b| handle_track_bridge(s, p, "tags.edit", b)))
         // Assistant write surface — every route below additionally requires a
-        // WRITE SCOPE (Settings → General → AI control), re-read from
+        // WRITE SCOPE (Settings → AI control), re-read from
         // `assistant-permissions.json` per request and failing closed. Applied
         // writes are logged as `Assistant change [...]` lines (`/v1/logs`).
         // Static "file-tags" before "{id}": matchit prioritizes it.
@@ -1275,7 +1275,7 @@ fn check_scope(state: &ServerState, scope: Scope) -> Result<(), Response> {
         Err(error_response(
             StatusCode::FORBIDDEN,
             format!(
-                "the \"{}\" assistant permission is off — the user can enable it in Viboplr → Settings → General → AI control",
+                "the \"{}\" assistant permission is off — the user can enable it in Viboplr → Settings → AI control",
                 scope.label()
             ),
         ))
@@ -1338,7 +1338,7 @@ async fn handle_assistant_invoke(state: AxumState<ServerState>, body: Bytes) -> 
                 return error_response(
                     StatusCode::FORBIDDEN,
                     format!(
-                        "\"{}\" is not a read-only tool of plugin \"{}\", so it needs the \"{}\" assistant permission, which is off — the user can enable it in Viboplr → Settings → General → AI control",
+                        "\"{}\" is not a read-only tool of plugin \"{}\", so it needs the \"{}\" assistant permission, which is off — the user can enable it in Viboplr → Settings → AI control",
                         tool,
                         plugin_id,
                         Scope::PluginActions.label()

@@ -16,7 +16,7 @@
 // plugin tools like "list my Spotify playlists" were unreachable without it),
 // and it differed invisibly between clients. What an assistant may *change*
 // is decided in the app instead: the per-category switches in Settings →
-// General → AI control, enforced in Rust on every request. Plugin tools that
+// AI control, enforced in Rust on every request. Plugin tools that
 // declare `readOnly` always run; the rest, plus plugin context-menu actions
 // and deep links, need the "Plugin actions" switch. `--tier` is still
 // accepted (and ignored) so existing client configs keep starting.

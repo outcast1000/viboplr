@@ -257,7 +257,7 @@
       <div class="docs-body reveal">
         <h2>AI control</h2>
         <p class="docs-lead">Let an AI assistant on this computer search your library, control playback, and edit playlists, tags and likes.</p>
-        <p>One switch &mdash; <strong>Settings &rarr; General &rarr; AI control</strong> &mdash; and it's off by default. Behind it are three small pieces that work together, all of them on your own machine:</p>
+        <p>One switch &mdash; <strong>Settings &rarr; AI control</strong> &mdash; and it's off by default. Behind it are three small pieces that work together, all of them on your own machine:</p>
         <ul class="docs-list">
           <li><strong>The control server</strong> &mdash; a private server on <code>127.0.0.1</code>, never reachable from the network. Every request must carry the <strong>access token</strong> shown in Settings, so other apps and websites can't drive your player without it. <strong>Regenerate</strong> revokes the old token any time, and switching the toggle off stops the server immediately.</li>
           <li><strong>Discovery</strong> &mdash; a small <strong>discovery file</strong> (its location is shown next to the toggle) holding the server's address and token, so tools on this computer find the running app automatically instead of you copying values around.</li>
@@ -354,7 +354,7 @@
         <h2>Connecting an AI assistant (MCP)</h2>
         <p class="docs-lead">Give Claude Desktop, Claude Code, or any MCP client a set of typed Viboplr tools &mdash; search, playback, queue, playlists, tags, likes and more. It can also open pages and panels for you (&ldquo;show me Radiohead&rsquo;s page&rdquo;), which changes only what is on screen.</p>
         <p>The MCP server is a single small script that translates an assistant's tool calls into requests against the private <a href="#control-api">control server</a>. It runs on your computer, finds the app automatically via the discovery file, and keeps the access token to itself &mdash; the assistant never sees it. The assistant must run <strong>on the same computer as Viboplr</strong>: web-based assistants (and cloud sandboxes) can't reach a server that only listens on <code>127.0.0.1</code>.</p>
-        <p><strong>Before you start:</strong> install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer and switch on <strong>Settings &rarr; General &rarr; AI control</strong> in Viboplr. No <code>npm install</code> needed &mdash; the script is self-contained.</p>
+        <p><strong>Before you start:</strong> install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer and switch on <strong>Settings &rarr; AI control</strong> in Viboplr. No <code>npm install</code> needed &mdash; the script is self-contained.</p>
         <p><strong>The quick way &mdash; let the app write it for you.</strong> The server script ships inside Viboplr, so there is nothing to download. With the toggle on, the same settings card shows a <strong>Connect an AI assistant</strong> row:</p>
         <ul class="docs-list">
           <li><strong>Copy config</strong> &mdash; the JSON block for Claude Desktop, with the real paths already filled in.</li>
@@ -402,7 +402,7 @@
       <div class="docs-body reveal">
         <h2>Assistant permissions</h2>
         <p class="docs-lead">Four switches that let a connected AI assistant change things &mdash; not just read and play. All off by default, each one scoped, everything logged.</p>
-        <p>With <strong>Settings &rarr; General &rarr; AI control</strong> on, the same card shows four permission rows. They gate what an assistant may <em>write</em>; searching, playback, queue and playlist edits, database tags and likes never need them.</p>
+        <p>With <strong>Settings &rarr; AI control</strong> on, the same card shows four permission rows. They gate what an assistant may <em>write</em>; searching, playback, queue and playlist edits, database tags and likes never need them.</p>
         <ul class="docs-list">
           <li><strong>Modify tags in files</strong> &mdash; write tag and metadata edits (genre tags, artist, album, album artist, year) into the audio files themselves, through the same bulk-edit path the app's own modal uses. Database-only tag edits are always allowed and never touch files.</li>
           <li><strong>Manage files</strong> &mdash; create lyrics files (<code>.lrc</code>/<code>.txt</code>) and <code>cover.jpg</code> next to your music, and move or rename files inside a collection. Moves are <strong>two-step by design</strong>: the assistant first gets back an exact from&nbsp;&rarr;&nbsp;to plan (nothing touched), shows it to you, and only a second call carrying that plan's fingerprint applies it &mdash; if anything on disk changed in between, the plan is rejected. Moved tracks keep their identity: tags, likes, playlists and history all follow the file.</li>

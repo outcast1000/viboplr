@@ -3,7 +3,7 @@
 //! The control API's bearer token authorizes *reading and driving* the app.
 //! Anything that changes the user's files or library metadata additionally
 //! requires a **write scope**, booleans the user switches on in
-//! Settings → General → AI control:
+//! Settings → AI control:
 //!
 //! - `modify_tags`    — write tag/metadata edits into audio files
 //! - `manage_files`   — create lyrics/cover files, move/rename tracks

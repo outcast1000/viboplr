@@ -632,6 +632,7 @@ const navIcons = {
   general: <svg {...iconProps}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/></svg>,
   playback: <svg {...iconProps}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
   providers: <svg {...iconProps}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
+  ai: <svg {...iconProps}><rect x="4" y="7" width="16" height="12" rx="2"/><line x1="12" y1="3" x2="12" y2="7"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/></svg>,
   search: <svg {...iconProps}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
   debug: <svg {...iconProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>,
 };
@@ -744,7 +745,7 @@ function AssistantPermissions() {
 }
 
 /**
- * Settings → General → "AI control": the toggle plus, while running,
+ * Settings → "AI control": the toggle plus, while running,
  * the address / token / discovery-file rows an assistant needs to connect.
  * Failures render inline in the card (persistent), not as a toast.
  */
@@ -1537,6 +1538,7 @@ export function SettingsPanel({
     { key: "general", label: "General", icon: navIcons.general },
     { key: "playback", label: "Playback", icon: navIcons.playback },
     { key: "providers", label: "Providers", icon: navIcons.providers },
+    { key: "ai", label: "AI control", icon: navIcons.ai },
     { key: "debug", label: "Debug", icon: navIcons.debug },
   ];
 
@@ -1664,8 +1666,6 @@ export function SettingsPanel({
                     </div>
                   </div>
                 </div>
-
-                <ControlApiSection enabled={controlApiEnabled} onEnabledChange={onControlApiEnabledChange} />
 
                 <div className="settings-group">
                   <div className="settings-group-title">Window</div>
@@ -2129,6 +2129,10 @@ export function SettingsPanel({
 
             {settingsTab === "providers" && (
                 <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
+            )}
+
+            {settingsTab === "ai" && (
+                <ControlApiSection enabled={controlApiEnabled} onEnabledChange={onControlApiEnabledChange} />
             )}
 
             {settingsTab === "debug" && (

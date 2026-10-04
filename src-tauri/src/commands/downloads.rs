@@ -180,7 +180,7 @@ pub async fn assistant_land_download(
     use crate::assistant_write::{self, DownloadSource, Scope};
     if !assistant_write::load_scopes(&state.app_dir).allows(Scope::Downloads) {
         return Err(format!(
-            "the \"{}\" assistant permission is off — enable it in Settings → General → AI control",
+            "the \"{}\" assistant permission is off — enable it in Settings → AI control",
             Scope::Downloads.label()
         ));
     }
@@ -223,7 +223,7 @@ fn require_replace_scopes(app_dir: &std::path::Path) -> Result<(), String> {
     for scope in [Scope::Downloads, Scope::ManageFiles] {
         if !scopes.allows(scope) {
             return Err(format!(
-                "the \"{}\" assistant permission is off — enable it in Settings → General → AI control",
+                "the \"{}\" assistant permission is off — enable it in Settings → AI control",
                 scope.label()
             ));
         }
