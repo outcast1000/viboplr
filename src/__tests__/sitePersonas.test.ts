@@ -22,7 +22,8 @@ function localRefs(html: string): string[] {
 describe("site persona pages", () => {
   it("links every persona page from the home grid, and nothing else", () => {
     const home = readFileSync(join(docs, "index.html"), "utf8");
-    const linked = [...home.matchAll(/href="(for\/[^"]+\.html)"/g)].map((m) => m[1]).sort();
+    // Only the grid cards — other sections (e.g. the AI section's CTA) may link a persona page too.
+    const linked = [...home.matchAll(/href="(for\/[^"]+\.html)" class="persona-card\b/g)].map((m) => m[1]).sort();
     expect(linked).toEqual(pages.filter((p) => p.startsWith("for/")).sort());
   });
 
