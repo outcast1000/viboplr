@@ -595,6 +595,9 @@ fn resolve_entity_image(
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(CHAIN_BUDGET_SECS);
     let mut last_error = String::from("No provider had an image");
     let mut used_bridge = false;
+    // Set when a provider could not be asked at all (its plugin is still
+    // loading). Then "nobody had an image" is unknown, not established.
+    let mut provider_unavailable = false;
 
     for (plugin_id, _priority, _id) in &providers {
         let outcome = if plugin_id == image_provider::CORE_FOLDER {
@@ -628,6 +631,7 @@ fn resolve_entity_image(
                     "{} provider {} did not resolve {}: {}",
                     entity, plugin_id, target.label(), e
                 );
+                provider_unavailable |= is_provider_unavailable(&e);
                 last_error = e;
             }
         }
@@ -637,11 +641,30 @@ fn resolve_entity_image(
         "All providers failed for {} {}: {}",
         entity, target.label(), last_error
     );
-    let _ = chain.db.record_image_failure(entity, slug);
+    // A failure is remembered for IMAGE_FAILURE_TTL_SECS (a day), so it must
+    // only be recorded when every provider actually answered. Right after
+    // launch the image worker runs before the plugins have loaded, and a cover
+    // requested in those first seconds used to stay blank for a whole day.
+    if provider_unavailable {
+        log::info!("Not recording the {} failure for {}: a provider was not loaded yet", entity, target.label());
+    } else {
+        let _ = chain.db.record_image_failure(entity, slug);
+    }
     let _ = chain
         .app_handle
         .emit(target.error_event(), target.error_payload(&last_error));
     used_bridge
+}
+
+/// The answer the JS bridge gives for a provider whose plugin isn't loaded
+/// (`usePlugins.ts` → `invokeImageFetch`) — it never asked anyone.
+const PLUGIN_NOT_LOADED: &str = "plugin not loaded";
+
+/// Whether a provider error means "couldn't ask" rather than "asked, no
+/// image". Deliberately narrow: a timeout still counts as an answer, or a
+/// provider that is down would be re-asked on every display.
+fn is_provider_unavailable(error: &str) -> bool {
+    error == PLUGIN_NOT_LOADED
 }
 
 /// `core:folder` — the sidecar image in the media folder.
@@ -1787,6 +1810,16 @@ mod tests {
         assert!(ensure_image_bytes(b"").is_err());
         assert!(ensure_image_bytes(&[0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10]).is_ok());
         assert!(ensure_image_bytes(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]).is_ok());
+    }
+
+    #[test]
+    fn test_only_an_unloaded_plugin_leaves_an_image_miss_unrecorded() {
+        // The exact text usePlugins.ts → invokeImageFetch answers with.
+        assert!(is_provider_unavailable("plugin not loaded"));
+        // Real answers: the miss is recorded and the lookup waits out the TTL.
+        assert!(!is_provider_unavailable("Resolve timeout"));
+        assert!(!is_provider_unavailable("No embedded pictures found"));
+        assert!(!is_provider_unavailable("not_found"));
     }
 
     fn write_state(dir: &std::path::Path, json: &str) {

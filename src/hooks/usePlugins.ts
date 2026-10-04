@@ -2968,6 +2968,8 @@ export function usePlugins(
   const invokeImageFetch = useCallback(
     async (pluginId: string, entity: "artist" | "album" | "tag", name: string, artistName?: string): Promise<ImageFetchResult> => {
       const loaded = loadedPluginsRef.current.get(pluginId);
+      // Exact text matters: the Rust image chain (lib.rs → is_provider_unavailable)
+      // reads it as "couldn't ask" and then doesn't record a day-long failure.
       if (!loaded) return { status: "error", message: "plugin not loaded" };
       const handler = loaded.imageFetchHandlers.get(entity);
       if (!handler) return { status: "error", message: "no handler for entity" };
