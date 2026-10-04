@@ -4025,6 +4025,10 @@ function App() {
         if (!bitPerfect.confirmPin) throw new Error("no Bit-perfect confirmation is open");
         await bitPerfect.confirmEnable(false);
         return;
+      case "search":
+        if (a.query.trim()) centralSearch.setQuery(a.query);
+        else centralSearch.close();
+        return;
       case "heroLook":
         setHeroEffectMode(a.look);
         return;
@@ -4046,6 +4050,7 @@ function App() {
         return;
       }
       case "closeModals":
+        centralSearch.close();
         contextMenuActions.setBulkEditTracks(null);
         setDownloadModal(null);
         if (bitPerfect.confirmPin) bitPerfect.cancelEnable();
@@ -4075,6 +4080,7 @@ function App() {
     if (contextMenuActions.bulkEditTracks) modals.push("bulk-edit");
     if (downloadModal) modals.push("download");
     if (bitPerfect.confirmPin) modals.push("bit-perfect-confirm");
+    if (centralSearch.isOpen) modals.push("search");
     const sel = library.selectedTrack;
     return {
       view: library.view,

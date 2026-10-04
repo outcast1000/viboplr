@@ -58,6 +58,12 @@ describe("parseUiAction", () => {
     expect(() => parseUiAction({ action: "eqPanel", open: "yes" })).toThrow(/boolean/);
   });
 
+  it("parses search: a query opens it, an empty one closes it", () => {
+    expect(parseUiAction({ action: "search", query: "harbour" })).toEqual({ action: "search", query: "harbour" });
+    expect(parseUiAction({ action: "search", query: "" })).toEqual({ action: "search", query: "" });
+    expect(() => parseUiAction({ action: "search" })).toThrow(/query/);
+  });
+
   it("checks hero looks against the real list", () => {
     expect(parseUiAction({ action: "heroLook", look: "aurora-drift" })).toEqual({ action: "heroLook", look: "aurora-drift" });
     expect(() => parseUiAction({ action: "heroLook", look: "disco" })).toThrow(/look must be/);

@@ -126,11 +126,12 @@ export type UiAction =
   | { action: "bulkEdit"; trackIds: number[] }
   | { action: "download" }
   | { action: "closeModals" }
+  | { action: "search"; query: string }
   | { action: "scroll"; to: "top" | "bottom" | number; smooth: boolean };
 
 export const UI_ACTIONS = [
   "queuePanel", "nowPlayingAbout", "nowPlayingLyrics", "eqPanel", "bitPerfect", "bitPerfectConfirm",
-  "heroLook", "showcase", "bulkEdit", "download", "closeModals", "scroll",
+  "heroLook", "showcase", "bulkEdit", "download", "closeModals", "search", "scroll",
 ] as const;
 
 function bool(value: unknown, field: string): boolean {
@@ -155,6 +156,12 @@ export function parseUiAction(payload: Record<string, unknown>): UiAction {
     case "download":
     case "closeModals":
       return { action };
+    case "search": {
+      // The central search box with this text typed — results open as the
+      // user would see them. An empty query closes it.
+      if (typeof payload.query !== "string") throw new Error("query must be a string");
+      return { action, query: payload.query };
+    }
     case "heroLook": {
       if (!isValidMode(payload.look)) {
         throw new Error("look must be disabled, random, by-artist or a look id (late-night, silent-film, daydream, broadcast, aurora-drift, light-leak, prism-bloom, minimal)");
