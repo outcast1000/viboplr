@@ -1,0 +1,72 @@
+name: Deploy Umami (site analytics)
+
+# Brings up / updates the self-hosted Umami at stats.viboplr.com on the VPS:
+# rsyncs deploy/umami/ to ~/umami and runs setup.sh there (see deploy/umami/README.md).
+# Manual only — this is stateful infra, not something every push should touch.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-umami
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check the admin password secret
+        env:
+          UMAMI_ADMIN_PASSWORD: ${{ secrets.UMAMI_ADMIN_PASSWORD }}
+        run: |
+          if [ "${#UMAMI_ADMIN_PASSWORD}" -lt 12 ]; then
+            echo "::error::Set the UMAMI_ADMIN_PASSWORD repository secret (12+ characters) before deploying."
+            exit 1
+          fi
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          PORT="${VPS_PORT:-22}"
+          ssh-keyscan -p "$PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Sync deploy/umami to ~/umami
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT:-22}"
+          # No --delete: .env (generated on the VPS) must survive every deploy.
+          rsync -az --exclude .env \
+            -e "ssh -i ~/.ssh/deploy_key -p $PORT -o StrictHostKeyChecking=yes" \
+            deploy/umami/ "$VPS_USER@$VPS_HOST:umami/"
+
+      - name: Start Umami and bootstrap it
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          UMAMI_ADMIN_PASSWORD: ${{ secrets.UMAMI_ADMIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          PORT="${VPS_PORT:-22}"
+          SSH="ssh -i $HOME/.ssh/deploy_key -p $PORT -o StrictHostKeyChecking=yes $VPS_USER@$VPS_HOST"
+          # The password travels over stdin into a 0600 file that setup.sh
+          # deletes on exit — never on a command line or in the log.
+          printf '%s' "$UMAMI_ADMIN_PASSWORD" | $SSH 'umask 077 && cat > umami/.admin-password'
+          $SSH 'bash umami/setup.sh'
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
