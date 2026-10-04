@@ -811,6 +811,83 @@ impl Database {
         rows.collect()
     }
 
+    /// Undo the separator bug (Windows): a replace or move wrote a local
+    /// track's path with `/` where the scanner stores `\`, so the next re-read
+    /// of the same file inserted a SECOND row. For each such pair the original
+    /// row (the `/` one — it carries the id, the user's tags, `added_at`, the
+    /// like mirror) is kept: it takes the file facts the re-read found
+    /// (format, size, duration, mtime, extra tags) and the duplicate's tags,
+    /// the duplicate is deleted, and the path is put in the stored form. A `/`
+    /// path with no twin is normalized too. Local collections only, and only
+    /// where `\` is the separator (elsewhere it is a legal filename character).
+    /// Idempotent; returns how many rows it repaired.
+    pub fn repair_separator_duplicates(&self) -> SqlResult<usize> {
+        if std::path::MAIN_SEPARATOR != '\\' {
+            return Ok(0);
+        }
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let pairs: Vec<(i64, i64)> = {
+            let mut stmt = tx.prepare(
+                "SELECT a.id, b.id FROM tracks a
+                 JOIN collections c ON c.id = a.collection_id AND c.kind = 'local'
+                 JOIN tracks b ON b.collection_id = a.collection_id AND b.id <> a.id
+                                AND b.path = replace(a.path, '/', char(92))
+                 WHERE instr(a.path, '/') > 0",
+            )?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<SqlResult<_>>()?
+        };
+        let mut keep_ids = Vec::new();
+        for (keep, dup) in &pairs {
+            tx.execute(
+                "UPDATE tracks SET
+                   format        = (SELECT format        FROM tracks WHERE id = ?2),
+                   file_size     = (SELECT file_size     FROM tracks WHERE id = ?2),
+                   duration_secs = (SELECT duration_secs FROM tracks WHERE id = ?2),
+                   modified_at   = (SELECT modified_at   FROM tracks WHERE id = ?2),
+                   extra_tags    = (SELECT extra_tags    FROM tracks WHERE id = ?2)
+                 WHERE id = ?1",
+                params![keep, dup],
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO track_tags (track_id, tag_id) SELECT ?1, tag_id FROM track_tags WHERE track_id = ?2",
+                params![keep, dup],
+            )?;
+            tx.execute("DELETE FROM track_tags WHERE track_id = ?1", params![dup])?;
+            tx.execute("DELETE FROM tracks_fts WHERE rowid = ?1", params![dup])?;
+            tx.execute("DELETE FROM tracks WHERE id = ?1", params![dup])?;
+            keep_ids.push(*keep);
+        }
+        // Every remaining `/` path in a local collection (the pairs' kept rows
+        // included), unless the stored form is somehow taken.
+        let lone: Vec<i64> = {
+            let mut stmt = tx.prepare(
+                "SELECT t.id FROM tracks t
+                 JOIN collections c ON c.id = t.collection_id AND c.kind = 'local'
+                 WHERE instr(t.path, '/') > 0
+                   AND NOT EXISTS (SELECT 1 FROM tracks o WHERE o.collection_id = t.collection_id
+                                   AND o.path = replace(t.path, '/', char(92)))",
+            )?;
+            let rows = stmt.query_map([], |r| r.get(0))?;
+            rows.collect::<SqlResult<_>>()?
+        };
+        for id in &lone {
+            tx.execute("UPDATE tracks SET path = replace(path, '/', char(92)) WHERE id = ?1", params![id])?;
+            if !keep_ids.contains(id) {
+                keep_ids.push(*id);
+            }
+        }
+        for id in &keep_ids {
+            Self::update_fts_for_track_inner(&tx, *id)?;
+        }
+        tx.commit()?;
+        if !keep_ids.is_empty() {
+            log::info!("Repaired {} track path(s) written with '/' ({} duplicate row(s) merged)", keep_ids.len(), pairs.len());
+        }
+        Ok(keep_ids.len())
+    }
+
     pub fn remove_track_by_id(&self, track_id: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM tracks WHERE id = ?1", params![track_id])?;
@@ -1214,6 +1291,46 @@ fn fts_search_sql(opts: &TrackQuery) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The separator bug's leftovers: an original row whose path a replace
+    /// rewrote with `/` (still showing the MP3) and the `\` row the re-read
+    /// added for the FLAC. The repair keeps the original's id, user tags and
+    /// added_at, takes the new file's facts, and drops the duplicate.
+    #[cfg(windows)]
+    #[test]
+    fn test_repair_separator_duplicates_merges_into_the_original_row() {
+        let db = Database::new_in_memory().unwrap();
+        let col = db.add_collection("local", "L", Some("C:\\m"), None, None, None, None, None).unwrap().id;
+        let artist = db.get_or_create_artist("The Cure").unwrap();
+        let keep = db.upsert_track("Cure/Wish/01 - Open.flac", "Open", Some(artist), None, None, Some(400.0), Some("mp3"), Some(6_000_000), Some(1), Some(col), None).unwrap();
+        let dup = db.upsert_track("Cure\\Wish\\01 - Open.flac", "Open", Some(artist), None, None, Some(401.0), Some("flac"), Some(45_000_000), Some(2), Some(col), None).unwrap();
+        let lone = db.upsert_track("Cure/Wish/02 - High.mp3", "High", Some(artist), None, None, Some(200.0), Some("mp3"), Some(3_000_000), Some(1), Some(col), None).unwrap();
+        let mine = db.get_or_create_tag("favourite").unwrap();
+        let theirs = db.get_or_create_tag("Post-Punk").unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute("INSERT INTO track_tags (track_id, tag_id) VALUES (?1, ?2)", params![keep, mine]).unwrap();
+            conn.execute("INSERT INTO track_tags (track_id, tag_id) VALUES (?1, ?2)", params![dup, theirs]).unwrap();
+        }
+
+        assert_eq!(db.repair_separator_duplicates().unwrap(), 2);
+        assert_eq!(db.get_track_count_for_collection(col).unwrap(), 2, "the duplicate is gone");
+        assert!(db.get_track_by_id(dup).is_err());
+        let t = db.get_track_by_id(keep).unwrap();
+        assert!(t.path.ends_with("Cure\\Wish\\01 - Open.flac"), "{}", t.path);
+        assert_eq!(t.format.as_deref(), Some("flac"));
+        assert_eq!(t.file_size, Some(45_000_000));
+        let tags: Vec<i64> = {
+            let conn = db.conn.lock().unwrap();
+            let mut s = conn.prepare("SELECT tag_id FROM track_tags WHERE track_id = ?1 ORDER BY tag_id").unwrap();
+            let rows = s.query_map(params![keep], |r| r.get(0)).unwrap();
+            rows.collect::<SqlResult<_>>().unwrap()
+        };
+        assert_eq!(tags, { let mut v = vec![mine, theirs]; v.sort(); v }, "both rows' tags end up on the kept one");
+        assert!(db.get_track_by_id(lone).unwrap().path.ends_with("Cure\\Wish\\02 - High.mp3"), "a lone '/' path is normalized too");
+
+        assert_eq!(db.repair_separator_duplicates().unwrap(), 0, "idempotent");
+    }
 
     fn plan_details(sql: &str) -> Vec<String> {
         let db = Database::new_in_memory().unwrap();

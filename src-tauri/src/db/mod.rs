@@ -422,6 +422,8 @@ impl Database {
         };
         timer.time("db: init_tables", || db.init_tables())?;
         timer.time("db: run_migrations", || db.run_migrations())?;
+        // Before the counts: merging a duplicate row changes them.
+        timer.time("db: repair_separator_duplicates", || db.repair_separator_duplicates())?;
         // Crash safety: keep denormalized counts consistent on every startup.
         timer.time("db: recompute_counts", || db.recompute_counts())?;
         // Repair any tracks.liked mirror drift from the durable entity_likes

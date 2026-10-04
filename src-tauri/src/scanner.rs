@@ -447,6 +447,25 @@ pub fn process_media_file(db: &Arc<Database>, path: &Path, collection_id: Option
 /// is unchanged — for a file swapped in under an existing row (the assistant's
 /// replace), whose copied-in bytes can carry an mtime OLDER than the one the
 /// row stored. Upserts by `(collection_id, path)`, so the row keeps its id.
+/// The form a local track's `tracks.path` is stored in: the path relative to
+/// its collection root, with the PLATFORM's separators (`\` on Windows).
+/// `UNIQUE(collection_id, path)` compares strings, so anything that writes a
+/// path a scan will later upsert must produce exactly this form — a `/` path
+/// written by a replace or a move made the next re-read insert a second row
+/// for the same file (`Database::repair_separator_duplicates` cleans those up).
+pub fn stored_relative_path(path: &Path, root: &str) -> String {
+    path.strip_prefix(root).unwrap_or(path).to_string_lossy().to_string()
+}
+
+/// A `/`-joined relative path in the stored form (see `stored_relative_path`).
+pub fn native_relative_path(rel: &str) -> String {
+    if std::path::MAIN_SEPARATOR == '/' {
+        rel.to_string()
+    } else {
+        rel.replace('/', std::path::MAIN_SEPARATOR_STR)
+    }
+}
+
 pub fn reprocess_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>) -> Option<i64> {
     let meta = prepare_media_file(db, path, collection_id, collection_root, true)?;
     match db.ingest_scanned_files(std::slice::from_ref(&meta), collection_id) {
@@ -466,11 +485,7 @@ pub fn reprocess_media_file(db: &Arc<Database>, path: &Path, collection_id: Opti
 fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64>, collection_root: Option<&str>, force: bool) -> Option<crate::db::ScannedFileMeta> {
     // Compute relative path by stripping collection root
     let relative_path = match collection_root {
-        Some(root) => path
-            .strip_prefix(root)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string(),
+        Some(root) => stored_relative_path(path, root),
         None => path.to_string_lossy().to_string(),
     };
 

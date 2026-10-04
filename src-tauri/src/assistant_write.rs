@@ -528,7 +528,9 @@ pub fn apply_moves(db: &Database, plan: &[PlannedMove]) -> Value {
                 return Err("destination appeared since the plan was made".to_string());
             }
             std::fs::rename(from, to).map_err(|e| format!("rename failed: {}", e))?;
-            if let Err(e) = db.update_track_path(p.track_id, &p.to_rel) {
+            // `to_rel` is `/`-joined (it is what the plan shows); the row takes
+            // the scanner's form, or the next scan adds the file a second time.
+            if let Err(e) = db.update_track_path(p.track_id, &crate::scanner::native_relative_path(&p.to_rel)) {
                 // Put the file back so disk and DB never disagree.
                 let restore = std::fs::rename(to, from);
                 return Err(match restore {
@@ -936,10 +938,12 @@ pub fn confirm_replacement(
         }
     }
 
-    let rel = final_path
-        .strip_prefix(Path::new(&target.root))
-        .map(rel_to_string)
-        .map_err(|_| "replacement landed outside the collection root".to_string())?;
+    if final_path.strip_prefix(Path::new(&target.root)).is_err() {
+        return Err("replacement landed outside the collection root".to_string());
+    }
+    // The scanner's own form (platform separators): the re-read below upserts
+    // by (collection, path), so a `/` path here made it insert a second row.
+    let rel = crate::scanner::stored_relative_path(&final_path, &target.root);
     if !same_path {
         db.update_track_path(track_id, &rel)
             .map_err(|e| format!("file replaced but the library row wasn't updated: {}", e))?;
@@ -1219,8 +1223,16 @@ mod tests {
         assert!(root.path().join("Mover/Album/01 Song A.mp3").exists());
         // The row kept its id and now computes the new URI.
         let track = db.get_track_by_id(track_id).unwrap();
-        assert!(track.path.ends_with("Mover/Album/01 Song A.mp3"), "path was {}", track.path);
+        assert!(track.path.ends_with(&crate::scanner::native_relative_path("Mover/Album/01 Song A.mp3")), "path was {}", track.path);
         assert!(track.path.starts_with("file://"));
+        // The row is stored the way a scan stores it: re-reading the moved file
+        // updates THIS row instead of adding the file a second time.
+        let col = track.collection_id.unwrap();
+        let db = Arc::new(db);
+        let on_disk = root.path().join("Mover").join("Album").join("01 Song A.mp3");
+        let reread = crate::scanner::reprocess_media_file(&db, &on_disk, Some(col), root.path().to_str());
+        assert_eq!(reread, Some(track_id));
+        assert_eq!(db.get_track_count_for_collection(col).unwrap(), 1);
     }
 
     #[test]
@@ -1424,6 +1436,34 @@ mod tests {
         // The stage is consumed: confirming again is refused.
         let err = confirm_replacement(&db, track_id, stage_id, true, &remove_instead_of_trash).unwrap_err();
         assert!(err.contains("stage again"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_confirm_in_a_subfolder_keeps_one_row_with_the_new_file_facts() {
+        // A track below the root has a separator in its path. Written as `/`
+        // (Windows stores `\`), the re-read inside confirm upserted a SECOND
+        // row for the new file and left the original showing the old format
+        // and size — the duplicate-with-stale-details bug.
+        let root = tempfile::tempdir().unwrap();
+        let db = Database::new_in_memory().unwrap();
+        let col = db.add_collection("local", "Test", Some(root.path().to_str().unwrap()), None, None, None, None, None).unwrap();
+        let artist = db.get_or_create_artist("The Cure").unwrap();
+        std::fs::create_dir_all(root.path().join("Cure").join("Wish")).unwrap();
+        std::fs::write(root.path().join("Cure").join("Wish").join("01 - Open.mp3"), b"x").unwrap();
+        let stored = crate::scanner::native_relative_path("Cure/Wish/01 - Open.mp3");
+        let track_id = db
+            .upsert_track(&stored, "Open", Some(artist), None, None, Some(100.0), Some("mp3"), Some(1), None, Some(col.id), None)
+            .unwrap();
+        let db = Arc::new(db);
+        let (_d, src) = resolved_file(b"fLaCstagedbytes!", "download.flac");
+        let staged = stage_replacement(&db, track_id, "", DownloadSource::CopyOf(src)).unwrap();
+        confirm_replacement(&db, track_id, staged["stageId"].as_str().unwrap(), false, &remove_instead_of_trash).unwrap();
+
+        assert_eq!(db.get_track_count_for_collection(col.id).unwrap(), 1, "no second row for the new file");
+        let track = db.get_track_by_id(track_id).unwrap();
+        assert!(track.path.ends_with(&crate::scanner::native_relative_path("Cure/Wish/01 - Open.flac")), "path was {}", track.path);
+        assert_eq!(track.format.as_deref(), Some("flac"), "the row shows the new file, not the old one");
+        assert_eq!(track.file_size, Some(16));
     }
 
     #[test]
