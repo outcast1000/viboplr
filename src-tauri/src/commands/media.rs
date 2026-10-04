@@ -729,7 +729,8 @@ pub fn get_audio_properties_by_path(
 
 /// Local lyrics for a track (issue #131): embedded tag lyrics, a sidecar
 /// `.lrc`/`.txt` named like the audio file, or the same inside a `Lyrics/`
-/// subfolder — probed in that order, first hit wins (`local_lyrics.rs`).
+/// subfolder — probed in that order; a synced hit beats a plain one, here and
+/// across the candidate files below (`local_lyrics::prefer_synced`).
 ///
 /// `path` (when the caller holds one — the playing queue entry, the selected
 /// library row) is probed first; after it, every **local** library copy of the
@@ -778,7 +779,9 @@ pub async fn get_local_lyrics(
                 }
             }
         }
-        candidates.iter().find_map(|p| crate::local_lyrics::probe_local_lyrics(p))
+        crate::local_lyrics::prefer_synced(
+            candidates.iter().filter_map(|p| crate::local_lyrics::probe_local_lyrics(p)),
+        )
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))

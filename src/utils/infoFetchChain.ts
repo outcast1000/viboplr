@@ -49,6 +49,18 @@ export function cacheTtlForRow(
   return typeTtl;
 }
 
+/**
+ * An ok answer the chain should not stop at: plain lyrics. Synced beats plain
+ * wherever it comes from, so a plain answer is held as a fallback while the
+ * walk asks the rest of the chain for a synced version — otherwise plain text
+ * embedded in a file (the local provider runs first) would hide the synced
+ * lyrics a web provider has. Plain still wins when nobody further down has
+ * synced.
+ */
+export function isProvisionalAnswer(typeId: string, value: unknown): boolean {
+  return typeId === "lyrics" && (value as { kind?: unknown } | null)?.kind === "plain";
+}
+
 export type CacheAction = "render" | "render_and_refetch" | "loading" | "empty";
 
 /** What to do with a cached info value: render it, render-but-refresh (stale
@@ -102,6 +114,9 @@ export async function fetchInfoThroughChain(
   const steps: FetchProgressEntry[] = [];
   try {
     let result: InfoFetchResult = { status: "error" };
+    // The first provisional ok (plain lyrics) seen, held while the walk looks
+    // on for a better answer; used only when none turns up.
+    let fallback: { result: InfoFetchResult; integerId: number } | null = null;
 
     for (const [pluginId, integerId] of providers) {
       const step: FetchProgressEntry = {
@@ -118,7 +133,16 @@ export async function fetchInfoThroughChain(
       usedIntegerId = integerId;
       step.status = result.status === "ok" ? "ok" : result.status === "not_found" ? "not_found" : "error";
       onProgress?.(steps);
-      if (result.status === "ok") break;
+      if (result.status === "ok") {
+        if (!isProvisionalAnswer(typeId, result.value)) break;
+        fallback ??= { result, integerId };
+      }
+    }
+    // No better answer further down: the first provisional one stands, which
+    // keeps the user's provider priority among equals.
+    if (fallback && (result.status !== "ok" || isProvisionalAnswer(typeId, result.value))) {
+      result = fallback.result;
+      usedIntegerId = fallback.integerId;
     }
 
     await invoke("info_upsert_value", {

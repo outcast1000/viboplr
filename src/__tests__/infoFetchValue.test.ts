@@ -136,6 +136,47 @@ describe("fetchInfoValue", () => {
   });
 });
 
+describe("fetchInfoValue — synced lyrics beat plain", () => {
+  const song: InfoEntity = { kind: "track", name: "Jóga", id: 0, artistName: "Björk" };
+  // Local files (row 20) first, then two web providers.
+  const lyricsRow: InfoTypeRow = ["lyrics", "Lyrics", "lyrics", TTL, 0, [["core:local-lyrics", 20], ["lrclib", 21], ["lyrics-ovh", 22]], ""];
+  const plain = (from: string) => ({ status: "ok" as const, value: { kind: "plain", text: `plain from ${from}` } });
+  const synced = (from: string) => ({ status: "ok" as const, value: { kind: "synced", text: `[00:01.00]synced from ${from}` } });
+
+  it("walks past plain local lyrics to a synced web answer and caches that one", async () => {
+    const { upserts } = setupBackend({ types: [lyricsRow] });
+    const fetch = providerReturning({ "core:local-lyrics": plain("file"), lrclib: synced("lrclib") });
+    const out = await fetchInfoValue({ typeId: "lyrics", entity: song, invokeInfoFetch: fetch });
+    expect(out.value).toMatchObject({ kind: "synced", text: "[00:01.00]synced from lrclib" });
+    expect(fetch.mock.calls.map((c) => c[0])).toEqual(["core:local-lyrics", "lrclib"]);
+    expect(upserts).toEqual([expect.objectContaining({ informationTypeId: 21, status: "ok" })]);
+  });
+
+  it("keeps the first plain answer when nobody has synced", async () => {
+    const { upserts } = setupBackend({ types: [lyricsRow] });
+    const fetch = providerReturning({ "core:local-lyrics": plain("file"), "lyrics-ovh": plain("ovh") });
+    const out = await fetchInfoValue({ typeId: "lyrics", entity: song, invokeInfoFetch: fetch });
+    expect(out).toMatchObject({ status: "ok", value: { text: "plain from file" } });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(upserts).toEqual([expect.objectContaining({ informationTypeId: 20, status: "ok" })]);
+  });
+
+  it("stops at the first synced answer without asking further providers", async () => {
+    setupBackend({ types: [lyricsRow] });
+    const fetch = providerReturning({ "core:local-lyrics": synced("file"), lrclib: synced("lrclib") });
+    const out = await fetchInfoValue({ typeId: "lyrics", entity: song, invokeInfoFetch: fetch });
+    expect(out.value).toMatchObject({ text: "[00:01.00]synced from file" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("only lyrics are provisional — other types still stop at the first ok", async () => {
+    setupBackend();
+    const fetch = providerReturning({ lastfm: { status: "ok", value: { kind: "plain", summary: "x" } } });
+    await fetchInfoValue({ typeId: "album_wiki", entity: album, invokeInfoFetch: fetch });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("resolveInfoEntityId", () => {
   it("looks an album up by title + artist and returns 0 when absent", async () => {
     invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {

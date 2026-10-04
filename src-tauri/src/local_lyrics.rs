@@ -95,37 +95,55 @@ fn read_text_file(path: &Path) -> Option<String> {
     }
 }
 
+/// The first synced answer, else the first plain one. Lazy: stops pulling at
+/// the first synced hit, so later probes are skipped once one is found.
+/// Synced beats plain wherever it comes from — plain lyrics in a tag must not
+/// hide a `.lrc` next to the file (the web chain applies the same rule, see
+/// `isProvisionalAnswer` in `utils/infoFetchChain.ts`).
+pub fn prefer_synced(found: impl IntoIterator<Item = LocalLyrics>) -> Option<LocalLyrics> {
+    let mut plain = None;
+    for lyrics in found {
+        if lyrics.kind == "synced" {
+            return Some(lyrics);
+        }
+        plain.get_or_insert(lyrics);
+    }
+    plain
+}
+
 /// Probe one local audio file for lyrics: embedded tag → sidecar →
-/// `Lyrics`/`lyrics` subfolder, first hit wins.
+/// `Lyrics`/`lyrics` subfolder. A synced hit wins outright; otherwise the
+/// first plain one in that order.
 pub fn probe_local_lyrics(audio_path: &Path) -> Option<LocalLyrics> {
     if !audio_path.is_file() {
         return None;
     }
-
-    if let Some(text) = embedded_lyrics(audio_path) {
-        return Some(LocalLyrics { kind: kind_of(&text), text, source: "embedded" });
-    }
-
     let dir = audio_path.parent()?;
     let stem = audio_path.file_stem()?.to_str()?;
 
-    if let Some(text) = lyrics_file_in(dir, stem).and_then(|f| read_text_file(&f)) {
-        return Some(LocalLyrics { kind: kind_of(&text), text, source: "sidecar" });
-    }
-
+    let embedded = std::iter::once_with(|| {
+        embedded_lyrics(audio_path).map(|text| LocalLyrics { kind: kind_of(&text), text, source: "embedded" })
+    });
+    let sidecar = std::iter::once_with(|| {
+        lyrics_file_in(dir, stem)
+            .and_then(|f| read_text_file(&f))
+            .map(|text| LocalLyrics { kind: kind_of(&text), text, source: "sidecar" })
+    });
     // Both casings probed literally: on a case-sensitive filesystem they are
-    // different folders; on macOS's default they resolve to the same one.
-    for name in ["Lyrics", "lyrics"] {
-        let sub = dir.join(name);
-        if !sub.is_dir() {
-            continue;
-        }
-        if let Some(text) = lyrics_file_in(&sub, stem).and_then(|f| read_text_file(&f)) {
-            return Some(LocalLyrics { kind: kind_of(&text), text, source: "folder" });
-        }
-    }
+    // different folders; on macOS's default they resolve to the same one, so
+    // one hit is kept (the same file would otherwise answer twice).
+    let folder = std::iter::once_with(|| {
+        ["Lyrics", "lyrics"].iter().find_map(|name| {
+            let sub = dir.join(name);
+            if !sub.is_dir() {
+                return None;
+            }
+            lyrics_file_in(&sub, stem).and_then(|f| read_text_file(&f))
+        })
+        .map(|text| LocalLyrics { kind: kind_of(&text), text, source: "folder" })
+    });
 
-    None
+    prefer_synced(embedded.chain(sidecar).chain(folder).flatten())
 }
 
 #[cfg(test)]
@@ -221,6 +239,50 @@ mod tests {
         fs::write(dir.path().join("song.lrc"), "  \n ").unwrap(); // whitespace-only
         assert_eq!(probe_local_lyrics(&audio), None);
         assert_eq!(probe_local_lyrics(&dir.path().join("gone.mp3")), None);
+    }
+
+    fn found(kind: &'static str, source: &'static str) -> LocalLyrics {
+        LocalLyrics { text: format!("{kind} from {source}"), kind, source }
+    }
+
+    #[test]
+    fn test_prefer_synced_takes_a_later_synced_over_an_earlier_plain() {
+        let got = prefer_synced([found("plain", "embedded"), found("synced", "sidecar")]).unwrap();
+        assert_eq!(got.source, "sidecar");
+    }
+
+    #[test]
+    fn test_prefer_synced_keeps_the_first_plain_when_nothing_is_synced() {
+        let got = prefer_synced([found("plain", "embedded"), found("plain", "sidecar")]).unwrap();
+        assert_eq!(got.source, "embedded");
+        assert_eq!(prefer_synced(Vec::new()), None);
+    }
+
+    #[test]
+    fn test_prefer_synced_stops_pulling_at_the_first_synced() {
+        let mut pulled = 0;
+        let got = prefer_synced(
+            [found("synced", "embedded"), found("synced", "sidecar")]
+                .into_iter()
+                .inspect(|_| pulled += 1),
+        );
+        assert_eq!(got.unwrap().source, "embedded");
+        assert_eq!(pulled, 1);
+    }
+
+    #[test]
+    fn test_txt_sidecar_does_not_mask_a_synced_lyrics_folder_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("song.mp3");
+        fs::write(&audio, b"x").unwrap();
+        fs::write(dir.path().join("song.txt"), PLAIN).unwrap();
+        let sub = dir.path().join("Lyrics");
+        fs::create_dir(&sub).unwrap();
+        fs::write(sub.join("song.lrc"), LRC).unwrap();
+
+        let found = probe_local_lyrics(&audio).unwrap();
+        assert_eq!(found.source, "folder");
+        assert_eq!(found.kind, "synced");
     }
 
     #[test]
