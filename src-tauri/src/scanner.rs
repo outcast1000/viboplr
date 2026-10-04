@@ -162,6 +162,16 @@ pub(crate) fn fix_encoding(s: &str) -> String {
     best
 }
 
+/// Normalize one tag string for ingest: repair its encoding, strip the
+/// surrounding whitespace (and the NUL padding some ID3 writers leave), and
+/// treat what's left being empty as "no value". Without the trim, " Artist"
+/// and "Artist " become separate artist/album/tag rows from the same library.
+fn clean_tag(s: &str) -> Option<String> {
+    let fixed = fix_encoding(s);
+    let trimmed = fixed.trim_matches(|c: char| c.is_whitespace() || c == '\0');
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 fn read_tags(path: &Path) -> ParsedTags {
     if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.read()) {
         let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
@@ -170,14 +180,13 @@ fn read_tags(path: &Path) -> ParsedTags {
         let duration_secs = Some(duration.as_secs_f64()).filter(|&d| d > 0.0);
 
         if let Some(tag) = tag {
-            let title = tag.title().map(|s| fix_encoding(&s));
-            let artist = tag.artist().map(|s| fix_encoding(&s));
+            let title = tag.title().and_then(|s| clean_tag(&s));
+            let artist = tag.artist().and_then(|s| clean_tag(&s));
             let album_artist = tag
                 .get_string(lofty::tag::ItemKey::AlbumArtist)
-                .map(fix_encoding)
-                .filter(|s| !s.trim().is_empty());
-            let album = tag.album().map(|s| fix_encoding(&s));
-            let genre = tag.genre().map(|s| fix_encoding(&s));
+                .and_then(clean_tag);
+            let album = tag.album().and_then(|s| clean_tag(&s));
+            let genre = tag.genre().and_then(|s| clean_tag(&s));
             let year = tag.date().map(|d| d.year as i32);
             let track_number = tag.track().map(|t| t as i32);
             let extra_tags = collect_extra_tags(tag);
@@ -243,11 +252,8 @@ fn collect_extra_tags(tag: &lofty::tag::Tag) -> Option<String> {
     ];
     let mut map = serde_json::Map::new();
     for (json_key, item_key) in KEYS {
-        if let Some(val) = tag.get_string(*item_key) {
-            let val = fix_encoding(val);
-            if !val.trim().is_empty() {
-                map.insert((*json_key).to_string(), serde_json::Value::String(val));
-            }
+        if let Some(val) = tag.get_string(*item_key).and_then(clean_tag) {
+            map.insert((*json_key).to_string(), serde_json::Value::String(val));
         }
     }
     if map.is_empty() {
@@ -271,7 +277,7 @@ static FALLBACK_PATTERNS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 });
 
 fn fallback_from_filename(path: &Path, duration_secs: Option<f64>) -> ParsedTags {
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown");
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").trim();
     let parent = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
     let grandparent = path.parent().and_then(|p| p.parent()).and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("");
 
@@ -532,7 +538,7 @@ fn prepare_media_file(db: &Arc<Database>, path: &Path, collection_id: Option<i64
 
     // For video files, use filename as title but try to read duration from file properties
     if is_video_file(path) {
-        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").to_string();
+        let title = path.file_stem().and_then(|s| s.to_str()).unwrap_or("Unknown").trim().to_string();
         let duration_secs = Probe::open(path)
             .and_then(|p| p.read())
             .ok()
@@ -605,6 +611,7 @@ pub fn read_dropped_media(path: &Path) -> DroppedMedia {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Unknown")
+            .trim()
             .to_string();
         let duration_secs = Probe::open(path)
             .and_then(|p| p.read())
@@ -878,6 +885,15 @@ mod tests {
         assert_eq!(tags.title, "Song Name");
         assert!(tags.artist.is_none(), "numeric prefix should not be treated as artist, got: {:?}", tags.artist);
         assert_eq!(tags.track_number, Some(12));
+    }
+
+    #[test]
+    fn test_clean_tag_trims_and_drops_empty() {
+        assert_eq!(clean_tag("  Radiohead \t"), Some("Radiohead".to_string()));
+        assert_eq!(clean_tag("OK Computer\0\0"), Some("OK Computer".to_string()));
+        assert_eq!(clean_tag("Massive  Attack"), Some("Massive  Attack".to_string()));
+        assert_eq!(clean_tag("   "), None);
+        assert_eq!(clean_tag(""), None);
     }
 
     #[test]
