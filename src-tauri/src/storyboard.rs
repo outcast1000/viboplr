@@ -103,10 +103,45 @@ fn sheet_path(app_dir: &Path, k: &str) -> PathBuf {
 }
 
 /// Scratch dir for the per-frame side output emitted while the sheet generates
-/// (see `generate`). Removed when generation finishes either way; a leftover from
-/// a crash is cleared at the start of the next generation for the same track.
+/// (see `generate`). Removed when generation finishes either way — after
+/// `FRAMES_LINGER` on success; a leftover from a crash is cleared at the start of
+/// the next generation for the same track, and by `gc` at startup.
 fn frames_dir(app_dir: &Path, k: &str) -> PathBuf {
     dir(app_dir).join(format!("{}.frames", k))
+}
+
+/// How long a successful pass leaves its scratch frames on disk. The webview's
+/// loading filmstrip holds `<img>` tags pointing at them right up until
+/// `extract_storyboard` returns, and the asset protocol serves those loads one
+/// after another; deleting the dir on completion made the stragglers fail
+/// ("File does not exist … .frames\NNN.jpg", a burst per finished pass, observed
+/// for ~1s). Zero under test so the cleanup assertions stay synchronous.
+const FRAMES_LINGER: std::time::Duration = if cfg!(test) {
+    std::time::Duration::ZERO
+} else {
+    std::time::Duration::from_secs(5)
+};
+
+/// Removes a finished pass's scratch dir after `linger`. Called by the pass itself,
+/// which still holds the track's in-flight slot, so a zero linger deletes at once.
+/// A deferred delete is skipped when a new pass for the same track has started by
+/// then — it resets the dir itself, and its frames are live. That check and the
+/// delete happen under the in-flight lock, which a new pass must take before it
+/// touches the dir, so the two can't interleave.
+fn retire_frames_dir(track_path: &str, fdir: PathBuf, linger: std::time::Duration) {
+    if linger.is_zero() {
+        let _ = std::fs::remove_dir_all(&fdir);
+        return;
+    }
+    let track_path = track_path.to_string();
+    std::thread::spawn(move || {
+        std::thread::sleep(linger);
+        let (lock, _) = inflight();
+        let running = lock.lock().unwrap();
+        if !running.contains(&track_path) {
+            let _ = std::fs::remove_dir_all(&fdir);
+        }
+    });
 }
 
 fn meta_path(app_dir: &Path, k: &str) -> PathBuf {
@@ -740,17 +775,16 @@ pub fn generate_with_progress(
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::piped());
 
-    let cleanup = |ok: bool| {
+    // Every failure exit: the scratch frames and any half-written sheet go now.
+    let discard_failed = || {
         let _ = std::fs::remove_dir_all(&fdir);
-        if !ok {
-            let _ = std::fs::remove_file(&out);
-        }
+        let _ = std::fs::remove_file(&out);
     };
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            cleanup(false);
+            discard_failed();
             return Err(format!("Failed to run ffmpeg: {}", e));
         }
     };
@@ -800,7 +834,7 @@ pub fn generate_with_progress(
                         app_dir, &k, &g, duration_secs, resume.as_ref(), &done,
                         started.elapsed(), video_path,
                     );
-                    cleanup(false);
+                    discard_failed();
                     log::debug!("Storyboard for {} cancelled", video_path.display());
                     return Err(CANCELLED.to_string());
                 }
@@ -816,7 +850,7 @@ pub fn generate_with_progress(
             }
             Err(e) => {
                 kill_child();
-                cleanup(false);
+                discard_failed();
                 return Err(format!("Failed to wait for ffmpeg: {}", e));
             }
         }
@@ -824,7 +858,7 @@ pub fn generate_with_progress(
     let stderr_text = stderr_handle.join().unwrap_or_default();
 
     if !status.success() {
-        cleanup(false);
+        discard_failed();
         return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
     }
     if let Some(base) = resume.as_ref() {
@@ -841,7 +875,7 @@ pub fn generate_with_progress(
             // The partial is the suspect (a torn or mismatched sheet), so drop it —
             // the next pass then starts clean rather than failing the same way.
             discard_partial(app_dir, &k);
-            cleanup(false);
+            discard_failed();
             return Err(format!("Failed to compose resumed storyboard: {}", e));
         }
         log::info!(
@@ -850,10 +884,11 @@ pub fn generate_with_progress(
         );
     }
     if !out.exists() {
-        cleanup(false);
+        discard_failed();
         return Err(format!("ffmpeg storyboard generation failed: {}", stderr_text));
     }
-    cleanup(true);
+    // Not `discard_failed`: the sheet is good, and the webview may still be loading these frames.
+    retire_frames_dir(track_path, fdir.clone(), FRAMES_LINGER);
     // The sheet supersedes the partial it was built from.
     discard_partial(app_dir, &k);
 
@@ -1266,6 +1301,43 @@ mod tests {
             .expect("the cache must survive concurrent generation");
         assert!(std::fs::metadata(&cached.sheets[0]).unwrap().len() > 0);
         assert!(!frames_dir(dir.path(), &key(&track_path)).exists());
+    }
+
+    /// A finished pass leaves its scratch frames for the webview's in-flight image
+    /// loads, then removes them — unless a new pass for the track owns the dir by then.
+    #[test]
+    fn test_finished_frames_linger_then_go_unless_a_new_pass_owns_them() {
+        let wait_gone = |p: &Path| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while p.exists() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            !p.exists()
+        };
+        let linger = std::time::Duration::from_millis(100);
+        let dir = tempfile::tempdir().unwrap();
+
+        let idle = "file:///test/linger-idle.mp4";
+        let fdir = frames_dir(dir.path(), &key(idle));
+        std::fs::create_dir_all(&fdir).unwrap();
+        std::fs::write(fdir.join("001.jpg"), b"x").unwrap();
+        retire_frames_dir(idle, fdir.clone(), linger);
+        assert!(fdir.join("001.jpg").exists(), "frames must outlive the pass for a moment");
+        assert!(wait_gone(&fdir), "frames must be removed once the linger is over");
+
+        let busy = "file:///test/linger-busy.mp4";
+        let fdir = frames_dir(dir.path(), &key(busy));
+        std::fs::create_dir_all(&fdir).unwrap();
+        inflight().0.lock().unwrap().insert(busy.to_string());
+        retire_frames_dir(busy, fdir.clone(), linger);
+        std::thread::sleep(linger * 4);
+        inflight().0.lock().unwrap().remove(busy);
+        assert!(fdir.exists(), "a new pass's frames must not be deleted under it");
+
+        let fdir = frames_dir(dir.path(), &key("file:///test/linger-now.mp4"));
+        std::fs::create_dir_all(&fdir).unwrap();
+        retire_frames_dir("file:///test/linger-now.mp4", fdir.clone(), std::time::Duration::ZERO);
+        assert!(!fdir.exists(), "a zero linger removes synchronously");
     }
 
     /// Cancellation is ref counted: the now-playing bar and the detail page ask for
