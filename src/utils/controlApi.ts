@@ -142,6 +142,9 @@ export interface StatusInput {
   queueMode: QueueMode;
   view: string;
   currentTrack: QueueTrack | null;
+  /** The track a play is still resolving/loading (usePlayback.loadingTrack):
+   *  while set, `currentTrack` and the audio are still the previous track. */
+  loadingTrack?: QueueTrack | null;
   /** Bit-perfect mode, when the build/platform supports it at all. */
   bitPerfect?: BitPerfectStatusInput | null;
 }
@@ -172,7 +175,13 @@ export function serializeBitPerfect(input: BitPerfectStatusInput) {
 
 export function serializeStatus(input: StatusInput) {
   const t = input.currentTrack;
+  const loading = input.loadingTrack ?? null;
   return {
+    // false while a play is still resolving its source (a plugin/remote track
+    // can take tens of seconds): currentTrack and the audio are then still the
+    // PREVIOUS track, and `loading` names the one on its way.
+    settled: loading === null,
+    loading: loading ? { title: loading.title, artistName: loading.artist_name ?? null } : null,
     playing: input.playing,
     positionSecs: input.positionSecs,
     durationSecs: input.durationSecs,
@@ -195,6 +204,34 @@ export function serializeStatus(input: StatusInput) {
         }
       : null,
   };
+}
+
+/** Pure: has a play of `target` landed? Not while anything is still loading;
+ *  then the current track must be the same song — by key, else by title +
+ *  artist, since the queue may re-key an entry (it adopts the playing copy's
+ *  key when a play continues the same song). */
+export function playbackLanded(
+  target: Pick<QueueTrack, "key" | "title" | "artist_name">,
+  currentTrack: QueueTrack | null,
+  loadingTrack: QueueTrack | null,
+): boolean {
+  if (loadingTrack || !currentTrack) return false;
+  if (currentTrack.key === target.key) return true;
+  return currentTrack.title === target.title && (currentTrack.artist_name ?? null) === (target.artist_name ?? null);
+}
+
+/** The most a play verb's `wait` may ask for — under the slow bridge's 70s. */
+export const MAX_PLAY_WAIT_SECS = 60;
+
+/** A play verb's optional `wait` (seconds to wait for playback to land):
+ *  absent → 0 (answer at once), else a number in [0, MAX_PLAY_WAIT_SECS];
+ *  an error string otherwise. */
+export function parsePlayWait(value: unknown): number | string {
+  if (value === undefined || value === null) return 0;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > MAX_PLAY_WAIT_SECS) {
+    return `wait must be a number of seconds in [0, ${MAX_PLAY_WAIT_SECS}]`;
+  }
+  return value;
 }
 
 /** Resolve a plugin search provider from a caller-supplied key: the full

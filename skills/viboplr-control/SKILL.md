@@ -49,7 +49,7 @@ A healthy answer is `{"ok":true, "version":…, "profile":…}`. Multiple files 
 | `GET /health` | liveness + version/profile |
 | `GET /search?q=…&type=all\|track\|artist\|album\|tag&limit=20` | FTS search — see "Search responses" below |
 | `GET /tracks/{id}` | full track row |
-| `GET /status` | playing, position, volume, queue index/length, current track (with `libraryId`) |
+| `GET /status` | playing, position, volume, queue index/length, current track (with `libraryId`). `settled: false` while a play is still resolving its source — `currentTrack` is then still the previous track and `loading` (`{title, artistName}`) names the one on its way |
 | `GET /queue` | `{index, mode, tracks:[{index, libraryId, title, artistName, …, current}]}` — `libraryId` is the id other endpoints take (null for external entries) |
 | `GET /playlists` · `GET /playlists/{id}/tracks` | the latter returns playlist **row ids** |
 | `GET /artists/{id}/tracks` · `GET /artists/{id}/albums` | browse an artist (ids from search) |
@@ -72,8 +72,8 @@ A healthy answer is `{"ok":true, "version":…, "profile":…}`. Multiple files 
 | Endpoint | Body |
 |---|---|
 | `POST /playback` | `{play?: bool, action?: "next"\|"prev"\|"stop", seekSecs?: n, volume?: 0..1, mode?: "normal"\|"repeat-all"\|"repeat-one"}` — `play` is idempotent (true = playing, false = paused); `mode` sets the repeat mode |
-| `POST /queue/jump` | `{index}` — play that queue position (indices from `GET /queue`) |
-| `POST /queue/play` | `{trackIds: [..], contextName?: "…"}` — replaces the queue and plays |
+| `POST /queue/jump` | `{index, wait?}` — play that queue position (indices from `GET /queue`). `wait` (seconds, ≤ 60, default 0) holds the answer until the track actually plays → `{landed, nowPlaying, loading, error}`; without it the answer comes before playback changes (a plugin track can take tens of seconds to resolve) |
+| `POST /queue/play` | `{trackIds: [..], contextName?: "…", wait?}` — replaces the queue and plays; `wait` as for `/queue/jump`, for the first track |
 | `POST /queue/tracks` | `{trackIds, mode?: "end"\|"next", allowDuplicates?: bool}` → `{added, skippedDuplicates}` (duplicates are skipped and counted unless allowed) |
 | `DELETE /queue/tracks` | `{indices: [..]}` — queue positions from `GET /queue` |
 | `POST /queue/clear` | — |

@@ -68,6 +68,8 @@ import {
   orderTracksByIds,
   serializeQueue,
   serializeStatus,
+  parsePlayWait,
+  playbackLanded,
   type BitPerfectStatusInput,
   type ControlApiRequest,
 } from "../utils/controlApi";
@@ -93,6 +95,9 @@ export interface ControlApiDeps {
     volume: number;
     muted: boolean;
     currentTrack: QueueTrack | null;
+    /** The track a play is still resolving (null once it is installed). */
+    loadingTrack: QueueTrack | null;
+    playbackError: string | null;
     handlePause: () => void;
     handleStop: () => void;
     handleSeek: (secs: number) => void;
@@ -482,6 +487,36 @@ export function useControlApi(deps: ControlApiDeps) {
     return buildUiState(depsRef.current.ui.state());
   }
 
+  /** What a play verb reports about the play it just issued. A plugin/remote
+   *  track resolves its stream first — tens of seconds, during which the
+   *  PREVIOUS track keeps playing and is still `currentTrack` — so an answer
+   *  given at once describes the old track. With `waitSecs` > 0 this waits
+   *  (polling, not rAF: a hidden window never paints) until `target` is what's
+   *  playing, the play fails, or the time is up; `landed` says which. */
+  async function playOutcome(target: QueueTrack, waitSecs: number) {
+    if (waitSecs > 0) {
+      // Let the play's first state commit, or the poll below reads the
+      // pre-play error/track and stops at once.
+      await settledUiState();
+      const deadline = Date.now() + waitSecs * 1000;
+      for (;;) {
+        const p = depsRef.current.playback;
+        if (p.playbackError || playbackLanded(target, p.currentTrack, p.loadingTrack)) break;
+        if (Date.now() >= deadline) break;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    }
+    const p = depsRef.current.playback;
+    const landed = waitSecs > 0 && playbackLanded(target, p.currentTrack, p.loadingTrack);
+    const brief = (t: QueueTrack | null) => (t ? { title: t.title, artistName: t.artist_name ?? null } : null);
+    return {
+      landed,
+      nowPlaying: brief(p.currentTrack),
+      loading: brief(p.loadingTrack),
+      error: waitSecs > 0 && !landed ? p.playbackError : null,
+    };
+  }
+
   async function dispatch(verb: string, payload: Record<string, unknown>): Promise<unknown> {
     const d = depsRef.current;
     switch (verb) {
@@ -497,6 +532,7 @@ export function useControlApi(deps: ControlApiDeps) {
           queueMode: d.queueHook.queueMode,
           view: d.view,
           currentTrack: d.playback.currentTrack,
+          loadingTrack: d.playback.loadingTrack,
           bitPerfect: d.bitPerfect,
         });
 
@@ -527,11 +563,13 @@ export function useControlApi(deps: ControlApiDeps) {
       }
 
       case "queue.play": {
+        const wait = parsePlayWait(payload.wait);
+        if (typeof wait === "string") bad(wait);
         const tracks = (await resolveTracks(payload)).map(trackToQueueTrack);
         playNow(d.queueOps, tracks, {
           context: { name: optionalString(payload.contextName) ?? "Control API", source: "control-api" },
         });
-        return { queued: tracks.length };
+        return { queued: tracks.length, ...(tracks.length ? await playOutcome(tracks[0], wait) : {}) };
       }
 
       case "queue.add": {
@@ -563,11 +601,13 @@ export function useControlApi(deps: ControlApiDeps) {
           || index < 0 || index >= d.queueHook.queue.length) {
           bad(`index must be an integer in [0, ${d.queueHook.queue.length - 1}]`);
         }
+        const wait = parsePlayWait(payload.wait);
+        if (typeof wait === "string") bad(wait);
         // The same two calls the queue panel's row-play makes (App.tsx onPlay).
         const track = d.queueHook.queue[index];
         d.queueHook.setQueueIndex(index);
         d.playback.handlePlay(track);
-        return { ok: true, index, title: track.title };
+        return { ok: true, index, title: track.title, ...(await playOutcome(track, wait)) };
       }
 
       case "queue.randomize": {

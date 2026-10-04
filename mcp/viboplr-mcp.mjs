@@ -30,7 +30,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_MS, INSTRUCTIONS, PROXY_SEP, SLOW_MS, TOOLS, buildPluginProxies, toolsFor, versionCmp } from "./tools.mjs";
+import { DEFAULT_MS, INSTRUCTIONS, PROXY_SEP, SLOW_MS, TOOLS, buildPluginProxies, runTool, toolsFor, versionCmp } from "./tools.mjs";
 
 // Re-exported for the tests and any caller that imported them from here.
 export { TOOLS, buildPluginProxies, versionCmp };
@@ -395,7 +395,7 @@ async function dispatch(msg) {
         throw e;
       }
       try {
-        const out = proxy ? await callPluginProxy(proxy, args) : await tool.run(args, ctx);
+        const out = proxy ? await callPluginProxy(proxy, args) : await runTool(tool, args, ctx);
         if (out && typeof out === "object" && Array.isArray(out.content)) return out;
         return { content: [{ type: "text", text: JSON.stringify(out ?? {}, null, 2) }] };
       } catch (e) {
