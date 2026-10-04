@@ -256,14 +256,14 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>AI control</h2>
-        <p class="docs-lead">Let an AI assistant on this computer search your library, control playback, and edit playlists, tags and likes.</p>
+        <p class="docs-lead">Let an AI assistant on this computer search your library, control playback, build playlists, fix tags, organise your files and download tracks.</p>
         <p>One switch &mdash; <strong>Settings &rarr; AI control</strong> &mdash; and it's off by default. Behind it are three small pieces that work together, all of them on your own machine:</p>
         <ul class="docs-list">
           <li><strong>The control server</strong> &mdash; a private server on <code>127.0.0.1</code>, never reachable from the network. Every request must carry the <strong>access token</strong> shown in Settings, so other apps and websites can't drive your player without it. <strong>Regenerate</strong> revokes the old token any time, and switching the toggle off stops the server immediately.</li>
           <li><strong>Discovery</strong> &mdash; a small <strong>discovery file</strong> (its location is shown next to the toggle) holding the server's address and token, so tools on this computer find the running app automatically instead of you copying values around.</li>
           <li><strong>The MCP server</strong> &mdash; the piece an assistant actually talks to: a bundled script that presents the control server to Claude Desktop, Claude Code, or any MCP client as a set of typed tools. Setup is two clicks &mdash; see <a href="#mcp-server">Connecting an AI assistant</a> below.</li>
         </ul>
-        <p>What an assistant can do: search tracks, artists, albums and tags; read and change the queue; play, pause, seek and skip; create and edit playlists; apply tags; like or dislike music; start radio stations; and rescan your collections. What it can never do: delete files, rewrite your audio files' metadata, install extensions, or reach anything outside your library.</p>
+        <p>What an assistant can do: search tracks, artists, albums and tags; read and change the queue; play, pause, seek and skip; create and edit playlists; apply tags; like or dislike music; start radio stations; and rescan your collections. With the <a href="#assistant-permissions">assistant permissions</a> switched on it can also care for the collection itself &mdash; write tags into your files, save lyrics and covers, reorganise folders and download tracks. What it can never do: delete files, install extensions, or reach anything outside your library.</p>
       </div>
     </div>
   </section>

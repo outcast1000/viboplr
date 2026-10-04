@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Viboplr — The music player for music lovers</title>
-  <meta name="description" content="A free, open-source desktop music player for macOS and Windows. Local folders, Subsonic and Navidrome built in, with plugins for everything else. Find the part of Viboplr made for the way you listen.">
+  <title>Viboplr — The music player you can just talk to</title>
+  <meta name="description" content="A free, open-source music player for macOS and Windows with a built-in MCP server: ask Claude or any AI assistant to build playlists, fix tags, organise your library and download tracks. Local folders, Subsonic and Navidrome built in, plugins for everything else.">
   <link rel="canonical" href="https://viboplr.com/">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/">
-  <meta property="og:title" content="Viboplr — The music player for music lovers">
-  <meta property="og:description" content="A free, open-source desktop music player for macOS and Windows. Local folders, Subsonic and Navidrome built in, with plugins for everything else. Find the part of Viboplr made for the way you listen.">
+  <meta property="og:title" content="Viboplr — The music player you can just talk to">
+  <meta property="og:description" content="A free, open-source music player for macOS and Windows with a built-in MCP server: ask Claude or any AI assistant to build playlists, fix tags, organise your library and download tracks. Local folders, Subsonic and Navidrome built in, plugins for everything else.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Viboplr — The music player for music lovers">
-  <meta name="twitter:description" content="A free, open-source desktop music player for macOS and Windows. Local folders, Subsonic and Navidrome built in, with plugins for everything else. Find the part of Viboplr made for the way you listen.">
+  <meta name="twitter:title" content="Viboplr — The music player you can just talk to">
+  <meta name="twitter:description" content="A free, open-source music player for macOS and Windows with a built-in MCP server: ask Claude or any AI assistant to build playlists, fix tags, organise your library and download tracks. Local folders, Subsonic and Navidrome built in, plugins for everything else.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,10 +57,10 @@
     <div class="container">
       <div class="hero-badge animate-in">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-        <span id="version-badge">v1.0.87</span> Free &amp; open source
+        <span id="version-badge">v1.0.87</span> Free &amp; open source &middot; MCP built in
       </div>
-      <h1 class="animate-in animate-delay-1">One player, built around<br><span class="gradient-text">how you love music</span></h1>
-      <p class="hero-subtitle animate-in animate-delay-2">Viboplr is a free, open-source music player for macOS and Windows. It plays your local folders and your Subsonic or Navidrome server out of the box, and plugins add streaming services, lyrics, scrobbling and downloads. Everyone uses it a little differently &mdash; find your way in below.</p>
+      <h1 class="animate-in animate-delay-1">The music player<br><span class="gradient-text">you can just talk to</span></h1>
+      <p class="hero-subtitle animate-in animate-delay-2">Connect Claude or any AI assistant and ask: build me a playlist, fix these tags, sort this folder into Artist/Album, download that track. Viboplr does it, in your library, on your machine. It&rsquo;s a free, open-source music player for macOS and Windows that plays your local folders and your Subsonic or Navidrome server out of the box.</p>
       <div class="hero-buttons animate-in animate-delay-3">
         <a href="install-mac.html" class="btn btn-primary btn-lg">
           <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
@@ -75,10 +75,93 @@
           View on GitHub
         </a>
       </div>
+      <a href="#ai" class="hero-ai-link animate-in animate-delay-3">See what your assistant can do &darr;</a>
       <div class="hero-screenshot animate-in animate-delay-4">
         <div class="hero-screenshot-inner">
           <img src="assets/screenshots/hero.webp" alt="Viboplr home view with radio stations, shelves, and a playing queue" loading="eager" width="2560" height="1600">
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AI control -->
+  <section class="section" id="ai">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="feature-label">AI control</span>
+        <h2>Ask for it. <span class="gradient-text">It&rsquo;s done.</span></h2>
+        <p>Viboplr ships its own MCP server. Your assistant gets real tools &mdash; not screen-scraping &mdash; for everything from playlists to the files on your disk.</p>
+      </div>
+
+      <div class="ai-showcase reveal">
+        <div class="ai-showcase-chat" aria-hidden="true">
+          <div class="ai-chat">
+            <div class="ai-chat-msg ai-chat-msg--user">Tag everything by Boards of Canada as ambient, and file the compilations under Various Artists</div>
+            <div class="ai-chat-msg ai-chat-msg--assistant">Done &mdash; 74 tracks tagged <em>ambient</em>, and 3 compilations now sit under Various Artists, written into the files.</div>
+            <div class="ai-chat-msg ai-chat-msg--user">Now sort the loose files in my Music folder into Artist/Album</div>
+            <div class="ai-chat-msg ai-chat-msg--assistant">Here&rsquo;s the plan: 212 files into 38 folders. Nothing moves until you say go.</div>
+            <div class="ai-chat-msg ai-chat-msg--user">Go. Then make me a playlist of songs I loved and haven&rsquo;t played this year</div>
+            <div class="ai-chat-msg ai-chat-msg--assistant">Moved. Saved &ldquo;Lost loves&rdquo; &mdash; 40 tracks, playing now.<span class="ai-chat-note">via the Viboplr MCP server</span></div>
+          </div>
+        </div>
+        <div class="ai-showcase-side">
+          <h3>Powerful, and on a leash</h3>
+          <p>Works with Claude Desktop, Claude Code, Cursor or any MCP client. Setup is two clicks in the app.</p>
+          <div class="feature-list">
+            <div class="feature-list-item">Runs on your computer only, off until you turn it on</div>
+            <div class="feature-list-item">Anything that touches your files sits behind its own switch</div>
+            <div class="feature-list-item">Moves and file swaps are planned and shown before anything changes</div>
+            <div class="feature-list-item">It can never delete your music or install anything</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cards-grid ai-cap-grid">
+        <div class="card reveal">
+          <h3>Build playlists</h3>
+          <p>From your likes, your history, a mood or a decade &mdash; created, filled and reordered for you.</p>
+          <span class="ai-cap-quote">&ldquo;Thirty upbeat songs from the 90s I haven&rsquo;t heard in a while&rdquo;</span>
+        </div>
+        <div class="card reveal">
+          <h3>Fix tags</h3>
+          <p>Clean up genres, artists, album artists and years across hundreds of tracks, in the library or right in the files.</p>
+          <span class="ai-cap-quote">&ldquo;Merge &lsquo;Hip-Hop&rsquo;, &lsquo;hiphop&rsquo; and &lsquo;Hip Hop&rsquo; into one tag&rdquo;</span>
+        </div>
+        <div class="card reveal">
+          <h3>Organise the library</h3>
+          <p>Rename and move files into a tidy folder layout, and save lyrics and covers next to your music.</p>
+          <span class="ai-cap-quote">&ldquo;Add a cover.jpg to every album that&rsquo;s missing one&rdquo;</span>
+        </div>
+        <div class="card reveal">
+          <h3>Download tracks</h3>
+          <p>Pull tracks from your own server into a local folder, or through download plugins &mdash; indexed the moment they land.</p>
+          <span class="ai-cap-quote">&ldquo;Download this album from my server into my Music folder&rdquo;</span>
+        </div>
+        <div class="card reveal">
+          <h3>Upgrade copies <span class="feature-tag">plugin</span></h3>
+          <p>Swap an MP3 for a FLAC in place. You see the quality side by side first; likes, tags and playlists stay put.</p>
+          <span class="ai-cap-quote">&ldquo;Replace my low-bitrate copies of this album&rdquo;</span>
+        </div>
+        <div class="card reveal">
+          <h3>Know your listening</h3>
+          <p>Ask anything about your library, your likes and your play history, and get a real answer.</p>
+          <span class="ai-cap-quote">&ldquo;What did I play most last March?&rdquo;</span>
+        </div>
+        <div class="card reveal">
+          <h3>Run the player</h3>
+          <p>Play, queue, skip, start radio from any song, switch skins &mdash; hands-free while you work.</p>
+          <span class="ai-cap-quote">&ldquo;Play something mellow, then queue the new album&rdquo;</span>
+        </div>
+        <div class="card reveal">
+          <h3>Use your plugins <span class="feature-tag">plugin</span></h3>
+          <p>Installed plugins become tools too: read a Spotify playlist, search Soulseek, browse a streaming catalog.</p>
+          <span class="ai-cap-quote">&ldquo;Rebuild my Spotify &lsquo;Road trip&rsquo; playlist from my library&rdquo;</span>
+        </div>
+      </div>
+
+      <div class="section-cta hero-buttons reveal">
+        <a href="for/ai.html" class="btn btn-primary btn-lg">Viboplr for AI-assistant users</a>
+        <a href="help.html#mcp-server" class="btn btn-outline btn-lg">Connect an assistant</a>
       </div>
     </div>
   </section>
@@ -92,6 +175,12 @@
         <p>Pick the one that sounds like you. Most people turn out to be two or three.</p>
       </div>
       <div class="persona-grid">
+        <a href="for/ai.html" class="persona-card reveal">
+          <svg class="persona-card-icon" viewBox="0 0 24 24" fill="none" stroke="url(#personaGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
+          <h3>AI-assistant users</h3>
+          <p>Let Claude or any MCP client build playlists, fix tags, organise folders and download tracks &mdash; just ask.</p>
+          <span class="persona-card-more">See what&rsquo;s in it for you &rarr;</span>
+        </a>
         <a href="for/spotify.html" class="persona-card reveal">
           <svg class="persona-card-icon" viewBox="0 0 24 24" fill="none" stroke="url(#personaGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7 9.5c3.5-1 7-.6 10 1"/><path d="M7.5 12.8c3-.8 5.8-.4 8.3.9"/><path d="M8 16c2.3-.6 4.4-.3 6.3.7"/></svg>
           <h3>Spotify users</h3>
@@ -120,12 +209,6 @@
           <svg class="persona-card-icon" viewBox="0 0 24 24" fill="none" stroke="url(#personaGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
           <h3>Coders</h3>
           <p>A mini player that stays out of your way while you work, and a keyboard shortcut for everything.</p>
-          <span class="persona-card-more">See what&rsquo;s in it for you &rarr;</span>
-        </a>
-        <a href="for/ai.html" class="persona-card reveal">
-          <svg class="persona-card-icon" viewBox="0 0 24 24" fill="none" stroke="url(#personaGrad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg>
-          <h3>AI-assistant users</h3>
-          <p>Let Claude or any MCP client search, queue, tag and organise your music &mdash; just ask.</p>
           <span class="persona-card-more">See what&rsquo;s in it for you &rarr;</span>
         </a>
         <a href="for/self-hosters.html" class="persona-card reveal">
