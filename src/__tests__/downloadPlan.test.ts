@@ -25,9 +25,9 @@ describe("decideDownload", () => {
 
   it("maps a raw direct-url to a self-contained Source plan (the URL is the download)", async () => {
     const plan = decideDownload({ kind: "direct-url", uri: "https://x/tracks/a.mp3?sig=1" }, track, ALL);
-    expect(plan).toMatchObject({ providerId: BUILTIN_DIRECT_PROVIDER_ID, providerName: "Source", uri: "https://x/tracks/a.mp3?sig=1" });
+    expect(plan).toMatchObject({ providerId: BUILTIN_DIRECT_PROVIDER_ID, providerName: "Source" });
     // Identity resolve: no provider involved, ext read off the URL path.
-    const resolved = await plan!.resolveByUri("https://x/tracks/a.mp3?sig=1", "original");
+    const resolved = await plan!.resolve("original");
     expect(resolved).toMatchObject({ url: "https://x/tracks/a.mp3?sig=1", ext: "mp3" });
     // A direct-url plan needs no providers at all.
     expect(decideDownload({ kind: "direct-url", uri: "https://x/a.flac" }, track, [])).not.toBeNull();
@@ -41,28 +41,31 @@ describe("decideDownload", () => {
     expect(extFromDirectUrl("https://x.example.com/stream")).toBeNull();
   });
 
-  it("maps subsonic to the built-in Subsonic provider, by uri", () => {
+  it("maps subsonic to the built-in Subsonic provider, by uri", async () => {
     const plan = decideDownload({ kind: "subsonic", uri: "subsonic://1/9" }, track, ALL);
-    expect(plan).toMatchObject({ providerId: BUILTIN_SUBSONIC_PROVIDER_ID, providerName: "Subsonic", uri: "subsonic://1/9" });
-    expect(plan!.resolveByUri).toBe(subsonic.resolveByUri);
+    expect(plan).toMatchObject({ providerId: BUILTIN_SUBSONIC_PROVIDER_ID, providerName: "Subsonic" });
+    await plan!.resolve("original");
+    expect(subsonic.resolveByUri).toHaveBeenCalledWith("subsonic://1/9", "original", undefined);
   });
 
   it("returns null for subsonic when the built-in provider is absent", () => {
     expect(decideDownload({ kind: "subsonic", uri: "subsonic://1/9" }, track, [youtube, tidal])).toBeNull();
   });
 
-  it("maps a native plugin scheme to its plugin's provider, by uri", () => {
+  it("maps a native plugin scheme to its plugin's provider, by uri", async () => {
     const plan = decideDownload({ kind: "plugin", pluginId: "tidal-browse", uri: "tidal://5" }, track, ALL);
-    expect(plan).toMatchObject({ providerId: "tidal-browse:tidal-dl", providerName: "TIDAL", uri: "tidal://5" });
-    expect(plan!.resolveByUri).toBe(tidal.resolveByUri);
+    expect(plan).toMatchObject({ providerId: "tidal-browse:tidal-dl", providerName: "TIDAL" });
+    await plan!.resolve("flac");
+    expect(tidal.resolveByUri).toHaveBeenCalledWith("tidal://5", "flac", undefined);
+    expect(tidal.resolveByMetadata).not.toHaveBeenCalled();
   });
 
   it("maps a stream-resolver win (no uri) to the plugin's provider, resolving by metadata", async () => {
     const plan = decideDownload({ kind: "plugin", pluginId: "youtube" }, track, ALL);
-    expect(plan).toMatchObject({ providerId: "youtube:youtube-fallback", providerName: "YouTube", uri: null });
-    // resolveByUri is a metadata closure — it should not be the provider's own resolveByUri.
-    expect(plan!.resolveByUri).not.toBe(youtube.resolveByUri);
-    await plan!.resolveByUri("ignored", "flac");
+    // The plan carries no uri for the modal to look at: `resolve` is the whole
+    // contract, which is why a metadata plan can't fall into the search step.
+    expect(plan).toEqual({ providerId: "youtube:youtube-fallback", providerName: "YouTube", resolve: expect.any(Function) });
+    await plan!.resolve("flac");
     expect(youtube.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac", undefined);
   });
 
@@ -72,7 +75,7 @@ describe("decideDownload", () => {
   it("forwards the progress callback through the metadata closure", async () => {
     const plan = decideDownload({ kind: "plugin", pluginId: "youtube" }, track, ALL);
     const onProgress = vi.fn();
-    await plan!.resolveByUri("ignored", "flac", onProgress);
+    await plan!.resolve("flac", onProgress);
     expect(youtube.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac", onProgress);
   });
 
@@ -90,8 +93,8 @@ describe("decideMetadataDownload", () => {
   it("follows the resolver order: first plugin resolver with a download provider", async () => {
     const plan = decideMetadataDownload(["built-in", "spotify", "tidal-browse", "youtube"], track, ALL);
     // spotify resolves but contributes no downloader → skipped; tidal is next.
-    expect(plan).toMatchObject({ providerId: "tidal-browse:tidal-dl", providerName: "TIDAL", uri: null });
-    await plan!.resolveByUri("", "flac");
+    expect(plan).toMatchObject({ providerId: "tidal-browse:tidal-dl", providerName: "TIDAL" });
+    await plan!.resolve("flac");
     expect(tidal.resolveByMetadata).toHaveBeenCalledWith("Song", "Artist", "Album", 200, "flac", undefined);
   });
 

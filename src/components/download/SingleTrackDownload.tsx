@@ -11,6 +11,7 @@ import type {
 import { formatDuration, formatFileSize, isVideoTrack } from "../../utils";
 import { defaultQualityValue } from "../../utils/downloadQuality";
 import type { AppStore } from "../../store";
+import type { ResolveTrack } from "../../utils/downloadPlan";
 import type { DownloadTrack, UpgradePreviewInfo, ConflictCheck, DownloadResult } from "./types";
 import { ProviderChip } from "./ProviderChip";
 import { QualitySelect } from "./QualitySelect";
@@ -35,7 +36,7 @@ export function SingleTrackDownload({
   track,
   providerId,
   providerName,
-  resolveByUri,
+  resolveTrack,
   qualityOptions,
   collections,
   store,
@@ -50,11 +51,11 @@ export function SingleTrackDownload({
   track: DownloadTrack;
   providerId: string;
   providerName: string;
-  resolveByUri?: (
-    uri: string,
-    format: string,
-    onProgress?: (progress: DownloadResolveProgress) => void,
-  ) => Promise<DownloadResolveResult | null>;
+  /** How to fetch this exact track (a `DownloadPlan.resolve`). Present: start
+   *  on the configure step and call it. Absent: the provider's interactive
+   *  search. This prop alone decides the mode, never `track.uri`, which a
+   *  metadata plan doesn't have (see `DownloadModalState.resolveTrack`). */
+  resolveTrack?: ResolveTrack;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
@@ -73,7 +74,7 @@ export function SingleTrackDownload({
   onComplete: (message: string) => void;
   onPlay?: (path: string) => void;
 }) {
-  const directUri = !!(resolveByUri && track.uri);
+  const directUri = !!resolveTrack;
   const [step, setStep] = useState<SingleStep>(directUri ? "configure" : "search");
   const [searchQuery, setSearchQuery] = useState(
     [track.title, track.artistName].filter(Boolean).join(" ")
@@ -87,7 +88,7 @@ export function SingleTrackDownload({
   const [selectedMatch, setSelectedMatch] = useState<InteractiveSearchResult | null>(() => {
     if (directUri) {
       return {
-        id: track.uri!,
+        id: track.uri ?? "",
         title: track.title,
         artistName: track.artistName ?? undefined,
         albumTitle: track.albumTitle ?? undefined,
@@ -295,8 +296,8 @@ export function SingleTrackDownload({
     let effectiveExt: string | null = null;
     let meta: DownloadResolveResult["metadata"] | undefined;
     try {
-      if (directUri && resolveByUri && track.uri) {
-        const resolved = await resolveByUri(track.uri, quality, reportProgress);
+      if (resolveTrack) {
+        const resolved = await resolveTrack(quality, reportProgress);
         if (resolveGenRef.current !== gen) return;
         if (!resolved) {
           setResolving(false);

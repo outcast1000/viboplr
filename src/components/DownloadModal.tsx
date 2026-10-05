@@ -5,6 +5,7 @@ import type {
   DownloadResolveProgress,
 } from "../types/plugin";
 import type { AppStore } from "../store";
+import type { ResolveTrack } from "../utils/downloadPlan";
 import { SingleTrackDownload } from "./download/SingleTrackDownload";
 import { MultiTrackDownload } from "./download/MultiTrackDownload";
 import type { DownloadTrack } from "./download/types";
@@ -17,11 +18,8 @@ interface DownloadModalProps {
   providerId: string;
   providerName: string;
   confirmed?: boolean;
-  resolveByUri?: (
-    uri: string,
-    format: string,
-    onProgress?: (progress: DownloadResolveProgress) => void,
-  ) => Promise<DownloadResolveResult | null>;
+  /** See `DownloadModalState.resolveTrack`. */
+  resolveTrack?: ResolveTrack;
   qualityOptions?: DownloadQualityOption[] | null;
   collections: { id: number; name: string; path: string }[];
   store: AppStore;
@@ -44,7 +42,7 @@ export function DownloadModal({
   providerId,
   providerName,
   confirmed,
-  resolveByUri,
+  resolveTrack,
   qualityOptions,
   collections,
   store,
@@ -66,7 +64,7 @@ export function DownloadModal({
             track={tracks[0]}
             providerId={providerId}
             providerName={providerName}
-            resolveByUri={resolveByUri}
+            resolveTrack={resolveTrack}
             qualityOptions={qualityOptions}
             collections={collections}
             store={store}

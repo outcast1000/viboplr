@@ -2226,10 +2226,10 @@ function App() {
         // fetched as an upgrade). The modal's in-place upgrade flow keys off the
         // library file's own `file://` uri (see `SingleTrackDownload.isUpgrade`),
         // so the row is read first and, when it is a local file, stands in as
-        // the modal's track while the provider still resolves the plugin's uri —
-        // the same wrapper shape `decideDownload` uses for a stream-resolver
-        // win. A row that isn't local (or can't be read) falls back to the
-        // ordinary fresh download: `download_preview` needs a file on disk.
+        // the modal's track. How the file is fetched never depends on that: a
+        // single track with a source uri always gets a `resolveTrack` bound to
+        // the plugin's uri. A row that isn't local (or can't be read) falls back
+        // to the ordinary fresh download: `download_preview` needs a file on disk.
         const p = payload as { tracks: Array<{ title: string; artist_name: string | null; album_title?: string | null; uri?: string | null; durationSecs?: number | null; libraryTrackId?: number | null }>; providerId: string; providerName: string };
         if (p.providerId && p.tracks && p.tracks.length > 0) {
           const provider = downloadProviders.find(dp => dp.id === p.providerId);
@@ -2250,10 +2250,11 @@ function App() {
               providerName: p.providerName,
               // Multi-track: skip the resolve/search step and resolve each uri directly.
               confirmed: !isSingle,
-              // Single-track with a known uri: go straight to the configure step.
-              resolveByUri: upgradeOf && sourceUri && provider
-                ? (_uri, format, onProgress) => provider.resolveByUri(sourceUri, format, onProgress)
-                : (isSingle && sourceUri ? provider?.resolveByUri : undefined),
+              // Single track with a source uri: resolve exactly that, no search.
+              // Without one the modal opens the provider's interactive search.
+              resolveTrack: isSingle && sourceUri && provider
+                ? (format, onProgress) => provider.resolveByUri(sourceUri, format, onProgress)
+                : undefined,
             });
           };
           const replaceId = isSingle ? p.tracks[0].libraryTrackId : null;
@@ -6608,7 +6609,7 @@ function App() {
           providerId={downloadModal.providerId}
           providerName={downloadModal.providerName}
           confirmed={downloadModal.confirmed}
-          resolveByUri={downloadModal.resolveByUri}
+          resolveTrack={downloadModal.resolveTrack}
           qualityOptions={qualityOptions}
           collections={localCollections}
           store={store}

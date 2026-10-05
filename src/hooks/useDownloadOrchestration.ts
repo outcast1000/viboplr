@@ -1,13 +1,13 @@
 import { useState, useRef, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Track, QueueTrack } from "../types";
-import type { DownloadProvider, DownloadResolveResult, DownloadResolveProgress } from "../types/plugin";
+import type { DownloadProvider } from "../types/plugin";
 import type { DownloadTrack } from "../components/DownloadModal";
 import type { ContextMenuState } from "../types/contextMenu";
 import { classifyEffectiveSource } from "../queueEntry";
 import { isVideoTrack } from "../utils";
 import { withResolverLog } from "../utils/resolverLog";
-import { decideDownload, decideMetadataDownload, type DownloadPlan } from "../utils/downloadPlan";
+import { decideDownload, decideMetadataDownload, type DownloadPlan, type ResolveTrack } from "../utils/downloadPlan";
 import { usePlugins } from "./usePlugins";
 
 import { useAssignRef } from "./useLatestRef";
@@ -18,11 +18,27 @@ export interface DownloadModalState {
   /** Batch flow only (plugin requestAction("download-tracks"/"download-album")):
    *  skip the per-track resolve/search step and resolve each uri directly. */
   confirmed?: boolean;
-  resolveByUri?: (
-    uri: string,
-    format: string,
-    onProgress?: (progress: DownloadResolveProgress) => void,
-  ) => Promise<DownloadResolveResult | null>;
+  /** Single track: how to fetch THIS track — a `DownloadPlan.resolve`. Present
+   *  → the modal goes straight to its configure step and calls it; absent →
+   *  the modal opens the provider's interactive search (only a plugin flow that
+   *  names a track without a source does that). The modal never infers this
+   *  from `tracks[0].uri`; that inference is what kept sending tracks a
+   *  playback fallback played into a search Soulseek doesn't answer. */
+  resolveTrack?: ResolveTrack;
+}
+
+/** The modal state for downloading one track through a plan. Every plan-based
+ *  entry point (now-playing button, context menu, "Not in library" rows) goes
+ *  through this, so none of them can wire the modal differently. `uri` is the
+ *  track's own path — display, video detection and the local-file upgrade
+ *  check read it; it does not decide how the track is resolved. */
+export function planDownloadModal(track: DownloadTrack, plan: DownloadPlan): DownloadModalState {
+  return {
+    tracks: [track],
+    providerId: plan.providerId,
+    providerName: plan.providerName,
+    resolveTrack: plan.resolve,
+  };
 }
 
 interface UseDownloadOrchestrationDeps {
@@ -175,20 +191,15 @@ export function useDownloadOrchestration({
       if (!t) return;
       const plan = nativePlanForTrack(t);
       if (!plan) return;
-      setDownloadModal({
-        tracks: [{
-          title: t.title,
-          artistName: t.artist_name,
-          albumTitle: t.album_title,
-          uri: plan.uri ?? t.path ?? null,
-          durationSecs: t.duration_secs,
-          trackId: t.trackId,
-          isVideo: isVideoTrack({ format: t.format, path: t.path }),
-        }],
-        providerId: plan.providerId,
-        providerName: plan.providerName,
-        resolveByUri: plan.resolveByUri,
-      });
+      setDownloadModal(planDownloadModal({
+        title: t.title,
+        artistName: t.artist_name,
+        albumTitle: t.album_title,
+        uri: t.path,
+        durationSecs: t.duration_secs,
+        trackId: t.trackId,
+        isVideo: isVideoTrack({ format: t.format, path: t.path }),
+      }, plan));
     },
     [contextTrack, nativePlanForTrack],
   );
@@ -198,20 +209,15 @@ export function useDownloadOrchestration({
   // playback source's `EffectiveSource`; the caller passes the resulting plan here.
   // This function only translates that plan into the download modal.
   const openDownloadForCurrentTrack = useCallback((track: QueueTrack, plan: DownloadPlan) => {
-    setDownloadModal({
-      tracks: [{
-        title: track.title,
-        artistName: track.artist_name ?? null,
-        albumTitle: track.album_title ?? null,
-        uri: plan.uri ?? track.path ?? null,
-        durationSecs: track.duration_secs ?? null,
-        trackId: track.libraryId ?? null,
-        isVideo: isVideoTrack(track),
-      }],
-      providerId: plan.providerId,
-      providerName: plan.providerName,
-      resolveByUri: plan.resolveByUri,
-    });
+    setDownloadModal(planDownloadModal({
+      title: track.title,
+      artistName: track.artist_name ?? null,
+      albumTitle: track.album_title ?? null,
+      uri: track.path ?? null,
+      durationSecs: track.duration_secs ?? null,
+      trackId: track.libraryId ?? null,
+      isVideo: isVideoTrack(track),
+    }, plan));
   }, []);
 
   // A track known only by name ("Not in library" rows' hover button). Null when

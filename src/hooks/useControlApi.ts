@@ -467,8 +467,7 @@ export function useControlApi(deps: ControlApiDeps) {
       pluginId = entry && entry.source !== "__builtin" ? entry.source : null;
       providerId = plan.providerId;
       providerName = plan.providerName;
-      const planUri = plan.uri ?? uri;
-      resolveRun = (quality) => plan.resolveByUri(planUri, quality, undefined);
+      resolveRun = (quality) => plan.resolve(quality, undefined);
     } else {
       const pid = optionalString(payload.pluginId);
       if (!pid) bad("a metadata download needs pluginId — the host never picks a provider on its own");
