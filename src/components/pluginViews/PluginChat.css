@@ -565,3 +565,26 @@
   background: var(--text-primary);
   color: var(--bg-primary);
 }
+
+/* ---- images ---- */
+
+.plugin-chat-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  max-width: 560px;
+}
+
+.plugin-chat-images.is-single {
+  grid-template-columns: minmax(0, 360px);
+}
+
+.plugin-chat-image {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: cover;
+  border-radius: var(--ds-radius-card);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+}

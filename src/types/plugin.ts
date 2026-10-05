@@ -352,6 +352,9 @@ export interface PluginChatMessage {
   // Markdown for `assistant`; plain text for every other role.
   text: string;
   steps?: PluginChatStep[];
+  // Pictures shown with the message (an artist photo a tool returned). `src` is
+  // a `data:image/…;base64,` URI or an https URL — anything else is dropped.
+  images?: { src: string; alt?: string }[];
   // Extra buttons under an assistant message. Copy is the host's and always there.
   actions?: { id: string; label: string; action: string; data?: unknown; icon?: string }[];
 }

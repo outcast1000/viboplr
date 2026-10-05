@@ -111,6 +111,34 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
+/** Only inline image data or https: a plugin's chat must not be able to point
+ *  an <img> at a local file or a plain-http tracker. */
+export function isChatImageSrc(src: unknown): src is string {
+  return typeof src === "string" && (/^data:image\/[a-z0-9.+-]+;base64,/i.test(src) || /^https:\/\//i.test(src));
+}
+
+function ChatImages({ images }: { images: NonNullable<PluginChatMessage["images"]> }) {
+  const shown = images.filter((im) => isChatImageSrc(im.src));
+  const [broken, setBroken] = useState<Set<string>>(() => new Set());
+  const visible = shown.filter((im) => !broken.has(im.src));
+  if (!visible.length) return null;
+  return (
+    <div className={`plugin-chat-images${visible.length === 1 ? " is-single" : ""}`}>
+      {visible.map((im, i) => (
+        <img
+          key={i}
+          className="plugin-chat-image"
+          src={im.src}
+          alt={im.alt ?? ""}
+          title={im.alt}
+          loading="lazy"
+          onError={() => setBroken((prev) => new Set(prev).add(im.src))}
+        />
+      ))}
+    </div>
+  );
+}
+
 /** "Used 3 tools" — what the summary row of a folded step group says. */
 export function stepsSummary(steps: PluginChatStep[]): string {
   const running = steps.find((s) => s.status === "running");
@@ -196,6 +224,7 @@ function Message({ msg, latest, stepsOpen, onToggleSteps, onAction }: { msg: Plu
   return (
     <div className={`plugin-chat-msg plugin-chat-msg--assistant${latest ? " is-latest" : ""}`}>
       {steps.length > 0 && <StepGroup steps={steps} open={stepsOpen} onToggle={onToggleSteps} />}
+      {msg.images && msg.images.length > 0 && <ChatImages images={msg.images} />}
       {msg.text && <Markdown text={msg.text} />}
       {msg.text && (
         <div className="plugin-chat-msg-actions">
@@ -300,7 +329,7 @@ export function PluginChat({ node, onAction, fill }: { node: PluginChatNode; onA
 
   const busy = !!node.status || !!node.approval;
   const last = node.messages[node.messages.length - 1];
-  const contentSig = `${node.messages.length}|${last?.text.length ?? 0}|${last?.steps?.length ?? 0}|${node.status ? 1 : 0}|${node.approval ? 1 : 0}`;
+  const contentSig = `${node.messages.length}|${last?.text.length ?? 0}|${last?.steps?.length ?? 0}|${last?.images?.length ?? 0}|${node.status ? 1 : 0}|${node.approval ? 1 : 0}`;
 
   useLayoutEffect(() => {
     if (followRef.current) endRef.current?.scrollIntoView({ block: "end" });

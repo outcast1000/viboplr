@@ -27,6 +27,14 @@ describe("parseInline", () => {
     expect(parseInline("5 * 3 = 15")).toEqual([{ kind: "text", text: "5 * 3 = 15" }]);
   });
 
+  it("drops markdown images whole — no stray '!' and no link", () => {
+    expect(parseInline("Here ![Pearl Jam](https://x.org/pj.jpg) they are")).toEqual([{ kind: "text", text: "Here  they are" }]);
+    expect(parseMarkdown("![Pearl Jam](https://x.org/pj.jpg)")).toEqual([]);
+    expect(parseMarkdown("Look:\n\n![a](b)\n\nNice.").map((b) => b.kind)).toEqual(["p", "p"]);
+    // A bare "!" before a normal link stays a link.
+    expect(parseInline("wow! [site](https://x.org)").some((n) => n.kind === "link")).toBe(true);
+  });
+
   it("never yields markup as anything but text", () => {
     expect(parseInline("<img src=x onerror=alert(1)>")).toEqual([{ kind: "text", text: "<img src=x onerror=alert(1)>" }]);
   });

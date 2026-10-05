@@ -122,7 +122,9 @@ export function parseMarkdown(src: string): MdBlock[] {
     const para: string[] = [line];
     i++;
     while (i < lines.length && lines[i].trim() && !startsBlock(lines[i], lines[i + 1])) para.push(lines[i++]);
-    blocks.push({ kind: "p", inline: parseInline(para.join("\n")) });
+    const inline = parseInline(para.join("\n"));
+    // A paragraph that was only a dropped image leaves nothing to show.
+    if (inline.some((n) => n.kind !== "text" || n.text.trim())) blocks.push({ kind: "p", inline });
   }
   return blocks;
 }
@@ -156,6 +158,20 @@ export function parseInline(src: string): MdInline[] {
         out.push({ kind: "code", text: src.slice(i + 1, end) });
         i = end + 1;
         continue;
+      }
+    }
+
+    // `![alt](src)` is dropped whole. Pictures reach the chat only as message
+    // `images` the plugin vetted; a model-written image link is a guess (or a
+    // tracker), and rendered as text it read as a "!" plus a dead link.
+    if (ch === "!" && src[i + 1] === "[") {
+      const close = src.indexOf("]", i + 2);
+      if (close > i && src[close + 1] === "(") {
+        const end = src.indexOf(")", close + 2);
+        if (end > close) {
+          i = end + 1;
+          continue;
+        }
       }
     }
 

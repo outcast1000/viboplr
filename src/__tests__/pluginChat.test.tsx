@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { cleanup, render, fireEvent, screen } from "@testing-library/react";
 import { PluginViewRenderer } from "../components/PluginViewRenderer";
-import { stepsSummary } from "../components/pluginViews/PluginChat";
+import { isChatImageSrc, stepsSummary } from "../components/pluginViews/PluginChat";
 import type { PluginChatNode, PluginViewData } from "../types/plugin";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -95,6 +95,29 @@ describe("plugin chat node", () => {
     render(<PluginViewRenderer pluginName="AI" currentTrack={null} data={view(node)} onAction={onAction} />);
     fireEvent.click(screen.getByText("Liked but forgotten"));
     expect(onAction).toHaveBeenCalledWith("quick", { id: "q" });
+  });
+});
+
+describe("chat images", () => {
+  it("shows inline and https images, drops local paths and plain http", () => {
+    const node = chat({
+      messages: [{ id: "a1", role: "assistant", text: "Here she is.", images: [
+        { src: "data:image/jpeg;base64,/9j/4AAQ", alt: "Björk" },
+        { src: "https://example.org/a.jpg", alt: "remote" },
+        { src: "file:///Users/x/secret.jpg", alt: "local" },
+        { src: "http://tracker.example/p.gif", alt: "plain http" },
+      ] }],
+    });
+    render(<PluginViewRenderer pluginName="AI" currentTrack={null} data={view(node)} />);
+    const alts = screen.getAllByRole("img").map((i) => i.getAttribute("alt"));
+    expect(alts).toEqual(["Björk", "remote"]);
+  });
+
+  it("validates sources", () => {
+    expect(isChatImageSrc("data:image/png;base64,AAAA")).toBe(true);
+    expect(isChatImageSrc("data:text/html;base64,AAAA")).toBe(false);
+    expect(isChatImageSrc("javascript:alert(1)")).toBe(false);
+    expect(isChatImageSrc(undefined)).toBe(false);
   });
 });
 
