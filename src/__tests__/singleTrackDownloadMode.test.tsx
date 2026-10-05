@@ -51,7 +51,7 @@ afterEach(() => {
 
 describe("SingleTrackDownload mode", () => {
   it("a plan's resolve with NO uri skips the search and resolves the track itself", async () => {
-    const resolveTrack = vi.fn(async () => ({ url: "file:///slskd/Lady Writer.flac", headers: null, metadata: null, ext: "flac" }));
+    const resolveTrack = vi.fn(async (_format: string) => ({ url: "file:///slskd/Lady Writer.flac", headers: null, metadata: null, ext: "flac" }));
     const { getByText, queryByText, onSearch, onResolve } = renderModal({ uri: null, resolveTrack });
 
     expect(queryByText(/No matches found/)).toBeNull();
