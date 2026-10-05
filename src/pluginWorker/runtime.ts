@@ -6,6 +6,7 @@
 // against the manifest's permissions on the host side before it runs.
 
 import { RpcEndpoint, SYNC, type RpcPort } from "./rpc";
+import { workerFetchInit } from "../utils/pluginFetchAbort";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -77,6 +78,8 @@ function rebuildFetch(api: Record<string, unknown>): void {
   const raw = network?.fetch as ((...a: unknown[]) => Promise<unknown>) | undefined;
   if (!network || typeof raw !== "function") return;
   network.fetch = async (...args: unknown[]) => {
+    // An AbortSignal can't cross the RPC; workerFetchInit swaps it for a callback.
+    if (args.length > 1) args = [args[0], workerFetchInit(args[1]), ...args.slice(2)];
     const r = (await raw(...args)) as {
       status: number; headers: Record<string, string>; url?: string; body: string; setCookie: string[];
     };

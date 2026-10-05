@@ -26,6 +26,7 @@ import {
 export { sanitizeHTML } from "./pluginViews/htmlSanitize";
 import "./PluginViewRenderer.css";
 import { DetailHero } from "./DetailHero";
+import { PluginChat } from "./pluginViews/PluginChat";
 import { mapDetailHeaderToHeroProps } from "./pluginViews/mapDetailHeader";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 
@@ -128,6 +129,16 @@ export function PluginViewRenderer({
 
   const seededIndex = searchSeed ? hoisted.findIndex((n) => n.type === "search-input") : -1;
 
+  // A chat that is the whole body takes the full height: its thread scrolls by
+  // itself and its composer stays pinned under it, instead of scrolling away
+  // inside the generic view scroller.
+  const fillChat =
+    contentData.type === "chat"
+      ? contentData
+      : contentData.type === "layout" && contentData.children.length === 1 && contentData.children[0].type === "chat"
+        ? contentData.children[0]
+        : null;
+
   return (
     <>
       {hoisted.map((node, i) => (
@@ -161,6 +172,11 @@ export function PluginViewRenderer({
         />
         )
       ))}
+      {fillChat ? (
+        <div className="plugin-view plugin-view--chat">
+          <PluginChat node={fillChat} onAction={onAction} fill />
+        </div>
+      ) : (
       <div className="plugin-view" ref={scrollElRef}>
         <div className="plugin-view-content">
           <PluginViewNode
@@ -177,6 +193,7 @@ export function PluginViewRenderer({
           />
         </div>
       </div>
+      )}
     </>
   );
 }
@@ -438,6 +455,8 @@ function PluginViewNode({
           </div>
         </div>
       );
+    case "chat":
+      return <PluginChat node={node} onAction={onAction} />;
     case "confirm":
       return (
         <PluginConfirm

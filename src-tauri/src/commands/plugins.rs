@@ -527,8 +527,50 @@ fn flatten_response_headers(headers: &reqwest::header::HeaderMap) -> Vec<(String
         .collect()
 }
 
+/// Error a cancelled `plugin_fetch` rejects with. The frontend matches this
+/// exact string and turns it into an `AbortError`, the name a plugin checks.
+pub const FETCH_ABORTED: &str = "__fetch_aborted__";
+
+/// Bound on remembered early cancels (see `FetchCancel::Early`). A cancel for a
+/// request that already finished lands there too, so without a cap a plugin
+/// that cancels late in a loop would grow the map forever.
+const MAX_EARLY_CANCELS: usize = 256;
+
+enum FetchCancel {
+    /// A request in flight, abortable.
+    Running(tokio::task::AbortHandle),
+    /// The cancel arrived before the request registered: IPC calls are not
+    /// ordered, so `plugin_fetch_cancel` can beat the `plugin_fetch` it names
+    /// (the same race `plugin_exec_cancel` handles).
+    Early,
+}
+
+/// Cancellable `plugin_fetch` requests, by caller-chosen id.
+fn fetch_cancels() -> &'static Mutex<std::collections::HashMap<String, FetchCancel>> {
+    static CANCELS: std::sync::OnceLock<Mutex<std::collections::HashMap<String, FetchCancel>>> = std::sync::OnceLock::new();
+    CANCELS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// Abort the `plugin_fetch` started with this `request_id`; returns whether one
+/// was running. Aborting drops the connection, so the server sees the client go
+/// away — which is what stops a model server generating a reply nobody reads.
 #[tauri::command]
-pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>, timeout_ms: Option<u64>, allowed_hosts: Option<Vec<String>>) -> Result<serde_json::Value, String> {
+pub fn plugin_fetch_cancel(request_id: String) -> bool {
+    let Ok(mut map) = fetch_cancels().lock() else { return false };
+    if let Some(FetchCancel::Running(handle)) = map.remove(&request_id) {
+        handle.abort();
+        return true;
+    }
+    if map.values().filter(|c| matches!(c, FetchCancel::Early)).count() >= MAX_EARLY_CANCELS {
+        map.retain(|_, c| matches!(c, FetchCancel::Running(_)));
+    }
+    map.insert(request_id, FetchCancel::Early);
+    false
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<std::collections::HashMap<String, String>>, body: Option<String>, insecure: Option<bool>, timeout_ms: Option<u64>, allowed_hosts: Option<Vec<String>>, request_id: Option<String>) -> Result<serde_json::Value, String> {
     let mut builder = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15");
     // Worker-runtime plugins send their network grant; hold every hop to it.
@@ -565,25 +607,52 @@ pub async fn plugin_fetch(url: String, method: Option<String>, headers: Option<s
     if let Some(b) = body {
         req = req.body(b);
     }
-    let start = std::time::Instant::now();
-    let resp = req.send().await.map_err(|e| e.to_string())?;
-    let status = resp.status().as_u16();
-    log::info!("HTTP {} plugin_fetch {} -> {} ({:.0}ms)", method_str, url, status, start.elapsed().as_secs_f64() * 1000.0);
-    // The URL the response actually came from, after reqwest followed any
-    // redirects. Without it a plugin cannot tell a real answer from an ISP
-    // block page: national blocking (e.g. Greece's edppi.gr) 302s the request
-    // to a notice page that returns HTTP 200 on a different host, which reads
-    // exactly like the target site answering with no content.
-    let final_url = resp.url().to_string();
-    // Before `text()`, which consumes the response.
-    let resp_headers = flatten_response_headers(resp.headers());
-    let text = resp.text().await.map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({
-        "status": status,
-        "body": text,
-        "headers": resp_headers,
-        "url": final_url,
-    }))
+    let method_owned = method_str.to_string();
+    let work = async move {
+        let start = std::time::Instant::now();
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        let status = resp.status().as_u16();
+        log::info!("HTTP {} plugin_fetch {} -> {} ({:.0}ms)", method_owned, url, status, start.elapsed().as_secs_f64() * 1000.0);
+        // The URL the response actually came from, after reqwest followed any
+        // redirects. Without it a plugin cannot tell a real answer from an ISP
+        // block page: national blocking (e.g. Greece's edppi.gr) 302s the request
+        // to a notice page that returns HTTP 200 on a different host, which reads
+        // exactly like the target site answering with no content.
+        let final_url = resp.url().to_string();
+        // Before `text()`, which consumes the response.
+        let resp_headers = flatten_response_headers(resp.headers());
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({
+            "status": status,
+            "body": text,
+            "headers": resp_headers,
+            "url": final_url,
+        }))
+    };
+    let Some(id) = request_id else { return work.await };
+
+    // Cancellable: run it as its own task so `plugin_fetch_cancel` can abort it
+    // mid-send or mid-body. The connection is dropped with the task.
+    let task = tokio::spawn(work);
+    {
+        let mut map = fetch_cancels().lock().map_err(|e| e.to_string())?;
+        if matches!(map.remove(&id), Some(FetchCancel::Early)) {
+            task.abort();
+            return Err(FETCH_ABORTED.to_string());
+        }
+        map.insert(id.clone(), FetchCancel::Running(task.abort_handle()));
+    }
+    let out = task.await;
+    if let Ok(mut map) = fetch_cancels().lock() {
+        if matches!(map.get(&id), Some(FetchCancel::Running(_))) {
+            map.remove(&id);
+        }
+    }
+    match out {
+        Ok(result) => result,
+        Err(e) if e.is_cancelled() => Err(FETCH_ABORTED.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -769,7 +838,38 @@ pub fn plugin_scheduler_complete(state: State<'_, AppState>, plugin_id: String, 
 
 #[cfg(test)]
 mod tests {
-    use super::{flatten_response_headers, resolve_plugin_asset, PLUGIN_ASSET_MAX_BYTES};
+    use super::{flatten_response_headers, plugin_fetch, plugin_fetch_cancel, resolve_plugin_asset, FETCH_ABORTED, PLUGIN_ASSET_MAX_BYTES};
+
+    /// A server that accepts the connection and never answers — a model mid-reply.
+    fn silent_server() -> (std::net::TcpListener, String) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/chat", listener.local_addr().unwrap());
+        (listener, url)
+    }
+
+    async fn fetch_with_id(url: String, id: &str) -> Result<serde_json::Value, String> {
+        plugin_fetch(url, None, None, None, None, None, None, Some(id.to_string())).await
+    }
+
+    #[tokio::test]
+    async fn test_plugin_fetch_cancel_aborts_a_hanging_request() {
+        let (_listener, url) = silent_server();
+        let req = tokio::spawn(fetch_with_id(url, "t-hang"));
+        // Let the request register and connect.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(plugin_fetch_cancel("t-hang".into()), "a running request was found");
+        let out = tokio::time::timeout(std::time::Duration::from_secs(2), req).await.expect("cancel returned promptly").unwrap();
+        assert_eq!(out.unwrap_err(), FETCH_ABORTED);
+    }
+
+    #[tokio::test]
+    async fn test_plugin_fetch_cancel_that_beats_its_request_still_cancels_it() {
+        // IPC calls aren't ordered: the cancel can arrive first.
+        let (_listener, url) = silent_server();
+        assert!(!plugin_fetch_cancel("t-early".into()));
+        let out = tokio::time::timeout(std::time::Duration::from_secs(2), fetch_with_id(url, "t-early")).await.expect("did not hang");
+        assert_eq!(out.unwrap_err(), FETCH_ABORTED);
+    }
     use reqwest::header::{HeaderMap, HeaderValue, SET_COOKIE};
 
     #[test]

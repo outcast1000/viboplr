@@ -287,6 +287,7 @@ macro_rules! invoke_handler {
             commands::reset_provider_priorities,
             commands::image_resolve_response,
             commands::plugin_fetch,
+            commands::plugin_fetch_cancel,
             commands::plugin_cache_image,
             commands::plugin_cache_get_path,
             commands::plugin_cache_delete_dir,

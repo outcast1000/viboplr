@@ -19,6 +19,15 @@
   padding-top: 12px;
 }
 
+/* A view whose body is one `chat` node: the chat owns scrolling (PluginChat.css). */
+.content > .plugin-view.plugin-view--chat,
+.plugin-view.plugin-view--chat {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
 .plugin-layout-horizontal {
   display: flex;
   align-items: center;

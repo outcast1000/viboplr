@@ -337,6 +337,64 @@ export interface TrackRowItem {
   kind?: "audio" | "video";
 }
 
+/** One step of an assistant turn's work — a tool call, or interim model text
+ *  between calls. Rendered folded under the turn, never as its own message. */
+export interface PluginChatStep {
+  label: string;
+  // Shown only when the step is expanded (arguments, an error, the interim text).
+  detail?: string;
+  status?: "running" | "ok" | "error" | "declined" | "note";
+}
+
+export interface PluginChatMessage {
+  id: string;
+  role: "user" | "assistant" | "error" | "note";
+  // Markdown for `assistant`; plain text for every other role.
+  text: string;
+  steps?: PluginChatStep[];
+  // Extra buttons under an assistant message. Copy is the host's and always there.
+  actions?: { id: string; label: string; action: string; data?: unknown; icon?: string }[];
+}
+
+/**
+ * A conversation surface: the thread, an optional approval card, a working
+ * indicator and a composer pinned to the bottom. The host owns layout, scroll,
+ * markdown, copy and the draft text; the plugin owns every decision.
+ */
+export interface PluginChatNode {
+  type: "chat";
+  messages: PluginChatMessage[];
+  // Drawn in place of the thread while `messages` is empty.
+  empty?: { title?: string; subtitle?: string; suggestions?: { label: string; action: string; data?: unknown }[] };
+  // A warning strip above the thread (no model configured, host too old…).
+  notice?: { message: string; actionLabel?: string; action?: string } | null;
+  // The turn is working. `since` (ms epoch) lets the host draw the elapsed
+  // counter itself, so the plugin needn't re-render every second.
+  status?: { label: string; since?: number } | null;
+  approval?: {
+    title: string;
+    message: string;
+    approveLabel?: string;
+    denyLabel?: string;
+    approveAction: string;
+    denyAction: string;
+  } | null;
+  composer: {
+    // Fired with `{ query }` on Enter / the send button; the host clears the draft.
+    action: string;
+    placeholder?: string;
+    disabled?: boolean;
+    // While set, the send button becomes Stop and fires this.
+    stopAction?: string;
+    // The "+" at the composer's left — the plugin decides what it means (a new chat).
+    newAction?: string;
+    newLabel?: string;
+    // Muted text at the composer's right (the model name); clickable with footerAction.
+    footer?: string;
+    footerAction?: string;
+  };
+}
+
 export type PluginViewData =
   | { type: "track-list"; tracks: Track[]; title?: string }
   | { type: "card-grid"; items: CardGridItem[]; columns?: number }
@@ -503,6 +561,7 @@ export type PluginViewData =
     }
   | { type: "settings-row"; label: string; description?: string; control?: PluginViewData; child?: PluginViewData }
   | { type: "section"; title: string; children: PluginViewData[] }
+  | PluginChatNode
   | {
       type: "confirm";
       title?: string;
@@ -1087,6 +1146,17 @@ export interface PluginNetworkAPI {
        * call that may legitimately run for minutes.
        */
       timeoutMs?: number;
+      /**
+       * Cancel the request: abort the controller and the promise rejects with
+       * an error named `"AbortError"` (as `fetch()` does), while the backend
+       * drops the connection — so the server sees the client leave, which is
+       * what stops a model server generating a reply nobody will read. An
+       * already-aborted signal rejects without sending anything. Older hosts
+       * ignore it and the request runs to completion.
+       */
+      signal?: AbortSignal;
+      /** @internal Worker runtime's stand-in for `signal` (see utils/pluginFetchAbort.ts). */
+      __onAbort?: (cancel: () => void) => unknown;
     },
   ): Promise<{
     status: number;

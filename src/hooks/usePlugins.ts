@@ -116,6 +116,7 @@ import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type Wor
 import { networkHosts, pendingPermissions } from "../pluginWorker/permissions";
 import { mainRealmVerdict } from "../utils/pluginTrust";
 import { deleteIfSame } from "../utils/registryOps";
+import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
 // Hardcoded defaults for information type tab order and provider priority.
 // Plugins cannot override these — users customize via Settings > Providers.
 export const DEFAULT_INFO_TYPE_ORDER: Record<string, number> = {
@@ -1064,18 +1065,29 @@ export function usePlugins(
         network: {
           async fetch(url, init) {
             fetchUrlCallbackRef.current?.(url);
-            const resp = await invoke<{ status: number; body: string; headers?: PluginHeaderPairs; url?: string }>(
-              "plugin_fetch",
-              {
-                url,
-                method: init?.method ?? null,
-                headers: init?.headers ?? null,
-                body: init?.body ?? null,
-                insecure: init?.insecure ?? null,
-                timeoutMs: init?.timeoutMs ?? null,
-                allowedHosts,
-              },
-            );
+            const abort = armFetchAbort(pluginId, init, (requestId) => {
+              invoke("plugin_fetch_cancel", { requestId }).catch((e) => console.error("Failed to cancel plugin fetch:", e));
+            });
+            let resp: { status: number; body: string; headers?: PluginHeaderPairs; url?: string };
+            try {
+              resp = await invoke<{ status: number; body: string; headers?: PluginHeaderPairs; url?: string }>(
+                "plugin_fetch",
+                {
+                  url,
+                  method: init?.method ?? null,
+                  headers: init?.headers ?? null,
+                  body: init?.body ?? null,
+                  insecure: init?.insecure ?? null,
+                  timeoutMs: init?.timeoutMs ?? null,
+                  allowedHosts,
+                  requestId: abort?.requestId ?? null,
+                },
+              );
+            } catch (e) {
+              throw isFetchAborted(e) ? abortError() : e;
+            } finally {
+              abort?.settle();
+            }
             const bodyText = resp.body;
             // Older backends sent no headers at all; treat that as none rather
             // than throwing, so a plugin can feature-detect on the array.
