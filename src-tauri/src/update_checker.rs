@@ -239,6 +239,49 @@ pub struct InstalledScan {
     /// Built-in plugins are excluded: they ship with the app and correctly
     /// declare none, so listing them would bury the ones that are really stuck.
     pub unchecked: Vec<String>,
+    /// Skins declaring no `updateUrl` — i.e. every gallery skin, since the skin
+    /// gallery never stamped one. They are checked against the skin gallery's
+    /// `index.json` instead. They used to land in `unchecked`, which made every
+    /// manual check report "Check Incomplete … reinstall from the gallery" — and
+    /// reinstalling could never fix it.
+    pub gallery_skins: Vec<InstalledExtension>,
+}
+
+/// Check `skins` against the skin gallery index. Returns the updates found and
+/// the skins the gallery doesn't list (user-made or imported — nothing to ask,
+/// and no way to get one, so they are neither "unchecked" nor "failed").
+fn match_gallery_skins(
+    skins: &[InstalledExtension],
+    index: &serde_json::Value,
+) -> (Vec<ExtensionUpdate>, Vec<String>) {
+    let entries = index["skins"].as_array().cloned().unwrap_or_default();
+    let mut updates = Vec::new();
+    let mut not_listed = Vec::new();
+    for skin in skins {
+        let Some(entry) = entries.iter().find(|e| e["id"].as_str() == Some(skin.id.as_str())) else {
+            not_listed.push(skin.name.clone());
+            continue;
+        };
+        let latest = entry["version"].as_str().unwrap_or("0.0.0");
+        let Some(file) = entry["file"].as_str() else {
+            continue;
+        };
+        if !semver_is_newer(&skin.version, latest) {
+            continue;
+        }
+        updates.push(ExtensionUpdate {
+            id: skin.id.clone(),
+            kind: skin.kind.clone(),
+            name: skin.name.clone(),
+            current_version: skin.version.clone(),
+            latest_version: latest.to_string(),
+            changelog: String::new(),
+            download_url: format!("{}{}", crate::skins::SKIN_GALLERY_BASE, file),
+            status: "available".to_string(),
+            min_app_version: None,
+        });
+    }
+    (updates, not_listed)
 }
 
 pub fn collect_installed_extensions(app_dir: &Path, native_plugins_dir: &Path) -> InstalledScan {
@@ -304,11 +347,19 @@ pub fn collect_installed_extensions(app_dir: &Path, native_plugins_dir: &Path) -
                         .to_string();
                     let name = skin["name"].as_str().unwrap_or(&id).to_string();
                     let update_url = skin["updateUrl"].as_str().unwrap_or_default().to_string();
+                    let version = skin["version"].as_str().unwrap_or("0.0.0").to_string();
                     if update_url.is_empty() {
-                        scan.unchecked.push(name);
+                        // No gallery skin carries an updateUrl — the gallery index
+                        // is the source. Checked against it in `check_all_updates`.
+                        scan.gallery_skins.push(InstalledExtension {
+                            id,
+                            kind: "skin".to_string(),
+                            name,
+                            version,
+                            update_url,
+                        });
                         continue;
                     }
-                    let version = skin["version"].as_str().unwrap_or("0.0.0").to_string();
                     scan.extensions.push(InstalledExtension {
                         id,
                         kind: "skin".to_string(),
@@ -355,6 +406,24 @@ pub fn check_all_updates(
         unchecked: scan.unchecked,
         ..Default::default()
     };
+
+    if !scan.gallery_skins.is_empty() {
+        let index = crate::skins::fetch_url(&crate::skins::skin_gallery_index_url())
+            .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string()));
+        match index {
+            Ok(index) => {
+                let (updates, not_listed) = match_gallery_skins(&scan.gallery_skins, &index);
+                report.updates.extend(updates);
+                if !not_listed.is_empty() {
+                    log::debug!("skins not in the gallery, not checked: {}", not_listed.join(", "));
+                }
+            }
+            Err(e) => {
+                log::warn!("skin gallery index fetch failed: {e}");
+                report.failed.extend(scan.gallery_skins.iter().map(|s| s.name.clone()));
+            }
+        }
+    }
 
     for chunk in scan.extensions.chunks(CHECK_CONCURRENCY) {
         // Scoped threads so the borrowed `ext` / `app_version` need no cloning
@@ -607,12 +676,14 @@ mod tests {
     }
 
     #[test]
-    fn test_skin_without_update_url_is_reported() {
+    fn test_skin_without_update_url_is_checked_against_the_gallery() {
         let tmp = tempfile::tempdir().unwrap();
         let native = tempfile::tempdir().unwrap();
 
-        // No gallery skin has ever carried updateUrl, so every installed skin
-        // landed in the silent-skip path. It is now visible.
+        // No gallery skin has ever carried updateUrl. Reporting them as
+        // "unchecked" told the user to reinstall — which can't add one — so
+        // every manual check said "Check Incomplete" forever. They are checked
+        // against the gallery index instead.
         let skins = crate::skins::skins_dir(tmp.path());
         std::fs::create_dir_all(&skins).unwrap();
         std::fs::write(
@@ -622,7 +693,43 @@ mod tests {
 
         let scan = collect_installed_extensions(tmp.path(), native.path());
         assert!(scan.extensions.is_empty());
-        assert_eq!(scan.unchecked, vec!["Dracula".to_string()]);
+        assert!(scan.unchecked.is_empty());
+        assert_eq!(scan.gallery_skins.len(), 1);
+        assert_eq!(scan.gallery_skins[0].id, "dracula");
+    }
+
+    fn skin(id: &str, name: &str, version: &str) -> InstalledExtension {
+        InstalledExtension {
+            id: id.into(),
+            kind: "skin".into(),
+            name: name.into(),
+            version: version.into(),
+            update_url: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_gallery_skins_match_by_id_and_version() {
+        let index = serde_json::json!({ "version": 1, "skins": [
+            { "id": "dracula", "version": "1.1.0", "file": "skins/dracula.json" },
+            { "id": "nord", "version": "1.2.0", "file": "skins/nord.json" },
+        ]});
+        let installed = [
+            skin("dracula", "Dracula", "1.1.0"),
+            skin("nord", "Nord", "1.1.0"),
+            skin("my-own", "My Own", "1.0.0"),
+        ];
+        let (updates, not_listed) = match_gallery_skins(&installed, &index);
+        assert_eq!(updates.len(), 1, "only Nord is behind");
+        assert_eq!(updates[0].id, "nord");
+        assert_eq!(updates[0].latest_version, "1.2.0");
+        assert_eq!(updates[0].status, "available");
+        assert_eq!(
+            updates[0].download_url,
+            format!("{}skins/nord.json", crate::skins::SKIN_GALLERY_BASE)
+        );
+        // A user-made skin has no source; it is neither an update nor a failure.
+        assert_eq!(not_listed, vec!["My Own".to_string()]);
     }
 
     #[test]

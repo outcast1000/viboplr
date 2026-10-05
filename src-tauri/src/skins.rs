@@ -1,6 +1,15 @@
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+/// The skin gallery. Skin files and the index both live here; an index entry's
+/// `file` is relative to this base.
+pub const SKIN_GALLERY_BASE: &str =
+    "https://raw.githubusercontent.com/outcast1000/viboplr-skins/main/";
+
+pub fn skin_gallery_index_url() -> String {
+    format!("{SKIN_GALLERY_BASE}index.json")
+}
+
 pub fn skins_dir(app_dir: &Path) -> PathBuf {
     let dir = app_dir.join("skins");
     std::fs::create_dir_all(&dir).ok();

@@ -48,9 +48,7 @@ pub fn open_skin_in_editor(state: State<'_, AppState>, id: String) -> Result<(),
 #[tauri::command]
 pub async fn fetch_skin_gallery() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        skins::fetch_url(
-            "https://raw.githubusercontent.com/outcast1000/viboplr-skins/main/index.json",
-        )
+        skins::fetch_url(&skins::skin_gallery_index_url())
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
