@@ -4,10 +4,13 @@ import { PermissionList } from "./PermissionList";
 // Progress dialog for a gallery plugin install. Opens the instant "Install" is
 // pressed and walks the backend phases (resolving → downloading → installing),
 // then folds the enable-now choice in as its final step instead of a separate
-// modal. Skin-safe; follows the "modals never dismiss on overlay click" rule —
+// modal. An install an AI assistant asked for (`useAssistantInstall`) opens one
+// step earlier, on "confirm": the user's click here is the approval — a "yes"
+// in the chat is not, since the assistant could claim one. Skin-safe; follows the "modals never dismiss on overlay click" rule —
 // the only way out is an explicit button (Cancel / Not now / Done / Close).
 
 export type InstallPhase =
+  | "confirm"
   | "resolving"
   | "downloading"
   | "installing"
@@ -32,6 +35,13 @@ export interface InstallFlowState {
    * a main-realm plugin, or one whose list was already approved).
    */
   permissions?: string[];
+  /** "confirm" step: what the user is being asked to install, and for whom. */
+  confirm?: {
+    kind: "plugin" | "skin";
+    author?: string;
+    description?: string;
+    experimental?: boolean;
+  };
 }
 
 interface Props {
@@ -40,9 +50,11 @@ interface Props {
   onEnable: () => void; // done step → enable the plugin
   onClose: () => void; // done (not now) / error dismiss
   onRetry: () => void; // error → try again
+  onConfirm?: () => void; // confirm → install
+  onDecline?: () => void; // confirm → don't install
 }
 
-const PHASE_LABEL: Record<Exclude<InstallPhase, "done" | "error">, string> = {
+const PHASE_LABEL: Record<Exclude<InstallPhase, "confirm" | "done" | "error">, string> = {
   resolving: "Preparing…",
   downloading: "Downloading…",
   installing: "Installing…",
@@ -97,7 +109,7 @@ function ErrorIcon() {
   );
 }
 
-export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry }: Props) {
+export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry, onConfirm, onDecline }: Props) {
   const working = flow.phase === "resolving" || flow.phase === "downloading" || flow.phase === "installing";
   const canCancel = flow.phase === "resolving" || flow.phase === "downloading";
   const asks = (flow.permissions?.length ?? 0) > 0;
@@ -114,12 +126,33 @@ export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry 
   return (
     <div className="ds-modal-overlay">
       <div className="ds-modal" style={{ width: 400 }} onClick={(e) => e.stopPropagation()}>
+        {flow.phase === "confirm" && (
+          <>
+            <h2 className="ds-modal-title">Install {flow.name}?</h2>
+            <p className="delete-confirm-warning">
+              Your AI assistant asked to install this {flow.confirm?.kind ?? "plugin"} from the Viboplr gallery.
+              Nothing is installed unless you say so here.
+            </p>
+            {flow.confirm?.description && <p className="plugin-install-desc">{flow.confirm.description}</p>}
+            {flow.confirm?.author && <p className="plugin-install-meta">by {flow.confirm.author}</p>}
+            {flow.confirm?.experimental && (
+              <p className="plugin-install-meta">Experimental — it may be rough around the edges.</p>
+            )}
+            <div className="ds-modal-actions">
+              <button className="ds-btn ds-btn--ghost" onClick={onDecline}>Don't install</button>
+              {/* No autoFocus: this dialog opens unprompted, so a key the
+                  user was already pressing must not answer it for them. */}
+              <button className="ds-btn ds-btn--primary" onClick={onConfirm}>Install</button>
+            </div>
+          </>
+        )}
+
         {working && (
           <>
             <h2 className="ds-modal-title">Installing {flow.name}</h2>
             <div className="plugin-install-body">
               <div className="plugin-install-phase">
-                <span>{PHASE_LABEL[flow.phase as Exclude<InstallPhase, "done" | "error">]}</span>
+                <span>{PHASE_LABEL[flow.phase as Exclude<InstallPhase, "confirm" | "done" | "error">]}</span>
                 {flow.phase === "downloading" && flow.downloaded != null && (
                   <span className="plugin-install-bytes">
                     {formatFileSize(flow.downloaded)}

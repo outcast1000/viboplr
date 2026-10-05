@@ -35,6 +35,7 @@ import type {
 import { classifyEffectiveSource } from "../queueEntry";
 import { decideDownload } from "../utils/downloadPlan";
 import type { GallerySkinEntry, SkinInfo } from "../types/skin";
+import type { AssistantInstallOutcome, AssistantInstallTarget } from "./useAssistantInstall";
 import type { InfoEntity } from "../types/informationTypes";
 import { buildEntityKey } from "../types/informationTypes";
 import {
@@ -161,8 +162,8 @@ export interface ControlApiDeps {
       name: string,
       artistName?: string,
     ) => Promise<ImageFetchResult>;
-    /** usePlugins.fetchPluginGallery — TTL-cached gallery index (read-only
-     *  discovery; install stays a permanent non-goal, see extensions.list). */
+    /** usePlugins.fetchPluginGallery — TTL-cached gallery index (discovery,
+     *  and the only place `extensions.install` may take an entry from). */
     fetchPluginGallery: (force?: boolean) => Promise<GalleryPluginEntry[]>;
   };
   skins: {
@@ -177,6 +178,9 @@ export interface ControlApiDeps {
     checking: boolean;
     lastChecked: number | null;
     checkForUpdates: (opts?: { silent?: boolean }) => Promise<unknown> | unknown;
+    /** useAssistantInstall.requestInstall — shows the in-app install dialog
+     *  and resolves when the user closes it. The dialog is the consent. */
+    requestInstall: (target: AssistantInstallTarget) => Promise<AssistantInstallOutcome>;
   };
   mini: {
     miniMode: boolean;
@@ -1401,10 +1405,9 @@ export function useControlApi(deps: ControlApiDeps) {
       }
 
       case "extensions.gallery": {
-        // Read-only discovery of the curated galleries (TTL-cached; a cold
-        // cache costs one network fetch each). Install/delete stays a
-        // permanent non-goal — an agent uses this to *recommend*; the user
-        // installs from the Extensions view.
+        // Discovery of the curated galleries (TTL-cached; a cold cache costs
+        // one network fetch each) — what an agent recommends from, and the
+        // only source `extensions.install` accepts.
         const [galleryPlugins, gallerySkins] = await Promise.all([
           d.plugins.fetchPluginGallery(),
           d.skins.fetchGallery(),
@@ -1412,7 +1415,54 @@ export function useControlApi(deps: ControlApiDeps) {
         return {
           plugins: annotateGalleryPlugins(galleryPlugins, d.plugins.pluginStates),
           skins: annotateGallerySkins(gallerySkins, d.skins.installedSkins, d.skins.activeSkinId),
-          note: "Read-only discovery. This API cannot install or delete extensions — recommend, and let the user install from the app's Extensions view.",
+          note: "To install one, call extensions install with its id: the app asks the user in its own dialog, and nothing is installed unless they press Install there. Deleting extensions is not possible through this API.",
+        };
+      }
+
+      // Install a GALLERY extension the user asked for. Never a URL: the id
+      // must name a curated entry. The app shows its own install dialog and
+      // this resolves when the user closes it — Rust gives the route a long
+      // timeout for exactly that wait. Already installed → no dialog.
+      case "extensions.install": {
+        const id = optionalString(payload.pluginId) ?? bad("an extension id is required");
+        const installedPlugin = d.plugins.pluginStates.find((p) => p.id === id);
+        if (installedPlugin) {
+          return { outcome: "already-installed", id, kind: "plugin", enabled: installedPlugin.enabled };
+        }
+        const [galleryPlugins, gallerySkins] = await Promise.all([
+          d.plugins.fetchPluginGallery(),
+          d.skins.fetchGallery(),
+        ]);
+        const pluginEntry = galleryPlugins.find((e) => e.id === id);
+        const skinEntry = pluginEntry ? undefined : gallerySkins.find((e) => e.id === id);
+        if (!pluginEntry && !skinEntry) {
+          bad(`"${id}" is not in the extension gallery (see extensions gallery for ids)`);
+        }
+        if (skinEntry && d.skins.installedSkins.some((s) => s.id === id || s.name.toLowerCase() === skinEntry.name.toLowerCase())) {
+          return { outcome: "already-installed", id, kind: "skin" };
+        }
+        const result = await d.extensions.requestInstall(
+          pluginEntry ? { kind: "plugin", entry: pluginEntry } : { kind: "skin", entry: skinEntry! },
+        );
+        const kind = pluginEntry ? "plugin" : "skin";
+        if (result.outcome !== "installed" || kind === "skin") return { ...result, id, kind };
+        // What the new plugin brought, so the assistant can go on to use it.
+        // `d` is the render the request started in — before the install — so
+        // let the enable commit and read the live deps.
+        await settledUiState();
+        const live = depsRef.current.plugins;
+        const state = live.pluginStates.find((p) => p.id === id);
+        return {
+          ...result,
+          id,
+          kind,
+          status: state?.status ?? null,
+          tools: live.assistantTools
+            .filter((t) => t.pluginId === id)
+            .map((t) => ({ name: t.name, description: t.description })),
+          note: result.enabled
+            ? "Installed and enabled. Its tools (if any) are callable through plugin_tools now; `extensions get` shows everything it contributes, and its settings page may still need the user (e.g. a sign-in)."
+            : "Installed but left off — the user chose Not now. It can be switched on later with set_enabled, but ask the user first.",
         };
       }
 

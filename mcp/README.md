@@ -81,8 +81,8 @@ tables are refused server-side), the app version (`app_version` — with
 `releases/latest` for `outcast1000/viboplr` and says whether the app is
 current; report-only, updates install from inside the app), extension/skin
 management (per-plugin capability summaries, one plugin's full detail, and
-read-only gallery browsing for recommendations — install/delete stays a
-permanent non-goal), window control (incl. size/position and the macOS window
+gallery browsing, and installing a gallery entry — which Viboplr asks the user
+about in its own dialog; deleting stays out of reach), window control (incl. size/position and the macOS window
 id), UI control (`navigate` opens a page — a view, an artist/album/tag/track by
 name, a Settings section, a plugin view; `ui_control` reads what is on screen
 and opens/closes panels and dialogs, never touching the library or files), log
@@ -176,9 +176,11 @@ non-default profile? Pass `--profile=<name>` (or `VIBOPLR_MCP_PROFILE`).
 
 ## What it can never do
 
-Same as the API: no file deletion, no playlist deletion, and no extension
-install/delete — an install verb would turn the token into arbitrary code
-execution, so it is a permanent non-goal. File-metadata writes, sidecar file
+Same as the API: no file deletion, no playlist deletion, no extension
+deletion — and no extension install without the user. `manage_extensions
+action=install` takes a gallery id only (never a URL) and opens Viboplr's own
+install dialog; it installs only when the user presses Install there, so the
+token alone can never turn into arbitrary code execution. File-metadata writes, sidecar file
 creation, in-collection moves and downloads exist but only behind the
 per-category write permissions above; there is no way to write outside a
 collection root, overwrite silently, or have the host pick a download

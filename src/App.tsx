@@ -103,6 +103,8 @@ import { useRetrieveModal } from "./hooks/useRetrieveModal";
 import { RetrieveModal } from "./components/RetrieveModal";
 import { useExtensions, type PermissionRequest } from "./hooks/useExtensions";
 import { PluginPermissionPrompt } from "./components/PluginPermissionPrompt";
+import { PluginInstallModal } from "./components/PluginInstallModal";
+import { useAssistantInstall } from "./hooks/useAssistantInstall";
 
 import { useLikeActions } from "./hooks/useLikeActions";
 import { nextTriState } from "./likeKeys";
@@ -1582,6 +1584,16 @@ function App() {
     onNotify: notify,
     getPermissionsToApprove: plugins.permissionsToApprove,
     onPermissionsNeeded: enqueuePermissionRequests,
+  });
+
+  // Gallery installs an AI assistant asks for (control API extensions.install):
+  // the app's own dialog asks the user, then runs the Extensions view's flow.
+  const assistantInstall = useAssistantInstall({
+    installPlugin: plugins.installFromGallery,
+    installSkin: skins.installFromGallery,
+    togglePlugin: plugins.togglePlugin,
+    approvePermissions: plugins.approvePermissions,
+    permissionsToApprove: plugins.permissionsToApprove,
   });
 
   // Update notice banner (top of the content column). The sidebar's Settings
@@ -4240,6 +4252,7 @@ function App() {
       checking: extensionsHook.checking,
       lastChecked: extensionsHook.lastChecked,
       checkForUpdates: extensionsHook.checkForUpdates,
+      requestInstall: assistantInstall.requestInstall,
     },
     collections: { resync: collectionActions.resyncCollection },
     library: {
@@ -6535,6 +6548,17 @@ function App() {
           />
         );
       })()}
+      {assistantInstall.flow && (
+        <PluginInstallModal
+          flow={assistantInstall.flow}
+          onConfirm={assistantInstall.confirm}
+          onDecline={assistantInstall.decline}
+          onCancel={assistantInstall.cancel}
+          onEnable={assistantInstall.enable}
+          onClose={assistantInstall.close}
+          onRetry={assistantInstall.retry}
+        />
+      )}
       {/* After the wizard in the tree so it stacks above it: the wizard's
           plugin step can enable a plugin that asks for permissions. */}
       {permissionQueue.length > 0 && (() => {

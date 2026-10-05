@@ -1028,6 +1028,17 @@
   overflow-y: auto;
   margin: 0 0 16px;
 }
+/* The confirm step of an assistant-requested install: what is being installed. */
+.plugin-install-desc {
+  margin: 0 0 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.plugin-install-meta {
+  margin: 0 0 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
 .plugin-install-phase {
   display: flex;
   align-items: baseline;

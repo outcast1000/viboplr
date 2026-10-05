@@ -436,9 +436,9 @@ export function buildAssistantRoster(
   }));
 }
 
-/** Gallery plugin entries annotated against the installed set. Read-only
- *  discovery: install/delete stays a permanent non-goal of the API, so this
- *  exists for *recommendations* — the user installs from the Extensions view. */
+/** Gallery plugin entries annotated against the installed set — what an
+ *  assistant recommends from. Installing goes through `extensions.install`,
+ *  which the user approves in the app's own dialog. */
 export function annotateGalleryPlugins(
   entries: GalleryPluginEntry[],
   pluginStates: Array<Pick<PluginState, "id" | "enabled"> & { manifest?: { version?: string } }>,

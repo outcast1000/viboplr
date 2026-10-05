@@ -189,6 +189,8 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
         skins: [],
         note: "read-only",
       });
+    if (req.url === "/v1/extensions/qbittorrent/install" && req.method === "POST")
+      return reply(200, { outcome: "declined", id: "qbittorrent", kind: "plugin" });
     if (req.url === "/v1/extensions/ytdlp" && req.method === "GET")
       return reply(200, {
         id: "ytdlp",
@@ -774,6 +776,21 @@ describe("MCP server started with the retired --tier=full flag", () => {
     const missing = await rpc.request("tools/call", {
       name: "manage_extensions",
       arguments: { action: "get" },
+    });
+    expect((missing.result as { isError?: boolean }).isError).toBe(true);
+  });
+
+  it("routes manage_extensions install to the app, which asks the user", async () => {
+    const res = await rpc.request("tools/call", {
+      name: "manage_extensions",
+      arguments: { action: "install", id: "qbittorrent" },
+    });
+    expect(JSON.parse(toolText(res.result)).outcome).toBe("declined");
+    expect(api.seen.some((r) => r.method === "POST" && r.url === "/v1/extensions/qbittorrent/install")).toBe(true);
+
+    const missing = await rpc.request("tools/call", {
+      name: "manage_extensions",
+      arguments: { action: "install" },
     });
     expect((missing.result as { isError?: boolean }).isError).toBe(true);
   });

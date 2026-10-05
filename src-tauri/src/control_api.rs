@@ -517,14 +517,17 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         // the webview and lands the file (`assistant_land_download`); DELETE
         // cancels the in-flight resolve (kills the provider's subprocess).
         .route("/v1/downloads/plugin", post(handle_plugin_download).delete(handle_plugin_download_cancel))
-        // Extensions & skins: list / enable-disable / update check / apply skin.
-        // Install and delete are deliberate NON-goals — see the module doc.
+        // Extensions & skins: list / enable-disable / update check / apply skin,
+        // and install of a GALLERY entry — which the app puts to the user in
+        // its own dialog, so the request waits on a person (long timeout).
+        // Delete stays a deliberate non-goal.
         .route("/v1/extensions", get(|s| handle_bridge_get(s, "extensions.list")))
         // Static before param: matchit gives "gallery" priority over "{id}".
         .route("/v1/extensions/gallery", get(|s| handle_bridge_get_slow(s, "extensions.gallery")))
         .route("/v1/extensions/check-updates", post(|s, b| handle_bridge_body(s, "extensions.checkUpdates", json!({}), b)))
         .route("/v1/extensions/{id}", get(|s, p| handle_extension_get(s, p, "extensions.get")))
         .route("/v1/extensions/{id}/enabled", post(|s, p, b| handle_extension_bridge(s, p, "extensions.setEnabled", b)))
+        .route("/v1/extensions/{id}/install", post(handle_extension_install))
         .route("/v1/skins/apply", post(|s, b| handle_bridge_body(s, "skins.apply", json!({}), b)))
         .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
         // Outermost, so rejected (401/405) requests are logged too.
@@ -1287,6 +1290,25 @@ async fn handle_track_bridge(
         Err(e) => error_response(StatusCode::BAD_REQUEST, e),
     }
 }
+
+/// Install a gallery extension. No write scope: every install is asked in the
+/// app's own dialog (the user's click there is the consent, not anything the
+/// caller sends), and only an id the curated gallery lists is accepted — the
+/// dispatcher looks the entry up itself, so no URL ever crosses this API. The
+/// wait covers the user reading the dialog plus the download.
+async fn handle_extension_install(
+    state: AxumState<ServerState>,
+    path: AxumPath<String>,
+) -> Response {
+    if path.0.is_empty() || path.0.len() > 200 {
+        return error_response(StatusCode::BAD_REQUEST, "invalid extension id");
+    }
+    let timeout = state.0.bridge_timeout.saturating_mul(INSTALL_WAIT_FACTOR);
+    bridge(&state.0, "extensions.install", json!({ "pluginId": path.0 }), timeout).await
+}
+
+/// `bridge_timeout` multiples an install may wait: 10 minutes at the default.
+const INSTALL_WAIT_FACTOR: u32 = 60;
 
 /// Plugin ids are directory names (strings); the dispatcher validates against
 /// the installed set, this only bounds the obvious junk.
