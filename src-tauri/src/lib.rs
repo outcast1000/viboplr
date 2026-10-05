@@ -1009,6 +1009,11 @@ pub fn run() {
 
     builder
         .setup(move |app| {
+            // Only the instance that stays gets here — a second launch exits
+            // inside the single-instance plugin's setup, which runs first — so
+            // this is where the log file may be rotated and opened.
+            logging::open_file_log();
+
             // The main window is built here rather than by config (`"create":
             // false` in tauri.conf.json) so its webview can carry
             // `on_web_resource_request`: that hook is the only way to put a
