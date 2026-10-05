@@ -335,6 +335,15 @@ export interface TrackRowItem {
   // Audio-or-video, when the plugin knows — same advisory claim as
   // PluginTrack.kind, so a row dragged into the queue classifies pre-play.
   kind?: "audio" | "video";
+  // A short state word ("Waiting", "Failed", "Ready") drawn as a chip at the
+  // start of the subtitle line, so a list can be scanned for state instead of
+  // read row by row. The variant is a colour hint over skin tokens; the label
+  // carries the meaning (≤ 24 chars, longer is ellipsised). Older hosts ignore it.
+  badge?: { label: string; variant?: "default" | "accent" | "success" | "warning" | "error" | "muted" };
+  // 0–1: a thin bar under the subtitle, for a row whose work is under way (a
+  // download). Omit or null for no bar — never 0 for "unknown". Older hosts
+  // ignore it, so keep the percentage in the subtitle text as well.
+  progress?: number | null;
 }
 
 /** One step of an assistant turn's work — a tool call, or interim model text

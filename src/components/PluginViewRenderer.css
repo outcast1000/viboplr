@@ -1254,3 +1254,47 @@
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
+
+/* Row status (track-row-list `badge` / `progress`). The chip leads off the
+   subtitle line in the row's own type size; its colour is a hint drawn from
+   the skin's semantic tokens over a faint wash of the same colour, so it reads
+   on light and dark skins alike. The word carries the meaning. */
+.ptr-badge {
+  display: inline-block;
+  vertical-align: baseline;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  line-height: 1.55;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-secondary) 14%, transparent);
+}
+.ptr-badge--accent { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ptr-badge--success { color: var(--success); background: color-mix(in srgb, var(--success) 16%, transparent); }
+.ptr-badge--warning { color: var(--warning); background: color-mix(in srgb, var(--warning) 16%, transparent); }
+.ptr-badge--error { color: var(--error); background: color-mix(in srgb, var(--error) 16%, transparent); }
+.ptr-badge--muted { color: var(--text-tertiary); background: color-mix(in srgb, var(--text-tertiary) 12%, transparent); }
+
+/* Thin, under the subtitle, inside the info column — so it spans the text,
+   not the whole row, and the hover tray and meta keep their places. */
+.ptr-progress {
+  display: block;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+}
+.ptr-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width 0.4s var(--ease-out-quart, ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ptr-progress-fill { transition: none; }
+}

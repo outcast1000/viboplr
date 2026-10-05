@@ -14,6 +14,7 @@ import { resolveImageUrl } from "../../utils/resolveImageUrl";
 import { resolveTrackImage } from "../../utils/trackImage";
 import { useImageCache } from "../../hooks/useImageCache";
 import { usePointerFocusGuard } from "../../hooks/usePointerFocusGuard";
+import { normalizeRowBadge, rowProgressPercent } from "../../utils/pluginRowStatus";
 import { sanitizeHTML } from "./htmlSanitize";
 import { buildPluginMenuSpecs } from "../../contextMenu/pluginMenuGroups";
 import {
@@ -1050,7 +1051,8 @@ function PluginTrackRowsSelectable({
               leading={numbered ? <span className="ptr-num">{i + 1}</span> : undefined}
               thumb={art ? { kind: "image", url: art } : { kind: "initials", text: getInitials(item.title) }}
               title={item.title}
-              subtitle={item.subtitle}
+              subtitle={rowSubtitle(item)}
+              belowSubtitle={<RowProgress item={item} />}
               column={
                 columns?.length ? <ColumnCells columns={columns} item={item} />
                 : showHeader ? <span className="ptr-album">{item.album ?? ""}</span>
@@ -1306,13 +1308,43 @@ export function PluginTrackRowsBody({
           ) : null}
           <div className="ptr-info">
             <span className="ptr-title">{item.title}</span>
-            {item.subtitle && <span className="ptr-subtitle">{item.subtitle}</span>}
+            {(item.subtitle || normalizeRowBadge(item.badge)) && <span className="ptr-subtitle">{rowSubtitle(item)}</span>}
+            <RowProgress item={item} />
           </div>
           {showAlbum && <span className="ptr-album">{item.album ?? ""}</span>}
           {item.duration && <span className="ptr-duration">{item.duration}</span>}
         </div>
       ))}
     </div>
+  );
+}
+
+// A row's status chip, leading off its subtitle line. Inline rather than in a
+// column of its own: a trailing column would sit under the hover-action tray
+// (the #129 problem), and the title line is a two-line clamp it would fight.
+function RowBadge({ item }: { item: TrackRowItem }) {
+  const badge = normalizeRowBadge(item.badge);
+  if (!badge) return null;
+  return <span className={`ptr-badge ptr-badge--${badge.variant}`}>{badge.label}</span>;
+}
+
+// The subtitle with the chip in front of it, or undefined when there is
+// neither — TrackRow draws no secondary line for undefined.
+function rowSubtitle(item: TrackRowItem) {
+  const hasBadge = normalizeRowBadge(item.badge) != null;
+  if (!hasBadge) return item.subtitle;
+  return <><RowBadge item={item} />{item.subtitle}</>;
+}
+
+// The thin bar under the subtitle for work under way. Nothing when the plugin
+// reported no figure — a bar at 0% for "unknown" would state a fact nobody gave.
+function RowProgress({ item }: { item: TrackRowItem }) {
+  const pct = rowProgressPercent(item.progress);
+  if (pct == null) return null;
+  return (
+    <span className="ptr-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+      <span className="ptr-progress-fill" style={{ width: `${pct}%` }} />
+    </span>
   );
 }
 
