@@ -103,7 +103,7 @@ describe("buildPluginOverflowItems", () => {
     ];
     const out = buildPluginOverflowItems(matching, target, dispatch);
 
-    // flat item first, then the grouped submenu
+    // top level is alphabetical
     expect(out.map(i => (i.kind === "submenu" ? `submenu:${i.label}` : i.kind === "action" ? i.label : "---"))).toEqual([
       "Scrobble",
       "submenu:Search",
@@ -124,9 +124,25 @@ describe("buildPluginOverflowItems", () => {
     const submenu = out[0];
     expect(submenu.kind).toBe("submenu");
     if (submenu.kind === "submenu") {
-      submenu.items[0].onClick();
+      const leaf = submenu.items[0];
+      if ("onClick" in leaf) leaf.onClick();
       expect(dispatch).toHaveBeenCalledWith("search-providers", "search:track:g", target);
     }
+  });
+
+  it("nests a plugin's own submenu inside its plugin submenu, as the native menu does", () => {
+    const matching: PluginMenuItem[] = [
+      { pluginId: "ffmpeg", pluginName: "FFmpeg Tools", id: "info", label: "Media Info", targets: ["track"] },
+      { pluginId: "ffmpeg", pluginName: "FFmpeg Tools", id: "mp3", label: "MP3", targets: ["track"], submenuLabel: "Convert to…" },
+    ];
+    const out = buildPluginOverflowItems(matching, target, dispatch);
+    expect(out).toHaveLength(1);
+    const plugin = out[0];
+    if (plugin.kind !== "submenu") throw new Error("expected a plugin submenu");
+    expect(plugin.label).toBe("FFmpeg Tools");
+    expect(plugin.items.map(s => s.label)).toEqual(["Media Info", "Convert to…"]);
+    const convert = plugin.items[1];
+    expect("items" in convert && convert.items.map(s => s.label)).toEqual(["MP3"]);
   });
 
   it("returns [] when nothing matches", () => {

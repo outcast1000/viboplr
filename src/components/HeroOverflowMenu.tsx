@@ -1,9 +1,15 @@
-import type { HeroOverflowItem } from "../utils/heroOverflow";
+import type { HeroOverflowItem, HeroOverflowSubItem } from "../utils/heroOverflow";
 import { showNativeMenu, type MenuItemSpec } from "../nativeMenu";
 
 interface Props {
   items: HeroOverflowItem[];
   triggerLabel?: string;
+}
+
+function subToSpec(s: HeroOverflowSubItem): MenuItemSpec {
+  return "items" in s
+    ? { kind: "submenu", text: s.label, items: s.items.map(subToSpec) }
+    : { kind: "item", text: s.label, action: s.onClick };
 }
 
 function toSpecs(items: HeroOverflowItem[]): MenuItemSpec[] {
@@ -13,7 +19,7 @@ function toSpecs(items: HeroOverflowItem[]): MenuItemSpec[] {
       return {
         kind: "submenu",
         text: item.label,
-        items: item.items.map((s) => ({ kind: "item" as const, text: s.label, action: s.onClick })),
+        items: item.items.map(subToSpec),
       };
     }
     return { kind: "item", text: item.label, action: item.onClick };

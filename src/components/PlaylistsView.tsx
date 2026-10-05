@@ -39,7 +39,7 @@ import { SavePlaylistModal } from "./SavePlaylistModal";
 import { useImageCache } from "../hooks/useImageCache";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveTrackImage, pickEntityImagePath } from "../utils/trackImage";
-import { pluginMenuItemLabel } from "../contextMenu/pluginMenuGroups";
+import { buildPluginMenuSpecs } from "../contextMenu/pluginMenuGroups";
 import "./PlaylistsView.css";
 
 interface Playlist {
@@ -670,9 +670,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       const matching = pluginMenuItems.filter(item => item.targets.includes("track"));
       if (matching.length > 0) {
         specs.push({ kind: "separator" });
-        matching.forEach(item => {
-          specs.push({ kind: "item", text: pluginMenuItemLabel(item), action: () => onPluginAction?.(item.pluginId, item.id, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined, albumTitle: t.album_name ?? undefined }) });
-        });
+        specs.push(...buildPluginMenuSpecs(matching, { kind: "track", title: t.title, artistName: t.artist_name ?? undefined, albumTitle: t.album_name ?? undefined }, (pid, aid, tg) => onPluginAction?.(pid, aid, tg)));
       }
     }
     showNativeMenu(e.clientX, e.clientY, specs);
@@ -788,9 +786,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       const matching = pluginMenuItems.filter(item => item.targets.includes("playlist"));
       if (matching.length > 0) {
         specs.push({ kind: "separator" });
-        matching.forEach(item => {
-          specs.push({ kind: "item", text: pluginMenuItemLabel(item), action: () => onPluginAction?.(item.pluginId, item.id, { kind: "playlist", playlistId: pl.id, playlistName: pl.name }) });
-        });
+        specs.push(...buildPluginMenuSpecs(matching, { kind: "playlist", playlistId: pl.id, playlistName: pl.name }, (pid, aid, tg) => onPluginAction?.(pid, aid, tg)));
       }
     }
     await showNativeMenu(x, y, specs);

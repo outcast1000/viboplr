@@ -15,7 +15,7 @@ import { resolveTrackImage } from "../../utils/trackImage";
 import { useImageCache } from "../../hooks/useImageCache";
 import { usePointerFocusGuard } from "../../hooks/usePointerFocusGuard";
 import { sanitizeHTML } from "./htmlSanitize";
-import { pluginMenuItemLabel } from "../../contextMenu/pluginMenuGroups";
+import { buildPluginMenuSpecs } from "../../contextMenu/pluginMenuGroups";
 import {
   buildLinePath,
   buildAreaPath,
@@ -110,9 +110,7 @@ export function PluginCardGrid({
     const matching = pluginMenuItems?.filter(mi => mi.targets.includes(targetKind)) ?? [];
     if (matching.length > 0) {
       specs.push({ kind: "separator" });
-      matching.forEach(mi => {
-        specs.push({ kind: "item", text: pluginMenuItemLabel(mi), action: () => onPluginAction?.(mi.pluginId, mi.id, { kind: targetKind, playlistName: item.title, tracks: item.tracks }) });
-      });
+      specs.push(...buildPluginMenuSpecs(matching, { kind: targetKind, playlistName: item.title, tracks: item.tracks }, (pid, aid, tg) => onPluginAction?.(pid, aid, tg)));
     }
     await showNativeMenu(x, y, specs);
   }, [onAction, pluginMenuItems, onPluginAction]);

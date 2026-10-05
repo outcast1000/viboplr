@@ -1,9 +1,14 @@
 import type { PluginMenuItem, PluginContextMenuTarget } from "../types/plugin";
-import { groupBySubmenuLabel, pluginMenuItemLabel, pluginSubmenuLabels } from "../contextMenu/pluginMenuGroups";
+import { layoutPluginMenu, type PluginMenuNode } from "../contextMenu/pluginMenuGroups";
+
+/** A submenu entry: an action, or a nested submenu (plugin menus nest). */
+export type HeroOverflowSubItem =
+  | { id: string; label: string; onClick: () => void }
+  | { id: string; label: string; items: HeroOverflowSubItem[] };
 
 export type HeroOverflowItem =
   | { kind: "action"; id: string; label: string; onClick: () => void; iconKey?: string; danger?: boolean }
-  | { kind: "submenu"; id: string; label: string; items: Array<{ id: string; label: string; onClick: () => void }> }
+  | { kind: "submenu"; id: string; label: string; items: HeroOverflowSubItem[] }
   | { kind: "divider" };
 
 export interface HeroImageActions {
@@ -63,40 +68,25 @@ export function buildHeroOverflowItems(args: HeroOverflowArgs): HeroOverflowItem
 }
 
 /**
- * Build detail-page overflow items from a plugin's context-menu items for an
- * entity. Mirrors the native menu grouping (flat items, then one submenu per
- * `submenuLabel`); each leaf dispatches to the owning plugin. This is what lets
- * plugin-registered actions (e.g. the search-providers "Search" submenu) appear
- * in the detail-page ⋯ menu, not just the right-click menu.
+ * Build detail-page overflow items from the plugin context-menu items for an
+ * entity, laid out exactly like the native right-click menu
+ * (`layoutPluginMenu`); each leaf dispatches to the owning plugin. This is what
+ * lets plugin-registered actions (e.g. the search-providers "Search" submenu)
+ * appear in the detail-page ⋯ menu, not just the right-click menu.
  */
 export function buildPluginOverflowItems(
   matching: PluginMenuItem[],
   target: PluginContextMenuTarget,
   dispatch: (pluginId: string, actionId: string, t: PluginContextMenuTarget) => void,
 ): HeroOverflowItem[] {
-  if (matching.length === 0) return [];
-  const { flat, groups } = groupBySubmenuLabel(matching);
-  const out: HeroOverflowItem[] = [];
-  for (const item of flat) {
-    out.push({
-      kind: "action",
-      id: `${item.pluginId}:${item.id}`,
-      label: pluginMenuItemLabel(item),
-      onClick: () => dispatch(item.pluginId, item.id, target),
-    });
-  }
-  for (const [label, items] of groups) {
-    const labels = pluginSubmenuLabels(label, items);
-    out.push({
-      kind: "submenu",
-      id: `submenu:${label}`,
-      label: labels.submenu,
-      items: items.map((it) => ({
-        id: `${it.pluginId}:${it.id}`,
-        label: labels.leaf(it),
-        onClick: () => dispatch(it.pluginId, it.id, target),
-      })),
-    });
-  }
-  return out;
+  const toSub = (node: PluginMenuNode): HeroOverflowSubItem =>
+    node.kind === "leaf"
+      ? { id: `${node.item.pluginId}:${node.item.id}`, label: node.text, onClick: () => dispatch(node.item.pluginId, node.item.id, target) }
+      : { id: `submenu:${node.key}`, label: node.text, items: node.children.map(toSub) };
+  return layoutPluginMenu(matching).map((node): HeroOverflowItem => {
+    const sub = toSub(node);
+    return "items" in sub
+      ? { kind: "submenu", id: sub.id, label: sub.label, items: sub.items }
+      : { kind: "action", id: sub.id, label: sub.label, onClick: sub.onClick };
+  });
 }
