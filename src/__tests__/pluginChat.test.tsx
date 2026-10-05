@@ -87,6 +87,25 @@ describe("plugin chat node", () => {
     fireEvent.click(screen.getByText("Approve"));
     fireEvent.click(screen.getByText("Deny"));
     expect(onAction.mock.calls.map((c) => c[0])).toEqual(["approve", "deny"]);
+    expect(screen.queryByText("Approve all")).toBeNull();
+  });
+
+  it("offers Approve all only when the plugin asks for it", () => {
+    const onAction = vi.fn();
+    const node = chat({ approval: { title: "Approve this action?", message: "x()", approveAction: "approve", denyAction: "deny", approveAllAction: "approve-all" } });
+    render(<PluginViewRenderer pluginName="AI" currentTrack={null} data={view(node)} onAction={onAction} />);
+    fireEvent.click(screen.getByText("Approve all"));
+    expect(onAction).toHaveBeenCalledWith("approve-all");
+  });
+
+  it("keeps New chat usable while a turn waits for approval", () => {
+    const onAction = vi.fn();
+    const node = chat({ approval: { title: "Approve this action?", message: "x()", approveAction: "approve", denyAction: "deny" } });
+    render(<PluginViewRenderer pluginName="AI" currentTrack={null} data={view(node)} onAction={onAction} />);
+    const plus = screen.getByLabelText("New chat");
+    expect((plus as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(plus);
+    expect(onAction).toHaveBeenCalledWith("new-chat");
   });
 
   it("shows suggestions on an empty thread", () => {

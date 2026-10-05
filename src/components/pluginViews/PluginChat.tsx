@@ -292,7 +292,6 @@ function Composer({ composer, busy, onAction }: { composer: PluginChatNode["comp
             title={composer.newLabel ?? "New chat"}
             aria-label={composer.newLabel ?? "New chat"}
             onClick={() => onAction?.(composer.newAction!)}
-            disabled={busy}
           >
             <PlusIcon />
           </button>
@@ -395,6 +394,11 @@ export function PluginChat({ node, onAction, fill }: { node: PluginChatNode; onA
                 <button type="button" className="ds-btn ds-btn--primary" onClick={() => onAction?.(node.approval!.approveAction)}>
                   {node.approval.approveLabel ?? "Approve"}
                 </button>
+                {node.approval.approveAllAction && (
+                  <button type="button" className="ds-btn ds-btn--secondary" onClick={() => onAction?.(node.approval!.approveAllAction!)}>
+                    {node.approval.approveAllLabel ?? "Approve all"}
+                  </button>
+                )}
                 <button type="button" className="ds-btn ds-btn--ghost" onClick={() => onAction?.(node.approval!.denyAction)}>
                   {node.approval.denyLabel ?? "Deny"}
                 </button>

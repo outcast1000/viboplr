@@ -381,6 +381,10 @@ export interface PluginChatNode {
     denyLabel?: string;
     approveAction: string;
     denyAction: string;
+    // Optional third button between Approve and Deny ("Approve all"). What it
+    // covers and how it is revoked is the plugin's decision; older hosts omit it.
+    approveAllLabel?: string;
+    approveAllAction?: string;
   } | null;
   composer: {
     // Fired with `{ query }` on Enter / the send button; the host clears the draft.
@@ -390,6 +394,8 @@ export interface PluginChatNode {
     // While set, the send button becomes Stop and fires this.
     stopAction?: string;
     // The "+" at the composer's left — the plugin decides what it means (a new chat).
+    // It stays enabled while a turn runs or awaits approval: that is when a user
+    // most wants out, and the plugin stops the turn itself.
     newAction?: string;
     newLabel?: string;
     // Muted text at the composer's right (the model name); clickable with footerAction.
