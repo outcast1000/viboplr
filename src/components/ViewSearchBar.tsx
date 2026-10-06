@@ -50,12 +50,14 @@ export function ViewSearchBar({ query, onQueryChange, placeholder, children, aut
             if (e.key === "Escape") {
               onQueryChange("");
               inputRef.current?.blur();
-            } else if (e.key === "ArrowDown") {
+            } else if (e.key === "ArrowDown" && onArrowDown) {
+              // Only when a result list takes the key — otherwise ↑/↓ are the
+              // field's own (on macOS they move to the start / end of the line).
               e.preventDefault();
-              onArrowDown?.();
-            } else if (e.key === "ArrowUp") {
+              onArrowDown();
+            } else if (e.key === "ArrowUp" && onArrowUp) {
               e.preventDefault();
-              onArrowUp?.();
+              onArrowUp();
             } else if (e.key === "Enter") {
               e.preventDefault();
               onEnter?.();

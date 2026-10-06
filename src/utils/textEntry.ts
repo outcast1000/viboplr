@@ -52,3 +52,16 @@ export function isTextEntryTarget(target: EventTarget | null): boolean {
   const value = field.getAttribute("contenteditable")?.toLowerCase() ?? "";
   return value !== "false";
 }
+
+// Modifier chords a text field uses to move the caret: Cmd+←/→/↑/↓ jump to the
+// start / end of the line or field on macOS, Ctrl+←/→ jump by word on Windows
+// and Linux. The app binds Cmd/Ctrl+←/→ to previous / next track, so without
+// this a user editing a search box skipped tracks instead of moving the caret.
+const CARET_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
+
+/** True when a keydown in a text field is the field's own editing key, so an
+ *  app shortcut must leave it alone. Plain keys are already covered by the
+ *  caller's "not while typing" gate; this is for the Cmd/Ctrl chords. */
+export function textFieldOwnsKey(e: { key: string }, inTextField: boolean): boolean {
+  return inTextField && CARET_KEYS.has(e.key);
+}

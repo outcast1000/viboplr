@@ -9,7 +9,7 @@
 import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { shouldWakeMiniSearch } from "../utils/miniSearchTrigger";
-import { isTextEntryTarget } from "../utils/textEntry";
+import { isTextEntryTarget, textFieldOwnsKey } from "../utils/textEntry";
 import type { QueueTrack } from "../types";
 import type { useLibrary } from "./useLibrary";
 import type { usePlayback } from "./usePlayback";
@@ -133,6 +133,10 @@ export function useInAppKeyboardShortcuts(deps: KeyboardShortcutDeps) {
       }
 
       if (!(e.ctrlKey || e.metaKey)) return;
+
+      // Cmd/Ctrl+arrows in a text field move the caret (line start/end, word
+      // jump) — they must not skip tracks.
+      if (textFieldOwnsKey(e, isInput)) return;
 
       // Cmd/Ctrl+K: focus central search
       if (e.key === "k") {

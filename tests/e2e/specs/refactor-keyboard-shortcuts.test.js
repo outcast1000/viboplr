@@ -55,3 +55,33 @@ test('Cmd+P toggles the queue panel collapsed class', async ({ page }) => {
     .poll(() => app.evaluate((el) => el.classList.contains('queue-collapsed')))
     .toBe(!initiallyCollapsed);
 });
+
+// Cmd/Ctrl+←/→ is previous / next track — and also how a text field jumps to
+// the line's start/end (macOS) or by word (Windows). Typing in a search box
+// used to skip tracks instead of moving the caret.
+test('Cmd/Ctrl+arrows move the caret in a search box instead of skipping tracks', async ({ page }) => {
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.locator('.entity-list-item').first().waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator('.entity-list-item').first().dblclick();
+  await expect(page.locator('.now-title')).toContainText('First Song');
+  // A second track, so "next" has somewhere to go.
+  await page.locator('.entity-list-item').nth(1).hover();
+  await page.locator('.entity-list-item').nth(1).getByRole('button', { name: 'Enqueue' }).click();
+  await expect(page.locator('.queue-item-line1').filter({ hasText: 'Second Song' })).toHaveCount(1);
+
+  const box = page.locator('.central-search-container input');
+  await box.click();
+  await box.fill('abc');
+  for (const chord of ['Meta+ArrowLeft', 'Meta+ArrowRight', 'Control+ArrowLeft', 'Control+ArrowRight']) {
+    await page.keyboard.press(chord);
+  }
+  await page.waitForTimeout(300);
+  await expect(page.locator('.now-title')).toContainText('First Song');
+  await expect(box).toHaveValue('abc');
+
+  // Control: outside a text field the same chord still skips.
+  await box.blur();
+  await page.locator('.sidebar').click({ position: { x: 5, y: 5 } });
+  await page.keyboard.press('Meta+ArrowRight');
+  await expect(page.locator('.now-title')).not.toContainText('First Song');
+});

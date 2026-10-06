@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isTextEntryTarget } from "../utils/textEntry";
+import { isTextEntryTarget, textFieldOwnsKey } from "../utils/textEntry";
 
 // Real elements rather than tagName stubs: the predicate reads `.type` and
 // `.isContentEditable`, both of which are resolved properties the DOM computes
@@ -60,5 +60,23 @@ describe("isTextEntryTarget", () => {
   it("survives a null or non-element target", () => {
     expect(isTextEntryTarget(null)).toBe(false);
     expect(isTextEntryTarget(window as unknown as EventTarget)).toBe(false);
+  });
+});
+
+// Cmd/Ctrl+←/→ is previous / next track app-wide, and the same chord is how a
+// text field jumps to the line's start/end (macOS) or by word (Windows).
+describe("textFieldOwnsKey", () => {
+  it("gives caret keys to a text field", () => {
+    for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]) {
+      expect(textFieldOwnsKey({ key }, true), key).toBe(true);
+    }
+  });
+
+  it("leaves app shortcuts alone in a text field", () => {
+    for (const key of ["k", "1", "f", "l", "p", "m", "b"]) expect(textFieldOwnsKey({ key }, true), key).toBe(false);
+  });
+
+  it("claims nothing outside a text field", () => {
+    expect(textFieldOwnsKey({ key: "ArrowRight" }, false)).toBe(false);
   });
 });
