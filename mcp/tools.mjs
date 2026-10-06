@@ -138,7 +138,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["library"],
     description:
-      "Full-text search the music library. Returns raw rows (snake_case); a track row's `id` is the library id every other tool takes.",
+      "Full-text search the music library. Returns raw rows (snake_case); a track row's `id` is the library id every other tool takes. For an album's or artist's tracks in order (e.g. to queue an album), use browse; for counts and analytics, query_library.",
     inputSchema: obj(
       {
         query: str("Search text"),
@@ -271,7 +271,7 @@ export const TOOLS = [
     readOnly: false,
     categories: ["playback", "queue"],
     description:
-      "Replace the queue with these library track ids and start playing. Waits for the first track to actually play (see `wait`) and reports landed / nowPlaying / loading / error.",
+      "Replace the queue with these library track ids and start playing. Waits for the first track to actually play (see `wait`) and reports landed / nowPlaying / loading / error. Library ids only: external results from catalog_search play through catalog_play, a saved playlist through play_playlist.",
     inputSchema: obj(
       {
         trackIds: numArr("Library track ids, in play order"),
@@ -423,7 +423,7 @@ export const TOOLS = [
     readOnly: false,
     categories: ["tags"],
     description:
-      "Add/remove database tags on a library track (files are never touched). Returns the final tag set.",
+      "Add/remove database tags on a library track (files are never touched). Returns the final tag set. To write genre tags INTO the audio files as well, use write_file_tags.",
     inputSchema: obj(
       {
         trackId: num("Library track id"),
@@ -711,7 +711,7 @@ export const TOOLS = [
     readOnly: true,
     categories: ["catalog"],
     description:
-      "Search external catalogs (YouTube, Spotify, TIDAL…) through their plugins. action=providers lists what's installed; action=search runs a query (SLOW — up to a minute) and returns a session-cached searchId + indexed tracks for catalog_play. External results have no library ids.",
+      "Search external catalogs (YouTube, Spotify, TIDAL…) through their plugins. action=providers lists what's installed; action=search runs a query (SLOW — up to a minute) and returns a session-cached searchId + indexed tracks for catalog_play. External results have no library ids. To find something to play or download, use this rather than a plugin's own search tool (e.g. ytdlp__search): only a searchId from here is accepted by catalog_play, download_plugin_track and replace_track_file.",
     inputSchema: obj(
       {
         action: en(["providers", "search"], "List providers or run a search"),
@@ -860,7 +860,7 @@ export const TOOLS = [
     readOnly: false,
     categories: ["download"],
     description:
-      "Download a track's OWN source — a subsonic:// server track or a direct http(s) source — as itself into a local collection folder, then index it as a library track. Source-faithful by design: it never searches for or picks a different copy, and plugin-scheme tracks (YouTube etc.) are refused — those download through their plugin in the app. Needs the \"Download tracks\" permission (403 otherwise). Destination is <collection root>/<subdir>/Artist - Title.ext; existing files are never overwritten. Can take minutes for large files.",
+      "Download a track's OWN source — a subsonic:// server track or a direct http(s) source — as itself into a local collection folder, then index it as a library track. Source-faithful by design: it never searches for or picks a different copy, and plugin-scheme tracks (YouTube, Soulseek etc.) are refused — download those with download_plugin_track. Needs the \"Download tracks\" permission (403 otherwise). Destination is <collection root>/<subdir>/Artist - Title.ext; existing files are never overwritten. Can take minutes for large files.",
     inputSchema: obj(
       {
         trackId: num("Library track id whose source to download"),
