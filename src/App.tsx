@@ -5984,6 +5984,7 @@ function App() {
                 pluginName={pluginState?.manifest.name ?? pluginId}
                 data={data}
                 scrollKey={scrollKey}
+                viewKey={view}
                 currentTrack={playback.currentTrack}
                 playing={playback.playing}
                 onPlayTrack={(track) => {

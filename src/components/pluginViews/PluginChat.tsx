@@ -249,8 +249,36 @@ function Elapsed({ since }: { since: number }) {
   return <span className="plugin-chat-status-elapsed">{Math.max(0, Math.round((now - since) / 1000))}s</span>;
 }
 
-function Composer({ composer, busy, onAction }: { composer: PluginChatNode["composer"]; busy: boolean; onAction?: OnAction }) {
-  const [draft, setDraft] = useState("");
+// Unsent composer text, per plugin view. Module-level because switching views
+// unmounts the whole plugin view, and a draft held in component state went
+// with it — the conversation survived (the plugin holds that) but the message
+// being typed did not. Session-only, never persisted, bounded like the
+// renderer's scroll memory.
+const chatDrafts = new Map<string, string>();
+const MAX_CHAT_DRAFTS = 20;
+
+export function readChatDraft(key: string | undefined): string {
+  return key === undefined ? "" : chatDrafts.get(key) ?? "";
+}
+
+export function writeChatDraft(key: string | undefined, text: string): void {
+  if (key === undefined) return;
+  chatDrafts.delete(key);
+  if (!text) return;
+  chatDrafts.set(key, text);
+  while (chatDrafts.size > MAX_CHAT_DRAFTS) {
+    const oldest = chatDrafts.keys().next().value;
+    if (oldest === undefined) break;
+    chatDrafts.delete(oldest);
+  }
+}
+
+function Composer({ composer, busy, onAction, draftKey }: { composer: PluginChatNode["composer"]; busy: boolean; onAction?: OnAction; draftKey?: string }) {
+  const [draft, setDraftState] = useState(() => readChatDraft(draftKey));
+  const setDraft = (text: string) => {
+    setDraftState(text);
+    writeChatDraft(draftKey, text);
+  };
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useLayoutEffect(() => {
@@ -319,7 +347,10 @@ function Composer({ composer, busy, onAction }: { composer: PluginChatNode["comp
   );
 }
 
-export function PluginChat({ node, onAction, fill }: { node: PluginChatNode; onAction?: OnAction; fill?: boolean }) {
+/** `draftKey` names the view this chat lives in, so its unsent text survives
+ *  the view being left and reopened. Omitted, the draft lives and dies with
+ *  the component, as before. */
+export function PluginChat({ node, onAction, fill, draftKey }: { node: PluginChatNode; onAction?: OnAction; fill?: boolean; draftKey?: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const followRef = useRef(true);
@@ -417,7 +448,8 @@ export function PluginChat({ node, onAction, fill }: { node: PluginChatNode; onA
         </div>
       </div>
       <div className="plugin-chat-composer-wrap">
-        <Composer composer={node.composer} busy={busy} onAction={onAction} />
+        {/* Keyed so moving between two plugins' chats remounts with the right draft. */}
+        <Composer key={draftKey} composer={node.composer} busy={busy} onAction={onAction} draftKey={draftKey} />
       </div>
     </div>
   );

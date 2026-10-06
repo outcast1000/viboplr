@@ -53,6 +53,9 @@ interface PluginViewRendererProps {
    *  browse-only source (a playlist scraper) has nothing to run the query on. */
   searchSeed?: PluginSearchSeed;
   onSearchSeedConsumed?: (nonce: number) => void;
+  /** Identifies this view (e.g. `plugin:<id>:<view>`) for state the host keeps
+   *  across the view being left: a chat's unsent draft. */
+  viewKey?: string;
 }
 
 export function PluginViewRenderer({
@@ -69,6 +72,7 @@ export function PluginViewRenderer({
   onPluginAction,
   searchSeed,
   onSearchSeedConsumed,
+  viewKey,
 }: PluginViewRendererProps) {
   // Per-view scroll memory, keyed by scrollKey. Standard scroll-restoration
   // pattern: continuously record the CURRENT key's scrollTop via a scroll
@@ -174,7 +178,7 @@ export function PluginViewRenderer({
       ))}
       {fillChat ? (
         <div className="plugin-view plugin-view--chat">
-          <PluginChat node={fillChat} onAction={onAction} fill />
+          <PluginChat node={fillChat} onAction={onAction} fill draftKey={viewKey} />
         </div>
       ) : (
       <div className="plugin-view" ref={scrollElRef}>

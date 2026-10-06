@@ -53,6 +53,32 @@ describe("plugin chat node", () => {
     expect(box.value).toBe("");
   });
 
+  // Leaving a plugin view unmounts it; the unsent text used to go with it.
+  it("keeps the unsent draft when the view is left and reopened, per view", () => {
+    const onAction = vi.fn();
+    const open = (viewKey: string) =>
+      render(<PluginViewRenderer pluginName="AI" currentTrack={null} data={view(chat())} onAction={onAction} viewKey={viewKey} />);
+    const box = () => screen.getByPlaceholderText("Write a message…") as HTMLTextAreaElement;
+
+    open("plugin:llm:chat");
+    fireEvent.change(box(), { target: { value: "half a thought" } });
+    cleanup();
+
+    open("plugin:other:chat");
+    expect(box().value).toBe("");
+    cleanup();
+
+    open("plugin:llm:chat");
+    expect(box().value).toBe("half a thought");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(onAction).toHaveBeenCalledWith("send", { query: "half a thought" });
+    cleanup();
+
+    // Sent, so nothing comes back next time.
+    open("plugin:llm:chat");
+    expect(box().value).toBe("");
+  });
+
   it("turns Send into Stop while the turn runs", () => {
     const onAction = vi.fn();
     render(<PluginViewRenderer pluginName="AI" currentTrack={null} data={view(chat({ status: { label: "Thinking…", since: Date.now() } }))} onAction={onAction} />);
