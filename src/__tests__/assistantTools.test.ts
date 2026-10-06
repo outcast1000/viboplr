@@ -6,7 +6,7 @@
 // would either be invisible to every feature or run a write unasked.
 import { describe, expect, it, vi } from "vitest";
 import {
-  TOOLS, TOOL_CATEGORIES, PROXY_SEP, SHEET_FILE_MAX_BYTES, argProblems, buildPluginProxies, isReadOnlyCall,
+  GUIDES, INSTRUCTIONS, TOOLS, TOOL_CATEGORIES, PROXY_SEP, SHEET_FILE_MAX_BYTES, argProblems, buildPluginProxies, isReadOnlyCall,
   parseSheetFile, runTool, toolsFor,
 } from "../../mcp/tools.mjs";
 import { inProcessContext, invokeHostTool, listHostTools } from "../utils/hostAssistantTools";
@@ -209,6 +209,29 @@ describe("assistant:host permission", () => {
     const d = describePermission("assistant:host");
     expect(d.sensitive).toBe(true);
     expect(d.label).toMatch(/AI assistant/);
+  });
+});
+
+describe("instructions and guides", () => {
+  // Claude Code truncates server instructions at about 2,000 characters; the
+  // safety rules and the guide index must land before the cut, not after it.
+  it("keeps the always-sent instructions under the client's cut-off", () => {
+    expect(INSTRUCTIONS.length).toBeLessThanOrEqual(2000);
+    expect(INSTRUCTIONS).toContain("never move, rename or overwrite files");
+    for (const topic of Object.keys(GUIDES)) expect(INSTRUCTIONS).toContain(topic);
+  });
+
+  it("serves every recipe through the guide tool, and only those", async () => {
+    const guide = TOOLS.find((t) => t.name === "guide")!;
+    expect(guide.readOnly).toBe(true);
+    for (const [topic, text] of Object.entries(GUIDES)) {
+      await expect(runTool(guide, { topic }, { request: vi.fn() })).resolves.toEqual({ topic, guide: text });
+    }
+    await expect(runTool(guide, { topic: "nope" }, { request: vi.fn() })).rejects.toThrow(/must be one of/);
+  });
+
+  it("points the recipes at each other through the guide tool, not at missing prose", () => {
+    for (const text of Object.values(GUIDES)) expect(text).not.toMatch(/see the \w[\w-]* recipe/);
   });
 });
 

@@ -64,6 +64,7 @@ export const DOWNLOAD_MS: number;
 export const INSTALL_MS: number;
 export const TOOL_CATEGORIES: ToolCategory[];
 export const INSTRUCTIONS: string;
+export const GUIDES: Record<"renaming" | "tagging" | "upgrade" | "extensions" | "capabilities", string>;
 export const TOOLS: CatalogTool[];
 export const PROXY_SEP: string;
 export const SHEET_FILE_MAX_BYTES: number;

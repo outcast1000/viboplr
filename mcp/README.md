@@ -89,6 +89,14 @@ and opens/closes panels and dialogs, never touching the library or files), log
 access, entity images, and the plugin surfaces: context-menu actions, deep
 links, and **plugin assistant tools**.
 
+The server's `instructions` stay under ~2,000 characters, because Claude Code
+truncates anything longer and the safety rules would be the first thing lost.
+The step-by-step recipes for multi-step jobs (renaming, tagging, upgrade,
+extensions, "what can you do?") are read on demand with the read-only `guide`
+tool instead of being sent up front. Likewise `cue_sheet`'s schema types only
+the card fields; clip-mode layout and motion fields are documented in
+`get_cue_context`'s `clipGuide`.
+
 Each plugin can publish its own AI tools + instructions. They are reachable
 through `plugin_tools` (list / invoke) and are also listed as their own tools
 named `<pluginId>__<tool>`, e.g. `spotify-browse__get_playlist_tracks`, so a
