@@ -48,7 +48,7 @@ import { editTrackTags, writeFileMetadata, type FileMetadataEdit, type TagOpsDep
 import { sameSong } from "./useLikeActions";
 import { trackToQueueTrack, playlistTrackToQueueTrack, pluginTrackToQueueTrack, nextQueueKey, type PlaylistTrackRow } from "../queueEntry";
 import { toPlaylistTrackPayload } from "../utils/playlistPayload";
-import { cueCountBucket, cueErrorField, cuePastEndError, sameCueSong, type CueSheetRow } from "../utils/cueSheet";
+import { cueCountBucket, cueErrorField, cuePastEndError, sameCueSong, splitSheetMeta, type CueSheetRow, type CueSheetTrack } from "../utils/cueSheet";
 import { track } from "../telemetry";
 import { gatherCueContext } from "../utils/cueContext";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
@@ -272,23 +272,55 @@ function cueSong(d: ControlApiDeps, payload: Record<string, unknown>): { title: 
   return { title: t.title, artistName: t.artist_name ?? null };
 }
 
-/** The addressed song's length, when anything knows it: the engine's figure
- *  for the playing track, a queue entry's, else the library row's. */
-async function cueSongDuration(d: ControlApiDeps, song: { title: string; artistName: string | null }): Promise<number | null> {
+/** The song a `cues.set` addresses. The request's `title` / `artistName` win,
+ *  then the sheet's own `track` block, then the playing track — and when the
+ *  request and the block both name a song they must agree: a sheet file
+ *  filed under whatever happens to be playing is the mistake the block is
+ *  there to prevent. */
+function cueSetSong(
+  d: ControlApiDeps,
+  payload: Record<string, unknown>,
+  track: CueSheetTrack | null,
+): { title: string; artistName: string | null } {
+  const title = optionalString(payload.title);
+  if (!title || !track?.title) {
+    if (!title && track?.title) return { title: track.title, artistName: track.artistName ?? null };
+    return cueSong(d, payload);
+  }
+  const artistName = optionalString(payload.artistName) ?? null;
+  const agree = sameCueSong({ title, artistName: artistName ?? track.artistName }, { title: track.title, artistName: track.artistName })
+    && (!artistName || !track.artistName || sameCueSong({ title, artistName }, { title, artistName: track.artistName }));
+  if (!agree) {
+    bad(`title/artistName (${artistName ?? "?"} — ${title}) name a different song from the sheet's track block (${track.artistName ?? "?"} — ${track.title}) — fix one, or leave one out`);
+  }
+  return { title, artistName: artistName ?? track.artistName ?? null };
+}
+
+/** What the app itself knows about the addressed song — its length and album,
+ *  from the engine / playing entry, a queue entry, else the library row. The
+ *  same lookup order `cues.context` describes the song in, so the length
+ *  recorded is the one the author was shown. */
+async function cueSongFacts(
+  d: ControlApiDeps,
+  song: { title: string; artistName: string | null },
+): Promise<{ durationSecs: number | null; albumName: string | null }> {
   const current = d.playback.currentTrack;
   if (current && sameCueSong({ title: current.title, artistName: current.artist_name }, song)) {
-    return d.playback.durationSecs ?? current.duration_secs ?? null;
+    return {
+      durationSecs: d.playback.durationSecs || current.duration_secs || null,
+      albumName: current.album_title ?? null,
+    };
   }
   const queued = d.queueHook.queue.find((t) => sameCueSong({ title: t.title, artistName: t.artist_name }, song));
-  if (queued?.duration_secs) return queued.duration_secs;
+  if (queued?.duration_secs) return { durationSecs: queued.duration_secs, albumName: queued.album_title ?? null };
   try {
     const row = await invoke<Track | null>("find_track_by_metadata", {
       title: song.title, artistName: song.artistName, albumName: null,
     });
-    return row?.duration_secs ?? null;
+    return { durationSecs: row?.duration_secs ?? null, albumName: row?.album_title ?? null };
   } catch (e) {
-    console.error("Failed to look up the cue sheet song's duration:", e);
-    return null;
+    console.error("Failed to look up the cue sheet song:", e);
+    return { durationSecs: null, albumName: null };
   }
 }
 
@@ -803,12 +835,17 @@ export function useControlApi(deps: ControlApiDeps) {
       }
 
       case "cues.set": {
-        const song = cueSong(d, payload);
         if (payload.sheet === undefined) bad("sheet is required: { cues: [...] } — GET /v1/cues/context describes the format");
+        const { sheet, track: sheetTrack, author: sheetAuthor } = splitSheetMeta(payload.sheet);
+        const song = cueSetSong(d, payload, sheetTrack);
+        // The app's own facts first; the sheet's block only fills a gap (a
+        // song nothing here knows the length of).
+        const facts = await cueSongFacts(d, song);
+        const durationSecs = facts.durationSecs ?? sheetTrack?.durationSecs ?? null;
         // Both outcomes are counted (anonymously: mode, cue-count bucket, the
         // rejected field's name) — whether assistants use this and where they
         // trip over the format is what the field test is for.
-        const pastEnd = cuePastEndError(payload.sheet, await cueSongDuration(d, song));
+        const pastEnd = cuePastEndError(sheet, durationSecs);
         if (pastEnd) {
           track("cue_sheet_rejected", { field: cueErrorField(pastEnd) });
           bad(pastEnd);
@@ -817,8 +854,11 @@ export function useControlApi(deps: ControlApiDeps) {
         try {
           row = await invoke<CueSheetRow>("cue_sheet_set", {
             ...song,
-            sheet: payload.sheet,
-            source: optionalString(payload.source) ?? null,
+            sheet,
+            // `source` is the field's name before 1.0.93; still accepted.
+            author: optionalString(payload.author) ?? optionalString(payload.source) ?? sheetAuthor,
+            albumName: facts.albumName ?? sheetTrack?.albumName ?? null,
+            durationSecs,
           });
         } catch (e) {
           track("cue_sheet_rejected", { field: cueErrorField(errorText(e)) });

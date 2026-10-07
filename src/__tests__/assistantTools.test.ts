@@ -252,10 +252,20 @@ describe("cue_sheet sheetFile", () => {
 
   it("sends a sheet read from a file through the same PUT as inline cues", async () => {
     const { ctx, request } = fileCtx({ "/tmp/s.json": JSON.stringify({ mode: "clip", cues: CUES }) });
-    await runTool(cueTool, { action: "set", title: "Jóga", artistName: "Björk", sheetFile: "/tmp/s.json", source: "AI" }, ctx);
+    await runTool(cueTool, { action: "set", title: "Jóga", artistName: "Björk", sheetFile: "/tmp/s.json", author: "AI" }, ctx);
     expect(request).toHaveBeenCalledWith("PUT", "/v1/cues", {
-      title: "Jóga", artistName: "Björk", sheet: { mode: "clip", cues: CUES }, source: "AI",
+      title: "Jóga", artistName: "Björk", sheet: { mode: "clip", cues: CUES }, author: "AI",
     });
+  });
+
+  it("passes a file's track block and author through to the app, and still takes source", async () => {
+    const track = { title: "Jóga", artistName: "Björk" };
+    const { ctx, request } = fileCtx({ "/t.json": JSON.stringify({ track, author: "Claude", cues: CUES }) });
+    await runTool(cueTool, { action: "set", sheetFile: "/t.json" }, ctx);
+    expect(request.mock.calls[0][2]).toMatchObject({ sheet: { track, author: "Claude", cues: CUES } });
+    // The pre-1.0.93 argument name still lands as author.
+    await runTool(cueTool, { action: "set", cues: CUES, source: "Old client" }, ctx);
+    expect(request.mock.calls[1][2]).toMatchObject({ author: "Old client" });
   });
 
   it("accepts a bare cues array, and a mode argument overrides the file's", async () => {
@@ -291,7 +301,7 @@ describe("cue_sheet sheetFile", () => {
     expect(() => parseSheetFile(secret, "/etc/x")).toThrow(/^sheetFile \/etc\/x is not valid JSON/);
     expect(() => parseSheetFile(secret, "/etc/x")).not.toThrow(/SECRET/);
     expect(() => parseSheetFile(JSON.stringify({ secret: "SECRET" }), "/etc/y")).toThrow(
-      "sheetFile /etc/y must hold { cues: [...] } (optionally with mode) or a bare cues array",
+      "sheetFile /etc/y must hold { cues: [...] } (optionally with mode, track, author) or a bare cues array",
     );
   });
 });

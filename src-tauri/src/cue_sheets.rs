@@ -31,7 +31,13 @@ pub const MAX_TEXT_CHARS: usize = 400;
 pub const MAX_CAPTION_CHARS: usize = 200;
 pub const MAX_LABEL_CHARS: usize = 40;
 pub const MAX_URL_CHARS: usize = 2048;
-pub const MAX_SOURCE_CHARS: usize = 64;
+pub const MAX_AUTHOR_CHARS: usize = 64;
+pub const MAX_ALBUM_CHARS: usize = 512;
+/// The stored file's layout. 1 = title/artist/sheet/source/updatedAt (no
+/// field naming it); 2 adds the song's album + duration, `author` (was
+/// `source`), `version` and `createdAt`. Bump on any change a reader must
+/// know about.
+pub const FORMAT_VERSION: u32 = 2;
 /// No song runs a day; a cue past this is a unit mistake (milliseconds).
 const MAX_AT_SECS: f64 = 86_400.0;
 
@@ -73,25 +79,85 @@ const MAX_TRANSITION_SECS: f64 = 10.0;
 pub struct CueSheetRow {
     pub title: String,
     pub artist_name: Option<String>,
+    /// The album of the copy the sheet was written against. Informational —
+    /// never part of the key, so the sheet still follows the song everywhere.
+    pub album_name: Option<String>,
+    /// The length of the copy the cues were timed against. A different-length
+    /// version of the song (live, edit, remaster) shares the key, so this is
+    /// how a reader tells that the timing came from another cut.
+    pub duration_secs: Option<f64>,
+    /// Who wrote it (e.g. "Claude"); shown small on the cards / clip.
+    pub author: Option<String>,
+    /// Revision: 1 for the first save, +1 every time the sheet is replaced.
+    pub version: u32,
+    pub created_at: i64,
+    pub updated_at: i64,
     /// The normalized sheet: `{ cues: [...] }`.
     pub sheet: Value,
-    pub source: Option<String>,
-    pub updated_at: i64,
     /// Save only: fields the normalizer dropped (`ignored_fields`). Not stored.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
 }
 
+/// What a save records about the sheet beside its cues. The caller resolves
+/// album/duration (the app's own facts first); author is the writer's label.
+#[derive(Default)]
+pub struct CueSheetMeta<'a> {
+    pub album_name: Option<&'a str>,
+    pub duration_secs: Option<f64>,
+    pub author: Option<&'a str>,
+}
+
 /// The on-disk form. Title/artist are kept as written (the filename is a hash
-/// of the normalized key), so a read returns the spelling that was saved.
+/// of the normalized key), so a read returns the spelling that was saved, and
+/// the metadata makes a file self-describing without its name. Every field
+/// added after format 1 is defaulted so an older file still reads.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredSheet {
+    #[serde(default = "legacy_format")]
+    format_version: u32,
     title: String,
     artist_name: Option<String>,
-    sheet: Value,
-    source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    album_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    duration_secs: Option<f64>,
+    /// Format 1 called this `source`.
+    #[serde(default, alias = "source")]
+    author: Option<String>,
+    #[serde(default = "first_version")]
+    version: u32,
+    /// Format 1 had no creation date; such a file reads it as `updatedAt`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    created_at: Option<i64>,
     updated_at: i64,
+    sheet: Value,
+}
+
+fn legacy_format() -> u32 {
+    1
+}
+
+fn first_version() -> u32 {
+    1
+}
+
+impl From<StoredSheet> for CueSheetRow {
+    fn from(s: StoredSheet) -> Self {
+        CueSheetRow {
+            title: s.title,
+            artist_name: s.artist_name,
+            album_name: s.album_name,
+            duration_secs: s.duration_secs,
+            author: s.author,
+            version: s.version,
+            created_at: s.created_at.unwrap_or(s.updated_at),
+            updated_at: s.updated_at,
+            sheet: s.sheet,
+            warnings: Vec::new(),
+        }
+    }
 }
 
 const SHEET_FIELDS: &[&str] = &["mode", "cues"];
@@ -404,11 +470,28 @@ pub fn normalize_cue_sheet(input: &Value) -> Result<Value, String> {
 }
 
 /// Trim + cap the free-text "who wrote this" label (e.g. "Claude").
-pub fn normalize_source(source: Option<&str>) -> Option<String> {
-    source
+pub fn normalize_author(author: Option<&str>) -> Option<String> {
+    capped_label(author, MAX_AUTHOR_CHARS)
+}
+
+/// Trim + cap the album name recorded with a sheet.
+pub fn normalize_album(album: Option<&str>) -> Option<String> {
+    capped_label(album, MAX_ALBUM_CHARS)
+}
+
+/// A usable track length, or none: a zero/negative/non-finite or day-long
+/// figure is a unit mistake or an unknown duration, not a length to compare
+/// against. Kept to a tenth of a second — nothing compares it more finely.
+pub fn normalize_duration(secs: Option<f64>) -> Option<f64> {
+    secs.filter(|d| d.is_finite() && *d > 0.0 && *d <= MAX_AT_SECS)
+        .map(|d| (d * 10.0).round() / 10.0)
+}
+
+fn capped_label(value: Option<&str>, max: usize) -> Option<String> {
+    value
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| s.chars().take(MAX_SOURCE_CHARS).collect())
+        .map(|s| s.chars().take(max).collect())
 }
 
 /// Where a profile's sheets live: one JSON file per song, named by the md5 of
@@ -424,8 +507,11 @@ fn file_for(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> PathB
 }
 
 pub fn get_cue_sheet(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> Result<Option<CueSheetRow>, String> {
-    let path = file_for(profile_dir, title, artist_name);
-    let bytes = match std::fs::read(&path) {
+    Ok(read_stored(&file_for(profile_dir, title, artist_name))?.map(CueSheetRow::from))
+}
+
+fn read_stored(path: &Path) -> Result<Option<StoredSheet>, String> {
+    let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("read cue sheet: {e}")),
@@ -434,14 +520,7 @@ pub fn get_cue_sheet(profile_dir: &Path, title: &str, artist_name: Option<&str>)
     // hand-edited or truncated file; read it as no sheet rather than failing
     // the Now Playing view.
     match serde_json::from_slice::<StoredSheet>(&bytes) {
-        Ok(s) => Ok(Some(CueSheetRow {
-            title: s.title,
-            artist_name: s.artist_name,
-            sheet: s.sheet,
-            source: s.source,
-            updated_at: s.updated_at,
-            warnings: Vec::new(),
-        })),
+        Ok(s) => Ok(Some(s)),
         Err(e) => {
             log::warn!("Unreadable cue sheet {}: {e}", path.display());
             Ok(None)
@@ -449,25 +528,36 @@ pub fn get_cue_sheet(profile_dir: &Path, title: &str, artist_name: Option<&str>)
     }
 }
 
-/// Upsert. `sheet` must already be normalized (`normalize_cue_sheet`).
+/// Upsert; returns the stored row. `sheet` must already be normalized
+/// (`normalize_cue_sheet`) and `meta` already trimmed (`normalize_*`).
+/// Replacing a sheet bumps its `version` and keeps its `createdAt`; an
+/// unreadable earlier file counts as no earlier sheet.
 pub fn set_cue_sheet(
     profile_dir: &Path,
     title: &str,
     artist_name: Option<&str>,
     sheet: &Value,
-    source: Option<&str>,
+    meta: &CueSheetMeta,
     updated_at: i64,
-) -> Result<(), String> {
+) -> Result<CueSheetRow, String> {
     std::fs::create_dir_all(dir(profile_dir)).map_err(|e| format!("create cue-sheets dir: {e}"))?;
+    let path = file_for(profile_dir, title, artist_name);
+    let previous = read_stored(&path)?;
     let stored = StoredSheet {
+        format_version: FORMAT_VERSION,
         title: title.to_string(),
         artist_name: artist_name.map(str::to_string),
-        sheet: sheet.clone(),
-        source: source.map(str::to_string),
+        album_name: meta.album_name.map(str::to_string),
+        duration_secs: meta.duration_secs,
+        author: meta.author.map(str::to_string),
+        version: previous.as_ref().map_or(1, |p| p.version.saturating_add(1)),
+        created_at: Some(previous.map_or(updated_at, |p| p.created_at.unwrap_or(p.updated_at))),
         updated_at,
+        sheet: sheet.clone(),
     };
     let bytes = serde_json::to_vec_pretty(&stored).map_err(|e| format!("serialize cue sheet: {e}"))?;
-    atomic_write(&file_for(profile_dir, title, artist_name), &bytes)
+    atomic_write(&path, &bytes)?;
+    Ok(stored.into())
 }
 
 /// Returns whether a sheet existed.
@@ -610,19 +700,26 @@ mod cue_tests {
         let dir = tmp.path();
         let sheet = normalize_cue_sheet(&json!([{ "at": 0, "text": "hi" }])).unwrap();
         assert!(get_cue_sheet(dir, "Jóga", Some("Björk")).unwrap().is_none());
-        set_cue_sheet(dir, "Jóga", Some("Björk"), &sheet, Some("Claude"), 10).unwrap();
+        let meta = CueSheetMeta { album_name: Some("Homogenic"), duration_secs: Some(305.2), author: Some("Claude") };
+        set_cue_sheet(dir, "Jóga", Some("Björk"), &sheet, &meta, 10).unwrap();
 
         let row = get_cue_sheet(dir, "joga", Some("BJORK")).unwrap().unwrap();
         assert_eq!(row.title, "Jóga");
-        assert_eq!(row.source.as_deref(), Some("Claude"));
+        assert_eq!(row.author.as_deref(), Some("Claude"));
+        assert_eq!(row.album_name.as_deref(), Some("Homogenic"));
+        assert_eq!(row.duration_secs, Some(305.2));
+        assert_eq!((row.version, row.created_at, row.updated_at), (1, 10, 10));
         assert_eq!(row.sheet, sheet);
 
-        // Upsert replaces, keeping one file.
+        // Upsert replaces, keeping one file — and counts the revision while
+        // the creation date stays put.
         let sheet2 = normalize_cue_sheet(&json!([{ "at": 3, "text": "again" }])).unwrap();
-        set_cue_sheet(dir, "Joga", Some("Bjork"), &sheet2, None, 20).unwrap();
+        let saved = set_cue_sheet(dir, "Joga", Some("Bjork"), &sheet2, &CueSheetMeta::default(), 20).unwrap();
         let row = get_cue_sheet(dir, "Jóga", Some("Björk")).unwrap().unwrap();
         assert_eq!(row.sheet, sheet2);
-        assert_eq!(row.updated_at, 20);
+        assert_eq!((row.version, row.created_at, row.updated_at), (2, 10, 20));
+        assert_eq!((saved.version, saved.created_at), (2, 10));
+        assert!(row.author.is_none() && row.duration_secs.is_none());
         assert_eq!(std::fs::read_dir(super::dir(dir)).unwrap().count(), 1);
 
         assert!(delete_cue_sheet(dir, "Jóga", Some("Björk")).unwrap());
@@ -634,8 +731,48 @@ mod cue_tests {
     fn an_unreadable_file_reads_as_no_sheet() {
         let tmp = tempfile::tempdir().unwrap();
         let sheet = normalize_cue_sheet(&json!([{ "at": 0, "text": "hi" }])).unwrap();
-        set_cue_sheet(tmp.path(), "Song", None, &sheet, None, 1).unwrap();
+        set_cue_sheet(tmp.path(), "Song", None, &sheet, &CueSheetMeta::default(), 1).unwrap();
         std::fs::write(file_for(tmp.path(), "Song", None), b"{ truncated").unwrap();
         assert!(get_cue_sheet(tmp.path(), "Song", None).unwrap().is_none());
+        // Saving over it starts the count again rather than failing.
+        let row = set_cue_sheet(tmp.path(), "Song", None, &sheet, &CueSheetMeta::default(), 5).unwrap();
+        assert_eq!((row.version, row.created_at), (1, 5));
+    }
+
+    #[test]
+    fn a_format_1_file_reads_with_its_source_as_author() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(super::dir(tmp.path())).unwrap();
+        std::fs::write(
+            file_for(tmp.path(), "Song", Some("Band")),
+            br#"{ "title": "Song", "artistName": "Band", "sheet": { "cues": [] }, "source": "Claude", "updatedAt": 7 }"#,
+        )
+        .unwrap();
+        let row = get_cue_sheet(tmp.path(), "Song", Some("Band")).unwrap().unwrap();
+        assert_eq!(row.author.as_deref(), Some("Claude"));
+        assert_eq!((row.version, row.created_at, row.updated_at), (1, 7, 7));
+        assert!(row.album_name.is_none() && row.duration_secs.is_none());
+
+        // The next save writes the current format, continuing the old file's history.
+        let sheet = normalize_cue_sheet(&json!([{ "at": 0, "text": "hi" }])).unwrap();
+        let meta = CueSheetMeta { author: Some("Claude"), ..Default::default() };
+        set_cue_sheet(tmp.path(), "Song", Some("Band"), &sheet, &meta, 9).unwrap();
+        let raw: Value = serde_json::from_slice(&std::fs::read(file_for(tmp.path(), "Song", Some("Band"))).unwrap()).unwrap();
+        assert_eq!(raw["formatVersion"], FORMAT_VERSION);
+        assert_eq!(raw["author"], "Claude");
+        assert_eq!((raw["version"].as_u64(), raw["createdAt"].as_i64()), (Some(2), Some(7)));
+        assert!(raw.get("source").is_none());
+    }
+
+    #[test]
+    fn metadata_is_trimmed_and_bad_durations_dropped() {
+        assert_eq!(normalize_author(Some("  Claude  ")).as_deref(), Some("Claude"));
+        assert_eq!(normalize_author(Some("   ")), None);
+        assert_eq!(normalize_author(Some(&"x".repeat(100))).map(|s| s.chars().count()), Some(MAX_AUTHOR_CHARS));
+        assert_eq!(normalize_album(Some(" Homogenic ")).as_deref(), Some("Homogenic"));
+        assert_eq!(normalize_duration(Some(305.24)), Some(305.2));
+        for bad in [0.0, -3.0, f64::NAN, f64::INFINITY, 90_000.0] {
+            assert_eq!(normalize_duration(Some(bad)), None, "{bad}");
+        }
     }
 }

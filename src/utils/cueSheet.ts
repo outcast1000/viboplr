@@ -87,14 +87,143 @@ export interface CueSheet {
   cues: Cue[];
 }
 
+/** A saved sheet with what the file records about it (`cue_sheets.rs`
+ *  `CueSheetRow`). Times are unix seconds. */
 export interface CueSheetRow {
   title: string;
   artistName: string | null;
-  sheet: CueSheet;
-  source: string | null;
+  /** The album of the copy the sheet was written against — informational. */
+  albumName: string | null;
+  /** The length of the copy the cues were timed against, when known. */
+  durationSecs: number | null;
+  /** Who wrote it; shown small on the cards / clip. */
+  author: string | null;
+  /** Revision: 1 on the first save, +1 on every replace. */
+  version: number;
+  createdAt: number;
   updatedAt: number;
+  sheet: CueSheet;
   /** Save responses only: fields the backend dropped (`ignored_fields`). */
   warnings?: string[];
+}
+
+/** The optional song block a sheet may carry (`{ track, author?, mode?,
+ *  cues }`), so a sheet file says which song it is for. Same names as
+ *  `CueSheetRow`, so a read row's fields can be pasted back. */
+export interface CueSheetTrack {
+  title?: string;
+  artistName?: string;
+  albumName?: string;
+  durationSecs?: number;
+}
+
+/** Split the metadata a request sheet may carry (`track`, `author`) from the
+ *  cues, which go on to the backend's normalizer — it would drop the extra
+ *  keys with a warning. A bare cues array carries none. Throws, naming the
+ *  field, on a wrongly typed value: a sheet filed under the wrong song is the
+ *  mistake this block exists to prevent, so it must not be guessed at. */
+export function splitSheetMeta(raw: unknown): { sheet: unknown; track: CueSheetTrack | null; author: string | null } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { sheet: raw, track: null, author: null };
+  const { track, author, ...sheet } = raw as Record<string, unknown>;
+  if (author !== undefined && author !== null && typeof author !== "string") {
+    throw new Error("sheet.author must be a string");
+  }
+  if (track === undefined || track === null) return { sheet, track: null, author: (author as string | undefined) || null };
+  if (typeof track !== "object" || Array.isArray(track)) throw new Error("sheet.track must be an object");
+  const t = track as Record<string, unknown>;
+  const out: CueSheetTrack = {};
+  for (const key of ["title", "artistName", "albumName"] as const) {
+    const v = t[key];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== "string") throw new Error(`sheet.track.${key} must be a string`);
+    if (v.trim()) out[key] = v.trim();
+  }
+  if (t.durationSecs !== undefined && t.durationSecs !== null) {
+    if (typeof t.durationSecs !== "number" || !Number.isFinite(t.durationSecs) || t.durationSecs <= 0) {
+      throw new Error("sheet.track.durationSecs must be a positive number of seconds");
+    }
+    out.durationSecs = t.durationSecs;
+  }
+  if (out.artistName && !out.title) throw new Error("sheet.track.artistName needs sheet.track.title");
+  return { sheet, track: out, author: (author as string | undefined) || null };
+}
+
+/** How far apart two lengths may be and still be the same cut: encoders and
+ *  providers disagree by a second or two about one recording. */
+const SAME_CUT_SLACK_SECS = 5;
+const SAME_CUT_SLACK_RATIO = 0.03;
+
+/** A short note when the sheet was timed against a different-length version
+ *  of the song than the one playing ("timed to a 4:10 version"), else null —
+ *  including whenever either length is unknown. */
+export function cueTimingNote(timedSecs: number | null | undefined, playingSecs: number | null | undefined): string | null {
+  if (!timedSecs || !playingSecs || !Number.isFinite(timedSecs) || !Number.isFinite(playingSecs)) return null;
+  const slack = Math.max(SAME_CUT_SLACK_SECS, playingSecs * SAME_CUT_SLACK_RATIO);
+  if (Math.abs(timedSecs - playingSecs) <= slack) return null;
+  const s = Math.round(timedSecs);
+  return `timed to a ${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} version`;
+}
+
+function formatSecs(secs: number): string {
+  const s = Math.round(secs);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+export interface CueSheetDetail {
+  label: string;
+  value: string;
+  /** A caution worth drawing the eye to (the timing mismatch). */
+  warn?: boolean;
+}
+
+/** The rows the cue-sheet info dialog lists, in order. Rows with nothing to
+ *  say are left out rather than shown as "—"; `formatDate` takes unix seconds
+ *  (injected so tests don't depend on the machine's locale and zone). */
+export function cueSheetDetails(
+  row: CueSheetRow,
+  playingSecs: number | null | undefined,
+  formatDate: (unixSecs: number) => string = (s) =>
+    new Date(s * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }),
+): CueSheetDetail[] {
+  const out: CueSheetDetail[] = [
+    { label: "Song", value: row.artistName ? `${row.artistName} — ${row.title}` : row.title },
+  ];
+  if (row.albumName) out.push({ label: "Album", value: row.albumName });
+  if (row.durationSecs) out.push({ label: "Timed to", value: formatSecs(row.durationSecs) });
+  if (cueTimingNote(row.durationSecs, playingSecs) && playingSecs) {
+    out.push({ label: "This copy", value: `${formatSecs(playingSecs)} — the cues may not line up`, warn: true });
+  }
+  const n = row.sheet.cues.length;
+  out.push({
+    label: "Type",
+    value: row.sheet.mode === "clip"
+      ? `Clip · ${n} element${n === 1 ? "" : "s"}`
+      : `Cue cards · ${n} cue${n === 1 ? "" : "s"}`,
+  });
+  out.push({ label: "Author", value: row.author ?? "Not recorded" });
+  out.push({ label: "Version", value: String(row.version) });
+  out.push({ label: "Created", value: formatDate(row.createdAt) });
+  if (row.updatedAt !== row.createdAt) out.push({ label: "Updated", value: formatDate(row.updatedAt) });
+  return out;
+}
+
+export interface CueCredit {
+  text: string;
+  /** Hover text explaining the line. */
+  title: string;
+}
+
+/** The small line under a card or clip: who wrote it, and — when the sheet
+ *  was timed to a different-length version — that the timing may be off. */
+export function cueCredit(author?: string | null, timingNote?: string | null): CueCredit | null {
+  const text = [author, timingNote].filter(Boolean).join(" · ");
+  if (!text) return null;
+  return {
+    text,
+    title: timingNote
+      ? "These cues were timed to a different-length version of this song, so they may not line up"
+      : "Who wrote this cue sheet",
+  };
 }
 
 /** How long a cue without `until` stays up. Long enough to read a sentence
@@ -187,7 +316,7 @@ export const CUE_SHEET_GUIDE = [
   "Pace it: leave the first ~10 seconds and instrumental gaps quiet or use them for context; 6–15 cues suit a typical song; never cover a line with an unrelated card.",
   "Give every card time to be read — at least 6 seconds, longer for a long text (roughly 2s + 1s per 3 words). A quote card may stay up over the next few sung lines; do not end it when its line ends. Keep cue starts at least 8 seconds apart, and put long text cards in instrumental stretches (gaps between `lyrics.lines`).",
   "`at` and `until` are seconds into the track (e.g. 64.5), never milliseconds or \"m:ss\" strings; a cue past the song's end is rejected.",
-  "Save with the cue_sheet tool (action=set; PUT /v1/cues) using the same title/artistName; it replaces any earlier sheet and returns the normalized sheet.",
+  "Save with the cue_sheet tool (action=set; PUT /v1/cues) using the same title/artistName; it replaces any earlier sheet (its `version` goes up by one) and returns the normalized sheet. Pass your name as `author`. A sheet written to a file should name its song: { track: { title, artistName }, author, cues } — the app records the album and the length the cues were timed to itself.",
 ].join(" ");
 
 /** The clip half of the format (`mode: "clip"`), served next to the cards

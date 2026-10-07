@@ -570,42 +570,55 @@ pub fn cue_sheet_set(
     title: String,
     artist_name: Option<String>,
     sheet: serde_json::Value,
-    source: Option<String>,
+    author: Option<String>,
+    album_name: Option<String>,
+    duration_secs: Option<f64>,
 ) -> Result<crate::cue_sheets::CueSheetRow, String> {
-    use crate::cue_sheets::{ignored_fields, normalize_cue_sheet, normalize_source, set_cue_sheet};
+    use crate::cue_sheets::{
+        ignored_fields, normalize_album, normalize_author, normalize_cue_sheet, normalize_duration, set_cue_sheet,
+        CueSheetMeta,
+    };
     let title = title.trim().to_string();
     if title.is_empty() {
         return Err("title is required".into());
     }
     let artist_name = artist_name.map(|a| a.trim().to_string()).filter(|a| !a.is_empty());
-    let source = normalize_source(source.as_deref());
+    let author = normalize_author(author.as_deref());
+    let album_name = normalize_album(album_name.as_deref());
     // Rejections are logged as well as returned: how often an assistant gets
     // the format wrong, and on which field, is the main thing a field test of
     // this feature needs to see — and the reply only reaches the assistant.
     let warnings = ignored_fields(&sheet);
     let sheet = normalize_cue_sheet(&sheet).inspect_err(|e| {
         log::warn!(
-            "Cue sheet rejected: {} — {} (source {}): {e}",
+            "Cue sheet rejected: {} — {} (author {}): {e}",
             artist_name.as_deref().unwrap_or("?"),
             title,
-            source.as_deref().unwrap_or("unknown"),
+            author.as_deref().unwrap_or("unknown"),
         );
     })?;
     let now_ts: i64 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    set_cue_sheet(&state.app_dir, &title, artist_name.as_deref(), &sheet, source.as_deref(), now_ts)?;
+    let meta = CueSheetMeta {
+        album_name: album_name.as_deref(),
+        duration_secs: normalize_duration(duration_secs),
+        author: author.as_deref(),
+    };
+    let mut row = set_cue_sheet(&state.app_dir, &title, artist_name.as_deref(), &sheet, &meta, now_ts)?;
     log::info!(
-        "Cue sheet saved: {} — {} ({}, {} cues, source {})",
+        "Cue sheet saved: {} — {} ({}, {} cues, v{}, author {})",
         artist_name.as_deref().unwrap_or("?"),
         title,
         sheet["mode"].as_str().unwrap_or("cards"),
         sheet["cues"].as_array().map_or(0, |c| c.len()),
-        source.as_deref().unwrap_or("unknown"),
+        row.version,
+        author.as_deref().unwrap_or("unknown"),
     );
     let _ = app.emit("cue-sheet-changed", serde_json::json!({ "title": title, "artistName": artist_name }));
-    Ok(crate::cue_sheets::CueSheetRow { title, artist_name, sheet, source, updated_at: now_ts, warnings })
+    row.warnings = warnings;
+    Ok(row)
 }
 
 /// Returns whether a sheet existed.

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { Cue } from "../utils/cueSheet";
-import { activeCueIndex } from "../utils/cueSheet";
+import type { Cue, CueCredit } from "../utils/cueSheet";
+import { activeCueIndex, cueCredit } from "../utils/cueSheet";
 import { usePlaybackPosition } from "../playback/positionStore";
 import "./CueOverlay.css";
 
@@ -8,18 +8,18 @@ import "./CueOverlay.css";
  *  a time (see `activeCueIndex`); keyed by index so each new cue mounts fresh
  *  and runs the enter animation. Subscribed to the position tick at this leaf
  *  so only the overlay re-renders at ~4 Hz, not the whole view. */
-export function CueOverlay({ cues, source }: { cues: Cue[]; source?: string | null }) {
+export function CueOverlay({ cues, author, timingNote }: { cues: Cue[]; author?: string | null; timingNote?: string | null }) {
   const positionSecs = usePlaybackPosition();
   const idx = activeCueIndex(cues, positionSecs);
   if (idx < 0) return null;
   return (
     <div className="np-cues" aria-live="polite">
-      <CueCard key={idx} cue={cues[idx]} source={source} />
+      <CueCard key={idx} cue={cues[idx]} credit={cueCredit(author, timingNote)} />
     </div>
   );
 }
 
-function CueCard({ cue, source }: { cue: Cue; source?: string | null }) {
+function CueCard({ cue, credit }: { cue: Cue; credit: CueCredit | null }) {
   // A dead image URL drops the picture, not the card — the caption still says
   // something worth reading.
   const [imageFailed, setImageFailed] = useState(false);
@@ -42,7 +42,7 @@ function CueCard({ cue, source }: { cue: Cue; source?: string | null }) {
           <div className="np-cue-text">{cue.kind === "quote" ? `“${cue.text}”` : cue.text}</div>
         )}
         {cue.caption && <div className="np-cue-caption">{cue.caption}</div>}
-        {source && <div className="np-cue-source" title="Who wrote this cue sheet">{source}</div>}
+        {credit && <div className="np-cue-source" title={credit.title}>{credit.text}</div>}
       </div>
     </div>
   );

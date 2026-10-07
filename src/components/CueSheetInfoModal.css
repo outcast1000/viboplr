@@ -1,0 +1,27 @@
+.cue-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.cue-info-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: 12px;
+}
+
+.cue-info-row dt {
+  color: var(--text-secondary);
+}
+
+.cue-info-row dd {
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.cue-info-row--warn dd {
+  color: var(--warning);
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import type { Cue } from "../utils/cueSheet";
+import { cueCredit, type Cue } from "../utils/cueSheet";
 import {
   activeClipCues, clipDim, clipFrame, cueColorCss, frameTransform, DEFAULT_BOX, DEFAULT_TEXT_SIZE,
 } from "../utils/cueClip";
@@ -96,7 +96,13 @@ interface ElementNodes {
  *  frame loop, because a 60 Hz state update would re-render the subtree each
  *  frame. The loop runs only while playing — a paused clip redraws on
  *  position changes (seeks) and otherwise costs nothing. */
-export function CueClipOverlay({ cues, playing, source }: { cues: Cue[]; playing: boolean; source?: string | null }) {
+export function CueClipOverlay({ cues, playing, author, timingNote }: {
+  cues: Cue[];
+  playing: boolean;
+  author?: string | null;
+  timingNote?: string | null;
+}) {
+  const credit = cueCredit(author, timingNote);
   const [active, setActive] = useState<number[]>(() => activeClipCues(cues, getPlaybackPosition()));
   const activeKeyRef = useRef(active.join(","));
   const nodes = useRef(new Map<number, ElementNodes>());
@@ -245,7 +251,7 @@ export function CueClipOverlay({ cues, playing, source }: { cues: Cue[]; playing
           </div>
         );
       })}
-      {source && active.length > 0 && <div className="np-clip-source" title="Who wrote this clip">{source}</div>}
+      {credit && active.length > 0 && <div className="np-clip-source" title={credit.title}>{credit.text}</div>}
     </div>
   );
 }

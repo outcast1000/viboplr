@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { resolveImageSrc } from "../utils/resolveImageUrl";
 import { isVideoTrack } from "../utils";
@@ -16,7 +16,8 @@ import { NowPlayingAbout } from "./NowPlayingAbout";
 import type { NowPlayingAboutData } from "../hooks/useNowPlayingAbout";
 import { CueOverlay } from "./CueOverlay";
 import { CueClipOverlay } from "./CueClipOverlay";
-import type { CueSheetRow } from "../utils/cueSheet";
+import { CueSheetInfoModal } from "./CueSheetInfoModal";
+import { cueTimingNote, type CueSheetRow } from "../utils/cueSheet";
 import "./NowPlayingView.css";
 
 interface NowPlayingViewProps {
@@ -352,6 +353,11 @@ export function NowPlayingView({
     return () => window.clearInterval(id);
   }, [playing, slideCount, trackKey]);
 
+  // The cue-sheet info dialog, held as the track it was opened for — so it
+  // closes itself when the song changes rather than describing the next one.
+  const [cueInfoFor, setCueInfoFor] = useState<string | null>(null);
+  const closeCueInfo = useCallback(() => setCueInfoFor(null), []);
+
   const slideImageSrc = resolveImageSrc(slideCount > 0 ? slides.paths[slideIdx % slideCount] : null);
   const artPending = slides.pending;
 
@@ -395,6 +401,9 @@ export function NowPlayingView({
   const hasCues = cues.length > 0;
   const showCues = hasCues && !cuesHidden;
   const isClip = cueSheet?.sheet.mode === "clip";
+  // The sheet follows the song onto every copy, so it can be playing over a
+  // different cut (live, edit) than the one its cues were timed to.
+  const timingNote = cueTimingNote(cueSheet?.durationSecs, track.duration_secs);
   // A clip owns the whole view while it plays: the side column (lyrics or
   // About) steps aside, so the art takes the stage the clip draws over.
   // Hiding the clip (the cue button) brings the column back.
@@ -419,7 +428,7 @@ export function NowPlayingView({
 
           The row travels into fullscreen unchanged; only "enter fullscreen" drops
           out there, because the control bar under it owns the exit. */}
-      {(onOpenVisualizerPicker || onToggleLyrics || onToggleAbout || onToggleFullscreen || (onToggleCues && hasCues)) && (
+      {(onOpenVisualizerPicker || onToggleLyrics || onToggleAbout || onToggleFullscreen || hasCues) && (
         <div className={`np-actions${actionsVisible ? " is-visible" : ""}`}>
           {onOpenVisualizerPicker && (
             <button
@@ -507,6 +516,23 @@ export function NowPlayingView({
               </svg>
             </button>
           )}
+          {/* Beside the cue toggle and gated the same way: it describes the
+              sheet that toggle shows. Works with the cards hidden, too. */}
+          {cueSheet && hasCues && (
+            <button
+              className="np-action-btn"
+              onClick={() => setCueInfoFor(trackKey)}
+              title="Cue sheet details"
+              aria-label="Cue sheet details"
+            >
+              {/* The cue card, with an "i" on it. */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <line x1="12" y1="11" x2="12" y2="15.5" />
+                <line x1="12" y1="8" x2="12" y2="8" />
+              </svg>
+            </button>
+          )}
           {/* Last, so it lands in the extreme corner — the same spot the video
               theater's fullscreen button occupies. Present in BOTH variants, and
               in the same place: the row is the surface's own control set, so it
@@ -573,7 +599,7 @@ export function NowPlayingView({
               <TrackArtFallback track={track} size={variant === "fullscreen" ? 128 : 72} />
             </div>
           )}
-          {showCues && !isClip && <CueOverlay key={track.key} cues={cues} source={cueSheet?.source} />}
+          {showCues && !isClip && <CueOverlay key={track.key} cues={cues} author={cueSheet?.author} timingNote={timingNote} />}
         </div>
         {/* Unmounted, not just hidden, when collapsed — the synced panel runs a
             position-driven auto-scroll, and leaving that ticking behind
@@ -609,8 +635,12 @@ export function NowPlayingView({
           key={`${track.key}:${cueSheet?.updatedAt ?? 0}`}
           cues={cues}
           playing={!!playing}
-          source={cueSheet?.source}
+          author={cueSheet?.author}
+          timingNote={timingNote}
         />
+      )}
+      {cueSheet && cueInfoFor !== null && cueInfoFor === trackKey && (
+        <CueSheetInfoModal row={cueSheet} playingSecs={track.duration_secs} onClose={closeCueInfo} />
       )}
       {/* No identity block in either variant. The chrome around this surface
           already carries the title/artist/album (the now-playing bar in-grid,

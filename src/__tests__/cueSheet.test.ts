@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeCueIndex, cueCountBucket, cueEnd, cueErrorField, cuePastEndError, DEFAULT_CUE_SECS, sameCueSong, type Cue } from "../utils/cueSheet";
+import { activeCueIndex, cueCountBucket, cueCredit, cueEnd, cueErrorField, cuePastEndError, cueSheetDetails, cueTimingNote, DEFAULT_CUE_SECS, sameCueSong, splitSheetMeta, type Cue } from "../utils/cueSheet";
 import { CONTEXT_IMAGE_CAP, galleryImages, lyricsForContext, proseText, PROSE_CHAR_CAP } from "../utils/cueContext";
 
 const cues: Cue[] = [
@@ -122,5 +122,72 @@ describe("cue telemetry labels", () => {
 
   it("buckets cue counts", () => {
     expect([1, 9, 10, 29, 30, 200].map(cueCountBucket)).toEqual(["1-9", "1-9", "10-29", "10-29", "30-99", "100+"]);
+  });
+});
+
+describe("sheet metadata", () => {
+  const CUES = [{ at: 1, text: "hi" }];
+
+  it("splits track and author off the cues, which go on unchanged", () => {
+    const track = { title: " Jóga ", artistName: "Björk", albumName: "Homogenic", durationSecs: 305 };
+    expect(splitSheetMeta({ mode: "clip", track, author: "Claude", cues: CUES })).toEqual({
+      sheet: { mode: "clip", cues: CUES },
+      track: { title: "Jóga", artistName: "Björk", albumName: "Homogenic", durationSecs: 305 },
+      author: "Claude",
+    });
+    expect(splitSheetMeta(CUES)).toEqual({ sheet: CUES, track: null, author: null });
+    expect(splitSheetMeta({ cues: CUES })).toEqual({ sheet: { cues: CUES }, track: null, author: null });
+  });
+
+  it("refuses a malformed block, naming the field", () => {
+    expect(() => splitSheetMeta({ track: "Jóga", cues: CUES })).toThrow("sheet.track must be an object");
+    expect(() => splitSheetMeta({ track: { title: 5 }, cues: CUES })).toThrow("sheet.track.title must be a string");
+    expect(() => splitSheetMeta({ track: { title: "x", durationSecs: -305 }, cues: CUES })).toThrow("durationSecs");
+    expect(() => splitSheetMeta({ track: { artistName: "Björk" }, cues: CUES })).toThrow("needs sheet.track.title");
+    expect(() => splitSheetMeta({ author: 3, cues: CUES })).toThrow("sheet.author must be a string");
+  });
+
+  it("notes a different-length cut, and only a clearly different one", () => {
+    expect(cueTimingNote(250, 252)).toBeNull(); // the same recording, encoders disagree
+    expect(cueTimingNote(600, 615)).toBeNull(); // within 3% of a long track
+    expect(cueTimingNote(250, 390)).toBe("timed to a 4:10 version");
+    expect(cueTimingNote(65, 300)).toBe("timed to a 1:05 version");
+    expect(cueTimingNote(null, 300)).toBeNull();
+    expect(cueTimingNote(250, null)).toBeNull();
+  });
+
+  it("lists what the sheet records, leaving out what it doesn't know", () => {
+    const row = {
+      title: "Jóga", artistName: "Björk", albumName: "Homogenic", durationSecs: 305, author: "Claude",
+      version: 3, createdAt: 100, updatedAt: 200, sheet: { cues: [{ at: 1, kind: "text" as const, text: "x" }] },
+    };
+    const date = (s: number) => `t${s}`;
+    expect(cueSheetDetails(row, 306, date)).toEqual([
+      { label: "Song", value: "Björk — Jóga" },
+      { label: "Album", value: "Homogenic" },
+      { label: "Timed to", value: "5:05" },
+      { label: "Type", value: "Cue cards · 1 cue" },
+      { label: "Author", value: "Claude" },
+      { label: "Version", value: "3" },
+      { label: "Created", value: "t100" },
+      { label: "Updated", value: "t200" },
+    ]);
+    // A different cut playing gets a warning row; an old sheet with no
+    // metadata shows only what it has.
+    expect(cueSheetDetails(row, 390, date)).toContainEqual({
+      label: "This copy", value: "6:30 — the cues may not line up", warn: true,
+    });
+    const bare = { ...row, artistName: null, albumName: null, durationSecs: null, author: null, version: 1, updatedAt: 100,
+      sheet: { mode: "clip" as const, cues: [row.sheet.cues[0], row.sheet.cues[0]] } };
+    expect(cueSheetDetails(bare, 390, date).map((d) => `${d.label}: ${d.value}`)).toEqual([
+      "Song: Jóga", "Type: Clip · 2 elements", "Author: Not recorded", "Version: 1", "Created: t100",
+    ]);
+  });
+
+  it("builds the credit line from author and note", () => {
+    expect(cueCredit("Claude", null)).toEqual({ text: "Claude", title: "Who wrote this cue sheet" });
+    expect(cueCredit("Claude", "timed to a 4:10 version")?.text).toBe("Claude · timed to a 4:10 version");
+    expect(cueCredit(null, "timed to a 4:10 version")?.title).toMatch(/different-length version/);
+    expect(cueCredit(null, null)).toBeNull();
   });
 });

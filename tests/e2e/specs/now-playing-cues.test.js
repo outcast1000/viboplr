@@ -8,7 +8,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const tauriMockPath = path.resolve(__dirname, '..', 'tauri-mock.js');
 
 const SHEET = {
-  title: 'mock', artistName: null, source: 'Claude', updatedAt: 0,
+  title: 'mock', artistName: null, albumName: 'Mock Album', durationSecs: 245, author: 'Claude', version: 3, createdAt: 0, updatedAt: 86400,
   // At 0 and long-lived, so it is on screen whatever the mock audio's clock does.
   sheet: { cues: [{ at: 0, until: 3600, kind: 'quote', text: 'Mock lyric line', caption: 'What it means', label: 'Meaning' }] },
 };
@@ -16,7 +16,7 @@ const SHEET = {
 // A clip: a full-view shape plus a positioned title. Long-lived for the same
 // reason as SHEET.
 const CLIP = {
-  title: 'mock', artistName: null, source: 'Claude', updatedAt: 1,
+  title: 'mock', artistName: null, albumName: null, durationSecs: null, author: 'Claude', version: 2, createdAt: 0, updatedAt: 1,
   sheet: {
     mode: 'clip',
     cues: [
@@ -70,12 +70,40 @@ test('a cue sheet plays its card over the art, and the button hides it', async (
   await expect(card).toContainText('Mock lyric line');
   await expect(card).toContainText('What it means');
   await expect(card.locator('.np-cue-label')).toHaveText('Meaning');
-  await expect(card.locator('.np-cue-source')).toHaveText('Claude');
+  // The mock track runs 3:30; the sheet was timed to a 4:05 cut.
+  await expect(card.locator('.np-cue-source')).toHaveText('Claude · timed to a 4:05 version');
 
   await view.locator('.np-action-btn[aria-label="Hide cue cards"]').click();
   await expect(view.locator('.np-cue')).toHaveCount(0);
   await view.locator('.np-action-btn[aria-label="Show cue cards"]').click();
   await expect(view.locator('.np-cue')).toHaveCount(1);
+});
+
+test('the details button shows what the sheet records, and Close dismisses it', async ({ page }) => {
+  await setupNowPlaying(page, { withCues: true });
+  const view = page.locator('.now-playing-view');
+  await view.locator('.np-action-btn[aria-label="Cue sheet details"]').click();
+
+  const dialog = page.locator('.cue-info-modal');
+  await expect(dialog).toBeVisible();
+  const row = (label) => dialog.locator('.cue-info-row', { has: page.locator('dt', { hasText: label }) }).locator('dd');
+  await expect(row('Song')).toHaveText('mock');
+  await expect(row('Album')).toHaveText('Mock Album');
+  await expect(row('Timed to')).toHaveText('4:05');
+  await expect(row('This copy')).toHaveText('3:30 — the cues may not line up');
+  await expect(row('Type')).toHaveText('Cue cards · 1 cue');
+  await expect(row('Author')).toHaveText('Claude');
+  await expect(row('Version')).toHaveText('3');
+  await expect(row('Created')).toHaveCount(1);
+  await expect(row('Updated')).toHaveCount(1);
+
+  await dialog.locator('button', { hasText: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  // Escape dismisses too.
+  await view.locator('.np-action-btn[aria-label="Cue sheet details"]').click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
 });
 
 test('without a cue sheet there is no card and no button', async ({ page }) => {
@@ -84,6 +112,7 @@ test('without a cue sheet there is no card and no button', async ({ page }) => {
   await expect(view.locator('.np-action-btn[aria-label="About this track"]')).toBeVisible();
   await expect(view.locator('.np-cue')).toHaveCount(0);
   await expect(view.locator('.np-action-btn[aria-label*="cue cards"]')).toHaveCount(0);
+  await expect(view.locator('.np-action-btn[aria-label="Cue sheet details"]')).toHaveCount(0);
 });
 
 test('a clip draws over the whole view, fits its text, and owns the view until hidden', async ({ page }) => {

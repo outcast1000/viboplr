@@ -96,8 +96,9 @@ function need(args, keys, context) {
  *  path can't ship a large file to the app. */
 export const SHEET_FILE_MAX_BYTES = 1_000_000;
 
-/** A `sheetFile`'s text → `{ mode?, cues }`. Shape only — the app validates
- *  the cues. Errors never quote the file: it may not be a sheet at all. */
+/** A `sheetFile`'s text → `{ mode?, cues, track?, author? }`. Shape only —
+ *  the app validates the cues and the `track` block (which names the song the
+ *  file is for). Errors never quote the file: it may not be a sheet at all. */
 export function parseSheetFile(text, path) {
   let parsed;
   try {
@@ -108,9 +109,12 @@ export function parseSheetFile(text, path) {
   }
   if (Array.isArray(parsed)) return { cues: parsed };
   if (parsed && typeof parsed === "object" && Array.isArray(parsed.cues)) {
-    return { mode: parsed.mode, cues: parsed.cues };
+    const out = { mode: parsed.mode, cues: parsed.cues };
+    if (parsed.track !== undefined) out.track = parsed.track;
+    if (parsed.author !== undefined) out.author = parsed.author;
+    return out;
   }
-  throw new Error(`sheetFile ${path} must hold { cues: [...] } (optionally with mode) or a bare cues array`);
+  throw new Error(`sheetFile ${path} must hold { cues: [...] } (optionally with mode, track, author) or a bare cues array`);
 }
 
 export function versionCmp(a, b) {
@@ -562,13 +566,15 @@ export const TOOLS = [
           },
         },
         sheetFile: str(
-          "action=set, instead of cues (MCP only): absolute path to a UTF-8 JSON file holding the sheet — { mode?, cues: [...] } or a bare cues array, in the cues format above (≤1 MB). For sheets too large to pass inline. A mode argument overrides the file's.",
+          "action=set, instead of cues (MCP only): absolute path to a UTF-8 JSON file holding the sheet — { track?: { title, artistName }, author?, mode?, cues: [...] } or a bare cues array, in the cues format above (≤1 MB). For sheets too large to pass inline. `track` names the song, so title/artistName can be left out (if both are given they must agree); a mode or author argument overrides the file's.",
         ),
-        source: str("action=set: who wrote it, shown small on the cards / clip (e.g. your name)"),
+        author: str("action=set: who wrote it, shown small on the cards / clip (e.g. your name). Saved with the sheet, along with its version (counts up on every save) and dates"),
+        source: str("Old name for author"),
       },
       ["action"],
     ),
-    run: async ({ action, title, artistName, mode, cues, sheetFile, source }, ctx) => {
+    // `source` is author's name before app 1.0.93 — still accepted.
+    run: async ({ action, title, artistName, mode, cues, sheetFile, author, source }, ctx) => {
       const song = { title, artistName };
       switch (action) {
         case "get":
@@ -581,12 +587,12 @@ export const TOOLS = [
               throw new Error("sheetFile is only available through the MCP server — pass the cues inline");
             }
             const fromFile = parseSheetFile(await ctx.readTextFile(sheetFile, SHEET_FILE_MAX_BYTES), sheetFile);
-            sheet = { mode: mode ?? fromFile.mode, cues: fromFile.cues };
+            sheet = { ...fromFile, mode: mode ?? fromFile.mode };
           } else {
             need({ cues }, ["cues"], "action=set (or pass sheetFile)");
             sheet = { mode, cues };
           }
-          return ctx.request("PUT", "/v1/cues", { ...song, sheet, source });
+          return ctx.request("PUT", "/v1/cues", { ...song, sheet, author: author ?? source });
         }
         case "delete":
           return ctx.request("DELETE", "/v1/cues", song);
