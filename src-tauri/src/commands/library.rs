@@ -560,6 +560,16 @@ pub fn cue_sheet_get(
     crate::cue_sheets::get_cue_sheet(&state.app_dir, &title, artist_name.as_deref())
 }
 
+/// Every stored cue sheet, newest first (`cue_sheets.rs` → `list_cue_sheets`).
+/// Reads the profile's cue-sheets folder, so it runs off the main thread.
+#[tauri::command]
+pub async fn cue_sheet_list(state: State<'_, AppState>) -> Result<Vec<crate::cue_sheets::CueSheetRow>, String> {
+    let dir = state.app_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::cue_sheets::list_cue_sheets(&dir))
+        .await
+        .map_err(|e| format!("list cue sheets: {e}"))?
+}
+
 /// Validate, normalize and store a cue sheet; returns the stored row so the
 /// caller sees exactly what will play (the normalizer drops and sorts).
 /// Emits `cue-sheet-changed` so an open Now Playing view reloads it.

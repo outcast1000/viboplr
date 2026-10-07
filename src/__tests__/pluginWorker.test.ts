@@ -135,6 +135,14 @@ describe("permissions", () => {
     expect(() => checkPermission("p", ["env:LASTFM_API_KEY"], "env.get", ["AWS_SECRET_ACCESS_KEY"])).toThrow(/env:AWS_SECRET_ACCESS_KEY/);
   });
 
+  it("splits cue sheet reads from writes", () => {
+    expect(() => checkPermission("p", [], "cues.list", [])).toThrow(/cues:read/);
+    expect(() => checkPermission("p", ["cues:read"], "cues.get", ["Song", "Artist"])).not.toThrow();
+    expect(() => checkPermission("p", ["cues:read"], "cues.set", ["Song", "Artist", {}])).toThrow(/cues:write/);
+    expect(() => checkPermission("p", ["cues:write"], "cues.delete", ["Song"])).not.toThrow();
+    expect(describePermission("cues:write").label).toBe("Change your cue sheets");
+  });
+
   it("gates exec on the named binary", () => {
     expect(() => checkPermission("p", ["exec:yt-dlp"], "system.exec", ["yt-dlp", []])).not.toThrow();
     expect(() => checkPermission("p", ["exec:yt-dlp"], "system.exec", ["ffmpeg", []])).toThrow(/exec:ffmpeg/);

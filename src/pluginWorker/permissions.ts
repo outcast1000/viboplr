@@ -12,6 +12,8 @@
 //   files:trash        moving a local file to the trash
 //   playback:read      current track, position, queue, and playback events
 //   playback:control   starting playback or changing the queue
+//   cues:read          reading the user's Now Playing cue sheets
+//   cues:write         adding, replacing or deleting cue sheets
 //   system:open        opening URLs / files / folders with the OS
 //   env:<NAME>         reading one environment variable
 //   plugins:call       reaching other plugins (search, assistant tools, info chain)
@@ -184,6 +186,11 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "playlists.delete": need("library:write"),
   "playlists.getTracks": need("library:read"),
 
+  "cues.get": need("cues:read"),
+  "cues.list": need("cues:read"),
+  "cues.set": need("cues:write"),
+  "cues.delete": need("cues:write"),
+
   "scheduler.register": OWN,
   "scheduler.unregister": OWN,
   "scheduler.complete": OWN,
@@ -269,6 +276,10 @@ export function describePermission(perm: string): PermissionDescription {
       return { label: "See what's playing", detail: "The current track, playback position and queue.", sensitive: false };
     case "playback:control":
       return { label: "Control playback", detail: "Start playing and change the queue.", sensitive: false };
+    case "cues:read":
+      return { label: "Read your cue sheets", detail: "The cards and lyric clips that play over Now Playing.", sensitive: false };
+    case "cues:write":
+      return { label: "Change your cue sheets", detail: "Add, replace or delete the cards and lyric clips that play over Now Playing.", sensitive: false };
     case "system:open":
       return { label: "Open links and files", detail: "Hand them to your browser or other apps.", sensitive: false };
     case "plugins:call":

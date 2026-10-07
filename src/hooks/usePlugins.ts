@@ -63,6 +63,7 @@ import type {
   StreamResolveResult,
   ReplaceTrackFileRequest,
   ReplaceTrackFileResult,
+  PluginCueSheet,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
@@ -1301,6 +1302,30 @@ export function usePlugins(
               source: r.source,
               imagePath: r.image_path,
             }));
+          },
+        },
+
+        cues: {
+          get(title, artistName) {
+            return invoke<PluginCueSheet | null>("cue_sheet_get", { title, artistName: artistName ?? null });
+          },
+          list() {
+            return invoke<PluginCueSheet[]>("cue_sheet_list");
+          },
+          // The command normalizes and emits `cue-sheet-changed`, so an open
+          // Now Playing view picks up a sheet a plugin installs mid-song.
+          set(title, artistName, sheet, meta) {
+            return invoke<PluginCueSheet>("cue_sheet_set", {
+              title,
+              artistName: artistName ?? null,
+              sheet,
+              author: meta?.author ?? null,
+              albumName: meta?.albumName ?? null,
+              durationSecs: meta?.durationSecs ?? null,
+            });
+          },
+          delete(title, artistName) {
+            return invoke<boolean>("cue_sheet_delete", { title, artistName: artistName ?? null });
           },
         },
 

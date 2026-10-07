@@ -1880,6 +1880,39 @@ export interface PluginFileTags {
   duration_secs: number | null;
 }
 
+/** One stored cue sheet, as `api.cues` returns it (backend `CueSheetRow`). */
+export interface PluginCueSheet {
+  title: string;
+  artistName: string | null;
+  albumName: string | null;
+  durationSecs: number | null;
+  author: string | null;
+  /** 1 for the first save, +1 on every replace. */
+  version: number;
+  createdAt: number;
+  updatedAt: number;
+  /** The normalized sheet: `{ mode?, cues: [...] }`. */
+  sheet: { mode?: "cards" | "clip"; cues: Array<Record<string, unknown>> };
+  /** `set` only: fields the normalizer dropped. */
+  warnings?: string[];
+}
+
+/** The user's Now Playing cue sheets (backend `cue_sheets.rs`). Keyed by
+ *  title + artist like likes, so a sheet follows the song onto any copy.
+ *  `set` runs the host's normalizer — what comes back is what will play. */
+export interface PluginCuesAPI {
+  get(title: string, artistName?: string | null): Promise<PluginCueSheet | null>;
+  list(): Promise<PluginCueSheet[]>;
+  set(
+    title: string,
+    artistName: string | null | undefined,
+    sheet: unknown,
+    meta?: { author?: string; albumName?: string; durationSecs?: number },
+  ): Promise<PluginCueSheet>;
+  /** Resolves whether a sheet existed. */
+  delete(title: string, artistName?: string | null): Promise<boolean>;
+}
+
 export interface PluginEnvAPI {
   get(key: string): Promise<string | null>;
 }
@@ -1895,6 +1928,7 @@ export interface ViboplrPluginAPI {
   network: PluginNetworkAPI;
   collections: PluginCollectionsAPI;
   playlists: PluginPlaylistsAPI;
+  cues: PluginCuesAPI;
   informationTypes: PluginInformationTypesAPI;
   imageProviders: PluginImageProvidersAPI;
   downloads: PluginDownloadsAPI;

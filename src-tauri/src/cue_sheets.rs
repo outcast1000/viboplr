@@ -560,6 +560,28 @@ pub fn set_cue_sheet(
     Ok(stored.into())
 }
 
+/// Every stored sheet, newest first. Unreadable files are skipped (as
+/// `get_cue_sheet` reads them as no sheet); a missing directory is no sheets.
+pub fn list_cue_sheets(profile_dir: &Path) -> Result<Vec<CueSheetRow>, String> {
+    let entries = match std::fs::read_dir(dir(profile_dir)) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("list cue sheets: {e}")),
+    };
+    let mut rows: Vec<CueSheetRow> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Some(stored) = read_stored(&path)? {
+            rows.push(stored.into());
+        }
+    }
+    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(rows)
+}
+
 /// Returns whether a sheet existed.
 pub fn delete_cue_sheet(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> Result<bool, String> {
     match std::fs::remove_file(file_for(profile_dir, title, artist_name)) {
@@ -725,6 +747,21 @@ mod cue_tests {
         assert!(delete_cue_sheet(dir, "Jóga", Some("Björk")).unwrap());
         assert!(!delete_cue_sheet(dir, "Jóga", Some("Björk")).unwrap());
         assert!(get_cue_sheet(dir, "Jóga", Some("Björk")).unwrap().is_none());
+    }
+
+    #[test]
+    fn list_returns_every_readable_sheet_newest_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(list_cue_sheets(tmp.path()).unwrap().is_empty(), "no folder yet is no sheets");
+        let sheet = normalize_cue_sheet(&json!([{ "at": 0, "text": "hi" }])).unwrap();
+        set_cue_sheet(tmp.path(), "Old", Some("Band"), &sheet, &CueSheetMeta::default(), 1).unwrap();
+        set_cue_sheet(tmp.path(), "New", Some("Band"), &sheet, &CueSheetMeta::default(), 9).unwrap();
+        set_cue_sheet(tmp.path(), "Broken", None, &sheet, &CueSheetMeta::default(), 5).unwrap();
+        std::fs::write(file_for(tmp.path(), "Broken", None), b"{ truncated").unwrap();
+        std::fs::write(super::dir(tmp.path()).join("stray.json.tmp"), b"{}").unwrap();
+
+        let titles: Vec<String> = list_cue_sheets(tmp.path()).unwrap().into_iter().map(|r| r.title).collect();
+        assert_eq!(titles, ["New", "Old"]);
     }
 
     #[test]

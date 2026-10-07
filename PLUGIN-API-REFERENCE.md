@@ -105,6 +105,17 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `delete(id)` | Delete a playlist | — |
 | `getTracks(id)` | Get tracks in a playlist | — |
 
+## `api.cues` — Now Playing Cue Sheets
+
+Keyed by title + artist (accent/case-insensitive), so a sheet follows the song onto any copy. Worker plugins need `cues:read` / `cues:write`.
+
+| API | Description | Used By |
+|-----|-------------|---------|
+| `get(title, artistName?)` | The stored sheet for a song, or `null` | **community** — "imported / update available" state |
+| `list()` | Every stored sheet, newest first | **community** — "My sheets" tab |
+| `set(title, artistName, sheet, meta?)` | Validate + store (host normalizer; returns what will play). `meta`: `{ author?, albumName?, durationSecs? }`. Emits `cue-sheet-changed` | **community** — imports a published sheet |
+| `delete(title, artistName?)` | Remove; resolves whether one existed | — |
+
 ## `api.informationTypes` — Information Type Providers
 
 | API | Description | Used By |
@@ -155,7 +166,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 
 ## Summary
 
-- **14 namespaces**, ~69 methods/events
+- **15 namespaces**, ~73 methods/events
 - Heaviest consumers: **lastfm** (scrobbling + 9 info types + OAuth + history import), **tidal-browse** (search + playback + downloads + images + context menus), **spotify-browse** (web scraping + playback + playlists + scheduling + caching)
 - Image-only plugins (audiodb, deezer, itunes, musicbrainz) are minimal: just `network.fetch` + `imageProviders.onFetch`
 - Lyrics plugins (lrclib, lyrics-ovh, lyrics-search) use `informationTypes.onFetch("lyrics")` + `network.fetch`

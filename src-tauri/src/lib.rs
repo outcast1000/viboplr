@@ -121,6 +121,7 @@ macro_rules! invoke_handler {
             commands::toggle_liked,
             commands::set_entity_like_state,
             commands::cue_sheet_get,
+            commands::cue_sheet_list,
             commands::cue_sheet_set,
             commands::cue_sheet_delete,
             commands::get_entity_like_state,
