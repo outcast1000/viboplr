@@ -4,7 +4,9 @@
 // a browser sending Do Not Track is not counted at all. Page views, referrers,
 // UTM tags, country and device come from the tracker itself; this file adds
 // the handful of events that tell us what the site is for — which persona
-// pages lead to a download.
+// pages lead to a download, and which Community listings are taken into the
+// app (the same `app-action` / `share-start` events community.viboplr.com
+// sends, so the two sites' numbers read alike).
 //
 // Every page loads this one file, so adding an event means editing here, not
 // 25 HTML files. Pages call window.viboplrTrack(name, data) for anything a
@@ -47,7 +49,13 @@
     var href = a.getAttribute("href");
     var page = fileOf(location.pathname);
 
-    if (a.classList.contains("persona-card")) {
+    if (a.getAttribute("data-track") === "app-action") {
+      // Community page: a shared listing taken into Viboplr ("Add to Viboplr",
+      // "Open in Viboplr"). Same event as community.viboplr.com's tracker.
+      send("app-action", { module: a.getAttribute("data-module") || undefined, from: page });
+    } else if (a.getAttribute("data-track") === "share") {
+      send("share-start", { module: a.getAttribute("data-module") || undefined, from: page });
+    } else if (a.classList.contains("persona-card")) {
       send("persona-card", { persona: fileOf(href) });
     } else if (a.classList.contains("nav-cta")) {
       send("get-viboplr", { from: page });

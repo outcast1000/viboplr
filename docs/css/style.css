@@ -2033,53 +2033,34 @@ ol.docs-list {
   background: var(--gradient-accent);
 }
 
-/* Server directory (community.html#servers) — reuses the gallery-* card classes; these
-   are the only server-specific additions. */
-.server-warn {
-  display: flex;
-  gap: var(--space-sm);
-  align-items: flex-start;
+/* Community page (community.html): a module's notice and empty state — the
+   sections themselves are built by js/community.js from the server's modules. */
+.community-notice {
   max-width: var(--container-max);
-  margin: 0 auto;
-  padding: var(--space-md);
-  border: 1px solid rgba(161, 98, 7, 0.35);
-  background: rgba(161, 98, 7, 0.08);
-  border-radius: var(--radius-lg);
+  margin: 0 auto var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-accent-end);
+  background: rgba(233, 30, 138, 0.05);
+  border-radius: var(--radius-sm);
 }
 
-.server-warn svg {
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
-  color: #d19a1e;
-  margin-top: 2px;
-}
-
-.server-warn p {
+.community-notice p {
   margin: 0;
   font-size: 0.9rem;
   line-height: 1.5;
   color: var(--color-text-muted);
 }
 
-.server-warn strong {
-  color: var(--color-text);
+/* Card facts are host names and tags, not labels: keep their case. */
+#communityModules .gallery-meta-pill {
+  text-transform: none;
 }
 
-.server-empty {
+.community-empty {
   grid-column: 1 / -1;
   padding: var(--space-xl) var(--space-md);
   text-align: center;
   color: var(--color-text-muted);
-}
-
-.server-empty p {
-  margin: 0 0 0.5rem;
-}
-
-.server-empty a {
-  color: var(--color-accent-end);
-  font-weight: 600;
 }
 
 /* ── Supporter gift (support.html) ─────────────────────────────
@@ -2495,11 +2476,14 @@ ol.docs-list {
   }
 }
 
-/* Community page (community.html): the "browse all" link under each live
-   section, which ends at the few items shown here. */
+/* The "browse all" link (and a module's share button) under each section. */
 .community-more {
   max-width: var(--container-max);
   margin: var(--space-md) auto 0;
-  text-align: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  align-items: center;
+  justify-content: center;
   font-weight: 600;
 }
