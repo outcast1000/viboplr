@@ -1148,10 +1148,9 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
             <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onCreateSkin}>+ New skin</button>
           )}
           {tab !== "tools" && updateCount > 0 && (
-            <>
-              <span className="ext-update-count">{updateCount} update{updateCount !== 1 ? "s" : ""}</span>
-              <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onUpdateAll}>Update all</button>
-            </>
+            <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={onUpdateAll}>
+              Update all <span className="ext-update-count">{updateCount}</span>
+            </button>
           )}
           {tab !== "tools" && (
             <>
