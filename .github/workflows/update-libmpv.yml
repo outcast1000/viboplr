@@ -1,0 +1,178 @@
+name: Update libmpv
+
+# Weekly: is there a newer libmpv build than the pinned one? If so, mirror it,
+# re-pin it, prove it loads and plays on real macOS and Windows runners,
+# repackage the downloadable engine component, and open (or refresh) a pull
+# request. Merging stays a person's call: the tests can't catch a subtle
+# playback regression, which is why scripts/libmpv.lock.json is pinned at all.
+#
+# Everything is re-derived from main each run, so a PR left open is simply
+# refreshed — never stacked — and re-running is safe (mirroring checks bytes,
+# the component publish never overwrites a file).
+
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: update-libmpv
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  BRANCH: bot/libmpv-update
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.update.outputs.changed }}
+      platforms: ${{ steps.update.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # bsdtar reads the upstream .7z and .zip archives; GNU tar can't.
+      - name: Install bsdtar
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+
+      - name: Find, check and mirror newer builds
+        id: update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/update-libmpv.mjs --write --mirror --summary libmpv-update.md
+
+      - name: Push the update branch
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add scripts/libmpv.lock.json
+          git commit -m "build(libmpv): update pinned libmpv (${{ steps.update.outputs.platforms }})"
+          git push --force origin "$BRANCH"
+
+      - if: steps.update.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: libmpv-update-summary
+          path: libmpv-update.md
+
+  engine-test:
+    needs: check
+    if: needs.check.outputs.changed == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BRANCH }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Vendor libmpv
+        run: node scripts/fetch-libmpv.mjs
+
+      # The engine tests skip themselves when libmpv is absent — here that
+      # would be a pass that proves nothing, so a skip fails the job.
+      - name: Engine tests (real libmpv)
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          set -o pipefail
+          cargo test --lib mpv_engine -- --nocapture 2>&1 | tee engine-test.log
+          if grep -q "\[engine-test\] SKIPPED" engine-test.log; then
+            echo "::error::engine tests were skipped — libmpv did not load"
+            exit 1
+          fi
+
+  engine-component:
+    needs: [check, engine-test]
+    runs-on: macos-latest # the packager inspects the macOS dylib with otool
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0 # the publish script finds the root commit
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Vendor libmpv (all platforms)
+        run: node scripts/fetch-libmpv.mjs --all
+
+      - name: Package and publish the engine component
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/package-engine-component.mjs
+          node scripts/publish-engine-components.mjs
+
+      - name: Commit the component pins
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/engine-component.lock.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "build(engine): re-pin the downloadable engine component"
+          git push origin "$BRANCH"
+
+  pull-request:
+    needs: [check, engine-test, engine-component]
+    if: always() && needs.check.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: libmpv-update-summary
+
+      - name: Open or refresh the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTS: ${{ needs.engine-test.result }}
+          COMPONENT: ${{ needs.engine-component.result }}
+        run: |
+          mark() { [ "$1" = success ] && echo "✅ $1" || echo "❌ $1"; }
+          {
+            cat libmpv-update.md
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| Engine tests on macOS + Windows (real libmpv) | $(mark "$TESTS") |"
+            echo "| Engine component packaged + published | $(mark "$COMPONENT") |"
+            echo
+            echo "Run log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "_Opened by a workflow token, so the CI workflow doesn't start on its own — run it from the Actions tab (\"CI\", this branch) if you want it before merging._"
+          } > body.md
+          TITLE="Update libmpv (${{ needs.check.outputs.platforms }})"
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --title "$TITLE" --body-file body.md
+          else
+            DRAFT=""
+            if [ "$TESTS" != success ] || [ "$COMPONENT" != success ]; then DRAFT="--draft"; fi
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file body.md $DRAFT
+          fi

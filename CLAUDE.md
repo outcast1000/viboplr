@@ -13,6 +13,8 @@ cd src-tauri && cargo check --release # Release build check
 node scripts/fetch-libmpv.mjs        # Vendor pinned libmpv — REQUIRED before `tauri build` (bundled); dev/tests load it at runtime; engine tests self-skip without it
 cd src-tauri && cargo test --lib     # All lib tests incl. native engine (engine compiled into every build)
 node scripts/package-engine-component.mjs  # Package the downloadable libmpv engine component + update its lock
+node scripts/publish-engine-components.mjs # Publish those zips (never overwrites a published name) + pin what was published
+node scripts/update-libmpv.mjs             # Newer upstream libmpv builds? (--write --mirror re-pins; weekly via .github/workflows/update-libmpv.yml, which opens a PR)
 npx tsc --noEmit                     # TypeScript type-check
 npm run lint                         # ESLint (gates on errors; see .claude/rules/conventions.md > Enforcement)
 npm run lint:fix                     # ESLint with autofix
