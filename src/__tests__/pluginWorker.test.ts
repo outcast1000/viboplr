@@ -143,6 +143,12 @@ describe("permissions", () => {
     expect(describePermission("cues:write").label).toBe("Change your cue sheets");
   });
 
+  it("saving lyrics needs lyrics:write", () => {
+    expect(() => checkPermission("p", ["library:write"], "lyrics.save", [{ title: "Song" }, { text: "x", kind: "plain" }])).toThrow(/lyrics:write/);
+    expect(() => checkPermission("p", ["lyrics:write"], "lyrics.save", [{ title: "Song" }, { text: "x", kind: "plain" }])).not.toThrow();
+    expect(describePermission("lyrics:write").label).toBe("Change song lyrics");
+  });
+
   it("gates exec on the named binary", () => {
     expect(() => checkPermission("p", ["exec:yt-dlp"], "system.exec", ["yt-dlp", []])).not.toThrow();
     expect(() => checkPermission("p", ["exec:yt-dlp"], "system.exec", ["ffmpeg", []])).toThrow(/exec:ffmpeg/);

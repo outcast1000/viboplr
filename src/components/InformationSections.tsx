@@ -4,7 +4,7 @@ import { useInformationTypes } from "../hooks/useInformationTypes";
 import type { OpenInfoArgs } from "../hooks/useRetrieveModal";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { saveInfoValue } from "../utils/infoFetchChain";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildEntityKey } from "../types/informationTypes";
 import type { QueueTrack } from "../types";
@@ -147,21 +147,12 @@ export function InformationSections({
     if (actionId === "save-lyrics" && entity) {
       const p = payload as { text: string; kind: string } | undefined;
       if (!p) return;
-      const entityKey = buildEntityKey(entity);
-      const cached = await invoke<[number, string, string, string, number][]>(
-        "info_get_values_for_entity",
-        { entityKey },
-      );
-      const lyricsEntry = cached.find(([, typeId]) => typeId === "lyrics");
-      if (lyricsEntry) {
-        await invoke("info_upsert_value", {
-          informationTypeId: lyricsEntry[0],
-          entityKey,
-          value: JSON.stringify({ text: p.text, kind: p.kind }),
-          status: "ok",
-        });
-        // Reload from cache (does NOT delete+refetch like refresh does)
-        reloadCache();
+      // Same write as a plugin's api.lyrics.save. It announces the change, so
+      // this section (and any other open view of the song) re-reads by itself.
+      try {
+        await saveInfoValue({ typeId: "lyrics", entity, value: { text: p.text, kind: p.kind } });
+      } catch (e) {
+        console.error("Failed to save lyrics:", e);
       }
       return;
     }
@@ -186,7 +177,7 @@ export function InformationSections({
       return;
     }
     if (onAction) onAction(actionId, payload);
-  }, [entity, onAction, reloadCache]);
+  }, [entity, onAction]);
 
   function handleTabMouseDown(e: React.MouseEvent, tabId: string) {
     if (e.button !== 0 || !onTabOrderChange) return;

@@ -11,6 +11,7 @@ import { buildEntityKey } from "../types/informationTypes";
 // The cache-decision rule and the provider-chain walk live in
 // utils/infoFetchChain.ts, shared with the control API's info verbs.
 import { cacheTtlForRow, decideCacheAction, fetchInfoThroughChain } from "../utils/infoFetchChain";
+import { onInfoValueChanged } from "../utils/infoValueEvents";
 
 const EMPTY_DELAY_MS = 3000; // show progress for 3s before switching to empty
 
@@ -238,6 +239,17 @@ export function useInformationTypes({
   useEffect(() => {
     loadSections();
   }, [loadSections]);
+
+  // A value for this entity was written from outside this view (a plugin's
+  // fetch, the control API): re-read the cache. It was just written, so the
+  // re-read renders it rather than fetching again.
+  useEffect(
+    () =>
+      onInfoValueChanged((entityKey) => {
+        if (entityKey === entityKeyRef.current) loadSections();
+      }),
+    [loadSections],
+  );
 
   const refresh = useCallback(
     async (typeId: string) => {

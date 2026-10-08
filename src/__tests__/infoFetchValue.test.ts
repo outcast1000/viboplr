@@ -13,12 +13,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 import {
   fetchInfoValue,
+  saveInfoValue,
   resolveInfoEntityId,
   InfoFetchRequestError,
   type InfoTypeRow,
   type InfoValueRow,
 } from "../utils/infoFetchChain";
-import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
+import { buildEntityKey, type InfoEntity, type InfoFetchResult } from "../types/informationTypes";
+import { onInfoValueChanged } from "../utils/infoValueEvents";
 
 const NOW = Math.floor(Date.now() / 1000);
 const TTL = 7_776_000; // 90 days, like album_wiki
@@ -106,6 +108,37 @@ describe("fetchInfoValue", () => {
     expect(fetch.mock.calls.map((c) => c[0])).toEqual(["other"]);
   });
 
+  it("a pinned write drops the other providers' rows, so the entity has one value", async () => {
+    // Before, cleanup only walked the pinned chain: Last.fm's row stayed next
+    // to the new one and readers kept whichever their map met last.
+    const deletes: Array<Record<string, unknown>> = [];
+    setupBackend({ values: [[11, "album_wiki", JSON.stringify({ summary: "lastfm" }), "ok", NOW - 60]] });
+    const base = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "info_delete_value") deletes.push(args ?? {});
+      return base(cmd, args);
+    });
+    await fetchInfoValue({
+      typeId: "album_wiki", entity: album, pluginId: "other",
+      invokeInfoFetch: providerReturning({ other: { status: "ok", value: { summary: "other" } } }),
+    });
+    expect(deletes).toEqual([expect.objectContaining({ informationTypeId: 11 })]);
+  });
+
+  it("announces a write so open views re-read, and stays quiet on a cache serve", async () => {
+    const seen: Array<[string, string]> = [];
+    const off = onInfoValueChanged((key, type) => seen.push([key, type]));
+    try {
+      setupBackend({ values: [[11, "album_wiki", JSON.stringify({ summary: "cached" }), "ok", NOW - 60]] });
+      await fetchInfoValue({ typeId: "album_wiki", entity: album, invokeInfoFetch: providerReturning({}) });
+      expect(seen).toEqual([]);
+      await fetchInfoValue({ typeId: "album_wiki", entity: album, invokeInfoFetch: providerReturning({}), force: true });
+      expect(seen).toEqual([[buildEntityKey(album), "album_wiki"]]);
+    } finally {
+      off();
+    }
+  });
+
   it("a provider failure is reported as status error, never thrown", async () => {
     setupBackend();
     const fetch = vi.fn(async (): Promise<InfoFetchResult> => { throw new Error("network down"); });
@@ -174,6 +207,58 @@ describe("fetchInfoValue — synced lyrics beat plain", () => {
     const fetch = providerReturning({ lastfm: { status: "ok", value: { kind: "plain", summary: "x" } } });
     await fetchInfoValue({ typeId: "album_wiki", entity: album, invokeInfoFetch: fetch });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("saveInfoValue — a value put in place by hand", () => {
+  const song: InfoEntity = { kind: "track", name: "Jóga", id: 0, artistName: "Björk" };
+  const lyricsRow: InfoTypeRow = ["lyrics", "Lyrics", "lyrics", TTL, 0, [["core:local-lyrics", 20], ["lrclib", 21], ["lyrics-ovh", 22]], ""];
+  const lrc = { kind: "synced", text: "[00:01.00]shared" };
+
+  function recordWrites(values: InfoValueRow[]) {
+    const { upserts } = setupBackend({ types: [lyricsRow], values });
+    const deletes: Array<Record<string, unknown>> = [];
+    const base = invoke.getMockImplementation()!;
+    invoke.mockImplementation(async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "info_delete_value") deletes.push(args ?? {});
+      return base(cmd, args);
+    });
+    return { upserts, deletes };
+  }
+
+  it("with nothing cached, lands under the first web provider — never the daily-reprobed local row", async () => {
+    const { upserts, deletes } = recordWrites([]);
+    await saveInfoValue({ typeId: "lyrics", entity: song, value: lrc });
+    expect(upserts).toEqual([expect.objectContaining({ informationTypeId: 21, status: "ok", value: JSON.stringify(lrc) })]);
+    expect(deletes.map((d) => d.informationTypeId)).toEqual([20, 22]);
+  });
+
+  it("replaces a web provider's row in place, and a local row by moving off it", async () => {
+    let w = recordWrites([[22, "lyrics", "{}", "ok", NOW - 60]]);
+    await saveInfoValue({ typeId: "lyrics", entity: song, value: lrc });
+    expect(w.upserts[0]).toMatchObject({ informationTypeId: 22 });
+
+    w = recordWrites([[20, "lyrics", "{}", "ok", NOW - 60]]);
+    await saveInfoValue({ typeId: "lyrics", entity: song, value: lrc });
+    expect(w.upserts[0]).toMatchObject({ informationTypeId: 21 });
+    expect(w.deletes.map((d) => d.informationTypeId)).toContain(20);
+  });
+
+  it("tells open views", async () => {
+    recordWrites([]);
+    const seen: string[] = [];
+    const off = onInfoValueChanged((key) => seen.push(key));
+    try {
+      await saveInfoValue({ typeId: "lyrics", entity: song, value: lrc });
+    } finally {
+      off();
+    }
+    expect(seen).toEqual([buildEntityKey(song)]);
+  });
+
+  it("refuses a type with no providers", async () => {
+    setupBackend({ types: [] });
+    await expect(saveInfoValue({ typeId: "lyrics", entity: song, value: lrc })).rejects.toBeInstanceOf(InfoFetchRequestError);
   });
 });
 

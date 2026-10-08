@@ -7,6 +7,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { buildEntityKey } from "../types/informationTypes";
 import type { InfoEntity, InfoFetchResult, FetchProgressEntry } from "../types/informationTypes";
+import { emitInfoValueChanged } from "./infoValueEvents";
 
 export const ERROR_TTL = 3600; // 1 hour in seconds
 
@@ -100,6 +101,12 @@ export interface FetchChainOpts {
   /** Called with the running step list after every change (same array,
    *  mutated) — the hook renders it; headless callers omit it. */
   onProgress?: (steps: FetchProgressEntry[]) => void;
+  /** Every provider of the type, when `providers` is a narrowed walk (a pinned
+   *  fetch). Their rows are the ones to drop afterwards: a pinned write that
+   *  left another provider's row behind gave the entity two cached values for
+   *  one type, and readers keep whichever the map met last. Defaults to
+   *  `providers`. */
+  allProviders?: Array<[string, number]>;
 }
 
 /** Walk the provider chain (first ok wins), persist the outcome into the
@@ -110,6 +117,7 @@ export async function fetchInfoThroughChain(
   opts: FetchChainOpts,
 ): Promise<{ result: InfoFetchResult; usedIntegerId: number }> {
   const { typeId, providers, entity, entityKey, invokeInfoFetch, pluginNames, onProgress } = opts;
+  const allProviders = opts.allProviders ?? providers;
   let usedIntegerId = providers[0]?.[1] ?? 0;
   const steps: FetchProgressEntry[] = [];
   try {
@@ -153,7 +161,7 @@ export async function fetchInfoThroughChain(
     });
 
     // Clean up stale cached values from other providers for this type_id
-    for (const [, integerId] of providers) {
+    for (const [, integerId] of allProviders) {
       if (integerId !== usedIntegerId) {
         await invoke("info_delete_value", {
           informationTypeId: integerId,
@@ -255,6 +263,42 @@ export async function resolveInfoEntityId(entity: Omit<InfoEntity, "id">): Promi
 }
 
 /**
+ * Put a value in the cache for one entity by hand — the lyrics editor, and a
+ * plugin's `api.lyrics.save` (e.g. importing shared synced lyrics). It replaces
+ * whatever any provider had cached for that type, and every open view re-reads.
+ *
+ * The row it lands under matters for how long it lasts: a `core:` (local-file)
+ * row is re-probed daily (see cacheTtlForRow), which would wipe a hand-saved
+ * value overnight. So it reuses the entity's current row when that's a web
+ * provider's, else the first web provider in the chain — and only falls back
+ * to a core row when the type has nothing else.
+ */
+export async function saveInfoValue(opts: { typeId: string; entity: InfoEntity; value: unknown }): Promise<void> {
+  const { typeId, entity, value } = opts;
+  const entityKey = buildEntityKey(entity);
+  const types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
+  const row = types.find(([id]) => id === typeId);
+  if (!row || row[5].length === 0) {
+    throw new InfoFetchRequestError(`no providers registered for "${typeId}" — is a ${typeId} plugin enabled?`);
+  }
+  const providers = row[5];
+  const isCore = (id: number) => providers.some(([pid, pidId]) => pidId === id && pid.startsWith("core:"));
+  const cached = await invoke<InfoValueRow[]>("info_get_values_for_entity", { entityKey });
+  const current = cached.find(([, id]) => id === typeId)?.[0];
+  const target =
+    current !== undefined && !isCore(current)
+      ? current
+      : (providers.find(([pid]) => !pid.startsWith("core:")) ?? providers[0])[1];
+  await invoke("info_upsert_value", { informationTypeId: target, entityKey, value: JSON.stringify(value), status: "ok" });
+  for (const [, integerId] of providers) {
+    if (integerId !== target) {
+      await invoke("info_delete_value", { informationTypeId: integerId, entityKey }).catch(() => {}); // eslint-disable-line no-restricted-syntax -- Fire-and-forget: dropping a stale cache row; the saved value above is the real work
+    }
+  }
+  emitInfoValueChanged(entityKey, typeId);
+}
+
+/**
  * Get one info type's value for one entity: a fresh cache row is served as-is
  * (unless `force` / `pluginId`), anything else walks the SAME provider chain
  * the detail pages run (`fetchInfoThroughChain`), so the result lands in the
@@ -296,8 +340,13 @@ export async function fetchInfoValue(opts: FetchInfoValueOpts): Promise<FetchInf
     throw new InfoFetchRequestError(`no providers registered for "${typeId}" — is the plugin enabled?`);
   }
   const { result } = await fetchInfoThroughChain({
-    typeId, providers: chain, entity, entityKey, invokeInfoFetch, pluginNames,
+    typeId, providers: chain, allProviders: providers, entity, entityKey, invokeInfoFetch, pluginNames,
   });
+  // A plugin or the control API changed what this entity shows — tell any open
+  // detail page / Now Playing view, which otherwise re-reads only when its
+  // entity changes. (The pages' own walks don't announce: they render what
+  // they fetched themselves.)
+  emitInfoValueChanged(entityKey, typeId);
   return {
     typeId,
     name,

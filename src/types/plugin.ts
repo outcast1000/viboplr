@@ -1914,6 +1914,17 @@ export interface PluginCueSheet {
 /** The user's Now Playing cue sheets (backend `cue_sheets.rs`). Keyed by
  *  title + artist like likes, so a sheet follows the song onto any copy.
  *  `set` runs the host's normalizer — what comes back is what will play. */
+/** Put lyrics in place for a song — permission `lyrics:write`. */
+export interface PluginLyricsAPI {
+  /** Make these the song's lyrics: the same write as the in-app lyrics editor,
+   *  replacing whatever a provider had cached; open views update at once.
+   *  Absent on hosts before 1.0.94 — feature-detect. */
+  save(
+    track: { title: string; artistName?: string | null; albumTitle?: string | null },
+    lyrics: { text: string; kind: "synced" | "plain" },
+  ): Promise<void>;
+}
+
 export interface PluginCuesAPI {
   get(title: string, artistName?: string | null): Promise<PluginCueSheet | null>;
   list(): Promise<PluginCueSheet[]>;
@@ -1943,6 +1954,7 @@ export interface ViboplrPluginAPI {
   collections: PluginCollectionsAPI;
   playlists: PluginPlaylistsAPI;
   cues: PluginCuesAPI;
+  lyrics: PluginLyricsAPI;
   informationTypes: PluginInformationTypesAPI;
   imageProviders: PluginImageProvidersAPI;
   downloads: PluginDownloadsAPI;

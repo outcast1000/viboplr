@@ -14,6 +14,7 @@
 //   playback:control   starting playback or changing the queue
 //   cues:read          reading the user's Now Playing cue sheets
 //   cues:write         adding, replacing or deleting cue sheets
+//   lyrics:write       putting lyrics in place for a song (like the lyrics editor)
 //   system:open        opening URLs / files / folders with the OS
 //   env:<NAME>         reading one environment variable
 //   plugins:call       reaching other plugins (search, assistant tools, info chain)
@@ -194,6 +195,8 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "cues.set": need("cues:write"),
   "cues.delete": need("cues:write"),
 
+  "lyrics.save": need("lyrics:write"),
+
   "scheduler.register": OWN,
   "scheduler.unregister": OWN,
   "scheduler.complete": OWN,
@@ -283,6 +286,8 @@ export function describePermission(perm: string): PermissionDescription {
       return { label: "Read your cue sheets", detail: "The cards and lyric clips that play over Now Playing.", sensitive: false };
     case "cues:write":
       return { label: "Change your cue sheets", detail: "Add, replace or delete the cards and lyric clips that play over Now Playing.", sensitive: false };
+    case "lyrics:write":
+      return { label: "Change song lyrics", detail: "Replace the lyrics Viboplr shows for a song, as editing them yourself would.", sensitive: false };
     case "system:open":
       return { label: "Open links and files", detail: "Hand them to your browser or other apps.", sensitive: false };
     case "plugins:call":
