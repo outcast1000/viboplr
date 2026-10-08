@@ -203,6 +203,10 @@ export interface HistoryEntry {
   // The resolved album's own album artist — what an album cover is keyed by
   // (see CLAUDE.md "Album identity"). Null whenever display_album is.
   display_album_artist: string | null;
+  // Scheme-prefixed path of the matched library copy (same match as
+  // display_album) — lets a video play show its own frame. Null when the play
+  // has no library track.
+  display_path: string | null;
 }
 
 // A single play row stripped to what bulk listening-pattern aggregation needs.
@@ -225,6 +229,8 @@ export interface HistoryMostPlayed {
   // pair — history stores no album and both are needed to key an album cover.
   display_album: string | null;
   display_album_artist: string | null;
+  // Library copy's path, same contract as HistoryEntry's.
+  display_path: string | null;
 }
 
 // A liked entity (track/artist/album) read from the durable entity_likes table

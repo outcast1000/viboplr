@@ -388,6 +388,10 @@ pub struct HistoryEntry {
     // display_artist is the performer and keys no album image. Rides along with
     // display_album and is None whenever that is.
     pub display_album_artist: Option<String>,
+    // Scheme-prefixed path of the matched library copy (same match as
+    // display_album), so a video play can show its own frame. None when the
+    // play has no library track.
+    pub display_path: Option<String>,
 }
 
 /// A single play row, stripped to only what bulk listening-pattern aggregation
@@ -418,6 +422,10 @@ pub struct HistoryMostPlayed {
     // seeks), so every history track surface can render album art.
     pub display_album: Option<String>,
     pub display_album_artist: Option<String>,
+    // Scheme-prefixed path of the matched library copy (same match as
+    // display_album), so a video play can show its own frame. None when the
+    // play has no library track.
+    pub display_path: Option<String>,
 }
 
 /// Lightweight liked-entity row read from the durable entity_likes table (the

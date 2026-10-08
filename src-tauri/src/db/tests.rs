@@ -981,6 +981,37 @@ fn test_history_album_resolution_does_not_cross_artists() {
     assert_eq!(recent[0].display_album_artist.as_deref(), Some("Artist A"));
 }
 
+/// History rows carry the matched library copy's path, so a video
+/// play gets its own frame on Recently played / Most played. An album-less copy
+/// (most videos) must still resolve — the album join used to drop it — and a
+/// tagged copy elsewhere still supplies the cover.
+#[test]
+fn test_history_rows_carry_the_library_copys_path() {
+    let db = test_db();
+    let cid = test_collection(&db);
+    let artist = db.get_or_create_artist("Artie").unwrap();
+    let video = db.upsert_track("clip.mp4", "Live Clip", Some(artist), None, None, Some(200.0), Some("mp4"), Some(50_000_000), None, Some(cid), None).unwrap();
+    db.record_play(video).unwrap();
+
+    let recent = db.get_history_recent(10).unwrap();
+    let e = recent.iter().find(|e| e.display_title == "Live Clip").expect("in history");
+    assert_eq!(e.display_path.as_deref(), Some("file:///test/clip.mp4"));
+    assert_eq!(e.display_album, None);
+
+    let most = db.get_history_most_played_since(0, 10, 1).unwrap();
+    let r = most.iter().find(|r| r.display_title == "Live Clip").expect("in most played");
+    assert_eq!(r.display_path.as_deref(), Some("file:///test/clip.mp4"));
+
+    // A play with no library copy carries neither.
+    let other = db.get_or_create_artist("Nobody").unwrap();
+    let gone = insert_track(&db, "gone.mp3", "Gone Song", Some(other), None);
+    db.record_play(gone).unwrap();
+    db.delete_tracks_by_ids(&[gone]).unwrap();
+    let recent = db.get_history_recent(10).unwrap();
+    let g = recent.iter().find(|e| e.display_title == "Gone Song").expect("history outlives the track");
+    assert_eq!(g.display_path, None);
+}
+
 #[test]
 fn test_collection_crud() {
     let db = test_db();

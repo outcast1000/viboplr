@@ -667,6 +667,9 @@ export function useHome(opts: UseHomeOptions) {
                     // via the shared chain, artist-image fallback when absent.
                     album_title: h.display_album ?? undefined,
                     album_artist_name: h.display_album_artist ?? undefined,
+                    // The library copy's own path: a local video gets its own
+                    // frame (useShelfVideoFrames), and play uses that exact file.
+                    path: h.display_path ?? undefined,
                   },
                 });
                 if (items.length >= limit) break;
@@ -699,6 +702,8 @@ export function useHome(opts: UseHomeOptions) {
                     // via the shared chain, artist-image fallback when absent.
                     album_title: t.display_album ?? undefined,
                     album_artist_name: t.display_album_artist ?? undefined,
+                    // Library copy's path → video frame, as on Recently played.
+                    path: t.display_path ?? undefined,
                   },
                 })),
               };

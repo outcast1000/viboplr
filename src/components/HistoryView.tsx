@@ -7,6 +7,7 @@ import { formatRelativeTime } from "../utils";
 import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { useImageCache } from "../hooks/useImageCache";
 import { pickEntityImagePath, resolveTrackImage } from "../utils/trackImage";
+import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { TrackRow } from "./TrackRow";
 // Index-based multi-select over the currently-visible rows (string keys so
 // tracks and artists can share one ordered list). The prefixed keys are built
@@ -132,11 +133,6 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     artistImageFor: artistImages.getImage,
   }), [albumImages, artistImages]);
 
-  // Render-ready URL for a track row (album cover → artist photo).
-  const trackImageUrl = useCallback((t: Parameters<typeof trackImageMeta>[0]): string | null =>
-    resolveTrackImage(trackImageMeta(t), entityLookups),
-  [trackImageMeta, entityLookups]);
-
   // The RAW path the same chain picks, for a radio seed's cover (the queue
   // banner converts it itself — see pickEntityImagePath's contract).
   const trackCoverPath = useCallback((t: Parameters<typeof trackImageMeta>[0]): string | null =>
@@ -244,6 +240,23 @@ export const HistoryView = forwardRef<HistoryViewHandle, HistoryViewProps>(
     if (activeTab === "recent") return recentPlays;
     return null;
   })();
+
+  // A video play shows its own first frame. The backend resolves each row to a
+  // library copy (`display_path`); only rows on screen are candidates, and the
+  // frame queue extracts local videos only. Keyed on the joined paths because
+  // the visible lists above are rebuilt every render.
+  const framePathsKey = [...(visibleTracks ?? []), ...(visibleRecent ?? [])]
+    .map(r => r.display_path ?? "").join("\n");
+  const frameRows = useMemo(
+    () => framePathsKey.split("\n").filter(Boolean).map(path => ({ path })),
+    [framePathsKey],
+  );
+  const videoFrames = useQueueVideoFrames(frameRows);
+
+  // Render-ready URL for a track row (video frame → album cover → artist photo).
+  const trackImageUrl = useCallback((t: Parameters<typeof trackImageMeta>[0] & { display_path: string | null }): string | null =>
+    resolveTrackImage(trackImageMeta(t), { ...entityLookups, videoFrame: videoFrames[shelfVideoKey(t.display_path)] ?? null }),
+  [trackImageMeta, entityLookups, videoFrames]);
 
   const flatItems = useMemo(() => {
     const items: { historyTrackId: number }[] = [];

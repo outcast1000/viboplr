@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { ResolvedShelf } from "./useHome";
-import type { QueueTrack } from "../types";
 import { isVideoTrack } from "../utils";
 import { isLocalTrack } from "../queueEntry";
 import { useVideoFrameQueue } from "./useVideoFrameQueueContext";
@@ -95,11 +94,11 @@ export function useShelfVideoFrames(shelf: ResolvedShelf): Record<string, string
       }).track;
       // A frame is only shown when the row ITSELF is a LOCAL video (by its own
       // path/format), resolved by exact path — never inferred from a fuzzy
-      // metadata match. History-backed shelves (Recently played / Most played)
-      // carry no path or format, so they no longer borrow a same-titled video's
-      // frame for an audio play; they fall back to album/artist art. Remote
-      // videos are skipped — the backend can't extract frames from them. Mirrors
-      // useQueueVideoFrames.
+      // metadata match on the frontend. History-backed shelves (Recently played /
+      // Most played) carry the path of the library copy the backend matched the
+      // play to (`display_path`), so a video play shows its own frame and an
+      // audio play never borrows one. Remote videos are skipped — the backend
+      // can't extract frames from them. Mirrors useQueueVideoFrames.
       const path = track.path;
       if (track.image_url || !path || !isVideoTrack({ format: track.format ?? null, path }) || !isLocalTrack({ path })) continue;
       out.push({
@@ -112,15 +111,24 @@ export function useShelfVideoFrames(shelf: ResolvedShelf): Record<string, string
   return useVideoFrameMap(candidates);
 }
 
-// For a queue: resolve each video track to its library id by path and enqueue
-// first-frame extraction. Same path-based identity as the shelf hook above.
-export function useQueueVideoFrames(queue: QueueTrack[]): Record<string, string> {
+// The fields the frame lookup reads off a row: a queue entry, a playlist row, or
+// a history row carrying its matched library copy's path.
+export interface VideoFrameRow {
+  path?: string | null;
+  format?: string | null;
+  image_url?: string | null;
+}
+
+// For a queue (or any list of rows like one): resolve each video track to its
+// library id by path and enqueue first-frame extraction. Same path-based
+// identity as the shelf hook above.
+export function useQueueVideoFrames(queue: readonly VideoFrameRow[]): Record<string, string> {
   const candidates = useMemo<VideoFrameCandidate[]>(() => {
     const out: VideoFrameCandidate[] = [];
     for (const t of queue) {
       // Local video only — the backend rejects frame extraction for remote
       // tracks (subsonic, prefer-video streams), so those fall back to entity art.
-      if (t.image_url || !isVideoTrack(t) || !t.path || !isLocalTrack(t)) continue;
+      if (t.image_url || !t.path || !isVideoTrack({ format: t.format ?? null, path: t.path }) || !isLocalTrack(t)) continue;
       const path = t.path;
       out.push({
         key: shelfVideoKey(path),
