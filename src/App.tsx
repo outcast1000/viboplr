@@ -2171,6 +2171,21 @@ function App() {
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   useAssignRef(pluginHostCallbacksRef, {
     replaceTrackFile: replaceTrackFileForPlugin,
+    // api.collections.requestAdd: the same prefilled dialogs a
+    // viboplr://add-collection link opens — the user's click is the consent.
+    requestAddCollection: (_pluginId, source) => {
+      if (source.kind === "subsonic") {
+        setDeepLinkServer({
+          name: source.name ?? "",
+          url: source.url,
+          username: source.username ?? "",
+          password: source.password ?? "",
+        });
+        setShowAddServer(true);
+      } else {
+        setDeepLinkMusicSource({ name: source.name ?? "", url: source.url });
+      }
+    },
     tagOps: tagOpsDeps,
     navigateToPluginView: (pluginId, viewId) => {
       library.setView(`plugin:${pluginId}:${viewId}`);

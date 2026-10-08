@@ -101,6 +101,9 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "collections.getLocalCollections": need("library:read"),
   "collections.resync": need("library:write"),
   "collections.trashPath": need("files:trash"),
+  // Opens the host's Add dialog; nothing is added without the user's click —
+  // the same reach a viboplr://add-collection link from any web page has.
+  "collections.requestAdd": OWN,
 
   "contextMenu.onAction": OWN,
   "contextMenu.registerItem": OWN,

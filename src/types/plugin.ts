@@ -1032,7 +1032,21 @@ export interface PluginCollectionsAPI {
    * directory and cannot reach it. Feature-detect for older hosts.
    */
   trashPath(collectionId: number, relativePath: string): Promise<void>;
+  /**
+   * Offer the user a music source to add: opens the app's own Add Server
+   * dialog (`subsonic`) or Add Music Source confirmation (`manifest`),
+   * prefilled — the same dialogs a `viboplr://add-collection` link opens. The
+   * user decides there; nothing is added without their click, which is why
+   * this needs no permission. Resolves once the dialog is shown, not when the
+   * user finishes it. Feature-detect for older hosts.
+   */
+  requestAdd(source: PluginCollectionSource): Promise<void>;
 }
+
+/** What `api.collections.requestAdd` can offer. */
+export type PluginCollectionSource =
+  | { kind: "subsonic"; url: string; name?: string; username?: string; password?: string }
+  | { kind: "manifest"; url: string; name?: string };
 
 /**
  * A context-menu item registered at runtime via api.contextMenu.registerItem.

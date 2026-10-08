@@ -95,6 +95,7 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | API | Description | Used By |
 |-----|-------------|---------|
 | `getLocalCollections()` | Get all local collections (id, name, path) | **auto-tagger** — lists collections for analysis scope selection |
+| `requestAdd(source)` | Open the app's prefilled Add Server / Add Music Source dialog (user confirms; no permission) | **community** — Servers tab |
 
 ## `api.playlists` — Playlist Management
 

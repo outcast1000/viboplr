@@ -64,6 +64,7 @@ import type {
   ReplaceTrackFileRequest,
   ReplaceTrackFileResult,
   PluginCueSheet,
+  PluginCollectionSource,
 } from "../types/plugin";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
@@ -301,6 +302,8 @@ export interface PluginHostCallbacks {
   showNotification: (message: string, action?: ToastAction) => void;
   /** `api.library.replaceTrackFile`: the host's Replace dialog, then the swap. */
   replaceTrackFile?: (pluginId: string, request: ReplaceTrackFileRequest) => Promise<ReplaceTrackFileResult>;
+  /** `api.collections.requestAdd`: the app's own prefilled Add dialog. */
+  requestAddCollection?: (pluginId: string, source: PluginCollectionSource) => void;
 }
 
 export function usePlugins(
@@ -1225,6 +1228,24 @@ export function usePlugins(
             // The root and the traversal checks live in Rust — the frontend is
             // not the trust boundary for a delete inside the user's music.
             await invoke("plugin_trash_collection_path", { collectionId, relativePath });
+          },
+          async requestAdd(source) {
+            const open = hostCallbacksRef?.current?.requestAddCollection;
+            if (!open) throw new Error("This Viboplr can't open the Add dialog for plugins yet");
+            const kind = source?.kind;
+            if ((kind !== "subsonic" && kind !== "manifest") || typeof source.url !== "string") {
+              throw new Error('requestAdd needs { kind: "subsonic" | "manifest", url: string }');
+            }
+            let protocol = "";
+            try {
+              protocol = new URL(source.url).protocol;
+            } catch {
+              // Reported below as not an http(s) URL.
+            }
+            if (protocol !== "http:" && protocol !== "https:") {
+              throw new Error("requestAdd needs an http(s) url");
+            }
+            open(pluginId, source);
           },
         },
 
