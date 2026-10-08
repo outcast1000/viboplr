@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Community — Viboplr</title>
+  <meta name="description" content="What Viboplr listeners share: public Subsonic / Navidrome servers you can add in one click, and Now Playing cue sheets for the songs you love.">
+  <link rel="canonical" href="https://viboplr.com/community.html">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://viboplr.com/community.html">
+  <meta property="og:title" content="Community — Viboplr">
+  <meta property="og:description" content="Public Subsonic / Navidrome servers and Now Playing cue sheets, shared by Viboplr listeners.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Community — Viboplr">
+  <meta name="twitter:description" content="Public servers and Now Playing cue sheets, shared by Viboplr listeners.">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">
+        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
+          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
+          <path d="M138.24 138.24 L256 281.6 L373.76 138.24" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M138.24 235.52 L256 378.88 L373.76 235.52" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
+        </svg>
+        iboPLR
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="index.html" class="nav-link">Home</a>
+        <a href="plugins.html" class="nav-link">Plugins</a>
+        <a href="skins.html" class="nav-link">Skins</a>
+        <a href="community.html" class="nav-link active">Community</a>
+        <a href="help.html" class="nav-link">Help</a>
+        <a href="support.html" class="nav-link nav-link--sponsor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+          Support
+        </a>
+        <a href="download.html" class="nav-cta">Get Viboplr</a>
+      </div>
+      <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="download-hero">
+    <div class="container">
+      <h1 class="animate-in"><span class="gradient-text">Community</span></h1>
+      <p class="animate-in animate-delay-1">What Viboplr listeners share with each other — <strong>servers</strong> they opened to everyone, and <strong>cue sheets</strong> that play over the songs they love. It all lives on <a href="https://community.viboplr.com" target="_blank" rel="noopener">community.viboplr.com</a>; here's what's there right now.</p>
+      <div class="hero-buttons animate-in animate-delay-2" style="margin-top: 1.5rem;">
+        <a href="#servers" class="btn btn-outline">Servers</a>
+        <a href="#cue-sheets" class="btn btn-outline">Cue sheets</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Servers -->
+  <section class="section" id="servers">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="feature-label">Servers</span>
+        <h2>Shared <span class="gradient-text">Subsonic &amp; Navidrome</span> servers</h2>
+        <p>Servers their owners opened to everyone. Found one you like? <strong>Add to Viboplr</strong> opens the app with the connection filled in — no typing.</p>
+      </div>
+      <div class="server-warn" role="note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <p><strong>These are servers people chose to share publicly.</strong> Listings carry shared logins in plain text, filled into the app when you add one. Treat them as public — never list a private server, and don't reuse a password you use elsewhere.</p>
+      </div>
+      <div class="gallery-toolbar" style="margin-top: var(--space-md);">
+        <input type="search" id="serverSearch" class="gallery-search" placeholder="Search servers…" aria-label="Search servers">
+        <span class="gallery-count" id="serverCount"></span>
+      </div>
+      <div class="gallery-status" id="serverStatus"></div>
+      <div class="gallery-grid" id="serverGrid"></div>
+      <p class="community-more"><a href="https://community.viboplr.com/servers" target="_blank" rel="noopener">Browse all servers on community.viboplr.com &rarr;</a></p>
+    </div>
+  </section>
+
+  <!-- Cue sheets -->
+  <section class="section section-alt" id="cue-sheets">
+    <div class="container">
+      <div class="section-header reveal">
+        <span class="feature-label">Cue sheets</span>
+        <h2>Cards and clips for the <span class="gradient-text">songs you love</span></h2>
+        <p>Timed cards and lyric clips that play over Now Playing, written by listeners and their AI assistants. A sheet follows the song, so it plays over any copy of it you have. Importing one takes the <strong>Viboplr Community</strong> plugin <span class="feature-tag">plugin</span>, arriving with the next Viboplr release.</p>
+      </div>
+      <div class="gallery-status" id="cueStatus"></div>
+      <div class="gallery-grid" id="cueGrid"></div>
+      <p class="community-more"><a href="https://community.viboplr.com/" target="_blank" rel="noopener">Browse all cue sheets on community.viboplr.com &rarr;</a></p>
+    </div>
+  </section>
+
+  <!-- Share your own -->
+  <section class="section">
+    <div class="container">
+      <div class="gallery-steps reveal">
+        <h2>Share your own</h2>
+        <p class="gallery-steps-intro">Sign in with GitHub on <a href="https://community.viboplr.com" target="_blank" rel="noopener">community.viboplr.com</a> — no password to create. You manage only what you share.</p>
+        <div class="gallery-steps-grid">
+          <div class="gallery-step">
+            <span class="gallery-step-num">1</span>
+            <h3>List a server</h3>
+            <p>Give it a name, the address, a short description, tags, and the <strong>shared</strong> login you're comfortable making public. Everyone gets a one-click <strong>Add to Viboplr</strong>.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">2</span>
+            <h3>Publish a cue sheet</h3>
+            <p>Made a sheet for a song — yourself or with your AI assistant? Publish it from the Community plugin's <strong>My sheets</strong> tab, or right-click the track.</p>
+          </div>
+          <div class="gallery-step">
+            <span class="gallery-step-num">3</span>
+            <h3>Keep it tidy</h3>
+            <p>Edit or remove anything you've shared from <a href="https://community.viboplr.com/me" target="_blank" rel="noopener">your account</a>. Spot a problem in someone else's? Report it there.</p>
+          </div>
+        </div>
+      </div>
+      <div class="hero-buttons" style="margin-top: 1.5rem; justify-content: center;">
+        <a href="https://community.viboplr.com/servers/new" class="btn btn-primary" target="_blank" rel="noopener">List your server</a>
+        <a href="https://community.viboplr.com" class="btn btn-outline" target="_blank" rel="noopener">Open Viboplr Community</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-right">
+          <a href="support.html" class="footer-link">Support</a>
+          <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>
+          <span class="footer-link">Built with Tauri + React</span>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <script src="js/servers.js"></script>
+  <script src="js/community.js"></script>
+  <script defer src="js/analytics.js"></script>
+  <!-- Cloudflare Web Analytics -->
+  <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "cbb978698d3744cca00a24f8cac8bc3c"}'></script>
+</body>
+</html>

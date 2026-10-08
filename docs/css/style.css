@@ -2033,7 +2033,7 @@ ol.docs-list {
   background: var(--gradient-accent);
 }
 
-/* Server directory (servers.html) — reuses the gallery-* card classes; these
+/* Server directory (community.html#servers) — reuses the gallery-* card classes; these
    are the only server-specific additions. */
 .server-warn {
   display: flex;
@@ -2493,4 +2493,13 @@ ol.docs-list {
     grid-template-columns: 1fr;
     gap: var(--space-lg);
   }
+}
+
+/* Community page (community.html): the "browse all" link under each live
+   section, which ends at the few items shown here. */
+.community-more {
+  max-width: var(--container-max);
+  margin: var(--space-md) auto 0;
+  text-align: center;
+  font-weight: 600;
 }
