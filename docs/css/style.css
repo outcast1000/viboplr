@@ -859,6 +859,7 @@ p {
 .req-table td {
   padding: 14px 0;
   font-size: 0.95rem;
+  vertical-align: top;
 }
 
 .req-table td:first-child {
@@ -866,6 +867,7 @@ p {
   font-weight: 600;
   color: var(--color-text);
   width: 160px;
+  padding-right: var(--space-md);
 }
 
 .req-table td:last-child {
