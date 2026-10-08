@@ -1,17 +1,19 @@
 {
-  "comment": "Pinned libmpv artifacts vendored by scripts/fetch-libmpv.mjs. Never point these at 'latest' — daily upstream builds have a history of silent regressions; bump deliberately and re-test playback before committing a new pin.",
+  "comment": "Pinned libmpv artifacts vendored by scripts/fetch-libmpv.mjs. `url` is OUR mirror (the 'vendor-libmpv' prerelease) — never an upstream link: shinchiro/mpv-winbuild-cmake deletes builds after ~30 days, which broke the v1.0.94 Windows build when the pinned one vanished. `upstream` records where the bytes came from. To bump: pick a build deliberately (never 'latest' — daily upstream builds have a history of silent regressions), upload the archive UNCHANGED to the vendor-libmpv release (`gh release upload vendor-libmpv <file>`), pin its sha256 here, and re-test playback on that platform before committing.",
   "platforms": {
     "macos-aarch64": {
       "source": "eko5624/mpv-mac (self-contained libmpv.2.dylib, ffmpeg statically linked, GPL)",
-      "url": "https://github.com/eko5624/mpv-mac/releases/download/2026-06-29/libmpv-arm64-3f1b23abd0.zip",
+      "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/libmpv-arm64-3f1b23abd0.zip",
+      "upstream": "https://github.com/eko5624/mpv-mac/releases/download/2026-06-29/libmpv-arm64-3f1b23abd0.zip",
       "sha256": "8f147dd22c516889666156d293b5fad4b01edf988b6b5ca9cdc428bc4088d726",
       "mpvGitHash": "3f1b23abd0"
     },
     "windows-x86_64": {
       "source": "shinchiro/mpv-winbuild-cmake (libmpv-2.dll, ffmpeg statically linked, GPL)",
-      "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260610/mpv-dev-x86_64-20260610-git-304426c.7z",
-      "sha256": "8cbb25ea784f01afbb3f904217cab1317430a8bcfd5680fd827a866367f71cc9",
-      "mpvGitHash": "304426c"
+      "url": "https://github.com/outcast1000/viboplr/releases/download/vendor-libmpv/mpv-dev-x86_64-20261008-git-36bf3d5290.7z",
+      "upstream": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261008/mpv-dev-x86_64-20261008-git-36bf3d5290.7z",
+      "sha256": "1e94b722d9d1b701406250c73ee37d73cd0045cdf47bdd7a54f2bea1b513465f",
+      "mpvGitHash": "36bf3d5290"
     }
   }
 }
