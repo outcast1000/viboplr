@@ -1,15 +1,16 @@
 // Viboplr server directory — live client-side fetch of the public directory API
-// hosted at servers.viboplr.com (a separate FastAPI app; this static page only
-// reads it). No build step, no framework. Mirrors the plugins/skins gallery
+// on Viboplr Community (community.viboplr.com; servers.viboplr.com merged into
+// it — this static page only reads it). No build step, no framework. Mirrors the plugins/skins gallery
 // pattern but with a different data source and card shape.
 
 (function () {
   'use strict';
 
-  // The directory's public read API. CORS on that service allows this origin
-  // (see app/config.py CORS_ORIGINS). Submit/login/manage all live on the same
-  // subdomain and are linked out to — this page never writes.
-  var API_BASE = 'https://servers.viboplr.com';
+  // The directory's public read API: Viboplr Community keeps the old
+  // servers.viboplr.com shape at /api/servers, with CORS open to any origin.
+  // Listing / sign-in / managing all live on that site and are linked out to —
+  // this page never writes.
+  var API_BASE = 'https://community.viboplr.com';
   var API_URL = API_BASE + '/api/servers';
 
   var grid = document.getElementById('serverGrid');
@@ -69,7 +70,7 @@
       tags.map(function (t) { return '<span class="gallery-meta-pill">' + esc(t) + '</span>'; }).join('');
     var login = s.username ? '<span>login: ' + esc(s.username) + '</span>' : '';
     var details = s.id != null
-      ? '<a class="gallery-source" href="' + esc(API_BASE + '/servers/' + s.id) + '" target="_blank" rel="noopener">Details ↗</a>'
+      ? '<a class="gallery-source" href="' + esc(API_BASE + '/c/' + s.id) + '" target="_blank" rel="noopener">Details ↗</a>'
       : '';
     var desc = s.description
       ? '<p class="gallery-card-desc">' + esc(s.description) + '</p>'
@@ -92,7 +93,7 @@
   function emptyState() {
     return '<div class="server-empty">' +
       '<p>No servers listed yet.</p>' +
-      '<p><a href="' + API_BASE + '/login" target="_blank" rel="noopener">Be the first to share one →</a></p>' +
+      '<p><a href="' + API_BASE + '/servers/new" target="_blank" rel="noopener">Be the first to share one →</a></p>' +
       '</div>';
   }
 
@@ -148,6 +149,6 @@
   }).catch(function (e) {
     console.error('Server directory load failed:', e);
     setStatus('Couldn’t load the server directory right now. You can browse it directly at ' +
-      '<a href="' + API_BASE + '" target="_blank" rel="noopener">servers.viboplr.com</a>.', true);
+      '<a href="' + API_BASE + '/servers" target="_blank" rel="noopener">community.viboplr.com</a>.', true);
   });
 })();
