@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      # Version tags only (v1.0.95, v1.1.0-beta.1). A bare 'v*' also matched
+      # 'vendor-libmpv' — the libmpv mirror's release tag — and started an app
+      # release when that tag was pushed.
+      - 'v[0-9]*'
   workflow_dispatch:
 
 concurrency:
