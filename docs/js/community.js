@@ -92,7 +92,7 @@
           '<div class="gallery-status" data-status></div>' +
           '<div class="gallery-grid" data-grid></div>' +
           '<div class="community-more">' +
-            '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">Browse all ' + esc(m.name.toLowerCase()) + ' on community.viboplr.com &rarr;</a>' +
+            '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">Browse all ' + esc(m.plural || m.name.toLowerCase()) + ' on community.viboplr.com &rarr;</a>' +
             share +
           '</div>' +
         '</div>' +
@@ -103,6 +103,13 @@
   function fillSection(el, m) {
     var grid = el.querySelector('[data-grid]');
     var status = el.querySelector('[data-status]');
+    // Members-only listings need a sign-in this page can't do (and the server
+    // answers it 401): point at the community site instead of fetching.
+    if (m.membersOnly) {
+      grid.innerHTML = '<div class="community-empty"><p>' + esc(m.name) + ' are for signed-in members. ' +
+        '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">Sign in with GitHub on community.viboplr.com</a> to see them, or open <strong>Community</strong> in Viboplr.</p></div>';
+      return;
+    }
     status.textContent = 'Loading…';
     status.style.display = 'block';
     getJson('/v1/items/search?kind=' + encodeURIComponent(m.kind) + '&sort=recent').then(function (data) {
