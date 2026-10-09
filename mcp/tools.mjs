@@ -589,7 +589,13 @@ export const TOOLS = [
             const fromFile = parseSheetFile(await ctx.readTextFile(sheetFile, SHEET_FILE_MAX_BYTES), sheetFile);
             sheet = { ...fromFile, mode: mode ?? fromFile.mode };
           } else {
-            need({ cues }, ["cues"], "action=set (or pass sheetFile)");
+            if (cues === undefined || cues === null) {
+              throw new Error(
+                '"cues" is required for action=set. Send the whole cues array in this call' +
+                  (ctx.readTextFile ? ", or pass sheetFile" : "") +
+                  ". If your replies are being cut off at a length limit, send a much smaller sheet: a clip of a few elements, not a full one.",
+              );
+            }
             sheet = { mode, cues };
           }
           return ctx.request("PUT", "/v1/cues", { ...song, sheet, author: author ?? source });
