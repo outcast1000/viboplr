@@ -1720,6 +1720,59 @@ fn test_update_playlist_track_metadata() {
     assert_eq!(t.album_name, None);
 }
 
+/// The fold is shared with the Viboplr Community server (`validate::song_key`
+/// / `norm_segment` there): the same vectors must give the same keys on both.
+#[test]
+fn test_entity_key_fold_matches_the_community_server() {
+    for (title, artist, want) in [
+        (" Jóga ", Some("Björk"), "track:bjork:joga"),
+        ("JOGA", Some(" BJORK\t"), "track:bjork:joga"),
+        ("Untitled", None, "track::untitled"),
+        ("Roman Holiday", Some("Fontaines D.C."), "track:fontaines d.c.:roman holiday"),
+    ] {
+        assert_eq!(likes::build_entity_key("track", title, artist), want, "{title:?} / {artist:?}");
+    }
+    assert_eq!(likes::build_entity_key("artist", " Björk ", None), "artist:bjork");
+}
+
+/// A like stored under a padded name before the fold trimmed moves to the
+/// trimmed key (migration #14); one keyed some other way is left alone, and a
+/// collision keeps the newer row.
+#[test]
+fn test_untrimmed_likes_are_rekeyed_once() {
+    let db = test_db();
+    let meta = |title: &str, artist: &str| serde_json::json!({ "title": title, "artist_name": artist }).to_string();
+    let old = likes::untrimmed_entity_key("track", "Song ", Some(" Band"));
+    assert_ne!(old, likes::build_entity_key("track", "Song ", Some(" Band")));
+    db.set_entity_like("track", &old, 1, Some(&meta("Song ", " Band")), 100).unwrap();
+    // A collision: an old padded dislike vs a newer trimmed like of the same song.
+    let old2 = likes::untrimmed_entity_key("track", "Other ", Some("Band"));
+    db.set_entity_like("track", &old2, -1, Some(&meta("Other ", "Band")), 50).unwrap();
+    db.set_entity_like("track", "track:band:other", 1, Some(&meta("Other", "Band")), 60).unwrap();
+    // Keyed by something else entirely: untouched.
+    db.set_entity_like("track", "track:custom", 1, Some(&meta("Padded ", "X")), 10).unwrap();
+
+    assert_eq!(db.rekey_untrimmed_entity_likes().unwrap(), 2);
+    assert_eq!(db.get_entity_like_state("track", "track:band:song").unwrap(), 1);
+    assert_eq!(db.get_entity_like_state("track", &old).unwrap(), 0);
+    assert_eq!(db.get_entity_like_state("track", "track:band:other").unwrap(), 1, "newer row wins");
+    assert_eq!(db.get_entity_like_state("track", &old2).unwrap(), 0);
+    assert_eq!(db.get_entity_like_state("track", "track:custom").unwrap(), 1);
+    assert_eq!(db.rekey_untrimmed_entity_likes().unwrap(), 0, "idempotent");
+}
+
+/// A padded library title still reads its durable like (the SQL rebuild of the
+/// key trims like `norm_segment`).
+#[test]
+fn test_padded_library_title_reads_its_trimmed_like() {
+    let db = test_db();
+    let artist_id = db.get_or_create_artist("Band").unwrap();
+    db.set_entity_like("track", &likes::build_entity_key("track", "Song", Some("Band")), 1, None, 100).unwrap();
+    let track_id = insert_track(&db, "music/song.mp3", "Song ", Some(artist_id), None);
+    db.refresh_track_after_ingest(track_id).unwrap();
+    assert_eq!(db.get_track_by_id(track_id).unwrap().liked, 1);
+}
+
 #[test]
 fn test_entity_likes_table_exists() {
     let db = test_db();

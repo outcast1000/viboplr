@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use crate::db::likes::build_entity_key;
+use crate::db::likes::{build_entity_key, untrimmed_entity_key};
 
 const DIR_NAME: &str = "cue-sheets";
 
@@ -503,7 +503,20 @@ pub fn dir(profile_dir: &Path) -> PathBuf {
 
 fn file_for(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> PathBuf {
     let key = build_entity_key("track", title, artist_name);
-    dir(profile_dir).join(format!("{:x}.json", md5::compute(key)))
+    let path = dir(profile_dir).join(format!("{:x}.json", md5::compute(&key)));
+    // A sheet saved before the key fold trimmed its segments sits under the
+    // padded name's hash: move it the first time the song is asked for.
+    let legacy_key = untrimmed_entity_key("track", title, artist_name);
+    if legacy_key != key && !path.exists() {
+        let legacy = dir(profile_dir).join(format!("{:x}.json", md5::compute(&legacy_key)));
+        if legacy.exists() {
+            if let Err(e) = std::fs::rename(&legacy, &path) {
+                log::warn!("Couldn't move cue sheet {} to its trimmed name: {e}", legacy.display());
+                return legacy;
+            }
+        }
+    }
+    path
 }
 
 pub fn get_cue_sheet(profile_dir: &Path, title: &str, artist_name: Option<&str>) -> Result<Option<CueSheetRow>, String> {
@@ -762,6 +775,21 @@ mod cue_tests {
 
         let titles: Vec<String> = list_cue_sheets(tmp.path()).unwrap().into_iter().map(|r| r.title).collect();
         assert_eq!(titles, ["New", "Old"]);
+    }
+
+    #[test]
+    fn a_sheet_saved_under_a_padded_name_follows_the_trimmed_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(super::dir(tmp.path())).unwrap();
+        // Where the pre-trim fold put a sheet for "Song " by " Band".
+        let legacy = super::dir(tmp.path()).join(format!("{:x}.json", md5::compute(untrimmed_entity_key("track", "Song ", Some(" Band")))));
+        std::fs::write(&legacy, br#"{ "title": "Song ", "artistName": " Band", "sheet": { "cues": [] }, "updatedAt": 7 }"#).unwrap();
+
+        let row = get_cue_sheet(tmp.path(), "Song ", Some(" Band")).unwrap().expect("found under the old name");
+        assert_eq!(row.updated_at, 7);
+        assert!(!legacy.exists(), "moved, not copied");
+        // Any spelling that trims to the same song now finds it.
+        assert!(get_cue_sheet(tmp.path(), "Song", Some("Band")).unwrap().is_some());
     }
 
     #[test]

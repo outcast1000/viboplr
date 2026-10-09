@@ -1000,6 +1000,29 @@ impl Database {
             )?;
         }
 
+        // 14. Entity keys trim their segments (`likes::norm_segment`), matching
+        //     the Viboplr Community server. Likes stored under a padded name
+        //     move to the trimmed key once; a data pass, so it is guarded by a
+        //     marker rather than detected by schema.
+        let already_rekeyed: bool = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT COUNT(*) FROM plugin_storage WHERE plugin_id = '__core__' AND key = 'entity_keys_trimmed'",
+                [], |r| r.get::<_, i64>(0),
+            ).unwrap_or(0) > 0
+        };
+        if !already_rekeyed {
+            let moved = self.rekey_untrimmed_entity_likes()?;
+            if moved > 0 {
+                log::info!("Re-keyed {moved} like(s) stored under untrimmed names");
+            }
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT OR REPLACE INTO plugin_storage (plugin_id, key, value)
+                 VALUES ('__core__', 'entity_keys_trimmed', '1')", [],
+            )?;
+        }
+
         Ok(())
     }
 }

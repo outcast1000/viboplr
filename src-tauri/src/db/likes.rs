@@ -2,8 +2,18 @@
 // Shared types/helpers live in db/mod.rs; these are inherent impl Database methods.
 use super::*;
 
-/// Normalize a string segment for use in an entity_key (lowercased, diacritics stripped).
+/// Normalize a string segment for use in an entity_key (trimmed, lowercased,
+/// diacritics stripped). The same fold as the Viboplr Community server's
+/// `validate::norm_segment`, so a key built here names the same song there.
+/// Never make it fuzzier: every stored key (likes, cue-sheet file names) was
+/// built with it.
 pub fn norm_segment(s: Option<&str>) -> String {
+    strip_diacritics(&s.unwrap_or("").trim().to_lowercase())
+}
+
+/// The fold before it trimmed — only for finding rows and files stored under
+/// it (`rekey_untrimmed_entity_likes`, cue-sheet file names).
+fn untrimmed_norm_segment(s: Option<&str>) -> String {
     strip_diacritics(&s.unwrap_or("").to_lowercase())
 }
 
@@ -13,12 +23,21 @@ pub fn norm_segment(s: Option<&str>) -> String {
 /// - album:  `album:{artist}:{title}`
 /// - tag:    `tag:{name}`
 pub fn build_entity_key(kind: &str, name_or_title: &str, artist_name: Option<&str>) -> String {
+    entity_key_with(norm_segment, kind, name_or_title, artist_name)
+}
+
+/// `build_entity_key` under the pre-trim fold.
+pub(crate) fn untrimmed_entity_key(kind: &str, name_or_title: &str, artist_name: Option<&str>) -> String {
+    entity_key_with(untrimmed_norm_segment, kind, name_or_title, artist_name)
+}
+
+fn entity_key_with(fold: fn(Option<&str>) -> String, kind: &str, name_or_title: &str, artist_name: Option<&str>) -> String {
     match kind {
-        "track" => format!("track:{}:{}", norm_segment(artist_name), norm_segment(Some(name_or_title))),
-        "album" => format!("album:{}:{}", norm_segment(artist_name), norm_segment(Some(name_or_title))),
-        "artist" => format!("artist:{}", norm_segment(Some(name_or_title))),
-        "tag" => format!("tag:{}", norm_segment(Some(name_or_title))),
-        _ => format!("{}:{}", kind, norm_segment(Some(name_or_title))),
+        "track" => format!("track:{}:{}", fold(artist_name), fold(Some(name_or_title))),
+        "album" => format!("album:{}:{}", fold(artist_name), fold(Some(name_or_title))),
+        "artist" => format!("artist:{}", fold(Some(name_or_title))),
+        "tag" => format!("tag:{}", fold(Some(name_or_title))),
+        _ => format!("{}:{}", kind, fold(Some(name_or_title))),
     }
 }
 
@@ -26,14 +45,64 @@ pub fn build_entity_key(kind: &str, name_or_title: &str, artist_name: Option<&st
 /// row from `entity_likes` (0 when no matching row). The track `entity_key`
 /// (see `build_entity_key`) is rebuilt inline with the registered
 /// `strip_diacritics` / `unicode_lower` scalar functions, matching
-/// `norm_segment`'s normalization (lowercase, then strip diacritics). Shared
-/// by the full reconcile below and the per-track `refresh_track_after_ingest`.
+/// `norm_segment`'s normalization (trim, lowercase, then strip diacritics;
+/// SQL `trim` strips spaces only, which is what a padded tag carries — the
+/// scanner already trims every other kind of whitespace). Shared by the full
+/// reconcile below and the per-track `refresh_track_after_ingest`.
 pub(crate) const TRACK_DURABLE_LIKE_EXPR: &str = "COALESCE((SELECT el.liked FROM entity_likes el \
     WHERE el.kind = 'track' AND el.entity_key = 'track:' \
-      || strip_diacritics(unicode_lower(COALESCE((SELECT name FROM artists WHERE id = tracks.artist_id), ''))) \
-      || ':' || strip_diacritics(unicode_lower(tracks.title))), 0)";
+      || strip_diacritics(unicode_lower(trim(COALESCE((SELECT name FROM artists WHERE id = tracks.artist_id), '')))) \
+      || ':' || strip_diacritics(unicode_lower(trim(tracks.title)))), 0)";
 
 impl Database {
+    /// One-time pass for the fold gaining a trim: a like stored under a padded
+    /// name (`"Song "`) moves to the trimmed key, or the like would silently
+    /// vanish. Only rows whose key is exactly what the old fold built from
+    /// their own metadata are touched — anything else was keyed some other
+    /// way and is left alone. On a collision the newer row wins. Returns how
+    /// many rows moved.
+    pub(crate) fn rekey_untrimmed_entity_likes(&self) -> SqlResult<usize> {
+        let conn = self.conn.lock().unwrap();
+        let rows: Vec<(String, String, String, i64)> = {
+            let mut st = conn.prepare(
+                "SELECT kind, entity_key, metadata, updated_at FROM entity_likes WHERE metadata IS NOT NULL",
+            )?;
+            let it = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+            it.collect::<SqlResult<_>>()?
+        };
+        let mut moved = 0;
+        for (kind, old_key, meta, updated_at) in rows {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(&meta) else { continue };
+            let Some(title) = v.get("title").and_then(|x| x.as_str()) else { continue };
+            let artist = v.get("artist_name").and_then(|x| x.as_str());
+            let new_key = build_entity_key(&kind, title, artist);
+            if new_key == old_key || untrimmed_entity_key(&kind, title, artist) != old_key {
+                continue;
+            }
+            let existing: Option<i64> = conn
+                .query_row(
+                    "SELECT updated_at FROM entity_likes WHERE kind = ?1 AND entity_key = ?2",
+                    params![kind, new_key],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            match existing {
+                Some(theirs) if theirs >= updated_at => {
+                    conn.execute("DELETE FROM entity_likes WHERE kind = ?1 AND entity_key = ?2", params![kind, old_key])?;
+                }
+                _ => {
+                    conn.execute("DELETE FROM entity_likes WHERE kind = ?1 AND entity_key = ?2", params![kind, new_key])?;
+                    conn.execute(
+                        "UPDATE entity_likes SET entity_key = ?3 WHERE kind = ?1 AND entity_key = ?2",
+                        params![kind, old_key, new_key],
+                    )?;
+                }
+            }
+            moved += 1;
+        }
+        Ok(moved)
+    }
+
     /// Upsert (or delete when liked==0) an entity_likes row.
     pub fn set_entity_like(&self, kind: &str, entity_key: &str, liked: i32, metadata: Option<&str>, updated_at: i64) -> SqlResult<()> {
         let conn = self.conn.lock().unwrap();

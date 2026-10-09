@@ -200,8 +200,8 @@ impl Database {
                  SELECT 1 FROM entity_likes el \
                  WHERE el.kind = 'track' AND el.liked = 1 \
                    AND el.entity_key = 'track:' \
-                     || strip_diacritics(unicode_lower(COALESCE(ar.name, ''))) || ':' \
-                     || strip_diacritics(unicode_lower(t.title)) \
+                     || strip_diacritics(unicode_lower(trim(COALESCE(ar.name, '')))) || ':' \
+                     || strip_diacritics(unicode_lower(trim(t.title))) \
                ) \
                AND (ht.last_played_at IS NULL OR ht.last_played_at < (CAST(strftime('%s','now') AS INTEGER) - ?1)) \
              GROUP BY t.id \
