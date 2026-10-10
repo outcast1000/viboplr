@@ -66,3 +66,15 @@ export function mainRealmVerdict(
   }
   return { allow: true, unverified: true };
 }
+
+/**
+ * Pre-approved plugins: built-ins, and anything whose release carries a
+ * signature from a key in `TRUSTED_PLUGIN_KEYS` (the owner's one plugin-signing
+ * key). The signature covers manifest.json and index.js, so an update that asks
+ * for more permissions must be signed too. Their permissions are still enforced
+ * by the bridge and in Rust — only the asking is skipped. `unsigned`, `invalid`
+ * and unknown-key signatures (reported `unsigned`) are asked as usual.
+ */
+export function isFirstParty(p: Pick<TrustInput, "builtin" | "signature">): boolean {
+  return !!p.builtin || p.signature === "verified";
+}

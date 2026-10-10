@@ -481,6 +481,7 @@ export function useExtensions(props: UseExtensionsProps) {
         runtime: ps.manifest.runtime,
         permissions: ps.manifest.permissions,
         pendingPermissions: ps.pendingPermissions,
+        firstParty: ps.firstParty,
         unverified: ps.unverified,
         homepage: ps.manifest.homepage,
         minAppVersion: ps.manifest.minAppVersion,

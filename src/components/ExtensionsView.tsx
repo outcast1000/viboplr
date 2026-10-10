@@ -423,6 +423,8 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
   // Built-ins ship with the app and are allowed without asking (see the gate in
   // usePlugins); they still can't do anything outside this list.
   const builtin = ext.source === "builtin";
+  // Signed with Viboplr's first-party key: same standing as a built-in.
+  const firstParty = !builtin && !!ext.firstParty;
 
   const run = async (fn: ((id: string) => Promise<void>) | undefined, what: string) => {
     if (!fn) return;
@@ -454,6 +456,8 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
                 : "This plugin won't run until you allow what it asks for. It can't do anything outside this list."
               : builtin
                 ? "Included with Viboplr, so these are allowed automatically. It can't do anything outside this list."
+                : firstParty
+                ? "Signed by Viboplr, so these are allowed automatically. It can't do anything outside this list."
                 : "What you allowed this plugin to do. It can't do anything outside this list."}
           </div>
           <PermissionList
@@ -471,7 +475,7 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
               >
                 {working ? "Starting…" : "Allow and start"}
               </button>
-            ) : builtin ? null : (
+            ) : builtin || firstParty ? null : (
               <button
                 type="button"
                 className="ds-btn ds-btn--ghost ds-btn--sm"

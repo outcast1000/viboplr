@@ -118,7 +118,7 @@ import { withResolverLog } from "../utils/resolverLog";
 import { useAssignRef } from "./useLatestRef";
 import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type WorkerPluginControl } from "../pluginWorker/host";
 import { networkHosts, pendingPermissions } from "../pluginWorker/permissions";
-import { mainRealmVerdict } from "../utils/pluginTrust";
+import { isFirstParty, mainRealmVerdict } from "../utils/pluginTrust";
 import { deleteIfSame } from "../utils/registryOps";
 import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
 // Hardcoded defaults for information type tab order and provider priority.
@@ -2419,8 +2419,11 @@ export function usePlugins(
       const toActivate: InstalledPlugin[] = [];
       /** Main-realm plugins running without a Viboplr signature (see pluginTrust.ts). */
       const unverifiedIds = new Set<string>();
+      /** Worker plugins signed by the trusted first-party key: pre-approved like built-ins. */
+      const firstPartyIds = new Set<string>();
       for (const plugin of installed) {
         const m = plugin.manifest;
+        if (m.runtime === "worker" && isFirstParty(plugin)) firstPartyIds.add(plugin.id);
 
         if (!m.name || !m.version) {
           states.push({
@@ -2517,7 +2520,7 @@ export function usePlugins(
         }
         if (trust.unverified) unverifiedIds.add(plugin.id);
 
-        if (m.runtime === "worker" && !plugin.builtin) {
+        if (m.runtime === "worker" && !firstPartyIds.has(plugin.id)) {
           const pending = pendingPermissions(m.permissions ?? [], permissionGrantsRef.current[plugin.id] ?? []);
           if (pending.length > 0) {
             states.push({
@@ -2708,6 +2711,9 @@ export function usePlugins(
 
       settings.sort((a, b) => a.order - b.order);
 
+      for (let i = 0; i < states.length; i++) {
+        if (firstPartyIds.has(states[i].id)) states[i] = { ...states[i], firstParty: true };
+      }
       pluginStatesRef.current = states;
       setPluginStates(states);
       setSidebarItems(sidebar);
@@ -2881,14 +2887,15 @@ export function usePlugins(
   );
 
   // What the user would be asked to approve for this plugin right now: the
-  // requested permissions not yet approved. Empty for built-ins (pre-approved),
+  // requested permissions not yet approved. Empty for built-ins and plugins
+  // signed by the trusted first-party key (both pre-approved),
   // main-realm plugins (no permission model) and anything fully approved — so
   // an update asks only when it brings a NEW permission (owner decision,
   // 2026-10-03). Works for a disabled plugin too, which is what a fresh install
   // is until its install dialog enables it.
   const permissionsToApprove = useCallback((pluginId: string): string[] => {
     const s = pluginStatesRef.current.find((p) => p.id === pluginId);
-    if (!s || s.builtin || s.manifest.runtime !== "worker") return [];
+    if (!s || s.builtin || s.firstParty || s.manifest.runtime !== "worker") return [];
     return pendingPermissions(s.manifest.permissions ?? [], permissionGrantsRef.current[pluginId] ?? []);
   }, []);
 

@@ -232,6 +232,9 @@ export interface PluginState {
   devPath?: string;
   /** For `needs-approval`: the requested permissions not yet approved. */
   pendingPermissions?: string[];
+  /** Worker plugin signed by the trusted first-party key: permissions are
+   *  pre-approved, like a built-in's (utils/pluginTrust.ts → isFirstParty). */
+  firstParty?: boolean;
   /** Runs in the main realm (full app access) without a Viboplr signature —
    *  see utils/pluginTrust.ts. Shown as "Unverified" in Extensions. */
   unverified?: boolean;
@@ -2117,6 +2120,8 @@ export interface ExtensionItem {
   runtime?: "worker";
   permissions?: string[];
   pendingPermissions?: string[];
+  /** Signed by the first-party key, so its permissions are allowed automatically. */
+  firstParty?: boolean;
   /** Running in the main realm without a Viboplr signature — see utils/pluginTrust.ts. */
   unverified?: boolean;
   homepage?: string;

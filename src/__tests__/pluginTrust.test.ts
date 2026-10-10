@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ENFORCE_SIGNED_MAIN_REALM, mainRealmVerdict } from "../utils/pluginTrust";
+import { ENFORCE_SIGNED_MAIN_REALM, isFirstParty, mainRealmVerdict } from "../utils/pluginTrust";
 
 const phased = { debugMode: false, enforce: false };
 const enforced = { debugMode: false, enforce: true };
@@ -58,5 +58,15 @@ describe("mainRealmVerdict", () => {
     // Flip deliberately, once the gallery's non-visualizer plugins ship on the
     // worker runtime — doing it earlier stops them working for users.
     expect(ENFORCE_SIGNED_MAIN_REALM).toBe(false);
+  });
+});
+
+describe("isFirstParty", () => {
+  it("pre-approves built-ins and plugins signed by a trusted key only", () => {
+    expect(isFirstParty({ builtin: true })).toBe(true);
+    expect(isFirstParty({ signature: "verified" })).toBe(true);
+    for (const signature of ["unsigned", "invalid", undefined] as const) {
+      expect(isFirstParty({ signature })).toBe(false);
+    }
   });
 });
