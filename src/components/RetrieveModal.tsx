@@ -1,4 +1,5 @@
 import { renderers } from "./renderers";
+import { PluginViewSection } from "./renderers/PluginViewSection";
 import type { RetrieveModalData, ProviderRow, ProviderStatus } from "../hooks/useRetrieveModal";
 import "./RetrieveModal.css";
 
@@ -58,6 +59,15 @@ function Preview({ modal }: { modal: RetrieveModalData }) {
     return <div className="rm-preview"><img className="rm-image" src={modal.imagePreview.src} alt="" /></div>;
   }
   if (modal.kind === "info" && modal.infoPreview && modal.displayKind) {
+    // An interactive tab, drawn as it will be — with no plugin to route to, so
+    // its buttons do nothing in the preview.
+    if (modal.displayKind === "plugin_view") {
+      return (
+        <div className="rm-preview rm-preview--info">
+          <PluginViewSection data={modal.infoPreview} pluginId={undefined} pluginName={modal.label} entity={null} />
+        </div>
+      );
+    }
     const Renderer = renderers[modal.displayKind];
     if (Renderer) return <div className="rm-preview rm-preview--info"><Renderer data={modal.infoPreview} /></div>;
     return <div className="rm-preview rm-preview--info"><pre className="rm-json">{JSON.stringify(modal.infoPreview, null, 2)}</pre></div>;

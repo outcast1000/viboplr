@@ -9,6 +9,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildEntityKey } from "../types/informationTypes";
 import type { QueueTrack } from "../types";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
+import { entityIdentity, onDetailTabRequest, takeDetailTab } from "../utils/pendingDetailTab";
+import { useLatestRef } from "../hooks/useLatestRef";
+import { PluginViewSection } from "./renderers/PluginViewSection";
 import "./InformationSections.css";
 
 export interface CustomTab {
@@ -82,7 +85,7 @@ export function InformationSections({
   onEntityContextMenu,
   retrieve,
 }: InformationSectionsProps) {
-  const { sections, refresh, reloadCache, getTypeMeta } = useInformationTypes({ entity, exclude, disabled: pluginSectionsDisabled, invokeInfoFetch, pluginNames });
+  const { sections, refresh, reloadCache, getTypeMeta, activate } = useInformationTypes({ entity, exclude, disabled: pluginSectionsDisabled, invokeInfoFetch, pluginNames });
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const entityKey = entity ? buildEntityKey(entity) : null;
 
@@ -123,8 +126,35 @@ export function InformationSections({
   const didDragTabRef = useRef(false);
   const tabGhostRef = useRef<HTMLDivElement | null>(null);
 
-  // Reset to first tab when entity changes
-  useEffect(() => { setActiveTab(null); }, [entityKey]);
+  // Reset to first tab when entity changes — or to the tab a plugin asked for
+  // when it opened this page (`api.ui.navigateToEntity(…, { tab })`). Only the
+  // page's main tab bar takes that request: the artist page's header strip
+  // (Albums) is a second instance for the same entity and would use it up.
+  const takesTabRequests = placement !== "header";
+  const entityRef = useLatestRef(entity);
+  // The entity the reset last ran for, folded. Neither of these is a new
+  // page, and a second reset would throw away the tab the first one chose:
+  // StrictMode running this effect twice, and a page respelled by the
+  // navigation that brought the request ("Björk" → "bjork" on a page built
+  // from a name — the listener below has already taken the request then).
+  const resetForRef = useRef<string | null>(null);
+  useEffect(() => {
+    const current = entityRef.current;
+    const identity = current ? entityIdentity(current) : null;
+    if (resetForRef.current === identity) return;
+    resetForRef.current = identity;
+    setActiveTab(current && takesTabRequests ? takeDetailTab(current) : null);
+  }, [entityKey, takesTabRequests, entityRef]);
+  // A request for the page already showing: the entity doesn't change, so the
+  // effect above never runs — take it as it arrives.
+  useEffect(() => {
+    if (!takesTabRequests) return;
+    return onDetailTabRequest(() => {
+      const current = entityRef.current;
+      const tab = current ? takeDetailTab(current) : null;
+      if (tab) setActiveTab(tab);
+    });
+  }, [takesTabRequests, entityRef]);
 
   // Notify parent about title_line data (filtered from tabs but still fetched)
   useEffect(() => {
@@ -299,12 +329,20 @@ export function InformationSections({
     });
   }
 
-  if (!tabs.length) return null;
-
-  const resolvedTab = (activeTab && tabs.some(t => getTabId(t) === activeTab))
+  const resolvedTab = !tabs.length ? null : (activeTab && tabs.some(t => getTabId(t) === activeTab))
     ? activeTab
     : getTabId(tabs[0]);
-  const activeEntry = tabs.find(t => getTabId(t) === resolvedTab)!;
+  const activeEntry = tabs.find(t => getTabId(t) === resolvedTab);
+
+  // The shown tab: a lazy kind (`plugin_view`) is fetched only now. Re-run on
+  // `sections` too: on a new entity the hook reads that entity's types after
+  // this first fires, and only then holds the fetch to start.
+  const shownTypeId = activeEntry?.kind === "plugin" ? activeEntry.typeId : null;
+  useEffect(() => {
+    if (shownTypeId) activate(shownTypeId);
+  }, [shownTypeId, entityKey, sections, activate]);
+
+  if (!activeEntry) return null;
 
   // Extract meta for provider attribution (plugin sections only)
   let meta: { url?: string; providerName?: string; homepageUrl?: string } | undefined;
@@ -320,7 +358,9 @@ export function InformationSections({
       <div className="info-sections-tabs">
         {tabs.map(tab => {
           const tabId = getTabId(tab);
-          const tabState = tab.kind === "plugin" ? tab.section.state.kind : null;
+          // A tab waiting to be shown has nothing in flight: no loading dot.
+          const st = tab.kind === "plugin" ? tab.section.state : null;
+          const tabState = st && !(st.kind === "loading" && st.deferred) ? st.kind : null;
           return (
             <div
               key={tabId}
@@ -353,6 +393,21 @@ export function InformationSections({
           activeEntry.content
         ) : (() => {
           const s = activeEntry.section;
+          if (s.displayKind === "plugin_view" && s.state.kind === "loaded") {
+            const providerId = s.state.providerId;
+            // Keyed per entity and type: typed text and other node state must
+            // not carry over to the next page, where a Post would send it
+            // with that page's entity.
+            return (
+              <PluginViewSection
+                key={`${entityKey}|${s.typeId}`}
+                data={s.state.data}
+                pluginId={providerId}
+                pluginName={(providerId && pluginNames?.get(providerId)) || s.name}
+                entity={entity}
+              />
+            );
+          }
           const Renderer = renderers[s.displayKind];
           return s.state.kind === "loading" ? (
             <div className="info-section-loading">

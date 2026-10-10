@@ -19,7 +19,7 @@ import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
@@ -111,7 +111,7 @@ import { nextTriState } from "./likeKeys";
 import { useControlApi } from "./hooks/useControlApi";
 import { useCollectionActions } from "./hooks/useCollectionActions";
 import { useContextMenuActions } from "./hooks/useContextMenuActions";
-import type { PluginTrack, PluginBadge, PluginPlayContext, ReplaceTrackFileRequest, ReplaceTrackFileResult } from "./types/plugin";
+import type { PluginTrack, PluginBadge, PluginPlayContext, ReplaceTrackFileRequest, ReplaceTrackFileResult, TrackRowItem } from "./types/plugin";
 import { ReplaceTrackFileModal } from "./components/ReplaceTrackFileModal";
 import { isTrackBeingReplaced, type StagedReplacement } from "./utils/replaceTrackFile";
 import { HOST_SEARCH_ACTION } from "./types/plugin";
@@ -120,6 +120,8 @@ import { useCentralSearch } from "./hooks/useCentralSearch";
 import { useMiniSearch } from "./hooks/useMiniSearch";
 import { VideoFrameQueueProvider, useVideoFrameQueue } from "./hooks/useVideoFrameQueueContext";
 import { DetailViewProvider, type DetailViewActions, type DetailViewState } from "./contexts/DetailViewContext";
+import { PluginSectionContext, type PluginSectionHost, type PluginTrackHandlers } from "./contexts/PluginSectionContext";
+import { mergeSeekMarkers, type SeekMarker } from "./utils/seekMarkers";
 import type { VideoFrameQueue } from "./videoFrameQueue";
 import { CaptionBar } from "./components/CaptionBar";
 import { ViewSearchBar } from "./components/ViewSearchBar";
@@ -209,6 +211,10 @@ import { classifyErrorKind, errorText } from "./utils/errorKind";
 
 import { useAssignRef } from "./hooks/useLatestRef";
 import { useBitPerfect } from "./hooks/useBitPerfect";
+
+/** One identity for "no markers", so the bars' memo doesn't see a new array. */
+const NO_SEEK_MARKERS: SeekMarker[] = [];
+
 function VideoFrameQueueRefBridge({ refOut }: { refOut: React.MutableRefObject<VideoFrameQueue | null> }) {
   const queue = useVideoFrameQueue();
   useEffect(() => { refOut.current = queue; }, [queue, refOut]);
@@ -1336,12 +1342,28 @@ function App() {
   }, [plugins.pluginStates, plugins.invokeStreamResolve, streamResolverOrderVersion]);
 
 
+  // Seek-bar markers plugins drew for the playing track (api.playback.setMarkers),
+  // per plugin. Stamped with the track key they were set for, and read only
+  // while that key is still the current track, so a late answer can't land on
+  // the next song. The track-started effect below also drops them, so going
+  // back to a track doesn't resurrect its old ticks, and a plugin's unload
+  // drops its own (clearSeekMarkers).
+  const [seekMarkerState, setSeekMarkerState] = useState<{ trackKey: string; byPlugin: Record<string, SeekMarker[]> } | null>(null);
+  const currentTrackKey = playback.currentTrack?.key ?? null;
+  const seekMarkers = useMemo(
+    () => (seekMarkerState && seekMarkerState.trackKey === currentTrackKey ? mergeSeekMarkers(seekMarkerState.byPlugin) : NO_SEEK_MARKERS),
+    [seekMarkerState, currentTrackKey],
+  );
+
   // Plugin event: track started
   const prevTrackKeyRef = useRef<string | null>(null);
   useEffect(() => {
     const track = playback.currentTrack;
     if (track && track.key !== prevTrackKeyRef.current) {
       prevTrackKeyRef.current = track.key;
+      // The last track's ticks are dropped here rather than only hidden, so
+      // going back to it (A → B → A) can't bring them back unasked.
+      setSeekMarkerState(null);
       plugins.dispatchEvent("track:started", track);
       trackTelemetry("track_played", {
         media: isVideoTrack(track) ? "video" : "audio",
@@ -2171,6 +2193,31 @@ function App() {
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   useAssignRef(pluginHostCallbacksRef, {
     replaceTrackFile: replaceTrackFileForPlugin,
+    setSeekMarkers: (pluginId, trackKey, markers) => {
+      setSeekMarkerState((prev) => {
+        const byPlugin = prev && prev.trackKey === trackKey ? { ...prev.byPlugin } : {};
+        if (markers.length) byPlugin[pluginId] = markers;
+        else delete byPlugin[pluginId];
+        return { trackKey, byPlugin };
+      });
+    },
+    clearSeekMarkers: (pluginId) => {
+      setSeekMarkerState((prev) => {
+        if (!prev || !(pluginId in prev.byPlugin)) return prev;
+        const byPlugin = { ...prev.byPlugin };
+        delete byPlugin[pluginId];
+        return { ...prev, byPlugin };
+      });
+    },
+    navigateToEntity: (kind, ref) => {
+      pushStateRef.current();
+      const opened = kind === "artist"
+        ? library.navigateToArtistByName(ref.name)
+        : kind === "album"
+          ? library.navigateToAlbumByName(ref.name, ref.artistName)
+          : library.navigateToTrackByName(ref.name, ref.artistName, ref.albumTitle);
+      opened.catch((e) => console.error(`Failed to open the ${kind} page for a plugin:`, e));
+    },
     // api.collections.requestAdd: the same prefilled dialogs a
     // viboplr://add-collection link opens — the user's click is the consent.
     requestAddCollection: (_pluginId, source) => {
@@ -2286,13 +2333,15 @@ function App() {
         }
       } else if (action === "navigate-to-artist") {
         pushStateRef.current();
-        library.navigateToArtistByName(payload.name as string);
+        library.navigateToArtistByName(payload.name as string).catch((e) => console.error("Failed to open the artist page for a plugin:", e));
       } else if (action === "navigate-to-album") {
         pushStateRef.current();
-        library.navigateToAlbumByName(payload.name as string, payload.artistName as string | undefined);
+        library.navigateToAlbumByName(payload.name as string, payload.artistName as string | undefined)
+          .catch((e) => console.error("Failed to open the album page for a plugin:", e));
       } else if (action === "navigate-to-track") {
         pushStateRef.current();
-        library.navigateToTrackByName(payload.name as string, payload.artistName as string | undefined, payload.albumTitle as string | undefined);
+        library.navigateToTrackByName(payload.name as string, payload.artistName as string | undefined, payload.albumTitle as string | undefined)
+          .catch((e) => console.error("Failed to open the track page for a plugin:", e));
       } else if (action === "delete-tracks") {
         // Route a plugin-initiated delete through the canonical delete flow
         // (confirm modal → delete_tracks → library/queue cleanup → track:removed).
@@ -4836,6 +4885,58 @@ function App() {
     bulkEditKey: searchBulkEditKey,
   }), [playback.currentTrack, playback.playing, searchBulkEditKey]);
 
+  // Interactive (plugin_view) information sections: their actions go to the
+  // plugin that drew them, exactly like a click in its sidebar view.
+  const dispatchPluginUIAction = plugins.dispatchUIAction;
+  // What a plugin's track rows do, in its sidebar views and its tabs alike.
+  // Stable wrappers, so the section context doesn't change every render.
+  const pluginTrackFns = useStableCallbacks({
+    onPlayTrack: (track: Track) => {
+      queueHook.playTracks([track], 0);
+    },
+    onTrackContextMenu: (e: React.MouseEvent, track: Track) => {
+      buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
+    },
+    onTrackRowContextMenu: (e: React.MouseEvent, items: TrackRowItem[]) => {
+      // Metadata-only rows (no DB id) → act directly on synthesized
+      // QueueTracks (the id-based context-menu Play/Enqueue would no-op).
+      const qts = items.map(trackRowToQueueTrack);
+      if (qts.length === 0) return;
+      const n = qts.length;
+      const specs: MenuItemSpec[] = [
+        { kind: "item", text: n > 1 ? `Play ${n} tracks` : "Play", action: () => queueHook.playTracks(qts, 0) },
+        { kind: "item", text: n > 1 ? `Enqueue ${n} tracks` : "Enqueue", action: () => contextMenuActions.handleEnqueue(qts as unknown as Track[]) },
+        { kind: "item", text: "Play Next", action: () => { for (let i = qts.length - 1; i >= 0; i--) queueHook.playNextInQueue(qts[i]); } },
+      ];
+      // Append plugin-registered actions (Universal Track Actions). A
+      // single row carries metadata for plugins to act on; a multi-row
+      // selection has no DB ids so only the queue actions above apply.
+      if (n === 1) {
+        const first = items[0];
+        const target = { kind: "track" as const, title: first.title, artistName: first.artistName ?? null, albumTitle: first.albumTitle ?? null, isLocal: isLocalTrack(qts[0]) };
+        const matching = plugins.menuItems.filter((mi) => mi.targets.includes("track"));
+        const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), plugins.dispatchContextMenuAction);
+        if (pluginSpecs.length > 0) { specs.push({ kind: "separator" }, ...pluginSpecs); }
+      }
+      showNativeMenu(e.clientX, e.clientY, specs);
+    },
+    onTrackRowsDragStart: (items: TrackRowItem[]) => {
+      const qts = items.map(trackRowToQueueTrack);
+      if (qts.length > 0) contextMenuActions.handleTrackDragStart(qts);
+    },
+  });
+  const pluginTrackHandlers: PluginTrackHandlers = useMemo(() => ({
+    ...pluginTrackFns,
+    pluginMenuItems: plugins.menuItems,
+    onPluginAction: plugins.dispatchContextMenuAction,
+  }), [pluginTrackFns, plugins.menuItems, plugins.dispatchContextMenuAction]);
+  const pluginSectionHost: PluginSectionHost = useMemo(() => ({
+    dispatch: (pluginId, actionId, data) => { dispatchPluginUIAction(pluginId, actionId, data); },
+    currentTrack: playback.currentTrack,
+    playing: playback.playing,
+    tracks: pluginTrackHandlers,
+  }), [dispatchPluginUIAction, playback.currentTrack, playback.playing, pluginTrackHandlers]);
+
   // After a bulk edit, keep the current detail page pointing at the right entity.
   // Detail pages refetch on `bulkEditKey`, so an entity that still has tracks just
   // refreshes in place (dropping tracks that moved elsewhere). When an edit empties
@@ -5319,6 +5420,7 @@ function App() {
   const fullscreenControlsProps = {
     waveformPeaks,
     storyboard,
+    seekMarkers,
     currentTrack: playback.currentTrack,
     playing: playback.playing,
     durationSecs: playback.durationSecs,
@@ -5656,6 +5758,7 @@ function App() {
               onHeightChange={setUpdateNoticeHeight}
             />
           )}
+          <PluginSectionContext.Provider value={pluginSectionHost}>
           <DetailViewProvider actions={detailViewActions} state={detailViewState}>
           {/* Track detail view */}
           {library.selectedTrack !== null && (() => {
@@ -6002,60 +6105,15 @@ function App() {
                 viewKey={view}
                 currentTrack={playback.currentTrack}
                 playing={playback.playing}
-                onPlayTrack={(track) => {
-                  queueHook.playTracks([track], 0);
-                }}
+                onPlayTrack={pluginTrackHandlers.onPlayTrack}
                 onAction={(actionId, actionData) => {
                   plugins.dispatchUIAction(pluginId, actionId, actionData);
                 }}
                 searchSeed={pluginSearchSeed?.view === view ? pluginSearchSeed : undefined}
                 onSearchSeedConsumed={handlePluginSearchSeedConsumed}
-                onTrackContextMenu={(e, track) => {
-                  buildAndShowNativeMenu({ x: e.clientX, y: e.clientY, target: { kind: "track", trackId: track.id ?? undefined, isLocal: isLocalTrack(track), title: track.title, artistName: track.artist_name, albumTitle: track.album_title ?? null } });
-                }}
-                onTrackRowContextMenu={(e, items) => {
-                  // Metadata-only rows (no DB id) → act directly on synthesized
-                  // QueueTracks (the id-based context-menu Play/Enqueue would no-op).
-                  const qts = items.map((it) => pluginTrackToQueueTrack({
-                    path: it.path ?? null,
-                    title: it.title,
-                    artist_name: it.artistName ?? null,
-                    album_title: it.albumTitle ?? null,
-                    duration_secs: it.durationSecs ?? null,
-                    image_url: it.imageUrl,
-                    kind: it.kind,
-                  }));
-                  if (qts.length === 0) return;
-                  const n = qts.length;
-                  const specs: MenuItemSpec[] = [
-                    { kind: "item", text: n > 1 ? `Play ${n} tracks` : "Play", action: () => queueHook.playTracks(qts, 0) },
-                    { kind: "item", text: n > 1 ? `Enqueue ${n} tracks` : "Enqueue", action: () => contextMenuActions.handleEnqueue(qts as unknown as Track[]) },
-                    { kind: "item", text: "Play Next", action: () => { for (let i = qts.length - 1; i >= 0; i--) queueHook.playNextInQueue(qts[i]); } },
-                  ];
-                  // Append plugin-registered actions (Universal Track Actions). A
-                  // single row carries metadata for plugins to act on; a multi-row
-                  // selection has no DB ids so only the queue actions above apply.
-                  if (n === 1) {
-                    const first = items[0];
-                    const target = { kind: "track" as const, title: first.title, artistName: first.artistName ?? null, albumTitle: first.albumTitle ?? null, isLocal: isLocalTrack(qts[0]) };
-                    const matching = plugins.menuItems.filter((mi) => mi.targets.includes("track"));
-                    const pluginSpecs = buildPluginMenuSpecs(matching, toPluginTarget(target), plugins.dispatchContextMenuAction);
-                    if (pluginSpecs.length > 0) { specs.push({ kind: "separator" }, ...pluginSpecs); }
-                  }
-                  showNativeMenu(e.clientX, e.clientY, specs);
-                }}
-                onTrackRowsDragStart={(items) => {
-                  const qts = items.map((it) => pluginTrackToQueueTrack({
-                    path: it.path ?? null,
-                    title: it.title,
-                    artist_name: it.artistName ?? null,
-                    album_title: it.albumTitle ?? null,
-                    duration_secs: it.durationSecs ?? null,
-                    image_url: it.imageUrl,
-                    kind: it.kind,
-                  }));
-                  if (qts.length > 0) contextMenuActions.handleTrackDragStart(qts);
-                }}
+                onTrackContextMenu={pluginTrackHandlers.onTrackContextMenu}
+                onTrackRowContextMenu={pluginTrackHandlers.onTrackRowContextMenu}
+                onTrackRowsDragStart={pluginTrackHandlers.onTrackRowsDragStart}
                 pluginMenuItems={plugins.menuItems}
                 onPluginAction={plugins.dispatchContextMenuAction}
               />
@@ -6232,6 +6290,7 @@ function App() {
           )}
           </>}
           </DetailViewProvider>
+          </PluginSectionContext.Provider>
         </div>
 
         {/* Video splitter + player area (below content, above now-playing).
@@ -6965,6 +7024,7 @@ function App() {
       <NowPlayingBar
         waveformPeaks={waveformPeaks}
         storyboard={storyboard}
+        seekMarkers={seekMarkers}
         currentTrack={playback.currentTrack}
         nativeVideoActive={playback.nativeVideoActive}
         playing={playback.playing}

@@ -17,7 +17,11 @@ export type DisplayKind =
   | "annotations"
   | "key_value"
   | "image_gallery"
-  | "title_line";
+  | "title_line"
+  /** An interactive tab drawn by its plugin: the value is a `PluginViewData`
+   *  tree (rendered by `PluginViewRenderer`), and its actions reach the
+   *  plugin's `api.ui.onAction` with the page's entity in the payload. */
+  | "plugin_view";
 
 /** Entity passed to plugin onFetch handlers */
 export interface InfoEntity {
@@ -58,8 +62,12 @@ export interface InfoSection {
   description?: string;
   displayKind: DisplayKind;
   state:
-    | { kind: "loaded"; data: unknown; stale: boolean }
-    | { kind: "loading"; progress?: FetchProgressEntry[] }
+    /** `providerId`: the plugin whose row the data came from — where a
+     *  `plugin_view` section sends its actions. */
+    | { kind: "loaded"; data: unknown; stale: boolean; providerId?: string }
+    /** `deferred`: a lazy kind (`plugin_view`) whose fetch waits until its
+     *  tab is shown — nothing is in flight yet. */
+    | { kind: "loading"; progress?: FetchProgressEntry[]; deferred?: boolean }
     | { kind: "empty" };
 }
 

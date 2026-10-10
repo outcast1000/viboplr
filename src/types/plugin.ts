@@ -806,7 +806,21 @@ export interface PluginPlayContext {
   metadata?: Record<string, string> | null;
 }
 
+/** A tick on the seek bar at `at` seconds into the current track; `label` is
+ *  what its hover bubble says (plain text, at most 160 characters). */
+export interface PluginSeekMarker {
+  at: number;
+  label?: string;
+}
+
 export interface PluginPlaybackAPI {
+  /** Draw ticks on the seek bar for the playing track (both bars and
+   *  fullscreen). `trackKey` is the current track's `key` (from
+   *  `getCurrentTrack()` or `onTrackStarted`); markers for any other key are
+   *  ignored, so a late answer never lands on the next song. The host clears
+   *  every plugin's markers on each track change; an empty list clears yours.
+   *  At most 200 are kept. Permission `playback:markers`. Feature-detect. */
+  setMarkers?(trackKey: string, markers: PluginSeekMarker[]): void;
   getCurrentTrack(): QueueTrack | null;
   isPlaying(): boolean;
   getPosition(): number;
@@ -1127,6 +1141,16 @@ export interface PluginUIAPI {
   /** Set this view's header (merged over the manifest's); `null` restores the
    *  manifest defaults. Absent on older hosts — feature-detect. */
   setViewHeader?(viewId: string, header: PluginViewHeader | null): void;
+  /** Open Viboplr's own page for a song, album or artist, by name (a page
+   *  for something not in the library is built from the name, as everywhere
+   *  else). `opts.tab` opens it on that tab: an information type id (yours or
+   *  any other) or a host tab (`tracks`, `tags`, `details`, …); an id the page
+   *  doesn't have falls back to the first tab. Feature-detect. */
+  navigateToEntity?(
+    kind: "track" | "album" | "artist",
+    ref: { name: string; artistName?: string | null; albumTitle?: string | null },
+    opts?: { tab?: string },
+  ): void;
 }
 
 export interface PluginStorageAPI {
@@ -1287,6 +1311,16 @@ export interface PluginInformationTypesAPI {
     entity: Omit<import("./informationTypes").InfoEntity, "id"> & { id?: number },
     opts?: { pluginId?: string; force?: boolean },
   ): Promise<InfoValueFetched>;
+  /** Replace the value one of YOUR information types shows for an entity —
+   *  written to the cache and re-read by every open view, with no refetch. For
+   *  an interactive (`plugin_view`) tab after a like or a post. `data` is what
+   *  your `onFetch` would have returned as `value`. Only types your manifest
+   *  declares. Feature-detect. */
+  setSectionData?(
+    typeId: string,
+    entity: Omit<import("./informationTypes").InfoEntity, "id"> & { id?: number },
+    data: Record<string, unknown>,
+  ): Promise<void>;
 }
 
 /** What `api.informationTypes.fetch` resolves with. */

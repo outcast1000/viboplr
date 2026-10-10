@@ -15,6 +15,15 @@ import { onInfoValueChanged } from "../utils/infoValueEvents";
 
 const EMPTY_DELAY_MS = 3000; // show progress for 3s before switching to empty
 
+/**
+ * Kinds fetched only once the section is shown (`activate`), never just
+ * because a page that has one opened. An interactive tab is the plugin's own
+ * view of the entity — the Community tab asks its server as the signed-in
+ * member — so opening a song page must not name the song to that server
+ * before the user goes to the tab. A fresh cached value still draws at once.
+ */
+const LAZY_DISPLAY_KINDS: ReadonlySet<string> = new Set<DisplayKind>(["plugin_view"]);
+
 interface UseInformationTypesOpts {
   entity: InfoEntity | null;
   exclude?: string[];
@@ -72,6 +81,11 @@ export function useInformationTypes({
   const includeKey = include?.join(",") ?? "";
   const includeKindsKey = includeKinds?.join(",") ?? "";
   const entityKeyRef = useRef<string>("");
+  // Lazy kinds: the fetches waiting for their tab (typeId → start), and the
+  // types shown for an entity (typeId → entityKey), so a cache re-read while
+  // the tab is open fetches straight away instead of waiting again.
+  const deferredRef = useRef<Map<string, () => void>>(new Map());
+  const activatedRef = useRef<Map<string, string>>(new Map());
 
   const loadSections = useCallback(async () => {
     if (!entity || disabled) {
@@ -111,6 +125,7 @@ export function useInformationTypes({
       typeId: string;
       providers: Array<[string, number]>; // [pluginId, integerId]
       index: number;
+      lazy: boolean;
     }> = [];
 
     typeMetaRef.current.clear();
@@ -145,6 +160,7 @@ export function useInformationTypes({
       }
 
       const idx = newSections.length;
+      const lazy = LAZY_DISPLAY_KINDS.has(displayKind) && activatedRef.current.get(typeId) !== entityKey;
 
       if (action === "render" || action === "render_and_refetch") {
         let parsed: unknown;
@@ -154,21 +170,26 @@ export function useInformationTypes({
           name,
           description: desc,
           displayKind: displayKind as DisplayKind,
-          state: { kind: "loaded", data: parsed, stale: action === "render_and_refetch" },
+          state: {
+            kind: "loaded",
+            data: parsed,
+            stale: action === "render_and_refetch",
+            providerId: providers.find(([, id]) => id === entry!.integerId)?.[0],
+          },
         });
         if (action === "render_and_refetch") {
-          fetchNeeded.push({ typeId, providers, index: idx });
+          fetchNeeded.push({ typeId, providers, index: idx, lazy });
         }
       } else {
-        // loading
+        // loading — or, for a lazy kind nobody has shown yet, waiting for its tab
         newSections.push({
           typeId,
           name,
           description: desc,
           displayKind: displayKind as DisplayKind,
-          state: { kind: "loading" },
+          state: lazy ? { kind: "loading", deferred: true } : { kind: "loading" },
         });
-        fetchNeeded.push({ typeId, providers, index: idx });
+        fetchNeeded.push({ typeId, providers, index: idx, lazy });
       }
     }
 
@@ -177,10 +198,18 @@ export function useInformationTypes({
       setLoadedKey(entityKey);
     }
 
-    // 4. Fire fetches with provider fallback
-    for (const { typeId, providers } of fetchNeeded) {
+    // 4. Fire fetches with provider fallback (a lazy one waits for `activate`)
+    const deferred = new Map<string, () => void>();
+    deferredRef.current = deferred;
+    const target = entity; // narrowed above; a function body below can't see that
+    for (const { typeId, providers, lazy } of fetchNeeded) {
+      if (lazy) deferred.set(typeId, () => startFetch(typeId, providers));
+      else startFetch(typeId, providers);
+    }
+
+    function startFetch(typeId: string, providers: Array<[string, number]>) {
       const dedupKey = `${typeId}:${entityKey}`;
-      if (inFlightRef.current.has(dedupKey)) continue;
+      if (inFlightRef.current.has(dedupKey)) return;
       inFlightRef.current.add(dedupKey);
 
       (async () => {
@@ -199,8 +228,8 @@ export function useInformationTypes({
         try {
           // The walk + cache writes live in utils/infoFetchChain.ts (shared
           // with the control API's info.fetch); this hook only renders.
-          const { result } = await fetchInfoThroughChain({
-            typeId, providers, entity, entityKey,
+          const { result, usedIntegerId } = await fetchInfoThroughChain({
+            typeId, providers, entity: target, entityKey,
             invokeInfoFetch, pluginNames,
             onProgress: updateProgress,
           });
@@ -210,7 +239,12 @@ export function useInformationTypes({
               const next = [...prev];
               const existing = next.find((s) => s.typeId === typeId);
               if (existing) {
-                existing.state = { kind: "loaded", data: result.value, stale: false };
+                existing.state = {
+                  kind: "loaded",
+                  data: result.value,
+                  stale: false,
+                  providerId: providers.find(([, id]) => id === usedIntegerId)?.[0],
+                };
               }
               return next;
             });
@@ -272,6 +306,20 @@ export function useInformationTypes({
     [entity, loadSections],
   );
 
+  /** A section is being shown: run its fetch if it was waiting for that. */
+  const activate = useCallback((typeId: string) => {
+    const entityKey = entityKeyRef.current;
+    if (!entityKey) return;
+    activatedRef.current.set(typeId, entityKey);
+    const start = deferredRef.current.get(typeId);
+    if (!start) return;
+    deferredRef.current.delete(typeId);
+    setSections((prev) => prev.map((s) =>
+      s.typeId === typeId && s.state.kind === "loading" && s.state.deferred ? { ...s, state: { kind: "loading" } } : s,
+    ));
+    start();
+  }, []);
+
   const getTypeMeta = useCallback(
     (typeId: string) => typeMetaRef.current.get(typeId),
     [],
@@ -279,5 +327,5 @@ export function useInformationTypes({
 
   const ready = !entity || disabled ? true : loadedKey === buildEntityKey(entity);
 
-  return { sections, ready, refresh, reloadCache: loadSections, getTypeMeta };
+  return { sections, ready, refresh, reloadCache: loadSections, getTypeMeta, activate };
 }

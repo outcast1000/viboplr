@@ -307,6 +307,7 @@ return { activate: activate, deactivate: deactivate };</pre>
                 <tr><td>playTrack(track)</td><td>Play a single track.</td></tr>
                 <tr><td>playTracks(tracks, startIndex?, context?)</td><td>Play a list; <code>context</code> (<code>{ name, coverUrl?, source? }</code>) gives the queue its banner.</td></tr>
                 <tr><td>insertTrack(track, position) / insertTracks(tracks, position)</td><td>Insert into the current queue (<code>-1</code> = end).</td></tr>
+                <tr><td>setMarkers(trackKey, markers)</td><td>Draw ticks on the playing track's seek bar, in both bars and fullscreen: <code>[{ at, label? }]</code> (seconds; the label shows when the pointer is over the tick). <code>trackKey</code> is the current track's <code>key</code>; markers for any other track are ignored, and the app clears them on every track change. At most 200. Needs <code>playback:markers</code>. Feature-detect it; older apps don't have it.</td></tr>
                 <tr><td>playWithBackfill({ head, context?, resolveTail, tailErrorMessage? })</td><td>Play the opening track(s) you already know <em>now</em>, and append the rest when your slow work finishes &mdash; no loading modal. <code>head</code> can be metadata-only (the stream chain resolves it); <code>resolveTail()</code> returns the full list and the host strips a leading duplicate. Prefer this over <code>playTracks</code>&nbsp;+&nbsp;<code>insertTracks</code>: the host drops the tail if the user changed the queue while you were resolving, and the queue panel shows its own "filling in" row for the whole wait. Resolves with the number of tracks actually appended (<code>0</code> = nothing landed) &mdash; announce success from that, not from your resolved list.</td></tr>
                 <tr><td>onTrackStarted / onTrackScrobbled / onTrackLiked(handler)</td><td>Playback events; the scrobble threshold is 50% or 4 minutes.</td></tr>
                 <tr><td>onStreamResolve(providerId, handler)</td><td>Register a stream fallback: <code>(title, artist, album, duration, opts?) &rarr; { url, label, video? } | null</code>. <code>opts.preferVideo</code> is an advisory hint (the user enabled &ldquo;Prefer video&rdquo;): return a video stream and set <code>video: true</code> to have the host play it in the theater, or ignore it to keep returning audio. The hint never overrides source priority.</td></tr>
@@ -371,6 +372,7 @@ return { activate: activate, deactivate: deactivate };</pre>
                 <tr><td>showNotification(message, options?)</td><td>Show a toast for the result of something the user just did. <code>options.action: { label, id }</code> adds one button that runs your <code>onAction(id)</code> handler. Not for ongoing states; see <a href="#design">Designing your view</a>.</td></tr>
                 <tr><td>setViewHeader(viewId, header)</td><td>Change a view's header at runtime: <code>{ title?, subtitle?, status?, actions?, logo?, logoLight?, banner?, hidden? }</code>, or <code>null</code> for the manifest defaults. Feature-detect it; older apps don't have it.</td></tr>
                 <tr><td>navigateToView(viewId)</td><td>Navigate to one of your views.</td></tr>
+                <tr><td>navigateToEntity(kind, { name, artistName?, albumTitle? }, { tab? })</td><td>Open Viboplr's own page for a <code>"track"</code>, <code>"album"</code> or <code>"artist"</code>, by name, optionally on a given tab (an information type id, yours or another plugin's). Feature-detect it.</td></tr>
                 <tr><td>requestAction(action, payload)</td><td>Request a host-level action (play with context, navigate to an entity, downloads…).</td></tr>
                 <tr><td>onAction(actionId, handler)</td><td>Handle button / toggle / input events fired from your views.</td></tr>
                 <tr><td>setBadge(viewId, badge)</td><td>Dot or count badge on your sidebar item (<code>null</code> to clear).</td></tr>
@@ -449,7 +451,7 @@ return { activate: activate, deactivate: deactivate };</pre>
 
         <div class="api-group reveal" id="api-informationtypes">
           <h3><span class="api-ns">api.informationTypes</span></h3>
-          <p class="api-group-desc">Provide values for the information sections you declare in the manifest, and read the shared cache. Values are keyed by entity name, so metadata is shared across libraries. Display kinds include <code>rich_text</code>, <code>lyrics</code>, <code>entity_list</code>, <code>stat_grid</code>, <code>tag_list</code>, <code>ranked_list</code>, <code>image_gallery</code>, and more.</p>
+          <p class="api-group-desc">Provide values for the information sections you declare in the manifest, and read the shared cache. Values are keyed by entity name, so metadata is shared across libraries. Display kinds include <code>rich_text</code>, <code>lyrics</code>, <code>entity_list</code>, <code>stat_grid</code>, <code>tag_list</code>, <code>ranked_list</code>, <code>image_gallery</code>, and more. <code>plugin_view</code> is an <strong>interactive tab</strong>: its value is a view tree (the same nodes <code>setViewData</code> takes), and its buttons and inputs reach your <code>api.ui.onAction</code> handlers with the page's <code>entity</code> added to the payload.</p>
           <div class="api-table-wrap">
             <table class="api-table">
               <tbody>
@@ -457,6 +459,7 @@ return { activate: activate, deactivate: deactivate };</pre>
                 <tr><td>searchValues(query, opts?)</td><td>Substring-search across all cached values (any type — lyrics, bios, reviews…), with optional type / field / entity filters.</td></tr>
                 <tr><td>getValuesForEntity(entity)</td><td>Every cached value for one entity.</td></tr>
                 <tr><td>getValue(typeId, entity)</td><td>One cached value, or <code>null</code>.</td></tr>
+                <tr><td>setSectionData(typeId, entity, data)</td><td>Replace what one of <em>your</em> types shows for an entity, at once and without a refetch &mdash; e.g. redraw an interactive tab after a like. <code>data</code> is what <code>onFetch</code> would return as <code>value</code>. Pass <code>entity</code> exactly as <code>onFetch</code> or the action payload gave it to you: the value is stored under that entity's exact name and artist, so a respelled or rebuilt one lands where no page looks. Feature-detect it.</td></tr>
               </tbody>
             </table>
           </div>

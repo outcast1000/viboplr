@@ -12,6 +12,7 @@
 //   files:trash        moving a local file to the trash
 //   playback:read      current track, position, queue, and playback events
 //   playback:control   starting playback or changing the queue
+//   playback:markers   drawing ticks (with hover labels) on the seek bar
 //   cues:read          reading the user's Now Playing cue sheets
 //   cues:write         adding, replacing or deleting cue sheets
 //   lyrics:write       putting lyrics in place for a song (like the lyrics editor)
@@ -95,6 +96,10 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "playback.insertTrack": need("playback:control"),
   "playback.insertTracks": need("playback:control"),
   "playback.playWithBackfill": need("playback:control"),
+  // Ticks on the playing track's seek bar. Not playback:read — drawing on the
+  // bar is a separate ask from seeing what plays (and needs that one anyway to
+  // know the track's key).
+  "playback.setMarkers": need("playback:markers"),
   "playback.onStreamResolve": OWN,
   "playback.onResolveStreamByUri": OWN,
   "playback.onResolveStoryboard": OWN,
@@ -117,6 +122,8 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "ui.requestAction": OWN,
   "ui.setBadge": OWN,
   "ui.setViewHeader": OWN,
+  // Opens one of Viboplr's own pages — what a link in any view already does.
+  "ui.navigateToEntity": OWN,
 
   "storage.get": OWN,
   "storage.set": OWN,
@@ -143,6 +150,8 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "network.openBrowseWindow": byUrl("browse", 0),
 
   "informationTypes.onFetch": OWN,
+  // Only its own types (saveOwnInfoValue refuses anything else).
+  "informationTypes.setSectionData": OWN,
   "informationTypes.searchValues": need("library:read"),
   "informationTypes.getValuesForEntity": need("library:read"),
   "informationTypes.getValue": need("library:read"),
@@ -286,6 +295,8 @@ export function describePermission(perm: string): PermissionDescription {
       return { label: "Read your cue sheets", detail: "The cards and lyric clips that play over Now Playing.", sensitive: false };
     case "cues:write":
       return { label: "Change your cue sheets", detail: "Add, replace or delete the cards and lyric clips that play over Now Playing.", sensitive: false };
+    case "playback:markers":
+      return { label: "Mark moments on the seek bar", detail: "Draw ticks on the playing song's seek bar, with a note when you point at one.", sensitive: false };
     case "lyrics:write":
       return { label: "Change song lyrics", detail: "Replace the lyrics Viboplr shows for a song, as editing them yourself would.", sensitive: false };
     case "system:open":

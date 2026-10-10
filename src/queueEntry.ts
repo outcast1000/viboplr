@@ -1,5 +1,5 @@
 import type { Track, QueueTrack, TrackSelection } from "./types";
-import type { PluginTrack } from "./types/plugin";
+import type { PluginTrack, TrackRowItem } from "./types/plugin";
 
 export interface QueueEntry {
   url: string;
@@ -72,6 +72,20 @@ export function pluginTrackToQueueTrack(info: PluginTrack): QueueTrack {
     liked: 0,
     image_url: info.image_url ?? undefined,
   };
+}
+
+/** A plugin view's track row (`track-row-list`) as a queue entry: its
+ *  metadata, and its `path` when it has one. */
+export function trackRowToQueueTrack(row: TrackRowItem): QueueTrack {
+  return pluginTrackToQueueTrack({
+    path: row.path ?? null,
+    title: row.title,
+    artist_name: row.artistName ?? null,
+    album_title: row.albumTitle ?? null,
+    duration_secs: row.durationSecs ?? null,
+    image_url: row.imageUrl,
+    kind: row.kind,
+  });
 }
 
 // Ids travel as numbers everywhere now — `Track.id`, `QueueTrack.libraryId`,

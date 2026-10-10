@@ -1,0 +1,32 @@
+/* Plugin markers on the seek bar (api.playback.setMarkers): thin ticks over
+   whichever surface the ladder drew, in both bars. The tick sits on a scrim
+   outline so it reads over a waveform, a filmstrip frame or a segmented bar
+   alike; colour is the skin's warning token, the "look here" colour. */
+.seek-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.seek-marker {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--warning);
+  box-shadow: 0 0 0 1px rgba(var(--scrim-rgb), 0.55);
+}
+
+/* A marker's note in the scrub bubble, under the time. Wraps, unlike the time
+   line, so a long comment doesn't run the bubble off the screen. */
+.seek-marker-note {
+  display: block;
+  max-width: 260px;
+  margin-top: 3px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+  line-height: 1.35;
+}

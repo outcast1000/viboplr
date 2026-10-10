@@ -4,7 +4,8 @@ import { resolveImageUrl } from "../utils/resolveImageUrl";
 import { formatDuration, isVideoTrack } from "../utils";
 import { usePlaybackPosition } from "../playback/positionStore";
 import { useIdleVisibility } from "../hooks/useIdleVisibility";
-import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
+import { SeekLadder, SeekHoverBubble, SeekMarkers, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
+import type { SeekMarker } from "../utils/seekMarkers";
 import { TransportButtons, VolumeControl } from "./TransportControls";
 import type { EqControls } from "./EqButton";
 import type { BitPerfectControl } from "./BitPerfectButton";
@@ -22,6 +23,8 @@ interface FullscreenControlsProps {
   waveformPeaks: number[] | null;
   /** Seek-preview tiles for the current video track; null for audio. */
   storyboard: Storyboard | null;
+  /** Plugin ticks on the playing track's seek bar (`api.playback.setMarkers`). */
+  seekMarkers?: readonly SeekMarker[];
   currentTrack: QueueTrack | null;
   playing: boolean;
   durationSecs: number;
@@ -89,6 +92,7 @@ interface FullscreenControlsProps {
 export function FullscreenControls({
   waveformPeaks,
   storyboard,
+  seekMarkers,
   currentTrack, playing,
   durationSecs, scrobbled,
   volume, muted,
@@ -195,6 +199,7 @@ export function FullscreenControls({
           hoverPct={seekHover?.pct ?? null}
           bufferedPct={bufferedPct}
         />
+        <SeekMarkers markers={seekMarkers} durationSecs={durationSecs} />
         <BufferingChip buffer={buffer} />
         <span className="fs-seek-time fs-seek-elapsed">{formatDuration(positionSecs)}</span>
         <span className="fs-seek-time fs-seek-total">
@@ -207,6 +212,7 @@ export function FullscreenControls({
         storyboard={storyboard}
         positionSecs={positionSecs}
         durationSecs={durationSecs}
+        markers={seekMarkers}
         className="fs-seek-bubble"
         deltaClassName="fs-seek-bubble-delta"
       />

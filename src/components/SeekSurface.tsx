@@ -4,6 +4,8 @@ import { SegmentedSeekBar } from "./SegmentedSeekBar";
 import { StoryboardTile } from "./StoryboardTile";
 import { formatDuration } from "../utils";
 import { tileIndexAt, type Storyboard } from "../utils/storyboard";
+import { markerLabelsNear, type SeekMarker } from "../utils/seekMarkers";
+import "./SeekSurface.css";
 
 /**
  * Bubble thumbnail width.
@@ -103,11 +105,32 @@ export function SeekLadder({
   return null;
 }
 
+/**
+ * Ticks a plugin put on the playing track (`api.playback.setMarkers` — the
+ * Community plugin's timed comments). Drawn over whichever seek surface the
+ * ladder picked, so every surface gets them; the notes live in the hover
+ * bubble. Shared by both bars, like the rest of this file.
+ */
+export function SeekMarkers({ markers, durationSecs }: { markers: readonly SeekMarker[] | undefined; durationSecs: number }) {
+  if (!markers?.length || durationSecs <= 0) return null;
+  return (
+    <div className="seek-markers" aria-hidden="true">
+      {markers
+        .filter((m) => m.at <= durationSecs)
+        .map((m, i) => (
+          <span key={i} className="seek-marker" style={{ left: `${(m.at / durationSecs) * 100}%` }} />
+        ))}
+    </div>
+  );
+}
+
 interface SeekHoverBubbleProps {
   hover: SeekHover | null;
   storyboard: Storyboard | null;
   positionSecs: number;
   durationSecs: number;
+  /** Plugin markers: the notes near the pointer show under the time. */
+  markers?: readonly SeekMarker[];
   /** Host's bubble class — the two bars anchor and colour it differently. */
   className: string;
   /** Host's class for the ± offset span. */
@@ -123,10 +146,11 @@ interface SeekHoverBubbleProps {
  * copies. Only the class names differ between hosts.
  */
 export function SeekHoverBubble({
-  hover, storyboard, positionSecs, durationSecs, className, deltaClassName,
+  hover, storyboard, positionSecs, durationSecs, markers, className, deltaClassName,
 }: SeekHoverBubbleProps) {
   if (!hover || durationSecs <= 0) return null;
   const hoverSecs = hover.pct * durationSecs;
+  const notes = markers ? markerLabelsNear(markers, hoverSecs, durationSecs) : [];
   // Resolved up front: the bubble only switches to the column layout when a tile
   // actually exists, and a storyboard may not cover every moment.
   const tile = storyboard ? tileIndexAt(storyboard, hoverSecs) : null;
@@ -151,6 +175,9 @@ export function SeekHoverBubble({
             formatDuration(Math.abs(hoverSecs - positionSecs))}
         </span>
       </span>
+      {notes.map((note, i) => (
+        <span key={i} className="seek-marker-note">{note}</span>
+      ))}
     </div>
   );
 }

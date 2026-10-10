@@ -274,3 +274,8 @@
 .info-progress-entry.fail .info-progress-status {
   opacity: 0.4;
 }
+
+/* An interactive tab draws its own view tree; the tab body already pads it. */
+.info-plugin-view .plugin-view {
+  padding: 0;
+}

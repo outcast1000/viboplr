@@ -2489,3 +2489,25 @@ ol.docs-list {
   justify-content: center;
   font-weight: 600;
 }
+
+/* Community → Music: find a song, album or artist; results and the feed below. */
+.community-search {
+  max-width: 640px;
+  margin: 0 auto var(--space-md);
+  display: flex;
+  gap: var(--space-sm);
+}
+.community-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: inherit;
+  font: inherit;
+}
+.community-subhead {
+  text-align: center;
+  margin: var(--space-lg) 0 var(--space-md);
+}

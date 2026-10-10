@@ -15,7 +15,8 @@ import { AudioOptionsGroup } from "./AudioOptions";
 import type { PlayerBarPins } from "../utils/playerBarPins";
 import { BIT_PERFECT_VOLUME_REASON } from "../utils/bitPerfect";
 import type { EqClipProtection, EqMode } from "../eqPresets";
-import { SeekLadder, SeekHoverBubble, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
+import { SeekLadder, SeekHoverBubble, SeekMarkers, seekHoverAt, hasFilmstrip, type SeekHover } from "./SeekSurface";
+import type { SeekMarker } from "../utils/seekMarkers";
 import { TransportButtons, VolumeControl } from "./TransportControls";
 import { BufferingChip } from "./BufferingChip";
 import { bufferedFraction } from "../playback/bufferState";
@@ -78,6 +79,8 @@ interface NowPlayingBarProps {
   waveformPeaks: number[] | null;
   /** Seek-preview tiles for the current video track; null for audio. */
   storyboard: Storyboard | null;
+  /** Plugin ticks on the playing track's seek bar (`api.playback.setMarkers`). */
+  seekMarkers?: readonly SeekMarker[];
   currentTrack: QueueTrack | null;
   /** Native mpv video session active — EQ works on video there (lavfi graph),
    * unlike the browser engine where the <video> isn't in the Web Audio graph. */
@@ -187,6 +190,7 @@ interface NowPlayingBarProps {
 export const NowPlayingBar = memo(function NowPlayingBar({
   waveformPeaks,
   storyboard,
+  seekMarkers,
   currentTrack, nativeVideoActive, playing,
   durationSecs, scrobbled,
   icyTitle,
@@ -540,6 +544,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
               hoverPct={seekHover?.pct ?? null}
               bufferedPct={bufferedPct}
             />
+            <SeekMarkers markers={seekMarkers} durationSecs={durationSecs} />
             <BufferingChip buffer={buffer} />
           </div>
           <span className="now-seek-time now-seek-total">
@@ -552,6 +557,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           storyboard={storyboard}
           positionSecs={positionSecs}
           durationSecs={durationSecs}
+          markers={seekMarkers}
           className="now-seek-bubble"
           deltaClassName="now-seek-bubble-delta"
         />

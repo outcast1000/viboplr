@@ -299,6 +299,52 @@ export async function saveInfoValue(opts: { typeId: string; entity: InfoEntity; 
 }
 
 /**
+ * `api.informationTypes.setSectionData`'s arguments, checked, as
+ * `saveOwnInfoValue` takes them. The value lands under the exact page key
+ * (`buildEntityKey`), so the entity is kept exactly as the plugin was given it
+ * — a trimmed name or a non-string artist writes a row no page reads. A
+ * missing artist is fine: an unknown-artist track's page has none.
+ */
+export function sectionDataRequest(typeId: unknown, entity: unknown, data: unknown): { typeId: string; entity: InfoEntity; value: unknown } {
+  const fail = (why: string): never => { throw new Error(`informationTypes.setSectionData: ${why}`); };
+  if (typeof typeId !== "string" || !typeId) fail("typeId is required");
+  const e = (entity && typeof entity === "object" ? entity : {}) as Record<string, unknown>;
+  const kind = e.kind;
+  if (kind !== "artist" && kind !== "album" && kind !== "track" && kind !== "tag") fail("entity needs a kind (artist, album, track or tag)");
+  if (typeof e.name !== "string" || !e.name.trim()) fail("entity needs a name");
+  for (const field of ["artistName", "albumTitle"] as const) {
+    if (e[field] != null && typeof e[field] !== "string") {
+      fail(`entity.${field} must be a string — pass the entity onFetch or the action payload gave you`);
+    }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) fail("data must be an object (what onFetch returns as value)");
+  const target: InfoEntity = { kind: kind as InfoEntity["kind"], name: e.name as string, id: typeof e.id === "number" ? e.id : 0 };
+  if (e.artistName) target.artistName = e.artistName as string;
+  if (e.albumTitle) target.albumTitle = e.albumTitle as string;
+  return { typeId: typeId as string, entity: target, value: data };
+}
+
+/**
+ * A plugin replacing the value one of its OWN information types shows for an
+ * entity (`api.informationTypes.setSectionData`): an interactive tab after a
+ * like or a post, with no refetch. Written under that plugin's row only —
+ * unlike `saveInfoValue`, nothing another provider cached is touched — and
+ * announced, so every open view re-reads it.
+ */
+export async function saveOwnInfoValue(opts: { pluginId: string; typeId: string; entity: InfoEntity; value: unknown }): Promise<void> {
+  const { pluginId, typeId, entity, value } = opts;
+  const entityKey = buildEntityKey(entity);
+  const types = await invoke<InfoTypeRow[]>("info_get_types_for_entity", { entity: entity.kind });
+  const row = types.find(([id]) => id === typeId);
+  const own = row?.[5].find(([pid]) => pid === pluginId);
+  if (!own) {
+    throw new InfoFetchRequestError(`"${typeId}" is not one of this plugin's information types for ${entity.kind} entities`);
+  }
+  await invoke("info_upsert_value", { informationTypeId: own[1], entityKey, value: JSON.stringify(value), status: "ok" });
+  emitInfoValueChanged(entityKey, typeId);
+}
+
+/**
  * Get one info type's value for one entity: a fresh cache row is served as-is
  * (unless `force` / `pluginId`), anything else walks the SAME provider chain
  * the detail pages run (`fetchInfoThroughChain`), so the result lands in the

@@ -70,9 +70,11 @@ import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
 import { buildEntityKey } from "../types/informationTypes";
 import {
-  CORE_LOCAL_LYRICS_PROVIDER, fetchInfoValue, resolveInfoEntityId, saveInfoValue, type InvokeInfoFetch,
+  CORE_LOCAL_LYRICS_PROVIDER, fetchInfoValue, resolveInfoEntityId, saveInfoValue, saveOwnInfoValue, sectionDataRequest, type InvokeInfoFetch,
 } from "../utils/infoFetchChain";
 import { CallGraph, callableProblem, describePlugins } from "../utils/crossPluginCalls";
+import { sanitizeSeekMarkers, type SeekMarker } from "../utils/seekMarkers";
+import { requestDetailTab } from "../utils/pendingDetailTab";
 import {
   addTags, editTrackTags, NO_TAG_REFRESH, removeTags, writeFileMetadata,
   type FileMetadataEdit, type TagOpsDeps,
@@ -307,6 +309,13 @@ export interface PluginHostCallbacks {
   replaceTrackFile?: (pluginId: string, request: ReplaceTrackFileRequest) => Promise<ReplaceTrackFileResult>;
   /** `api.collections.requestAdd`: the app's own prefilled Add dialog. */
   requestAddCollection?: (pluginId: string, source: PluginCollectionSource) => void;
+  /** `api.playback.setMarkers`: replace this plugin's seek-bar ticks for the
+   *  playing track. Already sanitized; `trackKey` already matched. */
+  setSeekMarkers?: (pluginId: string, trackKey: string, markers: SeekMarker[]) => void;
+  /** Drop every seek-bar tick this plugin drew (it was disabled or unloaded). */
+  clearSeekMarkers?: (pluginId: string) => void;
+  /** `api.ui.navigateToEntity`: open the page (the tab is already parked). */
+  navigateToEntity?: (kind: "track" | "album" | "artist", ref: { name: string; artistName?: string; albumTitle?: string }) => void;
 }
 
 export function usePlugins(
@@ -809,6 +818,12 @@ export function usePlugins(
         },
 
         playback: {
+          setMarkers: (trackKey, markers) => {
+            // Only for the track that is playing: a late answer for the song
+            // before must not draw on this one.
+            if (typeof trackKey !== "string" || trackKey !== currentTrackRef.current?.key) return;
+            hostCallbacksRef?.current?.setSeekMarkers?.(pluginId, trackKey, sanitizeSeekMarkers(markers));
+          },
           getCurrentTrack: () => currentTrackRef.current,
           isPlaying: () => playingRef.current ?? false,
           getPosition: () => positionRef.current ?? 0,
@@ -974,6 +989,18 @@ export function usePlugins(
           },
           onAction: (actionId, handler) => {
             loaded.uiActionHandlers.set(actionId, handler);
+          },
+          navigateToEntity: (kind, ref, opts) => {
+            const name = typeof ref?.name === "string" ? ref.name.trim() : "";
+            if (!name || (kind !== "track" && kind !== "album" && kind !== "artist")) {
+              throw new Error("ui.navigateToEntity: a kind (track, album or artist) and a name are required");
+            }
+            const artistName = typeof ref.artistName === "string" && ref.artistName.trim() ? ref.artistName.trim() : undefined;
+            const albumTitle = typeof ref.albumTitle === "string" && ref.albumTitle.trim() ? ref.albumTitle.trim() : undefined;
+            if (opts?.tab && typeof opts.tab === "string") {
+              requestDetailTab({ kind, name, artistName }, opts.tab);
+            }
+            hostCallbacksRef?.current?.navigateToEntity?.(kind, { name, artistName, albumTitle });
           },
           setBadge: (viewId: string, badge: PluginBadge) => {
             const key = `${pluginId}:${viewId}`;
@@ -1376,6 +1403,9 @@ export function usePlugins(
         },
 
         informationTypes: {
+          async setSectionData(typeId, entity, data) {
+            await saveOwnInfoValue({ pluginId, ...sectionDataRequest(typeId, entity, data) });
+          },
           onFetch(
             infoTypeId: string,
             handler: (entity: InfoEntity) => Promise<InfoFetchResult>,
@@ -2005,6 +2035,10 @@ export function usePlugins(
     loaded.storyboardResolvers.clear();
     loaded.schedulerHandlers.clear();
     loaded.visualizerFactories.clear();
+
+    // Its seek-bar ticks go with it: nothing else would clear them before the
+    // track changes.
+    hostCallbacksRef?.current?.clearSeekMarkers?.(pluginId);
 
     // Clear view data for this plugin
     for (const key of viewDataRef.current.keys()) {
