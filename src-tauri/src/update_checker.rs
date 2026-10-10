@@ -309,7 +309,7 @@ pub fn collect_installed_extensions(app_dir: &Path, native_plugins_dir: &Path) -
                             continue;
                         }
                         let name = manifest["name"].as_str().unwrap_or(&id).to_string();
-                        let update_url = manifest["updateUrl"].as_str().unwrap_or_default().to_string();
+                        let update_url = crate::plugins::effective_update_url(&path, &manifest).unwrap_or_default();
                         if update_url.is_empty() {
                             if is_user {
                                 scan.unchecked.push(name);
@@ -742,23 +742,36 @@ mod tests {
             r#"{"id":"stamped","name":"Stamped","version":"1.0.0"}"#,
         ).unwrap();
 
+        let manifest_before = std::fs::read(dir.join("manifest.json")).unwrap();
         crate::plugins::stamp_update_url(tmp.path(), "stamped", "https://example.com/u.json").unwrap();
         assert_eq!(
             crate::plugins::installed_update_url(tmp.path(), "stamped").as_deref(),
             Some("https://example.com/u.json")
         );
+        // The manifest is signed bytes: recording the URL must not touch it.
+        assert_eq!(std::fs::read(dir.join("manifest.json")).unwrap(), manifest_before);
 
         // An author pointing updates elsewhere keeps their own value.
-        crate::plugins::stamp_update_url(tmp.path(), "stamped", "https://gallery.example/u.json").unwrap();
+        let declared = tmp.path().join("plugins").join("declared");
+        std::fs::create_dir_all(&declared).unwrap();
+        std::fs::write(
+            declared.join("manifest.json"),
+            r#"{"id":"declared","name":"Declared","version":"1.0.0","updateUrl":"https://author.example/u.json"}"#,
+        ).unwrap();
+        crate::plugins::stamp_update_url(tmp.path(), "declared", "https://gallery.example/u.json").unwrap();
         assert_eq!(
-            crate::plugins::installed_update_url(tmp.path(), "stamped").as_deref(),
-            Some("https://example.com/u.json")
+            crate::plugins::installed_update_url(tmp.path(), "declared").as_deref(),
+            Some("https://author.example/u.json")
         );
+        assert!(!declared.join(crate::plugins::HOST_SIDECAR_FILE).exists());
 
-        // And the stamped copy is now visible to the checker.
+        // And both copies — the recorded one and the declared one — are visible
+        // to the checker.
         let native = tempfile::tempdir().unwrap();
         let scan = collect_installed_extensions(tmp.path(), native.path());
-        assert_eq!(scan.extensions.len(), 1);
+        let mut urls: Vec<_> = scan.extensions.iter().map(|e| e.update_url.as_str()).collect();
+        urls.sort();
+        assert_eq!(urls, vec!["https://author.example/u.json", "https://example.com/u.json"]);
         assert!(scan.unchecked.is_empty());
     }
 }

@@ -39,7 +39,7 @@ For each canonical action in `conventions.md`, find callers that reimplement the
 **How to detect:**
 - **Delete Tracks:** Grep for `invoke("delete_tracks"` outside `useContextMenuActions.ts`. Flag each.
 - **YouTube playback (plugin-owned):** There is no core YouTube search action anymore — the yt-dlp plugin owns it (its "Watch YouTube video" context-menu item). Flag any reintroduction of a core helper: `invoke("search_youtube"` (command removed), a `watchOnYoutube` helper, or direct `youtube.com/results` URL construction in `src/`.
-- **Like/Unlike:** Grep for `invoke("toggle_liked"` outside `useLikeActions.ts`. Flag each.
+- **Like/Unlike:** Grep for `invoke("set_entity_like_state"` outside `useLikeActions.ts`. Flag each (every like must go through `setTrackRating` / `writeEntityLike` so `like:changed` fires — see conventions.md).
 - **Play / Enqueue / Play Next:** Grep for direct queue mutation (`setQueue(`, `queue.push`) outside `useQueue.ts` and `usePlayback.ts`. Flag surfaces that bypass `playTracks` / `enqueueTracks` / `playNextInQueue`.
 - **Show in Folder:** Grep for `invoke("show_in_folder"` outside `useContextMenuActions.ts`.
 - **Download Track:** Grep for `invoke("download_track"` outside `useDownloads.ts`.
@@ -158,7 +158,7 @@ Use Grep and Read tools. For large greps, batch multiple patterns in parallel. K
 
 **Prefer `rg` via Bash** when scanning for multiple patterns with file-count aggregation:
 ```bash
-rg -n "invoke\(\"toggle_liked\"" src/ --type ts --type tsx
+rg -n "invoke\(\"set_entity_like_state\"" src/ --type ts --type tsx
 ```
 
 **For cargo-based dead code:**

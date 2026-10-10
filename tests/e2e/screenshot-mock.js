@@ -355,7 +355,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       const aid = args.artistId;
       return TRACKS.filter(t => t.artist_id === aid);
     }
-    case 'get_liked_tracks': return TRACKS.filter(t => t.liked === 1);
     case 'get_history_recent': return HISTORY_RECENT;
     case 'get_history_most_played': return HISTORY_MOST_PLAYED;
     case 'get_history_most_played_since': return HISTORY_MOST_PLAYED.slice(0, 7);
@@ -448,7 +447,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
     }
     case 'fetch_tag_image': return null;
     case 'record_play': return null;
-    case 'toggle_liked': return null;
     default:
       console.warn('[screenshot-mock] unhandled invoke:', cmd, args);
       return null;

@@ -195,6 +195,24 @@ pub fn verify_scanned(dir: &Path, manifest: &[u8], code: Option<&str>) -> Signat
     verify_with_keys(manifest, code_bytes, &signature, TRUSTED_PLUGIN_KEYS)
 }
 
+/// A signature vouches for the manifest, so it vouches for the manifest's `id`
+/// — but the host identifies a plugin by its folder name. A verified plugin
+/// sitting in a folder its signed manifest doesn't name is a signed release
+/// moved to another id (whose storage, grants and first-party pre-approval it
+/// would inherit), so it is reported `invalid`. Install refuses that mismatch
+/// up front (`plugins::install_plugin_from_zip`); this covers a folder put there
+/// by any other means. Unsigned plugins are untouched: they claim nothing.
+pub fn bind_to_folder(status: SignatureStatus, manifest_id: Option<&str>, folder_id: &str) -> SignatureStatus {
+    match status {
+        SignatureStatus::Verified if manifest_id != Some(folder_id) => SignatureStatus::Invalid(format!(
+            "signed as '{}' but installed as '{}'",
+            manifest_id.unwrap_or(""),
+            folder_id
+        )),
+        other => other,
+    }
+}
+
 /// The fields a plugin listing carries about its signature.
 pub fn status_json(status: &SignatureStatus) -> (serde_json::Value, serde_json::Value) {
     let error = match status {
@@ -227,6 +245,18 @@ fn verify_plugin_dir_with_keys(dir: &Path, keys: &[&str]) -> SignatureStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_a_signature_is_bound_to_the_folder_its_manifest_names() {
+        let ok = bind_to_folder(SignatureStatus::Verified, Some("vinyl-deck"), "vinyl-deck");
+        assert_eq!(ok, SignatureStatus::Verified);
+        // Moved to another id: tampered, not merely unsigned.
+        let moved = bind_to_folder(SignatureStatus::Verified, Some("vinyl-deck"), "lastfm");
+        assert!(matches!(moved, SignatureStatus::Invalid(ref r) if r.contains("vinyl-deck") && r.contains("lastfm")), "{moved:?}");
+        assert!(matches!(bind_to_folder(SignatureStatus::Verified, None, "x"), SignatureStatus::Invalid(_)));
+        // An unsigned plugin claims nothing, so a dev folder named differently is fine.
+        assert_eq!(bind_to_folder(SignatureStatus::Unsigned, Some("a"), "b"), SignatureStatus::Unsigned);
+    }
 
     // A throwaway keypair made with `tauri signer generate --ci -p ""` for these
     // tests only; it is not, and must never become, a trusted key.

@@ -3043,29 +3043,6 @@ fn test_plugin_scheduler_unregister_all() {
     assert_eq!(all[0].1, "check-updates");
 }
 
-
-#[test]
-fn test_find_track_in_collection() {
-    let db = test_db();
-    let col = db.add_collection("local", "Test", Some("/tmp/test"), None, None, None, None, None).unwrap();
-
-    let artist_id = db.get_or_create_artist("Test Artist").unwrap();
-    db.upsert_track(
-        "test.mp3", "Test Song", Some(artist_id), None,
-        None, None, None, None, None, Some(col.id), None,
-    ).unwrap();
-
-    let found = db.find_track_in_collection(col.id, "test song", "test artist").unwrap();
-    assert!(found.is_some());
-
-    let not_found = db.find_track_in_collection(col.id, "test song", "other artist").unwrap();
-    assert!(not_found.is_none());
-
-    let col2 = db.add_collection("local", "Other", Some("/tmp/other"), None, None, None, None, None).unwrap();
-    let not_found2 = db.find_track_in_collection(col2.id, "test song", "test artist").unwrap();
-    assert!(not_found2.is_none());
-}
-
 #[test]
 fn test_sync_error_updates_last_synced_at() {
     let db = test_db();

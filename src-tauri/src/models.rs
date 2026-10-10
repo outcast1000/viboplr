@@ -294,13 +294,6 @@ impl Track {
     pub fn filesystem_path(&self) -> Option<&str> {
         self.path.strip_prefix("file://")
     }
-
-    /// Extracts the remote track ID from a subsonic:// path (last path segment).
-    pub fn remote_id(&self) -> Option<&str> {
-        self.path.strip_prefix("subsonic://")
-            .and_then(|rest| rest.rfind('/').map(|i| &rest[i + 1..]))
-            .filter(|id| !id.is_empty())
-    }
 }
 
 /// Returns true if `bare_path` (a filesystem path with any `file://` prefix

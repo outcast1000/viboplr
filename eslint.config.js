@@ -109,16 +109,19 @@ export default tseslint.config(
       // an array of simple expressions"), and `preserve-manual-memoization`'s 14
       // were manual `useMemo`/`useCallback` the compiler declined to preserve.
       // Nothing user-visible is at stake in either, so they were pure noise
-      // against 380-odd other warnings. Turn them back on the day the compiler
+      // against the other warnings. Turn them back on the day the compiler
       // is switched on — they are the adoption checklist.
       "react-hooks/preserve-manual-memoization": "off",
       "react-hooks/use-memo": "off",
 
       // ---- Warning backlog -------------------------------------------------
       // Real signal, but each is a class too large to clear in one pass. Counts
-      // are post-cleanup; treat them as a ratchet, and don't add to them.
+      // as of 2026-10-11 (238 in all). They are a ratchet, and the total is
+      // enforced: `npm run lint` passes `--max-warnings` at that total, so a
+      // change that adds one fails. When you clear some, lower the cap in
+      // package.json (and these counts) in the same change.
       //
-      //   react-hooks/exhaustive-deps  149  Dominated by things that ARE stable
+      //   react-hooks/exhaustive-deps  125  Dominated by things that ARE stable
       //                                     but that the rule cannot prove:
       //                                     `restoredRef` (a ref arrives as a
       //                                     parameter), 41 citations of stable
@@ -128,10 +131,10 @@ export default tseslint.config(
       //                                     omitted in favour of latest-refs.
       //                                     There is no option to declare those
       //                                     stable, so this stays a warning.
-      //   react-hooks/refs             113  See NO_REF_WRITE_IN_RENDER above —
+      //   react-hooks/refs              22  See NO_REF_WRITE_IN_RENDER above —
       //                                     the write half is zero and
-      //                                     error-gated. 95 of the rest are
-      //                                     `playback.*` in App.tsx: the
+      //                                     error-gated. When this read 113,
+      //                                     95 were `playback.*` in App.tsx: the
       //                                     compiler treats property access on
       //                                     a hook object that also returns
       //                                     refs as a ref access. Measured with
@@ -140,9 +143,9 @@ export default tseslint.config(
       //                                     this is fixable at the source, not
       //                                     inherent noise. The other 18 are
       //                                     genuine render-phase ref reads.
-      //   react-hooks/set-state-in-effect 75 Derive-state-in-effect. A real
+      //   react-hooks/set-state-in-effect 71 Derive-state-in-effect. A real
       //                                     architectural backlog, kept visible.
-      //   react-hooks/immutability      11  Mostly "accessed before declared"
+      //   react-hooks/immutability      10  Mostly "accessed before declared"
       //                                     (function hoisting).
       //   react-hooks/purity             1  KEEP. Highest signal here: its two
       //                                     original hits were Math.random()

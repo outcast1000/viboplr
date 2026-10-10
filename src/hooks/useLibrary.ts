@@ -76,18 +76,9 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
 
 
   // Persist state
-  // Note: `view` is intentionally not persisted — startup always lands on Home.
-  useEffect(() => { if (restoredRef.current) store.set("selectedArtist", selectedArtist); }, [selectedArtist]);
-  useEffect(() => { if (restoredRef.current) store.set("selectedAlbum", selectedAlbum); }, [selectedAlbum]);
-  useEffect(() => { if (restoredRef.current) store.set("selectedTag", selectedTag); }, [selectedTag]);
-  // Written but never read back (startup always lands on Home), like its three
-  // sibling keys. Only the *entry* variant's key is stored — persisting a
-  // library id would put a **reusable** SQLite rowid on disk, the hazard
-  // `TrackSelection` and `QueueTrack.libraryId` both exist to avoid.
-  useEffect(() => {
-    if (!restoredRef.current) return;
-    store.set("selectedTrack", selectedTrack?.kind === "entry" ? selectedTrack.key : null);
-  }, [selectedTrack]);
+  // `view` and the selected artist / album / tag / track are deliberately not
+  // persisted — startup always lands on Home (conventions.md "Default Startup
+  // View"), so writing them only cost a store IPC per navigation.
   useEffect(() => { if (restoredRef.current) store.set("trackSortField", sortField); }, [sortField]);
   useEffect(() => { if (restoredRef.current) store.set("trackSortDir", sortDir); }, [sortDir]);
   useEffect(() => { if (restoredRef.current) store.set("trackColumns", trackColumns); }, [trackColumns]);
@@ -117,7 +108,16 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
     }
   }, []);
 
+  // Stale-response guard for loadTracks. A fresh load (a new query, sort,
+  // filter or selection) takes a new generation; a page append keeps the one it
+  // extends. Any answer whose generation is no longer current is dropped — the
+  // requests run concurrently, so without this an older, slower response (the
+  // query as it was two keystrokes ago) could land last and overwrite the list.
+  const loadGenRef = useRef(0);
+
   const loadTracks = useCallback(async (append = false) => {
+    const gen = append ? loadGenRef.current : ++loadGenRef.current;
+    const stale = () => gen !== loadGenRef.current;
     try {
       // No tracks rendered on album grid or tag list
       if ((view === "albums" && selectedAlbum === null) || (view === "tags" && selectedTag === null)) {
@@ -142,6 +142,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             mediaType: mediaTypeFilter !== "all" ? mediaTypeFilter : undefined,
           },
         });
+        if (stale()) return;
         if (append) {
           const newTracks = [...tracksRef.current, ...results];
           setTracks(newTracks);
@@ -154,18 +155,21 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       } else if (selectedTag !== null) {
         // Non-paginated: by tag
         const results = await invoke<Track[]>("get_tracks_by_tag", { tagId: selectedTag });
+        if (stale()) return;
         setTracks(results);
         tracksRef.current = results;
         setHasMore(false);
       } else if (selectedAlbum !== null) {
         // Non-paginated: by album
         const results = await invoke<Track[]>("get_tracks", { opts: { albumId: selectedAlbum } });
+        if (stale()) return;
         setTracks(results);
         tracksRef.current = results;
         setHasMore(false);
       } else if (selectedArtist !== null) {
         // Non-paginated: by artist
         const results = await invoke<Track[]>("get_tracks_by_artist", { artistId: selectedArtist });
+        if (stale()) return;
         setTracks(results);
         tracksRef.current = results;
         setHasMore(false);
@@ -180,6 +184,7 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
             mediaType: mediaTypeFilter !== "all" ? mediaTypeFilter : undefined,
           },
         });
+        if (stale()) return;
         if (append) {
           const newTracks = [...tracksRef.current, ...results];
           setTracks(newTracks);

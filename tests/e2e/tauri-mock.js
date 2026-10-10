@@ -241,8 +241,6 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       const artistId = args && args.artistId;
       return TEST_TRACKS.filter(t => t.artist_id === artistId);
     }
-    case 'get_liked_tracks':
-      return [];
     case 'get_history_recent':
       return [];
     case 'get_history_most_played':

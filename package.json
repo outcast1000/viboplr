@@ -15,7 +15,7 @@
     "perf:probe": "node scripts/perf-probe.mjs",
     "app:smoke": "node scripts/app-smoke.mjs",
     "perf:setup": "node scripts/setup-perf-profile.mjs",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 238",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",

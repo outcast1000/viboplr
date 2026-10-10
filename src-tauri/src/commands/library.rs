@@ -345,38 +345,6 @@ pub async fn resolve_dropped_paths(paths: Vec<String>) -> Result<Vec<DroppedTrac
     .map_err(|e| e.to_string())?
 }
 
-// --- Track path command ---
-
-#[tauri::command]
-pub fn get_track_path(state: State<'_, AppState>, track_id: i64) -> Result<String, String> {
-    let track = state
-        .db
-        .get_track_by_id(track_id)
-        .map_err(|e| e.to_string())?;
-
-    log::info!("Playing: {} — {} (id={})", track.artist_name.as_deref().unwrap_or("?"), track.title, track_id);
-
-    if let Some(remote_id) = track.remote_id() {
-        let collection_id = track
-            .collection_id
-            .ok_or("Track has remote path but no collection_id")?;
-        let creds = state
-            .db
-            .get_collection_credentials(collection_id)
-            .map_err(|e| e.to_string())?;
-        let client = SubsonicClient::from_stored(
-            &creds.url,
-            &creds.username,
-            &creds.password_token,
-            creds.salt.as_deref(),
-            &creds.auth_method,
-        );
-        Ok(client.stream_url(remote_id))
-    } else {
-        Ok(track.filesystem_path().unwrap_or(&track.path).to_string())
-    }
-}
-
 /// Whether a local file currently exists on disk. Used by the playback error
 /// path to tell a missing file apart from a genuinely unsupported format —
 /// WKWebView reports a failed asset:// fetch as MEDIA_ERR_SRC_NOT_SUPPORTED,
@@ -531,23 +499,6 @@ pub fn get_top_artists_for_tag(
         .db
         .get_top_artists_for_tag(tag_id, limit)
         .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn toggle_liked(
-    state: State<'_, AppState>,
-    kind: String,
-    id: i64,
-    liked: i32,
-) -> Result<(), String> {
-    let table = match kind.as_str() {
-        "track" => "tracks",
-        "artist" => "artists",
-        "album" => "albums",
-        "tag" => "tags",
-        _ => return Err(format!("Unknown kind: {}", kind)),
-    };
-    state.db.toggle_liked(table, id, liked).map_err(|e| e.to_string())
 }
 
 /// The Now Playing cue sheet for a song (`cue_sheets.rs`), or null.
@@ -730,11 +681,6 @@ pub fn get_entity_like_state(
     state.db.get_entity_like_state(&kind, &key).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn get_liked_tracks(state: State<'_, AppState>) -> Result<Vec<Track>, String> {
-    state.db.get_liked_tracks().map_err(|e| e.to_string())
-}
-
 /// On-disk format for the Export/Import likes feature. `version` guards future
 /// format changes; `app`/`exported_at` are informational (written on export,
 /// ignored on import). `likes` are raw `entity_likes` rows.
@@ -825,12 +771,6 @@ pub fn pick_liked_entities(
 #[tauri::command]
 pub fn pick_never_played_tracks(state: State<'_, AppState>, limit: u32) -> Result<Vec<Track>, String> {
     state.db.pick_never_played_tracks(limit).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn rebuild_search_index(state: State<'_, AppState>) -> Result<(), String> {
-    state.db.rebuild_fts().map_err(|e| e.to_string())?;
-    state.db.recompute_counts().map_err(|e| e.to_string())
 }
 
 /// Reveal a local file in the OS file manager.

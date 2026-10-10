@@ -995,23 +995,6 @@ impl Database {
 
         result
     }
-    pub fn find_track_in_collection(
-        &self,
-        collection_id: i64,
-        title: &str,
-        artist_name: &str,
-    ) -> SqlResult<Option<Track>> {
-        let conn = self.conn.lock().unwrap();
-        let sql = format!(
-            "{TRACK_SELECT} WHERE t.collection_id = ?1 \
-             AND strip_diacritics(unicode_lower(t.title)) = strip_diacritics(unicode_lower(?2)) \
-             AND ar.name IS NOT NULL AND strip_diacritics(unicode_lower(ar.name)) = strip_diacritics(unicode_lower(?3)) \
-             LIMIT 1"
-        );
-        conn.query_row(&sql, params![collection_id, title, artist_name], |row| {
-            track_from_row(row)
-        }).optional()
-    }
 }
 
 #[cfg(test)]

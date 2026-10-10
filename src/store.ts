@@ -2,16 +2,12 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import { invoke } from "@tauri-apps/api/core";
 
 const STORE_DEFAULTS = {
+  // Only keys something reads. Selected entities are never restored (startup
+  // lands on Home), the queue lives in main_playlist, and the per-entity
+  // sort / section keys predate the unified Library — so none of those are here.
   view: "all",
-  selectedArtist: null,
-  selectedAlbum: null,
-  selectedTag: null,
-  selectedTrack: null,
   currentTrackEntry: null,
   volume: 1.0,
-  queueEntries: [],
-  queueIndex: -1,
-  queueMode: "normal",
   positionSecs: 0,
   crossfadeSecs: 3,
   playbackEngine: "native",
@@ -34,15 +30,6 @@ const STORE_DEFAULTS = {
   trackColumns: null,
   trackSortField: null,
   trackSortDir: "asc",
-  artistSortField: null,
-  artistSortDir: "asc",
-  artistLikedFirst: false,
-  albumSortField: null,
-  albumSortDir: "asc",
-  albumLikedFirst: false,
-  tagSortField: null,
-  tagSortDir: "asc",
-  tagLikedFirst: false,
   mediaTypeFilter: "all",
   trackLikedFirst: false,
   confirmTrashDelete: true,
@@ -67,8 +54,6 @@ const STORE_DEFAULTS = {
   debugLogging: false,
   debugMode: false,
   devPluginPath: null,
-  artistSections: { topSongs: true, about: true, albums: true, similarArtists: true },
-  albumSections: { review: true, unmatchedTracks: true },
   trackDetailTabOrder: null,
   streamResolverOrder: null,
   minimizeToMiniPlayer: false,

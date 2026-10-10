@@ -51,11 +51,31 @@ pub fn install_plugin_from_zip(
     let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|e| format!("Invalid zip: {}", e))?;
 
-    let has_manifest = (0..archive.len()).any(|i| {
-        archive.by_index(i).map(|f| f.name() == "manifest.json").unwrap_or(false)
-    });
-    if !has_manifest {
-        return Err("Zip must contain manifest.json".to_string());
+    // The zip must be the plugin it is being installed as. A plugin's identity
+    // is its folder name — storage, permission grants, deep links and the
+    // first-party pre-approval all key on it — while its signature covers the
+    // manifest, so a signed zip unpacked under another id would list as verified
+    // under that id. Refusing the mismatch here keeps the two the same thing;
+    // `commands::scan_plugins_dir` refuses it again for anything put on disk by
+    // other means.
+    let manifest_id = {
+        let mut manifest = archive
+            .by_name("manifest.json")
+            .map_err(|_| "Zip must contain manifest.json".to_string())?;
+        let mut content = String::new();
+        manifest
+            .read_to_string(&mut content)
+            .map_err(|e| format!("Failed to read manifest.json: {}", e))?;
+        let value: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| format!("Invalid manifest.json: {}", e))?;
+        value["id"].as_str().unwrap_or("").to_string()
+    };
+    if manifest_id != plugin_id {
+        return Err(if manifest_id.is_empty() {
+            format!("This zip's manifest has no id, so it can't be installed as '{}'", plugin_id)
+        } else {
+            format!("This zip is the plugin '{}', not '{}'", manifest_id, plugin_id)
+        });
     }
 
     let plugins = plugins_dir(app_dir);
@@ -104,59 +124,69 @@ pub fn install_plugin_from_zip(
     Ok(())
 }
 
-/// Read an installed plugin's manifest `updateUrl`, if it declares one.
-pub fn installed_update_url(app_dir: &Path, plugin_id: &str) -> Option<String> {
-    let path = plugins_dir(app_dir).join(plugin_id).join("manifest.json");
-    let content = std::fs::read_to_string(path).ok()?;
+/// Host-owned file inside an installed plugin's folder, holding facts the host
+/// learned about the plugin (today: the gallery's `updateUrl`). It exists so the
+/// host never has to edit `manifest.json`: the manifest is covered by the
+/// plugin's signature (`plugin_signing.rs` hashes its raw bytes), so rewriting
+/// it — as `stamp_update_url` once did — turned a signed plugin `invalid`, which
+/// is refused always. Lives in the plugin folder so uninstall removes it, and an
+/// update that replaces the folder carries it across explicitly
+/// (`download_and_install_plugin_update`).
+pub const HOST_SIDECAR_FILE: &str = ".host.json";
+
+/// The `updateUrl` the update checker should use for the plugin installed in
+/// `dir`: the manifest's own (an author pointing updates elsewhere keeps their
+/// value), else the one the host recorded at install.
+pub fn effective_update_url(dir: &Path, manifest: &serde_json::Value) -> Option<String> {
+    let declared = manifest["updateUrl"].as_str().filter(|s| !s.is_empty());
+    if let Some(url) = declared {
+        return Some(url.to_string());
+    }
+    let content = std::fs::read_to_string(dir.join(HOST_SIDECAR_FILE)).ok()?;
     let value: serde_json::Value = serde_json::from_str(&content).ok()?;
-    value["updateUrl"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+    value["updateUrl"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string())
 }
 
-/// Stamp `updateUrl` into an installed plugin's manifest when it carries none.
+/// Read an installed plugin's effective `updateUrl` (see `effective_update_url`).
+pub fn installed_update_url(app_dir: &Path, plugin_id: &str) -> Option<String> {
+    let dir = plugins_dir(app_dir).join(plugin_id);
+    let content = std::fs::read_to_string(dir.join("manifest.json")).ok()?;
+    let manifest: serde_json::Value = serde_json::from_str(&content).ok()?;
+    effective_update_url(&dir, &manifest)
+}
+
+/// Record the gallery's `updateUrl` for an installed plugin whose manifest
+/// carries none.
 ///
-/// The update checker reads this field from the manifest **on disk** and skips
-/// any plugin without one before it compares versions, so a plugin whose author
-/// left it out of their zip can never learn about its own next release — the
-/// gallery installs it happily and that copy is then deaf forever. The gallery
-/// entry has always carried the URL, so the host knows it at install time and
-/// fills it in rather than relying on every plugin author having remembered.
+/// The update checker skips any plugin without an update URL before it compares
+/// versions, so a plugin whose author left the field out of their zip could
+/// never learn about its own next release — the gallery installs it happily and
+/// that copy is then deaf forever. The gallery entry has always carried the URL,
+/// so the host records it at install time instead of relying on every author
+/// having remembered.
 ///
-/// Only ever fills a **missing** field: an author who points updates somewhere
-/// other than the gallery's URL keeps their own value.
+/// Written to `HOST_SIDECAR_FILE`, **never into the manifest** (see there for
+/// why). A manifest that declares its own URL is left alone and no sidecar is
+/// written, so the author's value always wins.
 pub fn stamp_update_url(app_dir: &Path, plugin_id: &str, update_url: &str) -> Result<(), String> {
     sanitize_plugin_id(plugin_id)?;
     if update_url.is_empty() {
         return Ok(());
     }
 
-    let path = plugins_dir(app_dir).join(plugin_id).join("manifest.json");
-    let content = std::fs::read_to_string(&path)
+    let dir = plugins_dir(app_dir).join(plugin_id);
+    let content = std::fs::read_to_string(dir.join("manifest.json"))
         .map_err(|e| format!("Failed to read manifest for '{}': {}", plugin_id, e))?;
-    let mut value: serde_json::Value = serde_json::from_str(&content)
+    let manifest: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("Invalid manifest for '{}': {}", plugin_id, e))?;
-
-    let obj = value
-        .as_object_mut()
-        .ok_or_else(|| format!("Manifest for '{}' is not a JSON object", plugin_id))?;
-    let declared = obj
-        .get("updateUrl")
-        .and_then(|v| v.as_str())
-        .is_some_and(|s| !s.is_empty());
-    if declared {
+    if manifest["updateUrl"].as_str().is_some_and(|s| !s.is_empty()) {
         return Ok(());
     }
 
-    obj.insert(
-        "updateUrl".to_string(),
-        serde_json::Value::String(update_url.to_string()),
-    );
-    let out = serde_json::to_string_pretty(&value)
-        .map_err(|e| format!("Failed to serialize manifest for '{}': {}", plugin_id, e))?;
-    std::fs::write(&path, out + "\n")
-        .map_err(|e| format!("Failed to write manifest for '{}': {}", plugin_id, e))
+    let out = serde_json::to_string_pretty(&serde_json::json!({ "updateUrl": update_url }))
+        .map_err(|e| format!("Failed to serialize host data for '{}': {}", plugin_id, e))?;
+    std::fs::write(dir.join(HOST_SIDECAR_FILE), out + "\n")
+        .map_err(|e| format!("Failed to write host data for '{}': {}", plugin_id, e))
 }
 
 pub fn install_plugin_from_url(app_dir: &Path, url: &str) -> Result<String, String> {
@@ -412,6 +442,36 @@ mod tests {
         let result = install_plugin_from_zip(app_dir, "bad-plugin", &zip_bytes);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("manifest.json"));
+    }
+
+    fn zip_with_manifest(app_dir: &Path, manifest: &str) -> Vec<u8> {
+        let zip_path = app_dir.join("m.zip");
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("manifest.json", options).unwrap();
+        zip.write_all(manifest.as_bytes()).unwrap();
+        zip.start_file("index.js", options).unwrap();
+        zip.write_all(b"code").unwrap();
+        zip.finish().unwrap();
+        std::fs::read(&zip_path).unwrap()
+    }
+
+    #[test]
+    fn test_install_plugin_from_zip_refuses_another_plugins_zip() {
+        // A plugin is identified by its folder; its signature covers the manifest.
+        // Unpacking one plugin's (possibly signed) zip under another id would hand
+        // it that id's storage, grants and pre-approval.
+        let tmp = tempfile::tempdir().unwrap();
+        let app_dir = tmp.path();
+        let bytes = zip_with_manifest(app_dir, r#"{"id":"vinyl-deck","name":"Deck","version":"1.0.0"}"#);
+        let err = install_plugin_from_zip(app_dir, "lastfm", &bytes).unwrap_err();
+        assert!(err.contains("vinyl-deck") && err.contains("lastfm"), "{err}");
+        assert!(!plugins_dir(app_dir).join("lastfm").exists(), "nothing may be installed");
+
+        let bytes = zip_with_manifest(app_dir, r#"{"name":"No id","version":"1.0.0"}"#);
+        let err = install_plugin_from_zip(app_dir, "lastfm", &bytes).unwrap_err();
+        assert!(err.contains("no id"), "{err}");
     }
 
     #[test]

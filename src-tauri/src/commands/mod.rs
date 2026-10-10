@@ -762,10 +762,15 @@ fn scan_plugins_dir(
                         let (signature, signature_error) = if builtin {
                             (serde_json::Value::String("builtin".into()), serde_json::Value::Null)
                         } else {
-                            crate::plugin_signing::status_json(&crate::plugin_signing::verify_scanned(
+                            let status = crate::plugin_signing::verify_scanned(
                                 &path,
                                 content.as_bytes(),
                                 code.as_deref(),
+                            );
+                            crate::plugin_signing::status_json(&crate::plugin_signing::bind_to_folder(
+                                status,
+                                manifest["id"].as_str(),
+                                &dir_name,
                             ))
                         };
                         plugins.push(serde_json::json!({

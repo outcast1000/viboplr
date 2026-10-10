@@ -316,16 +316,6 @@ pub fn get_collection_stats(state: State<'_, AppState>) -> Result<Vec<Collection
 }
 
 #[tauri::command]
-pub fn find_track_in_collection(
-    state: State<'_, AppState>,
-    collection_id: i64,
-    title: String,
-    artist_name: String,
-) -> Result<Option<Track>, String> {
-    state.db.find_track_in_collection(collection_id, &title, &artist_name).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub fn update_collection(
     state: State<'_, AppState>,
     collection_id: i64,
