@@ -6,6 +6,8 @@ import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { DiagnosticContext } from "../utils/diagnosticReport";
 import type { PluginState } from "../types/plugin";
+import type { ScrobblerEntry, ScrobbleSettings } from "../utils/scrobblers";
+import { ScrobblingSettings } from "./ScrobblingSettings";
 import type { EngineComponentStatus } from "../playback/nativeEngine";
 import type { InstallProgress } from "../hooks/useDependencies";
 import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
@@ -631,6 +633,7 @@ const iconProps = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", s
 const navIcons = {
   general: <svg {...iconProps}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1.08z"/></svg>,
   playback: <svg {...iconProps}><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+  scrobbling: <svg {...iconProps}><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>,
   providers: <svg {...iconProps}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>,
   ai: <svg {...iconProps}><rect x="4" y="7" width="16" height="12" rx="2"/><line x1="12" y1="3" x2="12" y2="7"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/></svg>,
   search: <svg {...iconProps}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
@@ -1267,8 +1270,10 @@ interface SettingsPanelProps {
   onRgPreampDbChange: (db: number) => void;
   rgPreventClip: boolean;
   onRgPreventClipChange: (enabled: boolean) => void;
-  trackVideoHistory: boolean;
-  onTrackVideoHistoryChange: (enabled: boolean) => void;
+  scrobbleSettings: ScrobbleSettings;
+  /** Takes an updater, so two changes in one batch both land. */
+  onScrobbleSettingsChange: (update: (prev: ScrobbleSettings) => ScrobbleSettings) => void;
+  scrobblers: ScrobblerEntry[];
   videoStoryboards: boolean;
   onVideoStoryboardsChange: (enabled: boolean) => void;
   radioOptions: RadioOptions;
@@ -1388,8 +1393,9 @@ export function SettingsPanel({
   onRgPreampDbChange,
   rgPreventClip,
   onRgPreventClipChange,
-  trackVideoHistory,
-  onTrackVideoHistoryChange,
+  scrobbleSettings,
+  onScrobbleSettingsChange,
+  scrobblers,
   videoStoryboards,
   onVideoStoryboardsChange,
   radioOptions,
@@ -1537,6 +1543,7 @@ export function SettingsPanel({
   const navItems: { key: SettingsTab; label: string; icon: ReactNode }[] = [
     { key: "general", label: "General", icon: navIcons.general },
     { key: "playback", label: "Playback", icon: navIcons.playback },
+    { key: "scrobbling", label: "Scrobbling", icon: navIcons.scrobbling },
     { key: "providers", label: "Providers", icon: navIcons.providers },
     { key: "ai", label: "AI control", icon: navIcons.ai },
     { key: "debug", label: "Debug", icon: navIcons.debug },
@@ -1770,19 +1777,6 @@ export function SettingsPanel({
                           {likesBusy === "import" ? "Importing…" : "Import…"}
                         </button>
                       </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="settings-group">
-                  <div className="settings-group-title">History</div>
-                  <div className="settings-card">
-                    <div className="settings-row">
-                      <div className="settings-row-info">
-                        <span className="settings-label">Track video history<HelpLink anchor="video-history" topic="video history" /></span>
-                        <span className="settings-description">Record playback of video files</span>
-                      </div>
-                      <ToggleSwitch checked={trackVideoHistory} onChange={onTrackVideoHistoryChange} />
                     </div>
                   </div>
                 </div>
@@ -2125,6 +2119,10 @@ export function SettingsPanel({
                     )}
                   </div>
                 </div>
+            )}
+
+            {settingsTab === "scrobbling" && (
+                <ScrobblingSettings scrobblers={scrobblers} settings={scrobbleSettings} onChange={onScrobbleSettingsChange} />
             )}
 
             {settingsTab === "providers" && (

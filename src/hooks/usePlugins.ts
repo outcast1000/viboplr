@@ -418,6 +418,15 @@ export function usePlugins(
     "scan:complete": [],
     "like:changed": [],
   });
+  // Plugins currently subscribed to `track:scrobbled` — the plugin half of the
+  // Settings → Scrobbling list. Re-derived on every (un)subscribe to that event.
+  const [scrobblerPluginIds, setScrobblerPluginIds] = useState<string[]>([]);
+  const syncScrobblerPluginIds = useCallback(() => {
+    const ids = [...new Set(eventHandlersRef.current["track:scrobbled"].map((h) => h.pluginId))];
+    setScrobblerPluginIds((prev) =>
+      prev.length === ids.length && prev.every((id, i) => id === ids[i]) ? prev : ids,
+    );
+  }, []);
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const permissionGrantsRef = useRef<Record<string, string[]>>({});
   /** The states the last loadPlugins produced, for callers that act right after
@@ -587,10 +596,12 @@ export function usePlugins(
       ): (() => void) => {
         const entry = { pluginId, handler };
         eventHandlersRef.current[event].push(entry);
+        if (event === "track:scrobbled") syncScrobblerPluginIds();
         const unsub = () => {
           const arr = eventHandlersRef.current[event];
           const idx = arr.indexOf(entry);
           if (idx !== -1) arr.splice(idx, 1);
+          if (event === "track:scrobbled") syncScrobblerPluginIds();
         };
         trackUnsubscribe(unsub);
         return unsub;
@@ -1972,7 +1983,7 @@ export function usePlugins(
         },
       };
     },
-    [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke],
+    [currentTrackRef, playingRef, positionRef, queueRef, tapInvoke, syncScrobblerPluginIds],
   );
 
   // Line-by-line output from a streaming `plugin_exec`, routed to the plugin
@@ -2788,18 +2799,38 @@ export function usePlugins(
 
   // -- Public methods --
 
-  const dispatchEvent = useCallback(
-    (event: PluginEventName, ...args: unknown[]) => {
-      const handlers = eventHandlersRef.current[event];
-      for (const { pluginId, handler } of handlers) {
+  /** Deliver `event` to the plugins `accept` lets through — how the
+   *  Settings → Scrobbling media choices reach `track:scrobbled`. Returns how
+   *  many plugins were offered it and how many took it without throwing (a
+   *  plugin with several handlers counts once, and only if none threw). A
+   *  worker plugin's handler is a stub, so a failure inside the worker is not
+   *  seen here. */
+  const dispatchEventTo = useCallback(
+    (event: PluginEventName, accept: (pluginId: string) => boolean, ...args: unknown[]): { offered: number; delivered: number } => {
+      const offered = new Set<string>();
+      const failed = new Set<string>();
+      // Copy: a handler may unsubscribe itself while we iterate, and splicing
+      // the live array would skip the handler after it.
+      for (const { pluginId, handler } of [...eventHandlersRef.current[event]]) {
+        if (!accept(pluginId)) continue;
+        offered.add(pluginId);
         try {
           handler(...args);
         } catch (e) {
+          failed.add(pluginId);
           console.error(`[plugin:${pluginId}] event ${event} error:`, e);
         }
       }
+      return { offered: offered.size, delivered: offered.size - failed.size };
     },
     [],
+  );
+
+  const dispatchEvent = useCallback(
+    (event: PluginEventName, ...args: unknown[]) => {
+      dispatchEventTo(event, () => true, ...args);
+    },
+    [dispatchEventTo],
   );
 
   const dispatchContextMenuAction = useCallback(
@@ -3688,6 +3719,8 @@ export function usePlugins(
     getViewScrollKey,
     badgeMap,
     dispatchEvent,
+    dispatchEventTo,
+    scrobblerPluginIds,
     dispatchContextMenuAction,
     dispatchUIAction,
     invokeHomeShelfItemClick,

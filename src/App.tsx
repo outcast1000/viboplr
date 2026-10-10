@@ -85,6 +85,7 @@ import {
 } from "./hooks/useMiniMode";
 import { useStableCallbacks } from "./hooks/useStableCallbacks";
 import { usePersistedSetting, usePersistMirror } from "./hooks/usePersistedSetting";
+import { buildScrobblerList, coerceScrobbleSettings, DEFAULT_SCROBBLE_SETTINGS, LOCAL_HISTORY_SCROBBLER, scrobblerAccepts, videoOnForAll, withVideoForAll, type ScrobbleOutcome, type ScrobbleSettings } from "./utils/scrobblers";
 import { coerceRadioOptions, DEFAULT_RADIO_OPTIONS, type RadioOptions } from "./utils/radioOptions";
 import { DEFAULT_PLAYER_BAR_PINS, normalizePlayerBarPins, type PlayerBarPins } from "./utils/playerBarPins";
 import { useUiZoom } from "./hooks/useUiZoom";
@@ -209,7 +210,7 @@ import { recordAppError } from "./utils/errorLog";
 import { classifyErrorKind, errorText } from "./utils/errorKind";
 
 
-import { useAssignRef } from "./hooks/useLatestRef";
+import { useAssignRef, useLatestRef } from "./hooks/useLatestRef";
 import { useBitPerfect } from "./hooks/useBitPerfect";
 
 /** One identity for "no markers", so the bars' memo doesn't see a new array. */
@@ -377,8 +378,13 @@ function App() {
   // Track a format-failed file to replay once the mpv engine is enabled from
   // the Playback Failed modal (the retry effect below fires when it's ready).
   const pendingMpvRetryRef = useRef<QueueTrack | null>(null);
-  const trackVideoHistoryRef = useRef(true);
-  const [trackVideoHistory, setTrackVideoHistory] = usePersistedSetting("trackVideoHistory", true, restoredRef);
+  // Settings → Scrobbling: which scrobblers (local history + plugins) record
+  // audio and/or video plays (utils/scrobblers.ts).
+  const [scrobbleSettings, setScrobbleSettings] = usePersistedSetting<ScrobbleSettings>("scrobbleSettings", DEFAULT_SCROBBLE_SETTINGS, restoredRef);
+  const scrobbleSettingsRef = useLatestRef(scrobbleSettings);
+  // Filled in below `plugins` (handleScrobble); usePlayback calls it when the
+  // scrobble threshold is crossed, until some scrobbler is offered the play.
+  const onScrobbleRef = useRef<(track: QueueTrack) => ScrobbleOutcome>(() => ({ offered: false, accepted: false }));
   // "Prefer video" is an advisory hint passed to every stream resolver in normal
   // order: a resolver that understands it (e.g. yt-dlp) returns a video stream
   // and flags the result `video`, which the host then routes to the theater;
@@ -440,7 +446,6 @@ function App() {
   const [devPluginPath, setDevPluginPath] = usePersistedSetting<string | null>("devPluginPath", null, restoredRef);
   const [lastDownloadDest, setLastDownloadDest] = useState<string | null>(null);
   const [mainPlaylistDir, setMainPlaylistDir] = useState<string | null>(null);
-  useAssignRef(trackVideoHistoryRef, trackVideoHistory);
   useAssignRef(preferVideoRef, preferVideoResolution);
   const advanceIndexRef = useRef<() => void>(() => {});
   const resolveStreamByUriRef = useRef<(scheme: string, id: string, quality?: string | null, opts?: { externalAudio?: boolean }) => Promise<{ url: string; candidates?: import("./types/plugin").StreamCandidate[]; sourceUrl?: string }>>(
@@ -469,7 +474,7 @@ function App() {
   // metadata-only track's Download affordance re-renders when it changes.
   const [resolverSources, setResolverSources] = useState<string[]>([]);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
-  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, trackVideoHistoryRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
+  const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
   const waveformPeaks = useWaveform(
     playback.currentTrack?.path ?? null,
     playback.currentTrack?.title ?? null,
@@ -512,21 +517,6 @@ function App() {
     return () => { cancelled = true; };
   }, [playback.currentTrack]);
 
-  useEffect(() => {
-    if (!playback.scrobbled) return;
-    const track = playback.currentTrack;
-    if (!track) return;
-    let cancelled = false;
-    Promise.all([
-      invoke<number | null>("get_track_rank", { title: track.title, artistName: track.artist_name }),
-      track.artist_name
-        ? invoke<number | null>("get_artist_rank", { artistName: track.artist_name })
-        : Promise.resolve(null),
-    ]).then(([tRank, aRank]) => {
-      if (!cancelled) { setTrackRank(tRank); setArtistRank(aRank); }
-    }).catch(console.error);
-    return () => { cancelled = true; };
-  }, [playback.scrobbled]);
 
   // Which plugin visualizer fills each host-owned slot, keyed by placement.
   // A stale entry (plugin disabled/uninstalled) is deliberately kept rather
@@ -945,6 +935,10 @@ function App() {
   }, [queueHook.queue, queueHook.queueIndex, plugins.dispatchEvent]);
 
   const dependencies = useDependencies(plugins.pluginStates);
+  const scrobblerList = useMemo(
+    () => buildScrobblerList(plugins.scrobblerPluginIds, plugins.pluginStates),
+    [plugins.scrobblerPluginIds, plugins.pluginStates],
+  );
 
   // "Report a problem" — null when closed. The entry point supplies the issue
   // title plus an optional context block describing what the user was doing,
@@ -1384,13 +1378,44 @@ function App() {
 
   const mediaSessionNextRef = useRef<() => void>(() => {});
 
-  // Plugin event: track played (scrobble threshold) and scrobbled
-  useEffect(() => {
-    if (!playback.scrobbled) return;
-    const track = playback.currentTrack;
-    if (!track) return;
-    plugins.dispatchEvent("track:scrobbled", track);
-  }, [playback.scrobbled, playback.currentTrack, plugins.dispatchEvent]);
+  // A play crossed the scrobble threshold. Settings → Scrobbling decides who
+  // hears about it, per media type: the local history (`record_play`) and each
+  // plugin subscribed to `track:scrobbled`. `offered` settles the play for
+  // usePlayback (offered to nobody, it asks again next tick); `accepted` is the
+  // bar's checkmark, which must not claim a play nobody took. A plugin that
+  // took it may still drop it (signed out) — the host can't see that.
+  function handleScrobble(track: QueueTrack): ScrobbleOutcome {
+    const settings = scrobbleSettingsRef.current;
+    const isVideo = isVideoTrack(track);
+    const local = scrobblerAccepts(settings, LOCAL_HISTORY_SCROBBLER, isVideo);
+    if (local) {
+      // Ranks change only when the history does, so refresh them once the
+      // play is written — not before, or the read can beat the insert.
+      invoke("record_play", { title: track.title, artistName: track.artist_name })
+        .then(() => refreshRanksFor(track))
+        .catch((e) => console.error("Failed to record play:", e));
+    }
+    const plugin = plugins.dispatchEventTo(
+      "track:scrobbled",
+      (pluginId) => scrobblerAccepts(settings, pluginId, isVideo),
+      track,
+    );
+    return { offered: local || plugin.offered > 0, accepted: local || plugin.delivered > 0 };
+  }
+  function refreshRanksFor(track: QueueTrack) {
+    Promise.all([
+      invoke<number | null>("get_track_rank", { title: track.title, artistName: track.artist_name }),
+      track.artist_name
+        ? invoke<number | null>("get_artist_rank", { artistName: track.artist_name })
+        : Promise.resolve(null),
+    ]).then(([tRank, aRank]) => {
+      // The user may have moved on while the play was being written.
+      if (currentTrackRef.current?.key !== track.key) return;
+      setTrackRank(tRank);
+      setArtistRank(aRank);
+    }).catch((e) => console.error("Failed to refresh ranks:", e));
+  }
+  useAssignRef(onScrobbleRef, handleScrobble);
 
   // Reset scroll position when view or selections change
   const currentSearchQuery = viewSearch.getQuery(library.view);
@@ -3112,7 +3137,7 @@ function App() {
         // Startup always lands on Home; `view` and selected-entity state are
         // intentionally not restored (see readPersistedSettings).
         const {
-          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, preferVideoResolution: savedPreferVideoResolution, videoSubtitles: savedVideoSubtitles, miniMode: wasMini,
+          vol, muted: savedMuted, crossfadeSecs: cf, playbackEngine: savedPlaybackEngine, audioExclusive: savedAudioExclusive, betaUpdates: savedBetaUpdates, telemetryEnabled: savedTelemetryEnabled, trackVideoHistory: savedTrackVideoHistory, scrobbleSettings: savedScrobbleSettings, preferVideoResolution: savedPreferVideoResolution, videoSubtitles: savedVideoSubtitles, miniMode: wasMini,
           fullWindowWidth: fww, fullWindowHeight: fwh, fullWindowX: fwx, fullWindowY: fwy,
           trackSortField: tSortField, trackSortDir: tSortDir, trackColumns: tCols, trackViewMode: savedTrackViewMode,
           videoLayout: savedVideoLayout,
@@ -3205,7 +3230,17 @@ function App() {
             }
           })();
         }
-        if (savedTrackVideoHistory !== undefined && savedTrackVideoHistory !== null) setTrackVideoHistory(savedTrackVideoHistory);
+        {
+          const restoredScrobble = coerceScrobbleSettings(savedScrobbleSettings, savedTrackVideoHistory);
+          setScrobbleSettings(restoredScrobble);
+          // Restore doesn't persist (restoredRef is still false), so write a
+          // migrated legacy `trackVideoHistory` value once — after this the
+          // old key is never consulted again for this profile.
+          if (savedScrobbleSettings == null && typeof savedTrackVideoHistory === "boolean") {
+            store.set("scrobbleSettings", restoredScrobble)
+              .catch((e) => console.error("Failed to persist migrated scrobbleSettings:", e));
+          }
+        }
         if (savedPreferVideoResolution !== undefined && savedPreferVideoResolution !== null) setPreferVideoResolution(savedPreferVideoResolution);
         if (savedVideoSubtitles === false) setVideoSubtitlesOn(false);
         if (savedMinimizeToMiniPlayer) setMinimizeToMiniPlayer(true);
@@ -4526,8 +4561,9 @@ function App() {
     });
   }
 
+  // Onboarding's single "Track video history" switch: video for every scrobbler.
   function handleTrackVideoHistoryChange(enabled: boolean) {
-    setTrackVideoHistory(enabled); // persistence: usePersistedSetting
+    setScrobbleSettings((prev) => withVideoForAll(prev, enabled)); // persistence: usePersistedSetting
   }
 
   function handlePreferVideoResolutionChange(enabled: boolean) {
@@ -6217,8 +6253,9 @@ function App() {
               onRgPreampDbChange={playback.setRgPreampDb}
               rgPreventClip={playback.rgPreventClip}
               onRgPreventClipChange={playback.setRgPreventClip}
-              trackVideoHistory={trackVideoHistory}
-              onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
+              scrobbleSettings={scrobbleSettings}
+              onScrobbleSettingsChange={setScrobbleSettings}
+              scrobblers={scrobblerList}
               videoStoryboards={videoStoryboards}
               onVideoStoryboardsChange={handleVideoStoryboardsChange}
               radioOptions={radioOptions}
@@ -6615,7 +6652,7 @@ function App() {
             onCrossfadeChange={handleCrossfadeChange}
             autoContinueEnabled={autoContinue.enabled}
             onAutoContinueEnabledChange={autoContinue.setEnabled}
-            trackVideoHistory={trackVideoHistory}
+            trackVideoHistory={videoOnForAll(scrobbleSettings, scrobblerList.map((s) => s.id))}
             onTrackVideoHistoryChange={handleTrackVideoHistoryChange}
             resyncProgress={resyncProgress}
             resyncComplete={resyncComplete}

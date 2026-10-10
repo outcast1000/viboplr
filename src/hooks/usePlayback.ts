@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
+import type { ScrobbleOutcome } from "../utils/scrobblers";
 import { isVideoTrack, shouldScrobble } from "../utils";
 import { parseUrlScheme, isLocalTrack } from "../queueEntry";
 import { needsTranscode } from "./useStreamResolution";
@@ -167,7 +168,13 @@ export function usePlayback(
   peekNextRef: React.RefObject<() => QueueTrack | null>,
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
-  trackVideoHistoryRef: React.RefObject<boolean>,
+  /** Called when the scrobble threshold is crossed; App hands the play to
+   *  every scrobbler that accepts it (Settings → Scrobbling). `offered`: some
+   *  scrobbler was on for this media type, so the play is settled and never
+   *  offered again. `accepted`: one of them took it — what `scrobbled`
+   *  reports. Offered to nobody, it is asked again on later ticks, so a switch
+   *  turned on mid-play still records it. */
+  onScrobbleRef: React.RefObject<(track: QueueTrack) => ScrobbleOutcome>,
   resolveTrackSrcRef: React.RefObject<(track: QueueTrack, opts?: { preload?: boolean }) => Promise<ResolvedTrackSource>>,
   prefetchNextRef: React.RefObject<() => void>,
   transcodeSessionRef: React.RefObject<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>,
@@ -381,8 +388,32 @@ export function usePlayback(
   // While set, handlePause routes the first play through handlePlay so stream
   // resolution + the transcode fallback run, instead of a bare el.play().
   const previewLoadedKeyRef = useRef<string | null>(null);
+  // `scrobbledRef`: this play was offered to a scrobbler (so it is handed
+  // over at most once). `scrobbled`: some scrobbler took it — the bar's
+  // checkmark. They differ when every scrobbler is off for this media type.
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
+  const scrobbleAcceptedRef = useRef(false);
+  // Runs inside the position handlers, so it must never throw into them —
+  // that would skip the tick's preload / crossfade decisions.
+  function crossScrobbleThreshold(track: QueueTrack) {
+    let outcome: ScrobbleOutcome;
+    try {
+      outcome = onScrobbleRef.current(track);
+    } catch (e) {
+      console.error("Failed to hand the play to the scrobblers:", e);
+      outcome = { offered: true, accepted: false };
+    }
+    if (!outcome.offered) return;
+    scrobbledRef.current = true;
+    scrobbleAcceptedRef.current = outcome.accepted;
+    setScrobbled(outcome.accepted);
+  }
+  function resetScrobble(state: { crossed: boolean; accepted: boolean } = { crossed: false, accepted: false }) {
+    scrobbledRef.current = state.crossed;
+    scrobbleAcceptedRef.current = state.accepted;
+    setScrobbled(state.accepted);
+  }
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [failedTrack, setFailedTrack] = useState<QueueTrack | null>(null);
   const [currentAssetUrl, setCurrentAssetUrl] = useState<string | null>(null);
@@ -393,7 +424,7 @@ export function usePlayback(
   const playStartedAtRef = useRef(0);
   // Set by swapCurrentFile: the scrobble state of a session that is resuming
   // on a replaced file, restored by playWithSrc for that key instead of reset.
-  const resumeScrobbleRef = useRef<{ key: string; scrobbled: boolean; startedAt: number } | null>(null);
+  const resumeScrobbleRef = useRef<{ key: string; crossed: boolean; accepted: boolean; startedAt: number } | null>(null);
   const playingRef = useRef(playing);
   useAssignRef(playingRef, playing);
 
@@ -1202,19 +1233,14 @@ export function usePlayback(
         // (background, then desktop) until mpv's real first present. The
         // accurate signal is `engine-playback-restart` (see its subscription).
 
-        // Scrobble threshold — mirrors onTimeUpdate (native sessions are
-        // always audio, but keep the video-history gate for symmetry).
+        // Scrobble threshold — mirrors onTimeUpdate.
         const track = currentTrackRef.current;
         // Real playback progress — a track is actually playing, so the streak
         // of consecutive auto-skipped failures (surfacePlaybackFailure's
         // circuit breaker) starts over.
         if (autoSkipStreakRef.current !== 0 && payload.positionSecs > 1) autoSkipStreakRef.current = 0;
-        if (!scrobbledRef.current && track && (trackVideoHistoryRef.current || !isVideoTrack(track))) {
-          if (shouldScrobble(payload.positionSecs, track.duration_secs)) {
-            scrobbledRef.current = true;
-            setScrobbled(true);
-            invoke("record_play", { title: track.title, artistName: track.artist_name }).catch(console.error);
-          }
+        if (!scrobbledRef.current && track && shouldScrobble(payload.positionSecs, track.duration_secs)) {
+          crossScrobbleThreshold(track);
         }
 
         const duration = payload.durationSecs ?? track?.duration_secs ?? 0;
@@ -1271,8 +1297,7 @@ export function usePlayback(
         setCurrentAssetUrl(promoted.src);
         setPlaybackPosition(0);
         setDurationSecs(promoted.track.duration_secs ?? 0);
-        scrobbledRef.current = false;
-        setScrobbled(false);
+        resetScrobble();
         playStartedAtRef.current = Math.floor(Date.now() / 1000);
         advanceIndexRef.current();
       }),
@@ -1471,8 +1496,7 @@ export function usePlayback(
     setCurrentAssetUrl(incoming.src);
     setPlaybackPosition(0);
     setDurationSecs(nextTrack.duration_secs ?? 0);
-    scrobbledRef.current = false;
-    setScrobbled(false);
+    resetScrobble();
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
 
     // Start incoming element
@@ -1569,8 +1593,7 @@ export function usePlayback(
     setDurationSecs(nextTrack.duration_secs ?? 0);
     // New element, new buffer — the outgoing track's readouts don't describe it.
     clearStreamReadouts();
-    scrobbledRef.current = false;
-    setScrobbled(false);
+    resetScrobble();
     playStartedAtRef.current = Math.floor(Date.now() / 1000);
 
     // Clear preload state
@@ -1834,8 +1857,7 @@ export function usePlayback(
     // scrobble state; any other play starts fresh. Consumed either way.
     const resumed = resumeScrobbleRef.current?.key === track.key ? resumeScrobbleRef.current : null;
     resumeScrobbleRef.current = null;
-    scrobbledRef.current = resumed?.scrobbled ?? false;
-    setScrobbled(resumed?.scrobbled ?? false);
+    resetScrobble(resumed ?? undefined);
     playStartedAtRef.current = resumed?.startedAt ?? Math.floor(Date.now() / 1000);
 
     // Always reset to slot A on explicit play
@@ -2042,7 +2064,7 @@ export function usePlayback(
     if (!track) return apply();
     const position = getPlaybackPosition();
     const wasPlaying = playingRef.current;
-    resumeScrobbleRef.current = { key: track.key, scrobbled: scrobbledRef.current, startedAt: playStartedAtRef.current };
+    resumeScrobbleRef.current = { key: track.key, crossed: scrobbledRef.current, accepted: scrobbleAcceptedRef.current, startedAt: playStartedAtRef.current };
     cancelCrossfade();
     invalidatePreload();
     if (nativeSessionRef.current) {
@@ -2306,13 +2328,10 @@ export function usePlayback(
     // Real playback progress — resets the auto-skip failure streak, mirroring
     // the engine-position handler (surfacePlaybackFailure's circuit breaker).
     if (autoSkipStreakRef.current !== 0 && absolutePosition > 1) autoSkipStreakRef.current = 0;
-    // Scrobble threshold check (Last.FM rules) — optionally skip video tracks
-    if (!scrobbledRef.current && currentTrack && (trackVideoHistoryRef.current || !isVideoTrack(currentTrack))) {
-      if (shouldScrobble(absolutePosition, currentTrack.duration_secs)) {
-        scrobbledRef.current = true;
-        setScrobbled(true);
-        invoke("record_play", { title: currentTrack.title, artistName: currentTrack.artist_name }).catch(console.error);
-      }
+    // Scrobble threshold check (Last.FM rules). Who records the play, per
+    // media type, is Settings → Scrobbling — decided by App's onScrobble.
+    if (!scrobbledRef.current && currentTrack && shouldScrobble(absolutePosition, currentTrack.duration_secs)) {
+      crossScrobbleThreshold(currentTrack);
     }
 
     const transcodeDuration = transcodeSession?.durationSecs ?? null;

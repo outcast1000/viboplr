@@ -204,7 +204,7 @@ export function FullscreenControls({
         <span className="fs-seek-time fs-seek-elapsed">{formatDuration(positionSecs)}</span>
         <span className="fs-seek-time fs-seek-total">
           {formatDuration(durationSecs)}
-          {scrobbled && <span className="fs-scrobbled" title="Logged to play history">{"\u2713"}</span>}
+          {scrobbled && <span className="fs-scrobbled" title="Scrobbled">{"\u2713"}</span>}
         </span>
       </div>
       <SeekHoverBubble

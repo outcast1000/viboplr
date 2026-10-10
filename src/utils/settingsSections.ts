@@ -1,4 +1,4 @@
-export type SettingsTab = "general" | "playback" | "providers" | "ai" | "debug";
+export type SettingsTab = "general" | "playback" | "scrobbling" | "providers" | "ai" | "debug";
 
 /** Which tab owns a deep-linkable Settings section id. Sections not listed
  *  live in the default (General) tab. Keep in step with the `id="…"`
@@ -17,6 +17,7 @@ export const SECTION_TABS: Record<string, SettingsTab> = {
   // The update notice banner's "Details" lands here.
   "app-update": "general",
   "control-api": "ai",
+  "scrobbling": "scrobbling",
 };
 
 export const SETTINGS_SECTION_IDS = Object.keys(SECTION_TABS);

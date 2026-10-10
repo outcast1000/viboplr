@@ -21,7 +21,11 @@ export interface PersistedSettings {
   /** Per-kind signatures of update notices the user has waved away. */
   updateNoticeDismissed: UpdateNoticeDismissals | undefined;
   telemetryEnabled: boolean | undefined;
+  /** Legacy single video switch for every scrobbler — read only to migrate
+   *  into `scrobbleSettings` (utils/scrobblers.ts). */
   trackVideoHistory: boolean | undefined;
+  /** Coerced by App (`coerceScrobbleSettings`). */
+  scrobbleSettings: unknown;
   preferVideoResolution: boolean | undefined;
   videoSubtitles: boolean | undefined;
   miniMode: boolean | undefined;
@@ -116,6 +120,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     updateNoticeDismissed: read<UpdateNoticeDismissals>("updateNoticeDismissed"),
     telemetryEnabled: read<boolean>("telemetryEnabled"),
     trackVideoHistory: read<boolean>("trackVideoHistory"),
+    scrobbleSettings: read<unknown>("scrobbleSettings"),
     preferVideoResolution: read<boolean>("preferVideoResolution"),
     // Kept under the legacy `videoLyricsOverlay` key for back-compat with saved
     // prefs (the overlay was formerly a theater-only "lyrics" toggle).

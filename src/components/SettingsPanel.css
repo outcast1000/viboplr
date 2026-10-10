@@ -682,3 +682,18 @@
   border-radius: var(--ds-radius);
   padding: 1px 6px;
 }
+
+/* Settings → Scrobbling: the Audio / Video switch pair on each scrobbler row. */
+.scrobbler-media {
+  display: flex;
+  gap: 16px;
+  flex-shrink: 0;
+}
+.scrobbler-media-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+}

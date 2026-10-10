@@ -549,7 +549,7 @@ export const NowPlayingBar = memo(function NowPlayingBar({
           </div>
           <span className="now-seek-time now-seek-total">
             {formatDuration(durationSecs)}
-            {scrobbled && <span className="now-scrobbled" title="Logged to play history">{"\u2713"}</span>}
+            {scrobbled && <span className="now-scrobbled" title="Scrobbled">{"\u2713"}</span>}
           </span>
         </div>
         <SeekHoverBubble
