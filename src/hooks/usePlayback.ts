@@ -976,9 +976,6 @@ export function usePlayback(
     el.src = resolved.src;
     el.preload = "auto";
     el.volume = effectiveVolume();
-    // Show the frame at the restored position; pendingSeekRef stays armed for
-    // the real play.
-    if (pendingSeekRef.current > 0) el.currentTime = pendingSeekRef.current;
     previewLoadedKeyRef.current = track.key;
   }
 
@@ -1765,16 +1762,6 @@ export function usePlayback(
 
   function setPendingSeek(secs: number) {
     pendingSeekRef.current = secs;
-  }
-
-  /** Launch restore: cue the restored (loaded-but-never-played) track at `secs`.
-   *  The first play seeks there through `pendingSeekRef`, and the position store
-   *  shows it on the seek bar meanwhile — which also keeps the next position
-   *  flush (a pause press, the track-change effect) from writing 0 over it. */
-  function cueRestoredPosition(secs: number) {
-    const at = Number.isFinite(secs) && secs > 0 ? secs : 0;
-    pendingSeekRef.current = at;
-    setPlaybackPosition(at);
   }
 
   async function handlePlayUrl(track: QueueTrack, url: string) {
@@ -2567,7 +2554,7 @@ export function usePlayback(
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,
-    handlePlay, setPendingSeek, cueRestoredPosition, handlePlayUrl, handlePause, handleStop, loadPaused, swapCurrentFile,
+    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop, loadPaused, swapCurrentFile,
     loadRestoredVideoPreview,
     handleVolume, volumeOverrideRef, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,

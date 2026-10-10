@@ -10,7 +10,6 @@ import type { ViewMode, ColumnConfig } from "../types";
 import type { VideoLayoutState } from "../hooks/useVideoLayout";
 import type { VisualizerSlotSelection } from "../utils/visualizerSlots";
 import type { UpdateNoticeDismissals } from "../utils/updateNotice";
-import type { QueueEntry } from "../queueEntry";
 
 export interface PersistedSettings {
   vol: number | undefined;
@@ -90,10 +89,6 @@ export interface PersistedSettings {
   devPluginPath: string | null | undefined;
   autoUpdateManagedDeps: boolean | undefined;
   controlApiEnabled: boolean | undefined;
-  /** Where the last track was when the app quit, and which track that was —
-   *  see `restoredPlaybackPosition` (queueEntry.ts). */
-  positionSecs: number | undefined;
-  currentTrackEntry: QueueEntry | null | undefined;
 }
 
 /**
@@ -186,7 +181,5 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     devPluginPath: read<string | null>("devPluginPath"),
     autoUpdateManagedDeps: read<boolean>("autoUpdateManagedDeps"),
     controlApiEnabled: read<boolean>("controlApiEnabled"),
-    positionSecs: read<number>("positionSecs"),
-    currentTrackEntry: read<QueueEntry | null>("currentTrackEntry"),
   };
 }

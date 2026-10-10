@@ -19,7 +19,7 @@ import { parseLrc, syncedLyricsFitMedia, lyricOffsetKey, clampLyricOffset } from
 
 import { store } from "./store";
 import { readPersistedSettings } from "./startup/readPersistedSettings";
-import { parseUrlScheme, trackToQueueEntry, restoredPlaybackPosition, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
+import { parseUrlScheme, trackToQueueEntry, trackToQueueTrack, nextQueueKey, isLocalTrack, effectiveLocalPath, pluginTrackToQueueTrack, trackRowToQueueTrack, trackSelection, queueTrackSelection, isPlayingSelection } from "./queueEntry";
 import { partitionTrackIds, buildDeleteConfirmPayload } from "./utils/deleteTracks";
 import { fetchLikeStates, applyLikeState, applyLikeStates, trackLikeId } from "./utils/likeReconcile";
 import { resolveLibraryIds } from "./utils/resolveLibraryIds";
@@ -301,8 +301,6 @@ function App() {
   const [onboardingProfile, setOnboardingProfile] = useState<OnboardingProfile>("normal");
   const [pluginLoadingMessage, setPluginLoadingMessage] = useState<string | null>(null);
   const pendingRestoreTrackRef = useRef<QueueTrack | null>(null);
-  // Where to cue that track (0 = from the top) — see restoredPlaybackPosition.
-  const pendingRestorePositionRef = useRef(0);
   const pendingRestoreQueueRef = useRef<{ tracks: QueueTrack[]; index: number } | null>(null);
   // Cached-thumb pairs (`[uri, filename]`) from main_playlist_read, seeded into
   // thumbInfo when the deferred queue is applied so rows paint art immediately.
@@ -3170,8 +3168,6 @@ function App() {
           loggingEnabled: savedLoggingEnabled, debugLogging: savedDebugLogging, debugMode: savedDebugMode,
           devPluginPath: savedDevPluginPath, autoUpdateManagedDeps: savedAutoUpdateDeps,
           controlApiEnabled: savedControlApiEnabled,
-          positionSecs: savedPositionSecs,
-          currentTrackEntry: savedCurrentTrackEntry,
         } = await timeAsync("store.restore", () => readPersistedSettings(store));
         zoom.hydrate(savedUiZoom, savedMiniZoom);
         if (vol !== undefined && vol !== null) playback.setVolume(vol);
@@ -3356,7 +3352,6 @@ function App() {
               pendingRestoreThumbsRef.current = thumbs ?? [];
               if (idx >= 0) {
                 pendingRestoreTrackRef.current = tracks[idx];
-                pendingRestorePositionRef.current = restoredPlaybackPosition(tracks[idx], savedCurrentTrackEntry, savedPositionSecs);
               }
             }
             if (ctx) queueHook.setPlaylistContext(ctx);
@@ -3465,10 +3460,6 @@ function App() {
     if (track) {
       playback.setCurrentTrack(track);
       playback.setDurationSecs(track.duration_secs ?? 0);
-      // Cue it where it was: the first play seeks there (pendingSeek) and the
-      // seek bar shows it until then.
-      playback.cueRestoredPosition(pendingRestorePositionRef.current);
-      pendingRestorePositionRef.current = 0;
       // Restore lands paused (no autoplay). For a video track that means an
       // empty <video> until the user presses play — load the first frame so the
       // theater/preview surface isn't black. No-op for audio / non-local video.

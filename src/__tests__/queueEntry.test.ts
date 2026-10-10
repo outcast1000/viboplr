@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  restoredPlaybackPosition,
   trackToQueueEntry,
   trackToQueueTrack,
   pluginTrackToQueueTrack,
@@ -417,36 +416,5 @@ describe("pluginTrackToQueueTrack", () => {
   it("declares nothing when the plugin declared nothing — the resolve decides", () => {
     expect(pluginTrackToQueueTrack({ path: "qbt://aaa/3", title: "Song" }).format).toBeNull();
     expect(pluginTrackToQueueTrack({ path: "qbt://aaa/3", title: "Song", kind: "audio" }).format).toBeNull();
-  });
-});
-
-describe("restoredPlaybackPosition", () => {
-  const track = { path: "file:///m/a.flac", title: "A", artist_name: "X", duration_secs: 300 };
-  const entry = { url: "file:///m/a.flac", title: "A", artist_name: "X" };
-
-  it("cues the saved position when the entry names the restored track", () => {
-    expect(restoredPlaybackPosition(track, entry, 123.4)).toBe(123.4);
-  });
-
-  it("ignores a position saved for a different track", () => {
-    expect(restoredPlaybackPosition(track, { ...entry, url: "file:///m/b.flac" }, 123.4)).toBe(0);
-    expect(restoredPlaybackPosition(track, null, 123.4)).toBe(0);
-  });
-
-  it("matches a path-less entry by title + artist", () => {
-    const pathless = { ...track, path: null };
-    expect(restoredPlaybackPosition(pathless, { url: "", title: "A", artist_name: "X" }, 60)).toBe(60);
-    expect(restoredPlaybackPosition(pathless, { url: "", title: "A", artist_name: "Y" }, 60)).toBe(0);
-  });
-
-  it("starts from the top near either end or on a junk value", () => {
-    expect(restoredPlaybackPosition(track, entry, 2)).toBe(0);
-    expect(restoredPlaybackPosition(track, entry, 298)).toBe(0);
-    expect(restoredPlaybackPosition(track, entry, Number.NaN)).toBe(0);
-    expect(restoredPlaybackPosition(track, entry, undefined)).toBe(0);
-  });
-
-  it("trusts the position when the duration is unknown", () => {
-    expect(restoredPlaybackPosition({ ...track, duration_secs: null }, entry, 900)).toBe(900);
   });
 });
