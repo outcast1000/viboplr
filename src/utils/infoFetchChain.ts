@@ -19,8 +19,10 @@ export function isSyncedLyricsValue(raw: string | null | undefined): boolean {
   if (!raw) return false;
   try {
     return (JSON.parse(raw) as { kind?: unknown } | null)?.kind === "synced";
-  } catch {
-    return false; // a value that isn't JSON can't be synced lyrics; it keeps the ordinary TTL
+  } catch (e) {
+    // A value that isn't JSON can't be synced lyrics; it keeps the ordinary TTL.
+    console.error("Cached lyrics value is not valid JSON; treating it as unsynced:", e);
+    return false;
   }
 }
 
