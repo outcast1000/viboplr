@@ -662,10 +662,19 @@ async fn activity_middleware(
         return error_response(StatusCode::LOCKED, assistant_activity::PAUSED_MESSAGE);
     }
 
+    let started = Instant::now();
+    // Held across every await below: if the request future is dropped (the
+    // caller hung up mid-call, the server shut down), its `Drop` settles the
+    // announced `start` so the pill never shows "running…" for good.
+    let mut unsettled = None;
     if kind != Kind::Read {
         (state.emit_activity)(&event("start"));
+        unsettled = Some(UnsettledCall {
+            emit: Arc::clone(&state.emit_activity),
+            end: Some(event("end")),
+            started,
+        });
     }
-    let started = Instant::now();
     let response = next.run(req).await;
     let status = response.status();
     let ok = !(status.is_client_error() || status.is_server_error());
@@ -700,6 +709,9 @@ async fn activity_middleware(
         }
     };
     let duration_ms = started.elapsed().as_millis() as u64;
+    if let Some(call) = unsettled.as_mut() {
+        call.settled();
+    }
     if kind != Kind::Read {
         // The durable trace: one line per call that changed or handed off
         // something, naming what it touched. (The file-writing verbs also log
@@ -720,6 +732,47 @@ async fn activity_middleware(
     });
     response
 }
+
+/// A call that announced its `start` and has not reported its `end` yet.
+///
+/// Dropping it unsettled means the request future was dropped at an await —
+/// the code after it never runs, so this is the only place left to tell the
+/// pill and the log. The work may still have happened (the webview already had
+/// the request, and an install dialog can be approved after the caller left),
+/// which is why it is logged as a warning rather than silently forgotten.
+struct UnsettledCall {
+    emit: Arc<dyn Fn(&ActivityEvent) + Send + Sync>,
+    /// The `end` event to send on drop; `None` once the call settled normally.
+    end: Option<ActivityEvent>,
+    started: Instant,
+}
+
+impl UnsettledCall {
+    fn settled(&mut self) {
+        self.end = None;
+    }
+}
+
+impl Drop for UnsettledCall {
+    fn drop(&mut self) {
+        let Some(end) = self.end.take() else { return };
+        log::warn!(
+            "Assistant call abandoned: {}{} — {}",
+            end.label,
+            detail_suffix(&end.detail),
+            ABANDONED_MESSAGE
+        );
+        (self.emit)(&ActivityEvent {
+            at_ms: assistant_activity::now_ms(),
+            outcome: Some("failed"),
+            error: Some(ABANDONED_MESSAGE.to_string()),
+            duration_ms: Some(self.started.elapsed().as_millis() as u64),
+            ..end
+        });
+    }
+}
+
+const ABANDONED_MESSAGE: &str = "The caller disconnected before the call finished; it may still have taken effect";
 
 fn detail_suffix(detail: &Option<String>) -> String {
     detail.as_deref().map(|d| format!(" — {}", d)).unwrap_or_default()
@@ -2584,6 +2637,26 @@ mod tests {
         crate::assistant_activity::set_paused(dir.path(), false).unwrap();
         assert_eq!(router.oneshot(post()).await.unwrap().status(), StatusCode::OK);
         assert_eq!(*seen.lock().unwrap(), vec!["likes.set"]);
+    }
+
+    #[tokio::test]
+    async fn test_a_write_abandoned_mid_call_still_reports_its_end() {
+        let dir = tempfile::tempdir().unwrap();
+        // The webview never answers, so the handler waits on the bridge.
+        let mut state = test_state_in(Arc::new(|_| {}), dir.path().to_path_buf());
+        state.bridge_timeout = Duration::from_secs(30);
+        let events = recording_activity(&mut state);
+        let router = build_router(state);
+
+        // The caller gives up: the request future is dropped mid-await.
+        let call = router.oneshot(request_json("POST", "/v1/likes", TEST_TOKEN, r#"{"kind":"track"}"#));
+        assert!(tokio::time::timeout(Duration::from_millis(100), call).await.is_err());
+
+        let events = events.lock().unwrap();
+        let phases: Vec<_> = events.iter().map(|e| (e.phase, e.outcome)).collect();
+        assert_eq!(phases, vec![("start", None), ("end", Some("failed"))]);
+        assert_eq!(events[0].id, events[1].id);
+        assert!(events[1].error.as_deref().unwrap().contains("disconnected"));
     }
 
     #[tokio::test]
