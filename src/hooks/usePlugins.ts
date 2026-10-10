@@ -416,6 +416,7 @@ export function usePlugins(
     "track:removed": [],
     "queue:changed": [],
     "scan:complete": [],
+    "like:changed": [],
   });
   const enabledPluginsRef = useRef<Set<string>>(new Set());
   const permissionGrantsRef = useRef<Record<string, string[]>>({});
@@ -813,6 +814,11 @@ export function usePlugins(
           onScanComplete: (handler) =>
             subscribeEvent(
               "scan:complete",
+              handler as (...args: unknown[]) => void,
+            ),
+          onLikeChanged: (handler) =>
+            subscribeEvent(
+              "like:changed",
               handler as (...args: unknown[]) => void,
             ),
         },

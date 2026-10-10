@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Track, Artist, Album, Tag, QueueTrack } from "../types";
 import type { PluginEventName } from "../types/plugin";
 import { emitTrackPatch } from "../trackEvents";
-import { trackLikePayload, entityLikePayload, nextTriState } from "../likeKeys";
+import { trackLikePayload, entityLikePayload, nextTriState, trackLikeChange, entityLikeChange } from "../likeKeys";
 import { normalizeForMatch } from "../utils/normalize";
 import { trackLikeId } from "../utils/likeReconcile";
 
@@ -151,6 +151,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       // Only after the write succeeds — never optimistically.
       const dispatch = source === "like" || (source === "set" && likeState === 1);
       if (dispatch) plugins.dispatchEvent("track:liked", track, likeState === 1);
+      plugins.dispatchEvent("like:changed", trackLikeChange(track, likeState, prevLiked ?? 0));
       return true;
     } catch (e) {
       console.error("Failed to set track rating:", e);
@@ -191,6 +192,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     mirror(likeState);
     try {
       await invoke("set_entity_like_state", { kind, entity, likeState });
+      plugins.dispatchEvent("like:changed", entityLikeChange(kind, entity, likeState, prevLiked));
       return true;
     } catch (e) {
       console.error(`Failed to set ${kind} like state:`, e);

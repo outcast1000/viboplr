@@ -74,6 +74,7 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "library.onTrackAdded": need("library:read"),
   "library.onTrackRemoved": need("library:read"),
   "library.onScanComplete": need("library:read"),
+  "library.onLikeChanged": need("library:read"),
   "library.recordHistoryPlaysBatch": need("library:write"),
   "library.applyTags": need("library:write"),
   "library.applyTagsBulk": need("library:write"),

@@ -308,6 +308,7 @@ Top-level logger. Writes to the app's frontend log stream. Prefer this over `con
 - `getTrackLikeStates(tracks)` — read persisted like states from the durable, ID-less `entity_likes` store (works for non-library tracks too). `tracks` is `{ title, artistName? }[]`; returns a parallel `number[]` where `1` = liked, `-1` = disliked, `0` = neither.
 - `setTrackLikesBatch(tracks)` — persist a batch of track likes/dislikes (e.g. importing an external service's loved tracks). `tracks` is `{ title, artistName?, liked?, updatedAt? }[]` (`liked` defaults to `1`; `updatedAt` = unix seconds). Funnelled through the host's **newer-wins** merge with existing state, so re-running is idempotent. Returns the count of rows applied. Emits `entity-likes-changed { kind: "bulk" }`, so the app refreshes queue + library lists. Backs the Last.fm loved-tracks import.
 - `onTrackAdded(handler)` / `onTrackRemoved(handler)` / `onScanComplete(handler)` — library events
+- `onLikeChanged(handler)` — every like, dislike or un-like the user makes on a track, artist, album or tag, after it's saved: `{ kind, name, artistName, albumTitle, albumArtistName, liked, previous }` (`LikeChange`; `artistName` is the album artist for an album, `albumTitle` / `albumArtistName` are set for tracks only). Not sent for `setTrackLikesBatch` imports. Permission `library:read`; feature-detect. See conventions.md "`like:changed`". Canonical consumer: the Community plugin's opt-in like sync.
 
 ### api.playback
 - `getCurrentTrack()` / `isPlaying()` / `getPosition()`

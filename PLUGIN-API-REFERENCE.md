@@ -33,6 +33,8 @@ Complete reference of all functions and events available to Viboplr plugins via 
 | `onTrackAdded(handler)` | Event: track added to library | **auto-tagger** — auto-assigns approved tags to newly added tracks |
 | `onTrackRemoved(handler)` | Event: track removed from library | — |
 | `onScanComplete(handler)` | Event: collection scan finishes | **auto-tagger** — re-runs tag matching on new tracks after a scan |
+| `onLikeChanged(handler)` | Event: the user liked, disliked or un-liked a track, artist, album or tag — `{ kind, name, artistName, albumTitle, albumArtistName, liked, previous }`, after the save; not sent for `setTrackLikesBatch` imports | **community** — sends the user's likes to Viboplr Community when they switch that on |
+| `onLikeChanged(handler)` | Event: the user liked, disliked or un-liked a track, artist, album or tag (`{ kind, name, artistName, albumTitle, albumArtistName, liked, previous }`; not sent for `setTrackLikesBatch` imports) | **community** — sends the user's likes to Viboplr Community when they switch that on |
 
 ## `api.playback` — Playback Control & Events
 

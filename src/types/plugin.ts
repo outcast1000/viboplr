@@ -63,7 +63,31 @@ export type PluginEventName =
   // Queue contents or current index moved. Coalesced — read the new state back
   // via `api.playback.getQueue()`; the event carries no payload.
   | "queue:changed"
-  | "scan:complete";
+  | "scan:complete"
+  // A like, dislike or un-like the user made (see `LikeChange`).
+  | "like:changed";
+
+/**
+ * One like / dislike / un-like the user made — from any surface (a heart
+ * anywhere in the app, a detail page, the AI control API), on a track, artist,
+ * album or tag. Sent after the write succeeded. Bulk imports
+ * (`setTrackLikesBatch`) do not send it. Likes are keyed by metadata, so this
+ * carries names, never ids.
+ */
+export interface LikeChange {
+  kind: "track" | "artist" | "album" | "tag";
+  /** Track title, artist / tag name, or album title. */
+  name: string;
+  /** Track: its artist. Album: the album artist. Absent otherwise. */
+  artistName: string | null;
+  /** Track only: the album it is on, and that album's own artist. */
+  albumTitle: string | null;
+  albumArtistName: string | null;
+  /** `1` liked, `-1` disliked, `0` neither. */
+  liked: number;
+  /** The state before this change, as the surface knew it. */
+  previous: number;
+}
 
 export interface PluginManifestInfoType {
   id: string;
@@ -797,6 +821,12 @@ export interface PluginLibraryAPI {
   onTrackAdded(handler: (track: { trackId: number; path: string; title: string; artistName: string | null; albumTitle: string | null; collectionId: number }) => void): () => void;
   onTrackRemoved(handler: (track: { trackId: number; path: string }) => void): () => void;
   onScanComplete(handler: (result: { collectionId: number; newTracks: number; removedTracks: number }) => void): () => void;
+  /**
+   * Every like, dislike or un-like the user makes on a track, artist, album or
+   * tag, after it is saved — unlike `playback.onTrackLiked`, which only reports
+   * a track being liked. Not sent for `setTrackLikesBatch` imports. Feature-detect.
+   */
+  onLikeChanged(handler: (change: LikeChange) => void): () => void;
 }
 
 /** A plugin-supplied play context — becomes the queue panel's banner. */

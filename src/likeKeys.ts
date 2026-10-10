@@ -1,4 +1,5 @@
 import type { Track, QueueTrack } from "./types";
+import type { LikeChange } from "./types/plugin";
 
 /** Payload shape consumed by the `set_entity_like_state` Tauri command. */
 export interface EntityLikePayload {
@@ -32,6 +33,38 @@ export function entityLikePayload(name: string, artistName?: string | null): Ent
     durationSecs: null,
     source: null,
     imageUrl: null,
+  };
+}
+
+/** The `like:changed` plugin event for a track. */
+export function trackLikeChange(track: Track | QueueTrack, liked: number, previous: number): LikeChange {
+  return {
+    kind: "track",
+    name: track.title,
+    artistName: track.artist_name ?? null,
+    albumTitle: track.album_title ?? null,
+    albumArtistName: track.album_artist_name ?? null,
+    liked,
+    previous,
+  };
+}
+
+/** The `like:changed` plugin event for an artist, album or tag, from the
+ *  payload that was saved (so the event names exactly what was liked). */
+export function entityLikeChange(
+  kind: "artist" | "album" | "tag",
+  entity: EntityLikePayload,
+  liked: number,
+  previous: number,
+): LikeChange {
+  return {
+    kind,
+    name: entity.title,
+    artistName: kind === "album" ? entity.artistName : null,
+    albumTitle: null,
+    albumArtistName: null,
+    liked,
+    previous,
   };
 }
 
