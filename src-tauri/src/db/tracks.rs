@@ -336,7 +336,10 @@ impl Database {
                  );",
                 cf = ENABLED_COLLECTION_FILTER_STANDALONE
             )
-        )
+        )?;
+        // The rows that survived the cleanup — and any an ingest just created
+        // with `liked = 0` — take their like state from the durable store.
+        conn.execute_batch(super::likes::ENTITY_LIKE_MIRROR_SQL)
     }
 
     /// Targeted post-ingest maintenance for a single track: refresh its FTS

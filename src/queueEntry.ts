@@ -220,6 +220,36 @@ export function remoteId(track: Track): string | null {
 /**
  * Converts a Track or QueueTrack to a QueueEntry for serialization.
  */
+/** A restored position this close to either end is not worth cueing: the start
+ *  is where the track opens anyway, and the end would finish it on the first
+ *  press. */
+const RESTORE_POSITION_EDGE_SECS = 5;
+
+/**
+ * Where to cue the restored track on launch, or 0 to start it from the top.
+ *
+ * `positionSecs` is one store key with no track attached, so it is trusted only
+ * when `entry` — the `currentTrackEntry` written alongside it — names the same
+ * track as the one the queue restored (same URI, else same title + artist for a
+ * path-less entry). Without that check a quit inside the queue's 500ms write
+ * debounce could cue one song at another's position.
+ */
+export function restoredPlaybackPosition(
+  track: Pick<QueueTrack, "path" | "title" | "artist_name" | "duration_secs">,
+  entry: Pick<QueueEntry, "url" | "title" | "artist_name"> | null | undefined,
+  positionSecs: number | null | undefined,
+): number {
+  if (!entry || typeof positionSecs !== "number" || !Number.isFinite(positionSecs)) return 0;
+  const sameTrack = track.path
+    ? entry.url === track.path
+    : !entry.url && entry.title === track.title && (entry.artist_name ?? null) === (track.artist_name ?? null);
+  if (!sameTrack) return 0;
+  if (positionSecs < RESTORE_POSITION_EDGE_SECS) return 0;
+  const duration = track.duration_secs;
+  if (duration != null && duration > 0 && positionSecs > duration - RESTORE_POSITION_EDGE_SECS) return 0;
+  return positionSecs;
+}
+
 export function trackToQueueEntry(track: Track | QueueTrack): QueueEntry {
   return {
     url: track.path ?? "",

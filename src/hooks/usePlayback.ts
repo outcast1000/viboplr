@@ -976,6 +976,9 @@ export function usePlayback(
     el.src = resolved.src;
     el.preload = "auto";
     el.volume = effectiveVolume();
+    // Show the frame at the restored position; pendingSeekRef stays armed for
+    // the real play.
+    if (pendingSeekRef.current > 0) el.currentTime = pendingSeekRef.current;
     previewLoadedKeyRef.current = track.key;
   }
 
@@ -1550,9 +1553,23 @@ export function usePlayback(
     }, 16);
   }
 
+  /**
+   * The active element ended: swap in the preloaded track if one is armed.
+   * Returns true only for that swap, which promotes the next track but leaves
+   * the queue index to the caller (`onEnded` advances it).
+   */
   function handleGaplessNext(): boolean {
-    // If crossfade is already in progress, the transition is handled
-    if (isCrossfadingRef.current) return true;
+    // Ended mid-crossfade: the element that ended is the INCOMING one (the
+    // outgoing slot's `ended` is filtered out by onEndedSlotA/B), i.e. a track
+    // shorter than the fade. startCrossfade already advanced the index onto it,
+    // so returning true here made onEnded advance a second time with nothing
+    // playing. Snap the fade to its end and let the ordinary end-of-track path
+    // play what follows — the same "ended-mid-fade" rule the mpv engine applies.
+    if (isCrossfadingRef.current) {
+      logPlayback("Crossfade: incoming track ended mid-fade — finishing the fade and advancing");
+      finishCrossfade();
+      return false;
+    }
 
     if (!preloadedTrackRef.current || !preloadReadyRef.current) return false;
 
@@ -1748,6 +1765,16 @@ export function usePlayback(
 
   function setPendingSeek(secs: number) {
     pendingSeekRef.current = secs;
+  }
+
+  /** Launch restore: cue the restored (loaded-but-never-played) track at `secs`.
+   *  The first play seeks there through `pendingSeekRef`, and the position store
+   *  shows it on the seek bar meanwhile — which also keeps the next position
+   *  flush (a pause press, the track-change effect) from writing 0 over it. */
+  function cueRestoredPosition(secs: number) {
+    const at = Number.isFinite(secs) && secs > 0 ? secs : 0;
+    pendingSeekRef.current = at;
+    setPlaybackPosition(at);
   }
 
   async function handlePlayUrl(track: QueueTrack, url: string) {
@@ -2540,7 +2567,7 @@ export function usePlayback(
     activeSlot,
     audioRefA, audioRefB, videoRef,
     getMediaElement,
-    handlePlay, setPendingSeek, handlePlayUrl, handlePause, handleStop, loadPaused, swapCurrentFile,
+    handlePlay, setPendingSeek, cueRestoredPosition, handlePlayUrl, handlePause, handleStop, loadPaused, swapCurrentFile,
     loadRestoredVideoPreview,
     handleVolume, volumeOverrideRef, handleSeek, seekBy,
     handleGaplessNext, invalidatePreload,

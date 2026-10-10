@@ -54,6 +54,37 @@ pub(crate) const TRACK_DURABLE_LIKE_EXPR: &str = "COALESCE((SELECT el.liked FROM
       || strip_diacritics(unicode_lower(trim(COALESCE((SELECT name FROM artists WHERE id = tracks.artist_id), '')))) \
       || ':' || strip_diacritics(unicode_lower(trim(tracks.title)))), 0)";
 
+/// Repair the `liked` mirror on `artists` / `albums` / `tags` from `entity_likes`
+/// — the entity-kind counterpart of `TRACK_DURABLE_LIKE_EXPR`. Writing a like
+/// mirrors it onto the row that exists *then* (`mirror_entity_like_to_library`),
+/// but rows are created with `liked = 0`: a liked album recreated by a Full
+/// Rescan (`recompute_counts` deletes the emptied fork, ingest inserts the
+/// merged row), re-filed under a new album artist, or first scanned after it was
+/// liked from a non-library page read as un-liked to every list and to Home's
+/// "Liked albums / artists" shelves, while "Recently liked" (which reads
+/// `entity_likes`) disagreed. Keys are rebuilt inline exactly as
+/// `build_entity_key` folds them (album key = the album row's own artist, i.e.
+/// the album artist). Two-way and idempotent; only rows whose value changes are
+/// written. Run by `recompute_counts`, which every ingest/rescan path ends with.
+pub(crate) const ENTITY_LIKE_MIRROR_SQL: &str = "
+    UPDATE artists SET liked = d.v FROM (
+      SELECT a.id, COALESCE((SELECT el.liked FROM entity_likes el
+        WHERE el.kind = 'artist' AND el.entity_key = 'artist:' || strip_diacritics(unicode_lower(trim(a.name)))), 0) AS v
+      FROM artists a) d
+    WHERE artists.id = d.id AND artists.liked <> d.v;
+    UPDATE albums SET liked = d.v FROM (
+      SELECT al.id, COALESCE((SELECT el.liked FROM entity_likes el
+        WHERE el.kind = 'album' AND el.entity_key = 'album:'
+          || strip_diacritics(unicode_lower(trim(COALESCE((SELECT name FROM artists WHERE id = al.artist_id), ''))))
+          || ':' || strip_diacritics(unicode_lower(trim(al.title)))), 0) AS v
+      FROM albums al) d
+    WHERE albums.id = d.id AND albums.liked <> d.v;
+    UPDATE tags SET liked = d.v FROM (
+      SELECT t.id, COALESCE((SELECT el.liked FROM entity_likes el
+        WHERE el.kind = 'tag' AND el.entity_key = 'tag:' || strip_diacritics(unicode_lower(trim(t.name)))), 0) AS v
+      FROM tags t) d
+    WHERE tags.id = d.id AND tags.liked <> d.v;";
+
 impl Database {
     /// One-time pass for the fold gaining a trim: a like stored under a padded
     /// name (`"Song "`) moves to the trimmed key, or the like would silently
@@ -682,6 +713,38 @@ mod tests {
         db2.set_entity_like("track", &build_entity_key("track", "JOGA", Some("BJORK")), 1, None, 100).unwrap();
         db2.reconcile_track_likes_from_entity_likes().unwrap();
         assert_eq!(db2.get_track_by_id(t2).unwrap().liked, 1, "ASCII/upper durable key should match diacritic track via normalization");
+    }
+
+    #[test]
+    fn test_recompute_counts_repairs_entity_like_mirrors() {
+        let db = test_db();
+        let cid = db.add_collection("local", "L", Some("/m"), None, None, None, None, None).unwrap().id;
+        let bjork = db.get_or_create_artist("Björk").unwrap();
+        let other = db.get_or_create_artist("Other").unwrap();
+        let homogenic = db.get_or_create_album("Homogénic", Some(bjork), None).unwrap();
+        let joga = db.upsert_track("joga.mp3", "Jóga", Some(bjork), Some(homogenic), None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+        db.upsert_track("x.mp3", "X", Some(other), None, None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+        db.apply_tag_to_tracks(&[joga], "Electrónica").unwrap();
+
+        // Liked by name, under the ASCII/upper spelling, while the rows already
+        // carried liked = 0 — exactly a row created after the like (a rescan, a
+        // first scan of something liked from a non-library page).
+        db.set_entity_like("artist", &build_entity_key("artist", "BJORK", None), 1, None, 100).unwrap();
+        db.set_entity_like("album", &build_entity_key("album", "homogenic", Some("bjork")), 1, None, 100).unwrap();
+        db.set_entity_like("tag", &build_entity_key("tag", "electronica", None), -1, None, 100).unwrap();
+        // A stale mirror with no durable row behind it is cleared.
+        db.toggle_liked("artists", other, 1).unwrap();
+
+        db.recompute_counts().unwrap();
+        assert_eq!(db.get_artist_by_id(bjork).unwrap().unwrap().liked, 1);
+        assert_eq!(db.get_album_by_id(homogenic).unwrap().unwrap().liked, 1);
+        assert_eq!(db.find_tag_by_name("Electrónica").unwrap().unwrap().liked, -1);
+        assert_eq!(db.get_artist_by_id(other).unwrap().unwrap().liked, 0);
+
+        // And the liked-only lists (Home's "Liked albums / artists") now agree
+        // with entity_likes.
+        let liked_artists = db.get_artists_filtered(true, None, None, None).unwrap();
+        assert_eq!(liked_artists.iter().map(|a| a.id).collect::<Vec<_>>(), vec![bjork]);
     }
 
     #[test]

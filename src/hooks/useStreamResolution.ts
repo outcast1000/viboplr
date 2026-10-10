@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { consumeResolveStale, streamLadderStep } from "../playback/playbackRetry";
 import type { QueueTrack, ResolvedTrackSource, ResolvedSource, EngineSource } from "../types";
@@ -290,7 +290,24 @@ export function useStreamResolution({
   // Persistent per-track resolve failures, keyed by QueueTrack.key. Survives track
   // changes so the failed row keeps explaining what happened until a later retry succeeds.
   const [resolveFailures, setResolveFailures] = useState<Record<string, string>>({});
-  const [resolvedSource, setResolvedSource] = useState<ResolvedSource | null>(null);
+  // The winning source per track, keyed by QueueTrack.key. The now-playing UI
+  // reads the CURRENT track's entry (`resolvedSource` below), so a preload of the
+  // next track can record its answer early without relabelling the one playing —
+  // and when that preloaded track takes over (handlePlay reusing the preload, or
+  // a gapless/crossfade hand-off that resolves nothing), its source is already here.
+  const [sourcesByKey, setSourcesByKey] = useState<Record<string, ResolvedSource | null>>({});
+  const setResolvedSource = useCallback((key: string, meta: ResolvedSource | null | undefined) => {
+    setSourcesByKey(prev => {
+      if (meta === undefined) {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return prev[key] === meta ? prev : { ...prev, [key]: meta };
+    });
+  }, []);
+  const resolvedSource = currentTrack ? sourcesByKey[currentTrack.key] ?? null : null;
   const resolveGenerationRef = useRef(0);
 
   // Single-flight + short-TTL success cache for track resolution, both keyed by
@@ -425,7 +442,9 @@ export function useStreamResolution({
       // steps the video pick down a rung (see playbackRetry).
       const ladderStep = streamLadderStep(track.key);
       const generation = preload ? -1 : ++resolveGenerationRef.current;
-      setResolvedSource(null);
+      // A real play re-resolving this track reads "unknown" until it answers; a
+      // preload leaves whatever is known alone.
+      if (!preload) setResolvedSource(track.key, undefined);
       const url = track.path;
 
       interface ResolverEntry { name: string; id: string | null; native?: boolean; failureLabel?: string; sourceUrl: string | null; effectiveSource: EffectiveSource | null; patch?: Partial<QueueTrack>; fellBackToAudio?: boolean; videoFirst?: boolean; resolve: () => Promise<{ src: string; engineSource: EngineSource | null }> }
@@ -695,7 +714,7 @@ export function useStreamResolution({
             return next;
           });
           const meta: ResolvedSource = { name: entry.name, url: src, sourceUrl: entry.sourceUrl, id: entry.id, effectiveSource: entry.effectiveSource ?? { kind: "direct-url", uri: src } };
-          setResolvedSource(meta);
+          setResolvedSource(track.key, meta);
           if (entry.fellBackToAudio) {
             // The user asked for VIDEO and silently got audio — say why, or
             // "all my videos play as audio" reads as a bug instead of a fallback.
@@ -766,7 +785,7 @@ export function useStreamResolution({
           // playing track's UI.
           if (!preload) {
             setResolvingStatus(null);
-            setResolvedSource(cached.meta);
+            setResolvedSource(key, cached.meta);
             setResolveFailures(prev => {
               if (!(key in prev)) return prev;
               const next = { ...prev };
@@ -818,6 +837,21 @@ export function useStreamResolution({
       transcodeSessionRef.current = null;
     }
   }, [currentTrack, transcodeSessionRef]);
+
+  // Same for the per-track sources — except the playing track's, which is kept
+  // even when it has left the queue (a cleared queue keeps playing).
+  const currentKey = currentTrack?.key ?? null;
+  useEffect(() => {
+    setSourcesByKey(prev => {
+      const live = new Set(queue.map(t => t.key));
+      if (currentKey) live.add(currentKey);
+      const stale = Object.keys(prev).filter(k => !live.has(k));
+      if (stale.length === 0) return prev;
+      const next = { ...prev };
+      for (const k of stale) delete next[k];
+      return next;
+    });
+  }, [queue, currentKey]);
 
   // Prune persistent resolve failures for tracks no longer in the queue, so the
   // map stays bounded and a recycled key can't inherit a stale error.

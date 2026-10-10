@@ -1189,16 +1189,17 @@ mod tests {
         let track = state.db.get_track_by_id(track_id).unwrap();
         assert_eq!(track.liked, 0);
 
-        // Artist liked — need recompute_counts for artist to show up (track_count > 0 filter)
-        state.db.toggle_liked("artists", artist_id, 1).unwrap();
+        // Artist liked — need recompute_counts for artist to show up (track_count > 0 filter).
+        // Counts first: recompute_counts re-mirrors likes from entity_likes, which
+        // this raw toggle bypasses.
         state.db.recompute_counts().unwrap();
+        state.db.toggle_liked("artists", artist_id, 1).unwrap();
         let artists = state.db.get_artists_filtered(false, None, None, None).unwrap();
         assert!(!artists.is_empty());
         assert!(artists.iter().any(|a| a.id == artist_id && a.liked == 1));
 
         // Album liked
         state.db.toggle_liked("albums", album_id, 1).unwrap();
-        state.db.recompute_counts().unwrap();
         let albums = state.db.get_albums_sorted(None, None, false, None, None).unwrap();
         assert!(albums.iter().any(|a| a.id == album_id && a.liked == 1));
     }

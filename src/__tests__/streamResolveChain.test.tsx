@@ -96,7 +96,9 @@ function mountChain(opts: Opts = {}) {
       useNativeVideoRef: { current: true },
       preferVideoRef: { current: preferVideo },
       queue: [track],
-      currentTrack: null,
+      // The track being resolved is the playing one — `resolvedSource` describes
+      // the current track only.
+      currentTrack: track,
       notify,
     }),
   );

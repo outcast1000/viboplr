@@ -2974,7 +2974,8 @@ fn test_list_entity_artists_sort_chain_liked() {
     let alb2 = db.get_or_create_album("Alb2", Some(a2), None).unwrap();
     db.upsert_track("file://s1.mp3", "S1", Some(a1), Some(alb1), None, None, None, None, None, Some(cid), None).unwrap();
     db.upsert_track("file://s2.mp3", "S2", Some(a2), Some(alb2), None, None, None, None, None, Some(cid), None).unwrap();
-    db.toggle_liked("artists", a2, 1).unwrap();
+    // Liked the way the app does it: the durable store, mirrored by recompute_counts.
+    db.set_entity_like("artist", &likes::build_entity_key("artist", "Beta Artist", None), 1, None, 1).unwrap();
     db.recompute_counts().unwrap();
 
     let result = db.search_entity("", "artists", &TrackQuery {
@@ -3940,9 +3941,10 @@ fn test_random_sort_keeps_liked_filter_and_limit() {
         let alb = db.get_or_create_album(&format!("Album {}", i), Some(aid), None).unwrap();
         db.upsert_track(&format!("file://r{}.mp3", i), &format!("R{}", i), Some(aid), Some(alb), None, Some(180.0), Some("mp3"), Some(1024), None, Some(cid), None).unwrap();
         if i < 3 {
-            let conn = db.conn.lock().unwrap();
-            conn.execute("UPDATE albums SET liked = 1 WHERE id = ?1", params![alb]).unwrap();
-            conn.execute("UPDATE artists SET liked = 1 WHERE id = ?1", params![aid]).unwrap();
+            // Liked the way the app does it: the durable store, mirrored by recompute_counts.
+            let artist = format!("Artist {}", i);
+            db.set_entity_like("album", &likes::build_entity_key("album", &format!("Album {}", i), Some(&artist)), 1, None, 1).unwrap();
+            db.set_entity_like("artist", &likes::build_entity_key("artist", &artist, None), 1, None, 1).unwrap();
         }
     }
     db.recompute_counts().unwrap();
