@@ -144,7 +144,7 @@ export function useInformationTypes({
       const action = decideCacheAction(
         entry?.status ?? null,
         entry?.fetchedAt ?? null,
-        entry ? cacheTtlForRow(providers, entry.integerId, entry.status, ttl) : ttl,
+        entry ? cacheTtlForRow(providers, entry.integerId, entry.status, ttl, typeId, entry.value) : ttl,
         now,
       );
 

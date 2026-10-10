@@ -11,6 +11,19 @@ import { emitInfoValueChanged } from "./infoValueEvents";
 
 export const ERROR_TTL = 3600; // 1 hour in seconds
 
+/** A TTL no age reaches (`decideCacheAction` compares `age >= ttl`). */
+export const NEVER_EXPIRES = Number.POSITIVE_INFINITY;
+
+/** Is this stored (JSON string) lyrics value synced? Anything unreadable is not. */
+export function isSyncedLyricsValue(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  try {
+    return (JSON.parse(raw) as { kind?: unknown } | null)?.kind === "synced";
+  } catch {
+    return false; // a value that isn't JSON can't be synced lyrics; it keeps the ordinary TTL
+  }
+}
+
 /** How long a cache row that depends on the user's own disk stays fresh. */
 export const LOCAL_INFO_TTL = 86400; // 1 day in seconds
 
@@ -32,20 +45,30 @@ export const CORE_LOCAL_LYRICS_PROVIDER = "core:local-lyrics";
  *   looked up once before the file existed stayed lyric-less for 3 months).
  *
  * Ok rows from web providers — including a user's manual edit, which is
- * saved under the web row — keep the type TTL, so lrclib isn't re-asked
- * daily and an edit isn't clobbered after a day.
+ * saved under the web row — are never re-asked (`NEVER_EXPIRES`) when they are
+ * synced lyrics, so lrclib isn't asked daily and an edit or import isn't
+ * clobbered; plain lyrics and every other type keep their manifest TTL.
  */
 export function cacheTtlForRow(
   providers: Array<[string, number]>,
   integerId: number,
   status: string | null,
   typeTtl: number,
+  typeId?: string,
+  rawValue?: string | null,
 ): number {
-  const hasCore = providers.some(([pluginId]) => pluginId.startsWith("core:"));
-  if (!hasCore) return typeTtl;
   const rowIsCore = providers.some(
     ([pluginId, id]) => id === integerId && pluginId.startsWith("core:"),
   );
+  // Synced lyrics never go stale: they are the same words next year, and
+  // re-asking the providers would only risk swapping a good copy (an import,
+  // an edit) for whatever they answer today. Plain lyrics keep the type TTL —
+  // they are the best answer so far, and a provider may have synced ones by
+  // then. The local-file row (the .lrc can change on disk) and misses keep
+  // expiring too.
+  if (typeId === "lyrics" && status === "ok" && !rowIsCore && isSyncedLyricsValue(rawValue)) return NEVER_EXPIRES;
+  const hasCore = providers.some(([pluginId]) => pluginId.startsWith("core:"));
+  if (!hasCore) return typeTtl;
   if (rowIsCore || status !== "ok") return Math.min(typeTtl, LOCAL_INFO_TTL);
   return typeTtl;
 }
@@ -378,7 +401,7 @@ export async function fetchInfoValue(opts: FetchInfoValueOpts): Promise<FetchInf
     const now = Math.floor(Date.now() / 1000);
     // Local (`core:`) rows and misses on a type with a local provider expire
     // daily — the answer can change on disk. See cacheTtlForRow.
-    if (c && decideCacheAction(c[3], c[4], cacheTtlForRow(providers, c[0], c[3], ttl), now) === "render") {
+    if (c && decideCacheAction(c[3], c[4], cacheTtlForRow(providers, c[0], c[3], ttl, typeId, c[2]), now) === "render") {
       return { typeId, name, displayKind, status: "ok", source: "cache", value: parseStoredValue(c[2]) };
     }
   }

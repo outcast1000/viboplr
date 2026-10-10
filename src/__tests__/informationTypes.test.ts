@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cacheTtlForRow, CORE_LOCAL_LYRICS_PROVIDER, LOCAL_INFO_TTL } from "../utils/infoFetchChain";
+import { cacheTtlForRow, CORE_LOCAL_LYRICS_PROVIDER, LOCAL_INFO_TTL, NEVER_EXPIRES, isSyncedLyricsValue, decideCacheAction as realDecideCacheAction } from "../utils/infoFetchChain";
 
 const ERROR_TTL = 3600; // 1 hour
 
@@ -100,5 +100,47 @@ describe("cacheTtlForRow", () => {
 
   it("never raises a TTL that is already shorter than a day", () => {
     expect(cacheTtlForRow(providers, 7, "ok", 600)).toBe(600);
+  });
+
+  describe("synced lyrics never expire", () => {
+    const now = 1_800_000_000;
+    const tenYears = 10 * 365 * 86400;
+    const synced = JSON.stringify({ text: "[00:01.00]hi", kind: "synced" });
+    const plain = JSON.stringify({ text: "hi", kind: "plain" });
+
+    it("a web, imported or hand-saved synced row has no expiry", () => {
+      expect(cacheTtlForRow(providers, 8, "ok", WEB_TTL, "lyrics", synced)).toBe(NEVER_EXPIRES);
+      expect(realDecideCacheAction("ok", now - tenYears, cacheTtlForRow(providers, 8, "ok", WEB_TTL, "lyrics", synced), now)).toBe("render");
+    });
+
+    it("also without a local provider in the chain", () => {
+      const webOnly: Array<[string, number]> = [["lrclib", 3]];
+      expect(cacheTtlForRow(webOnly, 3, "ok", WEB_TTL, "lyrics", synced)).toBe(NEVER_EXPIRES);
+    });
+
+    it("plain lyrics keep the type TTL, so a synced version is picked up later", () => {
+      expect(cacheTtlForRow(providers, 8, "ok", WEB_TTL, "lyrics", plain)).toBe(WEB_TTL);
+      expect(realDecideCacheAction("ok", now - WEB_TTL - 1, cacheTtlForRow(providers, 8, "ok", WEB_TTL, "lyrics", plain), now)).toBe("render_and_refetch");
+    });
+
+    it("an unreadable or missing value is not synced", () => {
+      expect(cacheTtlForRow(providers, 8, "ok", WEB_TTL, "lyrics", "not json")).toBe(WEB_TTL);
+      expect(cacheTtlForRow(providers, 8, "ok", WEB_TTL, "lyrics")).toBe(WEB_TTL);
+      expect(isSyncedLyricsValue(null)).toBe(false);
+      expect(isSyncedLyricsValue(synced)).toBe(true);
+    });
+
+    it("the local-file row still expires daily — the .lrc can change on disk", () => {
+      expect(cacheTtlForRow(providers, 7, "ok", WEB_TTL, "lyrics", synced)).toBe(LOCAL_INFO_TTL);
+    });
+
+    it("misses and errors still expire, or a no-lyrics answer would be permanent", () => {
+      expect(cacheTtlForRow(providers, 9, "not_found", WEB_TTL, "lyrics", synced)).toBe(LOCAL_INFO_TTL);
+      expect(cacheTtlForRow(providers, 9, "error", WEB_TTL, "lyrics", null)).toBe(LOCAL_INFO_TTL);
+    });
+
+    it("other types keep their own TTL", () => {
+      expect(cacheTtlForRow(providers, 8, "ok", WEB_TTL, "artist_bio", synced)).toBe(WEB_TTL);
+    });
   });
 });

@@ -769,7 +769,7 @@ export function useControlApi(deps: ControlApiDeps) {
               status: c?.status ?? null,
               fetchedAt: c?.fetchedAt ?? null,
               fresh: c
-                ? decideCacheAction(c.status, c.fetchedAt, cacheTtlForRow(providers, c.integerId, c.status, ttl), now) === "render"
+                ? decideCacheAction(c.status, c.fetchedAt, cacheTtlForRow(providers, c.integerId, c.status, ttl, typeId, c.value), now) === "render"
                 : false,
               value: c?.status === "ok" ? parseInfoValue(c.value) : null,
             };
