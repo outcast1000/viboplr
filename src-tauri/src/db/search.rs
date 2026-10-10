@@ -25,7 +25,7 @@ fn fts_colset_query(cols: &str, words: &[String]) -> String {
 impl Database {
 
     pub fn search_all(&self, query: &str, artist_limit: i64, album_limit: i64, track_limit: i64) -> SqlResult<SearchAllResults> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         let normalized = strip_diacritics(query);
         let words: Vec<String> = normalized
@@ -232,7 +232,7 @@ impl Database {
     }
 
     pub fn search_entity(&self, query: &str, entity: &str, opts: &TrackQuery) -> SqlResult<SearchEntityResult> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         let normalized = strip_diacritics(query);
         let words: Vec<String> = normalized
@@ -468,7 +468,7 @@ impl Database {
             return Ok(vec![]);
         }
         let limit = limit.max(0) as usize;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         // The text we pre-filter on: a single JSON field when json_path is given,
         // else the whole stored value. Bind the path as ?1 (reused) so it can't

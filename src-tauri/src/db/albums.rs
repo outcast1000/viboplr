@@ -53,7 +53,7 @@ impl Database {
     // --- Albums ---
 
     pub fn find_album_by_name(&self, title: &str, artist_name: Option<&str>) -> SqlResult<Option<Album>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         if let Some(artist) = artist_name {
             // The name matches EITHER the album's own artist (the album artist)
             // OR any track artist on the album, album-artist match first — so a
@@ -89,7 +89,7 @@ impl Database {
     }
 
     pub fn get_album_by_id(&self, album_id: i64) -> SqlResult<Option<Album>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             "SELECT a.id, a.title, a.artist_id, ar.name, a.year, a.track_count, a.liked \
              FROM albums a LEFT JOIN artists ar ON a.artist_id = ar.id \
@@ -107,7 +107,7 @@ impl Database {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> SqlResult<Vec<Album>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         if let Some(aid) = artist_id {
             let liked_clause = if liked_only { " AND a.liked = 1" } else { "" };
             let sql = format!(

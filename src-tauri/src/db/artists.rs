@@ -27,7 +27,7 @@ impl Database {
     }
 
     pub fn get_artist_by_id(&self, artist_id: i64) -> SqlResult<Option<Artist>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             &format!(
                 "SELECT id, name, track_count, liked, {} FROM artists WHERE id = ?1",
@@ -51,7 +51,7 @@ impl Database {
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> SqlResult<Vec<Artist>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let visible = artist_visible_clause("artists");
         let albums = artist_album_count_sql("artists");
         let liked_clause = if liked_only { " AND liked = 1" } else { "" };
@@ -80,7 +80,7 @@ impl Database {
     }
 
     pub fn find_artist_by_name(&self, name: &str) -> SqlResult<Option<Artist>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             &format!(
                 "SELECT id, name, track_count, liked, {} FROM artists \

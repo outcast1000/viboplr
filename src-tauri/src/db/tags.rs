@@ -62,7 +62,7 @@ impl Database {
     }
 
     pub fn get_tag_by_id(&self, tag_id: i64) -> SqlResult<Option<Tag>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             "SELECT id, name, track_count, liked FROM tags WHERE id = ?1",
             params![tag_id],
@@ -75,10 +75,17 @@ impl Database {
         ).optional()
     }
 
+    /// Accent- and case-insensitive, like every other name lookup (it used to be
+    /// `COLLATE NOCASE` only, so a tag page opened as "Electronica" missed the
+    /// library's "Electrónica"). Same expression as `get_or_create_tag_conn`, so
+    /// it is served by `idx_tags_name_norm` and finds the row creation would
+    /// have reused; an exact spelling wins should two rows ever fold together.
     pub fn find_tag_by_name(&self, name: &str) -> SqlResult<Option<Tag>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
-            "SELECT id, name, track_count, liked FROM tags WHERE name = ?1 COLLATE NOCASE LIMIT 1"
+            "SELECT id, name, track_count, liked FROM tags \
+             WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
+             ORDER BY name = ?1 DESC LIMIT 1"
         )?;
         let result = stmt.query_row(params![name], |row| {
             Ok(Tag {
@@ -92,7 +99,7 @@ impl Database {
     }
 
     pub fn get_tags(&self, limit: Option<i64>, offset: Option<i64>) -> SqlResult<Vec<Tag>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         // Pagination is DB-side so a paging consumer (the plugin API's
         // getTags) doesn't pull the whole table across IPC per page.
         let sql = format!(
@@ -114,7 +121,7 @@ impl Database {
 
 
     pub fn get_tags_for_track(&self, track_id: i64) -> SqlResult<Vec<Tag>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT tg.id, tg.name, COUNT(t2.id), tg.liked
              FROM tags tg
@@ -147,7 +154,7 @@ impl Database {
     }
 
     pub fn get_tracks_by_tag(&self, tag_id: i64) -> SqlResult<Vec<Track>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let sql = format!(
             "{} JOIN track_tags tt ON tt.track_id = t.id WHERE tt.tag_id = ?1 {} ORDER BY ar.name, al.title, t.track_number, t.title",
             TRACK_SELECT, ENABLED_COLLECTION_FILTER
@@ -158,7 +165,7 @@ impl Database {
     }
 
     pub fn get_top_artists_for_tag(&self, tag_id: i64, limit: i64) -> SqlResult<Vec<(String, i64)>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let sql = format!(
             "SELECT ar.name, COUNT(*) AS cnt \
              FROM tracks t \
@@ -187,7 +194,7 @@ impl Database {
         if track_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut acc: std::collections::HashMap<i64, (String, i64)> = std::collections::HashMap::new();
         for chunk in track_ids.chunks(500) {
             let placeholders = chunk.iter().map(|_| "?").collect::<Vec<_>>().join(",");

@@ -4632,3 +4632,66 @@ fn bench_home_shelf_picks() {
         println!("{:<45} avg {:>8.2} ms  min {:>8.2}  max {:>8.2}", r.name, r.avg_ms, r.min_ms, r.max_ms);
     }
 }
+
+/// Tag pages look their tag up by name; the lookup must fold accents and case
+/// like every other one (it used to fold case only).
+#[test]
+fn test_find_tag_by_name_ignores_accents_and_case() {
+    let db = test_db();
+    let id = db.get_or_create_tag("Electrónica").unwrap();
+    for spelling in ["Electrónica", "electronica", "ELECTRONICA", "électronica"] {
+        let found = db.find_tag_by_name(spelling).unwrap();
+        assert_eq!(found.map(|t| t.id), Some(id), "{spelling:?}");
+    }
+    assert!(db.find_tag_by_name("Electro").unwrap().is_none());
+}
+
+/// The point of the reader connection: a library read must not wait for a
+/// writer. Holds the writer mid-transaction — as a scan or sync does — and reads
+/// from another thread; the read must answer at once, with the last committed
+/// state. Uses a real file database, because WAL (what makes this work) does not
+/// apply to an in-memory one.
+#[test]
+fn test_library_reads_do_not_wait_for_an_open_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = std::sync::Arc::new(Database::new(dir.path()).unwrap());
+    db.get_or_create_artist("Committed").unwrap();
+
+    let writer = db.conn.lock().unwrap();
+    writer.execute_batch("BEGIN; INSERT INTO artists (name) VALUES ('Uncommitted');").unwrap();
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader_db = db.clone();
+    std::thread::spawn(move || {
+        let names: Vec<String> = reader_db
+            .reader()
+            .prepare("SELECT name FROM artists ORDER BY name")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<SqlResult<_>>()
+            .unwrap();
+        tx.send((names, reader_db.find_artist_by_name("committed").is_ok())).unwrap();
+    });
+    let (names, lookup_ok) = rx
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("a read waited on the writer");
+    assert_eq!(names, vec!["Committed".to_string()], "the reader sees committed state only");
+    assert!(lookup_ok);
+
+    writer.execute_batch("COMMIT").unwrap();
+    drop(writer);
+    assert!(db.find_artist_by_name("uncommitted").is_ok());
+    let all: i64 = db.reader().query_row("SELECT COUNT(*) FROM artists", [], |r| r.get(0)).unwrap();
+    assert_eq!(all, 2, "and sees the write once it commits");
+}
+
+/// The reader is query_only: a write through it must fail rather than slip past
+/// the writer's mutex.
+#[test]
+fn test_the_reader_connection_refuses_writes() {
+    let db = test_db();
+    let err = db.reader().execute("INSERT INTO artists (name) VALUES ('x')", []).unwrap_err();
+    assert!(err.to_string().to_lowercase().contains("readonly") || err.to_string().contains("read-only")
+        || err.to_string().contains("query_only"), "{err}");
+}

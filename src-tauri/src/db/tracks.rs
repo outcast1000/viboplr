@@ -52,7 +52,7 @@ impl Database {
     // --- Tracks ---
 
     pub fn get_track_count(&self) -> SqlResult<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             &format!("SELECT COUNT(*) FROM tracks t WHERE 1=1 {}", ENABLED_COLLECTION_FILTER_STANDALONE),
             [],
@@ -175,7 +175,7 @@ impl Database {
     /// `t.path` is relative for local / a remote id, not the full URI). Returns
     /// None when no row matches, the row has no `extra_tags`, or it carries no RG.
     pub fn get_replaygain_by_path(&self, full_path: &str) -> SqlResult<Option<crate::models::ReplayGain>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let sql = format!("SELECT t.extra_tags FROM tracks t \
             LEFT JOIN collections co ON t.collection_id = co.id \
             WHERE {PATH_EXPR} = ?1 \
@@ -191,7 +191,7 @@ impl Database {
     /// Raw `extra_tags` JSON string for a library track by id (the catch-all of
     /// file/Subsonic tag keys with no dedicated column). None if the track has none.
     pub fn get_extra_tags(&self, track_id: i64) -> SqlResult<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         conn.query_row(
             "SELECT extra_tags FROM tracks WHERE id = ?1",
             params![track_id],
@@ -432,7 +432,7 @@ impl Database {
     }
 
     pub fn get_tracks(&self, opts: &TrackQuery) -> SqlResult<Vec<Track>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         // If query is present and non-empty, use FTS path
         if let Some(ref query) = opts.query {
@@ -489,7 +489,7 @@ impl Database {
     }
 
     pub fn get_tracks_by_artist(&self, artist_id: i64) -> SqlResult<Vec<Track>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let sql = format!("{} WHERE t.artist_id = ?1 {} ORDER BY al.title, t.track_number, t.title", TRACK_SELECT, ENABLED_COLLECTION_FILTER);
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params![artist_id], |row| track_from_row(row))?;
@@ -497,7 +497,7 @@ impl Database {
     }
 
     pub fn get_track_by_id(&self, track_id: i64) -> SqlResult<Track> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let sql = format!("{} WHERE t.id = ?1", TRACK_SELECT);
         conn.query_row(&sql, params![track_id], |row| track_from_row(row))
     }
@@ -533,7 +533,7 @@ impl Database {
         artist_name: Option<&str>,
         album_name: Option<&str>,
     ) -> SqlResult<Vec<Track>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
 
         // Source preference: local files first, then subsonic, then other
         // sources. The cap bounds the title-only tier, where a common title
@@ -596,7 +596,7 @@ impl Database {
     }
 
     pub fn find_track_id_by_path(&self, full_path: &str) -> SqlResult<Option<i64>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         // ORDER BY mirrors `find_track_ids_by_paths`' tie-break: the same
         // computed URI can exist in two collections (two local collections
         // sharing a root), and `PATH_EXPR` is a computed expression no index
@@ -659,7 +659,7 @@ impl Database {
         if full_paths.is_empty() {
             return Ok(Vec::new());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut out = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for chunk in full_paths.chunks(PATH_LOOKUP_CHUNK) {
@@ -745,7 +745,7 @@ impl Database {
         if ids.is_empty() {
             return Ok(vec![]);
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let sql = format!("{} WHERE t.id IN ({})", TRACK_SELECT, placeholders);
         let mut stmt = conn.prepare(&sql)?;
@@ -762,7 +762,7 @@ impl Database {
         if uris.is_empty() {
             return Ok(vec![]);
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let placeholders = uris.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         // Filter on the reconstructed full URI (same CASE expression as TRACK_SELECT)
         let sql = format!(
@@ -1572,10 +1572,17 @@ mod tests {
     /// a query drifts from its index this fails.
     #[test]
     fn test_normalized_lookups_use_the_expression_indexes() {
-        let cases: [(&str, &str); 4] = [
+        let cases: [(&str, &str); 5] = [
             (
                 "SELECT id FROM artists WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
                 "idx_artists_name_norm",
+            ),
+            (
+                // find_tag_by_name
+                "SELECT id, name, track_count, liked FROM tags \
+                 WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1)) \
+                 ORDER BY name = ?1 DESC LIMIT 1",
+                "idx_tags_name_norm",
             ),
             (
                 "SELECT id FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",

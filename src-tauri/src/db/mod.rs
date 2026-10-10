@@ -288,7 +288,22 @@ fn build_order_by(
 }
 
 pub struct Database {
+    /// The one connection that writes, and reads anything not moved to
+    /// `reader`. Scan, sync and every mutation take it.
     conn: Mutex<Connection>,
+    /// A second, read-only connection for the UI's library / search / lookup
+    /// reads (`reader()`). With a single connection every read queued behind
+    /// the scanner's writes on `conn`'s mutex — and since most commands ran on
+    /// the main thread, an open Library page froze the window for the length
+    /// of a scan. WAL lets this connection read the last committed state while
+    /// `conn` writes, so those reads no longer wait on it at all.
+    ///
+    /// Only a method whose body is a pure read may use it: the connection is
+    /// `query_only`, so a write through it fails loudly. A read that must see a
+    /// write made earlier in the *same transaction* stays on `conn` — none of
+    /// the reader methods do (every transaction here opens and closes inside
+    /// one method holding `conn`).
+    reader: Mutex<Connection>,
 }
 
 impl Database {
@@ -413,15 +428,21 @@ impl Database {
         timer.time("db: create_app_dir", || std::fs::create_dir_all(app_dir).ok());
 
         let db_path = app_dir.join("viboplr.db");
-        let conn = timer.time("db: open_connection", || Connection::open(db_path))?;
+        let conn = timer.time("db: open_connection", || Connection::open(&db_path))?;
 
         timer.time("db: register_sql_functions", || Self::register_sql_functions(&conn))?;
 
+        // The schema (and WAL mode, which the reader relies on) must exist before
+        // a read-only connection can open the file, so the writer migrates first
+        // through a placeholder reader that nothing uses until `new` returns.
         let db = Self {
             conn: Mutex::new(conn),
+            reader: Mutex::new(Connection::open_in_memory()?),
         };
         timer.time("db: init_tables", || db.init_tables())?;
         timer.time("db: run_migrations", || db.run_migrations())?;
+        let reader = timer.time("db: open_reader", || Self::open_reader(&db_path))?;
+        *db.reader.lock().unwrap() = reader;
         // Before the counts: merging a duplicate row changes them.
         timer.time("db: repair_separator_duplicates", || db.repair_separator_duplicates())?;
         // Crash safety: keep denormalized counts consistent on every startup.
@@ -434,12 +455,64 @@ impl Database {
         Ok(db)
     }
 
+    /// The read-only connection behind `reader()`. Same scalar functions as the
+    /// writer — the diacritic-insensitive lookups are served by expression
+    /// indexes, which only match when the UDFs are registered on the connection
+    /// running the query.
+    fn open_reader(db_path: &Path) -> SqlResult<Connection> {
+        use rusqlite::OpenFlags;
+        let reader = Connection::open_with_flags(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI,
+        )?;
+        Self::configure_reader(&reader)?;
+        Ok(reader)
+    }
+
+    fn configure_reader(reader: &Connection) -> SqlResult<()> {
+        Self::register_sql_functions(reader)?;
+        reader.execute_batch(
+            "PRAGMA query_only=ON;
+             PRAGMA cache_size=-8000;
+             PRAGMA mmap_size=268435456;
+             PRAGMA temp_store=MEMORY;",
+        )?;
+        // A WAL reader only waits during a checkpoint that resets the log; give
+        // that a moment instead of surfacing SQLITE_BUSY to the UI.
+        reader.busy_timeout(std::time::Duration::from_secs(5))?;
+        Ok(())
+    }
+
+    /// The connection for pure reads — see the `reader` field.
+    pub(crate) fn reader(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.reader.lock().unwrap()
+    }
+
+    /// Tests get a real second connection too (a named shared-cache in-memory
+    /// database), so the reader path — and its `query_only` refusal of any
+    /// write — is exercised exactly as in the app rather than silently aliased
+    /// to the writer.
     #[cfg(test)]
     pub fn new_in_memory() -> SqlResult<Self> {
-        let conn = Connection::open_in_memory()?;
+        use rusqlite::OpenFlags;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let uri = format!(
+            "file:viboplr-test-{}-{}?mode=memory&cache=shared",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        );
+        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = Connection::open_with_flags(&uri, flags)?;
         Self::register_sql_functions(&conn)?;
+        let reader = Connection::open_with_flags(&uri, flags)?;
+        Self::configure_reader(&reader)?;
         let db = Self {
             conn: Mutex::new(conn),
+            reader: Mutex::new(reader),
         };
         db.init_tables()?;
         db.run_migrations()?;

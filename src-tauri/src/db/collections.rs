@@ -149,7 +149,7 @@ impl Database {
     }
 
     pub fn get_collections(&self) -> SqlResult<Vec<Collection>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT id, kind, name, path, url, username, last_synced_at, auto_update, auto_update_interval_mins, enabled, last_sync_duration_secs, last_sync_error FROM collections ORDER BY name"
         )?;
@@ -158,7 +158,7 @@ impl Database {
     }
 
     pub fn get_collection_stats(&self) -> SqlResult<Vec<CollectionStats>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(&format!(
             "SELECT collection_id,
                     COUNT(*) as track_count,

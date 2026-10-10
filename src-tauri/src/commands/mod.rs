@@ -95,6 +95,22 @@ pub struct ImageResolveRegistry {
     pub pending: Mutex<std::collections::HashMap<String, mpsc::Sender<ImageResolveResult>>>,
 }
 
+/// Run a command's database read on the blocking pool instead of the main
+/// thread. Tauri runs a non-`async` command inline on the event loop, so a read
+/// that waited — on a slow query, or (before `Database::reader`) on the
+/// scanner's writes — froze the whole window. DB-touching commands are `async`
+/// and go through this; `test_sync_commands_touching_the_db_are_capped` holds
+/// the line on the ones that are not yet.
+pub(crate) async fn run_db_read<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
 pub struct AppState {
     pub db: Arc<Database>,
     pub app_dir: std::path::PathBuf,
@@ -1049,6 +1065,68 @@ pub(crate) fn test_app_state() -> AppState {
 
 #[cfg(test)]
 mod tests {
+
+    /// Sync `#[tauri::command]`s whose body touches `state.db`, by name. Tauri
+    /// runs a non-`async` command on the main thread, so each of these freezes
+    /// the window for as long as its query — or its wait for the writer's lock —
+    /// takes. The count is a ratchet: new database work goes in an `async`
+    /// command through `run_db_read` (or `spawn_blocking`), and converting one
+    /// of these means lowering `CAP` in the same change.
+    #[test]
+    fn test_sync_commands_touching_the_db_are_capped() {
+        const CAP: usize = 89;
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
+        let mut offenders = Vec::new();
+        let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).collect();
+        files.sort();
+        for path in files.into_iter().filter(|p| p.extension().is_some_and(|e| e == "rs")) {
+            let src = std::fs::read_to_string(&path).unwrap();
+            // Commands only — not the test module (this test names the attribute).
+            let mut rest = src.split("#[cfg(test)]
+mod tests").next().unwrap();
+            while let Some(at) = rest.find("#[tauri::command") {
+                rest = &rest[at..];
+                let sig_at = rest.find("pub ").unwrap();
+                let sig = &rest[sig_at..];
+                let is_async = sig.starts_with("pub async fn");
+                let name: String = sig
+                    .trim_start_matches("pub async fn ")
+                    .trim_start_matches("pub fn ")
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                // The body opens at the first `{` after the return arrow.
+                let arrow = sig.find("->").unwrap_or(0);
+                let open = arrow + sig[arrow..].find('{').unwrap();
+                let mut depth = 0usize;
+                let mut close = open;
+                for (i, c) in sig[open..].char_indices() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                close = open + i;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let body: String = sig[open..close].split_whitespace().collect();
+                if !is_async && body.contains("state.db") {
+                    offenders.push(name);
+                }
+                rest = &sig[close..];
+            }
+        }
+        assert!(
+            offenders.len() <= CAP,
+            "{} sync commands touch state.db (cap {CAP}). Make the new one `async` and run its \
+             database work through `run_db_read`. Offenders: {offenders:?}",
+            offenders.len()
+        );
+    }
     use super::*;
 
     fn test_state() -> AppState {

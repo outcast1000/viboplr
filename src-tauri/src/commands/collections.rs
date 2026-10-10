@@ -306,13 +306,21 @@ pub fn remove_collection(state: State<'_, AppState>, collection_id: i64) -> Resu
 }
 
 #[tauri::command]
-pub fn get_collections(state: State<'_, AppState>) -> Result<Vec<Collection>, String> {
-    state.db.get_collections().map_err(|e| e.to_string())
+pub async fn get_collections(state: State<'_, AppState>) -> Result<Vec<Collection>, String> {
+    let db = state.db.clone();
+    run_db_read(move || {
+        db.get_collections().map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn get_collection_stats(state: State<'_, AppState>) -> Result<Vec<CollectionStats>, String> {
-    state.db.get_collection_stats().map_err(|e| e.to_string())
+pub async fn get_collection_stats(state: State<'_, AppState>) -> Result<Vec<CollectionStats>, String> {
+    let db = state.db.clone();
+    run_db_read(move || {
+        db.get_collection_stats().map_err(|e| e.to_string())
+    })
+    .await
 }
 
 #[tauri::command]

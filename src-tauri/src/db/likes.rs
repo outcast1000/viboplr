@@ -161,7 +161,7 @@ impl Database {
     /// parallel Vec of like states (0 when no row exists). Used to reconcile the
     /// restored queue/now-playing track, whose `QueueTrack`s carry no DB id.
     pub fn get_track_like_states(&self, tracks: &[(String, Option<String>)]) -> SqlResult<Vec<i32>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let mut stmt = conn.prepare(
             "SELECT liked FROM entity_likes WHERE kind = 'track' AND entity_key = ?1",
         )?;
@@ -218,7 +218,7 @@ impl Database {
     /// the detail page of an entity that isn't in the library (an album opened
     /// from Similar, a plugin, a deep link): its like lives only here.
     pub fn get_entity_like_state(&self, kind: &str, entity_key: &str) -> SqlResult<i32> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.reader();
         let v: Option<i32> = conn.query_row(
             "SELECT liked FROM entity_likes WHERE kind = ?1 AND entity_key = ?2",
             params![kind, entity_key],
