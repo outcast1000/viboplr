@@ -1,3 +1,5 @@
+mod assistant_activity;
+mod assistant_describe;
 mod assistant_write;
 mod browse_window;
 mod commands;
@@ -379,6 +381,8 @@ macro_rules! invoke_handler {
             commands::control_api_client_ready,
             commands::assistant_scopes_get,
             commands::assistant_scopes_set,
+            commands::assistant_pause_get,
+            commands::assistant_pause_set,
             commands::assistant_land_download,
             commands::assistant_stage_replacement,
             commands::assistant_confirm_replacement,

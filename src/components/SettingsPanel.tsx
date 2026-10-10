@@ -8,6 +8,8 @@ import type { DiagnosticContext } from "../utils/diagnosticReport";
 import type { PluginState } from "../types/plugin";
 import type { ScrobblerEntry, ScrobbleSettings } from "../utils/scrobblers";
 import { ScrobblingSettings } from "./ScrobblingSettings";
+import { AssistantActivityLog } from "./AssistantActivityLog";
+import type { AssistantActivityState } from "../hooks/useAssistantActivity";
 import type { EngineComponentStatus } from "../playback/nativeEngine";
 import type { InstallProgress } from "../hooks/useDependencies";
 import { bitPerfectBlockers, isBitPerfect } from "../utils/bitPerfect";
@@ -1323,6 +1325,9 @@ interface SettingsPanelProps {
   /** Persists the flag and starts/stops the server; rejects on failure so the
    *  section can surface the error inline. */
   onControlApiEnabledChange: (enabled: boolean) => Promise<void>;
+  /** What the assistant has been doing + the pause switch (one instance, in App,
+   *  shared with the activity pill). */
+  assistantActivity: AssistantActivityState;
   // Logging
   loggingEnabled: boolean;
   onLoggingEnabledChange: (enabled: boolean) => void;
@@ -1438,6 +1443,7 @@ export function SettingsPanel({
   pluginStates,
   controlApiEnabled,
   onControlApiEnabledChange,
+  assistantActivity,
   loggingEnabled,
   onLoggingEnabledChange,
   debugLogging,
@@ -2130,7 +2136,10 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "ai" && (
+              <>
                 <ControlApiSection enabled={controlApiEnabled} onEnabledChange={onControlApiEnabledChange} />
+                {controlApiEnabled && <AssistantActivityLog activity={assistantActivity} />}
+              </>
             )}
 
             {settingsTab === "debug" && (

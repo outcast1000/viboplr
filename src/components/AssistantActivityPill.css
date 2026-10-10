@@ -1,0 +1,163 @@
+/* The assistant activity pill. Fixed over the content like the toast stack
+   (never in the grid: it must take no layout, and it is absent when idle),
+   bottom-right so it clears the toasts' centred column. Opaque surfaces: the
+   native mpv engine punches a hole through the window and anything
+   translucent above it reads over that hole. */
+.aa-wrap {
+  position: fixed;
+  right: 16px;
+  bottom: 96px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+}
+
+.aa-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 4px 3px 4px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(var(--overlay-inverse), 0.25);
+  font-size: var(--fs-xs);
+  animation: fade-in 0.18s ease-out;
+}
+.aa-pill--running { border-color: var(--accent); }
+.aa-pill--outward { border-color: var(--warning); }
+.aa-pill--done { border-color: var(--border); }
+.aa-pill--bad { border-color: var(--error); }
+
+.aa-pill-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 8px 3px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.aa-pill-main:hover { background: var(--bg-hover); }
+.aa-pill-main:focus-visible,
+.aa-pill-btn:focus-visible,
+.aa-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.aa-pill-text {
+  min-width: 0;
+  max-width: 52ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aa-pill-btn {
+  flex: none;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.aa-pill-btn:hover { border-color: var(--accent); }
+.aa-pill-btn--go { border-color: var(--accent); color: var(--accent); }
+
+/* Status dot. One shape for the pill and the rows, coloured by state. */
+.aa-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 0.4em;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+.aa-dot--pill { margin-top: 0; }
+.aa-dot--ok { background: var(--success); }
+.aa-dot--outward { background: var(--warning); }
+.aa-dot--bad { background: var(--error); }
+.aa-dot--running { background: var(--accent); animation: aa-pulse 1.4s ease-in-out infinite; }
+.aa-pill--running .aa-dot--pill { background: var(--accent); animation: aa-pulse 1.4s ease-in-out infinite; }
+.aa-pill--outward .aa-dot--pill { background: var(--warning); }
+.aa-pill--done .aa-dot--pill { background: var(--success); }
+.aa-pill--bad .aa-dot--pill { background: var(--error); }
+@keyframes aa-pulse {
+  50% { opacity: 0.35; transform: scale(0.8); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aa-dot--running,
+  .aa-pill--running .aa-dot--pill { animation: none; }
+}
+
+.aa-panel {
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(60vh, 420px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--ds-radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 28px rgba(var(--overlay-inverse), 0.3);
+  font-size: var(--fs-xs);
+  animation: fade-in 0.18s ease-out;
+}
+.aa-panel-head,
+.aa-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.aa-panel-head {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+}
+.aa-panel-foot { border-top: 1px solid var(--border); flex-wrap: wrap; }
+.aa-foot-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+.aa-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.aa-link:hover { text-decoration: underline; }
+
+.aa-empty { padding: 14px 12px; color: var(--text-secondary); }
+
+.aa-list { list-style: none; margin: 0; padding: 4px 0; overflow-y: auto; }
+.aa-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 12px;
+}
+.aa-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aa-row-label { overflow-wrap: anywhere; }
+.aa-row-detail { color: var(--text-secondary); overflow-wrap: anywhere; }
+.aa-row-result { color: var(--success); overflow-wrap: anywhere; }
+.aa-row-error { color: var(--error); overflow-wrap: anywhere; }
+.aa-row-note { color: var(--warning); font-size: var(--fs-2xs); }
+.aa-row-time { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }

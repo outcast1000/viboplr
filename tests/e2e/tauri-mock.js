@@ -471,6 +471,10 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return '2025.12.08';
     case 'yt_dlp_extract_audio_url':
       return SILENT_WAV;
+    case 'assistant_pause_get':
+      return false;
+    case 'assistant_pause_set':
+      return !!(args && args.paused);
     default:
       console.warn('[tauri-mock] unhandled invoke:', cmd, args);
       return null;

@@ -302,6 +302,30 @@ pub fn assistant_scopes_set(
     Ok(scopes)
 }
 
+/// Whether the user has paused the assistant. Re-read from the profile dir, the
+/// same file the control API's middleware checks, so there is one answer.
+#[tauri::command]
+pub fn assistant_pause_get(state: State<'_, AppState>) -> bool {
+    crate::assistant_activity::is_paused(&state.app_dir)
+}
+
+/// Pause or resume the assistant. While paused, the control API refuses every
+/// write and outward-facing call (reads and UI navigation still work). The
+/// switch survives a restart. Emits `assistant-paused-changed` so every
+/// window's pill agrees.
+#[tauri::command]
+pub fn assistant_pause_set(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    paused: bool,
+) -> Result<bool, String> {
+    use tauri::Emitter;
+    crate::assistant_activity::set_paused(&state.app_dir, paused)?;
+    log::info!("Assistant {} by the user", if paused { "paused" } else { "resumed" });
+    let _ = app.emit(crate::assistant_activity::PAUSED_EVENT, paused);
+    Ok(paused)
+}
+
 #[cfg(test)]
 mod log_tail_tests {
     use super::read_log_tail;

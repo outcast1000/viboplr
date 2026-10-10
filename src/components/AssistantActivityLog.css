@@ -1,0 +1,81 @@
+/* Settings → AI control → Assistant activity. Sits inside a .settings-card. */
+.aal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border);
+}
+.aal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.aal-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.aal-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.aal-chip:hover { border-color: var(--accent); }
+.aal-chip.is-on { border-color: var(--accent); color: var(--text-primary); }
+.aal-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.aal-empty { padding: 18px 4px; color: var(--text-secondary); font-size: var(--fs-sm); }
+.aal-note { color: var(--text-secondary); font-size: var(--fs-xs); }
+
+/* The table scrolls inside its own box so a long log never stretches the page. */
+.aal-scroll {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius);
+}
+.aal-table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: var(--fs-xs); }
+.aal-table th {
+  position: sticky;
+  top: 0;
+  padding: 7px 10px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-align: left;
+  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+}
+.aal-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.aal-table tr:last-child td { border-bottom: 0; }
+.aal-time { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aal-label { overflow-wrap: anywhere; }
+.aal-detail { margin-top: 2px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.aal-resulttext { margin-top: 3px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.aal-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 3px; color: var(--text-secondary); }
+.aal-meta code { font-size: var(--fs-2xs); overflow-wrap: anywhere; }
+
+.aal-tag {
+  padding: 0 7px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+}
+.aal-tag--read,
+.aal-tag--ui { color: var(--text-secondary); }
+.aal-tag--write { color: var(--text-primary); }
+.aal-tag--outward { color: var(--warning); }
+
+.aal-result { white-space: nowrap; }
+.aal-result--ok { color: var(--success); }
+.aal-result--running { color: var(--accent); }
+.aal-result--failed,
+.aal-result--paused { color: var(--error); }
+.aal-error { margin-top: 3px; color: var(--error); overflow-wrap: anywhere; }

@@ -53,6 +53,7 @@ function startFakeApi(): Promise<{ port: number; seen: SeenRequest[]; close: () 
       return reply(200, {
         ok: true, version: "1.0.57", profile: "default",
         writeScopes: { modifyTags: true, manageFiles: false, downloads: false },
+        paused: false,
       });
     if (req.url?.startsWith("/v1/ui")) {
       // UI verbs: echo what arrived, so a test can assert the routing.
@@ -519,6 +520,7 @@ describe("MCP server over stdio", () => {
       installed: "1.0.57",
       profile: "default",
       writeScopes: { modifyTags: true, manageFiles: false, downloads: false },
+      paused: false,
       mcp: { version: expect.any(String) },
     });
   });

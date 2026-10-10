@@ -64,6 +64,8 @@ import type { TagOpsDeps } from "./utils/tagOps";
 import { TagOpsProvider } from "./contexts/TagOpsContext";
 import { createCoalescedRefresh } from "./utils/coalescedRefresh";
 import { useToasts } from "./hooks/useToasts";
+import { useAssistantActivity } from "./hooks/useAssistantActivity";
+import { AssistantActivityPill } from "./components/AssistantActivityPill";
 import { useUserPlaylists } from "./hooks/useUserPlaylists";
 import { toPlaylistTrackPayload } from "./utils/playlistPayload";
 import { useProfileSwitch } from "./hooks/useProfileSwitch";
@@ -1078,6 +1080,7 @@ function App() {
   // Toasts — created before stream resolution and the updater so their
   // failure/fallback paths can surface feedback.
   const { toasts, notify, dismiss: dismissToast } = useToasts();
+  const assistantActivity = useAssistantActivity(notify);
 
   // Bit-perfect mode (native engine, macOS + Windows): session-only overlay
   // the engine applies — see useBitPerfect / mpv_engine/output.rs.
@@ -6321,6 +6324,7 @@ function App() {
               pluginStates={plugins.pluginStates}
               controlApiEnabled={controlApiEnabled}
               onControlApiEnabledChange={handleControlApiEnabledChange}
+              assistantActivity={assistantActivity}
               loggingEnabled={loggingEnabled}
               onLoggingEnabledChange={handleLoggingEnabledChange}
               debugLogging={debugLogging}
@@ -7239,6 +7243,16 @@ function App() {
       )}
 
       {!showcase && <Toasts toasts={toasts} onDismiss={dismissToast} />}
+
+      <AssistantActivityPill
+        activity={assistantActivity}
+        enabled={controlApiEnabled}
+        hidden={showcase || mini.miniMode}
+        onOpenLog={() => {
+          setSettingsScrollTarget("assistant-activity");
+          library.setView("settings");
+        }}
+      />
 
       {fileDragOver && (
         <div className="file-drop-overlay" aria-hidden="true">

@@ -17,6 +17,8 @@ export const SECTION_TABS: Record<string, SettingsTab> = {
   // The update notice banner's "Details" lands here.
   "app-update": "general",
   "control-api": "ai",
+  // The assistant activity pill's "Open full log" lands here.
+  "assistant-activity": "ai",
   "scrobbling": "scrobbling",
 };
 

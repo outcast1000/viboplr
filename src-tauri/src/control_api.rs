@@ -52,6 +52,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 
+use crate::assistant_activity::{self, ActivityEvent, Kind};
+use crate::assistant_describe;
 use crate::db::Database;
 use crate::models::TrackQuery;
 
@@ -92,6 +94,8 @@ pub struct ControlApi {
     /// Bridged requests awaiting a `control_api_respond` from the webview.
     pending: Mutex<HashMap<u64, PendingSender>>,
     next_id: AtomicU64,
+    /// Ids for the activity events one request's `start` and `end` share.
+    activity_seq: AtomicU64,
     /// Set by `control_api_client_ready`; bridged routes answer 503 before it.
     webview_ready: AtomicBool,
     /// Session token. Reused from the discovery file across restarts so a
@@ -105,6 +109,7 @@ impl Default for ControlApi {
             running: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            activity_seq: AtomicU64::new(1),
             webview_ready: AtomicBool::new(false),
             token: Mutex::new(None),
         }
@@ -184,6 +189,9 @@ pub(crate) struct ServerState {
     db: Arc<Database>,
     api: Arc<ControlApi>,
     emit: Arc<dyn Fn(&ControlRequest) + Send + Sync>,
+    /// Tells the webview what the assistant is doing (`assistant-activity`).
+    /// Presentation only: the pause switch is enforced in `activity_middleware`.
+    emit_activity: Arc<dyn Fn(&ActivityEvent) + Send + Sync>,
     bridge_timeout: Duration,
     version: String,
     profile: String,
@@ -290,12 +298,17 @@ pub fn start(
         .port();
 
     let emit_handle = app.clone();
+    let activity_handle = app.clone();
     let state = ServerState {
         db,
         api: Arc::clone(api),
         emit: Arc::new(move |req: &ControlRequest| {
             use tauri::Emitter;
             let _ = emit_handle.emit("control-api-request", req.clone());
+        }),
+        emit_activity: Arc::new(move |event: &ActivityEvent| {
+            use tauri::Emitter;
+            let _ = activity_handle.emit(assistant_activity::ACTIVITY_EVENT, event.clone());
         }),
         bridge_timeout: BRIDGE_TIMEOUT,
         version: version.to_string(),
@@ -415,6 +428,7 @@ fn error_response(status: StatusCode, message: impl Into<String>) -> Response {
 
 pub(crate) fn build_router(state: ServerState) -> Router {
     let auth_state = state.clone();
+    let activity_state = state.clone();
     Router::new()
         // Backend-direct reads (pure DB).
         .route("/v1/health", get(handle_health))
@@ -529,6 +543,8 @@ pub(crate) fn build_router(state: ServerState) -> Router {
         .route("/v1/extensions/{id}/enabled", post(|s, p, b| handle_extension_bridge(s, p, "extensions.setEnabled", b)))
         .route("/v1/extensions/{id}/install", post(handle_extension_install))
         .route("/v1/skins/apply", post(|s, b| handle_bridge_body(s, "skins.apply", json!({}), b)))
+        // Inside auth: an unauthenticated request is not the assistant's activity.
+        .layer(middleware::from_fn_with_state(activity_state, activity_middleware))
         .layer(middleware::from_fn_with_state(auth_state, auth_middleware))
         // Outermost, so rejected (401/405) requests are logged too.
         .layer(middleware::from_fn(log_middleware))
@@ -556,6 +572,195 @@ async fn log_middleware(req: Request, next: Next) -> Response {
         log::info!("Control API: {} {} -> {} ({}ms)", method, route, status.as_u16(), ms);
     }
     response
+}
+
+/// Tells the user what the assistant is doing, and enforces their pause switch.
+///
+/// Every request that reaches a route passes here once, whether it came over
+/// the socket or through `control_api_call` (the router is the same). A
+/// request that changes something announces itself when it starts, so the pill
+/// can show "running…" for a slow plugin tool; a read announces itself once,
+/// at the end, since there is nothing to wait for. Failures carry the error
+/// text the caller got.
+///
+/// **Pause is decided here, in Rust, before any bridge**: a paused write never
+/// reaches the webview, a handler or a plugin. The marker file is re-read per
+/// request (see `assistant_activity::is_paused`).
+async fn activity_middleware(
+    AxumState(state): AxumState<ServerState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let method = req.method().to_string();
+    let Some(route) = req.extensions().get::<MatchedPath>().map(|p| p.as_str().to_string()) else {
+        // Unmatched: the router answers 404/405 itself; nothing to report.
+        return next.run(req).await;
+    };
+    let classified = assistant_activity::classify(&method, &route);
+    let kind = classified.kind;
+    let mut label = classified.label.to_string();
+    let path = req.uri().path().to_string();
+    let query = req.uri().query().map(str::to_string);
+    let mut req = req;
+
+    // What the call was asked to do. Reads are not described (they are in the
+    // log by label alone), so their bodies are never touched.
+    let mut detail: Option<String> = None;
+    if kind != Kind::Read {
+        let (parts, body) = req.into_parts();
+        let bytes = match axum::body::to_bytes(body, 8 * 1024 * 1024).await {
+            Ok(b) => b,
+            Err(e) => return error_response(StatusCode::PAYLOAD_TOO_LARGE, e.to_string()),
+        };
+        if route == "/v1/assistant/invoke" {
+            // The pill and the log should say *which* tool ran.
+            label = assistant_activity::plugin_tool_label(&label, &bytes);
+        }
+        let mut payload = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+        if let Some(q) = query.as_deref() {
+            merge_query(&mut payload, q);
+        }
+        let subjects = assistant_describe::subjects(&path, &payload);
+        let names = if subjects.track_ids.is_empty() && subjects.playlist_id.is_none() {
+            assistant_describe::Names::default()
+        } else {
+            let db = Arc::clone(&state.db);
+            tokio::task::spawn_blocking(move || lookup_names(&db, &subjects))
+                .await
+                .unwrap_or_default()
+        };
+        detail = assistant_describe::describe(&route, &path, &payload, &names);
+        req = Request::from_parts(parts, axum::body::Body::from(bytes));
+    }
+
+    let id = state.api.activity_seq.fetch_add(1, Ordering::Relaxed);
+    let event = |phase: &'static str| ActivityEvent {
+        id,
+        phase,
+        at_ms: assistant_activity::now_ms(),
+        method: method.clone(),
+        route: route.clone(),
+        label: label.clone(),
+        kind,
+        outcome: None,
+        status: None,
+        error: None,
+        detail: detail.clone(),
+        result: None,
+        duration_ms: None,
+    };
+
+    if kind.blocked_when_paused() && assistant_activity::is_paused(&state.app_dir) {
+        log::info!("Assistant call refused (paused): {}{}", label, detail_suffix(&detail));
+        (state.emit_activity)(&ActivityEvent {
+            outcome: Some("paused"),
+            status: Some(StatusCode::LOCKED.as_u16()),
+            error: Some(assistant_activity::PAUSED_MESSAGE.to_string()),
+            duration_ms: Some(0),
+            ..event("end")
+        });
+        return error_response(StatusCode::LOCKED, assistant_activity::PAUSED_MESSAGE);
+    }
+
+    if kind != Kind::Read {
+        (state.emit_activity)(&event("start"));
+    }
+    let started = Instant::now();
+    let response = next.run(req).await;
+    let status = response.status();
+    let ok = !(status.is_client_error() || status.is_server_error());
+
+    // A failure's reason is the `{ "error": … }` body the caller already got;
+    // a success's body says what came back ("added 2, skipped 1 duplicate").
+    // Read it and hand the same bytes back. Reads are passed through untouched
+    // (their bodies can be large and say nothing the log needs).
+    let (response, error, result) = if ok && kind == Kind::Read {
+        (response, None, None)
+    } else {
+        let (parts, body) = response.into_parts();
+        match axum::body::to_bytes(body, usize::MAX).await {
+            Ok(bytes) => {
+                let json = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+                let (error, result) = if ok {
+                    (None, assistant_describe::describe_result(&route, &json))
+                } else {
+                    let message = json["error"]
+                        .as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("HTTP {}", status.as_u16()));
+                    (Some(message), None)
+                };
+                (Response::from_parts(parts, axum::body::Body::from(bytes)), error, result)
+            }
+            Err(_) => (
+                Response::from_parts(parts, axum::body::Body::empty()),
+                if ok { None } else { Some(format!("HTTP {}", status.as_u16())) },
+                None,
+            ),
+        }
+    };
+    let duration_ms = started.elapsed().as_millis() as u64;
+    if kind != Kind::Read {
+        // The durable trace: one line per call that changed or handed off
+        // something, naming what it touched. (The file-writing verbs also log
+        // their own `Assistant change [verb]` lines with the paths.)
+        match (&error, &result) {
+            (Some(e), _) => log::warn!("Assistant call failed: {}{} — {}", label, detail_suffix(&detail), e),
+            (None, Some(r)) => log::info!("Assistant call: {}{} → {}", label, detail_suffix(&detail), r),
+            (None, None) => log::info!("Assistant call: {}{}", label, detail_suffix(&detail)),
+        }
+    }
+    (state.emit_activity)(&ActivityEvent {
+        outcome: Some(if ok { "ok" } else { "failed" }),
+        status: Some(status.as_u16()),
+        error,
+        result,
+        duration_ms: Some(duration_ms),
+        ..event("end")
+    });
+    response
+}
+
+fn detail_suffix(detail: &Option<String>) -> String {
+    detail.as_deref().map(|d| format!(" — {}", d)).unwrap_or_default()
+}
+
+/// Fold a request's query string into its body, the way the bridged handlers
+/// do (`DELETE /v1/cues?title=…`): a body field wins over a query one.
+fn merge_query(payload: &mut Value, query: &str) {
+    if payload.is_null() {
+        *payload = json!({});
+    }
+    let Some(obj) = payload.as_object_mut() else { return };
+    for pair in query.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        let decode = |s: &str| urlencoding::decode(&s.replace('+', " ")).map(|c| c.into_owned()).unwrap_or_else(|_| s.to_string());
+        obj.entry(decode(k)).or_insert_with(|| Value::String(decode(v)));
+    }
+}
+
+/// Names for the ids a call mentions, so its description can say which track
+/// or playlist rather than how many. Best-effort: a failed lookup only means a
+/// count is shown instead.
+fn lookup_names(db: &Database, subjects: &assistant_describe::Subjects) -> assistant_describe::Names {
+    let mut names = assistant_describe::Names::default();
+    if !subjects.track_ids.is_empty() {
+        if let Ok(tracks) = db.get_tracks_by_ids(&subjects.track_ids) {
+            for t in tracks {
+                let label = match t.artist_name.as_deref().filter(|a| !a.is_empty()) {
+                    Some(a) => format!("{} – {}", t.title, a),
+                    None => t.title.clone(),
+                };
+                names.tracks.insert(t.id, label);
+            }
+        }
+    }
+    if let Some(id) = subjects.playlist_id {
+        if let Ok(playlists) = db.get_playlists() {
+            names.playlist = playlists.into_iter().find(|p| p.id == id).map(|p| p.name);
+        }
+    }
+    names
 }
 
 /// Bearer-token gate on every route. `OPTIONS` is refused outright and no
@@ -615,6 +820,7 @@ async fn handle_health(AxumState(state): AxumState<ServerState>) -> Response {
         "profile": state.profile,
         "pid": std::process::id(),
         "writeScopes": scopes,
+        "paused": assistant_activity::is_paused(&state.app_dir),
     }))
     .into_response()
 }
@@ -1891,6 +2097,7 @@ mod tests {
             db: Arc::new(Database::new_in_memory().expect("in-memory db")),
             api,
             emit,
+            emit_activity: Arc::new(|_| {}),
             bridge_timeout: Duration::from_millis(50),
             version: "0.0.0-test".to_string(),
             profile: "test".to_string(),
@@ -2308,6 +2515,180 @@ mod tests {
         );
         *api_slot.lock().unwrap() = Some(Arc::clone(&state.api));
         state
+    }
+
+    fn recording_activity(state: &mut ServerState) -> Arc<Mutex<Vec<ActivityEvent>>> {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        state.emit_activity = Arc::new(move |e: &ActivityEvent| sink.lock().unwrap().push(e.clone()));
+        events
+    }
+
+    #[tokio::test]
+    async fn test_paused_assistant_is_refused_before_the_bridge_and_reads_still_work() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::assistant_activity::set_paused(dir.path(), true).unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut state = assistant_state(dir.path().to_path_buf(), Arc::clone(&seen));
+        let events = recording_activity(&mut state);
+        let router = build_router(state);
+
+        // A write is refused with 423 and never reaches the webview.
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/likes", TEST_TOKEN, r#"{"kind":"track"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::LOCKED);
+        assert!(body_json(res).await["error"].as_str().unwrap().contains("paused"));
+        assert!(seen.lock().unwrap().is_empty(), "a paused write must not reach the bridge");
+
+        // So is a plugin tool, even one that would be read-only: the host
+        // cannot tell, so the whole plugin surface waits.
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/assistant/invoke", TEST_TOKEN, r#"{"pluginId":"p","tool":"t"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::LOCKED);
+
+        // Reads and UI navigation pass.
+        let res = router.clone().oneshot(request("GET", "/v1/status", Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let res = router
+            .clone()
+            .oneshot(request_json("POST", "/v1/ui/navigate", TEST_TOKEN, r#"{"view":"home"}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // Health says so, so a client can tell up front.
+        let res = router.clone().oneshot(request("GET", "/v1/health", Some(TEST_TOKEN))).await.unwrap();
+        assert_eq!(body_json(res).await["paused"], json!(true));
+
+        let events = events.lock().unwrap();
+        let refused: Vec<_> = events.iter().filter(|e| e.outcome == Some("paused")).collect();
+        assert_eq!(refused.len(), 2);
+        assert!(refused.iter().all(|e| e.phase == "end" && e.status == Some(423)));
+    }
+
+    #[tokio::test]
+    async fn test_resuming_lets_writes_through_again() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::assistant_activity::set_paused(dir.path(), true).unwrap();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let router = build_router(assistant_state(dir.path().to_path_buf(), Arc::clone(&seen)));
+        let post = || request_json("POST", "/v1/likes", TEST_TOKEN, r#"{"kind":"track"}"#);
+        assert_eq!(router.clone().oneshot(post()).await.unwrap().status(), StatusCode::LOCKED);
+        // The marker is re-read per request, so no restart or rebuild is needed.
+        crate::assistant_activity::set_paused(dir.path(), false).unwrap();
+        assert_eq!(router.oneshot(post()).await.unwrap().status(), StatusCode::OK);
+        assert_eq!(*seen.lock().unwrap(), vec!["likes.set"]);
+    }
+
+    #[tokio::test]
+    async fn test_a_write_announces_start_and_end_and_a_read_only_its_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = assistant_state(dir.path().to_path_buf(), Arc::new(Mutex::new(Vec::new())));
+        let events = recording_activity(&mut state);
+        let router = build_router(state);
+
+        router
+            .clone()
+            .oneshot(request_json("POST", "/v1/likes", TEST_TOKEN, r#"{"kind":"track"}"#))
+            .await
+            .unwrap();
+        router.clone().oneshot(request("GET", "/v1/status", Some(TEST_TOKEN))).await.unwrap();
+        router
+            .oneshot(request_json("POST", "/v1/assistant/invoke", TEST_TOKEN, r#"{"pluginId":"spotify-browse","tool":"get_playlist_tracks"}"#))
+            .await
+            .unwrap();
+
+        let events = events.lock().unwrap();
+        let phases: Vec<_> = events.iter().map(|e| (e.route.as_str(), e.phase)).collect();
+        assert_eq!(
+            phases,
+            vec![
+                ("/v1/likes", "start"),
+                ("/v1/likes", "end"),
+                ("/v1/status", "end"),
+                ("/v1/assistant/invoke", "start"),
+                ("/v1/assistant/invoke", "end"),
+            ]
+        );
+        assert_eq!(events[0].id, events[1].id, "start and end of one request share an id");
+        assert_ne!(events[1].id, events[2].id);
+        assert_eq!(events[1].outcome, Some("ok"));
+        assert_eq!(events[2].kind, Kind::Read);
+        // The pill names the tool, not just "a plugin tool".
+        assert_eq!(events[3].label, "Run a plugin tool · spotify-browse: get_playlist_tracks");
+    }
+
+    #[tokio::test]
+    async fn test_events_say_what_the_call_touched_not_just_its_kind() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = assistant_state(dir.path().to_path_buf(), Arc::new(Mutex::new(Vec::new())));
+        let events = recording_activity(&mut state);
+        let router = build_router(state);
+
+        router
+            .clone()
+            .oneshot(request_json(
+                "POST",
+                "/v1/likes",
+                TEST_TOKEN,
+                r#"{"kind":"track","title":"So What","artistName":"Miles Davis","likeState":1}"#,
+            ))
+            .await
+            .unwrap();
+        // A DELETE addressed by query string is described like a body would be,
+        // and the handler still receives the query (the song is not lost).
+        router
+            .clone()
+            .oneshot(request("DELETE", "/v1/cues?title=Blue+in+Green&artistName=Miles%20Davis", Some(TEST_TOKEN)))
+            .await
+            .unwrap();
+        // A plugin tool's arguments are summarised, secrets masked.
+        router
+            .oneshot(request_json(
+                "POST",
+                "/v1/assistant/invoke",
+                TEST_TOKEN,
+                r#"{"pluginId":"spotify-browse","tool":"push_playlist","args":{"name":"Road trip","token":"hunter2"}}"#,
+            ))
+            .await
+            .unwrap();
+
+        let events = events.lock().unwrap();
+        let ends: Vec<_> = events.iter().filter(|e| e.phase == "end").collect();
+        assert_eq!(ends[0].detail.as_deref(), Some("Liked track “So What” – Miles Davis"));
+        assert_eq!(ends[1].detail.as_deref(), Some("“Blue in Green” – Miles Davis"));
+        let tool = ends[2].detail.as_deref().unwrap();
+        assert!(tool.contains("name=“Road trip”") && tool.contains("token=…") && !tool.contains("hunter2"), "{tool}");
+        // The start event carries it too, so the pill can say it while running.
+        assert_eq!(events[0].phase, "start");
+        assert_eq!(events[0].detail, ends[0].detail);
+    }
+
+    #[tokio::test]
+    async fn test_a_failed_request_carries_the_error_the_caller_got() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = test_state_in(noop_emit(), dir.path().to_path_buf());
+        let events = recording_activity(&mut state);
+        let router = build_router(state);
+        // No scope: the handler answers 403 with a message naming the switch.
+        let res = router
+            .oneshot(request_json("POST", "/v1/files/move", TEST_TOKEN, r#"{}"#))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::FORBIDDEN);
+        // The caller still gets the full body despite the middleware reading it.
+        let body = body_json(res).await;
+        let events = events.lock().unwrap();
+        let end = events.iter().find(|e| e.phase == "end").unwrap();
+        assert_eq!(end.outcome, Some("failed"));
+        assert_eq!(end.status, Some(403));
+        assert_eq!(end.error.as_deref(), body["error"].as_str());
     }
 
     #[tokio::test]

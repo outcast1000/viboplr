@@ -158,6 +158,15 @@ declares nothing is treated as one that changes things. Listing actions and
 tools never needs the switch. Plugin-to-plugin calls (`api.assistant.invoke`)
 are not gated — the switch is about what the *assistant* may do.
 
+Separately from the switches, the user can **pause the assistant** (the Pause
+button on the activity pill, or Settings → AI control → Assistant activity).
+While paused, every request that changes something or hands work to a plugin —
+every write, queue/playback control, and every plugin tool, read-only or not —
+is refused with **HTTP 423 (Locked)** before it reaches the app, and the error
+says the user paused it. Reads, search and page navigation keep working. A 423
+means *stop and tell the user*; retrying will not help until they press Resume.
+`app_version` reports `paused`.
+
 `app_version` reports the current switches (`writeScopes`), and every applied write is recorded in the app log as an
 `Assistant change [...]` line (the `logs` tool and problem reports, while
 logging is on).
