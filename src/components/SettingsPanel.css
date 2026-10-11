@@ -697,3 +697,34 @@
   color: var(--text-secondary);
   cursor: pointer;
 }
+/* The last attempt, under the row's description: a dot in the skin's
+   semantic colour plus the words (the colour is never the only signal). */
+.scrobbler-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.scrobbler-status-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+.scrobbler-status--success .scrobbler-status-dot { background: var(--success); }
+.scrobbler-status--warning .scrobbler-status-dot { background: var(--warning); }
+.scrobbler-status--error .scrobbler-status-dot { background: var(--error); }
+.scrobbler-status--error .scrobbler-status-text { color: var(--error); }
+.scrobbler-status-report {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}

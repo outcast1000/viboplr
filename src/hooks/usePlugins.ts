@@ -74,6 +74,7 @@ import {
 } from "../utils/infoFetchChain";
 import { CallGraph, callableProblem, describePlugins } from "../utils/crossPluginCalls";
 import { sanitizeSeekMarkers, type SeekMarker } from "../utils/seekMarkers";
+import { coerceScrobbleReport, type ScrobbleReport } from "../utils/scrobblers";
 import { requestDetailTab } from "../utils/pendingDetailTab";
 import {
   addTags, editTrackTags, NO_TAG_REFRESH, removeTags, writeFileMetadata,
@@ -299,6 +300,13 @@ export interface PluginPlaybackCallbacks {
   }) => Promise<number>;
 }
 
+/** One handler's answer to a dispatched event (`dispatchEventTo`). */
+export interface PluginEventResult {
+  pluginId: string;
+  value?: unknown;
+  error?: unknown;
+}
+
 export interface PluginHostCallbacks {
   /** Refresh hooks for the shared tag ops (utils/tagOps.ts). */
   tagOps?: TagOpsDeps;
@@ -316,6 +324,9 @@ export interface PluginHostCallbacks {
   clearSeekMarkers?: (pluginId: string) => void;
   /** `api.ui.navigateToEntity`: open the page (the tab is already parked). */
   navigateToEntity?: (kind: "track" | "album" | "artist", ref: { name: string; artistName?: string; albumTitle?: string }) => void;
+  /** `api.playback.reportScrobble`: a later outcome for this scrobbler.
+   *  Already coerced; the plugin is subscribed to `track:scrobbled`. */
+  reportScrobble?: (pluginId: string, report: ScrobbleReport) => void;
 }
 
 export function usePlugins(
@@ -840,6 +851,16 @@ export function usePlugins(
             // before must not draw on this one.
             if (typeof trackKey !== "string" || trackKey !== currentTrackRef.current?.key) return;
             hostCallbacksRef?.current?.setSeekMarkers?.(pluginId, trackKey, sanitizeSeekMarkers(markers));
+          },
+          reportScrobble: (report) => {
+            const clean = coerceScrobbleReport(report);
+            if (!clean) throw new Error("reportScrobble: status must be one of sent, queued, skipped, failed");
+            // Only a scrobbler has a row to show it under.
+            if (!eventHandlersRef.current["track:scrobbled"].some((h) => h.pluginId === pluginId)) {
+              recordPluginLog("warn", "reportScrobble ignored: subscribe with onTrackScrobbled first", pluginId);
+              return;
+            }
+            hostCallbacksRef?.current?.reportScrobble?.(pluginId, clean);
           },
           getCurrentTrack: () => currentTrackRef.current,
           isPlaying: () => playingRef.current ?? false,
@@ -2802,26 +2823,33 @@ export function usePlugins(
   /** Deliver `event` to the plugins `accept` lets through — how the
    *  Settings → Scrobbling media choices reach `track:scrobbled`. Returns how
    *  many plugins were offered it and how many took it without throwing (a
-   *  plugin with several handlers counts once, and only if none threw). A
-   *  worker plugin's handler is a stub, so a failure inside the worker is not
-   *  seen here. */
+   *  plugin with several handlers counts once, and only if none threw), plus
+   *  each handler's own `results` entry: what it returned (for a worker
+   *  plugin, a promise of what the worker's handler returned — or rejected
+   *  with), or the error it threw. */
   const dispatchEventTo = useCallback(
-    (event: PluginEventName, accept: (pluginId: string) => boolean, ...args: unknown[]): { offered: number; delivered: number } => {
+    (event: PluginEventName, accept: (pluginId: string) => boolean, ...args: unknown[]): {
+      offered: number;
+      delivered: number;
+      results: PluginEventResult[];
+    } => {
       const offered = new Set<string>();
       const failed = new Set<string>();
+      const results: PluginEventResult[] = [];
       // Copy: a handler may unsubscribe itself while we iterate, and splicing
       // the live array would skip the handler after it.
       for (const { pluginId, handler } of [...eventHandlersRef.current[event]]) {
         if (!accept(pluginId)) continue;
         offered.add(pluginId);
         try {
-          handler(...args);
+          results.push({ pluginId, value: (handler as (...a: unknown[]) => unknown)(...args) });
         } catch (e) {
           failed.add(pluginId);
+          results.push({ pluginId, error: e });
           console.error(`[plugin:${pluginId}] event ${event} error:`, e);
         }
       }
-      return { offered: offered.size, delivered: offered.size - failed.size };
+      return { offered: offered.size, delivered: offered.size - failed.size, results };
     },
     [],
   );

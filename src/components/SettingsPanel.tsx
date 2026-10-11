@@ -6,7 +6,7 @@ import type { TimingEntry } from "../startupTiming";
 import type { UpdateState } from "../hooks/useAppUpdater";
 import type { DiagnosticContext } from "../utils/diagnosticReport";
 import type { PluginState } from "../types/plugin";
-import type { ScrobblerEntry, ScrobbleSettings } from "../utils/scrobblers";
+import type { ScrobbleDefaults, ScrobblerEntry, ScrobblerStatuses, ScrobbleSettings } from "../utils/scrobblers";
 import { ScrobblingSettings } from "./ScrobblingSettings";
 import { AssistantActivityLog } from "./AssistantActivityLog";
 import type { AssistantActivityState } from "../hooks/useAssistantActivity";
@@ -1276,6 +1276,10 @@ interface SettingsPanelProps {
   /** Takes an updater, so two changes in one batch both land. */
   onScrobbleSettingsChange: (update: (prev: ScrobbleSettings) => ScrobbleSettings) => void;
   scrobblers: ScrobblerEntry[];
+  /** Each scrobbler's last attempt, shown under its row. */
+  scrobblerStatuses: ScrobblerStatuses;
+  /** Scrobblers that start off until turned on (manifest `scrobbler.defaultEnabled`). */
+  scrobbleDefaults: ScrobbleDefaults;
   videoStoryboards: boolean;
   onVideoStoryboardsChange: (enabled: boolean) => void;
   radioOptions: RadioOptions;
@@ -1401,6 +1405,8 @@ export function SettingsPanel({
   scrobbleSettings,
   onScrobbleSettingsChange,
   scrobblers,
+  scrobblerStatuses,
+  scrobbleDefaults,
   videoStoryboards,
   onVideoStoryboardsChange,
   radioOptions,
@@ -2129,7 +2135,14 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "scrobbling" && (
-                <ScrobblingSettings scrobblers={scrobblers} settings={scrobbleSettings} onChange={onScrobbleSettingsChange} />
+                <ScrobblingSettings
+                  scrobblers={scrobblers}
+                  settings={scrobbleSettings}
+                  onChange={onScrobbleSettingsChange}
+                  statuses={scrobblerStatuses}
+                  defaults={scrobbleDefaults}
+                  onReportProblem={onReportProblem}
+                />
             )}
 
             {settingsTab === "providers" && (

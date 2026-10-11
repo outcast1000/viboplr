@@ -347,17 +347,31 @@ function activate(api) {
     });
   });
 
+  // The returned report is the status line under Last.fm in Settings →
+  // Scrobbling (older hosts ignore it).
   api.playback.onTrackScrobbled(function (track) {
-    if (!state.sessionKey || !track) return;
+    if (!track) return;
+    if (!state.sessionKey) return { status: "skipped", message: "Connect Last.fm in its settings to scrobble" };
     var artist = track.artist_name;
     var title = track.title;
-    if (!artist || !title) return;
+    if (!artist || !title) return { status: "skipped", message: "Last.fm needs an artist and a title" };
     var ts = String(Math.floor(Date.now() / 1000));
     var extra = [["artist", artist], ["track", title], ["timestamp", ts]];
     if (track.album_title) extra.push(["album", track.album_title]);
     if (track.duration_secs) extra.push(["duration", String(Math.round(track.duration_secs))]);
-    lastfmSignedPost("track.scrobble", extra).catch(function (err) {
+    return lastfmSignedPost("track.scrobble", extra).then(function (data) {
+      // Last.fm answers 200 for a scrobble it ignored (bad timestamp, a
+      // filtered artist…), with the reason inside.
+      var attr = data && data.scrobbles && data.scrobbles["@attr"];
+      if (attr && Number(attr.ignored) > 0) {
+        var ignored = data.scrobbles.scrobble && data.scrobbles.scrobble.ignoredMessage;
+        var reason = ignored && ignored["#text"];
+        return { status: "skipped", message: "Last.fm ignored it" + (reason ? ": " + reason : "") };
+      }
+      return { status: "sent" };
+    }, function (err) {
       console.warn("[lastfm] scrobble error:", err.message);
+      return { status: "failed", message: err.message };
     });
   });
 

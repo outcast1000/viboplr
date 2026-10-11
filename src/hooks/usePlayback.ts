@@ -394,6 +394,9 @@ export function usePlayback(
   const scrobbledRef = useRef(false);
   const [scrobbled, setScrobbled] = useState(false);
   const scrobbleAcceptedRef = useRef(false);
+  // Bumped by every reset, so a late `settled` answer can't put a checkmark
+  // on the next play.
+  const scrobbleGenRef = useRef(0);
   // Runs inside the position handlers, so it must never throw into them —
   // that would skip the tick's preload / crossfade decisions.
   function crossScrobbleThreshold(track: QueueTrack) {
@@ -408,8 +411,17 @@ export function usePlayback(
     scrobbledRef.current = true;
     scrobbleAcceptedRef.current = outcome.accepted;
     setScrobbled(outcome.accepted);
+    if (outcome.settled) {
+      const gen = scrobbleGenRef.current;
+      outcome.settled.then((accepted) => {
+        if (scrobbleGenRef.current !== gen) return;
+        scrobbleAcceptedRef.current = accepted;
+        setScrobbled(accepted);
+      }).catch((e) => console.error("Failed to settle the scrobble:", e));
+    }
   }
   function resetScrobble(state: { crossed: boolean; accepted: boolean } = { crossed: false, accepted: false }) {
+    scrobbleGenRef.current++;
     scrobbledRef.current = state.crossed;
     scrobbleAcceptedRef.current = state.accepted;
     setScrobbled(state.accepted);

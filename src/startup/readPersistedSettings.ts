@@ -26,6 +26,8 @@ export interface PersistedSettings {
   trackVideoHistory: boolean | undefined;
   /** Coerced by App (`coerceScrobbleSettings`). */
   scrobbleSettings: unknown;
+  /** Each scrobbler's last attempt. Coerced by App (`coerceScrobblerStatuses`). */
+  scrobblerStatus: unknown;
   preferVideoResolution: boolean | undefined;
   videoSubtitles: boolean | undefined;
   miniMode: boolean | undefined;
@@ -121,6 +123,7 @@ export async function readPersistedSettings(store: AppStore): Promise<PersistedS
     telemetryEnabled: read<boolean>("telemetryEnabled"),
     trackVideoHistory: read<boolean>("trackVideoHistory"),
     scrobbleSettings: read<unknown>("scrobbleSettings"),
+    scrobblerStatus: read<unknown>("scrobblerStatus"),
     preferVideoResolution: read<boolean>("preferVideoResolution"),
     // Kept under the legacy `videoLyricsOverlay` key for back-compat with saved
     // prefs (the overlay was formerly a theater-only "lyrics" toggle).

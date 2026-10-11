@@ -8,12 +8,14 @@ import type {
 // One definition, shared by the plugin API and the host's own renderer/cache — a
 // plugin-supplied storyboard and a locally generated one are the same shape.
 import type { Storyboard } from "../utils/storyboard";
+// Same reason: the host's Settings → Scrobbling status reads what plugins report.
+import type { ScrobbleReport } from "../utils/scrobblers";
 import type {
   PluginVisualizerAPI,
   PluginVisualizerDescriptor,
 } from "./pluginVisualizer";
 
-export type { Storyboard };
+export type { Storyboard, ScrobbleReport };
 export type * from "./pluginVisualizer";
 
 // -- Manifest types --
@@ -175,6 +177,10 @@ export interface PluginManifestContributes {
   visualizers?: PluginVisualizerDescriptor[];
   /** Tools + instructions for AI assistants driving the control API. */
   assistant?: PluginManifestAssistant;
+  /** For a plugin that subscribes to `track:scrobbled`. `defaultEnabled:
+   *  false` starts it switched off in Settings → Scrobbling until the user
+   *  turns it on — for a scrobbler that sends plays off the machine. */
+  scrobbler?: { defaultEnabled?: boolean };
 }
 
 export interface PluginApiUsage {
@@ -902,7 +908,19 @@ export interface PluginPlaybackAPI {
   // (title/artist_name/album_title/duration_secs); id/album_id/artist_id are
   // absent at runtime. Resolve a library row on demand via find_track_by_metadata.
   onTrackStarted(handler: (track: QueueTrack) => void): () => void;
-  onTrackScrobbled(handler: (track: QueueTrack) => void): () => void;
+  /** Subscribing makes the plugin a scrobbler (a row in Settings →
+   *  Scrobbling, which decides which plays reach it). The handler may return
+   *  — or resolve with — a `ScrobbleReport` saying what it did with the play;
+   *  that is the status shown under the row and what the bar's checkmark
+   *  follows. Returning nothing reads as "handed over". */
+  onTrackScrobbled(
+    handler: (track: QueueTrack) => void | ScrobbleReport | Promise<void | ScrobbleReport>,
+  ): () => void;
+  /** Report a later outcome for this plugin's scrobbling (a queued batch
+   *  landing or failing), after the handler has returned. Only a plugin
+   *  subscribed to `onTrackScrobbled` is heard. Throws on a malformed report.
+   *  Feature-detect. */
+  reportScrobble?(report: ScrobbleReport): void;
   onTrackLiked(handler: (track: QueueTrack, liked: boolean) => void): () => void;
   onStreamResolve(
     providerId: string,
