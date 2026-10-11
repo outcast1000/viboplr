@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-expect-error — plain .mjs script, no type declarations
-import { TOOLS, buildPluginProxies, discoveryPidAlive, parseCliArgs, versionCmp, launchCommands, readTextFile } from "../../mcp/viboplr-mcp.mjs";
+import { TOOLS, buildPluginProxies, mergeProxyRoster, discoveryPidAlive, parseCliArgs, versionCmp, launchCommands, readTextFile } from "../../mcp/viboplr-mcp.mjs";
 
 // The MCP server is the one satellite that talks to the control API on the
 // user's behalf from clients we don't control, so the protocol handshake, the
@@ -889,6 +889,35 @@ describe("plugin tool proxies (pure)", () => {
     });
     expect(proxies.map((p: { name: string }) => p.name)).toEqual(["my_plugin__do_thing"]);
     expect(buildPluginProxies(null)).toEqual([]);
+  });
+
+  // A roster read while the app starts, or while a plugin reloads after an
+  // update, names only the plugins loaded so far. Taken at its word, that
+  // dropped every Soulseek tool from the client's list for a minute, mid-task.
+  it("keeps a tool the roster left out until it has been missing for the grace period", () => {
+    const tool = (name: string) => ({ name, description: name, inputSchema: { type: "object", properties: {} } });
+    const full = [tool("slskd__search"), tool("ytdlp__search")];
+    const partial = [tool("ytdlp__search")];
+
+    const first = mergeProxyRoster(full, partial, new Map(), 1_000, 90_000);
+    expect(first.tools.map((t: { name: string }) => t.name).sort()).toEqual(["slskd__search", "ytdlp__search"]);
+    expect(first.missingSince.get("slskd__search")).toBe(1_000);
+
+    // Back in the next roster: nothing is missing any more.
+    const back = mergeProxyRoster(first.tools, full, first.missingSince, 5_000, 90_000);
+    expect(back.missingSince.size).toBe(0);
+
+    // Still missing past the grace: gone (uninstalled or disabled for real).
+    const still = mergeProxyRoster(first.tools, partial, first.missingSince, 50_000, 90_000);
+    expect(still.tools.map((t: { name: string }) => t.name)).toContain("slskd__search");
+    const gone = mergeProxyRoster(still.tools, partial, still.missingSince, 91_001, 90_000);
+    expect(gone.tools.map((t: { name: string }) => t.name)).toEqual(["ytdlp__search"]);
+  });
+
+  it("takes a changed tool from the fresh roster, not the old listing", () => {
+    const old = [{ name: "slskd__search", description: "old", inputSchema: { type: "object", properties: {} } }];
+    const fresh = [{ name: "slskd__search", description: "new", inputSchema: { type: "object", properties: {} } }];
+    expect(mergeProxyRoster(old, fresh, new Map(), 0).tools).toEqual(fresh);
   });
 });
 

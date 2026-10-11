@@ -67,6 +67,7 @@ export const INSTRUCTIONS: string;
 export const GUIDES: Record<"renaming" | "tagging" | "upgrade" | "extensions" | "capabilities", string>;
 export const TOOLS: CatalogTool[];
 export const PROXY_SEP: string;
+export const PROXY_DROP_GRACE_MS: number;
 export const SHEET_FILE_MAX_BYTES: number;
 export function parseSheetFile(text: string, path: string): { mode?: unknown; cues: unknown[] };
 export function versionCmp(a: string, b: string): number;
@@ -75,3 +76,10 @@ export function argProblems(schema: Record<string, any> | null | undefined, args
 export function runTool(tool: CatalogTool, args: Record<string, any> | null | undefined, ctx: ToolContext): Promise<unknown>;
 export function toolsFor(transport: string): CatalogTool[];
 export function buildPluginProxies(roster: AssistantRoster | null | undefined): PluginProxyTool[];
+export function mergeProxyRoster(
+  prev: PluginProxyTool[],
+  next: PluginProxyTool[],
+  missingSince: Map<string, number> | null | undefined,
+  now: number,
+  graceMs?: number,
+): { tools: PluginProxyTool[]; missingSince: Map<string, number> };

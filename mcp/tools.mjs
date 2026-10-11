@@ -1271,6 +1271,33 @@ export function toolsFor(transport) {
 
 export const PROXY_SEP = "__";
 
+/** How long a plugin tool stays listed after the roster stops naming it. */
+export const PROXY_DROP_GRACE_MS = 90_000;
+
+/**
+ * Pure: the next listed plugin tools, given the previous listing and a fresh
+ * roster. A tool the fresh roster adds or changes is taken at once; a tool it
+ * leaves out is kept until it has been missing for `graceMs`. A roster read
+ * while the app is starting, or while a plugin reloads after an update, names
+ * only the plugins loaded so far — taking it at its word dropped every Soulseek
+ * tool from the client's list for a minute, mid-task. `missingSince` (name →
+ * when first missing) is returned updated, never mutated. Exported for tests.
+ */
+export function mergeProxyRoster(prev, next, missingSince, now, graceMs = PROXY_DROP_GRACE_MS) {
+  const nextNames = new Set(next.map((t) => t.name));
+  const missing = new Map();
+  const kept = [];
+  for (const t of prev) {
+    if (nextNames.has(t.name)) continue;
+    const since = missingSince?.get(t.name) ?? now;
+    if (now - since < graceMs) {
+      kept.push(t);
+      missing.set(t.name, since);
+    }
+  }
+  return { tools: [...next, ...kept], missingSince: missing };
+}
+
 /** Pure: roster (GET /v1/assistant/tools) → MCP tool entries. Exported for tests. */
 export function buildPluginProxies(roster) {
   const out = [];

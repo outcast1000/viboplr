@@ -30,10 +30,10 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_MS, INSTRUCTIONS, PROXY_SEP, SLOW_MS, TOOLS, buildPluginProxies, runTool, toolsFor, versionCmp } from "./tools.mjs";
+import { DEFAULT_MS, INSTRUCTIONS, PROXY_DROP_GRACE_MS, PROXY_SEP, SLOW_MS, TOOLS, buildPluginProxies, mergeProxyRoster, runTool, toolsFor, versionCmp } from "./tools.mjs";
 
 // Re-exported for the tests and any caller that imported them from here.
-export { TOOLS, buildPluginProxies, versionCmp };
+export { TOOLS, buildPluginProxies, mergeProxyRoster, versionCmp };
 
 const VERSION = "0.11.0";
 const BUNDLE_ID = "com.alex.viboplr";
@@ -347,8 +347,28 @@ const MCP_TOOLS = toolsFor("mcp");
 // "Plugin actions" switch is off, so the description says so up front.
 
 const ROSTER_TTL_MS = 60_000;
-const proxyState = { tools: [], byName: new Map(), sig: null, at: 0, listed: false, inflight: null };
+// Re-reads after a launch: plugins load one by one after the app answers, so
+// the first roster is partial. Each read that finds more announces it.
+const LAUNCH_FOLLOW_UPS_MS = [3_000, 10_000, 30_000];
+const proxyState = { tools: [], byName: new Map(), sig: null, at: 0, listed: false, inflight: null, missingSince: new Map(), recheck: null };
 
+// A tool the roster left out stays listed through PROXY_DROP_GRACE_MS
+// (`mergeProxyRoster`); one more read just past that grace decides it.
+function scheduleRecheck() {
+  if (proxyState.recheck || !proxyState.missingSince.size) return;
+  proxyState.recheck = setTimeout(() => {
+    proxyState.recheck = null;
+    void refreshPluginProxies({ force: true });
+  }, PROXY_DROP_GRACE_MS + 1_000);
+  proxyState.recheck.unref?.();
+}
+
+function followUpAfterLaunch() {
+  for (const ms of LAUNCH_FOLLOW_UPS_MS) {
+    const t = setTimeout(() => void refreshPluginProxies({ force: true }), ms);
+    t.unref?.();
+  }
+}
 
 async function refreshPluginProxies({ force = false } = {}) {
   if (!force && proxyState.at && Date.now() - proxyState.at < ROSTER_TTL_MS) return;
@@ -356,7 +376,10 @@ async function refreshPluginProxies({ force = false } = {}) {
   proxyState.inflight = (async () => {
     try {
       const roster = await apiRequest("GET", "/v1/assistant/tools", undefined, { timeoutMs: 3000 });
-      const tools = buildPluginProxies(roster);
+      const merged = mergeProxyRoster(proxyState.tools, buildPluginProxies(roster), proxyState.missingSince, Date.now());
+      const tools = merged.tools;
+      proxyState.missingSince = merged.missingSince;
+      scheduleRecheck();
       const sig = JSON.stringify(tools.map((t) => [t.name, t.description, t.inputSchema]));
       proxyState.tools = tools;
       proxyState.byName = new Map(tools.map((t) => [t.name, t]));
@@ -446,6 +469,7 @@ async function dispatch(msg) {
         // after tools/list — launch_app — or a plugin was enabled). After the
         // call, so a launch is seen at once; announces list_changed.
         void refreshPluginProxies({ force: name === "launch_app" });
+        if (name === "launch_app") followUpAfterLaunch();
       }
     }
     default: {
