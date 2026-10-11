@@ -502,6 +502,17 @@ async function main() {
 
   const api = makeApi(opts.profile);
   await api("GET", "/health");
+  // Settings → AI control prints this server's port and the last characters
+  // of its token. Redacted by value for the whole run rather than cropped out
+  // of one shot: a crop is a guess about layout, and it silently let both
+  // through once the section gained switches. The port goes on its own:
+  // React renders "127.0.0.1:" and the number as two text nodes, and the
+  // redaction matches within one node, so "127.0.0.1:<port>" never fired.
+  const { port: apiPort, token: apiToken } = discovery(opts.profile);
+  opts.redact.push(
+    { text: String(apiPort), replacement: "•••••" },
+    { text: `••••••••${String(apiToken).slice(-4)}`, replacement: "••••••••••••" },
+  );
   const out = resolve(opts.out);
   const shotsOut = resolve(opts.shotsOut);
   for (const dir of [out, shotsOut]) mkdirSync(dir, { recursive: true });

@@ -166,6 +166,16 @@ export const SCENES = [
     expect: { view: "settings" },
   },
   {
+    // The whole section, down to "Connect an AI assistant" with its Copy
+    // config / Copy command buttons. The port and token tail on the rows in
+    // between are redacted by the runner (by value, for every scene).
+    id: "ai-connect", kind: "still",
+    page: "ai", slot: "Settings → AI control: connect an assistant",
+    // From the top: at 1440x900 the section fits whole, toggle to Connect row.
+    steps: [{ navigate: { settings: "control-api" } }, { wait: 500 }, { action: { action: "scroll", to: "top" } }],
+    expect: { view: "settings" },
+  },
+  {
     // The invented song, so the notes describe no real person; its sheet is
     // written by setup-demo-profile (demoCatalog CUE_SHEETS). Seeking to 46s
     // lands the grab (~5s of waiting and settling later) inside the "ten
