@@ -7,6 +7,9 @@
   "minAppVersion": "0.9.4",
   "runtime": "worker",
   "permissions": ["library:read"],
+  "permissionReasons": {
+    "library:read": "Build fake popularity and top-song lists from your own tracks, for testing"
+  },
   "debugOnly": true,
   "contributes": {
     "informationTypes": [

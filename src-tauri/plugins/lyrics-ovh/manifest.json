@@ -8,6 +8,9 @@
   "minAppVersion": "0.9.5",
   "runtime": "worker",
   "permissions": ["network:api.lyrics.ovh"],
+  "permissionReasons": {
+    "network:api.lyrics.ovh": "Look up lyrics on Lyrics.ovh"
+  },
   "contributes": {
     "assistant": {
       "instructions": "Plain-text lyrics fallback from lyrics.ovh — exact artist+title lookups only, no search API. Fetch via GET /v1/lyrics with pluginId=lyrics-ovh to force this provider; prefer LRCLIB first (it also has synced lyrics and a search tool)."

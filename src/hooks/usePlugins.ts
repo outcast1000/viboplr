@@ -118,7 +118,7 @@ import { withResolverLog } from "../utils/resolverLog";
 
 import { useAssignRef } from "./useLatestRef";
 import { dropPrewarmedWorkers, prewarmPluginWorkers, startWorkerPlugin, type WorkerPluginControl } from "../pluginWorker/host";
-import { networkHosts, pendingPermissions } from "../pluginWorker/permissions";
+import { networkHosts, pendingPermissions, permissionReasons } from "../pluginWorker/permissions";
 import { isFirstParty, mainRealmVerdict } from "../utils/pluginTrust";
 import { deleteIfSame } from "../utils/registryOps";
 import { abortError, armFetchAbort, isFetchAborted } from "../utils/pluginFetchAbort";
@@ -2964,6 +2964,13 @@ export function usePlugins(
     return pendingPermissions(s.manifest.permissions ?? [], permissionGrantsRef.current[pluginId] ?? []);
   }, []);
 
+  // Why the plugin says it needs each permission (manifest `permissionReasons`,
+  // cleaned), for every surface that shows the list.
+  const permissionReasonsFor = useCallback((pluginId: string): Record<string, string> => {
+    const m = pluginStatesRef.current.find((p) => p.id === pluginId)?.manifest;
+    return m ? permissionReasons(m.permissions, m.permissionReasons) : {};
+  }, []);
+
   // Withdraw every approval: the plugin stops now and waits for approval again.
   const revokePermissions = useCallback(
     async (pluginId: string) => {
@@ -3764,6 +3771,7 @@ export function usePlugins(
     reloadPlugin,
     approvePermissions,
     permissionsToApprove,
+    permissionReasonsFor,
     revokePermissions,
     reloadAllPlugins,
     forwardDeepLink,

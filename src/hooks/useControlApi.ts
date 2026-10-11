@@ -80,6 +80,7 @@ import {
 } from "../utils/controlApi";
 import { invokeAssistantTool, listAssistantTools, listSearchProviders, searchCatalog } from "../utils/hostOps";
 import { addToQueue, playNow, playWithBackfill, type DuplicatePolicy, type QueueOpsDeps } from "../utils/queueOps";
+import { permissionReasons } from "../pluginWorker/permissions";
 
 export interface ControlApiDeps {
   appRestoring: boolean;
@@ -1402,9 +1403,17 @@ export function useControlApi(deps: ControlApiDeps) {
           error: plugin.error ?? null,
           builtin: plugin.builtin === true,
           dev: plugin.dev === true,
-          // The manifest's self-declared API usage — declarative only (shown to
-          // the user in Extensions), but the honest answer to "why does this
-          // plugin need network/exec".
+          // A worker plugin's enforced permissions, each with the author's
+          // reason (manifest `permissionReasons`) — the honest answer to "why
+          // does this plugin need network/exec". Empty for main-realm plugins.
+          permissions: m?.runtime === "worker"
+            ? (() => {
+                const reasons = permissionReasons(m.permissions, m.permissionReasons);
+                return (m.permissions ?? []).map((p) => ({ permission: p, reason: reasons[p] ?? null }));
+              })()
+            : [],
+          // Deprecated, self-declared and never enforced; still reported for
+          // plugins that only describe themselves this way.
           apiUsage: m?.apiUsage ?? [],
           binaryDependencies: declaredDeps.map((b) => {
             const probe = probeByName.get(b.name);

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { subscribe, combineUnlisten } from "../utils/tauriEvents";
 import { resolveInstalledStability } from "../utils/pluginStability";
 import { errorText as errText } from "../utils/errorKind";
+import { permissionReasons } from "../pluginWorker/permissions";
 import type {
   ExtensionUpdate,
   ExtensionItem,
@@ -477,9 +478,9 @@ export function useExtensions(props: UseExtensionsProps) {
         devPath: ps.devPath,
         icon: ps.manifest.icon,
         contributes: ps.manifest.contributes,
-        apiUsage: ps.manifest.apiUsage,
         runtime: ps.manifest.runtime,
         permissions: ps.manifest.permissions,
+        permissionReasons: permissionReasons(ps.manifest.permissions, ps.manifest.permissionReasons),
         pendingPermissions: ps.pendingPermissions,
         firstParty: ps.firstParty,
         unverified: ps.unverified,

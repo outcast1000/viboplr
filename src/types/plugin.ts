@@ -203,6 +203,9 @@ export interface PluginManifest {
   minAppVersion?: string;
   debugOnly?: boolean;
   icon?: string;
+  /** Deprecated: free-form "what I touch and why", never enforced and no longer
+   *  shown anywhere but the control API's extension details. Worker plugins
+   *  explain themselves per permission with `permissionReasons` instead. */
   apiUsage?: PluginApiUsage[];
   binaryDependencies?: PluginBinaryDependency[];
   homepage?: string;
@@ -220,6 +223,11 @@ export interface PluginManifest {
   /** What a worker-runtime plugin may do — see src/pluginWorker/permissions.ts
    *  for the vocabulary. Ignored by the main-realm loader. */
   permissions?: string[];
+  /** Why the plugin needs each permission (permission string → one sentence),
+   *  shown under it wherever the user is asked. Keys must match `permissions`
+   *  exactly; others are dropped (see `permissionReasons()`). Informational —
+   *  it grants nothing. Older hosts ignore it. */
+  permissionReasons?: Record<string, string>;
 }
 
 // -- Installed plugin from backend --
@@ -2162,11 +2170,11 @@ export interface ExtensionItem {
   devPath?: string;
   icon?: string;
   contributes?: PluginManifestContributes;
-  apiUsage?: PluginApiUsage[];
-  /** Worker-runtime plugins only: what the manifest asks for, and what of it
-   *  still awaits the user's approval. */
+  /** Worker-runtime plugins only: what the manifest asks for, why (cleaned
+   *  `permissionReasons`), and what of it still awaits the user's approval. */
   runtime?: "worker";
   permissions?: string[];
+  permissionReasons?: Record<string, string>;
   pendingPermissions?: string[];
   /** Signed by the first-party key, so its permissions are allowed automatically. */
   firstParty?: boolean;

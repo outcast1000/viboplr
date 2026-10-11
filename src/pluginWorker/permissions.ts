@@ -327,6 +327,34 @@ export function pendingPermissions(requested: readonly string[], approved: reado
   return Array.from(new Set(requested)).filter((p) => !ok.has(p));
 }
 
+/** Longest reason shown under a permission; past it the text is cut with "…". */
+export const PERMISSION_REASON_MAX = 160;
+
+/**
+ * The manifest's `permissionReasons` (permission → why the plugin needs it),
+ * cleaned for the consent UI. Kept: string values for permissions the manifest
+ * actually requests, whitespace collapsed, capped at PERMISSION_REASON_MAX.
+ * Dropped: anything else — a reason for a permission not requested would
+ * describe a grant that doesn't exist. Plain text only; it is rendered as text.
+ * The reason is the author's word and grants nothing: the list is still what
+ * the user approves.
+ */
+export function permissionReasons(
+  requested: readonly string[] | undefined,
+  raw: unknown,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !requested) return out;
+  const asked = new Set(requested);
+  for (const [perm, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!asked.has(perm) || typeof value !== "string") continue;
+    const text = value.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    out[perm] = text.length > PERMISSION_REASON_MAX ? `${text.slice(0, PERMISSION_REASON_MAX - 1).trimEnd()}…` : text;
+  }
+  return out;
+}
+
 /**
  * The host patterns a grant's `network:` permissions cover, for the Rust side
  * (`plugin_worker::NetworkScope`), which holds every redirect hop to them — the

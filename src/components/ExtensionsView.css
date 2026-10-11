@@ -342,6 +342,12 @@
   font-size: var(--fs-xs);
   color: var(--text-secondary);
 }
+.ext-perms-reason {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  font-style: italic;
+  color: var(--text-tertiary);
+}
 .ext-perms-actions { display: flex; gap: 8px; }
 
 /* Detail Pane */
@@ -512,34 +518,6 @@
   padding: 0;
 }
 .ext-browse-all:hover { text-decoration: underline; }
-
-/* API Usage Section */
-.ext-detail-api-usage {
-  margin-top: 24px;
-}
-.ext-detail-api-usage-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.ext-detail-api-usage-item {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  font-size: var(--fs-xs);
-}
-.ext-detail-api-usage-api {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  background: rgba(var(--accent-rgb), 0.1);
-  color: var(--accent);
-  border-radius: 4px;
-  font-size: 11px;
-  font-family: monospace;
-}
-.ext-detail-api-usage-reason {
-  color: var(--text-secondary);
-}
 
 /* Contributions list (detail): per-item on/off for menu items + sidebar views */
 .ext-detail-section-hint {

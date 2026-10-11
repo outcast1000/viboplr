@@ -24,6 +24,8 @@ const PLUGIN = {
     description: 'Asks for two permissions',
     runtime: 'worker',
     permissions: ['network:lrclib.net', 'exec:yt-dlp'],
+    // One reason, plus one for a permission it doesn't ask for (dropped).
+    permissionReasons: { 'network:lrclib.net': 'Look up lyrics', 'library:write': 'Not requested' },
   },
   // Proof of life: logs from inside its worker when activated.
   code: "function activate(api) { api.log('info', 'perm-demo is running'); }\nreturn { activate: activate };",
@@ -68,6 +70,11 @@ test('an unapproved worker plugin waits, and Allow starts it with exactly what i
   // exec reaches outside the app, so it is flagged; a single site is not.
   await expect(perms.locator('.ext-perms-item', { hasText: 'Run yt-dlp' }).locator('.ext-badge', { hasText: 'sensitive' })).toBeVisible();
   await expect(perms.locator('.ext-perms-item', { hasText: 'Connect to lrclib.net' }).locator('.ext-badge')).toHaveCount(0);
+  // The author's reason sits under its permission; one without stays bare,
+  // and a reason for a permission not requested is never shown.
+  await expect(perms.locator('.ext-perms-item', { hasText: 'Connect to lrclib.net' }).locator('.ext-perms-reason')).toHaveText('Why: Look up lyrics');
+  await expect(perms.locator('.ext-perms-item', { hasText: 'Run yt-dlp' }).locator('.ext-perms-reason')).toHaveCount(0);
+  await expect(perms).not.toContainText('Not requested');
   // The switch is on (the user enabled it); only the approval is missing.
   await expect(page.locator('.ext-detail-actions').getByRole('button', { name: 'Disable' })).toBeVisible();
   await expect(page.locator('.ext-detail-meta')).toContainText('Waiting for your approval');

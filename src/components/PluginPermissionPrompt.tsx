@@ -19,12 +19,14 @@ export interface PluginPermissionPromptProps {
   requested: string[];
   /** The part not yet approved. On an update these are badged "new". */
   pending: string[];
+  /** Why the plugin needs each permission, in its author's words. */
+  reasons?: Record<string, string>;
   /** Grants `requested` (and, for an install, enables the plugin). */
   onAllow: () => Promise<void>;
   onNotNow: () => void;
 }
 
-export function PluginPermissionPrompt({ pluginName, mode, requested, pending, onAllow, onNotNow }: PluginPermissionPromptProps) {
+export function PluginPermissionPrompt({ pluginName, mode, requested, pending, reasons, onAllow, onNotNow }: PluginPermissionPromptProps) {
   const [working, setWorking] = useState(false);
   const pendingSet = new Set(pending);
   const isPartial = mode === "update" && pending.length < requested.length;
@@ -50,7 +52,7 @@ export function PluginPermissionPrompt({ pluginName, mode, requested, pending, o
             : "This plugin asks for the permissions below. It can't do anything outside this list."}
         </p>
         <div className="plugin-install-perms">
-          <PermissionList requested={requested} pending={pendingSet} markNew={isPartial} />
+          <PermissionList requested={requested} pending={pendingSet} markNew={isPartial} reasons={reasons} />
         </div>
         <div className="ds-modal-actions">
           <button className="ds-btn ds-btn--ghost" onClick={onNotNow} disabled={working}>

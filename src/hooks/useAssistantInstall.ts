@@ -35,6 +35,7 @@ interface Deps {
   togglePlugin: (id: string, enabled: boolean) => Promise<void> | void;
   approvePermissions: (id: string) => Promise<void>;
   permissionsToApprove: (id: string) => string[];
+  permissionReasonsFor: (id: string) => Record<string, string>;
 }
 
 interface Pending {
@@ -108,7 +109,8 @@ export function useAssistantInstall(deps: Deps) {
     if (pendingRef.current !== p) return;
     if (res.ok) {
       const permissions = target.kind === "plugin" ? depsRef.current.permissionsToApprove(id) : undefined;
-      setFlow((prev) => prev && { ...prev, phase: "done", needsEnable: target.kind === "plugin", permissions });
+      const permissionReasons = target.kind === "plugin" ? depsRef.current.permissionReasonsFor(id) : undefined;
+      setFlow((prev) => prev && { ...prev, phase: "done", needsEnable: target.kind === "plugin", permissions, permissionReasons });
       return;
     }
     if (res.error === INSTALL_CANCELLED) {

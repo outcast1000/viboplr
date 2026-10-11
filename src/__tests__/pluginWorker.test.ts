@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { RpcEndpoint, SYNC, callablePromise, type RpcPort } from "../pluginWorker/rpc";
 import {
   PERMISSION_TABLE, PermissionError, checkPermission, describePermission, isGranted, networkHosts, pendingPermissions,
+  PERMISSION_REASON_MAX, permissionReasons,
 } from "../pluginWorker/permissions";
 import { SYNC_PATHS, createSyncReader, gateApi } from "../pluginWorker/host";
 
@@ -147,6 +148,25 @@ describe("permissions", () => {
     expect(() => checkPermission("p", ["library:write"], "lyrics.save", [{ title: "Song" }, { text: "x", kind: "plain" }])).toThrow(/lyrics:write/);
     expect(() => checkPermission("p", ["lyrics:write"], "lyrics.save", [{ title: "Song" }, { text: "x", kind: "plain" }])).not.toThrow();
     expect(describePermission("lyrics:write").label).toBe("Change song lyrics");
+  });
+
+  it("keeps only reasons for permissions the manifest requests", () => {
+    const requested = ["network:api.example.com", "library:read"];
+    expect(permissionReasons(requested, {
+      "network:api.example.com": "  Fetch\n  artist bios  ",
+      "library:write": "Not requested, so dropped",
+      "library:read": 42,
+    })).toEqual({ "network:api.example.com": "Fetch artist bios" });
+    expect(permissionReasons(requested, undefined)).toEqual({});
+    expect(permissionReasons(requested, ["network:api.example.com"])).toEqual({});
+    expect(permissionReasons(undefined, { "library:read": "x" })).toEqual({});
+    expect(permissionReasons(requested, { "library:read": "   " })).toEqual({});
+  });
+
+  it("caps a long reason", () => {
+    const out = permissionReasons(["library:read"], { "library:read": "x".repeat(500) });
+    expect(out["library:read"]).toHaveLength(PERMISSION_REASON_MAX);
+    expect(out["library:read"].endsWith("…")).toBe(true);
   });
 
   it("gates exec on the named binary", () => {

@@ -1697,6 +1697,7 @@ function App() {
     togglePlugin: plugins.togglePlugin,
     approvePermissions: plugins.approvePermissions,
     permissionsToApprove: plugins.permissionsToApprove,
+    permissionReasonsFor: plugins.permissionReasonsFor,
   });
 
   // Update notice banner (top of the content column). The sidebar's Settings
@@ -6257,6 +6258,7 @@ function App() {
               onSetContributionEnabled={plugins.setContributionEnabled}
               onApprovePermissions={plugins.approvePermissions}
               getPermissionsToApprove={plugins.permissionsToApprove}
+              getPermissionReasons={plugins.permissionReasonsFor}
               onRevokePermissions={plugins.revokePermissions}
               pluginGalleryLoading={plugins.galleryLoading}
               pluginGalleryError={plugins.galleryError}
@@ -6760,6 +6762,7 @@ function App() {
             pluginName={state.manifest.name}
             mode={req.mode}
             requested={state.manifest.permissions ?? []}
+            reasons={plugins.permissionReasonsFor(req.pluginId)}
             pending={pending}
             onNotNow={next}
             onAllow={async () => {

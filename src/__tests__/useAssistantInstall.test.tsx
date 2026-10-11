@@ -27,6 +27,7 @@ function setup(overrides: Partial<Parameters<typeof useAssistantInstall>[0]> = {
     togglePlugin: vi.fn(async () => undefined),
     approvePermissions: vi.fn(async () => undefined),
     permissionsToApprove: vi.fn(() => [] as string[]),
+    permissionReasonsFor: vi.fn(() => ({}) as Record<string, string>),
     ...overrides,
   };
   const hook = renderHook(() => useAssistantInstall(deps));

@@ -35,6 +35,8 @@ export interface InstallFlowState {
    * a main-realm plugin, or one whose list was already approved).
    */
   permissions?: string[];
+  /** Why the plugin needs each of `permissions`, in its author's words. */
+  permissionReasons?: Record<string, string>;
   /** "confirm" step: what the user is being asked to install, and for whom. */
   confirm?: {
     kind: "plugin" | "skin";
@@ -193,7 +195,7 @@ export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry,
             </p>
             {flow.needsEnable && asks && (
               <div className="plugin-install-perms">
-                <PermissionList requested={flow.permissions!} />
+                <PermissionList requested={flow.permissions!} reasons={flow.permissionReasons} />
               </div>
             )}
             <div className="ds-modal-actions">

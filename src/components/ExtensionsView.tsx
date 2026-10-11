@@ -68,6 +68,7 @@ interface ExtensionsViewProps {
   /** What enabling this plugin would have the user approve — read fresh from
    *  plugin state, since this view's props lag the install by a render. */
   getPermissionsToApprove?: (pluginId: string) => string[];
+  getPermissionReasons?: (pluginId: string) => Record<string, string>;
   // Gallery network state — drives skeletons + error/retry so the panel never
   // shows a silent gap while installable items load.
   pluginGalleryLoading?: boolean;
@@ -462,6 +463,7 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
           </div>
           <PermissionList
             requested={requested}
+            reasons={ext.permissionReasons}
             pending={pending}
             markNew={waiting && pending.size < requested.length}
           />
@@ -684,20 +686,6 @@ function PluginDetail({
         </div>
       )}
 
-      {ext.apiUsage && ext.apiUsage.length > 0 && (
-        <div className="ext-detail-section">
-          <div className="ext-detail-section-title">Permissions this plugin uses</div>
-          <div className="ext-detail-api-usage-list">
-            {ext.apiUsage.map((usage, i) => (
-              <div key={i} className="ext-detail-api-usage-item">
-                <code className="ext-detail-api-usage-api">{usage.api}</code>
-                <span className="ext-detail-api-usage-reason">{usage.reason}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <div className="ext-detail-section">
         <div className="ext-detail-section-title">Information</div>
         <div className="ext-detail-info-grid">
@@ -855,7 +843,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     onUninstall, onToggleEnabled, onFetchPluginGallery, onFetchSkinGallery,
     onInstallFromUrl, onNotify, busy, galleryPlugins, gallerySkins, getPluginViewData, onPluginAction,
     contributions, contributionVisibility, onSetContributionEnabled,
-    onApprovePermissions, onRevokePermissions, getPermissionsToApprove,
+    onApprovePermissions, onRevokePermissions, getPermissionsToApprove, getPermissionReasons,
     pluginGalleryLoading, pluginGalleryError, skinGalleryLoading, skinGalleryError,
     onPreviewSkin, onCreateSkin, onOpenSkinInEditor, onRefreshSkin, onSubmitSkin,
     pluginViewMode = "list", onSetPluginViewMode,
@@ -1065,7 +1053,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
     }
     setInstallFlow((prev) => {
       if (!prev || prev.id !== ext.id) return prev;
-      if (res.ok) return { ...prev, phase: "done", needsEnable: true, permissions: getPermissionsToApprove?.(ext.id) };
+      if (res.ok) return { ...prev, phase: "done", needsEnable: true, permissions: getPermissionsToApprove?.(ext.id), permissionReasons: getPermissionReasons?.(ext.id) };
       if (res.error === INSTALL_CANCELLED) return null; // cancelled → close silently
       return { ...prev, phase: "error", error: res.error };
     });
