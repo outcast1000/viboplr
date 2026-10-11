@@ -39,6 +39,7 @@ mod downloader;
 mod update_checker;
 mod video_frames;
 mod storyboard;
+mod waveform;
 mod stream_relay;
 mod transcode_server;
 mod window_arrangement;
@@ -243,6 +244,8 @@ macro_rules! invoke_handler {
             commands::add_downloaded_track,
             commands::get_cached_waveform,
             commands::cache_waveform,
+            commands::analyze_waveform_ffmpeg,
+            commands::cancel_waveform_analysis,
             commands::list_user_skins,
             commands::read_user_skin,
             commands::save_user_skin,

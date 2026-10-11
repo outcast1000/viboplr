@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { isPositionOnScreen, clampToNearestMonitor, fitToMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
 import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement, canDriveTransitionMachine, crossfadeGainPair } from "../hooks/usePlayback";
-import { isWaveformAnalyzable, isWaveformSizeAllowed, WAVEFORM_MAX_FILE_SIZE } from "../hooks/useWaveform";
+import { isWaveformAnalyzable } from "../hooks/useWaveform";
+import { isWaveformSizeAllowed, WAVEFORM_MAX_FILE_SIZE } from "../waveform/browserProvider";
 
 // --- Extracted pure functions from hooks ---
 

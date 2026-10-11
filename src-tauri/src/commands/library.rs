@@ -976,6 +976,8 @@ pub async fn delete_tracks(
                 // generation, frame extraction), and on Windows that open read handle
                 // makes the delete fail. Deleting outranks any surface's interest in
                 // those artifacts — kill the passes and wait for the handle to drop.
+                // Same for an audio file's waveform pass (see `waveform.rs`).
+                crate::waveform::abort_for_path(&track.path);
                 if is_video {
                     crate::storyboard::abort_for_path(&track.path);
                     crate::video_frames::abort_extraction(track.id);

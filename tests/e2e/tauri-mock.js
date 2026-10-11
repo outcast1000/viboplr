@@ -275,6 +275,12 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       return null;
     case 'get_cached_waveform':
       return null;
+    case 'analyze_waveform_ffmpeg':
+      // No backend here: answer like a machine without ffmpeg, so the browser
+      // provider (the fallback) is what runs.
+      return { status: 'unavailable', rms: null };
+    case 'cancel_waveform_analysis':
+      return null;
     case 'get_search_providers':
       return null;
     case 'write_frontend_log':

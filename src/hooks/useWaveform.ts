@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { analyzeWaveform, shapePeaks, WAVEFORM_PROVIDERS } from "../waveform/providers";
 
 // Peaks are stored at a fixed one-bucket-per-second source resolution (width-
 // independent), and WaveformSeekBar downsamples them to fit its render width —
 // so one cached array serves both the now-playing bar and the fullscreen bar.
-
-// Analysis reads the whole file into an ArrayBuffer and then decodes it to PCM,
-// so peak memory is a large multiple of this — keep the ceiling conservative.
-export const WAVEFORM_MAX_FILE_SIZE = 15 * 1024 * 1024; // 15MB
+//
+// On a cache miss the analysis runs through the provider chain in
+// src/waveform/providers.ts (ffmpeg first, Web Audio as the fallback); each
+// provider returns raw per-second RMS and `shapePeaks` turns it into bar heights.
 
 interface WaveformCache {
   name: string;
@@ -35,13 +36,13 @@ export interface WaveformCandidate {
 
 /**
  * Whether a track is a candidate for waveform analysis at all, judged from
- * metadata alone (no I/O). Video is excluded because decoding a whole container
- * to PCM costs orders of magnitude more than an audio file for the same
- * duration. Remote streams (subsonic / plugin schemes / direct http) are
- * cross-origin to the webview, so the Web-Audio `fetch` is CORS-blocked and can
- * never produce peaks — they use the segmented seek bar by design. Only local
- * files (file:// → the fetchable asset protocol) are analyzable, so skip the
- * doomed fetch (and its console error) for everything else.
+ * metadata alone (no I/O). This gate applies to every provider; each provider
+ * then applies its own limits (the Web Audio one also caps file size). Video is
+ * excluded because it gets the filmstrip seek bar, and decoding a whole container
+ * in the webview costs orders of magnitude more than an audio file. Remote streams
+ * (subsonic / plugin schemes / direct http) are excluded by design — they use the
+ * segmented seek bar, and analyzing one would mean downloading it a second time
+ * (the Web Audio `fetch` is CORS-blocked for them anyway).
  */
 export function isWaveformAnalyzable(
   candidate: WaveformCandidate,
@@ -49,17 +50,6 @@ export function isWaveformAnalyzable(
   if (!candidate.path || !candidate.title) return false;
   if (candidate.isVideo) return false;
   return candidate.path.startsWith("file://");
-}
-
-/**
- * Whether a file is small enough to decode in the webview. `null` means the
- * size couldn't be determined (file missing, or a path we can't stat) — treated
- * as too large, because the decode below reads the whole file into memory and
- * an unknown size is exactly the case we can't afford to guess wrong on.
- */
-export function isWaveformSizeAllowed(fileSize: number | null): boolean {
-  if (fileSize === null) return false;
-  return fileSize <= WAVEFORM_MAX_FILE_SIZE;
 }
 
 export function useWaveform(
@@ -95,93 +85,28 @@ export function useWaveform(
           setPeaks(cached.peaks);
           return;
         }
-      } catch {
-        // Cache miss or read error — continue to analyze
-      }
-
-      if (!assetUrl) return;
-
-      // Size gate applies to analysis only, not display: an already-cached
-      // waveform above the limit is free to render, so this sits after the cache
-      // read. `path` is file:// here (isWaveformAnalyzable), so the stat resolves
-      // to a real size unless the file has gone missing.
-      let fileSize: number | null = null;
-      try {
-        fileSize = await invoke<number | null>("get_file_size", { path });
       } catch (e) {
-        console.error("Failed to stat track for waveform size gate:", e);
-      }
-      if (cancelled) return;
-      if (!isWaveformSizeAllowed(fileSize)) {
-        console.debug(`[waveform] skipped "${title}": size ${fileSize ?? "unknown"} not under the ${WAVEFORM_MAX_FILE_SIZE}-byte limit`);
-        return;
+        // A miss is `null`, not a throw; still worth analyzing after a read error.
+        console.error("Failed to read cached waveform:", e);
       }
 
-      try {
-        const response = await fetch(assetUrl, { signal: controller.signal });
-        if (cancelled) return;
-        const arrayBuffer = await response.arrayBuffer();
-        if (cancelled) return;
+      const result = await analyzeWaveform(WAVEFORM_PROVIDERS, {
+        path,
+        title,
+        assetUrl,
+        signal: controller.signal,
+      });
+      if (cancelled || !result) return;
 
-        const audioCtx = new OfflineAudioContext(1, 1, 44100);
-        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        if (cancelled) return;
+      const peaks = shapePeaks(result.rms);
+      const duration = trackDuration || peaks.length;
+      console.debug(`[waveform] created new via ${result.providerId}: "${title}" (${duration}s, ${peaks.length} buckets)`);
+      setPeaks(peaks);
 
-        const channelData = audioBuffer.getChannelData(0);
-        const totalSamples = channelData.length;
-        const durationSecs = audioBuffer.duration;
-
-        // One bucket per second (last bucket = leftover remainder). This fixed,
-        // width-independent resolution is what WaveformSeekBar downsamples to fit.
-        const samplesPerBucket = audioBuffer.sampleRate; // one second of samples
-        const numBuckets = Math.max(1, Math.ceil(durationSecs));
-        if (samplesPerBucket === 0) return;
-
-        const result: number[] = new Array(numBuckets);
-        for (let i = 0; i < numBuckets; i++) {
-          const start = Math.floor(i * samplesPerBucket);
-          const end = Math.min(Math.floor((i + 1) * samplesPerBucket), totalSamples);
-          if (end <= start) {
-            result[i] = 0;
-            continue;
-          }
-          let sumSq = 0;
-          for (let j = start; j < end; j++) {
-            sumSq += channelData[j] * channelData[j];
-          }
-          result[i] = Math.sqrt(sumSq / (end - start));
-        }
-
-        let maxRms = 0;
-        for (let i = 0; i < numBuckets; i++) {
-          if (result[i] > maxRms) maxRms = result[i];
-        }
-        if (maxRms === 0) maxRms = 1;
-        for (let i = 0; i < numBuckets; i++) {
-          result[i] = Math.min(result[i] / maxRms, 1.0);
-        }
-
-        const MIN_HEIGHT = 0.03;
-        for (let i = 0; i < numBuckets; i++) {
-          result[i] = MIN_HEIGHT + (1 - MIN_HEIGHT) * Math.pow(result[i], 1.8);
-        }
-
-        if (cancelled) return;
-
-        const name = title;
-        const duration = trackDuration || Math.round(audioBuffer.duration);
-        console.debug(`[waveform] created new: "${name}" (${duration}s, ${result.length} buckets)`);
-        setPeaks(result);
-
-        const waveform: WaveformCache = { name, duration, peaks: result };
-        // Fire-and-forget: the waveform is already rendered from memory; a failed
-        // cache write only costs a recompute next time this track plays.
-        invoke("cache_waveform", { key: cacheKey, waveform }).catch(() => {}); // eslint-disable-line no-restricted-syntax
-      } catch (e) {
-        if (!cancelled) {
-          console.error("Waveform analysis failed:", e);
-        }
-      }
+      const waveform: WaveformCache = { name: title, duration, peaks };
+      // Fire-and-forget: the waveform is already rendered from memory; a failed
+      // cache write only costs a recompute next time this track plays.
+      invoke("cache_waveform", { key: cacheKey, waveform }).catch(() => {}); // eslint-disable-line no-restricted-syntax
     })();
 
     return () => {
