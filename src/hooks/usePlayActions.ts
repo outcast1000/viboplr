@@ -6,6 +6,7 @@ import { trackToQueueTrack } from "../queueEntry";
 import { buildExternalQueueTrack } from "../utils/externalTrack";
 import { track as trackTelemetry } from "../telemetry";
 import type { RadioOptions } from "../utils/radioOptions";
+import type { Notify } from "./useToasts";
 
 interface PlayActionsArgs {
   // Raw `Track`s are fine — useQueue converts at the door (`toQueueTracks`).
@@ -25,7 +26,7 @@ interface PlayActionsArgs {
   getAlbumImage: (title: string, artistName?: string | null) => string | null;
   getArtistImage: (name: string) => string | null;
   getTagImage: (name: string) => string | null;
-  notify: (message: string) => void;
+  notify: Notify;
   /** Settings → Playback → Radio; forwarded verbatim to `build_radio_station`. */
   radioOptions: RadioOptions;
 }
@@ -280,11 +281,11 @@ export function usePlayActions({
       } catch (e) {
         console.error("Failed to resolve the rest of the queue:", e);
         // The head keeps playing — the user only needs to know the rest is missing.
-        if (tailErrorMessage) notify(tailErrorMessage);
+        if (tailErrorMessage) notify(tailErrorMessage, { kind: "error" });
         return [];
       }
       if (tail.length === 0) {
-        if (tailErrorMessage) notify(tailErrorMessage);
+        if (tailErrorMessage) notify(tailErrorMessage, { kind: "error" });
         return [];
       }
       const rest = dropPlayedHead(head, tail);
@@ -317,7 +318,7 @@ export function usePlayActions({
       if (tracks.length === 0) {
         // Neither the seed nor its artist has anything in the library to
         // build from (a seed alone is no station).
-        notify(`Couldn't start radio — "${seed.title}" isn't in your library.`);
+        notify(`Couldn't start radio — "${seed.title}" isn't in your library.`, { kind: "warning" });
         return null;
       }
       // Anonymous: a station was started. Radio is always track-seeded here,
@@ -351,16 +352,15 @@ export function usePlayActions({
       }
       // Play whatever we found (even just the seed), but let the user know when
       // the station is small rather than silently playing one or two tracks.
+      // A full station needs no toast — the music starting is the feedback.
       const count = queueTracks.length;
       if (count < 10) {
         notify(`Radio: only found ${count} ${count === 1 ? "track" : "tracks"} similar to "${seed.title}".`);
-      } else {
-        notify(`Radio started · ${count} tracks`);
       }
       return count;
     } catch (e) {
       console.error("Failed to start radio:", e);
-      notify("Failed to start radio.");
+      notify("Failed to start radio.", { kind: "error" });
       return null;
     }
   }, [playTracks, setPlaylistContext, notify, radioOptions]);

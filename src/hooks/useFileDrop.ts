@@ -6,6 +6,7 @@ import type { QueueTrack } from "../types";
 import { nextQueueKey } from "../queueEntry";
 
 import { useAssignRef } from "./useLatestRef";
+import type { Notify } from "./useToasts";
 /** One media file resolved from an OS file-manager drop (see the Rust
  * `resolve_dropped_paths` command / `DroppedTrack`). */
 interface DroppedTrack {
@@ -30,7 +31,7 @@ interface UseFileDropDeps {
   /** Reveal the queue so the just-added tracks are visible. */
   expandQueue: () => void;
   /** Lightweight user feedback (toast). */
-  notify: (message: string) => void;
+  notify: Notify;
 }
 
 /**
@@ -64,7 +65,7 @@ export function useFileDrop(deps: UseFileDropDeps) {
       try {
         const resolved = await invoke<DroppedTrack[]>("resolve_dropped_paths", { paths });
         if (resolved.length === 0) {
-          notify("No playable media found in the dropped files");
+          notify("No playable media found in the dropped files", { kind: "warning" });
           return;
         }
         const tracks: QueueTrack[] = resolved.map((d) => ({
@@ -85,11 +86,11 @@ export function useFileDrop(deps: UseFileDropDeps) {
         enqueue(tracks);
         expandQueue();
         if (willAppend) {
-          notify(`Added ${tracks.length} track${tracks.length > 1 ? "s" : ""} to the queue`);
+          notify(`Added ${tracks.length} track${tracks.length > 1 ? "s" : ""} to the queue`, { kind: "success" });
         }
       } catch (e) {
         console.error("Failed to enqueue dropped files:", e);
-        notify("Couldn't add the dropped files");
+        notify("Couldn't add the dropped files", { kind: "error" });
       }
     }
 

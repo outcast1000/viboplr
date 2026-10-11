@@ -1192,7 +1192,7 @@ export interface PluginUIAPI {
   /** A transient toast. `options.action` adds one button that runs this
    *  plugin's own `onAction(id)` handler ("Start slskd"); a toast with one
    *  stays up longer. Older hosts ignore `options` and show the text. */
-  showNotification(message: string, options?: { action?: { label: string; id: string } }): void;
+  showNotification(message: string, options?: { action?: { label: string; id: string }; kind?: "info" | "success" | "warning" | "error" }): void;
   onAction(actionId: string, handler: (data: unknown) => void): void;
   navigateToView(viewId: string): void;
   requestAction(action: string, payload: Record<string, unknown>): void;

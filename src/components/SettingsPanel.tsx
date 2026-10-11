@@ -44,6 +44,7 @@ import { NowPlayingInfoSettings, type NowPlayingInfoSettingsProps } from "./NowP
 import { UpdateProgress } from "./UpdateProgress";
 import { startRowDrag } from "../utils/rowDrag";
 import { DEFAULT_INFO_TYPE_ORDER, DEFAULT_INFO_TYPE_PRIORITY, DEFAULT_IMAGE_PROVIDER_PRIORITY } from "../hooks/usePlugins";
+import type { Notify } from "../hooks/useToasts";
 import "./SettingsPanel.css";
 
 // Modifier-key glyph for shortcut hints (⌘ on macOS, Ctrl elsewhere).
@@ -1048,7 +1049,7 @@ function ProfilesSection({
 }: {
   profilePath: string | null;
   onSwitchProfile: (name: string) => Promise<void>;
-  onNotify: (message: string) => void;
+  onNotify: Notify;
 }) {
   const [profiles, setProfiles] = useState<ProfileEntry[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1102,7 +1103,7 @@ function ProfilesSection({
       })
       .catch((e) => {
         console.error("Failed to create profile shortcut:", e);
-        onNotify(`Couldn't create shortcut: ${e}`);
+        onNotify(`Couldn't create shortcut: ${e}`, { kind: "error" });
       })
       .finally(() => setShortcutBusy(null));
   };
@@ -1348,7 +1349,7 @@ interface SettingsPanelProps {
   onReloadPlugins: () => void;
   // Profiles
   onSwitchProfile: (name: string) => Promise<void>;
-  onNotify: (message: string) => void;
+  onNotify: Notify;
   // Stream resolver ordering
   onStreamResolverOrderChanged?: () => void;
   /** Dependencies live in Extensions → Tools; this opens that tab. */
@@ -1501,10 +1502,10 @@ export function SettingsPanel({
       if (!path) return;
       setLikesBusy("export");
       const count = await invoke<number>("export_likes", { path });
-      onNotify(`Exported ${count} like${count === 1 ? "" : "s"} & dislikes.`);
+      onNotify(`Exported ${count} like${count === 1 ? "" : "s"} & dislikes.`, { kind: "success" });
     } catch (e) {
       console.error("Failed to export likes:", e);
-      onNotify(`Couldn't export likes: ${e}`);
+      onNotify(`Couldn't export likes: ${e}`, { kind: "error" });
     } finally {
       setLikesBusy(null);
     }
@@ -1518,10 +1519,10 @@ export function SettingsPanel({
       if (!path || typeof path !== "string") return;
       setLikesBusy("import");
       const applied = await invoke<number>("import_likes", { path });
-      onNotify(`Imported ${applied} like${applied === 1 ? "" : "s"} & dislikes.`);
+      onNotify(`Imported ${applied} like${applied === 1 ? "" : "s"} & dislikes.`, { kind: "success" });
     } catch (e) {
       console.error("Failed to import likes:", e);
-      onNotify(`Couldn't import likes: ${e}`);
+      onNotify(`Couldn't import likes: ${e}`, { kind: "error" });
     } finally {
       setLikesBusy(null);
     }

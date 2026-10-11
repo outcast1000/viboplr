@@ -8,18 +8,22 @@
 // errorLog/resolverLog: always on, memory only, inspect via
 // `window.__notifications` in devtools.
 
+import type { ToastKind } from "../hooks/useToasts";
+
 export interface NotificationLogEntry {
   seq: number;
   ts: string;
   message: string;
+  /** The toast's kind, so a reader can tell a failure from plain information. */
+  kind: ToastKind;
 }
 
 const BUFFER_LIMIT = 50;
 const buffer: NotificationLogEntry[] = [];
 let seq = 0;
 
-export function recordNotification(message: string): void {
-  buffer.push({ seq: ++seq, ts: new Date().toISOString(), message });
+export function recordNotification(message: string, kind: ToastKind = "info"): void {
+  buffer.push({ seq: ++seq, ts: new Date().toISOString(), message, kind });
   while (buffer.length > BUFFER_LIMIT) buffer.shift();
 }
 

@@ -1129,62 +1129,132 @@
   color: var(--warning);
 }
 
-/* Non-blocking transient notifications (radio size notices, plugin showNotification). */
-.toast-stack {
+/* The bottom-right notice corner: one fixed column holding the toast stack
+   (radio size notices, plugin showNotification) and the assistant activity
+   pill — pill lowest, toasts above it. Being one column is what keeps the two
+   from overlapping; they used to be positioned separately (toasts centred,
+   pill right) and collided in narrow windows or when the pill's panel opened.
+   The column takes no pointer events itself; its children do. */
+.notice-corner {
   position: fixed;
+  right: 16px;
   bottom: 96px;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 1200;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+}
+.notice-corner > * { pointer-events: auto; }
+
+/* One surface and one status vocabulary for everything in the corner: toasts
+   (cards), the assistant pill (a capsule) and its panel. The shape says who is
+   talking — a card is the app telling you something once, a capsule is the
+   assistant's standing status — and the tone says how much it matters, the
+   same way in both. Opaque on purpose: the native mpv engine punches a hole
+   through the window and anything translucent reads over it. */
+.notice-surface {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(var(--overlay-inverse), 0.25);
+}
+.notice-tone--info { --notice-tone: var(--accent); }
+.notice-tone--success { --notice-tone: var(--success); }
+.notice-tone--warning { --notice-tone: var(--warning); border-color: var(--warning); }
+.notice-tone--error { --notice-tone: var(--error); border-color: var(--error); }
+.notice-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--notice-tone, var(--text-secondary));
+}
+
+.toast-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   pointer-events: none;
 }
 
 .toast {
   pointer-events: auto;
-  max-width: 420px;
-  padding: 10px 16px;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 9px 6px 9px 12px;
   border-radius: var(--ds-radius);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  box-shadow: 0 6px 20px rgba(var(--overlay-inverse), 0.25);
   font-size: var(--fs-sm);
-  text-align: center;
-  cursor: pointer;
-  animation: fade-in 0.18s ease-out;
+  animation: toast-in 0.22s var(--ease-out-quart) both;
+}
+/* Centre the dot on the first line of text. */
+.toast > .notice-dot { margin-top: 0.5em; }
+/* Exit is driven by useToasts (TOAST_EXIT_MS); keep the two durations equal. */
+.toast--leaving {
+  pointer-events: none;
+  animation: toast-out 0.18s ease-in both;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px); }
+}
+@keyframes toast-out {
+  to { opacity: 0; transform: translateX(16px); }
 }
 
-.toast:hover {
-  background: var(--bg-hover);
-}
-
-/* A toast with one action button: message on the left, the button on the
-   right. The container isn't clickable itself — the two controls are. */
-.toast--action {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: default;
-  text-align: left;
-}
-.toast--action:hover {
-  background: var(--bg-surface);
-}
 .toast-message {
+  min-width: 0;
   background: none;
   border: none;
   padding: 0;
   color: inherit;
   font: inherit;
   text-align: left;
+  overflow-wrap: anywhere;
   cursor: pointer;
 }
-.toast-action {
+.toast-count {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.toast-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: -2px;
+}
+.toast-close {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--ds-radius);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.toast-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.toast-message:focus-visible,
+.toast-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .queue-duplicate-actions {

@@ -7,6 +7,7 @@ import {
   type PillView,
 } from "../utils/assistantActivity";
 import type { AssistantActivityState } from "../hooks/useAssistantActivity";
+import type { ToastKind } from "../hooks/useToasts";
 import "./AssistantActivityPill.css";
 
 interface Props {
@@ -20,17 +21,25 @@ interface Props {
   onOpenLog: () => void;
 }
 
-function tone(view: PillView): string {
+/** The pill's state in the corner's shared tone vocabulary (`notice-tone--*`
+ *  in App.css, the same one toasts use). `null` = neutral. */
+function tone(view: PillView): ToastKind | null {
   switch (view.mode) {
     case "paused":
     case "failed":
-      return "bad";
+      return "error";
     case "running":
+      return view.outward ? "warning" : "info";
     case "done":
-      return view.outward ? "outward" : view.mode;
+      return view.outward ? "warning" : "success";
     default:
-      return "idle";
+      return null;
   }
+}
+
+function toneClass(view: PillView): string {
+  const t = tone(view);
+  return t ? ` notice-tone--${t}` : "";
 }
 
 /** "Liked track “So What”" already says what the label says, so the detail
@@ -104,7 +113,7 @@ export function AssistantActivityPill({ activity, enabled, hidden, onOpenLog }: 
   return (
     <div className="aa-wrap">
       {open && (
-        <div className="aa-panel" role="dialog" aria-label="Assistant activity">
+        <div className="aa-panel notice-surface" role="dialog" aria-label="Assistant activity">
           <div className="aa-panel-head">
             <span>Assistant activity</span>
             <button type="button" className="aa-link" onClick={() => setOpen(false)}>
@@ -164,7 +173,7 @@ export function AssistantActivityPill({ activity, enabled, hidden, onOpenLog }: 
           </div>
         </div>
       )}
-      <div className={`aa-pill aa-pill--${tone(view)}`} role="status" aria-live="polite">
+      <div className={`aa-pill notice-surface${toneClass(view)}${view.mode === "running" ? " aa-pill--running" : ""}`} role="status" aria-live="polite">
         <button
           type="button"
           className="aa-pill-main"
@@ -172,21 +181,21 @@ export function AssistantActivityPill({ activity, enabled, hidden, onOpenLog }: 
           title="Show what the assistant did"
           onClick={() => setOpen((o) => !o)}
         >
-          <span className="aa-dot aa-dot--pill" aria-hidden="true" />
+          <span className="notice-dot aa-pill-dot" aria-hidden="true" />
           <span className="aa-pill-text">{pillText(view)}</span>
         </button>
         {view.mode === "running" && (
-          <button type="button" className="aa-pill-btn" onClick={() => void setPaused(true)}>
+          <button type="button" className="ds-btn ds-btn--secondary ds-btn--sm" onClick={() => void setPaused(true)}>
             Pause
           </button>
         )}
         {view.mode === "paused" && (
-          <button type="button" className="aa-pill-btn aa-pill-btn--go" onClick={() => void setPaused(false)}>
+          <button type="button" className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => void setPaused(false)}>
             Resume
           </button>
         )}
         {view.mode === "failed" && (
-          <button type="button" className="aa-pill-btn" onClick={dismissFailures}>
+          <button type="button" className="ds-btn ds-btn--secondary ds-btn--sm" onClick={dismissFailures}>
             Dismiss
           </button>
         )}

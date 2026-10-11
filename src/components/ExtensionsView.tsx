@@ -20,6 +20,7 @@ import type {
 } from "../utils/pluginContributions";
 import { isExperimental, partitionByStability, EXPERIMENTAL_DISCLAIMER } from "../utils/pluginStability";
 import { DependenciesPanel, dependencyAttentionCount, type DependenciesApi } from "./DependenciesPanel";
+import type { Notify } from "../hooks/useToasts";
 import "./ExtensionsView.css";
 
 // "tools" = external command-line dependencies (ffmpeg, yt-dlp, …), which
@@ -48,7 +49,7 @@ interface ExtensionsViewProps {
   /** Resolves false when the install failed (the hook surfaces the reason itself). */
   onInstallFromUrl: (url: string) => Promise<boolean>;
   /** Lightweight feedback for the skin-install path, which has no staged dialog. */
-  onNotify?: (message: string) => void;
+  onNotify?: Notify;
   /** An extension operation is in flight; enable/disable controls are frozen. */
   busy?: boolean;
   galleryPlugins: GalleryPluginEntry[];
@@ -417,7 +418,7 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
   ext: ExtensionItem;
   onApprove?: (pluginId: string) => Promise<void>;
   onRevoke?: (pluginId: string) => Promise<void>;
-  onNotify?: (message: string) => void;
+  onNotify?: Notify;
 }) {
   const [working, setWorking] = useState(false);
   const requested = ext.permissions ?? [];
@@ -436,7 +437,7 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
       await fn(ext.id);
     } catch (e) {
       console.error(`Failed to ${what} permissions for ${ext.id}:`, e);
-      onNotify?.(`Couldn't ${what} permissions — ${e instanceof Error ? e.message : String(e)}`);
+      onNotify?.(`Couldn't ${what} permissions — ${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     } finally {
       setWorking(false);
     }
@@ -513,7 +514,7 @@ function PluginDetail({
   onSetContributionEnabled?: (key: string, enabled: boolean) => void;
   onApprovePermissions?: (pluginId: string) => Promise<void>;
   onRevokePermissions?: (pluginId: string) => Promise<void>;
-  onNotify?: (message: string) => void;
+  onNotify?: Notify;
 }) {
   const isInstalled = ext.status !== "not_installed";
   const settingsPanelId = ext.status === "active" && ext.contributes?.settingsPanel?.id;
@@ -1042,7 +1043,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
       const res = await onInstallFromGallery(entry);
       if (!res.ok && res.error !== INSTALL_CANCELLED) {
         console.error(`Failed to install skin ${ext.id}:`, res.error);
-        onNotify?.(`Couldn't install ${ext.name} — ${res.error ?? "unknown error"}`);
+        onNotify?.(`Couldn't install ${ext.name} — ${res.error ?? "unknown error"}`, { kind: "error" });
       }
       return;
     }
@@ -1077,7 +1078,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
         await onApprovePermissions(flow.id);
       } catch (e) {
         console.error(`Failed to allow permissions for ${flow.id}:`, e);
-        onNotify?.(`Couldn't allow ${flow.name}'s permissions — ${e instanceof Error ? e.message : String(e)}`);
+        onNotify?.(`Couldn't allow ${flow.name}'s permissions — ${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
         return;
       }
     }

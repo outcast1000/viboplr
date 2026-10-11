@@ -229,7 +229,7 @@ describe("prefer video: the library's own video copy joins the video-first pass"
     expect(resolveStreamByUri).toHaveBeenCalled();
     expect(out.engineSource).toEqual({ kind: "file", path: "D:/Torrents/Vitalogy/05. Nothingman.mp3" });
     // The silent audio playback must not read as "prefer video did nothing".
-    expect(notify).toHaveBeenCalledWith("No video found — playing audio.");
+    expect(notify).toHaveBeenCalledWith("No video found — playing audio.", { kind: "warning" });
   });
 });
 

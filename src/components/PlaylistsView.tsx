@@ -40,6 +40,7 @@ import { useImageCache } from "../hooks/useImageCache";
 import { useQueueVideoFrames, shelfVideoKey } from "../hooks/useShelfVideoFrames";
 import { resolveTrackImage, pickEntityImagePath } from "../utils/trackImage";
 import { buildPluginMenuSpecs } from "../contextMenu/pluginMenuGroups";
+import type { Notify } from "../hooks/useToasts";
 import "./PlaylistsView.css";
 
 interface Playlist {
@@ -111,7 +112,7 @@ interface PlaylistsViewProps {
   /** Open the searchable playlist picker (the submenu caps its list). */
   onBrowsePlaylists?: (tracks: QueueTrack[], excludeId?: number) => void;
   /** Lightweight feedback (useToasts.notify). */
-  onNotify?: (message: string) => void;
+  onNotify?: Notify;
 }
 
 function isLocalPath(source: string | null): boolean {
@@ -325,7 +326,7 @@ export function PlaylistsView({ searchQuery, onSearchChange, onPlayTracks, onEnq
       }
     } catch (e) {
       console.error("Failed to refresh auto playlists:", e);
-      onNotify?.("Couldn't generate your mixes.");
+      onNotify?.("Couldn't generate your mixes.", { kind: "error" });
     } finally {
       setRefreshingAuto(false);
     }

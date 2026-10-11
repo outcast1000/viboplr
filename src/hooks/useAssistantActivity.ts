@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { combineUnlisten, subscribe } from "../utils/tauriEvents";
 import { applyActivityEvent, type ActivityEntry, type ActivityEvent } from "../utils/assistantActivity";
+import type { Notify } from "./useToasts";
 
 /**
  * What the assistant is doing, and the user's pause switch.
@@ -14,7 +15,7 @@ import { applyActivityEvent, type ActivityEntry, type ActivityEvent } from "../u
  *
  * One instance, in App: the pill and Settings → AI control share it.
  */
-export function useAssistantActivity(notify: (message: string) => void) {
+export function useAssistantActivity(notify: Notify) {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [paused, setPausedState] = useState(false);
   // Highest entry id the user has dismissed; failures at or below it stop
@@ -45,7 +46,7 @@ export function useAssistantActivity(notify: (message: string) => void) {
         setPausedState(next);
       } catch (e) {
         console.error("Failed to change the assistant pause state:", e);
-        notify(next ? "Couldn't pause the assistant." : "Couldn't resume the assistant.");
+        notify(next ? "Couldn't pause the assistant." : "Couldn't resume the assistant.", { kind: "error" });
       }
     },
     [notify],

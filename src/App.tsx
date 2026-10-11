@@ -2103,11 +2103,11 @@ function App() {
           added: result.added,
         });
       } else {
-        notify(`Added ${result.added} track${result.added > 1 ? "s" : ""} to ${playlistName}`);
+        notify(`Added ${result.added} track${result.added > 1 ? "s" : ""} to ${playlistName}`, { kind: "success" });
       }
     } catch (e) {
       console.error("Failed to add tracks to playlist:", e);
-      notify(`Couldn't add to ${playlistName}`);
+      notify(`Couldn't add to ${playlistName}`, { kind: "error" });
     }
   }, [notify]);
 
@@ -2123,10 +2123,10 @@ function App() {
         tracks: pending.duplicates.map(toPlaylistTrackPayload),
         allowDuplicates: true,
       });
-      notify(`Added ${result.added} track${result.added > 1 ? "s" : ""} to ${pending.playlistName}`);
+      notify(`Added ${result.added} track${result.added > 1 ? "s" : ""} to ${pending.playlistName}`, { kind: "success" });
     } catch (e) {
       console.error("Failed to add duplicate tracks to playlist:", e);
-      notify(`Couldn't add to ${pending.playlistName}`);
+      notify(`Couldn't add to ${pending.playlistName}`, { kind: "error" });
     }
   }, [playlistDupConfirm, notify]);
 
@@ -2140,7 +2140,7 @@ function App() {
       setShowSavePlaylistModal(true);
     } catch (e) {
       console.error("Failed to prepare new playlist:", e);
-      notify("Couldn't create the playlist");
+      notify("Couldn't create the playlist", { kind: "error" });
     }
   }, [notify]);
 
@@ -2159,7 +2159,7 @@ function App() {
       await appendTracksToPlaylist(playlistId, playlistName, tracks);
     } catch (e) {
       console.error("Failed to resolve tracks for playlist add:", e);
-      notify(`Couldn't add to ${playlistName}`);
+      notify(`Couldn't add to ${playlistName}`, { kind: "error" });
     }
   }, [fetchTargetTracks, appendTracksToPlaylist, notify]);
 
@@ -2169,7 +2169,7 @@ function App() {
       await openNewPlaylistDraft(tracks);
     } catch (e) {
       console.error("Failed to prepare new playlist:", e);
-      notify("Couldn't create the playlist");
+      notify("Couldn't create the playlist", { kind: "error" });
     }
   }, [fetchTargetTracks, openNewPlaylistDraft, notify]);
 
@@ -2178,7 +2178,7 @@ function App() {
       openPlaylistPicker(await fetchTargetTracks(target));
     } catch (e) {
       console.error("Failed to resolve tracks for playlist picker:", e);
-      notify("Couldn't open the playlist picker");
+      notify("Couldn't open the playlist picker", { kind: "error" });
     }
   }, [fetchTargetTracks, openPlaylistPicker, notify]);
 
@@ -2263,7 +2263,7 @@ function App() {
         return { status: "replaced", trackId, path: result.path, previousPath: result.previousPath };
       } catch (e) {
         console.error("Failed to replace a library file:", e);
-        notify(`Couldn't replace “${row.title}”: ${e instanceof Error ? e.message : String(e)}`);
+        notify(`Couldn't replace “${row.title}”: ${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
         throw e;
       }
     };
@@ -2457,9 +2457,9 @@ function App() {
         }
       }
     },
-    showNotification: (message, action) => {
+    showNotification: (message, options) => {
       console.debug("[plugin]", message);
-      notify(message, action);
+      notify(message, options);
     },
   });
 
@@ -2605,10 +2605,10 @@ function App() {
       }
       // track / playlist / unresolved library entity → replay the captured lead track.
       if (session.track) { queueHook.playTracks([session.track], 0); return; }
-      notify(`Couldn't replay “${session.name}”.`);
+      notify(`Couldn't replay “${session.name}”.`, { kind: "error" });
     } catch (e) {
       console.error("Failed to replay latest-play session:", e);
-      notify(`Couldn't replay “${session.name}”.`);
+      notify(`Couldn't replay “${session.name}”.`, { kind: "error" });
     }
   }, [playActions, queueHook, notify]);
 
@@ -4444,7 +4444,7 @@ function App() {
   // tracks in a row fail — see surfacePlaybackFailure.
   useAssignRef(playbackAutoSkipRef, (track: QueueTrack, error: string) => {
     console.error(`Skipped "${track.title}" after playback failure:`, error);
-    notify(`Couldn't play "${track.title}" — skipping to the next track`);
+    notify(`Couldn't play "${track.title}" — skipping to the next track`, { kind: "warning" });
     handleNext("auto");
   });
 
@@ -5140,7 +5140,7 @@ function App() {
   async function handlePublishQueue() {
     const localTracks = queueHook.queue.filter(isLocalTrack);
     if (localTracks.length === 0) {
-      notify("The queue has no local tracks to share.");
+      notify("The queue has no local tracks to share.", { kind: "warning" });
       return;
     }
     // Resolve a library id per local track: cached `libraryId`, else one bulk
@@ -5154,7 +5154,7 @@ function App() {
       if (id != null && !seen.has(id)) { seen.add(id); ids.push(id); }
     }
     if (ids.length === 0) {
-      notify("Those tracks aren't in your library, so they can't be shared.");
+      notify("Those tracks aren't in your library, so they can't be shared.", { kind: "warning" });
       return;
     }
     setPublishTarget({ trackIds: ids, trackCount: ids.length, defaultName: queueHook.playlistContext?.name || "" });
@@ -5206,10 +5206,10 @@ function App() {
         metadata: ctx?.metadata ? JSON.stringify(ctx.metadata) : null,
         tracks,
       });
-      if (draft) notify(`Created "${name}" with ${tracks.length} track${tracks.length > 1 ? "s" : ""}`);
+      if (draft) notify(`Created "${name}" with ${tracks.length} track${tracks.length > 1 ? "s" : ""}`, { kind: "success" });
     } catch (err) {
       console.error("Failed to save playlist:", err);
-      notify(`Couldn't save "${name}"`);
+      notify(`Couldn't save "${name}"`, { kind: "error" });
     }
   }
 
@@ -5444,10 +5444,10 @@ function App() {
             try {
               const a = await invoke<Album | null>("find_album_by_name", { title: albumTitle, artistName: t.album_artist_name ?? t.artist_name ?? null });
               if (a) await playActions.playAlbum(a.id);
-              else notify(`"${albumTitle}" isn't in your library`);
+              else notify(`"${albumTitle}" isn't in your library`, { kind: "warning" });
             } catch (e) {
               console.error("Failed to play full album:", e);
-              notify("Couldn't play the album");
+              notify("Couldn't play the album", { kind: "error" });
             }
           } });
         }
@@ -6281,9 +6281,8 @@ function App() {
               }}
               onCreateSkin={() => {
                 skins.createSkin().then((res) => {
-                  notify(res.ok
-                    ? "New skin created — opening it in your editor"
-                    : `Couldn't create skin: ${res.error}`);
+                  if (res.ok) notify("New skin created — opening it in your editor");
+                  else notify(`Couldn't create skin: ${res.error}`, { kind: "error" });
                 }).catch((e) => console.error("Failed to create skin:", e));
               }}
               onOpenSkinInEditor={(id) => { skins.openSkinInEditor(id).catch((e) => console.error("Failed to open skin in editor:", e)); }}
@@ -6783,7 +6782,7 @@ function App() {
                 }
               } catch (e) {
                 console.error(`Failed to allow permissions for ${req.pluginId}:`, e);
-                notify(`Couldn't allow ${state.manifest.name}'s permissions — ${e instanceof Error ? e.message : String(e)}`);
+                notify(`Couldn't allow ${state.manifest.name}'s permissions — ${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
               }
               next();
             }}
@@ -7303,17 +7302,20 @@ function App() {
         />
       )}
 
-      {!showcase && <Toasts toasts={toasts} onDismiss={dismissToast} />}
-
-      <AssistantActivityPill
-        activity={assistantActivity}
-        enabled={controlApiEnabled}
-        hidden={showcase || mini.miniMode}
-        onOpenLog={() => {
-          setSettingsScrollTarget("assistant-activity");
-          library.setView("settings");
-        }}
-      />
+      {/* One corner for both: toasts stack above the assistant pill, so the
+          two never overlap (see .notice-corner in App.css). */}
+      <div className="notice-corner">
+        {!showcase && <Toasts toasts={toasts} onDismiss={dismissToast} />}
+        <AssistantActivityPill
+          activity={assistantActivity}
+          enabled={controlApiEnabled}
+          hidden={showcase || mini.miniMode}
+          onOpenLog={() => {
+            setSettingsScrollTarget("assistant-activity");
+            library.setView("settings");
+          }}
+        />
+      </div>
 
       {fileDragOver && (
         <div className="file-drop-overlay" aria-hidden="true">

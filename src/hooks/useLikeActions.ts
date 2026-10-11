@@ -6,6 +6,7 @@ import { emitTrackPatch } from "../trackEvents";
 import { trackLikePayload, entityLikePayload, nextTriState, trackLikeChange, entityLikeChange } from "../likeKeys";
 import { normalizeForMatch } from "../utils/normalize";
 import { trackLikeId } from "../utils/likeReconcile";
+import type { Notify } from "./useToasts";
 
 interface LibraryDeps {
   tracks: Track[];
@@ -39,7 +40,7 @@ interface UseLikeActionsDeps {
   // Surface a failed like/dislike write to the user (toast). Wired from
   // useToasts().notify in App.tsx so a rejected set_entity_like_state is never
   // silent — see conventions "User Feedback for Significant Operations".
-  notify: (message: string) => void;
+  notify: Notify;
 }
 
 // The metadata fallbacks below all compare `trackLikeId` (utils/likeReconcile)
@@ -162,7 +163,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       console.error("Failed to set track rating:", e);
       // Revert the optimistic mirror to the prior value and surface the failure.
       mirrorTrackLike(track, prevLiked);
-      notify(`Couldn't save like for "${track.title}" — please retry`);
+      notify(`Couldn't save like for "${track.title}" — please retry`, { kind: "error" });
       return false;
     } finally {
       inFlightRef.current.delete(id);
@@ -206,7 +207,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     } catch (e) {
       console.error(`Failed to set ${kind} like state:`, e);
       mirror(prevLiked);
-      notify(`Couldn't save ${noun} for "${label}" — please retry`);
+      notify(`Couldn't save ${noun} for "${label}" — please retry`, { kind: "error" });
       return false;
     }
   }

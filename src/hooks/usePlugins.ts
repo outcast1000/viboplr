@@ -15,7 +15,7 @@ import { track as trackTelemetry } from "../telemetry";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { store } from "../store";
 import type { Track, QueueTrack, Collection } from "../types";
-import type { ToastAction } from "./useToasts";
+import { coerceToastKind, type NotifyOptions, type ToastAction } from "./useToasts";
 import type {
   InstalledPlugin,
   PluginManifest,
@@ -312,7 +312,7 @@ export interface PluginHostCallbacks {
   tagOps?: TagOpsDeps;
   navigateToPluginView: (pluginId: string, viewId: string) => void;
   requestAction: (pluginId: string, action: string, payload: Record<string, unknown>) => void;
-  showNotification: (message: string, action?: ToastAction) => void;
+  showNotification: (message: string, options?: NotifyOptions) => void;
   /** `api.library.replaceTrackFile`: the host's Replace dialog, then the swap. */
   replaceTrackFile?: (pluginId: string, request: ReplaceTrackFileRequest) => Promise<ReplaceTrackFileResult>;
   /** `api.collections.requestAdd`: the app's own prefilled Add dialog. */
@@ -1016,7 +1016,8 @@ export function usePlugins(
                     },
                   }
                 : undefined;
-            if (notify) notify(message, action);
+            const kind = coerceToastKind(options?.kind);
+            if (notify) notify(message, { action, kind });
             else console.info(`[plugin:${pluginId}]`, message);
           },
           navigateToView: (viewId) => {

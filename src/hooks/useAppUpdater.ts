@@ -5,6 +5,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { subscribe } from "../utils/tauriEvents";
 
 import { useAssignRef } from "./useLatestRef";
+import type { Notify } from "./useToasts";
 export type UpdateChannel = "stable" | "beta";
 
 export type UpdateStage = "check" | "install";
@@ -114,7 +115,7 @@ export function humanizeUpdateError(raw: string, stage: UpdateStage): string {
 export function useAppUpdater(
   channel: UpdateChannel,
   onBeforeInstall?: () => void,
-  notify?: (message: string) => void,
+  notify?: Notify,
 ) {
   const [appVersion, setAppVersion] = useState("");
   const [updateState, setUpdateState] = useState<UpdateState>({
@@ -193,7 +194,7 @@ export function useAppUpdater(
         upToDate: false,
         error: { stage: "check", message, detail },
       }));
-      notify?.(message);
+      notify?.(message, { kind: "error" });
     }
   }
 
@@ -227,7 +228,7 @@ export function useAppUpdater(
         progress: null,
         error: { stage: "install", message, detail, version },
       }));
-      notify?.(message);
+      notify?.(message, { kind: "error" });
     } finally {
       stopProgress();
     }

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { decideSwitchAction } from "../utils/profileSwitch";
+import type { Notify } from "./useToasts";
 
 interface ProfileSwitchDeps {
   /** App restore-complete guard (App.tsx owns it). */
@@ -10,7 +11,7 @@ interface ProfileSwitchDeps {
   /** Drain the debounced app-store write (store.save). */
   saveStore: () => Promise<void>;
   /** Transient user feedback for failures. */
-  notify: (message: string) => void;
+  notify: Notify;
 }
 
 /**
@@ -40,7 +41,7 @@ export function useProfileSwitch({ restoredRef, flushQueue, saveStore, notify }:
         // On success the backend exits this process — nothing below runs.
       } catch (e) {
         console.error(`Failed to switch to profile "${name}":`, e);
-        notify(`Couldn't switch to profile “${name}”: ${e}`);
+        notify(`Couldn't switch to profile “${name}”: ${e}`, { kind: "error" });
         switchingRef.current = false;
         setSwitching(null);
       }

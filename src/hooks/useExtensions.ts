@@ -12,6 +12,7 @@ import type {
   GalleryPluginEntry,
 } from "../types/plugin";
 import type { SkinInfo, GallerySkinEntry } from "../types/skin";
+import type { Notify } from "./useToasts";
 
 interface UseExtensionsProps {
   pluginStates: PluginState[];
@@ -35,7 +36,7 @@ interface UseExtensionsProps {
   onFetchSkinGallery: () => void;
   onReloadAllPlugins: () => void | Promise<void>;
   /** Lightweight feedback for operations that used to fail into console.error only. */
-  onNotify?: (message: string) => void;
+  onNotify?: Notify;
   /** What a plugin would ask the user to approve now (usePlugins.permissionsToApprove). */
   getPermissionsToApprove?: (pluginId: string) => string[];
   /**
@@ -377,14 +378,14 @@ export function useExtensions(props: UseExtensionsProps) {
           if (!res.ok) {
             console.error(`Failed to uninstall plugin "${id}":`, res.error);
             // The row staying put is not feedback — it reads as a dead button.
-            onNotify?.(`Couldn't uninstall — ${res.error ?? "unknown error"}`);
+            onNotify?.(`Couldn't uninstall — ${res.error ?? "unknown error"}`, { kind: "error" });
           }
         } else {
           onDeleteSkin(id);
         }
       } catch (e) {
         console.error("Failed to uninstall:", e);
-        onNotify?.(`Couldn't uninstall — ${errText(e)}`);
+        onNotify?.(`Couldn't uninstall — ${errText(e)}`, { kind: "error" });
       }
     },
     [onDeletePlugin, onDeleteSkin, onNotify],
@@ -409,6 +410,7 @@ export function useExtensions(props: UseExtensionsProps) {
         console.error("Failed to toggle plugin:", e);
         onNotify?.(
           `Couldn't ${enabling ? "enable" : "disable"} the plugin — ${errText(e)}`,
+          { kind: "error" },
         );
       } finally {
         setBusyMessage(null);

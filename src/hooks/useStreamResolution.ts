@@ -11,6 +11,7 @@ import { track as trackTelemetry, sourceClass } from "../telemetry";
 import { classifyErrorKind } from "../utils/errorKind";
 
 import { useAssignRef } from "./useLatestRef";
+import type { Notify } from "./useToasts";
 const TRANSCODE_VIDEO_FORMATS = ["mkv", "avi", "wmv"];
 
 /** Reuse a just-resolved src for the SAME track within this window instead of
@@ -220,7 +221,7 @@ interface UseStreamResolutionDeps {
   /** Currently-playing track — drives transcode-session teardown. */
   currentTrack: QueueTrack | null;
   /** Transient toast — surfaces silent fallbacks (video → library audio copy). */
-  notify: (message: string) => void;
+  notify: Notify;
   /** A resolve revealed the track's real container (`patch.format`) — e.g. a
    * plugin-scheme URI with no extension (`qbt://<hash>/<n>`) that landed on a
    * video file. The patch otherwise only enriches `currentTrack`, so the queue
@@ -718,12 +719,12 @@ export function useStreamResolution({
           if (entry.fellBackToAudio) {
             // The user asked for VIDEO and silently got audio — say why, or
             // "all my videos play as audio" reads as a bug instead of a fallback.
-            notify(`Video source unavailable — playing the audio copy from ${entry.name}.`);
+            notify(`Video source unavailable — playing the audio copy from ${entry.name}.`, { kind: "warning" });
           } else if (triedVideoFirst && !entry.videoFirst) {
             // "Prefer video" was on but no resolver had a video for this track,
             // so the chain fell through to its own audio source. Say so, or the
             // silent audio playback reads as "prefer video did nothing".
-            notify("No video found — playing audio.");
+            notify("No video found — playing audio.", { kind: "warning" });
           }
           if (lastError) {
             console.debug(`Playing from ${entry.name} (original unavailable)`);

@@ -16,6 +16,7 @@ import {
   type EngineOutput,
 } from "../utils/bitPerfect";
 import type { BitPerfectControl } from "../components/BitPerfectButton";
+import type { Notify } from "./useToasts";
 
 /** Off-state tooltip: what the mode is for, and that it's an uncompromising one. */
 const BIT_PERFECT_OFF_TEXT =
@@ -45,7 +46,7 @@ interface UseBitPerfectOptions {
   /** The user ticked "Don't ask again" on the confirmation (persisted). */
   skipConfirm: boolean;
   setSkipConfirm: (skip: boolean) => void;
-  notify: (message: string) => void;
+  notify: Notify;
   /** Called after every toggle so the next track is re-armed under the new
    *  output (usePlayback.invalidatePreload). */
   onOutputChanged: () => void;
@@ -68,7 +69,7 @@ export function useBitPerfect(opts: UseBitPerfectOptions) {
   const notifyRef = useLatestRef(opts.notify);
   const onOutputChangedRef = useLatestRef(opts.onOutputChanged);
   const appVolumeRef = useLatestRef(opts.appVolume);
-  const notify = useCallback((message: string) => notifyRef.current(message), [notifyRef]);
+  const notify = useCallback<Notify>((message, options) => notifyRef.current(message, options), [notifyRef]);
   const [pin, setPin] = useState<DevicePin | null>(null);
   const [output, setOutput] = useState<EngineOutput | null>(null);
   /** The device the confirmation modal is asking about (null = modal closed). */
@@ -138,7 +139,7 @@ export function useBitPerfect(opts: UseBitPerfectOptions) {
       onOutputChangedRef.current();
     } catch (e) {
       console.error("Failed to switch Bit-perfect mode:", e);
-      notify(`Couldn't ${next ? "turn on" : "turn off"} Bit-perfect mode: ${e instanceof Error ? e.message : String(e)}`);
+      notify(`Couldn't ${next ? "turn on" : "turn off"} Bit-perfect mode: ${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     }
   }, [notify, onOutputChangedRef, endSettling, pinRef, appVolumeRef]);
 
@@ -153,7 +154,7 @@ export function useBitPerfect(opts: UseBitPerfectOptions) {
       console.error("Failed to read the default output device:", e);
     }
     if (!device) {
-      notify("Couldn't find an output device for Bit-perfect mode");
+      notify("Couldn't find an output device for Bit-perfect mode", { kind: "error" });
       return;
     }
     if (skipConfirm) await apply(device);
@@ -182,7 +183,7 @@ export function useBitPerfect(opts: UseBitPerfectOptions) {
       if (!payload.devicePresent) {
         // The pinned device went away (unplugged): the mode can't do its job,
         // and mpv would otherwise sit on a missing device. Off, and say so.
-        notify(`${pin.name} disconnected — Bit-perfect mode off`);
+        notify(`${pin.name} disconnected — Bit-perfect mode off`, { kind: "warning" });
         void apply(null);
         return;
       }

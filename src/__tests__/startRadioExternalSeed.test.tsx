@@ -90,6 +90,6 @@ describe("startRadio", () => {
     const { startRadio, playTracks, notify } = mount({ seedInLibrary: false, tracks: [] });
     expect(await startRadio({ title: "Unknown", artistName: "Nobody", coverPath: null })).toBeNull();
     expect(playTracks).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith(expect.stringContaining("isn't in your library"));
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining("isn't in your library"), { kind: "warning" });
   });
 });

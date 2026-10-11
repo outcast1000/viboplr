@@ -79,7 +79,7 @@ describe("useAssistantActivity", () => {
       await result.current.setPaused(true);
     });
     expect(result.current.paused).toBe(false);
-    expect(notify).toHaveBeenCalledWith("Couldn't pause the assistant.");
+    expect(notify).toHaveBeenCalledWith("Couldn't pause the assistant.", { kind: "error" });
   });
 
   it("dismissing failures covers what is there, not what comes later", async () => {
