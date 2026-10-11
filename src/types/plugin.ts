@@ -8,7 +8,7 @@ import type {
 // One definition, shared by the plugin API and the host's own renderer/cache — a
 // plugin-supplied storyboard and a locally generated one are the same shape.
 import type { Storyboard } from "../utils/storyboard";
-// Same reason: the host's Settings → Scrobbling status reads what plugins report.
+// Same reason: the host's Settings → Providers → Scrobblers status reads what plugins report.
 import type { ScrobbleReport } from "../utils/scrobblers";
 import type {
   PluginVisualizerAPI,
@@ -178,7 +178,7 @@ export interface PluginManifestContributes {
   /** Tools + instructions for AI assistants driving the control API. */
   assistant?: PluginManifestAssistant;
   /** For a plugin that subscribes to `track:scrobbled`. `defaultEnabled:
-   *  false` starts it switched off in Settings → Scrobbling until the user
+   *  false` starts it switched off in Settings → Providers → Scrobblers until the user
    *  turns it on — for a scrobbler that sends plays off the machine. */
   scrobbler?: { defaultEnabled?: boolean };
 }

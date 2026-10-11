@@ -14,7 +14,7 @@ import {
 import { relativeTime } from "../utils/assistantActivity";
 import type { DiagnosticContext } from "../utils/diagnosticReport";
 
-/** Settings → Scrobbling: every scrobbler (local history + each plugin
+/** Settings → Providers → Scrobblers: every scrobbler (local history + each plugin
  *  subscribed to `track:scrobbled`) with its own Audio / Video switches and
  *  what happened to its last play. These switches are the only on/off for
  *  scrobbling; sign-in stays in the plugin, and a signed-out plugin says so

@@ -1,4 +1,4 @@
-// Settings → Scrobbling: every scrobbler — the local history plus each plugin
+// Settings → Providers → Scrobblers: every scrobbler — the local history plus each plugin
 // subscribed to `track:scrobbled` — with its own Audio / Video switches. The
 // real bundled Last.fm plugin is loaded through `__E2E_PLUGINS__` so the
 // plugin row comes from an actual subscription, not a fixture list.
@@ -31,7 +31,7 @@ async function setup(page, seed = {}) {
   await page.goto('/');
   await page.waitForSelector('.sidebar');
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.locator('.settings-view .ds-tab', { hasText: 'Scrobbling' }).click();
+  await page.locator('.settings-view .ds-tab', { hasText: 'Providers' }).click();
 }
 
 const toggle = (page, name, media) => page.getByRole('switch', { name: `${name}: record ${media}` });
