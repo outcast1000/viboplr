@@ -2,7 +2,7 @@
   "id": "mock-info",
   "name": "Mock Info",
   "version": "1.0.0",
-  "author": "Viboplr",
+  "author": "Vibo",
   "description": "Debug-only fake Last.fm-style ranked lists (album tracklist, artist Top Songs) built from your library plus invented tracks, so the album/artist 'Not in library' merge can be tested without Last.fm.",
   "minAppVersion": "0.9.4",
   "runtime": "worker",

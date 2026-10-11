@@ -259,7 +259,7 @@ export interface PluginState {
   /** Worker plugin signed by the trusted first-party key: permissions are
    *  pre-approved, like a built-in's (utils/pluginTrust.ts → isFirstParty). */
   firstParty?: boolean;
-  /** Runs in the main realm (full app access) without a Viboplr signature —
+  /** Runs in the main realm (full app access) without a Vibo signature —
    *  see utils/pluginTrust.ts. Shown as "Unverified" in Extensions. */
   unverified?: boolean;
 }
@@ -1174,7 +1174,7 @@ export interface PluginUIAPI {
   /** Set this view's header (merged over the manifest's); `null` restores the
    *  manifest defaults. Absent on older hosts — feature-detect. */
   setViewHeader?(viewId: string, header: PluginViewHeader | null): void;
-  /** Open Viboplr's own page for a song, album or artist, by name (a page
+  /** Open Vibo's own page for a song, album or artist, by name (a page
    *  for something not in the library is built from the name, as everywhere
    *  else). `opts.tab` opens it on that tab: an information type id (yours or
    *  any other) or a host tab (`tracks`, `tags`, `details`, …); an id the page
@@ -1605,7 +1605,7 @@ export interface PluginAssistantAPI {
    */
   invoke(pluginId: string, tool: string, args?: Record<string, unknown>): Promise<unknown>;
   /**
-   * The APP's own assistant tools — exactly the catalog the Viboplr MCP server
+   * The APP's own assistant tools — exactly the catalog the Vibo MCP server
    * offers an outside assistant (`mcp/tools.mjs`), plus every plugin-published
    * tool as `<pluginId>__<tool>`. Calls run in-process through the control
    * API, so they need Settings → AI control on and pass the same
@@ -2152,7 +2152,7 @@ export interface ExtensionItem {
   pendingPermissions?: string[];
   /** Signed by the first-party key, so its permissions are allowed automatically. */
   firstParty?: boolean;
-  /** Running in the main realm without a Viboplr signature — see utils/pluginTrust.ts. */
+  /** Running in the main realm without a Vibo signature — see utils/pluginTrust.ts. */
   unverified?: boolean;
   homepage?: string;
   minAppVersion?: string;

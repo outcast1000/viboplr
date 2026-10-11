@@ -1,5 +1,5 @@
 /* ============================================
-   Viboplr — Static Showcase Website
+   Vibo — Static Showcase Website
    ============================================ */
 
 /* --- Custom Properties --- */
@@ -161,10 +161,9 @@ p {
 .nav-logo {
   display: flex;
   align-items: center;
-  gap: 2px;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 1.35rem;
+  font-size: 1.5rem;
   letter-spacing: -0.02em;
   transition: opacity var(--transition-fast);
 }
@@ -173,10 +172,30 @@ p {
   opacity: 0.8;
 }
 
-.nav-logo svg {
-  width: 34px;
-  height: 34px;
-  margin-right: -6px;
+/* Echo wordmark: brand-gradient text with a faint repeat directly under it */
+.wordmark {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+  padding-bottom: 0.28em;
+  background: linear-gradient(135deg, #FF6B6B, #E91E8A);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+.wordmark::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0.26em;
+  background: inherit;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  opacity: 0.28;
+  pointer-events: none;
 }
 
 .nav-links {

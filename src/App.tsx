@@ -1373,9 +1373,9 @@ function App() {
     const track = playback.currentTrack;
     if (track) {
       const parts = [track.artist_name, track.title].filter(Boolean);
-      document.title = parts.length ? parts.join(" — ") : "Viboplr";
+      document.title = parts.length ? parts.join(" — ") : "Vibo";
     } else {
-      document.title = "Viboplr";
+      document.title = "Vibo";
     }
   }, [playback.currentTrack]);
 

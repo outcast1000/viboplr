@@ -2,7 +2,7 @@
   "id": "mock-download",
   "name": "Mock Download",
   "version": "1.0.0",
-  "author": "Viboplr",
+  "author": "Vibo",
   "description": "Mock download provider for testing. Returns fake search results and downloads free MP3 files.",
   "minAppVersion": "0.9.4",
   "runtime": "worker",

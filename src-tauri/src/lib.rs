@@ -1562,7 +1562,7 @@ pub fn run() {
             // Set window title for named profiles (like Chrome)
             if profile_name != "default" {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.set_title(&format!("Viboplr [{}]", profile_name));
+                    let _ = window.set_title(&format!("Vibo [{}]", profile_name));
                 }
             }
 

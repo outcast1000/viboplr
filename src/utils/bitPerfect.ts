@@ -61,7 +61,7 @@ export type BitPerfectPlatform = "mac" | "windows";
 export interface DevicePin {
   uid: string;
   name: string;
-  /** The device exposes a settable hardware volume (Viboplr's volume control
+  /** The device exposes a settable hardware volume (Vibo's volume control
    *  drives it while the mode is on). Informational; the engine ignores it. */
   hasVolume?: boolean;
 }
@@ -233,7 +233,7 @@ export const BIT_PERFECT_EQ_REASON = "Equalizer suspended by Bit-perfect mode";
 /** Volume while on, for a device with no controllable volume of its own. */
 export const BIT_PERFECT_VOLUME_REASON = "This device has no volume control — in Bit-perfect mode, set the level on your DAC or amplifier";
 
-/** Volume tooltip while on, for a device whose own volume Viboplr controls. */
+/** Volume tooltip while on, for a device whose own volume Vibo controls. */
 export function bitPerfectDeviceVolumeNote(deviceName: string, platform: BitPerfectPlatform): string {
   return `Volume of ${deviceName} — Bit-perfect mode sets the device's own level, so the audio stays untouched. ` +
     volumeKeysNote(platform, true);
@@ -243,11 +243,11 @@ export function bitPerfectDeviceVolumeNote(deviceName: string, platform: BitPerf
  * What the OS volume keys do while the device is held. macOS moves its system
  * output off a hogged device, so the keys go elsewhere. Windows leaves the
  * default where it is, and on a device with hardware volume the keys drive the
- * same endpoint level Viboplr does; without one, the endpoint level is a
+ * same endpoint level Vibo does; without one, the endpoint level is a
  * software gain that exclusive mode bypasses, so the keys do nothing.
  */
 export function volumeKeysNote(platform: BitPerfectPlatform, hasVolume: boolean): string {
-  if (platform === "mac") return "Your Mac's volume keys can't reach it while Viboplr holds it; use this slider.";
+  if (platform === "mac") return "Your Mac's volume keys can't reach it while Vibo holds it; use this slider.";
   return hasVolume
     ? "The Windows volume keys adjust it too."
     : "The Windows volume keys won't change it either.";

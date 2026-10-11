@@ -41,7 +41,7 @@ test('an available release announces itself in the content column', async ({ pag
 
   const notice = page.locator('.update-notice');
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText('Viboplr 9.9.9 is available');
+  await expect(notice).toContainText('Vibo 9.9.9 is available');
   // The one-click route the banner exists to provide.
   await expect(notice.getByRole('button', { name: 'Update & restart' })).toBeVisible();
 });
@@ -87,7 +87,7 @@ test('a later release announces itself despite an earlier dismissal', async ({ p
     storeSeed: { updateNoticeDismissed: { app: 'app:9.9.9' } },
   });
   await checkForUpdates(page);
-  await expect(page.locator('.update-notice')).toContainText('Viboplr 9.9.10 is available');
+  await expect(page.locator('.update-notice')).toContainText('Vibo 9.9.10 is available');
 });
 
 test('extension updates get the same banner, with Update all', async ({ page }) => {

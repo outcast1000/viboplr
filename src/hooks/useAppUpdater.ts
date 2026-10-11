@@ -93,7 +93,7 @@ export function humanizeUpdateError(raw: string, stage: UpdateStage): string {
     return "Couldn't reach the update server. Check your internet connection and try again.";
   }
   if (s.includes("permission") || s.includes("denied") || s.includes("read-only")) {
-    return "Viboplr couldn't write the update. Make sure it's in your Applications folder and not running from the disk image.";
+    return "Vibo couldn't write the update. Make sure it's in your Applications folder and not running from the disk image.";
   }
   if (s.includes("no pending update")) {
     return "That update is no longer staged. Check for updates again.";

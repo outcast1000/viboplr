@@ -6,7 +6,7 @@
 		<MASTER_PAD_INFO>Portable Application Description, or PAD for short, is a data set that is used by shareware authors to disseminate information to anyone interested in their software products. To find out more go to http://pad.asp-software.org</MASTER_PAD_INFO>
 	</MASTER_PAD_VERSION_INFO>
 	<Company_Info>
-		<Company_Name>Viboplr</Company_Name>
+		<Company_Name>Vibo</Company_Name>
 		<Address_1></Address_1>
 		<Address_2></Address_2>
 		<City_Town></City_Town>
@@ -33,7 +33,7 @@
 		</Support_Info>
 	</Company_Info>
 	<Program_Info>
-		<Program_Name>Viboplr</Program_Name>
+		<Program_Name>Vibo</Program_Name>
 		<Program_Version>1.0.48</Program_Version>
 		<Program_Release_Month>09</Program_Release_Month>
 		<Program_Release_Day>04</Program_Release_Day>
@@ -70,15 +70,15 @@
 			<Keywords>music player, audio player, FLAC player, gapless playback, Subsonic client, Navidrome client, open source, music library, lyrics, equalizer, scrobbling, mpv, local music, playlists</Keywords>
 			<Char_Desc_45>Open source desktop music player</Char_Desc_45>
 			<Char_Desc_80>Free, open source music player for local files, Subsonic/Navidrome and plugins</Char_Desc_80>
-			<Char_Desc_250>Viboplr is a free, open source desktop music player for Windows and macOS. It unifies local folders, Subsonic/Navidrome servers and plugin-connected services in one searchable library, with gapless mpv playback, synced lyrics, EQ and skins.</Char_Desc_250>
-			<Char_Desc_450>Viboplr is a free, open source (GPL-3.0) desktop music player for Windows and macOS built for people who love music. It unifies local folders, Subsonic/Navidrome servers and plugin-connected streaming services in one searchable library. A native mpv engine delivers gapless, bit-perfect playback of every major format, plus a 10-band EQ, ReplayGain, crossfade, synced karaoke lyrics, endless radio, playlists, skins and a JavaScript plugin system.</Char_Desc_450>
-			<Char_Desc_2000>Viboplr is a free and open source (GPL-3.0) desktop music player for Windows and macOS, built for people who love music - not just stream it. It brings a whole collection together in one place: local folders, Subsonic and Navidrome servers, and streaming services connected through plugins, all searchable in a single library.
+			<Char_Desc_250>Vibo is a free, open source desktop music player for Windows and macOS. It unifies local folders, Subsonic/Navidrome servers and plugin-connected services in one searchable library, with gapless mpv playback, synced lyrics, EQ and skins.</Char_Desc_250>
+			<Char_Desc_450>Vibo is a free, open source (GPL-3.0) desktop music player for Windows and macOS built for people who love music. It unifies local folders, Subsonic/Navidrome servers and plugin-connected streaming services in one searchable library. A native mpv engine delivers gapless, bit-perfect playback of every major format, plus a 10-band EQ, ReplayGain, crossfade, synced karaoke lyrics, endless radio, playlists, skins and a JavaScript plugin system.</Char_Desc_450>
+			<Char_Desc_2000>Vibo is a free and open source (GPL-3.0) desktop music player for Windows and macOS, built for people who love music - not just stream it. It brings a whole collection together in one place: local folders, Subsonic and Navidrome servers, and streaming services connected through plugins, all searchable in a single library.
 
 At its core is a native playback engine built on libmpv, which decodes every major audio format natively (MP3, FLAC, ALAC, OPUS, APE, WavPack, DSD, and more) with sample-accurate gapless playback, configurable crossfade, exclusive bit-perfect audio output, a 10-band equalizer, ReplayGain volume normalization, and turntable-style speed control. Video files play too, with a theater mode and storyboard seek previews. The library is backed by SQLite with accent- and case-insensitive full-text search, and folders are scanned in the background with real-time file watching.
 
 Key features include a Home view with a radio-station carousel and shelves (recently played, most played, jump back in, liked); endless radio from any track, artist, or tag; auto-continue when the queue ends; a Now Playing view with synced karaoke lyrics, visualizers, and a waveform seek bar; playlists with M3U8 and portable .mixtape export/import; a compact always-on-top mini player; native right-click menus everywhere; 8 built-in skins plus a community gallery and custom JSON skins; and Chrome-like isolated profiles.
 
-Viboplr is designed as an orchestrator: a JavaScript plugin system provides streaming sources, scrobbling (Last.fm built in), synced lyrics, artist and album artwork, downloads, sidebar views, home shelves, visualizers, and context-menu actions. Gallery plugins add Spotify, TIDAL, YouTube (via yt-dlp), Genius, qBittorrent, and more, with auto-updates and per-plugin settings.
+Vibo is designed as an orchestrator: a JavaScript plugin system provides streaming sources, scrobbling (Last.fm built in), synced lyrics, artist and album artwork, downloads, sidebar views, home shelves, visualizers, and context-menu actions. Gallery plugins add Spotify, TIDAL, YouTube (via yt-dlp), Genius, qBittorrent, and more, with auto-updates and per-plugin settings.
 
 Built with Tauri 2, Rust, and React for fast startup, instant playback, and a small footprint. No account required and no telemetry surprises.</Char_Desc_2000>
 		</English>
@@ -99,7 +99,7 @@ Built with Tauri 2, Rust, and React for fast startup, instant playback, and a sm
 		</Download_URLs>
 	</Web_Info>
 	<Permissions>
-		<Distribution_Permissions>Viboplr is free software licensed under the GNU General Public License v3.0 or later. It may be freely distributed via download sites, magazine cover discs, and software collections, provided the package is left intact and the license accompanies it. Source code is available at https://github.com/outcast1000/viboplr</Distribution_Permissions>
-		<EULA>Viboplr is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). You may use, study, modify, and redistribute it; any distributed derivative must also be released under the GPL. Full license text: https://github.com/outcast1000/viboplr/blob/main/LICENSE</EULA>
+		<Distribution_Permissions>Vibo is free software licensed under the GNU General Public License v3.0 or later. It may be freely distributed via download sites, magazine cover discs, and software collections, provided the package is left intact and the license accompanies it. Source code is available at https://github.com/outcast1000/viboplr</Distribution_Permissions>
+		<EULA>Vibo is licensed under the GNU General Public License v3.0 or later (GPL-3.0-or-later). You may use, study, modify, and redistribute it; any distributed derivative must also be released under the GPL. Full license text: https://github.com/outcast1000/viboplr/blob/main/LICENSE</EULA>
 	</Permissions>
 </XML_DIZ_INFO>

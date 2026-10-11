@@ -440,7 +440,7 @@ function HomeEmptyState({
         <h2 className="home-empty-title">Let's find your music</h2>
         <p className="home-empty-desc">
           Home fills up with radio stations, recent plays and your albums once
-          Viboplr knows where your music lives. Point it at a folder, connect a
+          Vibo knows where your music lives. Point it at a folder, connect a
           server, or add a streaming plugin.
         </p>
         <div className="home-empty-actions">

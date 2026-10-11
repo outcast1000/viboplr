@@ -51,7 +51,7 @@ export function DependenciesPanel({
   const [loading, setLoading] = useState(false);
   const [actioning, setActioning] = useState<string | null>(null);
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
-  // Name of the dep whose inline "let Viboplr manage" confirm is open.
+  // Name of the dep whose inline "let Vibo manage" confirm is open.
   const [takeoverConfirm, setTakeoverConfirm] = useState<string | null>(null);
 
   // First time the tab is shown: fill in presence if startup hasn't yet, and run
@@ -170,7 +170,7 @@ export function DependenciesPanel({
                   )}
                   {installed && dep.origin && (
                     <span className="settings-pill">
-                      {dep.origin === "managed" ? "managed by Viboplr" : "system"}
+                      {dep.origin === "managed" ? "managed by Vibo" : "system"}
                     </span>
                   )}
                   {/* Install / Update / manage actions live on the right. */}
@@ -205,7 +205,7 @@ export function DependenciesPanel({
                         onClick={() => setTakeoverConfirm(takeoverConfirm === dep.name ? null : dep.name)}
                         disabled={busy}
                       >
-                        Let Viboplr manage
+                        Let Vibo manage
                       </button>
                     )}
                     {installed && dep.origin === "managed" && (
@@ -213,7 +213,7 @@ export function DependenciesPanel({
                         className="ds-btn ds-btn--ghost ds-btn--sm"
                         onClick={() => handleStopManaging(dep.name)}
                         disabled={busy}
-                        title="Remove Viboplr's copy and fall back to a system install"
+                        title="Remove Vibo's copy and fall back to a system install"
                       >
                         {busy ? "Working..." : "Stop managing"}
                       </button>
@@ -223,18 +223,18 @@ export function DependenciesPanel({
                 {installed && outdated && update?.latest && (
                   <span style={{ fontSize: "var(--fs-xs)", color: "var(--warning)" }}>
                     Update available: {update.installed ?? dep.version} → {update.latest}
-                    {dep.origin === "system" ? " (installed outside Viboplr — update via your package manager)" : ""}
+                    {dep.origin === "system" ? " (installed outside Vibo — update via your package manager)" : ""}
                   </span>
                 )}
                 {takeoverConfirm === dep.name && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "8px 10px", background: "var(--bg-tertiary)", borderRadius: "var(--ds-radius)" }}>
                     <span style={{ fontSize: "var(--fs-xs)", color: "var(--text-secondary)" }}>
-                      Viboplr will download and keep its own copy of {dep.name} up to date automatically. Your existing system copy is left in place but no longer used — you can remove it later via your package manager.
+                      Vibo will download and keep its own copy of {dep.name} up to date automatically. Your existing system copy is left in place but no longer used — you can remove it later via your package manager.
                     </span>
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                       <button className="ds-btn ds-btn--ghost ds-btn--sm" onClick={() => setTakeoverConfirm(null)} disabled={busy}>Cancel</button>
                       <button className="ds-btn ds-btn--primary ds-btn--sm" onClick={() => handleInstall(dep.name)} disabled={busy}>
-                        {busy ? "Installing..." : "Let Viboplr manage"}
+                        {busy ? "Installing..." : "Let Vibo manage"}
                       </button>
                     </div>
                   </div>
@@ -257,7 +257,7 @@ export function DependenciesPanel({
             <div className="settings-row-info">
               <span className="settings-label">Keep tools up to date automatically</span>
               <span className="settings-description">
-                Silently update Viboplr-managed binaries (e.g. yt-dlp) when a newer release is available. Binaries installed via a package manager are never touched.
+                Silently update Vibo-managed binaries (e.g. yt-dlp) when a newer release is available. Binaries installed via a package manager are never touched.
               </span>
             </div>
             <ToggleSwitch checked={autoUpdateManagedDeps} onChange={onAutoUpdateManagedDepsChange} />

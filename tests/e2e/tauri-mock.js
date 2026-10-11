@@ -152,7 +152,7 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
 
     // plugin:app — version, name, etc.
     if (cmd === 'plugin:app|version') return '0.9.99';
-    if (cmd === 'plugin:app|name') return 'Viboplr';
+    if (cmd === 'plugin:app|name') return 'Vibo';
     if (cmd === 'plugin:app|tauri_version') return '2.0.0';
     if (cmd.startsWith('plugin:app')) return null;
 

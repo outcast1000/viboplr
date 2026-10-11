@@ -578,7 +578,7 @@ function ProviderPrioritySection({
         <div className="settings-group">
           <div className="settings-group-title">Playback fallback<HelpLink anchor="providers" topic="playback fallback" /></div>
           <p className="settings-description provider-group-description">
-            Used only when a track can't play from its own source — a library file that has gone missing, or a track with no file behind it. Viboplr tries these in order and plays the first copy it finds.
+            Used only when a track can't play from its own source — a library file that has gone missing, or a track with no file behind it. Vibo tries these in order and plays the first copy it finds.
           </p>
           <div className="provider-priority-container">
             <div className="provider-entity-group">
@@ -883,7 +883,7 @@ function ControlApiSection({
       <div className="settings-card">
         <div className="settings-row">
           <div className="settings-row-info">
-            <span className="settings-label">Allow AI assistants to control Viboplr<HelpLink anchor="control-api" topic="AI control" /></span>
+            <span className="settings-label">Allow AI assistants to control Vibo<HelpLink anchor="control-api" topic="AI control" /></span>
             <span className="settings-description">
               Runs a private control server on this computer only (127.0.0.1, token-protected).
               Assistants like Claude can then search your library, control playback, and edit
@@ -1490,7 +1490,7 @@ export function SettingsPanel({
   const handleExportLikes = useCallback(async () => {
     try {
       const path = await save({
-        filters: [{ name: "Viboplr likes", extensions: ["json"] }],
+        filters: [{ name: "Vibo likes", extensions: ["json"] }],
         defaultPath: "viboplr-likes.json",
       });
       if (!path) return;
@@ -1507,7 +1507,7 @@ export function SettingsPanel({
   const handleImportLikes = useCallback(async () => {
     try {
       const path = await open({
-        filters: [{ name: "Viboplr likes", extensions: ["json"] }],
+        filters: [{ name: "Vibo likes", extensions: ["json"] }],
         multiple: false,
       });
       if (!path || typeof path !== "string") return;
@@ -1576,18 +1576,19 @@ export function SettingsPanel({
             {settingsTab === "general" && (
               <>
                 <div className="settings-group" id="app-update">
-                  <div className="settings-group-title">ViboPLR</div>
+                  <div className="settings-group-title">Vibo</div>
                   <div className="settings-card">
                     <div className="settings-about-content">
                     <div className="settings-about-logo" style={{ cursor: "pointer" }} onClick={() => openUrl(LINKS.homepage).catch(console.error)}>
                       <svg width="32" height="32" viewBox="0 0 512 512" fill="none">
-                        <defs><linearGradient id="aboutVGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
-                        <path d="M120,110 L256,400 L392,110" fill="none" stroke="url(#aboutVGrad)" strokeWidth="56" strokeLinecap="round" strokeLinejoin="round"/>
-                        <circle cx="256" cy="400" r="16" fill="url(#aboutVGrad)" opacity="0.6"/>
+                        <defs><linearGradient id="aboutTileGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stopColor="#FF6B6B"/><stop offset="100%" stopColor="#E91E8A"/></linearGradient></defs>
+                        <rect x="36" y="36" width="440" height="440" rx="99" fill="url(#aboutTileGrad)"/>
+                        <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" transform="translate(0 40)" fill="#fff" stroke="#fff" strokeWidth="10" strokeLinejoin="round" opacity="0.4"/>
+                        <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" fill="#fff" stroke="#fff" strokeWidth="10" strokeLinejoin="round"/>
                       </svg>
                     </div>
                     <div className="settings-about-info">
-                      <span className="settings-about-name">Viboplr</span>
+                      <span className="settings-about-name">Vibo</span>
                       <span className="settings-about-version">v{appVersion} &middot; <a href="#" className="settings-about-link" onClick={(e) => { e.preventDefault(); openUrl(LINKS.homepage).catch(console.error); }}>viboplr.com</a></span>
                     </div>
                     <div className="settings-about-actions">
@@ -1666,7 +1667,7 @@ export function SettingsPanel({
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">Anonymous usage statistics<HelpLink anchor="telemetry" topic="anonymous usage statistics" /></span>
-                        <span className="settings-description">Send anonymous, privacy-preserving usage data — no track titles, file paths, or personal information — to help improve Viboplr. Turn this off any time.</span>
+                        <span className="settings-description">Send anonymous, privacy-preserving usage data — no track titles, file paths, or personal information — to help improve Vibo. Turn this off any time.</span>
                       </div>
                       <div
                         className={`ds-toggle ${telemetryEnabled ? "on" : ""}`}
@@ -1802,7 +1803,7 @@ export function SettingsPanel({
                     <div className="settings-row">
                       <div className="settings-row-info">
                         <span className="settings-label">External tools<HelpLink anchor="dependencies" topic="managed dependencies" /></span>
-                        <span className="settings-description">ffmpeg, yt-dlp and the other command-line tools Viboplr and its plugins use are managed in Extensions → Tools.</span>
+                        <span className="settings-description">ffmpeg, yt-dlp and the other command-line tools Vibo and its plugins use are managed in Extensions → Tools.</span>
                       </div>
                       <button className="ds-btn ds-btn--secondary ds-btn--sm" onClick={onOpenDependencies}>Open Tools</button>
                     </div>
@@ -1829,7 +1830,7 @@ export function SettingsPanel({
                             ? "mpv plays every format natively with sample-accurate gapless; on macOS it also renders video (beta). Switching stops playback."
                             : !mpvProbed
                               ? "Checking which engines this machine can use…"
-                              : "The mpv engine ships with Viboplr but couldn't load on this machine, so playback is using the browser engine."}
+                              : "The mpv engine ships with Vibo but couldn't load on this machine, so playback is using the browser engine."}
                         </span>
                         {engineComponentError && (
                           <span className="settings-description" style={{ color: "var(--error)" }}>

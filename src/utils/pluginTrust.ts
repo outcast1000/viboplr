@@ -11,7 +11,7 @@
 // plugins are moving to the worker runtime, an unsigned main-realm plugin still
 // runs but is labelled "Unverified". Flipping ENFORCE_SIGNED_MAIN_REALM refuses
 // it instead. A signature that is present but doesn't verify is refused even
-// now — that is a plugin whose files changed after Viboplr signed them.
+// now — that is a plugin whose files changed after Vibo signed them.
 
 /** What `plugin_list_installed` says about a plugin's signature. */
 export type PluginSignature = "verified" | "unsigned" | "invalid" | "builtin";
@@ -47,7 +47,7 @@ export function mainRealmVerdict(
     return {
       allow: false,
       reason:
-        "This plugin's signature doesn't match its files, so it may have been modified after Viboplr published it. " +
+        "This plugin's signature doesn't match its files, so it may have been modified after Vibo published it. " +
         "Reinstall it from the gallery." +
         (p.signatureError ? ` (${p.signatureError})` : ""),
     };
@@ -60,7 +60,7 @@ export function mainRealmVerdict(
     return {
       allow: false,
       reason:
-        "This plugin isn't signed by Viboplr, and unsigned plugins can't run with full app access. " +
+        "This plugin isn't signed by Vibo, and unsigned plugins can't run with full app access. " +
         "Update it, or use a version built for the plugin worker runtime.",
     };
   }

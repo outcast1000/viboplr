@@ -83,7 +83,7 @@ export function resolveUpdateNotice(input: UpdateNoticeInput): UpdateNotice | nu
       return {
         kind: "app",
         signature,
-        title: `Viboplr ${appUpdate.version} is available`,
+        title: `Vibo ${appUpdate.version} is available`,
         body: appUpdate.body || undefined,
       };
     }

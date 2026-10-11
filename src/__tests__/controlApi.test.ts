@@ -448,8 +448,8 @@ describe("buildAssistantRoster", () => {
 
 describe("annotateGalleryPlugins", () => {
   const entries = [
-    { id: "ytdlp", name: "yt-dlp", author: "Viboplr", description: "1000+ sites", recommended: true },
-    { id: "qbittorrent", name: "qBittorrent", author: "Viboplr", description: "Torrents", stability: "experimental" },
+    { id: "ytdlp", name: "yt-dlp", author: "Vibo", description: "1000+ sites", recommended: true },
+    { id: "qbittorrent", name: "qBittorrent", author: "Vibo", description: "Torrents", stability: "experimental" },
   ];
 
   it("marks installed entries with their installed version and enabled state", () => {

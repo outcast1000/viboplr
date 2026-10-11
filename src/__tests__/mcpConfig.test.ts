@@ -80,11 +80,11 @@ describe("buildMcpCliCommand", () => {
     const win: McpSetupInfo = {
       ...ok,
       nodePath: "C:\\Program Files\\nodejs\\node.exe",
-      scriptPath: "C:\\Program Files\\Viboplr\\mcp\\viboplr-mcp.mjs",
+      scriptPath: "C:\\Program Files\\Vibo\\mcp\\viboplr-mcp.mjs",
     };
     const cmd = buildMcpCliCommand(win)!;
     expect(cmd).toContain('"C:\\Program Files\\nodejs\\node.exe"');
-    expect(cmd).toContain('"C:\\Program Files\\Viboplr\\mcp\\viboplr-mcp.mjs"');
+    expect(cmd).toContain('"C:\\Program Files\\Vibo\\mcp\\viboplr-mcp.mjs"');
   });
 
   it("leaves an ordinary path unquoted", () => {

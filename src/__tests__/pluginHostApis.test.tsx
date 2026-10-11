@@ -140,7 +140,7 @@ describe("plugin_view sections", () => {
     const dispatch = vi.fn();
     render(
       <PluginSectionContext.Provider value={{ dispatch, currentTrack: null, playing: false }}>
-        <InformationSections entity={entity} invokeInfoFetch={vi.fn()} pluginNames={new Map([["community", "Viboplr Community"]])} />
+        <InformationSections entity={entity} invokeInfoFetch={vi.fn()} pluginNames={new Map([["community", "Vibo Community"]])} />
       </PluginSectionContext.Provider>,
     );
     const button = await screen.findByText("Like · 3");

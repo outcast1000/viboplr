@@ -1,4 +1,4 @@
-// Community page — Viboplr Community's three areas, built from the community
+// Community page — Vibo Community's three areas, built from the community
 // server itself (all CORS-open reads):
 //   GET /v1/modules                   what can be shared, each module with its `area`
 //   GET /v1/subjects/search?q=        Music: songs, albums and artists by name
@@ -233,7 +233,7 @@
     // answers it 401): point at the community site instead of fetching.
     if (m.membersOnly) {
       grid.innerHTML = '<div class="community-empty"><p>' + esc(m.name) + ' are for signed-in members. ' +
-        '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">Sign in with GitHub on community.viboplr.com</a> to see them, or open <strong>Community</strong> in Viboplr.</p></div>';
+        '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">Sign in with GitHub on community.viboplr.com</a> to see them, or open <strong>Community</strong> in Vibo.</p></div>';
       return;
     }
     status.textContent = 'Loading…';
@@ -274,7 +274,7 @@
     }
   }).catch(function (e) {
     console.error('Community modules load failed:', e);
-    setStatus('Couldn’t reach Viboplr Community right now. Visit it directly at ' +
+    setStatus('Couldn’t reach Vibo Community right now. Visit it directly at ' +
       '<a href="' + API_BASE + '" target="_blank" rel="noopener">community.viboplr.com</a>.', true);
   });
 })();

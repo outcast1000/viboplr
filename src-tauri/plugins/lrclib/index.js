@@ -1,4 +1,4 @@
-// LRCLIB Plugin for Viboplr
+// LRCLIB Plugin for Vibo
 // Provides synced and plain lyrics from lrclib.net
 
 function activate(api) {

@@ -231,7 +231,7 @@ export const nativeEngine = {
   setBitPerfect(pin: DevicePin | null): Promise<void> {
     return whenCapable(() => invoke("engine_set_bit_perfect", { pin }));
   },
-  /** An output device's own hardware volume (0..1) — Viboplr's volume control
+  /** An output device's own hardware volume (0..1) — Vibo's volume control
    * while Bit-perfect mode holds mpv at full scale. Rejects when the device
    * has no settable volume. */
   setDeviceVolume(uid: string, volume: number): Promise<void> {

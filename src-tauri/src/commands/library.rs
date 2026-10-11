@@ -838,10 +838,10 @@ pub async fn import_likes(
     let applied = tauri::async_runtime::spawn_blocking(move || {
         let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let file: LikesFile = serde_json::from_str(&content)
-            .map_err(|_| "This file isn't a valid Viboplr likes export.".to_string())?;
+            .map_err(|_| "This file isn't a valid Vibo likes export.".to_string())?;
         if file.version > LIKES_FILE_VERSION {
             return Err(format!(
-                "This likes file was made by a newer version of Viboplr (format v{}). Update Viboplr to import it.",
+                "This likes file was made by a newer version of Vibo (format v{}). Update Vibo to import it.",
                 file.version
             ));
         }

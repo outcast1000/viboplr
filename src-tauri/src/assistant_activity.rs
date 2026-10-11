@@ -189,7 +189,7 @@ pub fn set_paused(app_dir: &Path, paused: bool) -> Result<(), String> {
 /// What a caller is told when it is refused. Names the user's switch, like the
 /// scope errors do, so an assistant can relay exactly what to do.
 pub const PAUSED_MESSAGE: &str =
-    "the assistant is paused — the user paused it in Viboplr (the Pause button on the assistant activity pill, or Settings → AI control). Reads still work; writes resume when they press Resume";
+    "the assistant is paused — the user paused it in Vibo (the Pause button on the assistant activity pill, or Settings → AI control). Reads still work; writes resume when they press Resume";
 
 /// For a plugin tool call: append `pluginId: tool` to the label so the pill
 /// and the log say *which* tool ran. Anything that isn't a short plain

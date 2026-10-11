@@ -14,7 +14,7 @@
       "Local-only, off by default &mdash; can never delete files or install extensions"
     ],
     "screenshot": "",
-    "screenshotAlt": "An AI assistant controlling Viboplr over MCP"
+    "screenshotAlt": "An AI assistant controlling Vibo over MCP"
   },
   {
     "group": "Playback",
@@ -29,7 +29,7 @@
       "Sub-200ms playback latency"
     ],
     "screenshot": "playback.webp",
-    "screenshotAlt": "Viboplr playback controls and now playing bar"
+    "screenshotAlt": "Vibo playback controls and now playing bar"
   },
   {
     "group": "Playback",
@@ -43,7 +43,7 @@
       "Lyrics from multiple providers<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "now-playing.webp",
-    "screenshotAlt": "Viboplr now playing view with synced karaoke lyrics"
+    "screenshotAlt": "Vibo now playing view with synced karaoke lyrics"
   },
   {
     "group": "Playback",
@@ -58,7 +58,7 @@
       "Full playback controls"
     ],
     "screenshot": "mini-player.webp",
-    "screenshotAlt": "Viboplr mini player with playback controls",
+    "screenshotAlt": "Vibo mini player with playback controls",
     "screenshotWidth": 1100,
     "screenshotHeight": 212
   },
@@ -67,7 +67,7 @@
     "groupDescription": "Local folders and music servers, unified into one fast library.",
     "label": "Library",
     "heading": "Your collection, always in sync",
-    "description": "Point Viboplr at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.",
+    "description": "Point Vibo at your music folders and it handles the rest. Background scanning reads metadata intelligently, and real-time file watching catches every change the moment it happens.",
     "items": [
       "Background folder scanning",
       "Smart metadata extraction with fallback parsing",
@@ -75,7 +75,7 @@
       "Genre tags from file metadata"
     ],
     "screenshot": "library.webp",
-    "screenshotAlt": "Viboplr library albums in tiles view"
+    "screenshotAlt": "Vibo library albums in tiles view"
   },
   {
     "group": "Library &amp; Sources",
@@ -89,13 +89,13 @@
       "Search by artist, album, track, or tag"
     ],
     "screenshot": "search.webp",
-    "screenshotAlt": "Viboplr full-text search with results"
+    "screenshotAlt": "Vibo full-text search with results"
   },
   {
     "group": "Library &amp; Sources",
     "label": "Servers",
     "heading": "Local meets streaming, seamlessly",
-    "description": "Point Viboplr at local folders and Subsonic or Navidrome servers for one unified library. Add streaming services through plugins &mdash; they slot straight into the same player, queue, and search.",
+    "description": "Point Vibo at local folders and Subsonic or Navidrome servers for one unified library. Add streaming services through plugins &mdash; they slot straight into the same player, queue, and search.",
     "items": [
       "Subsonic &amp; Navidrome support",
       "Unified library across all sources",
@@ -103,7 +103,7 @@
       "Spotify &amp; YouTube browse and playback<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "servers.webp",
-    "screenshotAlt": "Viboplr collections view with local and server sources"
+    "screenshotAlt": "Vibo collections view with local and server sources"
   },
   {
     "group": "Library &amp; Sources",
@@ -117,14 +117,14 @@
       "Import &amp; auto-sync your Last.fm loved tracks<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "",
-    "screenshotAlt": "Exporting and importing likes in Viboplr settings"
+    "screenshotAlt": "Exporting and importing likes in Vibo settings"
   },
   {
     "group": "Discovery",
     "groupDescription": "Your own collection, resurfaced &mdash; stations, shelves, and endless queues.",
     "label": "Home",
     "heading": "A home screen that knows your library",
-    "description": "Open Viboplr to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.",
+    "description": "Open Vibo to a curated landing page &mdash; an auto-rotating carousel of radio stations built from your own music, plus shelves that resurface recent plays, your most-played, and albums you'd forgotten you owned.",
     "items": [
       "Radio-station carousel seeded from your library",
       "&ldquo;Recently played&rdquo; &amp; &ldquo;Most played&rdquo; shelves",
@@ -132,13 +132,13 @@
       "Extra shelves contributed by plugins<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "home.webp",
-    "screenshotAlt": "Viboplr home view with radio stations and shelves"
+    "screenshotAlt": "Vibo home view with radio stations and shelves"
   },
   {
     "group": "Discovery",
     "label": "Radio",
     "heading": "Rediscover your own music",
-    "description": "Start an endless station from any track, artist, or tag and Viboplr builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.",
+    "description": "Start an endless station from any track, artist, or tag and Vibo builds the queue from what fits. When a queue runs dry, auto-continue keeps the music going using weighted strategies you control.",
     "items": [
       "One-click radio from any track, artist, or tag",
       "Tune stations: seed-artist share, favorites / mixed / discovery taste, spread across artists",
@@ -147,7 +147,7 @@
       "Similar tracks, artists &amp; bios via Last.fm<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "discovery.webp",
-    "screenshotAlt": "Viboplr track detail with a radio queue playing"
+    "screenshotAlt": "Vibo track detail with a radio queue playing"
   },
   {
     "group": "Make It Yours",
@@ -162,7 +162,7 @@
       "Vim-inspired navigation keys"
     ],
     "screenshot": "keyboard.webp",
-    "screenshotAlt": "Viboplr keyboard shortcuts overlay"
+    "screenshotAlt": "Vibo keyboard shortcuts overlay"
   },
   {
     "group": "Make It Yours",
@@ -176,14 +176,14 @@
       "Import custom JSON skins"
     ],
     "screenshot": "skins.webp",
-    "screenshotAlt": "Viboplr installed skins gallery"
+    "screenshotAlt": "Vibo installed skins gallery"
   },
   {
     "group": "Powered by Plugins",
-    "groupDescription": "An orchestrator at heart &mdash; extend Viboplr with streaming services, metadata, and entirely new views.",
+    "groupDescription": "An orchestrator at heart &mdash; extend Vibo with streaming services, metadata, and entirely new views.",
     "label": "Ecosystem",
     "heading": "Extend it your way",
-    "description": "A JavaScript plugin system powers streaming, lyrics, artwork, scrobbling, and downloads. Built-in plugins ship with the app; install more from the in-app gallery, or build your own with custom views, home shelves, context-menu actions, and event hooks. You can even run Viboplr with no local collection at all &mdash; the Spotify and YouTube plugins turn it into a pure streaming player.",
+    "description": "A JavaScript plugin system powers streaming, lyrics, artwork, scrobbling, and downloads. Built-in plugins ship with the app; install more from the in-app gallery, or build your own with custom views, home shelves, context-menu actions, and event hooks. You can even run Vibo with no local collection at all &mdash; the Spotify and YouTube plugins turn it into a pure streaming player.",
     "items": [
       "Streaming, lyrics, artwork &amp; scrobbling plugins",
       "One-click install from the in-app gallery",
@@ -192,6 +192,6 @@
       "No local files needed &mdash; stream via Spotify &amp; YouTube<span class=\"feature-tag\">plugin</span>"
     ],
     "screenshot": "plugins.webp",
-    "screenshotAlt": "Viboplr installed plugins in the Extensions view"
+    "screenshotAlt": "Vibo installed plugins in the Extensions view"
   }
 ]

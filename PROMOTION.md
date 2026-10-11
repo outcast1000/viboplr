@@ -1,10 +1,10 @@
-# Viboplr — Promotion Playbook
+# Vibo — Promotion Playbook
 
-A working document for promoting Viboplr across communities, show-and-tell sites,
+A working document for promoting Vibo across communities, show-and-tell sites,
 and software directories. Contains the channel list, **ready-to-paste post texts**,
 and **specs for every image/video** you'll need.
 
-- **App:** Viboplr — a local-first, skinnable desktop music player (Tauri 2 · Rust + React)
+- **App:** Vibo — a local-first, skinnable desktop music player (Tauri 2 · Rust + React)
 - **Site:** https://viboplr.com
 - **Repo:** https://github.com/outcast1000/viboplr
 - **License:** GPL-3.0-or-later (free & open source)
@@ -22,10 +22,10 @@ and **specs for every image/video** you'll need.
   stricter communities — let it be *discovered* on the site, don't headline it.
   - **One deliberate exception:** the yt-dlp/ffmpeg communities (§2 below) are the *one* place
     where leading with the plugin capability is on-topic and welcome. Keep it **plugin-scoped**
-    there ("Viboplr has an optional yt-dlp-powered plugin"), and be aware of the trade-off:
-    the more you brand Viboplr as a "yt-dlp frontend," the more the piracy-tool perception
+    there ("Vibo has an optional yt-dlp-powered plugin"), and be aware of the trade-off:
+    the more you brand Vibo as a "yt-dlp frontend," the more the piracy-tool perception
     follows it into *other* rooms. Don't let "downloader" become the app's main identity.
-- **"Spotify killer" is a great hook but must be framed honestly.** Viboplr is a *local-first
+- **"Spotify killer" is a great hook but must be framed honestly.** Vibo is a *local-first
   player*, not a streaming catalog — it won't kill Spotify by matching its catalog; it kills
   your *dependence* on it. Position it as: **own your music, self-host, and get a player that
   looks and feels better than Spotify.** If you say "Spotify killer" bluntly to skeptical
@@ -56,13 +56,13 @@ Almost every channel and directory asks for the same fields. Keep this block han
 - **FOSS angle:** `Free, open-source, no account, no cloud — just your music.`
 
 ### Short description (≈ 50 words)
-> Viboplr is a free, open-source desktop music player for your own library and your
+> Vibo is a free, open-source desktop music player for your own library and your
 > Subsonic/Navidrome server. Gapless playback and crossfade via a native mpv engine,
 > synced lyrics, a video theater mode, fully skinnable UI, and a plugin system for
 > lyrics, artwork, scrobbling and more. Windows & macOS.
 
 ### Long description (≈ 130 words)
-> Viboplr is a modern, local-first music player built with Tauri (Rust + React). It plays
+> Vibo is a modern, local-first music player built with Tauri (Rust + React). It plays
 > your local files across a huge range of formats and syncs with Subsonic and Navidrome
 > servers, so your collection lives with you — not in someone's cloud.
 >
@@ -109,11 +109,11 @@ rules first** — most require you to be a participant, not a drive-by poster. P
 few hours.
 
 ### r/selfhosted — angle: Subsonic/Navidrome client
-**Title:** `I built a local-first desktop player that syncs with Navidrome/Subsonic — Viboplr (free & open source)`
+**Title:** `I built a local-first desktop player that syncs with Navidrome/Subsonic — Vibo (free & open source)`
 
 **Body:**
 ```
-I've been building Viboplr, a desktop music player for people who keep their own library
+I've been building Vibo, a desktop music player for people who keep their own library
 instead of renting it from a streaming service. It's local-first, but its main hook for
 this crowd: it's a proper Subsonic/Navidrome client — point it at your server, it syncs
 artists/albums/tracks and genres, and everything shows up in one unified library alongside
@@ -135,7 +135,7 @@ Happy to answer anything — it's a Tauri (Rust + React) app.
 **Media:** GIF-01 (Subsonic sync → library populates), SHOT-01 (library), SHOT-05 (Home).
 
 ### r/navidrome + Subsonic community — angle: "a client you'll actually like looking at"
-**Title:** `Viboplr — a skinnable desktop client for Navidrome/Subsonic (gapless, synced lyrics, plugins)`
+**Title:** `Vibo — a skinnable desktop client for Navidrome/Subsonic (gapless, synced lyrics, plugins)`
 
 **Body:**
 ```
@@ -156,7 +156,7 @@ Would love feedback from folks running Navidrome — especially on sync edge cas
 
 **Body:**
 ```
-Viboplr is a desktop music player I built with Tauri 2 (Rust backend, React/TS frontend).
+Vibo is a desktop music player I built with Tauri 2 (Rust backend, React/TS frontend).
 A few things that were fun to build and might interest this sub:
 
 - A native playback engine wrapping libmpv via a hand-rolled dlopen/LoadLibraryW FFI loader
@@ -176,11 +176,11 @@ Happy to go deep on any of the above.
 **Media:** SHOT-07 (video theater), GIF-01 or a short architecture-focused clip. For r/tauri, emphasize the native-video-under-webview trick.
 
 ### r/opensource / r/coolgithubprojects — angle: FOSS
-**Title:** `Viboplr — a free, open-source local music player with skins and a plugin system (Tauri, GPL-3.0)`
+**Title:** `Vibo — a free, open-source local music player with skins and a plugin system (Tauri, GPL-3.0)`
 
 **Body:**
 ```
-Viboplr is a local-first desktop music player, free and open source under GPL-3.0. It
+Vibo is a local-first desktop music player, free and open source under GPL-3.0. It
 plays your own library, syncs with Subsonic/Navidrome, does gapless/crossfade via a native
 mpv engine, shows synced lyrics, and is fully skinnable with a plugin system on top.
 
@@ -194,7 +194,7 @@ Source: https://github.com/outcast1000/viboplr  •  Site: https://viboplr.com
 
 **Body:**
 ```
-If you've got a big local music collection, Viboplr might be worth a look. It's built
+If you've got a big local music collection, Vibo might be worth a look. It's built
 around a local SQLite library with FTS5 full-text search (fast even on large collections),
 handles a wide range of audio formats (FLAC, ALAC, OPUS, DSD, WavPack, Musepack, APE, and
 more via bundled ffmpeg/libmpv), and syncs with Subsonic/Navidrome if you self-host.
@@ -205,11 +205,11 @@ https://viboplr.com  •  https://github.com/outcast1000/viboplr
 **Media:** SHOT-01 (library with big track count visible), SHOT-08 (search results).
 
 ### r/vibecoding — angle: built end-to-end with AI
-**Title:** `I vibecoded a full desktop music player (Tauri + Rust + React) — Viboplr, now shipping v1.0`
+**Title:** `I vibecoded a full desktop music player (Tauri + Rust + React) — Vibo, now shipping v1.0`
 
 **Body:**
 ```
-Viboplr started as a "can I actually vibecode a real, shippable desktop app?" experiment and
+Vibo started as a "can I actually vibecode a real, shippable desktop app?" experiment and
 turned into a full music player. It's a Tauri app — Rust backend, React/TS frontend — and
 the vast majority of it was built with Claude Code: the native libmpv playback engine (FFI
 loader, dual-handle gapless, crossfade), a SQLite library with FTS5 search, a JS plugin
@@ -236,7 +236,7 @@ your `.claude/rules/` structure — this crowd loves the "how" behind a big vibe
 
 **Body:**
 ```
-Wanted to share a non-toy result from Claude Code: Viboplr, a desktop music player built with
+Wanted to share a non-toy result from Claude Code: Vibo, a desktop music player built with
 Tauri (Rust + React/TS), now at v1.0 and publicly released. It's a genuinely large app — a
 native libmpv playback engine (gapless/crossfade/EQ/ReplayGain), Subsonic/Navidrome sync,
 a plugin system, synced lyrics, skins, a mini player, profiles — and Claude Code did the bulk
@@ -273,11 +273,11 @@ strongly here.
 `r/MusicBee`, `r/audiophile` (careful — see below), `r/headphones`, `r/audiophilemusic`,
 `r/plexamp` / `r/jellyfin` (self-hosted players crowd).
 
-**Title:** `Viboplr — a modern, skinnable local music player with a native mpv engine (gapless, ReplayGain, exclusive output)`
+**Title:** `Vibo — a modern, skinnable local music player with a native mpv engine (gapless, ReplayGain, exclusive output)`
 
 **Body:**
 ```
-For folks who keep a real local library: I built Viboplr, a desktop player focused on sound
+For folks who keep a real local library: I built Vibo, a desktop player focused on sound
 and looks. It runs a native libmpv engine, so you get true sample-accurate gapless, crossfade,
 ReplayGain, a 10-band EQ, and bit-perfect exclusive audio output (WASAPI exclusive / CoreAudio
 hog mode). Wide format support via libmpv/ffmpeg — FLAC, ALAC, DSD, WavPack, Musepack, APE,
@@ -299,7 +299,7 @@ credibility shot), SHOT-02 (skins), SHOT-06 (lyrics), GIF-02.
 > *exclusive-output / bit-perfect / ReplayGain* substance, and skip the marketing gloss.
 
 ### yt-dlp & ffmpeg communities — angle: a GUI built on the tools they love
-These crowds *appreciate* well-made frontends for their tools, and both are used by Viboplr
+These crowds *appreciate* well-made frontends for their tools, and both are used by Vibo
 plugins (the **YouTube** plugin shells out to `yt-dlp`/`ffmpeg`; the **ffmpeg-tools** plugin
 adds bulk convert + a media-info probe). Two different risk profiles:
 
@@ -313,12 +313,12 @@ adds bulk convert + a media-info probe). Two different risk profiles:
 - **r/youtubedl** (the yt-dlp/youtube-dl sub — GUIs/frontends are welcome there) and
   **r/DataHoarder** (already covered; overlaps heavily).
 - **Get listed, don't just post:** yt-dlp maintains a "**projects using yt-dlp**" wiki page —
-  submitting Viboplr's YouTube plugin there is a durable, low-risk backlink that reaches this
+  submitting Vibo's YouTube plugin there is a durable, low-risk backlink that reaches this
   audience without a promo post. Do the same for any "built-with-ffmpeg" / GUI-frontend lists.
 
 **Post text — r/ffmpeg (lead with ffmpeg-tools):**
 ```
-I built a music player (Viboplr) with a plugin system, and one of the plugins turns ffmpeg
+I built a music player (Vibo) with a plugin system, and one of the plugins turns ffmpeg
 into a GUI: right-click any track(s) for a "Convert to…" submenu (bulk transcode), plus a
 "Media Info" item that probes container/streams/tags and loudness — all parsed from plain
 ffmpeg's output (no ffprobe needed). The player itself decodes everything through a bundled
@@ -333,7 +333,7 @@ Feedback on the convert/probe UX welcome.
 
 **Post text — r/youtubedl (plugin-scoped):**
 ```
-Sharing a yt-dlp frontend that's part of something bigger: Viboplr, an open-source desktop
+Sharing a yt-dlp frontend that's part of something bigger: Vibo, an open-source desktop
 music player, has an optional YouTube plugin powered by yt-dlp — search a track and play it
 as audio or video in-app, or download it (yt-dlp + ffmpeg under the hood). It's one plugin in
 a full local-library player (Subsonic/Navidrome sync, gapless mpv engine, synced lyrics,
@@ -356,11 +356,11 @@ history import, similar artists, community tags).
 ## 3. Show-and-tell platforms
 
 ### Hacker News — "Show HN"
-**Title:** `Show HN: Viboplr – a local-first music player with a native mpv engine and plugins`
+**Title:** `Show HN: Vibo – a local-first music player with a native mpv engine and plugins`
 
 **First comment (post immediately after submitting):**
 ```
-Author here. Viboplr is a desktop music player I built with Tauri (Rust + React) for
+Author here. Vibo is a desktop music player I built with Tauri (Rust + React) for
 people who keep their own library instead of streaming everything.
 
 The parts I'm proudest of, technically:
@@ -419,7 +419,7 @@ Submit a one-line entry + link via PR to:
 
 **Mastodon/Bluesky post:**
 ```
-Viboplr — a free, open-source desktop music player for your own library + Subsonic/
+Vibo — a free, open-source desktop music player for your own library + Subsonic/
 Navidrome. Native mpv engine (gapless, crossfade), synced lyrics, video theater, fully
 skinnable, plugin system. Windows & macOS. GPL-3.0.
 
@@ -461,7 +461,7 @@ forms also want:
 - **Icon:** ICON set (see specs below)
 
 ### AlternativeTo (do this one properly)
-- Add Viboplr as an **alternative to**: Spotify (desktop), foobar2000, MusicBee, iTunes/
+- Add Vibo as an **alternative to**: Spotify (desktop), foobar2000, MusicBee, iTunes/
   Apple Music, Clementine, Strawberry, Sonixd/Feishin (Subsonic clients).
 - Fill **License: Open Source / Free**, **Platforms: Windows, Mac**.
 - Tags: `subsonic-client`, `music-player`, `gapless`, `skinnable`, `lyrics`, `mpv`.
@@ -536,7 +536,7 @@ not on the download button.
 
 - **ICON set:** app icon at 512×512, 256×256, 128×128, 48×48 (PNG, transparent). Directories
   ask for a range; PH wants a square logo/thumbnail (240×240 min).
-- **Wordmark:** the pink→magenta gradient "Viboplr" logo on transparent + on dark, for
+- **Wordmark:** the pink→magenta gradient "Vibo" logo on transparent + on dark, for
   banners and video outro.
 
 ### Product Hunt gallery (specific)
@@ -578,14 +578,14 @@ not on the download button.
 
 **Tweet/Bluesky/Mastodon (short):**
 ```
-Viboplr: free, open-source desktop music player for your own library + Subsonic/Navidrome.
+Vibo: free, open-source desktop music player for your own library + Subsonic/Navidrome.
 Gapless mpv engine, synced lyrics, video theater, fully skinnable, plugins. Win & macOS.
 https://viboplr.com
 ```
 
 **Forum signature / one-liner:**
 ```
-Viboplr — a local-first, skinnable music player with a plugin system (FOSS, GPL-3.0) · https://viboplr.com
+Vibo — a local-first, skinnable music player with a plugin system (FOSS, GPL-3.0) · https://viboplr.com
 ```
 
 **Directory "about" (50 words):** use the short description in §1.

@@ -85,7 +85,7 @@ jobs:
           PRERELEASE=false
           if [[ "$TAG" == *-* ]]; then PRERELEASE=true; fi
           gh release create "$TAG" \
-            --title "Viboplr $TAG" \
+            --title "Vibo $TAG" \
             --notes-file /tmp/release-body.md \
             --draft=false \
             --prerelease=$PRERELEASE \
@@ -149,7 +149,7 @@ jobs:
           APTABASE_APP_KEY: ${{ secrets.APTABASE_APP_KEY }}
         with:
           tagName: ${{ needs.ci-and-release.outputs.tag }}
-          releaseName: 'Viboplr ${{ needs.ci-and-release.outputs.tag }}'
+          releaseName: 'Vibo ${{ needs.ci-and-release.outputs.tag }}'
           releaseBody: ''
           releaseDraft: false
           # Keep in sync with the create-release step: hyphenated tags = prerelease.

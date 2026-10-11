@@ -1,4 +1,4 @@
-// Viboplr Website — Minimal JS
+// Vibo Website — Minimal JS
 
 (function () {
   'use strict';

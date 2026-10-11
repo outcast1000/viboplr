@@ -136,7 +136,7 @@ pub fn engine_set_bit_perfect(
     state.mpv_engine.set_bit_perfect(pin)
 }
 
-/// Set an output device's own hardware volume (0..1) — Viboplr's volume control
+/// Set an output device's own hardware volume (0..1) — Vibo's volume control
 /// while bit-perfect mode holds mpv at full digital scale. Errors when the device
 /// exposes no settable volume.
 #[tauri::command]

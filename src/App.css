@@ -88,11 +88,17 @@
   pointer-events: none;
 }
 
+/* Wordmark at title-bar size: gradient text only. The echo repeat turns to mud
+   below ~20px, so the full echo wordmark lives on the website and About panel. */
 .caption-brand-text {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
   font-weight: 800;
   letter-spacing: -0.5px;
-  color: var(--accent);
+  background: linear-gradient(135deg, #FF6B6B, #E91E8A);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .caption-spacer {
