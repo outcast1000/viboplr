@@ -56,6 +56,31 @@ export const LYRICS = [
   },
 ];
 
+/** Cue sheets the demo profile carries (PUT /v1/cues), for the website's cue
+ *  card shot. Only the invented album gets one: a cue sheet is notes about a
+ *  real song's meaning and story, and on a public page those would be facts
+ *  about real people that nobody checked. Text cues only — an image cue needs
+ *  a real, credited URL, which an invented band doesn't have. Timed to the
+ *  LYRICS above; the capture's grab lands at ~50s, inside the "tiny suns" cue. */
+export const CUE_SHEETS = [
+  {
+    artist: "Glass Harbour", title: "Paper Lanterns",
+    sheet: {
+      mode: "cards",
+      cues: [
+        { at: 3, kind: "text", label: "The song", text: "The opening track of Tidewater Hymns, written the week after a lantern festival on the band's home harbour." },
+        { at: 12, kind: "quote", label: "Meaning", text: "We folded the evening into paper", caption: "The whole song in one image: a long day made small enough to let go of." },
+        { at: 28, kind: "text", label: "Recording", text: "The swell under this line is a field recording, taped from the sea wall at dusk." },
+        { at: 35, kind: "quote", label: "Meaning", text: "Paper lanterns, carry what we couldn't say", caption: "Each lantern stands in for something left unsaid. The chorus hands them all to the tide." },
+        { at: 47, kind: "quote", label: "Meaning", text: "Paper lanterns, ten thousand tiny suns", caption: "From the sea wall the lanterns blur into one band of light. Here every small thing adds up." },
+        { at: 61, kind: "quote", label: "Meaning", text: "Your hand was warm against the railing", caption: "The second verse turns personal: the festival is also the night two people met." },
+        { at: 72, kind: "text", label: "Trivia", text: "The ferry horn is real too, played back at half speed so it sits in the song's key." },
+        { at: 112, kind: "quote", label: "Meaning", text: "the water keeps a little of the glow", caption: "Nothing set adrift is lost entirely. The last verse is the song's answer to its first line." },
+      ],
+    },
+  },
+];
+
 /** Which demo track each capture scene leans on, so `capture-site-media
  *  --demo` doesn't have to guess (the generator writes these into the
  *  manifest). */

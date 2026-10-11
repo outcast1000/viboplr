@@ -15,6 +15,7 @@
 //                       write route for history; it is keyed by artist/title,
 //                       so it needs no track ids — demoCatalog.historySql)
 //   likes, a queue      control API (`/v1/likes`, `/v1/radio`)
+//   a cue sheet         control API (`PUT /v1/cues`), for the cue card shot
 //
 // This QUITS any running Viboplr first (whatever its profile) and relaunches
 // it under `perf-demo`. Re-running is safe: the collection is added once, the
@@ -30,7 +31,7 @@ import { spawnSync } from "node:child_process";
 
 process.env.VIBOPLR_PROBE_PROFILE ??= "perf-demo";
 const { quitApp, launchApp, probeLink, probeDumpPath, waitFor, sleep, PROBE_PROFILE } = await import("./lib/appControl.mjs");
-const { catalogTracks, historyPlan, historySql, likePlan } = await import("./lib/demoCatalog.mjs");
+const { catalogTracks, historyPlan, historySql, likePlan, CUE_SHEETS } = await import("./lib/demoCatalog.mjs");
 
 const PROFILE_DIR = dirname(probeDumpPath(PROBE_PROFILE));
 const STORE_PATH = join(PROFILE_DIR, "app-state.json");
@@ -76,6 +77,26 @@ function controlApi() {
   };
 }
 
+/** Rescan the collection at `music` through the control API. The probe route
+ *  deliberately has no rescan verb (perf-probe must not mutate the library),
+ *  and control-api.json can still name the previous launch's port, so retry
+ *  until the new server answers. */
+async function rescanDemoCollection(music) {
+  const api = controlApi();
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    try {
+      const collection = (await api("GET", "/collections")).find((c) => c.path === music);
+      if (!collection) throw new Error(`no collection at ${music}`);
+      await api("POST", `/collections/${collection.id}/rescan`, {});
+      return;
+    } catch (e) {
+      if (Date.now() > deadline) throw e;
+      await sleep(1000);
+    }
+  }
+}
+
 async function main() {
   if (process.platform !== "darwin") throw new Error("setup-demo-profile runs on macOS (it needs sqlite3 and the probe links)");
   const musicArg = arg("music");
@@ -101,6 +122,12 @@ async function main() {
   if (!dump.library.trackCount) {
     await probeLink(`collection=${encodeURIComponent(music)}`);
     console.log("✓ collection added — waiting for the scan");
+  } else if (dump.library.trackCount !== tracks.length) {
+    // The collection exists but the library on disk changed since it was
+    // scanned (an album swapped in DEMO_ALBUM_PICKS). Nothing rescans it on its
+    // own, so without this the wait below times out on the old track count.
+    await rescanDemoCollection(music);
+    console.log(`✓ library changed (${dump.library.trackCount} → ${tracks.length} tracks) — rescanning`);
   }
   const deadline = Date.now() + 10 * 60000;
   while (dump.library.trackCount < tracks.length && Date.now() < deadline) {
@@ -124,7 +151,18 @@ async function main() {
   console.log(`✓ ${plays.length} plays of history written`);
   // Home caches its shelves for 24h; the copy built during the scan launch
   // predates the history and would show an almost empty page.
-  editStore((s) => { delete s.homeSnapshot; });
+  editStore((s) => { delete s.homeSnapshot; delete s.autoPlaylistsRefreshedAt; });
+  // The auto mixes (Playlists → Made for you) are snapshots kept for 24h too,
+  // built at the scan launch from the history and library of that moment —
+  // after an album swap they still list the removed artist. Drop them so the
+  // next launch builds them from this history and library — which it does
+  // only once its own 24h throttle (`autoPlaylistsRefreshedAt`, cleared above)
+  // has lapsed.
+  const mixes = spawnSync("sqlite3", [DB_PATH], {
+    input: "DELETE FROM playlist_tracks WHERE playlist_id IN (SELECT id FROM playlists WHERE system_kind LIKE 'auto:%');\nDELETE FROM playlists WHERE system_kind LIKE 'auto:%';\n",
+    encoding: "utf8",
+  });
+  if (mixes.status !== 0) throw new Error(`sqlite3 failed: ${mixes.stderr}`);
 
   await launchApp();
   const api = controlApi();
@@ -144,6 +182,12 @@ async function main() {
     if (installed.some((p) => p.id === id && p.enabled)) await api("POST", `/extensions/${id}/enabled`, { enabled: false });
   }
   console.log("✓ online lyrics providers off");
+
+  // The cue card shot. PUT replaces the sheet, so re-running is safe.
+  for (const c of CUE_SHEETS) {
+    await api("PUT", "/cues", { title: c.title, artistName: c.artist, author: "Vibo demo", sheet: c.sheet });
+  }
+  console.log(`✓ ${CUE_SHEETS.length} cue sheet${CUE_SHEETS.length === 1 ? "" : "s"} written`);
 
   // Covers and artist photos come from the app's own providers; ask for them
   // now (queued on the image worker) so the captures don't race the network.

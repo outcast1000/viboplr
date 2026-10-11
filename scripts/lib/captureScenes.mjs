@@ -157,11 +157,30 @@ export const SCENES = [
   // --- AI ---
   {
     // cropBottom: the rows under the switches show the port, the token's last
-    // characters and a discovery path containing the username.
-    id: "ai-control", kind: "still", cropBottom: 0.32,
+    // characters and a discovery path containing the username. Re-check it
+    // whenever the section gains a switch: each one pushes those rows up, and
+    // 0.32 was letting the port and token through by the time there were five.
+    id: "ai-control", kind: "still", cropBottom: 0.53,
     page: "ai", slot: "Settings → AI control / assistant permissions",
     steps: [{ navigate: { settings: "control-api" } }],
     expect: { view: "settings" },
+  },
+  {
+    // The invented song, so the notes describe no real person; its sheet is
+    // written by setup-demo-profile (demoCatalog CUE_SHEETS). Seeking to 46s
+    // lands the grab (~5s of waiting and settling later) inside the "ten
+    // thousand tiny suns" cue (47s) while that same line (47–53s) is still
+    // the lit one in the lyrics; seeking to 50 caught the next line instead.
+    id: "cue-sheet", kind: "still", needs: ["lyrics"],
+    page: "ai", slot: "Cue cards over Now Playing",
+    steps: [
+      { navigate: { view: "nowplaying" } },
+      { playTemp: "$lyricsTrackId" },
+      { action: { action: "nowPlayingLyrics", open: true } },
+      { seekSecs: 46 },
+      { wait: 2000 }, // the sheet loads per song; the card fades in at 47s
+    ],
+    expect: { view: "nowplaying", panels: { lyricsHidden: false } },
   },
   // --- Tinkerers ---
   {

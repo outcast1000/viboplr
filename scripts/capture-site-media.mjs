@@ -464,6 +464,17 @@ async function discoverFacts(api, opts) {
   return facts;
 }
 
+/** macOS: is the login session's screen locked? caffeinate keeps the display
+ *  awake but cannot keep it unlocked, and a locked Mac neither paints the
+ *  app's web content nor shows its window to a grab — measured: a whole run
+ *  "verified" every scene against GET /v1/ui and saved blank panes and the
+ *  lock screen. Windows has no equivalent probe here; it reports false. */
+function screenLocked() {
+  if (PLATFORM !== "darwin") return false;
+  const r = spawnSync("ioreg", ["-n", "Root", "-d1"], { encoding: "utf8" });
+  return /"CGSSessionScreenIsLocked"\s*=\s*Yes/.test(r.stdout ?? "");
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
   const pool = [
@@ -486,6 +497,7 @@ async function main() {
   // later grab into a failure (macOS refuses to capture a window then). Hold
   // the display awake for as long as this process lives.
   if (PLATFORM === "darwin") spawn("caffeinate", ["-d", "-w", String(process.pid)], { stdio: "ignore", detached: true }).unref();
+  if (screenLocked()) throw new Error("the screen is locked — unlock it and stay at the Mac while the capture runs");
   const encoder = pickWebpEncoder();
 
   const api = makeApi(opts.profile);
@@ -532,6 +544,10 @@ async function main() {
       if (missing.length) {
         results.push({ scene, status: "skipped", why: missing.join("; ") });
         continue;
+      }
+      if (screenLocked()) {
+        console.error(`\n! the screen locked — stopping before ${scene.id}; rerun the rest with --only once it is unlocked`);
+        break;
       }
       process.stdout.write(`• ${scene.id} … `);
       try {

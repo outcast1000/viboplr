@@ -11,7 +11,8 @@
 // `tags[0]` is the genre written to the files, chosen from a few shared
 // families: radio fills a station from other artists carrying the seed's
 // tags, so a genre no one else has makes a one-artist station. `mood` / `bpm`
-// shape the synthesised audio; `format: "flac"` makes a lossless album.
+// shape the synthesised audio; `format: "flac"` makes a lossless album;
+// `titleCase: true` rewrites a tracklist MusicBrainz lists in capitals.
 
 export const DEMO_ALBUM_PICKS = [
   { artist: "Miles Davis", title: "Kind of Blue", tags: ["Jazz"], mood: "minor", bpm: 72, format: "flac" },
@@ -21,7 +22,6 @@ export const DEMO_ALBUM_PICKS = [
   { artist: "Pink Floyd", title: "The Dark Side of the Moon", tags: ["Rock", "Progressive Rock"], mood: "minor", bpm: 76 },
   { artist: "Fleetwood Mac", title: "Rumours", tags: ["Rock", "Pop"], mood: "major", bpm: 118 },
   { artist: "Stevie Wonder", title: "Songs in the Key of Life", tags: ["Pop", "Soul"], mood: "major", bpm: 100 },
-  { artist: "Michael Jackson", title: "Thriller", tags: ["Pop", "Funk"], mood: "minor", bpm: 118 },
   { artist: "U2", title: "The Joshua Tree", tags: ["Rock"], mood: "major", bpm: 108 },
   { artist: "Prince", title: "Purple Rain", tags: ["Pop", "Funk"], mood: "minor", bpm: 112 },
   { artist: "Nirvana", title: "Nevermind", tags: ["Rock", "Grunge"], mood: "minor", bpm: 124 },
@@ -34,6 +34,7 @@ export const DEMO_ALBUM_PICKS = [
   { artist: "Kendrick Lamar", title: "To Pimp a Butterfly", tags: ["Hip Hop"], mood: "minor", bpm: 92 },
   { artist: "Tame Impala", title: "Currents", tags: ["Rock", "Psychedelic"], mood: "major", bpm: 106 },
   { artist: "Dua Lipa", title: "Future Nostalgia", tags: ["Pop", "Disco"], mood: "minor", bpm: 120 },
+  { artist: "Beyoncé", title: "Renaissance", tags: ["Pop", "Disco"], mood: "minor", bpm: 118, titleCase: true },
   { artist: "SZA", title: "SOS", tags: ["Hip Hop", "R&B"], mood: "minor", bpm: 90 },
   { artist: "Alvvays", title: "Blue Rev", tags: ["Rock", "Indie"], mood: "major", bpm: 132 },
 ];

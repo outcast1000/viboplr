@@ -413,55 +413,6 @@ export const DEMO_ALBUMS = [
     ]
   },
   {
-    "artist": "Michael Jackson",
-    "title": "Thriller",
-    "tags": [
-      "Pop",
-      "Funk"
-    ],
-    "mood": "minor",
-    "bpm": 118,
-    "year": 1982,
-    "tracks": [
-      {
-        "title": "Wanna Be Startin' Somethin'",
-        "durationSecs": 363
-      },
-      {
-        "title": "Baby Be Mine",
-        "durationSecs": 261
-      },
-      {
-        "title": "The Girl Is Mine",
-        "durationSecs": 222
-      },
-      {
-        "title": "Thriller",
-        "durationSecs": 360
-      },
-      {
-        "title": "Beat It",
-        "durationSecs": 259
-      },
-      {
-        "title": "Billie Jean",
-        "durationSecs": 294
-      },
-      {
-        "title": "Human Nature",
-        "durationSecs": 246
-      },
-      {
-        "title": "P.Y.T. (Pretty Young Thing)",
-        "durationSecs": 239
-      },
-      {
-        "title": "The Lady in My Life",
-        "durationSecs": 299
-      }
-    ]
-  },
-  {
     "artist": "U2",
     "title": "The Joshua Tree",
     "tags": [
@@ -1168,6 +1119,83 @@ export const DEMO_ALBUMS = [
       {
         "title": "Boys Will Be Boys",
         "durationSecs": 166
+      }
+    ]
+  },
+  {
+    "artist": "Beyoncé",
+    "title": "Renaissance",
+    "tags": [
+      "Pop",
+      "Disco"
+    ],
+    "mood": "minor",
+    "bpm": 118,
+    "year": 2022,
+    "tracks": [
+      {
+        "title": "I'm That Girl",
+        "durationSecs": 208
+      },
+      {
+        "title": "Cozy",
+        "durationSecs": 210
+      },
+      {
+        "title": "Alien Superstar",
+        "durationSecs": 215
+      },
+      {
+        "title": "Cuff It",
+        "durationSecs": 225
+      },
+      {
+        "title": "Energy",
+        "durationSecs": 117
+      },
+      {
+        "title": "Break My Soul",
+        "durationSecs": 278
+      },
+      {
+        "title": "Church Girl",
+        "durationSecs": 224
+      },
+      {
+        "title": "Plastic Off the Sofa",
+        "durationSecs": 254
+      },
+      {
+        "title": "Virgo's Groove",
+        "durationSecs": 369
+      },
+      {
+        "title": "Move",
+        "durationSecs": 203
+      },
+      {
+        "title": "Heated",
+        "durationSecs": 261
+      },
+      {
+        "title": "Thique",
+        "durationSecs": 245
+      },
+      {
+        "title": "All Up in Your Mind",
+        "durationSecs": 170
+      },
+      {
+        "title": "America Has a Problem",
+        "durationSecs": 199
+      },
+      {
+        "title": "Pure/Honey",
+        "durationSecs": 288
+      },
+      {
+        "title": "Summer Renaissance",
+        "durationSecs": 274
       }
     ]
   },
