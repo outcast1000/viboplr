@@ -3,7 +3,7 @@
 use super::*;
 
 /// Normalize a string segment for use in an entity_key (trimmed, lowercased,
-/// diacritics stripped). The same fold as the Viboplr Community server's
+/// diacritics stripped). The same fold as the Vibo Community server's
 /// `validate::norm_segment`, so a key built here names the same song there.
 /// Never make it fuzzier: every stored key (likes, cue-sheet file names) was
 /// built with it.

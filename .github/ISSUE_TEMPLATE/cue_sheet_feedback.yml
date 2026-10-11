@@ -86,6 +86,6 @@ body:
     id: platform
     attributes:
       label: OS and app version
-      placeholder: macOS 26.1, Viboplr 1.0.90-beta.1
+      placeholder: macOS 26.1, Vibo 1.0.90-beta.1
     validations:
       required: true

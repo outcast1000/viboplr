@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Note: Viboplr is plugin-first. Features that fetch external data, add an
+        Note: Vibo is plugin-first. Features that fetch external data, add an
         information section, or integrate a service are usually best built as a
         plugin — see [PLUGIN-API-REFERENCE.md](../../blob/main/PLUGIN-API-REFERENCE.md).
         Requests like that are welcome too; they may be answered with "great plugin idea".

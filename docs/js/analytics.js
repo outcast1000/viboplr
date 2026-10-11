@@ -50,8 +50,8 @@
     var page = fileOf(location.pathname);
 
     if (a.getAttribute("data-track") === "app-action") {
-      // Community page: a shared listing taken into Viboplr ("Add to Viboplr",
-      // "Open in Viboplr"). Same event as community.viboplr.com's tracker.
+      // Community page: a shared listing taken into Vibo ("Add to Vibo",
+      // "Open in Vibo"). Same event as community.viboplr.com's tracker.
       send("app-action", { module: a.getAttribute("data-module") || undefined, from: page });
     } else if (a.getAttribute("data-track") === "share") {
       send("share-start", { module: a.getAttribute("data-module") || undefined, from: page });

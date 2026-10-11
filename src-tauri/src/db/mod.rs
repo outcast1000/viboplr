@@ -1074,7 +1074,7 @@ impl Database {
         }
 
         // 14. Entity keys trim their segments (`likes::norm_segment`), matching
-        //     the Viboplr Community server. Likes stored under a padded name
+        //     the Vibo Community server. Likes stored under a padded name
         //     move to the trimmed key once; a data pass, so it is guarded by a
         //     marker rather than detected by schema.
         let already_rekeyed: bool = {

@@ -171,7 +171,7 @@ app bugs to users.
 - No managed source → exactly today's modal.
 
 **`SettingsPanel.tsx` `DependenciesSection`**
-- Each row adds: origin label (`managed by Viboplr` / `system`), latest-version
+- Each row adds: origin label (`managed by Vibo` / `system`), latest-version
   badge when outdated (`Installed 2024.10.22 → 2026.06.01 available`), and an
   action button:
   - not installed + managed available → **Install**

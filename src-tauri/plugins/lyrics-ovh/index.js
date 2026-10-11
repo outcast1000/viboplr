@@ -1,4 +1,4 @@
-// Lyrics.ovh Plugin for Viboplr
+// Lyrics.ovh Plugin for Vibo
 // Provides plain lyrics from lyrics.ovh
 
 function activate(api) {

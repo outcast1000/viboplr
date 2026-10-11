@@ -3,16 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Help — Viboplr</title>
-  <meta name="description" content="Plain-language explanations of Viboplr's settings and features — playback engines, exclusive audio, ReplayGain, profiles, and more.">
+  <title>Help — Vibo</title>
+  <meta name="description" content="Plain-language explanations of Vibo's settings and features — playback engines, exclusive audio, ReplayGain, profiles, and more.">
   <link rel="canonical" href="https://viboplr.com/help.html">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://viboplr.com/help.html">
-  <meta property="og:title" content="Help — Viboplr">
-  <meta property="og:description" content="Plain-language explanations of Viboplr's settings and features.">
+  <meta property="og:title" content="Help — Vibo">
+  <meta property="og:description" content="Plain-language explanations of Vibo's settings and features.">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Help — Viboplr">
-  <meta name="twitter:description" content="Plain-language explanations of Viboplr's settings and features.">
+  <meta name="twitter:title" content="Help — Vibo">
+  <meta name="twitter:description" content="Plain-language explanations of Vibo's settings and features.">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,12 +32,7 @@
   <nav class="nav">
     <div class="nav-inner">
       <a href="index.html" class="nav-logo">
-        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
-          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
-          <path d="M138.24 138.24 L256 281.6 L373.76 138.24" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M138.24 235.52 L256 378.88 L373.76 235.52" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
-        </svg>
-        iboPLR
+        <span class="wordmark" data-text="Vibo">Vibo</span>
       </a>
       <div class="nav-links" id="navLinks">
         <a href="index.html" class="nav-link">Home</a>
@@ -49,7 +44,7 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
           Support
         </a>
-        <a href="download.html" class="nav-cta">Get Viboplr</a>
+        <a href="download.html" class="nav-cta">Get Vibo</a>
       </div>
       <button class="nav-hamburger" id="navHamburger" aria-label="Toggle menu">
         <span></span>
@@ -62,7 +57,7 @@
   <!-- Hero -->
   <section class="download-hero">
     <div class="container">
-      <h1 class="animate-in">Viboplr <span class="gradient-text">help</span></h1>
+      <h1 class="animate-in">Vibo <span class="gradient-text">help</span></h1>
       <p class="animate-in animate-delay-1">The short version of every setting lives in the app. This page is the long version — what each option actually does and when you'd want it.</p>
       <div class="hero-buttons animate-in animate-delay-2">
         <a href="#playback-engine" class="btn btn-outline">Playback engine</a>
@@ -79,8 +74,8 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Playback engine</h2>
-        <p class="docs-lead">Viboplr can play audio through two different engines: the browser engine and mpv.</p>
-        <p>The <strong>Browser</strong> engine plays audio through the system webview. It works everywhere, and it is what Viboplr falls back to if mpv can't load or can't play a particular track.</p>
+        <p class="docs-lead">Vibo can play audio through two different engines: the browser engine and mpv.</p>
+        <p>The <strong>Browser</strong> engine plays audio through the system webview. It works everywhere, and it is what Vibo falls back to if mpv can't load or can't play a particular track.</p>
         <p>The <strong>mpv</strong> engine is a native audio engine built on <a href="https://mpv.io" target="_blank" rel="noopener">libmpv</a>, the same playback core used by the mpv media player. Compared to the browser engine it:</p>
         <ul class="docs-list">
           <li>Decodes every supported format natively — FLAC, ALAC, Opus, and friends — without transcoding.</li>
@@ -88,7 +83,7 @@
           <li>On macOS, also renders video natively (beta).</li>
           <li>Unlocks <a href="#exclusive-audio">exclusive audio access</a> for bit-perfect output.</li>
         </ul>
-        <p>The <strong>mpv engine</strong> is built on libmpv, which ships bundled with every copy of Viboplr &mdash; there is one download, there are no editions to choose between, and mpv is the engine Viboplr uses by default. It works offline out of the box. (On the rare machine where the bundled library can't load, Settings &rarr; Playback says so and offers to fetch a replacement copy.) If the engine can't play a particular track, Viboplr automatically falls back to the browser engine for that track.</p>
+        <p>The <strong>mpv engine</strong> is built on libmpv, which ships bundled with every copy of Vibo &mdash; there is one download, there are no editions to choose between, and mpv is the engine Vibo uses by default. It works offline out of the box. (On the rare machine where the bundled library can't load, Settings &rarr; Playback says so and offers to fetch a replacement copy.) If the engine can't play a particular track, Vibo automatically falls back to the browser engine for that track.</p>
         <div class="docs-note">
           Switching engines stops the current playback — playback resumes on the new engine with the next track you play.
         </div>
@@ -102,7 +97,7 @@
       <div class="docs-body reveal">
         <h2>Exclusive audio access</h2>
         <p class="docs-lead">Bypass the operating system's mixer and talk to your audio device directly.</p>
-        <p>Normally every app's sound goes through the OS mixer, which can resample and requantize audio before it reaches your DAC. With exclusive access (CoreAudio "hog mode" on macOS, WASAPI exclusive mode on Windows), Viboplr opens the output device for itself: samples travel from the file to the device untouched. This is the foundation of <em>bit-perfect</em> playback, and it matters most with an external DAC and lossless files.</p>
+        <p>Normally every app's sound goes through the OS mixer, which can resample and requantize audio before it reaches your DAC. With exclusive access (CoreAudio "hog mode" on macOS, WASAPI exclusive mode on Windows), Vibo opens the output device for itself: samples travel from the file to the device untouched. This is the foundation of <em>bit-perfect</em> playback, and it matters most with an external DAC and lossless files.</p>
         <p>For truly bit-perfect output, the whole chain has to leave the samples alone:</p>
         <ul class="docs-list">
           <li>Turn the <strong>equalizer off</strong> — EQ reshapes the signal by design.</li>
@@ -113,14 +108,14 @@
         <p>You don't have to keep that checklist in your head: while exclusive access is on, the settings row shows a live <strong>● Bit-perfect</strong> indicator, and when the stream isn't bit-perfect it names exactly what's in the way.</p>
         <h3 id="bit-perfect-mode">Bit-perfect mode</h3>
         <p><strong>Bit-perfect</strong>, in the now-playing bar's <strong>Audio options</strong> menu, does all of the above in one click, for the current session. It pins your current output device, takes exclusive access to it, suspends the equalizer, ReplayGain and speed, holds the volume at 100%, and lets the device follow each track's sample rate. Your own settings are left untouched, so turning the mode off (or quitting) puts everything back exactly as it was. While the mode is on, its button sits in the bar and shows the verified state; choose <em>Keep in bar</em> in the same menu to keep the button there when it's off.</p>
-        <p>The button reports what it <em>verified</em>, not what it asked for: it turns green only when the device is confirmed held by Viboplr and the file, the output and the device all run at the same rate. Amber means something is in the way, and its tooltip says what:</p>
+        <p>The button reports what it <em>verified</em>, not what it asked for: it turns green only when the device is confirmed held by Vibo and the file, the output and the device all run at the same rate. Amber means something is in the way, and its tooltip says what:</p>
         <ul class="docs-list">
           <li><strong>Waiting for the device</strong> — another app holds it exclusively. Playback starts by itself once that app lets go. On macOS you can click the button to play through the shared mixer instead; on Windows an app holding the device exclusively blocks shared playback too, so the only way through is to close it or switch off its exclusive mode.</li>
           <li><strong>Device limit</strong> — the device can't run at the file's sample rate (for example a 48 kHz headset playing a 96 kHz file), so that track is resampled.</li>
           <li><strong>Browser engine</strong> — a track that can't play on the mpv engine goes through the shared mixer.</li>
         </ul>
-        <p><strong>Volume while it's on.</strong> The audio leaves Viboplr at full digital level, so Viboplr's volume control sets the <em>device's own</em> volume instead — the samples stay untouched. Enabling the mode lowers the device to match your current volume, so it doesn't get louder, and turning it off puts the device back where it was. A device with no volume control of its own (many DACs) keeps Viboplr's volume fixed at 100%: set the level on the DAC or amplifier, and <strong>turn it down before enabling</strong>.</p>
-        <p>On a Mac, the volume keys and the menu-bar slider <strong>can't reach the device while Viboplr holds it</strong>: macOS moves its system output to another device (you may see an unrelated device, such as a monitor, in the volume pop-up). Use Viboplr's volume control instead. On Windows the volume keys keep working for a device with its own volume control, since they set the same level Viboplr does. Windows also needs "Allow applications to take exclusive control of this device" switched on for the device (Sound settings → the device → Advanced; it's on by default). If the pinned device is unplugged, the mode turns itself off. Bit-perfect mode is available on macOS and Windows.</p>
+        <p><strong>Volume while it's on.</strong> The audio leaves Vibo at full digital level, so Vibo's volume control sets the <em>device's own</em> volume instead — the samples stay untouched. Enabling the mode lowers the device to match your current volume, so it doesn't get louder, and turning it off puts the device back where it was. A device with no volume control of its own (many DACs) keeps Vibo's volume fixed at 100%: set the level on the DAC or amplifier, and <strong>turn it down before enabling</strong>.</p>
+        <p>On a Mac, the volume keys and the menu-bar slider <strong>can't reach the device while Vibo holds it</strong>: macOS moves its system output to another device (you may see an unrelated device, such as a monitor, in the volume pop-up). Use Vibo's volume control instead. On Windows the volume keys keep working for a device with its own volume control, since they set the same level Vibo does. Windows also needs "Allow applications to take exclusive control of this device" switched on for the device (Sound settings → the device → Advanced; it's on by default). If the pinned device is unplugged, the mode turns itself off. Bit-perfect mode is available on macOS and Windows.</p>
         <p>Trade-offs while it's active:</p>
         <ul class="docs-list">
           <li><strong>No other app can play sound</strong> — the device is yours alone, including system sounds.</li>
@@ -152,7 +147,7 @@
       <div class="docs-body reveal">
         <h2>ReplayGain</h2>
         <p class="docs-lead">Even out loudness differences between tracks, using tags stored in your files.</p>
-        <p>Albums are mastered at wildly different loudness levels, so shuffling your library means riding the volume knob. ReplayGain fixes this: a tagging tool analyzes each file once and writes the measured loudness into its tags, and players adjust playback volume to match. Viboplr <strong>reads</strong> these tags — it doesn't compute them. Popular taggers include foobar2000, MusicBrainz Picard, and loudgain; files without tags simply play at their original volume.</p>
+        <p>Albums are mastered at wildly different loudness levels, so shuffling your library means riding the volume knob. ReplayGain fixes this: a tagging tool analyzes each file once and writes the measured loudness into its tags, and players adjust playback volume to match. Vibo <strong>reads</strong> these tags — it doesn't compute them. Popular taggers include foobar2000, MusicBrainz Picard, and loudgain; files without tags simply play at their original volume.</p>
         <ul class="docs-list">
           <li><strong>Track</strong> mode gives every track the same loudness — best for shuffle and mixed playlists.</li>
           <li><strong>Album</strong> mode applies one adjustment per album, preserving the intended quiet-to-loud dynamics between its songs — best when you listen to full albums.</li>
@@ -182,10 +177,10 @@
         <p class="docs-lead">A few features rely on well-known command-line tools — such as <code>ffmpeg</code> and <code>yt-dlp</code>.</p>
         <p>Some plugins and features (YouTube playback and downloads, video thumbnails, format conversion) shell out to these tools rather than reimplementing them. Extensions &rarr; Tools shows what's needed, what's installed, which features and plugins use each tool, and where each copy comes from:</p>
         <ul class="docs-list">
-          <li><strong>Managed</strong> — Viboplr installed it for you ("Install for me") into its own folder, and can update or remove it. A managed copy always takes precedence over a system one.</li>
-          <li><strong>System</strong> — found on your PATH, e.g. installed via Homebrew or winget. Viboplr never modifies these; update them with your package manager.</li>
+          <li><strong>Managed</strong> — Vibo installed it for you ("Install for me") into its own folder, and can update or remove it. A managed copy always takes precedence over a system one.</li>
+          <li><strong>System</strong> — found on your PATH, e.g. installed via Homebrew or winget. Vibo never modifies these; update them with your package manager.</li>
         </ul>
-        <p><strong>Keep tools up to date automatically</strong> applies only to managed copies: Viboplr checks daily and silently installs new releases. This matters most for <code>yt-dlp</code>, where an outdated version is the usual reason YouTube stops working.</p>
+        <p><strong>Keep tools up to date automatically</strong> applies only to managed copies: Vibo checks daily and silently installs new releases. This matters most for <code>yt-dlp</code>, where an outdated version is the usual reason YouTube stops working.</p>
       </div>
     </div>
   </section>
@@ -208,7 +203,7 @@
       <div class="docs-body reveal">
         <h2>Scrobbling</h2>
         <p class="docs-lead">Choose who records what you play &mdash; audio, video, or both.</p>
-        <p>A <em>scrobbler</em> is anything that keeps a record of what you listened to. Viboplr's own <strong>local history</strong> is one: it feeds play counts, ranks, the History view and the Most played / Recently played shelves. Plugins can add more &mdash; Last.fm, Viboplr Community, a Subsonic server <span class="feature-tag">plugin</span>.</p>
+        <p>A <em>scrobbler</em> is anything that keeps a record of what you listened to. Vibo's own <strong>local history</strong> is one: it feeds play counts, ranks, the History view and the Most played / Recently played shelves. Plugins can add more &mdash; Last.fm, Vibo Community, a Subsonic server <span class="feature-tag">plugin</span>.</p>
         <p><strong>Settings &rarr; Scrobbling</strong> lists every scrobbler you have, each with its own <em>Audio</em> and <em>Video</em> switch. Keep music videos out of your Last.fm profile but in your local history, say, or the other way round. A plugin you install later starts with the same choice you made for the others.</p>
         <p>A play counts once you've heard half the track or 4 minutes, whichever comes first, and tracks under 30 seconds are never recorded. Signing in to a plugin scrobbler, or turning it on, is still done in that plugin's own settings; these switches only decide which plays reach it.</p>
       </div>
@@ -243,8 +238,8 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Anonymous usage statistics</h2>
-        <p class="docs-lead">Optional, anonymous data that helps us understand how Viboplr is used — with no way to identify you.</p>
-        <p>Viboplr is local-first, and this is the one place it phones home. When enabled, it sends anonymous usage events to our own self-hosted <a href="https://aptabase.com" target="_blank" rel="noopener">Aptabase</a> instance — a privacy-first analytics tool with no cookies and no persistent device identifier. Each event carries only coarse system properties (operating system, app version, language) and a session id that resets after inactivity.</p>
+        <p class="docs-lead">Optional, anonymous data that helps us understand how Vibo is used — with no way to identify you.</p>
+        <p>Vibo is local-first, and this is the one place it phones home. When enabled, it sends anonymous usage events to our own self-hosted <a href="https://aptabase.com" target="_blank" rel="noopener">Aptabase</a> instance — a privacy-first analytics tool with no cookies and no persistent device identifier. Each event carries only coarse system properties (operating system, app version, language) and a session id that resets after inactivity.</p>
         <p><strong>What's sent:</strong> that the app was installed and launched (along with your OS, app version, and a rough <em>bucketed</em> library size — e.g. "1k&ndash;10k tracks"), plus a handful of anonymous, count-only signals — a track was played, music was started from somewhere (an album, artist, radio station, or playlist), a radio station was started, a plugin feature was used, a playlist or mixtape was saved or loaded, the sidebar was used to navigate, which playback engine you picked, a music source was added, a plugin was installed, a skin was applied. It also reports <em>reliability</em> signals when something breaks — a track that failed to play, a fallback between playback engines, a failed download or scan, a missing companion tool — so problems can be found and fixed even when no one files a report.</p>
         <p><strong>What's never sent:</strong> track, artist, or album names; file paths; your library contents; or anything that could identify you personally.</p>
         <p>It's on by default and completely optional — turn it off any time in <strong>Settings &rarr; General &rarr; Anonymous usage statistics</strong>. There's nothing to lose by leaving it on, and it directly helps decide what to build and fix next.</p>
@@ -258,7 +253,7 @@
       <div class="docs-body reveal">
         <h2>Website analytics</h2>
         <p class="docs-lead">This website counts visits anonymously, without cookies.</p>
-        <p>viboplr.com and <a href="https://community.viboplr.com" target="_blank" rel="noopener">community.viboplr.com</a> use <a href="https://umami.is" target="_blank" rel="noopener">Umami</a>, running on our own server, to see which pages are read, where visitors come from (the referring site or campaign), which links lead to a download, and which shared listings are taken into Viboplr. It sets no cookies, stores no IP address and builds no profile of you. What it keeps about a visit is the country and city it came from (looked up from the IP address, which is then dropped), the device type, browser and operating system &mdash; nothing finer. Cloudflare, which serves the site, also counts anonymous page views.</p>
+        <p>viboplr.com and <a href="https://community.viboplr.com" target="_blank" rel="noopener">community.viboplr.com</a> use <a href="https://umami.is" target="_blank" rel="noopener">Umami</a>, running on our own server, to see which pages are read, where visitors come from (the referring site or campaign), which links lead to a download, and which shared listings are taken into Vibo. It sets no cookies, stores no IP address and builds no profile of you. What it keeps about a visit is the country and city it came from (looked up from the IP address, which is then dropped), the device type, browser and operating system &mdash; nothing finer. Cloudflare, which serves the site, also counts anonymous page views.</p>
         <p>If your browser sends <strong>Do Not Track</strong>, your visit isn't counted at all. Blocking the tracker with a content blocker works too &mdash; the site works exactly the same without it.</p>
       </div>
     </div>
@@ -286,11 +281,11 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Providers &amp; priority</h2>
-        <p class="docs-lead">Choose which sources Viboplr uses for artwork, metadata, streaming, and downloads &mdash; and the order it tries them in.</p>
-        <p>Viboplr is an orchestrator: most artwork, extra metadata, streaming, and downloading are done by plugins, and more than one plugin can often do the same job. This screen decides who goes first. Every list works the same way &mdash; <strong>drag a row by its handle to reorder it</strong> (higher = tried first), and use the switch to turn a provider on or off. When Viboplr needs something, it walks the list top-to-bottom and the <strong>first provider that succeeds wins</strong>; disabled providers are skipped entirely.</p>
+        <p class="docs-lead">Choose which sources Vibo uses for artwork, metadata, streaming, and downloads &mdash; and the order it tries them in.</p>
+        <p>Vibo is an orchestrator: most artwork, extra metadata, streaming, and downloading are done by plugins, and more than one plugin can often do the same job. This screen decides who goes first. Every list works the same way &mdash; <strong>drag a row by its handle to reorder it</strong> (higher = tried first), and use the switch to turn a provider on or off. When Vibo needs something, it walks the list top-to-bottom and the <strong>first provider that succeeds wins</strong>; disabled providers are skipped entirely.</p>
         <ul class="docs-list">
           <li><strong>Images &amp; Information</strong> &mdash; where cover art and artist images come from, and which plugin fills each information tab (bios, lyrics, similar artists, and so on) when several offer the same one.</li>
-          <li><strong>Playback fallback</strong> &mdash; used only when a track's own source can't be played directly (for example a library file that's gone missing, or an external track with no direct URL). Viboplr looks for another playable copy in this order &mdash; your own library first by default, then plugins such as YouTube &mdash; and the first one that answers wins.</li>
+          <li><strong>Playback fallback</strong> &mdash; used only when a track's own source can't be played directly (for example a library file that's gone missing, or an external track with no direct URL). Vibo looks for another playable copy in this order &mdash; your own library first by default, then plugins such as YouTube &mdash; and the first one that answers wins.</li>
           <li><strong>Downloads</strong> &mdash; which provider resolves a download when you save a track.</li>
         </ul>
         <p>Your order and on/off choices are remembered across restarts. <strong>Reset to Defaults</strong> restores the built-in ordering at any time.</p>
@@ -303,8 +298,8 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Auto Continue</h2>
-        <p class="docs-lead">Never hit silence &mdash; when your queue runs out, Viboplr picks something else from your library and keeps playing.</p>
-        <p>With Auto Continue on, reaching the end of the queue doesn't stop the music: Viboplr chooses another track from your library and plays on. The sliders are <em>weights</em> that bias how it chooses &mdash; they're relative, so what matters is how large each one is compared to the others. A strategy at zero never fires.</p>
+        <p class="docs-lead">Never hit silence &mdash; when your queue runs out, Vibo picks something else from your library and keeps playing.</p>
+        <p>With Auto Continue on, reaching the end of the queue doesn't stop the music: Vibo chooses another track from your library and plays on. The sliders are <em>weights</em> that bias how it chooses &mdash; they're relative, so what matters is how large each one is compared to the others. A strategy at zero never fires.</p>
         <ul class="docs-list">
           <li><strong>Random</strong> &mdash; anything from your library.</li>
           <li><strong>Same Artist</strong> &mdash; more from the artist you're currently hearing.</li>
@@ -365,10 +360,10 @@
     <div class="container">
       <div class="docs-body reveal">
         <h2>Connecting an AI assistant (MCP)</h2>
-        <p class="docs-lead">Give Claude Desktop, Claude Code, or any MCP client a set of typed Viboplr tools &mdash; search, playback, queue, playlists, tags, likes and more. It can also open pages and panels for you (&ldquo;show me Radiohead&rsquo;s page&rdquo;), which changes only what is on screen.</p>
-        <p>The MCP server is a single small script that translates an assistant's tool calls into requests against the private <a href="#control-api">control server</a>. It runs on your computer, finds the app automatically via the discovery file, and keeps the access token to itself &mdash; the assistant never sees it. The assistant must run <strong>on the same computer as Viboplr</strong>: web-based assistants (and cloud sandboxes) can't reach a server that only listens on <code>127.0.0.1</code>.</p>
-        <p><strong>Before you start:</strong> install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer and switch on <strong>Settings &rarr; AI control</strong> in Viboplr. No <code>npm install</code> needed &mdash; the script is self-contained.</p>
-        <p><strong>The quick way &mdash; let the app write it for you.</strong> The server script ships inside Viboplr, so there is nothing to download. With the toggle on, the same settings card shows a <strong>Connect an AI assistant</strong> row:</p>
+        <p class="docs-lead">Give Claude Desktop, Claude Code, or any MCP client a set of typed Vibo tools &mdash; search, playback, queue, playlists, tags, likes and more. It can also open pages and panels for you (&ldquo;show me Radiohead&rsquo;s page&rdquo;), which changes only what is on screen.</p>
+        <p>The MCP server is a single small script that translates an assistant's tool calls into requests against the private <a href="#control-api">control server</a>. It runs on your computer, finds the app automatically via the discovery file, and keeps the access token to itself &mdash; the assistant never sees it. The assistant must run <strong>on the same computer as Vibo</strong>: web-based assistants (and cloud sandboxes) can't reach a server that only listens on <code>127.0.0.1</code>.</p>
+        <p><strong>Before you start:</strong> install <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer and switch on <strong>Settings &rarr; AI control</strong> in Vibo. No <code>npm install</code> needed &mdash; the script is self-contained.</p>
+        <p><strong>The quick way &mdash; let the app write it for you.</strong> The server script ships inside Vibo, so there is nothing to download. With the toggle on, the same settings card shows a <strong>Connect an AI assistant</strong> row:</p>
         <ul class="docs-list">
           <li><strong>Copy config</strong> &mdash; the JSON block for Claude Desktop, with the real paths already filled in.</li>
           <li><strong>Copy command</strong> &mdash; the one-line <code>claude mcp add</code> form for Claude Code.</li>
@@ -377,7 +372,7 @@
         <p>Both copied forms use the <em>absolute</em> path of a <code>node</code> found on your computer, which is what avoids the most common setup failure (see the troubleshooting note below), and add <code>--profile=</code> automatically when you are running a named profile. Paste, then fully quit and relaunch your client.</p>
         <p><strong>The manual way.</strong> Point your client at the bundled copy (on macOS <code>/Applications/Viboplr.app/Contents/Resources/mcp/viboplr-mcp.mjs</code>), or save
           <a href="https://github.com/outcast1000/viboplr/raw/main/mcp/viboplr-mcp.mjs" target="_blank" rel="noopener"><code>viboplr-mcp.mjs</code></a>
-          somewhere permanent (for example <code>~/viboplr/viboplr-mcp.mjs</code>) &mdash; needed on older versions of Viboplr, which did not yet bundle it.</p>
+          somewhere permanent (for example <code>~/viboplr/viboplr-mcp.mjs</code>) &mdash; needed on older versions of Vibo, which did not yet bundle it.</p>
         <p><strong>Claude Desktop</strong> &mdash; open <em>Settings &rarr; Developer &rarr; Edit Config</em> and add the server. Use your real paths &mdash; for <code>command</code>, the output of <code>which node</code> in a terminal, not a bare <code>"node"</code> (the most common setup failure; see the troubleshooting note below):</p>
         <div class="docs-code"><pre>{
   "mcpServers": {
@@ -387,7 +382,7 @@
     }
   }
 }</pre></div>
-        <p>Then <strong>fully quit</strong> Claude Desktop (not just the window) and relaunch &mdash; MCP servers connect at startup. The Viboplr tools appear under the tools icon beneath the message box.</p>
+        <p>Then <strong>fully quit</strong> Claude Desktop (not just the window) and relaunch &mdash; MCP servers connect at startup. The Vibo tools appear under the tools icon beneath the message box.</p>
         <p><strong>Claude Code</strong> &mdash; one command in the terminal, then start a new session:</p>
         <div class="docs-code"><pre>claude mcp add viboplr -- node /Users/you/viboplr/viboplr-mcp.mjs</pre></div>
         <p><strong>What can you ask for?</strong> Anything the app can do, in plain language. Some places to start:</p>
@@ -398,16 +393,16 @@
           <li><strong>Getting music</strong> (same permissions) &mdash; <em>&ldquo;Download this track from my server into my Music folder&rdquo;</em>; with the yt-dlp plugin installed, <em>&ldquo;Find the music video for &hellip; and download it&rdquo;</em>.</li>
           <li><strong>Dressing up Now Playing</strong> &mdash; <em>&ldquo;Make a cue sheet for this song: what the lyrics mean, timed to the lines&rdquo;</em>, <em>&ldquo;Turn this track into a lyric video clip&rdquo;</em>, <em>&ldquo;Do cue cards for the next five songs in my queue&rdquo;</em>. The assistant reads the song's lyrics, story, bio and review, writes notes on the song's own clock, and the Now Playing view plays them &mdash; as cards over the album art, or (for a <em>clip</em>) as moving text and pictures across the whole view. Synced lyrics make the timing exact; with an image plugin such as Wikimedia Commons installed it can add real, credited photos. Nothing is written to your music files and no permission switch is needed; the cue button on Now Playing hides the cards or the clip.</li>
           <li><strong>Fixing names</strong> &mdash; <em>&ldquo;This artist is written in greeklish &mdash; fix it to Greek&rdquo;</em>, <em>&ldquo;Correct the typo in this album title&rdquo;</em>. It proposes the spelling first, then updates the tags, carries your play history and likes over to the new name, and tells you what it couldn't move (playlist entries keep their own copy).</li>
-          <li><strong>Adding what's missing</strong> &mdash; <em>&ldquo;I want my plays scrobbled to Last.fm&rdquo;</em>, <em>&ldquo;Can you play YouTube videos?&rdquo;</em>, <em>&ldquo;Show real photos of the artist&rdquo;</em>. When nothing you have installed can do it, the assistant looks in the extension gallery, tells you which plugin would and who makes it, and &mdash; if you say yes &mdash; asks to install it. Viboplr then shows its own install dialog: nothing is installed until you press <strong>Install</strong> there (agreeing in the chat isn't enough), and a plugin that needs permissions lists them before it starts. Once it's in, the assistant carries on with what you asked for. Some plugins still need a sign-in or a companion program, which it will point you to.</li>
+          <li><strong>Adding what's missing</strong> &mdash; <em>&ldquo;I want my plays scrobbled to Last.fm&rdquo;</em>, <em>&ldquo;Can you play YouTube videos?&rdquo;</em>, <em>&ldquo;Show real photos of the artist&rdquo;</em>. When nothing you have installed can do it, the assistant looks in the extension gallery, tells you which plugin would and who makes it, and &mdash; if you say yes &mdash; asks to install it. Vibo then shows its own install dialog: nothing is installed until you press <strong>Install</strong> there (agreeing in the chat isn't enough), and a plugin that needs permissions lists them before it starts. Once it's in, the assistant carries on with what you asked for. Some plugins still need a sign-in or a companion program, which it will point you to.</li>
           <li><strong>Around the app</strong> &mdash; <em>&ldquo;Show me Radiohead's page&rdquo;</em>, <em>&ldquo;Switch to a dark skin&rdquo;</em>, <em>&ldquo;Go mini player&rdquo;</em>, <em>&ldquo;Why did that track fail to play?&rdquo;</em> (it can read the app log). With plugins installed, their tools join in: <em>&ldquo;What have I scrobbled this week?&rdquo;</em> (Last.fm), <em>&ldquo;Queue my Spotify playlist &hellip;&rdquo;</em>, <em>&ldquo;Is this FLAC really lossless?&rdquo;</em> (ffmpeg tools).</li>
         </ul>
         <ul class="docs-list">
           <li><strong>Every tool, one set of switches.</strong> The assistant sees the whole surface &mdash; search, playback, queue, playlists, tags, likes, radio, plugin catalogs and plugins' own tools (like reading a Spotify playlist), collections, extensions and skins, window control, logs. What it may <em>change</em> is decided by the <a href="#assistant-permissions">permission switches</a> in the app, not by the client config. (Older setups passed <code>--tier=full</code>; it is still accepted and no longer needed.)</li>
           <li><strong>App not running?</strong> Just ask the assistant to start it &mdash; the <code>launch_app</code> tool launches the installed app and waits for it to answer. This works because the AI control setting persists: enable it once and every later launch brings the private server up on its own.</li>
-          <li><strong>Nothing happens?</strong> Check that Viboplr is running and the AI control toggle is on &mdash; the tools answer with exactly that hint when they can't reach the app. In Claude Desktop, if the server never appears, the usual cause is a bare <code>"node"</code> that your client can't resolve &mdash; it launches outside your shell profile, so it doesn't see your PATH. <strong>Copy config</strong> above already writes the absolute path; wiring it by hand, use the full path from <code>which node</code> in your terminal.</li>
+          <li><strong>Nothing happens?</strong> Check that Vibo is running and the AI control toggle is on &mdash; the tools answer with exactly that hint when they can't reach the app. In Claude Desktop, if the server never appears, the usual cause is a bare <code>"node"</code> that your client can't resolve &mdash; it launches outside your shell profile, so it doesn't see your PATH. <strong>Copy config</strong> above already writes the absolute path; wiring it by hand, use the full path from <code>which node</code> in your terminal.</li>
           <li><strong>Several profiles?</strong> The server picks your <code>default</code> profile (or the only running one); add <code>--profile=name</code> to target another.</li>
           <li><strong>Prefer no MCP at all?</strong> The control server is a plain HTTP API, and the repo ships a ready-made <a href="https://github.com/outcast1000/viboplr/tree/main/skills/viboplr-control" target="_blank" rel="noopener">Claude Code skill</a> that teaches an assistant to drive it directly &mdash; discovery, token handling and every endpoint documented. Power-user territory; the MCP server is the supported route.</li>
-          <li><strong>Privacy is unchanged.</strong> The MCP server adds no access the token doesn't already grant. Reading and playback need nothing beyond the AI control toggle; anything that touches your files &mdash; tag rewrites, lyrics and cover files, moving files, downloads &mdash; sits behind its own <a href="#assistant-permissions">permission switch</a>, off by default. The hard limits hold: no file deletion, no extension removal &mdash; and an extension is only ever installed from the Viboplr gallery, by you pressing <strong>Install</strong> in the app's own dialog (see below).</li>
+          <li><strong>Privacy is unchanged.</strong> The MCP server adds no access the token doesn't already grant. Reading and playback need nothing beyond the AI control toggle; anything that touches your files &mdash; tag rewrites, lyrics and cover files, moving files, downloads &mdash; sits behind its own <a href="#assistant-permissions">permission switch</a>, off by default. The hard limits hold: no file deletion, no extension removal &mdash; and an extension is only ever installed from the Vibo gallery, by you pressing <strong>Install</strong> in the app's own dialog (see below).</li>
         </ul>
       </div>
     </div>
@@ -454,7 +449,7 @@
   <footer class="footer">
     <div class="container">
       <div class="footer-inner">
-        <div class="footer-left">&copy; 2026 Viboplr. All rights reserved.</div>
+        <div class="footer-left">&copy; 2026 Vibo. All rights reserved.</div>
         <div class="footer-right">
           <a href="support.html" class="footer-link">Support</a>
           <a href="https://github.com/outcast1000/viboplr" class="footer-link" target="_blank" rel="noopener">GitHub</a>

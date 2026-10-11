@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Viboplr API Layers</title>
+<title>Vibo API Layers</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
   :root {
@@ -110,9 +110,9 @@
 
 <div class="page">
   <header>
-    <div class="eyebrow">Viboplr · Tauri 2 · v1.0.75 · 2026-09</div>
+    <div class="eyebrow">Vibo · Tauri 2 · v1.0.75 · 2026-09</div>
     <h1>How the plugin API, control API and MCP server reach the Rust and JS layers</h1>
-    <p>Viboplr has one Rust process and one webview JS context. Plugins run inside that JS context and get an <code>api</code> object. AI assistants connect through the MCP server, which calls a localhost HTTP API in Rust. That API answers some requests from the database directly and sends the rest across IPC to the webview. Both paths end up in the same shared ops modules, which the UI uses too.</p>
+    <p>Vibo has one Rust process and one webview JS context. Plugins run inside that JS context and get an <code>api</code> object. AI assistants connect through the MCP server, which calls a localhost HTTP API in Rust. That API answers some requests from the database directly and sends the rest across IPC to the webview. Both paths end up in the same shared ops modules, which the UI uses too.</p>
   </header>
 
   <figure>

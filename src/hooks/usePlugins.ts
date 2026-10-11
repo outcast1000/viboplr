@@ -779,7 +779,7 @@ export function usePlugins(
           },
           async replaceTrackFile(request) {
             const replace = hostCallbacksRef?.current?.replaceTrackFile;
-            if (!replace) throw new Error("This Viboplr can't replace library files for plugins yet");
+            if (!replace) throw new Error("This Vibo can't replace library files for plugins yet");
             if (typeof request?.trackId !== "number" || typeof request.path !== "string" || !request.path) {
               throw new Error("replaceTrackFile needs { trackId: number, path: string }");
             }
@@ -1278,7 +1278,7 @@ export function usePlugins(
           },
           async requestAdd(source) {
             const open = hostCallbacksRef?.current?.requestAddCollection;
-            if (!open) throw new Error("This Viboplr can't open the Add dialog for plugins yet");
+            if (!open) throw new Error("This Vibo can't open the Add dialog for plugins yet");
             const kind = source?.kind;
             if ((kind !== "subsonic" && kind !== "manifest") || typeof source.url !== "string") {
               throw new Error('requestAdd needs { kind: "subsonic" | "manifest", url: string }');
@@ -2434,7 +2434,7 @@ export function usePlugins(
       // need to actually activate. Plugins whose status is decided by manifest
       // alone (error/disabled/incompatible) get their state pushed eagerly.
       const toActivate: InstalledPlugin[] = [];
-      /** Main-realm plugins running without a Viboplr signature (see pluginTrust.ts). */
+      /** Main-realm plugins running without a Vibo signature (see pluginTrust.ts). */
       const unverifiedIds = new Set<string>();
       /** Worker plugins signed by the trusted first-party key: pre-approved like built-ins. */
       const firstPartyIds = new Set<string>();
@@ -2516,7 +2516,7 @@ export function usePlugins(
         }
 
         // Main-realm plugins get full app access, so they must be signed by
-        // Viboplr (utils/pluginTrust.ts). During the migration an unsigned one
+        // Vibo (utils/pluginTrust.ts). During the migration an unsigned one
         // still runs, labelled "Unverified"; a broken signature never does.
         const trust = mainRealmVerdict(
           { runtime: m.runtime, builtin: plugin.builtin, dev: plugin.dev, signature: plugin.signature, signatureError: plugin.signatureError },

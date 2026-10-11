@@ -35,7 +35,7 @@ describe("dependencyAttentionCount", () => {
   it("counts a missing tool only when some consumer requires it", () => {
     const deps = [
       dep("rqbit", { status: "notFound", pluginConsumers: [{ name: "rqbit", reason: "", required: true }] }),
-      dep("ffmpeg", { status: "notFound", internalConsumers: [{ name: "Viboplr", reason: "", required: false }] }),
+      dep("ffmpeg", { status: "notFound", internalConsumers: [{ name: "Vibo", reason: "", required: false }] }),
       dep("roadie", { status: "notFound" }),
     ];
     expect(dependencyAttentionCount(deps, [])).toBe(1);

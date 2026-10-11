@@ -146,7 +146,7 @@ pub struct DependencyDef {
     pub managed: Option<ManagedSource>,
     /// The flag through which the binary takes a data directory. When set,
     /// every spawn (probe, plugin exec, maintenance) passes
-    /// `{flag} {app_data_dir}/{name}`, so the tool's state is Viboplr's own
+    /// `{flag} {app_data_dir}/{name}`, so the tool's state is Vibo's own
     /// and never mixed with a standalone copy the user runs themselves.
     pub data_dir_flag: Option<&'static str>,
     /// Arguments the daily dependency pass runs once the tool has state (its
@@ -350,8 +350,8 @@ pub static REGISTRY: &[DependencyDef] = &[
         version_args: &["version"],
         parse_version: parse_roadie_version,
         install: InstallInstructions {
-            macos: "Viboplr can install Roadie for you",
-            windows: "Viboplr can install Roadie for you",
+            macos: "Vibo can install Roadie for you",
+            windows: "Vibo can install Roadie for you",
             linux: "Roadie has no Linux build yet",
             url: "https://github.com/outcast1000/roadie",
         },
@@ -551,7 +551,7 @@ pub fn augmented_path() -> std::ffi::OsString {
     new_path
 }
 
-/// Viboplr's own data dir for a tool that takes one (`data_dir_flag`):
+/// Vibo's own data dir for a tool that takes one (`data_dir_flag`):
 /// `{app_data_dir}/{name}`, beside the shared bin dir, so it is shared across
 /// profiles like the binary itself.
 pub fn tool_data_dir(name: &str) -> Option<PathBuf> {
@@ -1123,7 +1123,7 @@ fn choose_install_shape(name: &str, managed: &ManagedSource) -> Result<InstallSh
 /// install so its mtime tracks updates (it keys the persistent probe cache).
 fn write_zipapp_wrapper(bin_dir: &Path, name: &str, python: &Path) -> Result<(), String> {
     let script = format!(
-        "#!/bin/sh\n# Written by Viboplr: runs the managed {} zipapp under the system Python.\nexec \"{}\" \"{}\" \"$@\"\n",
+        "#!/bin/sh\n# Written by Vibo: runs the managed {} zipapp under the system Python.\nexec \"{}\" \"{}\" \"$@\"\n",
         name,
         python.display(),
         bin_dir.join(zipapp_filename(name)).display(),
@@ -1371,7 +1371,7 @@ fn auto_update_enabled(store_path: &Path) -> bool {
 /// pass downloads a new slskd), so it is generous; it only bounds a wedge.
 const MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
-/// Run each dependency's `maintenance_args` once, for the tools Viboplr has
+/// Run each dependency's `maintenance_args` once, for the tools Vibo has
 /// actually used (their data dir exists) and that are installed. Called from
 /// the same background thread as `auto_update_managed`, ~30s after launch and
 /// then daily. Not gated on `autoUpdateManagedDeps`: that setting is about

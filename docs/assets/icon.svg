@@ -9,11 +9,7 @@
   <!-- Rounded-square brand tile -->
   <rect x="36" y="36" width="440" height="440" rx="99" fill="url(#tileGrad)"/>
 
-  <!-- Echo V (white knockout) -->
-  <path d="M168.6 168.6 L256 275 L343.4 168.6"
-        fill="none" stroke="#ffffff" stroke-width="38"
-        stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M168.6 240.8 L256 347.2 L343.4 240.8"
-        fill="none" stroke="#ffffff" stroke-width="38"
-        stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
+  <!-- Echo letter V (white knockout): the faint repeat first, the letter on top -->
+  <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" transform="translate(0 40)" fill="#ffffff" stroke="#ffffff" stroke-width="10" stroke-linejoin="round" opacity="0.4"/>
+  <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" fill="#ffffff" stroke="#ffffff" stroke-width="10" stroke-linejoin="round"/>
 </svg>

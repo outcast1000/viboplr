@@ -1,8 +1,8 @@
-# Viboplr
+# Vibo
 
 **The music player you can just talk to, built by talking to an AI.**
 
-Viboplr is a free, open-source desktop music player for macOS and Windows, and it is AI-native in both directions:
+Vibo is a free, open-source desktop music player for macOS and Windows, and it is AI-native in both directions:
 
 - **Driven by AI.** A built-in [MCP](https://modelcontextprotocol.io) server lets Claude, or any AI assistant, run your music library. Ask it to build playlists, fix tags, organise folders, download tracks, or tell you what you played most last March.
 - **Built by AI.** Every line of code was written by an AI coding assistant (Claude Code). The human role is tech lead and product owner: decide what to build, define how it behaves, review, test, and push back until it's right. [The story →](https://viboplr.com/story.html)
@@ -11,7 +11,7 @@ Under the hood it's a Tauri 2 app with a Rust backend and a React frontend. It p
 
 ## AI Control (MCP)
 
-Viboplr ships its own MCP server, so an AI assistant gets real, typed tools for your music library instead of screen-scraping. Turn on **Settings → AI control**, press **Copy config** (Claude Desktop) or **Copy command** (Claude Code), and paste it into your client.
+Vibo ships its own MCP server, so an AI assistant gets real, typed tools for your music library instead of screen-scraping. Turn on **Settings → AI control**, press **Copy config** (Claude Desktop) or **Copy command** (Claude Code), and paste it into your client.
 
 > *"Tag everything by Boards of Canada as ambient, and file the compilations under Various Artists."*
 > *"Sort the loose files in my Music folder into Artist/Album."*
@@ -35,7 +35,7 @@ flowchart TB
     A["AI assistant<br/>Claude Desktop · Claude Code · Cursor · any MCP client"]
     MCP["MCP server (Node, bundled)<br/>mcp/viboplr-mcp.mjs · tool catalog mcp/tools.mjs"]
 
-    subgraph App["Viboplr app (Tauri 2)"]
+    subgraph App["Vibo app (Tauri 2)"]
         subgraph Rust["Rust backend"]
             API["Control API<br/>axum · 127.0.0.1 · bearer token · permission switches"]
             CORE["Library core<br/>scanner · watcher · Subsonic sync<br/>downloads · file ops · scoped fetch<br/><i>music folders · servers · internet</i>"]
@@ -76,7 +76,7 @@ flowchart TB
 
 ## Built with AI
 
-Viboplr is also an experiment in how software gets made. It's a full-featured player (bit-perfect gapless playback, synced lyrics, radio, mixtapes, skins, a sandboxed plugin runtime, its own MCP server) built by one person directing an AI coding assistant, with every line of code written by the AI.
+Vibo is also an experiment in how software gets made. It's a full-featured player (bit-perfect gapless playback, synced lyrics, radio, mixtapes, skins, a sandboxed plugin runtime, its own MCP server) built by one person directing an AI coding assistant, with every line of code written by the AI.
 
 The repository is set up for that way of working, and it is the same setup a contributor's assistant picks up:
 
@@ -127,7 +127,7 @@ The two halves meet in the product: an app written by an AI, designed from day o
 - **Image Providers**: Plugin-based artist/album art resolution with configurable fallback chains
 
 ### Skins
-- **8 Built-in Skins**: Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Viboplr, Sunset
+- **8 Built-in Skins**: Default, OLED Black, Arctic Light, Forest, Silver, Ocean Blue, Vibo, Sunset
 - **Custom Skins**: Import JSON skin files or install from the community gallery
 - **19 Color Tokens**: Full UI theming via CSS custom properties
 - **Custom CSS**: Optional per-skin CSS overrides (sanitized)
@@ -269,11 +269,11 @@ Then paste the contents of the private key file (`viboplr-deploy`) into the `VPS
 
 ## License
 
-Viboplr is free software, licensed under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later). You may use, study, modify, and redistribute it, but any distributed derivative must also be released under the GPL. See the [LICENSE](LICENSE) file for the full text.
+Vibo is free software, licensed under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later). You may use, study, modify, and redistribute it, but any distributed derivative must also be released under the GPL. See the [LICENSE](LICENSE) file for the full text.
 
 Copyright (C) 2026 outcast1000.
 
-All Rust and JavaScript dependencies are permissively licensed (MIT or Apache-2.0), so they impose no additional restrictions. libmpv is loaded at runtime as a separate library, and the app invokes `ffmpeg` and `yt-dlp` as separate external processes (not linked), so their licenses do not affect Viboplr's.
+All Rust and JavaScript dependencies are permissively licensed (MIT or Apache-2.0), so they impose no additional restrictions. libmpv is loaded at runtime as a separate library, and the app invokes `ffmpeg` and `yt-dlp` as separate external processes (not linked), so their licenses do not affect Vibo's.
 
 ## Recommended IDE Setup
 

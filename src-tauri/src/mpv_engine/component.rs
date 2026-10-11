@@ -194,7 +194,7 @@ pub fn install(mut progress: impl FnMut(u64, Option<u64>)) -> Result<ComponentSt
         if let Err(e) = std::fs::rename(&tmp, &dest) {
             let _ = std::fs::remove_file(&tmp);
             return Err(format!(
-                "install error (restart Viboplr and retry if the engine is in use): {e}"
+                "install error (restart Vibo and retry if the engine is in use): {e}"
             ));
         }
         installed_files.push(dest);

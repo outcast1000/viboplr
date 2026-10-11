@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// viboplr-mcp.mjs — a dependency-free stdio MCP server that shims Viboplr's
+// viboplr-mcp.mjs — a dependency-free stdio MCP server that shims Vibo's
 // localhost control API (see skills/viboplr-control/SKILL.md for the HTTP
 // surface this mirrors). Node >= 18, no npm install needed.
 //
@@ -41,9 +41,9 @@ const LATEST_PROTOCOL = "2025-06-18";
 const KNOWN_PROTOCOLS = ["2024-11-05", "2025-03-26", "2025-06-18"];
 
 const NOT_RUNNING =
-  'Viboplr is not reachable — the app may not be running, or "AI control" ' +
+  'Vibo is not reachable — the app may not be running, or "AI control" ' +
   "is off. Call the launch_app tool to start it (the setting persists across " +
-  "restarts), or ask the user to start Viboplr and enable it in Settings → General.";
+  "restarts), or ask the user to start Vibo and enable it in Settings → General.";
 
 
 // ---------------------------------------------------------------------------
@@ -274,7 +274,7 @@ async function launchApp() {
   if (!launched.ok) {
     throw new Error(
       `Couldn't find the installed app to launch (tried: ${launched.attempted.join(", ")}). ` +
-        "Ask the user to start Viboplr themselves.",
+        "Ask the user to start Vibo themselves.",
     );
   }
   const waitMs = Number(process.env.VIBOPLR_MCP_LAUNCH_WAIT_MS ?? 30_000);
@@ -295,7 +295,7 @@ async function launchApp() {
   throw new Error(
     `Launched the app (via ${launched.via}) but the control API didn't answer within ${Math.round(waitMs / 1000)}s. ` +
       'Most likely "AI control" has never been enabled — ask the user to switch it on once in ' +
-      "Viboplr → Settings → General; it persists from then on.",
+      "Vibo → Settings → General; it persists from then on.",
   );
 }
 

@@ -553,7 +553,7 @@ pub fn write_probe_dump(state: State<'_, AppState>, contents: String) -> Result<
 /// this window without hunting for it through `CGWindowListCopyWindowInfo`.
 /// (It still has to be in front: a covered WKWebView stops painting, so a
 /// background capture shows a stale frame.) The app never captures itself: that would
-/// need Screen Recording permission for Viboplr and turn the API into a way to
+/// need Screen Recording permission for Vibo and turn the API into a way to
 /// pull pixels out of it. `None` off macOS, where no such id exists.
 #[tauri::command]
 pub fn window_native_id(window: tauri::WebviewWindow) -> Option<u64> {

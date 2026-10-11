@@ -85,7 +85,7 @@ interface OnboardingWizardProps {
 }
 
 const STEP_TITLES: Record<OnboardingStepId, string> = {
-  profile: "Welcome to Viboplr",
+  profile: "Welcome to Vibo",
   welcome: "Pick your look",
   music: "Add your music",
   plugins: "Recommended plugins",
@@ -310,7 +310,7 @@ function ProfileStep({
     <>
       <p className="onboarding-step-desc">
         Let's set things up — it only takes a minute, and every step is optional.
-        First, how will you use Viboplr? Your pick just tailors the suggestions
+        First, how will you use Vibo? Your pick just tailors the suggestions
         in the next steps — every feature stays available no matter what you
         choose, and you can change anything later.
       </p>

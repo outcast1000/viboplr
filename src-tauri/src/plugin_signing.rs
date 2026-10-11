@@ -6,7 +6,7 @@
 //! the ones that can't — today only `vinyl-deck`, because a visualizer is handed
 //! a live ShadowRoot and a worker has no DOM.
 //!
-//! The question it answers is "did Viboplr publish exactly these bytes?". A
+//! The question it answers is "did Vibo publish exactly these bytes?". A
 //! plugin's id is whatever its manifest says, so an allow-list keyed on the id
 //! would hand full access to any side-loaded zip that copied it; a signature
 //! can't be copied onto different code.
@@ -45,7 +45,7 @@ const PAYLOAD_HEADER: &str = "viboplr-plugin-signature:v1";
 /// History: 1.0.85 trusted `D3D9DDD19A8CC4A7`, whose password was lost before
 /// anything was signed with it, so it was dropped rather than kept for rotation.
 pub const TRUSTED_PLUGIN_KEYS: &[&str] = &[
-    // Viboplr plugin-signing key, minisign key id 15B3CD58A11504F3 (2026-10-04).
+    // Vibo plugin-signing key, minisign key id 15B3CD58A11504F3 (2026-10-04).
     "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE1QjNDRDU4QTExNTA0RjMKUldUekJCV2hXTTJ6RlpacHRmZFFYOFVDZWk3YmJLTXFlQlZGTlkyMmV6QXVvbk03dFRZblhiTU4K",
 ];
 

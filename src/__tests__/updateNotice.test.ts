@@ -39,7 +39,7 @@ describe("resolveUpdateNotice", () => {
     });
     expect(notice).toMatchObject({
       kind: "app",
-      title: "Viboplr 1.0.57 is available",
+      title: "Vibo 1.0.57 is available",
       body: "- Album artist support",
     });
   });
@@ -120,7 +120,7 @@ describe("resolveUpdateNotice", () => {
       extensionUpdates: [],
       dismissed: { app: appNoticeSignature("1.0.57") },
     });
-    expect(notice?.title).toBe("Viboplr 1.0.58 is available");
+    expect(notice?.title).toBe("Vibo 1.0.58 is available");
   });
 
   /** Dismissing "2 updates" must not silence a third that turns up later —

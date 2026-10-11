@@ -498,7 +498,7 @@ impl Engine {
                 init.set_property("gapless-audio", "yes")?;
                 init.set_property("idle", "yes")?;
                 init.set_property("terminal", "no")?;
-                init.set_property("audio-client-name", "Viboplr")?;
+                init.set_property("audio-client-name", "Vibo")?;
                 // Let `speed` shift pitch as well as tempo. mpv defaults this to
                 // yes, which inserts scaletempo and holds the original pitch —
                 // correct for an audiobook, wrong for a deck. A turntable

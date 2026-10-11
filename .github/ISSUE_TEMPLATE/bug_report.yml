@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in Viboplr isn't working right
+description: Something in Vibo isn't working right
 title: "[Bug] "
 labels: ["bug"]
 body:
@@ -13,7 +13,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: Viboplr version
+      label: Vibo version
       description: Shown in Settings → About.
       placeholder: e.g. 1.0.32
     validations:

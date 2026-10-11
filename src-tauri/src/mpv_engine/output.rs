@@ -128,7 +128,7 @@ pub fn device_status(uid: &str) -> DeviceStatus {
     platform::device_status(uid)
 }
 
-/// Set the device's own hardware volume (0..1). This is what Viboplr's volume
+/// Set the device's own hardware volume (0..1). This is what Vibo's volume
 /// control drives in bit-perfect mode: the level is applied by the device, so
 /// the samples mpv sends stay untouched.
 pub fn set_device_volume(uid: &str, volume: f64) -> Result<(), String> {

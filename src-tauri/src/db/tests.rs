@@ -1720,7 +1720,7 @@ fn test_update_playlist_track_metadata() {
     assert_eq!(t.album_name, None);
 }
 
-/// The fold is shared with the Viboplr Community server (`validate::song_key`
+/// The fold is shared with the Vibo Community server (`validate::song_key`
 /// / `norm_segment` there): the same vectors must give the same keys on both.
 #[test]
 fn test_entity_key_fold_matches_the_community_server() {

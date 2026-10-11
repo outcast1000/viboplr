@@ -217,7 +217,7 @@ test.describe('Screenshots', () => {
     await page.screenshot({ path: path.join(outDir, 'detail-artist-light.png'), type: 'png' });
   });
 
-  test('12 - album detail (Viboplr)', async ({ page }) => {
+  test('12 - album detail (Vibo)', async ({ page }) => {
     await setup(page);
     await applySkin(page, 'viboplr');
     // Navigate to artist detail (Portishead = index 2), then click first album

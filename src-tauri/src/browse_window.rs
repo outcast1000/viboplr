@@ -307,7 +307,7 @@ pub async fn open_browse_window(
     let app_for_close = app.clone();
 
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed_url))
-        .title(title.unwrap_or_else(|| "Viboplr Browse".to_string()))
+        .title(title.unwrap_or_else(|| "Vibo Browse".to_string()))
         .inner_size(width.unwrap_or(1200.0), height.unwrap_or(800.0))
         .visible(visible.unwrap_or(true))
         // Hidden/occluded WKWebViews are suspended by default on macOS, which

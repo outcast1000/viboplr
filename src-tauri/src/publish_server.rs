@@ -120,7 +120,7 @@ fn check_api_version(who: &WhoAmI) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "This server requires a newer Viboplr (unsupported API versions: {})",
+            "This server requires a newer Vibo (unsupported API versions: {})",
             who.api_versions.join(", ")
         ))
     }
@@ -418,7 +418,7 @@ mod tests {
             api_versions: vec!["v2".into(), "v3".into()],
         };
         let err = check_api_version(&who).unwrap_err();
-        assert!(err.contains("newer Viboplr"), "got: {}", err);
+        assert!(err.contains("newer Vibo"), "got: {}", err);
         assert!(err.contains("v2, v3"), "lists the server's versions: {}", err);
 
         // Empty api_versions (older/misbehaving server) also fails closed.

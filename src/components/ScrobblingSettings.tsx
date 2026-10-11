@@ -65,7 +65,7 @@ export function ScrobblingSettings({
           <div className="settings-row">
             <div className="settings-row-info">
               <span className="settings-description">
-                Plugins that scrobble — Last.fm, Viboplr Community and others — appear here once they're enabled in Extensions.
+                Plugins that scrobble — Last.fm, Vibo Community and others — appear here once they're enabled in Extensions.
               </span>
             </div>
           </div>

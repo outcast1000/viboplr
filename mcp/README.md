@@ -1,8 +1,8 @@
-# Viboplr MCP server
+# Vibo MCP server
 
 A dependency-free stdio [MCP](https://modelcontextprotocol.io) server that lets
 MCP clients — Claude Desktop, Claude Code, Cursor, … — control a running
-Viboplr through its localhost control API. It is a pure translation layer: the
+Vibo through its localhost control API. It is a pure translation layer: the
 Rust API (see `skills/viboplr-control/SKILL.md` for the HTTP surface) owns
 every capability decision; this server only discovers the app, holds the bearer
 token, and presents typed tools. The token never appears in tool results, so it
@@ -19,7 +19,7 @@ an in-app agent get them. Both files ship in the bundle side by side.
 
 ## Setup
 
-1. In Viboplr: **Settings → AI control** — switch it on.
+1. In Vibo: **Settings → AI control** — switch it on.
 2. Register the server with your client.
 
 **From the app (easiest).** This script **ships in the bundle**
@@ -84,7 +84,7 @@ tables are refused server-side), the app version (`app_version` — with
 `releases/latest` for `outcast1000/viboplr` and says whether the app is
 current; report-only, updates install from inside the app), extension/skin
 management (per-plugin capability summaries, one plugin's full detail, and
-gallery browsing, and installing a gallery entry — which Viboplr asks the user
+gallery browsing, and installing a gallery entry — which Vibo asks the user
 about in its own dialog; deleting stays out of reach), window control (incl. size/position and the macOS window
 id), UI control (`navigate` opens a page — a view, an artist/album/tag/track by
 name, a Settings section, a plugin view; `ui_control` reads what is on screen
@@ -141,7 +141,7 @@ keeping the library row; two-step: stage + compare, then confirm or discard;
 needs both the Downloads and Manage files switches, and the old file goes to
 the Trash).
 
-Their authorization is a **per-category switch in Viboplr → Settings →
+Their authorization is a **per-category switch in Vibo → Settings →
 AI control**, all off by default, enforced in Rust on
 every request and re-read from disk each time (flipping a switch applies
 immediately; a missing/corrupt permissions file means *no*). A refused call is
@@ -198,7 +198,7 @@ non-default profile? Pass `--profile=<name>` (or `VIBOPLR_MCP_PROFILE`).
 
 Same as the API: no file deletion, no playlist deletion, no extension
 deletion — and no extension install without the user. `manage_extensions
-action=install` takes a gallery id only (never a URL) and opens Viboplr's own
+action=install` takes a gallery id only (never a URL) and opens Vibo's own
 install dialog; it installs only when the user presses Install there, so the
 token alone can never turn into arbitrary code execution. File-metadata writes, sidecar file
 creation, in-collection moves and downloads exist but only behind the

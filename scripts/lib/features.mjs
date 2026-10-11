@@ -117,12 +117,7 @@ ${f.items.map((item) => `            <div class="feature-list-item">${item}</div
   <nav class="nav">
     <div class="nav-inner">
       <a href="index.html" class="nav-logo">
-        <svg viewBox="0 0 512 512" width="34" height="34" aria-hidden="true">
-          <defs><linearGradient id="navGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FF6B6B"/><stop offset="100%" stop-color="#E91E8A"/></linearGradient></defs>
-          <path d="M138.24 138.24 L256 281.6 L373.76 138.24" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M138.24 235.52 L256 378.88 L373.76 235.52" fill="none" stroke="url(#navGrad)" stroke-width="51.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.48"/>
-        </svg>
-        iboPLR
+        <span class="wordmark" data-text="Vibo">Vibo</span>
       </a>
       <div class="nav-links" id="navLinks">
         <a href="index.html" class="nav-link">Home</a>

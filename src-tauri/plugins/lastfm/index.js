@@ -1,4 +1,4 @@
-// Last.fm Plugin for Viboplr
+// Last.fm Plugin for Vibo
 // Provides scrobbling, now playing, history import, and metadata
 
 function activate(api) {
@@ -1000,7 +1000,7 @@ function activate(api) {
   // ===== Loved Tracks Import =====
   //
   // Pulls the user's Last.fm loved tracks (user.getLovedTracks, paginated) and
-  // writes each as a Viboplr like via api.library.setTrackLikesBatch. The host
+  // writes each as a Vibo like via api.library.setTrackLikesBatch. The host
   // merges newer-wins keyed by the Last.fm "loved" timestamp, so re-running is a
   // no-op for anything already applied (idempotent). This is the inbound
   // counterpart to the outbound track.love push in onTrackLiked below.
@@ -1307,7 +1307,7 @@ function activate(api) {
         lovedRows.push({
           type: "settings-row",
           label: "Import loved tracks",
-          description: "Add your Last.fm loved tracks as likes in Viboplr. Re-run any time — already-liked tracks are skipped.",
+          description: "Add your Last.fm loved tracks as likes in Vibo. Re-run any time — already-liked tracks are skipped.",
           control: { type: "button", label: "Import", action: "lastfm-import-loved", disabled: !state.sessionKey },
         });
       }

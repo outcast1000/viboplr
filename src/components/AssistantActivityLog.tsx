@@ -25,7 +25,7 @@ function resultText(entry: ActivityEntry): string {
 
 /**
  * Settings → AI control → Assistant activity: the pause switch and the log of
- * what connected assistants asked Viboplr to do since it started. Memory-only
+ * what connected assistants asked Vibo to do since it started. Memory-only
  * (the durable trace is the `Assistant change [verb]` lines in the app log),
  * capped at 200 calls, and — unlike the pill — it includes reads and page
  * navigation, so "what did it look at" has an answer too.
@@ -79,7 +79,7 @@ export function AssistantActivityLog({ activity }: { activity: AssistantActivity
           {rows.length === 0 ? (
             <div className="aal-empty">
               {entries.length === 0
-                ? "Nothing yet. Calls from connected assistants appear here while Viboplr is open."
+                ? "Nothing yet. Calls from connected assistants appear here while Vibo is open."
                 : "No calls match this filter."}
             </div>
           ) : (
@@ -117,7 +117,7 @@ export function AssistantActivityLog({ activity }: { activity: AssistantActivity
               </table>
             </div>
           )}
-          <div className="aal-note">The last 200 calls, kept until you quit Viboplr.</div>
+          <div className="aal-note">The last 200 calls, kept until you quit Vibo.</div>
         </div>
       </div>
     </div>

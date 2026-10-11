@@ -2,7 +2,7 @@
 // self-contained, hostable bundle —
 //
 //   <dest>/
-//     index.html      landing page (Add-to-Viboplr deep link + copy-paste URL)
+//     index.html      landing page (Add-to-Vibo deep link + copy-paste URL)
 //     manifest.json   { name, tracks[] with <baseUrl>/tracks/<file> URLs }
 //     tracks/<files>  the copied audio
 //     PUBLISH.md      how to host it (web server or GitHub)
@@ -202,7 +202,7 @@ fn render_index_html(name: &str, manifest_url: &str, deep_link: &str, tracks: &[
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{name} — Viboplr music source</title>
+  <title>{name} — Vibo music source</title>
   <style>
     body {{ font-family: system-ui, sans-serif; max-width: 640px; margin: 64px auto; padding: 0 20px; line-height: 1.5; }}
     a.add {{ display: inline-block; margin: 24px 0; padding: 12px 20px;
@@ -213,11 +213,11 @@ fn render_index_html(name: &str, manifest_url: &str, deep_link: &str, tracks: &[
 </head>
 <body>
   <h1>{name}</h1>
-  <p>A Viboplr music source.</p>
+  <p>A Vibo music source.</p>
 
-  <a class="add" href="{deep_link_attr}">▶ Add to Viboplr</a>
+  <a class="add" href="{deep_link_attr}">▶ Add to Vibo</a>
 
-  <p><strong>If the button does nothing</strong>, open Viboplr → <em>Collections</em> →
+  <p><strong>If the button does nothing</strong>, open Vibo → <em>Collections</em> →
     <em>+ Add Music Source</em> and paste this manifest URL:</p>
   <p><code>{manifest_url}</code></p>
 
@@ -240,11 +240,11 @@ fn render_publish_md(manifest_url: &str) -> String {
     format!(
         r#"# Publishing this music source
 
-This folder is a self-contained Viboplr music source: `index.html`, `manifest.json`,
+This folder is a self-contained Vibo music source: `index.html`, `manifest.json`,
 and a `tracks/` folder. Host it so the files are reachable at the base URL you chose,
 then share the manifest URL or the landing page.
 
-The manifest URL listeners add in Viboplr:
+The manifest URL listeners add in Vibo:
 
     {manifest_url}
 

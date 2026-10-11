@@ -3,7 +3,7 @@ name: drag-and-drop
 description: Use when implementing any drag-and-drop interaction in the app — covers the required pattern for Tauri's WKWebView
 ---
 
-# Drag-and-Drop in Viboplr
+# Drag-and-Drop in Vibo
 
 ## The Rule
 

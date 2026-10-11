@@ -1618,7 +1618,7 @@ fn check_scope(state: &ServerState, scope: Scope) -> Result<(), Response> {
         Err(error_response(
             StatusCode::FORBIDDEN,
             format!(
-                "the \"{}\" assistant permission is off — the user can enable it in Viboplr → Settings → AI control",
+                "the \"{}\" assistant permission is off — the user can enable it in Vibo → Settings → AI control",
                 scope.label()
             ),
         ))
@@ -1681,7 +1681,7 @@ async fn handle_assistant_invoke(state: AxumState<ServerState>, body: Bytes) -> 
                 return error_response(
                     StatusCode::FORBIDDEN,
                     format!(
-                        "\"{}\" is not a read-only tool of plugin \"{}\", so it needs the \"{}\" assistant permission, which is off — the user can enable it in Viboplr → Settings → AI control",
+                        "\"{}\" is not a read-only tool of plugin \"{}\", so it needs the \"{}\" assistant permission, which is off — the user can enable it in Vibo → Settings → AI control",
                         tool,
                         plugin_id,
                         Scope::PluginActions.label()

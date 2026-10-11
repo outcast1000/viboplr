@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Viboplr Plugin Architecture</title>
+<title>Vibo Plugin Architecture</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
   :root {
@@ -97,7 +97,7 @@
 
 <div class="page">
   <header>
-    <div class="eyebrow">Viboplr · Tauri 2 · 2026-09</div>
+    <div class="eyebrow">Vibo · Tauri 2 · 2026-09</div>
     <h1>How an assistant, the control API, the host and the plugins connect</h1>
     <p>Everything a plugin can do goes through one <code>api</code> object the host hands it. Everything an AI assistant can do goes through the MCP server, the localhost HTTP API, and the same host registries. The four operations added this week make plugins a third caller of those registries, so a plugin can build on another plugin without a new bus.</p>
   </header>

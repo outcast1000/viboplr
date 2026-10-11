@@ -123,7 +123,7 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "ui.requestAction": OWN,
   "ui.setBadge": OWN,
   "ui.setViewHeader": OWN,
-  // Opens one of Viboplr's own pages — what a link in any view already does.
+  // Opens one of Vibo's own pages — what a link in any view already does.
   "ui.navigateToEntity": OWN,
 
   "storage.get": OWN,
@@ -299,19 +299,19 @@ export function describePermission(perm: string): PermissionDescription {
     case "playback:markers":
       return { label: "Mark moments on the seek bar", detail: "Draw ticks on the playing song's seek bar, with a note when you point at one.", sensitive: false };
     case "lyrics:write":
-      return { label: "Change song lyrics", detail: "Replace the lyrics Viboplr shows for a song, as editing them yourself would.", sensitive: false };
+      return { label: "Change song lyrics", detail: "Replace the lyrics Vibo shows for a song, as editing them yourself would.", sensitive: false };
     case "system:open":
       return { label: "Open links and files", detail: "Hand them to your browser or other apps.", sensitive: false };
     case "plugins:call":
       return { label: "Use your other plugins", detail: "Their searches, tools and information.", sensitive: false };
     case "assistant:host":
       return {
-        label: "Control Viboplr like an AI assistant",
+        label: "Control Vibo like an AI assistant",
         detail: "Use the tools an AI assistant gets when AI control is on. Changes still need the switches you've turned on in Settings → AI control.",
         sensitive: true,
       };
   }
-  return { label: perm, detail: "Not recognised by this version of Viboplr, so it grants nothing.", sensitive: false };
+  return { label: perm, detail: "Not recognised by this version of Vibo, so it grants nothing.", sensitive: false };
 }
 
 /**

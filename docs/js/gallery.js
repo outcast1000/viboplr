@@ -1,4 +1,4 @@
-// Viboplr gallery browse pages — live client-side fetch of the plugin/skin
+// Vibo gallery browse pages — live client-side fetch of the plugin/skin
 // indexes from GitHub. No build step, no framework. Each page sets
 // window.VBPL_GALLERY = "plugins" | "skins" before loading this script.
 

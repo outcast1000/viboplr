@@ -34,10 +34,10 @@ npm run loc -- save --ref v1.0.21         # back-fill one past release into benc
 
 ### Host resource profiling (macOS)
 
-`scripts/perf-probe.mjs` measures what the app costs the host. It exists because Viboplr is
+`scripts/perf-probe.mjs` measures what the app costs the host. It exists because Vibo is
 **not one process** — WKWebView's `WebContent` / `GPU` / `Networking` XPC helpers reparent to
 launchd (`PPID 1`), so a process-tree walk finds none of them and any measurement of the
-`Viboplr` pid alone undercounts badly. Attribution goes through `powermetrics` **coalitions**:
+`viboplr` pid alone undercounts badly. Attribution goes through `powermetrics` **coalitions**:
 the `com.alex.viboplr` coalition contains all four processes, so one `pgrep` for the app pid is
 enough to discover the helpers. Memory uses `phys_footprint` (via `footprint`), never RSS, which
 double-counts pages shared across those four processes.
@@ -234,7 +234,7 @@ or the metric would inflate by ~9 lines every release and list itself as a mover
 
 ## Architecture
 
-Viboplr is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript frontend rendered in a native webview.
+Vibo is a Tauri 2 desktop app: a Rust backend serves a React/TypeScript frontend rendered in a native webview.
 
 **Two track types:** `Track` (full library type with DB IDs) is used by library list views. `QueueTrack` (metadata-only, no `album_id`/`artist_id`/`collection_id`) is used by queue, now-playing, and playlists. Queue/playback surfaces use name-based image lookups and on-demand metadata resolution for library operations. A queue entry's own library row, when known, rides in the optional `libraryId` field — a cache that may be absent, never an identity. Ids travel as numbers everywhere; there is no key→id decoder, and list selection / the now-playing row highlight / the detail-page selection all key on `Track.id`. `Track` carries **no `key` field** — the vestigial `lib:N` plugin-wire token was removed after an audit found no plugin (bundled or external) read it; only `QueueTrack` has a key (`q:N`, minted at conversion). See `queue.md` → "`key` vs `libraryId`".
 

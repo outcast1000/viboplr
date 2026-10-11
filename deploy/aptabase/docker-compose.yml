@@ -1,4 +1,4 @@
-# Self-hosted Aptabase (anonymous usage analytics for the Viboplr desktop app).
+# Self-hosted Aptabase (anonymous usage analytics for the Vibo desktop app).
 #
 # Stateful infra brought up once, by hand, on the VPS — it is NOT synced by the
 # docs/ GitHub Action (that only rsyncs the marketing site). See README.md.

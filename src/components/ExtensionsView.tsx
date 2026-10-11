@@ -150,10 +150,10 @@ function ExperimentalBadge({ stability }: { stability?: string }) {
 
 /** What "unverified" means, for the badge tooltip and the detail pane. */
 const UNVERIFIED_EXPLANATION =
-  "This plugin runs with full access to the app and isn't signed by Viboplr, " +
-  "so the app can't check that it is the code Viboplr published.";
+  "This plugin runs with full access to the app and isn't signed by Vibo, " +
+  "so the app can't check that it is the code Vibo published.";
 
-// A main-realm plugin with no Viboplr signature (utils/pluginTrust.ts). A
+// A main-realm plugin with no Vibo signature (utils/pluginTrust.ts). A
 // worker plugin is bounded by its permissions; these have none, so say so.
 function UnverifiedBadge({ unverified }: { unverified?: boolean }) {
   if (!unverified) return null;
@@ -423,7 +423,7 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
   // Built-ins ship with the app and are allowed without asking (see the gate in
   // usePlugins); they still can't do anything outside this list.
   const builtin = ext.source === "builtin";
-  // Signed with Viboplr's first-party key: same standing as a built-in.
+  // Signed with Vibo's first-party key: same standing as a built-in.
   const firstParty = !builtin && !!ext.firstParty;
 
   const run = async (fn: ((id: string) => Promise<void>) | undefined, what: string) => {
@@ -455,9 +455,9 @@ function PluginPermissions({ ext, onApprove, onRevoke, onNotify }: {
                 ? "This version asks for more than you allowed before. It won't run until you allow the new permissions."
                 : "This plugin won't run until you allow what it asks for. It can't do anything outside this list."
               : builtin
-                ? "Included with Viboplr, so these are allowed automatically. It can't do anything outside this list."
+                ? "Included with Vibo, so these are allowed automatically. It can't do anything outside this list."
                 : firstParty
-                ? "Signed by Viboplr, so these are allowed automatically. It can't do anything outside this list."
+                ? "Signed by Vibo, so these are allowed automatically. It can't do anything outside this list."
                 : "What you allowed this plugin to do. It can't do anything outside this list."}
           </div>
           <PermissionList
@@ -601,7 +601,7 @@ function PluginDetail({
       {isInstalled && ext.error && (ext.status === "error" || ext.status === "incompatible") && (
         <div className="ext-detail-error" role="alert">
           <div className="ext-detail-error-title">
-            {ext.status === "incompatible" ? "This plugin needs a newer Viboplr" : "This plugin couldn't start"}
+            {ext.status === "incompatible" ? "This plugin needs a newer Vibo" : "This plugin couldn't start"}
           </div>
           <div className="ext-detail-error-text">{ext.error}</div>
         </div>

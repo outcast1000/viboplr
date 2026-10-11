@@ -55,7 +55,7 @@ Page views come from the tracker itself. Events, from `docs/js/analytics.js`:
 | Event | Data | When |
 |---|---|---|
 | `persona-card` | `persona` | a "Which listener are you?" card on the home page |
-| `get-viboplr` | `from` (page) | the nav's **Get Viboplr** button |
+| `get-viboplr` | `from` (page) | the nav's **Get Vibo** button |
 | `download-choice` | `platform`, `from` | a link to the macOS / Windows install page |
 | `download-start` | `platform`, `file` | the install page starts the download |
 | `download-manual` | `platform` | the install page's "Download it manually" link |

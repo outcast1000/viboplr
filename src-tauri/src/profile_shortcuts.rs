@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 pub fn shortcut_display_name(profile: &str) -> String {
-    format!("Viboplr – {}", profile)
+    format!("Vibo – {}", profile)
 }
 
 /// CFBundleIdentifier components must stay ASCII alphanumeric/hyphen; profile
@@ -107,7 +107,7 @@ pub fn quote_exec_path(path: &str) -> String {
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))] // linux arm + tests
 pub fn linux_desktop_entry(exec_path: &str, profile: &str) -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName={name}\nComment=Viboplr profile {profile}\nExec={exec} --profile {profile}\nIcon=viboplr\nTerminal=false\nCategories=AudioVideo;Audio;Player;\n",
+        "[Desktop Entry]\nType=Application\nName={name}\nComment=Vibo profile {profile}\nExec={exec} --profile {profile}\nIcon=viboplr\nTerminal=false\nCategories=AudioVideo;Audio;Player;\n",
         name = shortcut_display_name(profile),
         profile = profile,
         exec = quote_exec_path(exec_path),
@@ -229,7 +229,7 @@ mod tests {
     fn test_macos_info_plist_distinct_identifier_and_icon() {
         let p = macos_info_plist("com.alex.viboplr", "Work", Some("app.icns"));
         assert!(p.contains("<string>com.alex.viboplr.profile.work</string>"));
-        assert!(p.contains("<string>Viboplr – Work</string>"));
+        assert!(p.contains("<string>Vibo – Work</string>"));
         assert!(p.contains("CFBundleIconFile"));
         let no_icon = macos_info_plist("com.alex.viboplr", "Work", None);
         assert!(!no_icon.contains("CFBundleIconFile"));
@@ -240,7 +240,7 @@ mod tests {
         let e = linux_desktop_entry("/home/u/My Apps/viboplr.AppImage", "work");
         assert!(e.contains("Exec=\"/home/u/My Apps/viboplr.AppImage\" --profile work\n"));
         assert!(e.contains("Terminal=false"));
-        assert!(e.contains("Name=Viboplr – work"));
+        assert!(e.contains("Name=Vibo – work"));
     }
 
     #[test]

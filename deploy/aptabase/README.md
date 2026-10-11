@@ -1,6 +1,6 @@
 # Self-hosted Aptabase (usage analytics)
 
-Anonymous usage analytics for the Viboplr desktop app, self-hosted next to the
+Anonymous usage analytics for the Vibo desktop app, self-hosted next to the
 marketing site on the VPS. Aptabase is privacy-first by design: no cookies, no
 persistent device id, no PII — just an ephemeral session id plus coarse system
 props (OS, app version, locale) and the events the app chooses to send.
@@ -43,7 +43,7 @@ Never sent: track/artist/album titles, file paths, library contents, error messa
    ```bash
    docker compose logs aptabase | grep -i "sign in\|magic\|http"
    ```
-   Create an app (e.g. "Viboplr") and copy its **App Key** — it looks like
+   Create an app (e.g. "Vibo") and copy its **App Key** — it looks like
    `A-SH-1234567890` (`SH` = self-hosted).
 
 ## Wire the key into app builds

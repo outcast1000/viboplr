@@ -49,17 +49,7 @@ export function CaptionBar({
     <div className="search-bar" data-tauri-drag-region>
       <WindowControls position="left" minimizeToMiniPlayer={minimizeToMiniPlayer} onMinimizeToMini={onToggleMiniMode} />
         <div className="caption-brand" data-tauri-drag-region>
-          <svg width="30" height="30" viewBox="0 0 100 100" fill="none" style={{ marginRight: "-5px" }}>
-            <defs>
-              <linearGradient id="captionVGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#FF6B6B"/>
-                <stop offset="100%" stopColor="#E91E8A"/>
-              </linearGradient>
-            </defs>
-            <path d="M27 27 L50 55 L73 27" stroke="url(#captionVGrad)" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M27 46 L50 74 L73 46" stroke="url(#captionVGrad)" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" opacity="0.48"/>
-          </svg>
-          <span className="caption-brand-text">iboPLR</span>
+          <span className="caption-brand-text">Vibo</span>
         </div>
         <CentralSearchDropdown
           query={centralSearch.query}

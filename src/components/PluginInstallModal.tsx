@@ -130,7 +130,7 @@ export function PluginInstallModal({ flow, onCancel, onEnable, onClose, onRetry,
           <>
             <h2 className="ds-modal-title">Install {flow.name}?</h2>
             <p className="delete-confirm-warning">
-              Your AI assistant asked to install this {flow.confirm?.kind ?? "plugin"} from the Viboplr gallery.
+              Your AI assistant asked to install this {flow.confirm?.kind ?? "plugin"} from the Vibo gallery.
               Nothing is installed unless you say so here.
             </p>
             {flow.confirm?.description && <p className="plugin-install-desc">{flow.confirm.description}</p>}

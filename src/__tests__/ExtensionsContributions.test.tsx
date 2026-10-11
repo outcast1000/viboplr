@@ -33,7 +33,7 @@ const ytdlp: ExtensionItem = {
   id: "ytdlp",
   kind: "plugin",
   name: "yt-dlp",
-  author: "Viboplr",
+  author: "Vibo",
   version: "1.7.0",
   description: "Play and download from YouTube",
   status: "active",
