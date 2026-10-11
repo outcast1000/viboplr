@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="36 36 440 440" width="440" height="440">
+  <!-- docs/assets/icon.svg cropped to the tile, for the nav lockup next to the wordmark -->
+  <defs>
+    <linearGradient id="tileGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#FF6B6B"/>
+      <stop offset="100%" stop-color="#E91E8A"/>
+    </linearGradient>
+  </defs>
+  <rect x="36" y="36" width="440" height="440" rx="99" fill="url(#tileGrad)"/>
+  <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" transform="translate(0 40)" fill="#ffffff" stroke="#ffffff" stroke-width="10" stroke-linejoin="round" opacity="0.4"/>
+  <path d="M140.0 124.0 L241.0 348.0 L271.0 348.0 L372.0 124.0 L298.0 124.0 L256.0 217.1 L214.0 124.0 Z" fill="#ffffff" stroke="#ffffff" stroke-width="10" stroke-linejoin="round"/>
+</svg>

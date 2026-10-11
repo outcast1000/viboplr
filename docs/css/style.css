@@ -161,6 +161,7 @@ p {
 .nav-logo {
   display: flex;
   align-items: center;
+  gap: 10px;
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 1.5rem;
@@ -170,6 +171,16 @@ p {
 
 .nav-logo:hover {
   opacity: 0.8;
+}
+
+/* App-icon tile beside the wordmark. Lifted by the wordmark's echo padding
+   (0.28em) so it centres on the letters, not on letters + echo. */
+.nav-logo-mark {
+  display: block;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  margin-top: -0.3em;
 }
 
 /* Echo wordmark: brand-gradient text with a faint repeat directly under it */

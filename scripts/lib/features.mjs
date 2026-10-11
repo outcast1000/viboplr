@@ -117,6 +117,7 @@ ${f.items.map((item) => `            <div class="feature-list-item">${item}</div
   <nav class="nav">
     <div class="nav-inner">
       <a href="index.html" class="nav-logo">
+        <img class="nav-logo-mark" src="assets/logo-mark.svg" alt="" width="34" height="34">
         <span class="wordmark" data-text="Vibo">Vibo</span>
       </a>
       <div class="nav-links" id="navLinks">
