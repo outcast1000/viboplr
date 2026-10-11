@@ -112,6 +112,20 @@ pub fn download_filename(artist: &str, title: &str, ext: &str) -> String {
 
 // --- Download pipeline ---
 
+/// The local path a download provider's `file://` URL names. The URL is
+/// percent-ENCODED — a provider escapes a literal '%' in a filename as "%25"
+/// — so every consumer of a resolve's `url` must decode it the same way, or a
+/// file named "100%.flac" is looked for as "100%25.flac". Returns `None` for a
+/// URL that isn't `file://`.
+pub fn file_url_to_path(url: &str) -> Option<Result<String, String>> {
+    let raw = url.strip_prefix("file://")?;
+    Some(
+        urlencoding::decode(raw)
+            .map(|p| p.into_owned())
+            .map_err(|e| format!("URL decode error: {}", e)),
+    )
+}
+
 /// Shared download helper: streams HTTP URL to file, or copies file:// paths.
 pub fn download_file(
     url: &str,
@@ -122,11 +136,8 @@ pub fn download_file(
 ) -> Result<(), String> {
     use std::io::{Read, Write};
 
-    if url.starts_with("file://") {
-        let raw = &url[7..];
-        let decoded = urlencoding::decode(raw)
-            .map_err(|e| format!("URL decode error: {}", e))?;
-        std::fs::copy(decoded.as_ref(), dest)
+    if let Some(decoded) = file_url_to_path(url) {
+        std::fs::copy(decoded?, dest)
             .map_err(|e| format!("Failed to copy local file: {}", e))?;
         return Ok(());
     }
@@ -330,6 +341,36 @@ pub fn write_tags(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- file_url_to_path tests ---
+
+    #[test]
+    fn test_file_url_decodes_an_escaped_percent() {
+        // The Soulseek plugin sends "100%.flac" as "100%25.flac"; the assistant's
+        // replace path used to strip the scheme only and look for "100%25.flac".
+        assert_eq!(
+            file_url_to_path("file://C:\\Music\\01 - 100%25.flac").unwrap().unwrap(),
+            "C:\\Music\\01 - 100%.flac"
+        );
+        assert_eq!(file_url_to_path("file:///music/a%20b.flac").unwrap().unwrap(), "/music/a b.flac");
+    }
+
+    #[test]
+    fn test_file_url_to_path_ignores_other_schemes() {
+        assert!(file_url_to_path("https://example.com/a.flac").is_none());
+        assert!(file_url_to_path("/music/a.flac").is_none());
+    }
+
+    #[test]
+    fn test_download_file_copies_a_percent_named_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("01 - 100%.flac");
+        std::fs::write(&src, b"fLaC").unwrap();
+        let dest = dir.path().join("out.flac");
+        let url = format!("file://{}", src.to_string_lossy().replace('%', "%25"));
+        download_file(&url, None, &dest, None, None).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"fLaC");
+    }
 
     // --- sanitize_filename tests ---
 

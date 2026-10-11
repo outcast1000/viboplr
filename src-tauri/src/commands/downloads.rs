@@ -193,10 +193,7 @@ pub async fn assistant_land_download(
                 }
                 DownloadSource::Url(url, headers)
             }
-            (None, Some(path)) => {
-                let bare = path.strip_prefix("file://").unwrap_or(&path);
-                DownloadSource::LocalFile(std::path::PathBuf::from(bare))
-            }
+            (None, Some(path)) => DownloadSource::LocalFile(resolved_file_path(&path)?),
             _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
         };
         assistant_write::land_download(
@@ -212,6 +209,17 @@ pub async fn assistant_land_download(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// `sourcePath` for the two assistant landing commands is a plugin resolve's
+/// `file://` URL, the same value the download modal hands `download_file` — so
+/// it is percent-decoded the same way (`downloader::file_url_to_path`). A bare
+/// path without the scheme is taken as-is.
+fn resolved_file_path(path: &str) -> Result<std::path::PathBuf, String> {
+    match crate::downloader::file_url_to_path(path) {
+        Some(decoded) => decoded.map(std::path::PathBuf::from),
+        None => Ok(std::path::PathBuf::from(path)),
+    }
 }
 
 /// Both scopes a replace needs: it downloads (Downloads) and it trashes a
@@ -254,10 +262,7 @@ pub async fn assistant_stage_replacement(
                 }
                 DownloadSource::Url(url, headers)
             }
-            (None, Some(path)) => {
-                let bare = path.strip_prefix("file://").unwrap_or(&path);
-                DownloadSource::LocalFile(std::path::PathBuf::from(bare))
-            }
+            (None, Some(path)) => DownloadSource::LocalFile(resolved_file_path(&path)?),
             _ => return Err("pass exactly one of sourceUrl or sourcePath".to_string()),
         };
         assistant_write::stage_replacement(&db, track_id, ext.as_deref().unwrap_or(""), source)
