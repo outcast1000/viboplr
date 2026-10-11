@@ -1072,6 +1072,36 @@ mod tests {
     /// takes. The count is a ratchet: new database work goes in an `async`
     /// command through `run_db_read` (or `spawn_blocking`), and converting one
     /// of these means lowering `CAP` in the same change.
+    /// Byte offset of a fn's body `{`: the first `{` after the parenthesis that
+    /// closes its parameter list. Parameter and return types carry no braces.
+    fn signature_end(sig: &str) -> usize {
+        let params = sig.find('(').unwrap();
+        let mut depth = 0usize;
+        let mut close = params;
+        for (i, c) in sig[params..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = params + i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        close + sig[close..].find('{').unwrap()
+    }
+
+    #[test]
+    fn test_signature_end_finds_the_body_with_or_without_a_return_type() {
+        let src = "pub fn foo(state: State<'_, AppState>) { state.db.x(); }\npub fn bar() -> Result<(), String> { Ok(()) }";
+        assert_eq!(&src[signature_end(src)..signature_end(src) + 3], "{ s");
+        let bar = &src[src.find("pub fn bar").unwrap()..];
+        assert_eq!(&bar[signature_end(bar)..signature_end(bar) + 4], "{ Ok");
+    }
+
     #[test]
     fn test_sync_commands_touching_the_db_are_capped() {
         const CAP: usize = 89;
@@ -1095,9 +1125,10 @@ mod tests").next().unwrap();
                     .chars()
                     .take_while(|c| c.is_alphanumeric() || *c == '_')
                     .collect();
-                // The body opens at the first `{` after the return arrow.
-                let arrow = sig.find("->").unwrap_or(0);
-                let open = arrow + sig[arrow..].find('{').unwrap();
+                // The body opens at the first `{` after the parameter list. (It
+                // used to search for `->`, which on a command with no return
+                // type found the *next* function's arrow and took its body.)
+                let open = signature_end(sig);
                 let mut depth = 0usize;
                 let mut close = open;
                 for (i, c) in sig[open..].char_indices() {

@@ -234,7 +234,7 @@ impl Database {
         let assignments: Vec<(i64, Vec<String>)> =
             track_ids.iter().map(|id| (*id, vec![tag_name.to_string()])).collect();
         self.apply_tags_bulk(&assignments)?;
-        self.recompute_counts()?;
+        self.recompute_after_tag_edit()?;
         let conn = self.conn.lock().unwrap();
         let canonical: Option<String> = conn.query_row(
             "SELECT name FROM tags WHERE strip_diacritics(unicode_lower(name)) = strip_diacritics(unicode_lower(?1))",
@@ -285,8 +285,28 @@ impl Database {
             }
             tx.commit()?;
         }
-        self.recompute_counts()?;
+        self.recompute_after_tag_edit()?;
         Ok(())
+    }
+
+    /// What a tag add/remove can change, and nothing else: reap tags left with
+    /// no track, recount tags, and mirror tag likes onto rows the add created
+    /// (a liked tag reaped earlier and re-added comes back `liked = 0`). The
+    /// full `recompute_counts` rebuilt every artist and album count and like
+    /// on every chip click, holding the writer lock through it; a tag edit
+    /// moves no track between artists or albums.
+    fn recompute_after_tag_edit(&self) -> SqlResult<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch(&format!(
+            "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM track_tags);
+             UPDATE tags SET track_count = (
+               SELECT COUNT(*) FROM track_tags tt
+               JOIN tracks t ON t.id = tt.track_id
+               WHERE tt.tag_id = tags.id {cf}
+             );",
+            cf = ENABLED_COLLECTION_FILTER_STANDALONE
+        ))?;
+        conn.execute_batch(super::likes::TAG_LIKE_MIRROR_SQL)
     }
 
     /// Recount `tags.track_count` only — the tag third of `recompute_counts`,

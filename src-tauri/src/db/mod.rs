@@ -304,6 +304,11 @@ pub struct Database {
     /// the reader methods do (every transaction here opens and closes inside
     /// one method holding `conn`).
     reader: Mutex<Connection>,
+    /// A third, read-only connection for the control API's ad-hoc SQL
+    /// (`control_query.rs`). A caller's query may scan for up to its 5s
+    /// deadline; on `reader` that held every Library page, search and lookup
+    /// waiting behind it — the very wait `reader` exists to remove.
+    query_reader: Mutex<Connection>,
 }
 
 impl Database {
@@ -432,17 +437,23 @@ impl Database {
 
         timer.time("db: register_sql_functions", || Self::register_sql_functions(&conn))?;
 
-        // The schema (and WAL mode, which the reader relies on) must exist before
-        // a read-only connection can open the file, so the writer migrates first
-        // through a placeholder reader that nothing uses until `new` returns.
+        // The schema (and WAL mode, which the readers rely on) must exist before
+        // a read-only connection can open the file, so `init_tables` runs through
+        // placeholders — and nothing else: the real readers are swapped in before
+        // `run_migrations`, so a migration that calls a reader-backed method
+        // reads the database rather than an empty in-memory one.
         let db = Self {
             conn: Mutex::new(conn),
             reader: Mutex::new(Connection::open_in_memory()?),
+            query_reader: Mutex::new(Connection::open_in_memory()?),
         };
         timer.time("db: init_tables", || db.init_tables())?;
-        timer.time("db: run_migrations", || db.run_migrations())?;
-        let reader = timer.time("db: open_reader", || Self::open_reader(&db_path))?;
+        let (reader, query_reader) = timer.time("db: open_reader", || {
+            Ok::<_, rusqlite::Error>((Self::open_reader(&db_path)?, Self::open_reader(&db_path)?))
+        })?;
         *db.reader.lock().unwrap() = reader;
+        *db.query_reader.lock().unwrap() = query_reader;
+        timer.time("db: run_migrations", || db.run_migrations())?;
         // Before the counts: merging a duplicate row changes them.
         timer.time("db: repair_separator_duplicates", || db.repair_separator_duplicates())?;
         // Crash safety: keep denormalized counts consistent on every startup.
@@ -510,9 +521,12 @@ impl Database {
         Self::register_sql_functions(&conn)?;
         let reader = Connection::open_with_flags(&uri, flags)?;
         Self::configure_reader(&reader)?;
+        let query_reader = Connection::open_with_flags(&uri, flags)?;
+        Self::configure_reader(&query_reader)?;
         let db = Self {
             conn: Mutex::new(conn),
             reader: Mutex::new(reader),
+            query_reader: Mutex::new(query_reader),
         };
         db.init_tables()?;
         db.run_migrations()?;

@@ -69,12 +69,16 @@ pub(crate) const TRACK_DURABLE_LIKE_EXPR: &str = "COALESCE((SELECT el.liked FROM
 /// written, or a compilation liked through a track artist would be un-liked by
 /// the next recompute; newest wins). Two-way and idempotent; only rows whose value changes are
 /// written. Run by `recompute_counts`, which every ingest/rescan path ends with.
-pub(crate) const ENTITY_LIKE_MIRROR_SQL: &str = "
+pub(crate) const ENTITY_LIKE_MIRROR_SQL: [&str; 3] = [ARTIST_LIKE_MIRROR_SQL, ALBUM_LIKE_MIRROR_SQL, TAG_LIKE_MIRROR_SQL];
+
+const ARTIST_LIKE_MIRROR_SQL: &str = "
     UPDATE artists SET liked = d.v FROM (
       SELECT a.id, COALESCE((SELECT el.liked FROM entity_likes el
         WHERE el.kind = 'artist' AND el.entity_key = 'artist:' || strip_diacritics(unicode_lower(trim(a.name)))), 0) AS v
       FROM artists a) d
-    WHERE artists.id = d.id AND artists.liked <> d.v;
+    WHERE artists.id = d.id AND artists.liked <> d.v;";
+
+const ALBUM_LIKE_MIRROR_SQL: &str = "
     UPDATE albums SET liked = d.v FROM (
       SELECT al.id, COALESCE((SELECT el.liked FROM entity_likes el
         WHERE el.kind = 'album' AND el.entity_key = 'album:'
@@ -89,7 +93,10 @@ pub(crate) const ENTITY_LIKE_MIRROR_SQL: &str = "
                   || ':' || strip_diacritics(unicode_lower(trim(al.title))))
           ORDER BY el.updated_at DESC LIMIT 1), 0) AS v
       FROM albums al) d
-    WHERE albums.id = d.id AND albums.liked <> d.v;
+    WHERE albums.id = d.id AND albums.liked <> d.v;";
+
+/// The tags third alone — all a tag add/remove can need (`recompute_after_tag_edit`).
+pub(crate) const TAG_LIKE_MIRROR_SQL: &str = "
     UPDATE tags SET liked = d.v FROM (
       SELECT t.id, COALESCE((SELECT el.liked FROM entity_likes el
         WHERE el.kind = 'tag' AND el.entity_key = 'tag:' || strip_diacritics(unicode_lower(trim(t.name)))), 0) AS v
@@ -756,6 +763,28 @@ mod tests {
         // with entity_likes.
         let liked_artists = db.get_artists_filtered(true, None, None, None).unwrap();
         assert_eq!(liked_artists.iter().map(|a| a.id).collect::<Vec<_>>(), vec![bjork]);
+    }
+
+    #[test]
+    fn test_tag_edits_reap_recount_and_restore_a_readded_tags_like() {
+        let db = test_db();
+        let cid = db.add_collection("local", "L", Some("/m"), None, None, None, None, None).unwrap().id;
+        let artist = db.get_or_create_artist("Björk").unwrap();
+        let a = db.upsert_track("a.mp3", "A", Some(artist), None, None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+        let b = db.upsert_track("b.mp3", "B", Some(artist), None, None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+        db.set_entity_like("tag", &build_entity_key("tag", "Trip Hop", None), 1, None, 100).unwrap();
+
+        db.apply_tag_to_tracks(&[a, b], "Trip Hop").unwrap();
+        let tag = db.find_tag_by_name("Trip Hop").unwrap().unwrap();
+        assert_eq!((tag.track_count, tag.liked), (2, 1));
+
+        // Removed from every track: the row is reaped …
+        db.remove_tag_from_tracks(&[a, b], "Trip Hop").unwrap();
+        assert!(db.find_tag_by_name("Trip Hop").unwrap().is_none());
+        // … and re-adding creates a fresh row that takes its like back.
+        db.apply_tag_to_tracks(&[a], "Trip Hop").unwrap();
+        let tag = db.find_tag_by_name("Trip Hop").unwrap().unwrap();
+        assert_eq!((tag.track_count, tag.liked), (1, 1));
     }
 
     #[test]

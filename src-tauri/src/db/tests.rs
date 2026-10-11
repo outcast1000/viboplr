@@ -15,6 +15,20 @@ fn test_db() -> Database {
 }
 
 #[test]
+fn test_both_readers_open_the_real_file_before_migrations_run() {
+    // The readers are swapped in after init_tables and before run_migrations,
+    // so a migration calling a reader-backed method reads the database, and
+    // the control API's query connection reads it too — not a placeholder.
+    let dir = tempfile::tempdir().unwrap();
+    let db = Database::new(dir.path()).unwrap();
+    let file = |c: &Connection| c.path().map(|p| p.to_string()).unwrap_or_default();
+    assert!(file(&db.reader()).ends_with("viboplr.db"));
+    assert!(file(&db.query_reader.lock().unwrap()).ends_with("viboplr.db"));
+    let res = db.control_read_query("SELECT COUNT(*) AS n FROM playlists", &[], 1).unwrap();
+    assert_eq!(res.columns, vec!["n"]);
+}
+
+#[test]
 fn test_existing_db_upgrades_to_system_playlists() {
     // Simulate a pre-feature DB on disk: a `playlists` table WITHOUT system_kind,
     // then open it via Database::new (init_tables → run_migrations). Regression

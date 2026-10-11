@@ -112,10 +112,11 @@ impl Database {
                 t
             ));
         }
-        // The read-only connection: a scan can run up to QUERY_TIMEOUT, and on the
-        // writer it held every scan, sync and like waiting for that long. The
-        // reader is also `query_only`, a second refusal behind the statement check.
-        let conn = self.reader.lock().map_err(|e| e.to_string())?;
+        // Its own read-only connection: a scan can run up to QUERY_TIMEOUT, and on
+        // the writer it held every scan, sync and like waiting for that long — on
+        // the shared reader, every Library page and search. It is also
+        // `query_only`, a second refusal behind the statement check.
+        let conn = self.query_reader.lock().map_err(|e| e.to_string())?;
         // Deadline: checked every N VDBE ops; returning true interrupts the
         // statement, which surfaces as a rusqlite error mapped below.
         let deadline = std::time::Instant::now() + QUERY_TIMEOUT;
@@ -140,7 +141,7 @@ impl Database {
     /// point advertising what a query can't touch), SQLite internals and the
     /// FTS shadow tables — plus the semantic notes above.
     pub fn control_query_schema(&self) -> Result<ControlQuerySchema, String> {
-        let conn = self.reader.lock().map_err(|e| e.to_string())?;
+        let conn = self.query_reader.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
                 "SELECT name, sql FROM sqlite_master \
@@ -241,6 +242,16 @@ mod tests {
             .unwrap();
         }
         db
+    }
+
+    #[test]
+    fn test_a_control_query_does_not_hold_the_ui_reader() {
+        let db = test_db();
+        // While an assistant query holds its connection (a scan running to
+        // its deadline), the UI's reads still get theirs.
+        let _held = db.query_reader.lock().unwrap();
+        let n: i64 = db.reader().query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 3);
     }
 
     #[test]
