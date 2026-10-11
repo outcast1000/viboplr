@@ -113,9 +113,16 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
   // extends. Any answer whose generation is no longer current is dropped — the
   // requests run concurrently, so without this an older, slower response (the
   // query as it was two keystrokes ago) could land last and overwrite the list.
+  // The generation whose fresh load has landed. A page append started while a
+  // fresh load is still out would compute its offset from the list that load
+  // is about to replace and then splice old-offset rows onto the new results,
+  // so it is skipped: the fresh list starts at the top, and scrolling to its
+  // end asks for the next page again.
   const loadGenRef = useRef(0);
+  const landedGenRef = useRef(0);
 
   const loadTracks = useCallback(async (append = false) => {
+    if (append && landedGenRef.current !== loadGenRef.current) return;
     const gen = append ? loadGenRef.current : ++loadGenRef.current;
     const stale = () => gen !== loadGenRef.current;
     try {
@@ -197,6 +204,8 @@ export function useLibrary(restoredRef: React.RefObject<boolean>, onBeforeNaviga
       }
     } catch (e) {
       console.error("Failed to load tracks:", e);
+    } finally {
+      if (!append && !stale()) landedGenRef.current = gen;
     }
   }, [debouncedTrackQuery, selectedTag, selectedAlbum, selectedArtist, view, sortField, sortDir, trackShuffleKey, mediaTypeFilter]);
 

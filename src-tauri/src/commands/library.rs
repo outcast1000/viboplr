@@ -688,6 +688,8 @@ pub fn cue_sheet_delete(
     Ok(existed)
 }
 
+/// Write a like to the durable store and mirror it onto the library row.
+/// Returns the stored state it replaced (0 when there was none).
 #[tauri::command]
 pub fn set_entity_like_state(
     app: AppHandle,
@@ -720,6 +722,11 @@ pub fn set_entity_like_state(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
+    // The stored state this write replaces — what `like:changed` reports as
+    // `previous`, and how the frontend tells an idempotent set from a change.
+    // The caller's copy can't answer it: a non-library entity has no row to
+    // carry a like, and a set from the control API names no prior state.
+    let previous = db.get_entity_like_state(&kind, &entity_key).map_err(|e| e.to_string())?;
     db.set_entity_like(&kind, &entity_key, like_state, Some(&metadata), now_ts)
         .map_err(|e| e.to_string())?;
 
@@ -735,7 +742,7 @@ pub fn set_entity_like_state(
 
     let _ = app.emit("entity-likes-changed", serde_json::json!({ "kind": kind }));
 
-    Ok(like_state)
+    Ok(previous)
 }
 
 /// Batch-resolve persisted track like states by metadata, for reconciling the

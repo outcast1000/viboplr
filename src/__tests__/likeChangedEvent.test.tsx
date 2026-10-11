@@ -36,9 +36,17 @@ function setup(over: { artists?: Artist[]; albums?: Album[] } = {}) {
   return { result, changes, notify };
 }
 
+// set_entity_like_state answers the stored state it replaced; `stored` seeds it.
+let stored: Record<string, number> = {};
 beforeEach(() => {
+  stored = {};
   invoke.mockReset();
-  invoke.mockResolvedValue(1);
+  invoke.mockImplementation(async (_cmd: string, args: { kind: string; entity: { title: string; artistName?: string | null }; likeState: number }) => {
+    const key = `${args.kind}:${args.entity.artistName ?? ""}:${args.entity.title}`;
+    const previous = stored[key] ?? 0;
+    stored[key] = args.likeState;
+    return previous;
+  });
 });
 
 describe("like:changed", () => {
@@ -51,13 +59,16 @@ describe("like:changed", () => {
   });
 
   it("reports dislikes and un-likes too, not only likes", async () => {
+    stored["track:Björk:Jóga"] = 1;
     const { result, changes } = setup();
     await act(() => result.current.handleToggleDislike({ ...TRACK, liked: 1 }));
+    stored["track:Björk:Jóga"] = 1;
     await act(() => result.current.handleToggleLike({ ...TRACK, liked: 1 }));
     expect(changes().map((c) => [c.liked, c.previous])).toEqual([[-1, 1], [0, 1]]);
   });
 
   it("reports artist and album likes by name, the album with its album artist", async () => {
+    stored["album:Björk:Homogenic"] = 1;
     const { result, changes } = setup({
       artists: [{ id: 3, name: "Björk", track_count: 9, liked: 0 } as Artist],
       albums: [{ id: 5, title: "Homogenic", artist_name: "Björk", liked: 1 } as Album],
@@ -81,6 +92,23 @@ describe("like:changed", () => {
     await act(() => result.current.handleToggleLike(TRACK));
     expect(changes()).toEqual([]);
     expect(notify).toHaveBeenCalled();
+  });
+
+  it("is not sent for an idempotent set that changed nothing", async () => {
+    stored["track:Björk:Jóga"] = 1;
+    const { result, changes } = setup();
+    await act(async () => { await result.current.setTrackRating({ ...TRACK, liked: 1 }, 1); });
+    await act(async () => { await result.current.setAlbumLike("Post", "Björk", 0); });
+    expect(changes()).toEqual([]);
+  });
+
+  it("takes previous from the store, not from a stale copy", async () => {
+    // A non-library album has no row to carry its like: the hook assumes 0,
+    // but the store knows it was liked, so un-liking it is a real change.
+    stored["album:Björk:Post"] = 1;
+    const { result, changes } = setup();
+    await act(async () => { await result.current.setAlbumLike("Post", "Björk", 0); });
+    expect(changes()).toEqual([entityLikeChange("album", entityLikePayload("Post", "Björk"), 0, 1)]);
   });
 
   it("builds the track change from either track shape", () => {

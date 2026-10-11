@@ -143,7 +143,7 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
     // Optimistic: reflect the new state immediately so the UI is responsive.
     mirrorTrackLike(track, likeState);
     try {
-      await invoke("set_entity_like_state", {
+      const stored = await invoke<number>("set_entity_like_state", {
         kind: "track",
         entity: trackLikePayload(track),
         likeState,
@@ -151,7 +151,12 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
       // Only after the write succeeds — never optimistically.
       const dispatch = source === "like" || (source === "set" && likeState === 1);
       if (dispatch) plugins.dispatchEvent("track:liked", track, likeState === 1);
-      plugins.dispatchEvent("like:changed", trackLikeChange(track, likeState, prevLiked ?? 0));
+      // `previous` is the store's answer, not this copy's (which can be stale);
+      // an idempotent set (control API) that changed nothing is not a change.
+      const previous = typeof stored === "number" ? stored : prevLiked ?? 0;
+      if (likeState !== previous) {
+        plugins.dispatchEvent("like:changed", trackLikeChange(track, likeState, previous));
+      }
       return true;
     } catch (e) {
       console.error("Failed to set track rating:", e);
@@ -191,8 +196,12 @@ export function useLikeActions(deps: UseLikeActionsDeps) {
   ): Promise<boolean> {
     mirror(likeState);
     try {
-      await invoke("set_entity_like_state", { kind, entity, likeState });
-      plugins.dispatchEvent("like:changed", entityLikeChange(kind, entity, likeState, prevLiked));
+      const stored = await invoke<number>("set_entity_like_state", { kind, entity, likeState });
+      // Same rule as setTrackRating: the store says what was replaced.
+      const previous = typeof stored === "number" ? stored : prevLiked;
+      if (likeState !== previous) {
+        plugins.dispatchEvent("like:changed", entityLikeChange(kind, entity, likeState, previous));
+      }
       return true;
     } catch (e) {
       console.error(`Failed to set ${kind} like state:`, e);

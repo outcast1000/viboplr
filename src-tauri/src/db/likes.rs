@@ -64,7 +64,10 @@ pub(crate) const TRACK_DURABLE_LIKE_EXPR: &str = "COALESCE((SELECT el.liked FROM
 /// "Liked albums / artists" shelves, while "Recently liked" (which reads
 /// `entity_likes`) disagreed. Keys are rebuilt inline exactly as
 /// `build_entity_key` folds them (album key = the album row's own artist, i.e.
-/// the album artist). Two-way and idempotent; only rows whose value changes are
+/// the album artist, falling back to a key under any of its tracks' artists —
+/// the same either-artist match `find_album_by_name` uses when the like is
+/// written, or a compilation liked through a track artist would be un-liked by
+/// the next recompute; newest wins). Two-way and idempotent; only rows whose value changes are
 /// written. Run by `recompute_counts`, which every ingest/rescan path ends with.
 pub(crate) const ENTITY_LIKE_MIRROR_SQL: &str = "
     UPDATE artists SET liked = d.v FROM (
@@ -76,7 +79,15 @@ pub(crate) const ENTITY_LIKE_MIRROR_SQL: &str = "
       SELECT al.id, COALESCE((SELECT el.liked FROM entity_likes el
         WHERE el.kind = 'album' AND el.entity_key = 'album:'
           || strip_diacritics(unicode_lower(trim(COALESCE((SELECT name FROM artists WHERE id = al.artist_id), ''))))
-          || ':' || strip_diacritics(unicode_lower(trim(al.title)))), 0) AS v
+          || ':' || strip_diacritics(unicode_lower(trim(al.title)))),
+        (SELECT el.liked FROM entity_likes el
+          WHERE el.kind = 'album'
+            AND el.entity_key LIKE 'album:%:' || strip_diacritics(unicode_lower(trim(al.title)))
+            AND EXISTS (SELECT 1 FROM tracks t JOIN artists ta ON ta.id = t.artist_id
+              WHERE t.album_id = al.id
+                AND el.entity_key = 'album:' || strip_diacritics(unicode_lower(trim(ta.name)))
+                  || ':' || strip_diacritics(unicode_lower(trim(al.title))))
+          ORDER BY el.updated_at DESC LIMIT 1), 0) AS v
       FROM albums al) d
     WHERE albums.id = d.id AND albums.liked <> d.v;
     UPDATE tags SET liked = d.v FROM (
@@ -745,6 +756,31 @@ mod tests {
         // with entity_likes.
         let liked_artists = db.get_artists_filtered(true, None, None, None).unwrap();
         assert_eq!(liked_artists.iter().map(|a| a.id).collect::<Vec<_>>(), vec![bjork]);
+    }
+
+    #[test]
+    fn test_compilation_liked_through_a_track_artist_survives_recompute() {
+        let db = test_db();
+        let cid = db.add_collection("local", "L", Some("/m"), None, None, None, None, None).unwrap().id;
+        let va = db.get_or_create_artist("Various Artists").unwrap();
+        let miles = db.get_or_create_artist("Miles Davis").unwrap();
+        let album = db.get_or_create_album("Kind of Blue", Some(va), None).unwrap();
+        db.upsert_track("so-what.mp3", "So What", Some(miles), Some(album), None, Some(180.0), Some("mp3"), None, None, Some(cid), None).unwrap();
+        db.recompute_counts().unwrap();
+
+        // Liked from a surface that only knows the track's artist: the write
+        // resolves the compilation through find_album_by_name's either-artist match.
+        db.set_entity_like("album", &build_entity_key("album", "Kind of Blue", Some("Miles Davis")), 1, None, 100).unwrap();
+        assert!(db.mirror_entity_like_to_library("album", "Kind of Blue", Some("Miles Davis"), None, 1).unwrap());
+
+        db.recompute_counts().unwrap();
+        assert_eq!(db.get_album_by_id(album).unwrap().unwrap().liked, 1);
+
+        // A like under an artist with no track on the album doesn't reach it.
+        db.set_entity_like("album", &build_entity_key("album", "Kind of Blue", Some("Miles Davis")), 0, None, 200).unwrap();
+        db.set_entity_like("album", &build_entity_key("album", "Kind of Blue", Some("Someone Else")), 1, None, 200).unwrap();
+        db.recompute_counts().unwrap();
+        assert_eq!(db.get_album_by_id(album).unwrap().unwrap().liked, 0);
     }
 
     #[test]

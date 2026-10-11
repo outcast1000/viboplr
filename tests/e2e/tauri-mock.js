@@ -391,9 +391,11 @@ window.__TAURI_INTERNALS__.invoke = async function (cmd, args) {
       const { kind, entity, likeState } = args;
       const norm = (s) => (s || '').toLowerCase();
       const key = `${kind}:${norm(entity && entity.artistName)}:${norm(entity && entity.title)}`;
+      // Like the real command: answers the stored state it replaced.
+      const previous = store[key] ?? 0;
       if (likeState === 0) delete store[key];
       else store[key] = likeState;
-      return likeState;
+      return previous;
     }
     case 'get_track_like_states': {
       const store = (window.__TEST_LIKES__ = window.__TEST_LIKES__ || {});

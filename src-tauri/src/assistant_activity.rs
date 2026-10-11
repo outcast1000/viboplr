@@ -69,9 +69,14 @@ pub fn classify(method: &str, route: &str) -> Classified {
     match (method.as_str(), route) {
         // Reads that happen to be POSTs (they carry a body).
         ("POST", "/v1/query") => c("Run a read-only query", Read),
-        ("POST", "/v1/search/plugin") => c("Search a plugin catalog", Read),
-        ("POST", "/v1/info/fetch") => c("Fetch information", Read),
-        ("POST", "/v1/home/shelf") => c("Read a Home shelf", Read),
+        // Reads that run plugin code (a catalog search, the info provider
+        // chain, a plugin's shelf handler): outward, like a read-only plugin
+        // tool — the host can't tell whether the plugin leaves the machine.
+        ("POST", "/v1/search/plugin") => c("Search a plugin catalog", Outward),
+        ("POST", "/v1/info/fetch") => c("Fetch information", Outward),
+        ("GET", "/v1/lyrics") => c("Fetch lyrics", Outward),
+        ("GET", "/v1/cues/context") => c("Gather cue context", Outward),
+        ("POST", "/v1/home/shelf") => c("Read a plugin Home shelf", Outward),
         // UI verbs: open pages and panels, change no data.
         ("POST", "/v1/ui/navigate") => c("Open a page", Ui),
         ("POST", "/v1/ui/action") => c("Do a UI action", Ui),
@@ -231,6 +236,22 @@ mod tests {
         assert_eq!(classify("POST", "/v1/ui/navigate").kind, Kind::Ui);
         assert_eq!(classify("POST", "/v1/assistant/invoke").kind, Kind::Outward);
         assert_eq!(classify("POST", "/v1/likes").kind, Kind::Write);
+    }
+
+    #[test]
+    fn test_reads_that_run_plugin_code_wait_while_paused() {
+        for (method, route) in [
+            ("POST", "/v1/search/plugin"),
+            ("POST", "/v1/info/fetch"),
+            ("GET", "/v1/lyrics"),
+            ("GET", "/v1/cues/context"),
+            ("POST", "/v1/home/shelf"),
+        ] {
+            assert_eq!(classify(method, route).kind, Kind::Outward, "{method} {route}");
+        }
+        // Cached info and the gallery index run no plugin code.
+        assert_eq!(classify("GET", "/v1/info/entity").kind, Kind::Read);
+        assert_eq!(classify("GET", "/v1/extensions/gallery").kind, Kind::Read);
     }
 
     #[test]

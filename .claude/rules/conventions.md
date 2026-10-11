@@ -58,7 +58,7 @@ Each entry documents the gold standard implementation for a repeated user action
 ### `like:changed` (plugin event for every like)
 
 - **Dispatched from exactly two places**, both in `useLikeActions.ts`, after the write succeeded: `setTrackRating` (tracks) and `writeEntityLike` (artists, albums, tags). Every like surface — hearts anywhere, detail pages incl. non-library ones (`setEntityLikeByName`), the control API — goes through one of them, so a new like entry point that routes through them gets the event for free. Never dispatch it anywhere else.
-- Payload: `LikeChange` (`likeKeys.ts` → `trackLikeChange` / `entityLikeChange`) — names, never ids; `liked` and `previous` tri-state, so a plugin can tell un-like and dislike apart.
+- Payload: `LikeChange` (`likeKeys.ts` → `trackLikeChange` / `entityLikeChange`) — names, never ids; `liked` and `previous` tri-state, so a plugin can tell un-like and dislike apart. `previous` is the **store's** answer — `set_entity_like_state` returns the state it replaced — never the caller's copy (a non-library entity has no row to carry one, and a control-API set names none). A write that changes nothing (an idempotent set) sends **no** event.
 - **Bulk imports (`api.library.setTrackLikesBatch`) don't send it**, on purpose: a Last.fm loved-tracks import is not the user liking 2,000 things now, and a plugin forwarding likes (Community) would replay it.
 - Plugins read it through `api.library.onLikeChanged` (permission `library:read`). `track:liked` stays as it was (likes only) for existing plugins.
 
