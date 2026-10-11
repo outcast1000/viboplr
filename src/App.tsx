@@ -1598,7 +1598,7 @@ function App() {
   const [searchViewModes, setSearchViewModes] = usePersistedSetting<{ tracks: ViewMode; albums: ViewMode; artists: ViewMode; tags: ViewMode }>("searchViewModes", { tracks: "list", albums: "tiles", artists: "tiles", tags: "tiles" }, restoredRef);
   const [pluginViewMode, setPluginViewMode] = usePersistedSetting<PluginViewMode>("pluginViewMode", "list", restoredRef);
   // One-shot "open Extensions on this tab" (Settings → Dependencies → Open Tools).
-  const [extTabRequest, setExtTabRequest] = useState<{ tab: ExtTab; seq: number } | null>(null);
+  const [extTabRequest, setExtTabRequest] = useState<{ tab: ExtTab; seq: number; detailId?: string } | null>(null);
   const [searchInitialQuery, setSearchInitialQuery] = useState<string | null>(null);
   const [searchQueryKey, setSearchQueryKey] = useState(0);
   // Bumped when a scan/sync changes the library's track population, so the
@@ -2438,6 +2438,15 @@ function App() {
       } else if (action === "refresh-library") {
         library.loadLibrary();
         library.loadTracks();
+      } else if (action === "open-extension-settings") {
+        // A plugin's own "Extension settings" link: Extensions → its detail pane
+        // (permissions, contributions). Always the calling plugin — never an id
+        // from the payload, so a plugin can't open another's page.
+        setExtTabRequest((prev) => ({ tab: "plugins", seq: (prev?.seq ?? 0) + 1, detailId: _pluginId }));
+        library.setView("extensions");
+        library.setSelectedArtist(null);
+        library.setSelectedAlbum(null);
+        library.setSelectedTag(null);
       } else if (action === "require-dependency") {
         // A plugin asks the host to surface its platform-aware install modal for a
         // binary dependency (e.g. YouTube → yt-dlp). The modal pulls the correct

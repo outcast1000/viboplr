@@ -93,8 +93,10 @@ interface ExtensionsViewProps {
   dependencies?: DependenciesApi;
   autoUpdateManagedDeps?: boolean;
   onAutoUpdateManagedDepsChange?: (enabled: boolean) => void;
-  /** One-shot tab switch from elsewhere (Settings' "Open Tools"); bump `seq` to re-fire. */
-  tabRequest?: { tab: ExtTab; seq: number } | null;
+  /** One-shot tab switch from elsewhere (Settings' "Open Tools"); bump `seq` to re-fire.
+   *  `detailId` also opens that extension's detail pane (a plugin's own
+   *  "Extension settings" link, `requestAction("open-extension-settings")`). */
+  tabRequest?: { tab: ExtTab; seq: number; detailId?: string } | null;
   style?: React.CSSProperties;
 }
 
@@ -916,6 +918,7 @@ export default function ExtensionsView(props: ExtensionsViewProps) {
   if (tabRequest && tabRequest.seq !== seenTabRequest) {
     setSeenTabRequest(tabRequest.seq);
     switchTab(tabRequest.tab);
+    if (tabRequest.detailId) setDetail({ id: tabRequest.detailId, configMode: false });
   }
 
   const kindFilter = tab === "skins" ? "skin" : "plugin";
