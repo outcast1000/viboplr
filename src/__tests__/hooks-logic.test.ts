@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPositionOnScreen, clampToNearestMonitor, fitToMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
+import { isPositionOnScreen, clampToNearestMonitor, fitToMonitor, isRestorableFullGeom, searchPanelGeometry } from "../hooks/useMiniMode";
 import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement, canDriveTransitionMachine, crossfadeGainPair } from "../hooks/usePlayback";
 import { isWaveformComputable, isWaveformShowable } from "../hooks/useWaveform";
 import { isWaveformSizeAllowed, WAVEFORM_MAX_FILE_SIZE } from "../waveform/browserProvider";
@@ -151,6 +151,20 @@ describe("fitToMonitor", () => {
   it("returns the geometry unchanged with no monitors", () => {
     const g = { x: 5, y: 5, w: 5000, h: 5000 };
     expect(fitToMonitor(g, [])).toEqual(g);
+  });
+
+  it("grows a sliver saved from a minimized window back to the minimum size", () => {
+    // The 144×19 a minimized Windows window left in a profile's store.
+    expect(fitToMonitor({ x: 1208, y: 791, w: 144, h: 19 }, laptop))
+      .toEqual({ x: 1208, y: 545, w: 300, h: 400 });
+  });
+});
+
+describe("isRestorableFullGeom", () => {
+  it("rejects a minimized window's frame and accepts the minimum size", () => {
+    expect(isRestorableFullGeom({ w: 144, h: 19 })).toBe(false);
+    expect(isRestorableFullGeom({ w: 300, h: 399 })).toBe(false);
+    expect(isRestorableFullGeom({ w: 300, h: 400 })).toBe(true);
   });
 });
 

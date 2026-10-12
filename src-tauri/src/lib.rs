@@ -666,6 +666,11 @@ fn resolve_entity_image(
     used_bridge
 }
 
+/// The main window's minimum size, mirroring `tauri.conf.json` (`minWidth` /
+/// `minHeight`) and `FULL_MIN_WIDTH` / `FULL_MIN_HEIGHT` in `useMiniMode.ts`.
+const FULL_WINDOW_MIN_WIDTH: f64 = 300.0;
+const FULL_WINDOW_MIN_HEIGHT: f64 = 400.0;
+
 /// The answer the JS bridge gives for a provider whose plugin isn't loaded
 /// (`usePlugins.ts` → `invokeImageFetch`) — it never asked anyone.
 const PLUGIN_NOT_LOADED: &str = "plugin not loaded";
@@ -1492,10 +1497,16 @@ pub fn run() {
                             let _ = window.set_resizable(false);
                             let _ = window.set_decorations(false);
                         } else {
+                            // Floored at the window's minimum (tauri.conf.json minWidth/
+                            // minHeight, which set_size doesn't enforce): a size below it is
+                            // a minimized window's frame that got saved, and restoring it
+                            // verbatim reopened the app as a 144x19 sliver every launch.
                             let saved_w = arrangement_geom("windowGeomByArrangement", "w")
-                                .or_else(|| json.get("windowWidth").and_then(|v| v.as_f64()));
+                                .or_else(|| json.get("windowWidth").and_then(|v| v.as_f64()))
+                                .map(|w| w.max(FULL_WINDOW_MIN_WIDTH));
                             let saved_h = arrangement_geom("windowGeomByArrangement", "h")
-                                .or_else(|| json.get("windowHeight").and_then(|v| v.as_f64()));
+                                .or_else(|| json.get("windowHeight").and_then(|v| v.as_f64()))
+                                .map(|h| h.max(FULL_WINDOW_MIN_HEIGHT));
                             let saved_x = arrangement_geom("windowGeomByArrangement", "x")
                                 .or_else(|| json.get("windowX").and_then(|v| v.as_f64()));
                             let saved_y = arrangement_geom("windowGeomByArrangement", "y")

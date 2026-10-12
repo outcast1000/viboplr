@@ -78,6 +78,14 @@ export function clampToNearestMonitor(
  * the laptop with its bottom/right edges (and so every resize handle) out of
  * reach, and with `decorations: false` there is no native zoom button either.
  */
+// Whether a full-window geometry is worth saving as the one to reopen at. A
+// minimized window on Windows reports a ~160×28 frame parked at -32000,-32000;
+// saved, the next launch rejected the position, centred the window and kept the
+// size — leaving a 144×19 sliver that then re-saved itself on every launch.
+export function isRestorableFullGeom(g: { w: number; h: number }): boolean {
+  return g.w >= FULL_MIN_WIDTH && g.h >= FULL_MIN_HEIGHT;
+}
+
 export function fitToMonitor(
   g: { x: number; y: number; w: number; h: number }, monitors: MonitorRect[],
 ): { x: number; y: number; w: number; h: number } {
@@ -91,8 +99,10 @@ export function fitToMonitor(
   const m =
     monitors.find(m => cx >= m.x && cx < m.x + m.w && cy >= m.y && cy < m.y + m.h) ??
     [...monitors].sort((a, b) => overlap(b) - overlap(a) || dist(a) - dist(b))[0];
-  const w = Math.min(g.w, m.w);
-  const h = Math.min(g.h, m.h);
+  // Floored at the window's minimum too: a saved size below it is a minimized
+  // window's frame, never one to reopen at (see isRestorableFullGeom).
+  const w = Math.min(Math.max(g.w, FULL_MIN_WIDTH), m.w);
+  const h = Math.min(Math.max(g.h, FULL_MIN_HEIGHT), m.h);
   return {
     w,
     h,
@@ -620,7 +630,9 @@ export function useMiniMode(
         store.set("fullWindowMaximized", wasMaximized);
         if (wasMaximized) {
           await win.unmaximize();
-        } else {
+        } else if (isRestorableFullGeom(geo)) {
+          // Not when entering from a minimized window (minimize-to-mini-player):
+          // its geometry is the taskbar stub's, so the last saved one stands.
           fullSizeRef.current = geo;
           fullSizeSigRef.current = await currentArrangementSignature();
           store.set("fullWindowWidth", geo.w);
@@ -708,13 +720,23 @@ export function useMiniMode(
             store.get<number | null>("fullWindowX"),
             store.get<number | null>("fullWindowY"),
           ]);
-          if (fw && fh) await win.setSize(new LogicalSize(fw, fh));
-          if (fx != null && fy != null) {
-            if (isPositionOnScreen(fx, fy, bounds)) {
-              await win.setPosition(new LogicalPosition(fx, fy));
-            } else if (bounds.length > 0) {
-              const clamped = clampToNearestMonitor(fx, fy, fw ?? FULL_MIN_WIDTH, fh ?? FULL_MIN_HEIGHT, bounds);
-              await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
+          if (fw && fh && fx != null && fy != null) {
+            // Same fit as above, which also floors a size saved from a minimized
+            // window (older profiles can hold one) at the window's minimum.
+            const fitted = fitToMonitor({ x: fx, y: fy, w: fw, h: fh }, await getLogicalWorkAreas());
+            await win.setSize(new LogicalSize(fitted.w, fitted.h));
+            await win.setPosition(new LogicalPosition(fitted.x, fitted.y));
+          } else {
+            if (fw && fh) {
+              await win.setSize(new LogicalSize(Math.max(fw, FULL_MIN_WIDTH), Math.max(fh, FULL_MIN_HEIGHT)));
+            }
+            if (fx != null && fy != null) {
+              if (isPositionOnScreen(fx, fy, bounds)) {
+                await win.setPosition(new LogicalPosition(fx, fy));
+              } else if (bounds.length > 0) {
+                const clamped = clampToNearestMonitor(fx, fy, FULL_MIN_WIDTH, FULL_MIN_HEIGHT, bounds);
+                await win.setPosition(new LogicalPosition(clamped.x, clamped.y));
+              }
             }
           }
         }
@@ -758,6 +780,9 @@ export function useMiniMode(
             // OS chose -- down and to the right, with its bottom-right corner behind
             // the taskbar (#134). Persist the state instead and re-maximize on launch,
             // keeping the last floating geometry as the restore-down bounds.
+            // A minimized window's geometry is the taskbar stub's — keep the last
+            // floating geometry (and the maximized flag) as they were.
+            if (await win.isMinimized()) return;
             const [maximized, fullscreen] = await Promise.all([win.isMaximized(), win.isFullscreen()]);
             store.set("windowMaximized", maximized || fullscreen);
             if (maximized || fullscreen) return;
@@ -768,6 +793,7 @@ export function useMiniMode(
               x: pos.x / factor,
               y: pos.y / factor,
             };
+            if (!isRestorableFullGeom(geom)) return;
             store.set("windowWidth", geom.w);
             store.set("windowHeight", geom.h);
             store.set("windowX", geom.x);
