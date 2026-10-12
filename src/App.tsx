@@ -39,6 +39,8 @@ import { buildPluginOverflowItems } from "./utils/heroOverflow";
 import { applyReduceMotionAttr } from "./utils/reducedMotion";
 import { parseProbeCommand, isProbeProfile, buildProbeDump, type ProbeCommand } from "./utils/probeControl";
 import type { NavigateTarget, UiAction, UiStateInput } from "./utils/uiControl";
+import type { UiContext, UiContextEntity } from "./utils/uiContext";
+import { useUiContext } from "./hooks/useUiContext";
 import { isEqPanelOpen, setEqPanelOpen } from "./utils/uiRemote";
 import { getHeroEffectModeSnapshot, setHeroEffectMode } from "./heroEffectMode";
 import { type StreamResolver, createLibraryStreamResolver } from "./streamResolvers";
@@ -483,14 +485,20 @@ function App() {
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
   // Filled once `usePlugins` (below) exists; the waveform hook reads it at call time.
   const waveformPluginsRef = useRef<WaveformPluginBridge | null>(null);
+  const [waveformPluginsReady, setWaveformPluginsReady] = useState(false);
   const waveformPeaks = useWaveform(playback.currentTrack, {
     // A stream often has no duration until the player reports one, and a
-    // shared waveform is matched on it.
+    // shared waveform is matched on it. Only a stream borrows the player's: a
+    // local file is analyzed under its own (possibly unknown) length, so a late
+    // metadata event can't restart the analysis under a new cache key.
     durationSecs: playback.currentTrack?.duration_secs
-      ?? (playback.durationSecs > 0 ? Math.round(playback.durationSecs) : null),
+      ?? (playback.currentTrack && !isLocalTrack(playback.currentTrack) && playback.durationSecs > 0
+        ? Math.round(playback.durationSecs) : null),
     isVideo: playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
     assetUrl: playback.currentAssetUrl,
     plugins: waveformPluginsRef,
+    pluginsReady: waveformPluginsReady,
+    isEngineDecoding: playback.isEngineDecoding,
   });
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
@@ -812,6 +820,8 @@ function App() {
     },
   }), [queueOpsDeps, pluginPlaylistContext]);
   const pluginHostCallbacksRef = useRef<PluginHostCallbacks | undefined>(undefined);
+  // What the user is looking at (utils/uiContext.ts), filled by useUiContext below.
+  const uiContextRef = useRef<UiContext | null>(null);
   // Defer plugin loading until the cold-start critical path has settled
   // (window shown + state restored). `!appRestoring` flips true at that point;
   // plugins then load in the background without contending with startup on the
@@ -819,6 +829,8 @@ function App() {
   // so the deferred first load already sees their final values.
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef, debugMode, devPluginPath, !appRestoring);
   useAssignRef(waveformPluginsRef, plugins.waveformBridge);
+  // State, not a ref read: the waveform hook re-runs when plugins come up.
+  if (plugins.pluginsLoaded !== waveformPluginsReady) setWaveformPluginsReady(plugins.pluginsLoaded);
 
   // The `nowplaying` visualizer slot. resolveSlot returns null when the chosen
   // visualizer isn't available, so a disabled plugin silently frees the slot
@@ -2279,6 +2291,7 @@ function App() {
 
   // Wire plugin host callbacks (uses library, contextMenuActions defined above)
   useAssignRef(pluginHostCallbacksRef, {
+    getUiContext: () => uiContextRef.current,
     replaceTrackFile: replaceTrackFileForPlugin,
     // A later outcome (a queued batch landing): about the play last recorded.
     reportScrobble: (pluginId, report) => recordScrobblerStatus(pluginId, report, null),
@@ -4340,6 +4353,40 @@ function App() {
       }
     }
   };
+  // The open detail page's subject, by name — the same resolution the render
+  // below uses to title each page.
+  const uiEntity: UiContextEntity | null = (() => {
+    const { view, selectedArtist, selectedAlbum, selectedTag, artists, albums, tags } = library;
+    const track = library.selectedTrack !== null ? (detailTrackLocal ?? detailTrack) : null;
+    if (track) return { kind: "track", name: track.title, artistName: track.artist_name ?? null, albumTitle: track.album_title ?? null };
+    if (library.fallbackTrackName) {
+      const f = library.fallbackTrackName;
+      return { kind: "track", name: f.name, artistName: f.artistName ?? null, albumTitle: f.albumTitle ?? null };
+    }
+    if (library.selectedTrack !== null) return null;
+    if ((view === "albums" || view === "artists") && selectedAlbum !== null) {
+      const album = albums.find((a) => a.id === selectedAlbum);
+      return album ? { kind: "album", name: album.title, artistName: album.artist_name ?? null, albumTitle: null } : null;
+    }
+    if (view === "albums" && library.fallbackAlbumName) {
+      return { kind: "album", name: library.fallbackAlbumName.name, artistName: library.fallbackAlbumName.artistName ?? null, albumTitle: null };
+    }
+    if (view === "artists") {
+      const name = library.fallbackArtistName ?? artists.find((a) => a.id === selectedArtist)?.name;
+      return name ? { kind: "artist", name, artistName: null, albumTitle: null } : null;
+    }
+    if (view === "tags" && selectedTag !== null) {
+      const name = tags.find((t) => t.id === selectedTag)?.name;
+      return name ? { kind: "tag", name, artistName: null, albumTitle: null } : null;
+    }
+    return null;
+  })();
+  const uiContext = useUiContext(
+    { view: library.view, entity: uiEntity, audioFullscreen, mini: mini.miniMode },
+    uiContextRef,
+    (ctx) => plugins.dispatchEvent("ui:context-changed", ctx),
+  );
+
   const uiState = (): UiStateInput => {
     const modals: string[] = [];
     if (showOnboarding) modals.push("onboarding");
@@ -4363,6 +4410,7 @@ function App() {
       showcase,
       heroLook: getHeroEffectModeSnapshot(),
       bitPerfect: bitPerfect.control ? { on: bitPerfect.on, tone: bitPerfect.control.tone } : null,
+      context: uiContext,
     };
   };
 

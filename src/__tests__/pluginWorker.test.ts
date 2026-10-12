@@ -242,6 +242,7 @@ describe("consent", () => {
     const vocab = [
       "network:lrclib.net", "browse:accounts.spotify.com", "exec:yt-dlp", "library:read", "library:write",
       "files:read", "files:trash", "playback:read", "playback:control", "system:open", "env:LASTFM_API_KEY", "plugins:call",
+      "ui:read",
     ];
     for (const perm of vocab) {
       const d = describePermission(perm);

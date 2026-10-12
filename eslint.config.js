@@ -116,7 +116,7 @@ export default tseslint.config(
 
       // ---- Warning backlog -------------------------------------------------
       // Real signal, but each is a class too large to clear in one pass. Counts
-      // as of 2026-10-11 (238 in all). They are a ratchet, and the total is
+      // as of 2026-10-12 (237 in all). They are a ratchet, and the total is
       // enforced: `npm run lint` passes `--max-warnings` at that total, so a
       // change that adds one fails. When you clear some, lower the cap in
       // package.json (and these counts) in the same change.
@@ -143,7 +143,7 @@ export default tseslint.config(
       //                                     this is fixable at the source, not
       //                                     inherent noise. The other 18 are
       //                                     genuine render-phase ref reads.
-      //   react-hooks/set-state-in-effect 71 Derive-state-in-effect. A real
+      //   react-hooks/set-state-in-effect 70 Derive-state-in-effect. A real
       //                                     architectural backlog, kept visible.
       //   react-hooks/immutability      10  Mostly "accessed before declared"
       //                                     (function hoisting).

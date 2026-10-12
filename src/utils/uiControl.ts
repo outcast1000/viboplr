@@ -3,6 +3,7 @@ import { isValidMode, type HeroEffectMode } from "../heroLooks";
 import { SETTINGS_SECTION_IDS } from "./settingsSections";
 import { MINI_RESTING_SIZES, MINI_WIDTH_SIZES, type MiniRestingSize, type MiniWidthSize } from "./miniSizes";
 import type { RedactRule } from "./showcaseRedact";
+import type { UiContext } from "./uiContext";
 
 /**
  * Validation for the control API's **UI verbs** — `ui.navigate`, `ui.action`
@@ -297,10 +298,13 @@ export interface UiStateInput {
   showcase: boolean;
   heroLook: HeroEffectMode;
   bitPerfect: { on: boolean; tone: string } | null;
+  /** What the user is looking at — the same answer plugins get (utils/uiContext.ts). */
+  context: UiContext;
 }
 
 /** The `GET /v1/ui` snapshot. A capture script polls it to know the page it
- *  asked for has actually landed before taking a picture. */
+ *  asked for has actually landed before taking a picture. `context` is what a
+ *  plugin's `api.ui.getContext()` returns, by name. */
 export function buildUiState(input: UiStateInput) {
   return {
     view: input.view,
@@ -321,5 +325,6 @@ export function buildUiState(input: UiStateInput) {
     showcase: input.showcase,
     heroLook: input.heroLook,
     bitPerfect: input.bitPerfect,
+    context: input.context,
   };
 }

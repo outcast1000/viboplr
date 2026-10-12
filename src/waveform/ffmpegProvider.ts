@@ -15,6 +15,7 @@ export const ffmpegWaveformProvider: WaveformProvider = {
   id: "ffmpeg",
   async analyze({ path, signal }: WaveformRequest): Promise<WaveformAttempt> {
     if (signal.aborted) return { status: "cancelled" };
+    if (!path) return { status: "skipped", reason: "not a local file" };
     const requestId = crypto.randomUUID();
     // The backend registers the request on a blocking thread, so this cancel can land
     // first — it remembers the id and the pass never starts.

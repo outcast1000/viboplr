@@ -364,6 +364,10 @@ describe("isWaveformShowable (waveform display gate)", () => {
     expect(isWaveformShowable({ path: "ytdlp://abc123", title: "Song", isVideo: false, durationSecs: 180 })).toBe(true);
   });
 
+  it("accepts a metadata-only entry a stream resolver plays — no path needed", () => {
+    expect(isWaveformShowable({ path: null, title: "Song", isVideo: false, durationSecs: 241 })).toBe(true);
+  });
+
   it("rejects a stream with no length to match on", () => {
     expect(isWaveformShowable({ path: "subsonic://col-1/42", title: "Song", isVideo: false })).toBe(false);
     expect(isWaveformShowable({ path: "subsonic://col-1/42", title: "Song", isVideo: false, durationSecs: 0 })).toBe(false);

@@ -13,6 +13,7 @@
 //   playback:read      current track, position, queue, and playback events
 //   playback:control   starting playback or changing the queue
 //   playback:markers   drawing ticks (with hover labels) on the seek bar
+//   ui:read            which page the user is on (api.ui.getContext)
 //   cues:read          reading the user's Now Playing cue sheets
 //   cues:write         adding, replacing or deleting cue sheets
 //   lyrics:write       putting lyrics in place for a song (like the lyrics editor)
@@ -131,6 +132,9 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   "ui.setViewHeader": OWN,
   // Opens one of Vibo's own pages — what a link in any view already does.
   "ui.navigateToEntity": OWN,
+  // Which page the user is on (and its subject) — a separate ask from what plays.
+  "ui.getContext": need("ui:read"),
+  "ui.onContextChanged": need("ui:read"),
 
   "storage.get": OWN,
   "storage.set": OWN,
@@ -304,6 +308,12 @@ export function describePermission(perm: string): PermissionDescription {
       return { label: "Change your cue sheets", detail: "Add, replace or delete the cards and lyric clips that play over Now Playing.", sensitive: false };
     case "playback:markers":
       return { label: "Mark moments on the seek bar", detail: "Draw ticks on the playing song's seek bar, with a note when you point at one.", sensitive: false };
+    case "ui:read":
+      return {
+        label: "See which page you're on in Vibo",
+        detail: "The view, the song, album or artist it shows, and whether Vibo is on screen — never what you type.",
+        sensitive: true,
+      };
     case "lyrics:write":
       return { label: "Change song lyrics", detail: "Replace the lyrics Vibo shows for a song, as editing them yourself would.", sensitive: false };
     case "system:open":

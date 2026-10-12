@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
+const engineMock = vi.hoisted(() => ({ getMediaInfo: vi.fn() }));
+vi.mock("../playback/nativeEngine", () => ({ nativeEngine: engineMock }));
 
 import { analyzeWaveform, shapePeaks, WAVEFORM_PROVIDERS, waveformProviders } from "../waveform/providers";
 import { ffmpegWaveformProvider } from "../waveform/ffmpegProvider";
-import { PLUGIN_WAVEFORM_TIMEOUT_MS, pluginWaveformProvider, type WaveformPluginBridge } from "../waveform/pluginProvider";
-import { buildTrackAudioFacts } from "../hooks/useNowPlayingInfo";
+import { PLUGIN_WAVEFORM_TIMEOUT_MS, pluginWaveformProvider, sanitizePluginRms, type WaveformPluginBridge } from "../waveform/pluginProvider";
+import { buildTrackAudioFacts, ENGINE_FACTS_WAIT_MS, resolveTrackAudioFacts } from "../hooks/useNowPlayingInfo";
 import type { TrackAudioFacts, WaveformAttempt, WaveformProvider, WaveformRequest } from "../waveform/types";
 import type { EngineMediaInfo } from "../playback/nativeEngine";
 
@@ -136,8 +138,22 @@ describe("ffmpegWaveformProvider", () => {
 });
 
 function bridge(ids: string[], lookup: WaveformPluginBridge["lookup"] = async () => null): WaveformPluginBridge {
-  return { lookupProviderIds: () => ids, lookup, share: vi.fn() };
+  return { lookupProviderIds: () => ids, lookup, share: vi.fn(), hasShareHandlers: () => false };
 }
+
+describe("sanitizePluginRms", () => {
+  it("keeps an answer that fits the track, silencing junk values", () => {
+    expect(sanitizePluginRms([0.5, NaN, -1, Infinity, 1], 5)).toEqual([0.5, 0, 0, 0, 1]);
+  });
+
+  it("refuses a waveform for a different length, or an absurd one", () => {
+    expect(sanitizePluginRms(new Array(300).fill(0.5), 180)).toBeNull(); // a 5-minute take on a 3-minute track
+    expect(sanitizePluginRms(new Array(183).fill(0.5), 180)).toEqual(new Array(183).fill(0.5)); // rounding slack
+    expect(sanitizePluginRms(new Array(1_000_000).fill(0.5), 1_000_000)).toBeNull();
+    expect(sanitizePluginRms("nope", 180)).toBeNull();
+    expect(sanitizePluginRms([], 180)).toBeNull();
+  });
+});
 
 describe("waveformProviders (the chain for one track)", () => {
   it("asks plugin lookups before computing a local file", () => {
@@ -227,5 +243,48 @@ describe("buildTrackAudioFacts", () => {
     expect(facts.bitDepth).toBeNull(); // s32 is what ffmpeg emits for a 24-bit FLAC
     expect(facts.bitrateKbps).toBe(2800);
     expect(buildTrackAudioFacts(stream, 241, null, { ...engine, format: "s16" }).bitDepth).toBe(16);
+  });
+});
+
+describe("resolveTrackAudioFacts", () => {
+  const stream = {
+    key: "q:7", path: "subsonic://c/1", title: "Song", artist_name: "Artist", album_title: null,
+    duration_secs: 200, format: null, liked: 0,
+  };
+  const engine: EngineMediaInfo = {
+    codec: "opus", sampleRate: 48000, format: "floatp", bitrate: 160_000,
+    videoCodec: null, width: null, height: null, videoBitrate: null, fps: null,
+  };
+
+  it("reads the engine only once it is decoding this track", async () => {
+    engineMock.getMediaInfo.mockReset();
+    engineMock.getMediaInfo.mockResolvedValue(engine);
+    let onTrack = false;
+    vi.useFakeTimers();
+    try {
+      const pending = resolveTrackAudioFacts(stream, 200, () => onTrack);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(engineMock.getMediaInfo).not.toHaveBeenCalled(); // it would describe the previous track
+      onTrack = true;
+      await vi.advanceTimersByTimeAsync(400);
+      expect((await pending).codec).toBe("opus");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up after the wait and sends no engine facts rather than wrong ones", async () => {
+    engineMock.getMediaInfo.mockReset();
+    vi.useFakeTimers();
+    try {
+      const pending = resolveTrackAudioFacts(stream, 200, () => false);
+      await vi.advanceTimersByTimeAsync(ENGINE_FACTS_WAIT_MS + 500);
+      const facts = await pending;
+      expect(facts.codec).toBeNull();
+      expect(facts.sampleRate).toBeNull();
+      expect(engineMock.getMediaInfo).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

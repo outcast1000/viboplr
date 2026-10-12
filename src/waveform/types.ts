@@ -27,9 +27,10 @@ export interface TrackAudioFacts {
 }
 
 export interface WaveformRequest {
-  /** The track's path. The computing providers only ever see a `file://` one —
-   *  the chain leaves them out for anything else. */
-  path: string;
+  /** The track's path — null for a metadata-only entry a stream resolver plays.
+   *  The computing providers only ever see a `file://` one: the chain leaves
+   *  them out for anything else. */
+  path: string | null;
   title: string;
   /** Webview-fetchable URL for the same file (asset protocol), when one exists. */
   assetUrl: string | null;

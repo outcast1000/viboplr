@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { QueueTrack, ResolvedTrackSource, EngineSource } from "../types";
 import type { ScrobbleOutcome } from "../utils/scrobblers";
@@ -303,6 +303,15 @@ export function usePlayback(
   // are all torn down for the session's duration). The key doubles as the
   // native play-generation guard: engine events carrying another key are stale.
   const nativeSessionRef = useRef<{ key: string } | null>(null);
+  // The track the engine last reported a position for: proof it has opened
+  // that file, so its live decode facts (codec, rate) describe it.
+  const nativeReportingKeyRef = useRef<string | null>(null);
+  /** Whether the native engine is decoding `trackKey` right now — its media
+   *  info is about that track, not the one before. */
+  const isEngineDecoding = useCallback(
+    (trackKey: string) => nativeSessionRef.current?.key === trackKey && nativeReportingKeyRef.current === trackKey,
+    [],
+  );
   // Tracks that failed native playback this session — resolution/preload skip
   // them so they route through the browser engine (per-track fallback).
   const nativeBlockedKeysRef = useRef<Set<string>>(new Set());
@@ -1237,6 +1246,7 @@ export function usePlayback(
       subscribe<EnginePositionEvent>("engine-position", ({ payload }) => {
         if (nativeSessionRef.current?.key !== payload.trackKey) return;
         nativeLastPositionRef.current = payload.positionSecs;
+        nativeReportingKeyRef.current = payload.trackKey;
         setPlaybackPosition(payload.positionSecs);
 
         // NOTE: presenting is NOT flipped here. `time-pos` advances before the
@@ -1755,6 +1765,8 @@ export function usePlayback(
         nativeEngine.stop().catch(console.error);
       }
       setCurrentTrack(track);
+      // Nothing loaded: the previous track's length doesn't describe this one.
+      setDurationSecs(0);
       surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
     } finally {
       // Only the current play closes the transition window — a superseded play
@@ -1795,6 +1807,8 @@ export function usePlayback(
       if (!isCurrentPlayGeneration(generation, playGenerationRef.current)) return;
       console.error("Playback error:", e);
       setCurrentTrack(track);
+      // Nothing loaded: the previous track's length doesn't describe this one.
+      setDurationSecs(0);
       surfacePlaybackFailure(e instanceof Error ? e.message : String(e), track, lastPlaySrcRef.current);
     } finally {
       if (isCurrentPlayGeneration(generation, playGenerationRef.current)) {
@@ -2557,6 +2571,7 @@ export function usePlayback(
 
   return {
     currentTrack, setCurrentTrack,
+    isEngineDecoding,
     trackChangeSourceRef,
     currentAssetUrl,
     playing, setPlaying, stopped, scrobbled,

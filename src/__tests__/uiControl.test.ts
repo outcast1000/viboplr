@@ -9,6 +9,7 @@ import {
   parseWindowGeometry,
 } from "../utils/uiControl";
 import { SECTION_TABS, SETTINGS_SECTION_IDS } from "../utils/settingsSections";
+import { buildUiContext, uiContextAnnounceKey, uiContextKey } from "../utils/uiContext";
 
 describe("parseNavigateTarget", () => {
   it("accepts the plain views and the library alias", () => {
@@ -140,9 +141,68 @@ describe("buildUiState", () => {
       view: "artists", selectedArtistId: 7, selectedAlbumId: null, selectedTagId: null, selectedTrack: null,
       settingsSection: null, queueCollapsed: false, nowPlayingAbout: false, lyricsHidden: false, eqPanel: true,
       modals: ["bulk-edit"], showcase: true, heroLook: "minimal", bitPerfect: null,
+      context: buildUiContext({
+        view: "artists", entity: { kind: "artist", name: "Björk", artistName: null, albumTitle: null },
+        audioFullscreen: false, windowVisible: true, windowFocused: true, mini: false,
+      }),
     });
     expect(state.selection.artistId).toBe(7);
     expect(state.panels.eqPanel).toBe(true);
     expect(state.modals).toEqual(["bulk-edit"]);
+    // The assistant sees what a plugin's api.ui.getContext() sees.
+    expect(state.context.view).toBe("artist");
+    expect(state.context.entity?.name).toBe("Björk");
+  });
+});
+
+describe("buildUiContext", () => {
+  const base = { entity: null, audioFullscreen: false, windowVisible: true, windowFocused: true, mini: false };
+
+  it("names plain views and folds the Library's internal id", () => {
+    expect(buildUiContext({ ...base, view: "home" }).view).toBe("home");
+    expect(buildUiContext({ ...base, view: "search" }).view).toBe("library");
+    expect(buildUiContext({ ...base, view: "quiz" }).view).toBe("other");
+  });
+
+  it("a detail page wins over the list view it was opened from", () => {
+    const album = { kind: "album" as const, name: "Homogenic", artistName: "Björk", albumTitle: null };
+    const ctx = buildUiContext({ ...base, view: "artists", entity: album });
+    expect(ctx.view).toBe("album");
+    expect(ctx.entity).toEqual(album);
+  });
+
+  it("splits a plugin view into plugin and view ids", () => {
+    const ctx = buildUiContext({ ...base, view: "plugin:community:community" });
+    expect(ctx.view).toBe("plugin");
+    expect(ctx.pluginView).toEqual({ pluginId: "community", viewId: "community" });
+  });
+
+  it("Now Playing counts as visible only when it can actually be seen", () => {
+    expect(buildUiContext({ ...base, view: "nowplaying" }).nowPlaying).toEqual({ visible: true, fullscreen: false });
+    // The audio fullscreen overlay is Now Playing from any view.
+    expect(buildUiContext({ ...base, view: "home", audioFullscreen: true }).nowPlaying).toEqual({ visible: true, fullscreen: true });
+    // A minimized or hidden window shows nothing, whatever its view says.
+    expect(buildUiContext({ ...base, view: "nowplaying", windowVisible: false }).nowPlaying.visible).toBe(false);
+    // The mini player keeps the view state but draws only the bar.
+    expect(buildUiContext({ ...base, view: "nowplaying", mini: true }).nowPlaying.visible).toBe(false);
+  });
+
+  it("equal contexts give equal keys, a change gives a new one", () => {
+    const a = buildUiContext({ ...base, view: "home" });
+    expect(uiContextKey(a)).toBe(uiContextKey(buildUiContext({ ...base, view: "home" })));
+    expect(uiContextKey(a)).not.toBe(uiContextKey(buildUiContext({ ...base, view: "home", windowFocused: false })));
+  });
+
+  it("switching apps (focus only) is not announced; hiding the window is", () => {
+    const a = buildUiContext({ ...base, view: "home" });
+    expect(uiContextAnnounceKey(a)).toBe(uiContextAnnounceKey(buildUiContext({ ...base, view: "home", windowFocused: false })));
+    expect(uiContextAnnounceKey(a)).not.toBe(uiContextAnnounceKey(buildUiContext({ ...base, view: "home", windowVisible: false })));
+  });
+
+  it("is frozen, so a plugin can't change what the others see", () => {
+    const ctx = buildUiContext({ ...base, view: "artists", entity: { kind: "artist", name: "Björk", artistName: null, albumTitle: null } });
+    expect(Object.isFrozen(ctx)).toBe(true);
+    expect(Object.isFrozen(ctx.entity)).toBe(true);
+    expect(Object.isFrozen(ctx.window)).toBe(true);
   });
 });

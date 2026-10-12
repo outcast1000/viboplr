@@ -62,15 +62,16 @@ export function isWaveformComputable(
 
 /**
  * Whether a track can *show* a waveform at all: any computable one, plus any other
- * audio track with a known length — a stream can't be analyzed, but a waveform
- * someone else shared (or one already cached) still fits it, matched by
- * artist + title + duration.
+ * audio track with a title and a known length — a stream can't be analyzed, but a
+ * waveform someone else shared (or one already cached) still fits it, matched by
+ * artist + title + duration. No path needed: a metadata-only entry a stream
+ * resolver plays (a radio seed, a "Not in library" row) has none.
  */
 export function isWaveformShowable(
   candidate: WaveformCandidate,
-): candidate is WaveformCandidate & { path: string; title: string } {
+): candidate is WaveformCandidate & { title: string } {
   if (isWaveformComputable(candidate)) return true;
-  if (!candidate.path || !candidate.title || candidate.isVideo) return false;
+  if (!candidate.title || candidate.isVideo) return false;
   return (candidate.durationSecs ?? 0) > 0;
 }
 
@@ -81,53 +82,72 @@ export function useWaveform(
     isVideo,
     assetUrl,
     plugins,
+    pluginsReady,
+    isEngineDecoding,
   }: {
-    /** The track's length, falling back to the player's once it knows it. */
+    /** The track's own length; for a stream, the player's once it knows it. */
     durationSecs: number | null;
     isVideo: boolean;
     assetUrl: string | null;
     /** Plugin lookup/share bridge, read at call time; null before plugins load. */
     plugins: RefObject<WaveformPluginBridge | null>;
+    /** Plugins have activated. Until then nothing is computed — a lookup might
+     *  have had it, and a waveform computed now would never be shared. */
+    pluginsReady: boolean;
+    /** Whether the native engine is decoding this track key (its live facts are about it). */
+    isEngineDecoding: (trackKey: string) => boolean;
   },
 ): number[] | null {
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // The cache key whose peaks are on screen: a re-run for the same key (plugins
+  // becoming ready) keeps them instead of blanking the bar.
+  const shownKeyRef = useRef<string | null>(null);
   // The effect keys on the identity fields below; the rest (album, format…) is read
   // from here when the facts are built, so a like toggle doesn't re-run it.
   const trackRef = useLatestRef(track);
+  const engineRef = useLatestRef(isEngineDecoding);
   const trackPath = track?.path ?? null;
   const trackName = track?.title ?? null;
   const trackArtist = track?.artist_name ?? null;
 
   useEffect(() => {
-    setPeaks(null);
-
     const candidate = { path: trackPath, title: trackName, isVideo, durationSecs };
-    if (!isWaveformShowable(candidate)) return;
-    const { path, title } = candidate;
+    const cacheKey = isWaveformShowable(candidate) ? waveformKey(trackArtist, candidate.title, durationSecs) : null;
+    if (cacheKey === null || cacheKey !== shownKeyRef.current) {
+      shownKeyRef.current = null;
+      setPeaks(null);
+    }
+    if (!isWaveformShowable(candidate) || cacheKey === null) return;
+    if (shownKeyRef.current === cacheKey) return; // already drawn
+    const { title } = candidate;
+    const path = trackPath;
     const canCompute = isWaveformComputable(candidate);
 
-    const cacheKey = waveformKey(trackArtist, title, durationSecs);
     let cancelled = false;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    // Built once, on first ask, and only when a plugin provider or a share needs them.
-    let factsPromise: Promise<TrackAudioFacts | null> | null = null;
+    // Built on first ask, and only when a plugin provider or a share needs them.
+    // Cached per duration and only when there is an answer: a lookup that found
+    // no duration to match on must not stop the share that has one (rms length).
+    const factsByDuration = new Map<number, Promise<TrackAudioFacts | null>>();
     const facts = (fallbackDuration?: number): Promise<TrackAudioFacts | null> => {
-      factsPromise ??= (async () => {
-        const current = trackRef.current;
-        const duration = durationSecs ?? fallbackDuration ?? 0;
-        if (!current || duration <= 0) return null;
-        try {
-          return await resolveTrackAudioFacts(current, duration);
-        } catch (e) {
-          console.error("Failed to resolve audio facts for the waveform:", e);
-          return null;
-        }
-      })();
-      return factsPromise;
+      const current = trackRef.current;
+      const duration = durationSecs ?? fallbackDuration ?? 0;
+      if (!current || duration <= 0) return Promise.resolve(null);
+      let pending = factsByDuration.get(duration);
+      if (!pending) {
+        pending = resolveTrackAudioFacts(current, duration, () => engineRef.current(current.key), controller.signal)
+          .catch((e) => {
+            console.error("Failed to resolve audio facts for the waveform:", e);
+            factsByDuration.delete(duration);
+            return null;
+          });
+        factsByDuration.set(duration, pending);
+      }
+      return pending;
     };
 
     (async () => {
@@ -136,6 +156,7 @@ export function useWaveform(
         if (cancelled) return;
         if (cached && cached.peaks && cached.peaks.length > 0) {
           console.debug(`[waveform] loaded cached: "${cached.name}" (${cached.duration}s, ${cached.peaks.length} buckets)`);
+          shownKeyRef.current = cacheKey;
           setPeaks(cached.peaks);
           return;
         }
@@ -143,6 +164,8 @@ export function useWaveform(
         // A miss is `null`, not a throw; still worth analyzing after a read error.
         console.error("Failed to read cached waveform:", e);
       }
+      // A miss before plugins are up waits for them (this effect re-runs).
+      if (!pluginsReady) return;
 
       const bridge = plugins.current;
       const result = await analyzeWaveform(waveformProviders(bridge, { canCompute }), {
@@ -157,6 +180,7 @@ export function useWaveform(
       const peaks = shapePeaks(result.rms);
       const duration = durationSecs || peaks.length;
       console.debug(`[waveform] created new via ${result.providerId}: "${title}" (${duration}s, ${peaks.length} buckets)`);
+      shownKeyRef.current = cacheKey;
       setPeaks(peaks);
 
       const waveform: WaveformCache = { name: title, duration, peaks };
@@ -166,7 +190,7 @@ export function useWaveform(
 
       // Computed here, so nobody had it: offer it to the sharing plugins. One a
       // plugin handed us is not shared back.
-      if (bridge && !isPluginWaveformProvider(result.providerId)) {
+      if (bridge && bridge.hasShareHandlers() && !isPluginWaveformProvider(result.providerId)) {
         const rms = result.rms;
         void facts(rms.length).then((f) => {
           if (f && !cancelled) bridge.share(f, rms);
@@ -178,7 +202,7 @@ export function useWaveform(
       cancelled = true;
       controller.abort();
     };
-  }, [trackPath, trackName, trackArtist, durationSecs, isVideo, assetUrl, plugins, trackRef]);
+  }, [trackPath, trackName, trackArtist, durationSecs, isVideo, assetUrl, plugins, pluginsReady, trackRef, engineRef]);
 
   return peaks;
 }

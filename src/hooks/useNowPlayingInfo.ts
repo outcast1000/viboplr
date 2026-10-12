@@ -426,9 +426,30 @@ export function buildTrackAudioFacts(
   };
 }
 
-/** `buildTrackAudioFacts` for the track that is playing right now. */
-export async function resolveTrackAudioFacts(track: QueueTrack, durationSecs: number): Promise<TrackAudioFacts> {
-  const [props, engineInfo] = await Promise.all([readFileProps(track), readEngineInfo()]);
+/** How long to wait for the engine to start decoding a just-started track
+ *  before giving up on its live facts (they'd describe the previous one). */
+export const ENGINE_FACTS_WAIT_MS = 2000;
+const ENGINE_FACTS_POLL_MS = 200;
+
+/** `buildTrackAudioFacts` for the track that is playing right now.
+ *  `engineOnTrack` says whether the native engine is decoding THIS track: its
+ *  media info is read only once it is (up to `ENGINE_FACTS_WAIT_MS`), because
+ *  the command answers about whatever the engine holds — at a track change,
+ *  the one before. Never satisfied → the engine half is null. */
+export async function resolveTrackAudioFacts(
+  track: QueueTrack,
+  durationSecs: number,
+  engineOnTrack: () => boolean,
+  signal?: AbortSignal,
+): Promise<TrackAudioFacts> {
+  const waitForEngine = async (): Promise<EngineMediaInfo | null> => {
+    for (let waited = 0; !engineOnTrack(); waited += ENGINE_FACTS_POLL_MS) {
+      if (waited >= ENGINE_FACTS_WAIT_MS || signal?.aborted) return null;
+      await new Promise((r) => setTimeout(r, ENGINE_FACTS_POLL_MS));
+    }
+    return readEngineInfo();
+  };
+  const [props, engineInfo] = await Promise.all([readFileProps(track), waitForEngine()]);
   return buildTrackAudioFacts(track, durationSecs, props, engineInfo);
 }
 

@@ -12,6 +12,8 @@ import type { Storyboard } from "../utils/storyboard";
 import type { ScrobbleReport } from "../utils/scrobblers";
 // And again: the facts a waveform plugin is told are the waveform chain's own.
 import type { TrackAudioFacts } from "../waveform/types";
+// And the screen context plugins are told is the one the control API serves.
+import type { UiContext } from "../utils/uiContext";
 import type {
   PluginVisualizerAPI,
   PluginVisualizerDescriptor,
@@ -69,7 +71,9 @@ export type PluginEventName =
   | "queue:changed"
   | "scan:complete"
   // A like, dislike or un-like the user made (see `LikeChange`).
-  | "like:changed";
+  | "like:changed"
+  // What the user is looking at changed, and has settled (see `UiContext`).
+  | "ui:context-changed";
 
 /**
  * One like / dislike / un-like the user made — from any surface (a heart
@@ -1215,6 +1219,12 @@ export interface PluginUIAPI {
     ref: { name: string; artistName?: string | null; albumTitle?: string | null },
     opts?: { tab?: string },
   ): void;
+  /** What the user is looking at: the page, its subject by name, whether Now
+   *  Playing is up, whether the window is on screen. Never what they typed.
+   *  Permission `ui:read`. Feature-detect. */
+  getContext?(): Promise<UiContext | null>;
+  /** Called when that changes and has settled (~300ms), with the new context. */
+  onContextChanged?(handler: (context: UiContext) => void): () => void;
 }
 
 export interface PluginStorageAPI {

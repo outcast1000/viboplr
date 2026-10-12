@@ -25,7 +25,7 @@ export function isWaveformSizeAllowed(fileSize: number | null): boolean {
 export const browserWaveformProvider: WaveformProvider = {
   id: "browser",
   async analyze({ path, title, assetUrl, signal }: WaveformRequest): Promise<WaveformAttempt> {
-    if (!assetUrl) return { status: "skipped", reason: "no fetchable URL" };
+    if (!assetUrl || !path) return { status: "skipped", reason: "no fetchable URL" };
 
     let fileSize: number | null = null;
     try {

@@ -14,6 +14,24 @@ export interface WaveformPluginBridge {
   /** Hand a waveform the host computed to every plugin that registered
    *  `api.waveforms.onShare`. Fire-and-forget. */
   share(facts: TrackAudioFacts, rms: number[]): void;
+  /** Whether any plugin would receive a share — so facts aren't built for nobody. */
+  hasShareHandlers(): boolean;
+}
+
+/** Longest waveform accepted from a plugin: two hours, one value per second. */
+export const PLUGIN_WAVEFORM_MAX_SECS = 7200;
+
+/**
+ * A plugin's answer, made safe to draw and cache: non-finite or negative values
+ * read as silence, and an answer whose length doesn't fit the track (allowing
+ * max(3s, 3%) for rounding and edit differences) or is absurdly long is refused
+ * — it would misplace every bar, and the cache would keep it.
+ */
+export function sanitizePluginRms(rms: unknown, durationSecs: number): number[] | null {
+  if (!Array.isArray(rms) || rms.length === 0 || rms.length > PLUGIN_WAVEFORM_MAX_SECS) return null;
+  const expected = Math.ceil(durationSecs);
+  if (Math.abs(rms.length - expected) > Math.max(3, expected * 0.03)) return null;
+  return rms.map((v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0));
 }
 
 /** Provider ids are `plugin:<pluginId>`, so the chain's result names its source. */

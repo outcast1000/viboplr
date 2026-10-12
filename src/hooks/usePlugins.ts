@@ -68,7 +68,8 @@ import type {
   PluginWaveformLookupHandler,
   PluginWaveformShareHandler,
 } from "../types/plugin";
-import type { WaveformPluginBridge } from "../waveform/pluginProvider";
+import { sanitizePluginRms, type WaveformPluginBridge } from "../waveform/pluginProvider";
+import type { UiContext } from "../utils/uiContext";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
 import { buildEntityKey } from "../types/informationTypes";
@@ -314,6 +315,8 @@ export interface PluginEventResult {
 }
 
 export interface PluginHostCallbacks {
+  /** `api.ui.getContext`: what the user is looking at (utils/uiContext.ts). */
+  getUiContext?: () => UiContext | null;
   /** Refresh hooks for the shared tag ops (utils/tagOps.ts). */
   tagOps?: TagOpsDeps;
   navigateToPluginView: (pluginId: string, viewId: string) => void;
@@ -434,6 +437,7 @@ export function usePlugins(
     "queue:changed": [],
     "scan:complete": [],
     "like:changed": [],
+    "ui:context-changed": [],
   });
   // Plugins currently subscribed to `track:scrobbled` — the plugin half of the
   // Settings → Providers → Scrobblers list. Re-derived on every (un)subscribe to that event.
@@ -1047,6 +1051,9 @@ export function usePlugins(
             }
             hostCallbacksRef?.current?.navigateToEntity?.(kind, { name, artistName, albumTitle });
           },
+          getContext: async () => hostCallbacksRef?.current?.getUiContext?.() ?? null,
+          onContextChanged: (handler) =>
+            subscribeEvent("ui:context-changed", handler as (...args: unknown[]) => void),
           setBadge: (viewId: string, badge: PluginBadge) => {
             const key = `${pluginId}:${viewId}`;
             if (badge === null) {
@@ -3761,10 +3768,9 @@ export function usePlugins(
       if (!handler) return null;
       try {
         const answer = await handler(facts);
-        const rms = answer?.rms;
-        if (!Array.isArray(rms) || rms.length === 0) return null;
-        // A plugin's numbers become bar heights: anything non-finite or negative reads as silence.
-        return rms.map((v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0));
+        const rms = sanitizePluginRms(answer?.rms, facts.durationSecs);
+        if (answer?.rms && !rms) console.warn(`[waveform] ${pluginId} answered a waveform that doesn't fit "${facts.title}" (${facts.durationSecs}s); ignored`);
+        return rms;
       } catch (e) {
         console.error(`Waveform lookup via ${pluginId} failed:`, e);
         return null;
@@ -3779,6 +3785,7 @@ export function usePlugins(
           .catch((e) => console.error(`Sharing a waveform with ${lp.id} failed:`, e));
       }
     },
+    hasShareHandlers: () => [...loadedPluginsRef.current.values()].some((lp) => lp.waveformShareHandler),
   }), []);
 
   // Runtime-registered Now Playing info items, sorted by priority then label.
