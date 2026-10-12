@@ -38,7 +38,7 @@ const STORE_DEFAULTS = {
   bitPerfectSkipConfirm: false,
   openNowPlayingOnPlay: false,
   openNowPlayingOnVideoPlay: false,
-  // Settings → Providers → Scrobblers (utils/scrobblers.ts). `trackVideoHistory` is the
+  // Settings → Playback → Scrobbling (utils/scrobblers.ts). `trackVideoHistory` is the
   // legacy single switch, read once to migrate when this was never written.
   scrobbleSettings: null,
   videoLyricsOverlay: true,

@@ -8,7 +8,7 @@ import type {
 // One definition, shared by the plugin API and the host's own renderer/cache — a
 // plugin-supplied storyboard and a locally generated one are the same shape.
 import type { Storyboard } from "../utils/storyboard";
-// Same reason: the host's Settings → Providers → Scrobblers status reads what plugins report.
+// Same reason: the host's Settings → Playback → Scrobbling status reads what plugins report.
 import type { ScrobbleReport } from "../utils/scrobblers";
 // And again: the facts a waveform plugin is told are the waveform chain's own.
 import type { TrackAudioFacts } from "../waveform/types";
@@ -183,7 +183,7 @@ export interface PluginManifestContributes {
   /** Tools + instructions for AI assistants driving the control API. */
   assistant?: PluginManifestAssistant;
   /** For a plugin that subscribes to `track:scrobbled`. `defaultEnabled:
-   *  false` starts it switched off in Settings → Providers → Scrobblers until the user
+   *  false` starts it switched off in Settings → Playback → Scrobbling until the user
    *  turns it on — for a scrobbler that sends plays off the machine. */
   scrobbler?: { defaultEnabled?: boolean };
   /** Declares that the plugin answers `api.waveforms` — documentation for the

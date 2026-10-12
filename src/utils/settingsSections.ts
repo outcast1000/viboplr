@@ -19,7 +19,7 @@ export const SECTION_TABS: Record<string, SettingsTab> = {
   "control-api": "ai",
   // The assistant activity pill's "Open full log" lands here.
   "assistant-activity": "ai",
-  "scrobbling": "providers",
+  "scrobbling": "playback",
 };
 
 export const SETTINGS_SECTION_IDS = Object.keys(SECTION_TABS);

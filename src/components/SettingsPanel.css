@@ -683,7 +683,7 @@
   padding: 1px 6px;
 }
 
-/* Settings → Providers → Scrobblers: the Audio / Video switch pair on each scrobbler row. */
+/* Settings → Playback → Scrobbling: the Audio / Video switch pair on each scrobbler row. */
 .scrobbler-media {
   display: flex;
   gap: 16px;

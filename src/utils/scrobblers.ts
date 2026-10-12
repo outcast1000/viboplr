@@ -1,4 +1,4 @@
-// Which scrobblers record which plays (Settings → Providers → Scrobblers). A "scrobbler"
+// Which scrobblers record which plays (Settings → Playback → Scrobbling). A "scrobbler"
 // is anything that is told a track was played once it passes the scrobble
 // threshold (`shouldScrobble`): the app's own local history (`record_play`)
 // and every plugin subscribed to `track:scrobbled` (Last.fm, Community,
@@ -108,7 +108,7 @@ export function withVideoForAll(settings: ScrobbleSettings, video: boolean): Scr
 }
 
 /** True when the default and every listed scrobbler in use records video. Pass
- *  the scrobblers the user can actually see (Settings → Providers → Scrobblers's rows): a
+ *  the scrobblers the user can actually see (the rows in Settings → Playback → Scrobbling): a
  *  `byId` entry left behind by an uninstalled plugin must not turn the
  *  onboarding switch off. A scrobbler that is off for both media types is not
  *  in use, so a plugin that starts off doesn't read the switch as off either. */
@@ -156,7 +156,7 @@ export interface ScrobblerEntry {
   builtin: boolean;
 }
 
-/** The Settings → Providers → Scrobblers rows: local history first, then each plugin
+/** The Settings → Playback → Scrobbling rows: local history first, then each plugin
  *  currently subscribed to `track:scrobbled`, by name. */
 export function buildScrobblerList(
   pluginIds: readonly string[],
@@ -335,7 +335,7 @@ export function settleScrobbleResult(
 
 export type ScrobblerStatusTone = "success" | "warning" | "error" | "muted";
 
-/** The line under a scrobbler's row in Settings → Providers → Scrobblers. */
+/** The line under a scrobbler's row in Settings → Playback → Scrobbling. */
 export function describeScrobblerStatus(
   status: ScrobblerStatus | undefined,
   ago: (thenMs: number) => string,

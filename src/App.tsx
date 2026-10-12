@@ -383,7 +383,7 @@ function App() {
   // Track a format-failed file to replay once the mpv engine is enabled from
   // the Playback Failed modal (the retry effect below fires when it's ready).
   const pendingMpvRetryRef = useRef<QueueTrack | null>(null);
-  // Settings → Providers → Scrobblers: which scrobblers (local history + plugins) record
+  // Settings → Playback → Scrobbling: which scrobblers (local history + plugins) record
   // audio and/or video plays (utils/scrobblers.ts).
   const [scrobbleSettings, setScrobbleSettings] = usePersistedSetting<ScrobbleSettings>("scrobbleSettings", DEFAULT_SCROBBLE_SETTINGS, restoredRef);
   const scrobbleSettingsRef = useLatestRef(scrobbleSettings);
@@ -962,7 +962,7 @@ function App() {
     [plugins.scrobblerPluginIds, plugins.pluginStates],
   );
   // Scrobblers whose manifest says they start off (they send plays off the
-  // machine), until the user turns them on in Settings → Providers → Scrobblers.
+  // machine), until the user turns them on in Settings → Playback → Scrobbling.
   const scrobbleDefaults = useMemo(
     () => scrobbleDefaultsFromPlugins(plugins.pluginStates),
     [plugins.pluginStates],
@@ -1408,13 +1408,13 @@ function App() {
 
   const mediaSessionNextRef = useRef<() => void>(() => {});
 
-  // A play crossed the scrobble threshold. Settings → Providers → Scrobblers decides who
+  // A play crossed the scrobble threshold. Settings → Playback → Scrobbling decides who
   // hears about it, per media type: the local history (`record_play`) and each
   // plugin subscribed to `track:scrobbled`. `offered` settles the play for
   // usePlayback (offered to nobody, it asks again next tick); `accepted` is the
   // bar's checkmark, which must not claim a play nobody took, and `settled`
   // corrects it once every scrobbler has answered. Each answer is also the
-  // scrobbler's status line in Settings → Providers → Scrobblers.
+  // scrobbler's status line in Settings → Playback → Scrobbling.
   function handleScrobble(track: QueueTrack): ScrobbleOutcome {
     const settings = scrobbleSettingsRef.current;
     const defaults = scrobbleDefaultsRef.current;

@@ -1819,6 +1819,7 @@ export function SettingsPanel({
             )}
 
             {settingsTab === "playback" && (
+              <>
                 <div className="settings-group" id="playback-engine">
                   <div className="settings-group-title">Playback</div>
                   <div className="settings-card">
@@ -2131,11 +2132,6 @@ export function SettingsPanel({
                     )}
                   </div>
                 </div>
-            )}
-
-            {settingsTab === "providers" && (
-              <>
-                <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
                 <ScrobblingSettings
                   scrobblers={scrobblers}
                   settings={scrobbleSettings}
@@ -2145,6 +2141,10 @@ export function SettingsPanel({
                   onReportProblem={onReportProblem}
                 />
               </>
+            )}
+
+            {settingsTab === "providers" && (
+              <ProviderPrioritySection pluginStates={pluginStates} onStreamResolverOrderChanged={onStreamResolverOrderChanged} />
             )}
 
             {settingsTab === "ai" && (

@@ -14,7 +14,7 @@ import {
 import { relativeTime } from "../utils/assistantActivity";
 import type { DiagnosticContext } from "../utils/diagnosticReport";
 
-/** Settings → Providers → Scrobblers: every scrobbler (local history + each plugin
+/** Settings → Playback → Scrobbling: every scrobbler (local history + each plugin
  *  subscribed to `track:scrobbled`) with its own Audio / Video switches and
  *  what happened to its last play. These switches are the only on/off for
  *  scrobbling; sign-in stays in the plugin, and a signed-out plugin says so
@@ -45,7 +45,7 @@ export function ScrobblingSettings({
 
   return (
     <div className="settings-group" id="scrobbling">
-      <div className="settings-group-title">Scrobblers<HelpLink anchor="scrobbling" topic="scrobbling" /></div>
+      <div className="settings-group-title">Scrobbling<HelpLink anchor="scrobbling" topic="scrobbling" /></div>
       <div className="settings-card">
         <div className="settings-row">
           <div className="settings-row-info">

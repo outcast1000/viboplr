@@ -439,7 +439,7 @@ export function usePlugins(
     "ui:context-changed": [],
   });
   // Plugins currently subscribed to `track:scrobbled` — the plugin half of the
-  // Settings → Providers → Scrobblers list. Re-derived on every (un)subscribe to that event.
+  // Settings → Playback → Scrobbling list. Re-derived on every (un)subscribe to that event.
   const [scrobblerPluginIds, setScrobblerPluginIds] = useState<string[]>([]);
   const syncScrobblerPluginIds = useCallback(() => {
     const ids = [...new Set(eventHandlersRef.current["track:scrobbled"].map((h) => h.pluginId))];
@@ -2852,7 +2852,7 @@ export function usePlugins(
   // -- Public methods --
 
   /** Deliver `event` to the plugins `accept` lets through — how the
-   *  Settings → Providers → Scrobblers media choices reach `track:scrobbled`. Returns how
+   *  Settings → Playback → Scrobbling media choices reach `track:scrobbled`. Returns how
    *  many plugins were offered it and how many took it without throwing (a
    *  plugin with several handlers counts once, and only if none threw), plus
    *  each handler's own `results` entry: what it returned (for a worker

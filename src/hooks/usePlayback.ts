@@ -169,7 +169,7 @@ export function usePlayback(
   crossfadeSecsRef: React.RefObject<number>,
   advanceIndexRef: React.RefObject<() => void>,
   /** Called when the scrobble threshold is crossed; App hands the play to
-   *  every scrobbler that accepts it (Settings → Providers → Scrobblers). `offered`: some
+   *  every scrobbler that accepts it (Settings → Playback → Scrobbling). `offered`: some
    *  scrobbler was on for this media type, so the play is settled and never
    *  offered again. `accepted`: one of them took it — what `scrobbled`
    *  reports. Offered to nobody, it is asked again on later ticks, so a switch
@@ -2369,7 +2369,7 @@ export function usePlayback(
     // the engine-position handler (surfacePlaybackFailure's circuit breaker).
     if (autoSkipStreakRef.current !== 0 && absolutePosition > 1) autoSkipStreakRef.current = 0;
     // Scrobble threshold check (Last.FM rules). Who records the play, per
-    // media type, is Settings → Providers → Scrobblers — decided by App's onScrobble.
+    // media type, is Settings → Playback → Scrobbling — decided by App's onScrobble.
     if (!scrobbledRef.current && currentTrack && shouldScrobble(absolutePosition, currentTrack.duration_secs)) {
       crossScrobbleThreshold(currentTrack);
     }
