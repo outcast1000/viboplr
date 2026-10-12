@@ -68,7 +68,7 @@ over the readable text of the cached plugin info values — find a track by a
 lyric phrase, local file lyrics included; hits carry a snippet, the full value
 only with `includeValue`), Now Playing **cue sheets** (`get_cue_context` gathers a
 song's lyrics with timestamps, its meaning/bio/review prose, quality and tags
-plus the format guides; `cue_sheet` saves either timed fact / lyric-meaning /
+plus the format guides and named styles — Storyteller, Annotated, Translation, Pop-up trivia, Lyric video, Liner notes — each marked with whether it fits that song, which the assistant offers when the user hasn't said what they want; `cue_sheet` saves either timed fact / lyric-meaning /
 image cards played over the artwork, or — `mode: "clip"` — a text-and-image
 video clip over the whole Now Playing view: positioned elements, colours,
 motion presets and keyframes — saved in the app's profile, no permission

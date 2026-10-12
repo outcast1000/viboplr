@@ -3,7 +3,8 @@
 // timestamps — the clock every cue is placed on), every prose info value for
 // the song / artist / album (bio, review, song story, lyric annotations),
 // every gallery image for them (real photos with their credit + licence), its
-// library tags, any sheet already saved, and the format guide. Everything
+// library tags, any sheet already saved, the format guide, and the named
+// styles (`utils/cueStyles.ts`) with their fit to this song. Everything
 // comes through the same provider chain + cache the detail pages use, so a
 // value fetched here is free on the next page visit and vice versa.
 
@@ -14,6 +15,7 @@ import { fetchInfoValue, resolveInfoEntityId, type InvokeInfoFetch, type InfoTyp
 import { parseLrc } from "./lyrics";
 import { resolveTrackQuality } from "../hooks/useNowPlayingInfo";
 import { CUE_CLIP_GUIDE, CUE_SHEET_GUIDE, type CueSheetRow } from "./cueSheet";
+import { CUE_STYLE_GUIDE, cueStylesFor, type CueStyleOffer } from "./cueStyles";
 
 /** Display kinds that carry readable prose about an entity. A superset of the
  *  About panel's (`ABOUT_DISPLAY_KINDS`): lyric annotations are noise on a
@@ -205,6 +207,10 @@ export interface CueContext {
   guide: string;
   /** The clip (`mode: "clip"`) half of the format. */
   clipGuide: string;
+  /** Kinds of sheet to offer the user, fitting ones first. */
+  styles: CueStyleOffer[];
+  /** How to use `styles`. */
+  styleGuide: string;
 }
 
 interface GatherOpts {
@@ -314,6 +320,8 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
   ]);
 
   const lyricsNote = lyricsTimingNote(lyrics, track.duration_secs ?? null);
+  const prose = [...song.prose, ...artist.prose, ...album.prose];
+  const images = [...song.images, ...artist.images, ...album.images];
   return {
     track: {
       title,
@@ -325,11 +333,13 @@ export async function gatherCueContext(opts: GatherOpts): Promise<CueContext> {
       isPlaying: opts.isPlaying,
     },
     lyrics: lyricsNote && lyrics ? { ...lyrics, note: lyricsNote } : lyrics,
-    prose: [...song.prose, ...artist.prose, ...album.prose],
-    images: [...song.images, ...artist.images, ...album.images],
+    prose,
+    images,
     tags,
     existingSheet,
     guide: CUE_SHEET_GUIDE,
     clipGuide: CUE_CLIP_GUIDE,
+    styles: cueStylesFor({ lyrics, prose, imageCount: images.reduce((n, g) => n + g.images.length, 0) }),
+    styleGuide: CUE_STYLE_GUIDE,
   };
 }
