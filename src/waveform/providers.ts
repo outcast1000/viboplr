@@ -1,16 +1,32 @@
 import { browserWaveformProvider } from "./browserProvider";
 import { ffmpegWaveformProvider } from "./ffmpegProvider";
+import { pluginWaveformProvider, type WaveformPluginBridge } from "./pluginProvider";
 import type { WaveformProvider, WaveformRequest } from "./types";
 
 /**
- * The order providers are tried in — the app's decision, not the user's. ffmpeg goes
- * first: it streams (no size cap), decodes outside the webview and mixes every
- * channel. Web Audio is the fallback for machines without ffmpeg.
+ * The computing providers, in the order they are tried — the app's decision, not
+ * the user's. ffmpeg goes first: it streams (no size cap), decodes outside the
+ * webview and mixes every channel. Web Audio is the fallback for machines without
+ * ffmpeg.
  */
 export const WAVEFORM_PROVIDERS: readonly WaveformProvider[] = [
   ffmpegWaveformProvider,
   browserWaveformProvider,
 ];
+
+/**
+ * The chain for one track: plugin lookups first (a waveform someone already
+ * computed beats computing it again), then — for a local file only — the
+ * computing providers. A stream gets the lookups alone: computing one would mean
+ * downloading it a second time.
+ */
+export function waveformProviders(
+  plugins: WaveformPluginBridge | null,
+  { canCompute }: { canCompute: boolean },
+): WaveformProvider[] {
+  const lookups = plugins ? plugins.lookupProviderIds().map((id) => pluginWaveformProvider(id, plugins)) : [];
+  return canCompute ? [...lookups, ...WAVEFORM_PROVIDERS] : lookups;
+}
 
 export interface WaveformAnalysisResult {
   providerId: string;

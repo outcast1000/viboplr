@@ -1,14 +1,21 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type RefObject } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { analyzeWaveform, shapePeaks, WAVEFORM_PROVIDERS } from "../waveform/providers";
+import type { QueueTrack } from "../types";
+import { analyzeWaveform, shapePeaks, waveformProviders } from "../waveform/providers";
+import { isPluginWaveformProvider, type WaveformPluginBridge } from "../waveform/pluginProvider";
+import type { TrackAudioFacts } from "../waveform/types";
+import { resolveTrackAudioFacts } from "./useNowPlayingInfo";
+import { useLatestRef } from "./useLatestRef";
 
 // Peaks are stored at a fixed one-bucket-per-second source resolution (width-
 // independent), and WaveformSeekBar downsamples them to fit its render width —
 // so one cached array serves both the now-playing bar and the fullscreen bar.
 //
 // On a cache miss the analysis runs through the provider chain in
-// src/waveform/providers.ts (ffmpeg first, Web Audio as the fallback); each
-// provider returns raw per-second RMS and `shapePeaks` turns it into bar heights.
+// src/waveform/providers.ts: plugin lookups first (a waveform another listener
+// already computed — e.g. Viboplr Community), then, for a local file only, ffmpeg
+// and Web Audio. Each provider returns per-second RMS and `shapePeaks` turns it
+// into bar heights. A local cache hit asks nobody anything.
 
 interface WaveformCache {
   name: string;
@@ -32,19 +39,20 @@ export interface WaveformCandidate {
   path: string | null;
   title: string | null;
   isVideo: boolean;
+  /** Known length, from the track or the player. Needed to match a shared waveform. */
+  durationSecs?: number | null;
 }
 
 /**
- * Whether a track is a candidate for waveform analysis at all, judged from
- * metadata alone (no I/O). This gate applies to every provider; each provider
- * then applies its own limits (the Web Audio one also caps file size). Video is
- * excluded because it gets the filmstrip seek bar, and decoding a whole container
- * in the webview costs orders of magnitude more than an audio file. Remote streams
- * (subsonic / plugin schemes / direct http) are excluded by design — they use the
- * segmented seek bar, and analyzing one would mean downloading it a second time
- * (the Web Audio `fetch` is CORS-blocked for them anyway).
+ * Whether the app may *compute* a waveform for a track, judged from metadata alone
+ * (no I/O). Each computing provider then applies its own limits (the Web Audio one
+ * also caps file size). Video is excluded because it gets the filmstrip seek bar,
+ * and decoding a whole container in the webview costs orders of magnitude more than
+ * an audio file. Remote streams (subsonic / plugin schemes / direct http) are
+ * excluded by design — analyzing one would mean downloading it a second time (the
+ * Web Audio `fetch` is CORS-blocked for them anyway).
  */
-export function isWaveformAnalyzable(
+export function isWaveformComputable(
   candidate: WaveformCandidate,
 ): candidate is WaveformCandidate & { path: string; title: string } {
   if (!candidate.path || !candidate.title) return false;
@@ -52,29 +60,75 @@ export function isWaveformAnalyzable(
   return candidate.path.startsWith("file://");
 }
 
+/**
+ * Whether a track can *show* a waveform at all: any computable one, plus any other
+ * audio track with a known length — a stream can't be analyzed, but a waveform
+ * someone else shared (or one already cached) still fits it, matched by
+ * artist + title + duration.
+ */
+export function isWaveformShowable(
+  candidate: WaveformCandidate,
+): candidate is WaveformCandidate & { path: string; title: string } {
+  if (isWaveformComputable(candidate)) return true;
+  if (!candidate.path || !candidate.title || candidate.isVideo) return false;
+  return (candidate.durationSecs ?? 0) > 0;
+}
+
 export function useWaveform(
-  trackPath: string | null,
-  trackName: string | null,
-  trackArtist: string | null,
-  trackDuration: number | null,
-  isVideo: boolean,
-  assetUrl: string | null,
+  track: QueueTrack | null,
+  {
+    durationSecs,
+    isVideo,
+    assetUrl,
+    plugins,
+  }: {
+    /** The track's length, falling back to the player's once it knows it. */
+    durationSecs: number | null;
+    isVideo: boolean;
+    assetUrl: string | null;
+    /** Plugin lookup/share bridge, read at call time; null before plugins load. */
+    plugins: RefObject<WaveformPluginBridge | null>;
+  },
 ): number[] | null {
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // The effect keys on the identity fields below; the rest (album, format…) is read
+  // from here when the facts are built, so a like toggle doesn't re-run it.
+  const trackRef = useLatestRef(track);
+  const trackPath = track?.path ?? null;
+  const trackName = track?.title ?? null;
+  const trackArtist = track?.artist_name ?? null;
 
   useEffect(() => {
     setPeaks(null);
 
-    const candidate = { path: trackPath, title: trackName, isVideo };
-    if (!isWaveformAnalyzable(candidate)) return;
+    const candidate = { path: trackPath, title: trackName, isVideo, durationSecs };
+    if (!isWaveformShowable(candidate)) return;
     const { path, title } = candidate;
+    const canCompute = isWaveformComputable(candidate);
 
-    const cacheKey = waveformKey(trackArtist, title, trackDuration);
+    const cacheKey = waveformKey(trackArtist, title, durationSecs);
     let cancelled = false;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+
+    // Built once, on first ask, and only when a plugin provider or a share needs them.
+    let factsPromise: Promise<TrackAudioFacts | null> | null = null;
+    const facts = (fallbackDuration?: number): Promise<TrackAudioFacts | null> => {
+      factsPromise ??= (async () => {
+        const current = trackRef.current;
+        const duration = durationSecs ?? fallbackDuration ?? 0;
+        if (!current || duration <= 0) return null;
+        try {
+          return await resolveTrackAudioFacts(current, duration);
+        } catch (e) {
+          console.error("Failed to resolve audio facts for the waveform:", e);
+          return null;
+        }
+      })();
+      return factsPromise;
+    };
 
     (async () => {
       try {
@@ -90,16 +144,18 @@ export function useWaveform(
         console.error("Failed to read cached waveform:", e);
       }
 
-      const result = await analyzeWaveform(WAVEFORM_PROVIDERS, {
+      const bridge = plugins.current;
+      const result = await analyzeWaveform(waveformProviders(bridge, { canCompute }), {
         path,
         title,
         assetUrl,
         signal: controller.signal,
+        facts: () => facts(),
       });
       if (cancelled || !result) return;
 
       const peaks = shapePeaks(result.rms);
-      const duration = trackDuration || peaks.length;
+      const duration = durationSecs || peaks.length;
       console.debug(`[waveform] created new via ${result.providerId}: "${title}" (${duration}s, ${peaks.length} buckets)`);
       setPeaks(peaks);
 
@@ -107,13 +163,22 @@ export function useWaveform(
       // Fire-and-forget: the waveform is already rendered from memory; a failed
       // cache write only costs a recompute next time this track plays.
       invoke("cache_waveform", { key: cacheKey, waveform }).catch(() => {}); // eslint-disable-line no-restricted-syntax
+
+      // Computed here, so nobody had it: offer it to the sharing plugins. One a
+      // plugin handed us is not shared back.
+      if (bridge && !isPluginWaveformProvider(result.providerId)) {
+        const rms = result.rms;
+        void facts(rms.length).then((f) => {
+          if (f && !cancelled) bridge.share(f, rms);
+        });
+      }
     })();
 
     return () => {
       cancelled = true;
       controller.abort();
     };
-  }, [trackPath, trackName, trackArtist, trackDuration, isVideo, assetUrl]);
+  }, [trackPath, trackName, trackArtist, durationSecs, isVideo, assetUrl, plugins, trackRef]);
 
   return peaks;
 }

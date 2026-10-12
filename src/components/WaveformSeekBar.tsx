@@ -7,12 +7,11 @@ interface WaveformSeekBarProps {
    *  Drives the scrub preview: forward spans get an accent ghost tint, rewind
    *  spans are dimmed, and a hairline marks the target position. */
   hoverPct?: number | null;
+  /** How far the source has buffered (0..1), or null when unknown. A stream can
+   *  have a waveform now — a shared one (`api.waveforms`) — so it needs the same
+   *  buffered edge SegmentedSeekBar draws. Local files report none. */
+  bufferedPct?: number | null;
 }
-
-// No buffered-ahead rendering here, deliberately: a waveform only exists for
-// local files (`isWaveformAnalyzable` gates on `file://`) and a buffer is only
-// reported for network sources, so the two can never co-occur. The buffered
-// edge lives on SegmentedSeekBar, which is what a network track actually gets.
 
 /** Fraction of the height where the mirror axis sits — the main lobe renders
  *  above it, the quieter reflection below (SoundCloud-style asymmetry). */
@@ -52,7 +51,7 @@ function getSkinColors(canvas: HTMLCanvasElement) {
   };
 }
 
-export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSeekBarProps) {
+export function WaveformSeekBar({ peaks, progress, hoverPct = null, bufferedPct = null }: WaveformSeekBarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<number>(0);
 
@@ -100,6 +99,8 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
     const botMax = h - axis - 2;
     const playedX = progress * w;
     const hoverX = hoverPct != null ? hoverPct * w : null;
+    // Unknown (null) is not "nothing buffered": draw every bar as available.
+    const bufferedX = bufferedPct != null ? bufferedPct * w : w;
 
     const playedGrad = ctx.createLinearGradient(0, 0, 0, axis);
     playedGrad.addColorStop(0, `rgba(${c.accent}, 0.95)`);
@@ -123,11 +124,13 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
       const played = x + barWidth <= playedX;
       // Forward scrub: ghost-tint the span between the playhead and the cursor
       const ghosted = !played && hoverX != null && hoverX > playedX && x + barWidth <= hoverX;
+      // A bar straddling the buffered edge counts as not yet arrived, as on SegmentedSeekBar.
+      const buffered = x + barWidth <= bufferedX;
 
-      ctx.fillStyle = played ? playedGrad : ghosted ? `rgba(${c.accent}, 0.3)` : `rgba(${c.base}, 0.15)`;
+      ctx.fillStyle = played ? playedGrad : ghosted ? `rgba(${c.accent}, 0.3)` : `rgba(${c.base}, ${buffered ? 0.15 : 0.06})`;
       ctx.fillRect(x, axis - topH, barWidth, topH);
 
-      ctx.fillStyle = played ? `rgba(${c.accent}, 0.28)` : ghosted ? `rgba(${c.accent}, 0.14)` : `rgba(${c.base}, 0.08)`;
+      ctx.fillStyle = played ? `rgba(${c.accent}, 0.28)` : ghosted ? `rgba(${c.accent}, 0.14)` : `rgba(${c.base}, ${buffered ? 0.08 : 0.03})`;
       ctx.fillRect(x, axis + 1, barWidth, botH);
     }
 
@@ -160,7 +163,7 @@ export function WaveformSeekBar({ peaks, progress, hoverPct = null }: WaveformSe
     } else {
       growRef.current = 1;
     }
-  }, [peaks, progress, hoverPct]);
+  }, [peaks, progress, hoverPct, bufferedPct]);
 
   // Detect peak data change and trigger grow animation
   const peaksKey = peaks.length > 0 ? `${peaks.length}:${peaks[0]}:${peaks[peaks.length - 1]}` : "";

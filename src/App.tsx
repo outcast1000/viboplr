@@ -94,6 +94,7 @@ import { useUiZoom } from "./hooks/useUiZoom";
 import { applyWebviewZoom, stepZoomPreset } from "./utils/zoom";
 import { useVideoLayout } from "./hooks/useVideoLayout";
 import { useWaveform } from "./hooks/useWaveform";
+import type { WaveformPluginBridge } from "./waveform/pluginProvider";
 import { useStoryboard } from "./hooks/useStoryboard";
 import { partialStoryboard } from "./utils/storyboard";
 import { useGlobalShortcuts } from "./hooks/useGlobalShortcuts";
@@ -480,14 +481,17 @@ function App() {
   const [resolverSources, setResolverSources] = useState<string[]>([]);
   const transcodeSessionRef = useRef<{ sessionId: string; baseUrl: string; durationSecs: number | null; seekOffset: number } | null>(null);
   const playback = usePlayback(restoredRef, peekNextRef, crossfadeSecsRef, advanceIndexRef, onScrobbleRef, resolveTrackSrcRef, prefetchNextRef, transcodeSessionRef, useNativeEngineRef, useNativeVideoRef, nativeEndedRef, playbackAutoSkipRef);
-  const waveformPeaks = useWaveform(
-    playback.currentTrack?.path ?? null,
-    playback.currentTrack?.title ?? null,
-    playback.currentTrack?.artist_name ?? null,
-    playback.currentTrack?.duration_secs ?? null,
-    playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
-    playback.currentAssetUrl,
-  );
+  // Filled once `usePlugins` (below) exists; the waveform hook reads it at call time.
+  const waveformPluginsRef = useRef<WaveformPluginBridge | null>(null);
+  const waveformPeaks = useWaveform(playback.currentTrack, {
+    // A stream often has no duration until the player reports one, and a
+    // shared waveform is matched on it.
+    durationSecs: playback.currentTrack?.duration_secs
+      ?? (playback.durationSecs > 0 ? Math.round(playback.durationSecs) : null),
+    isVideo: playback.currentTrack ? isVideoTrack(playback.currentTrack) : false,
+    assetUrl: playback.currentAssetUrl,
+    plugins: waveformPluginsRef,
+  });
 
   const [trackRank, setTrackRank] = useState<number | null>(null);
   const [artistRank, setArtistRank] = useState<number | null>(null);
@@ -814,6 +818,7 @@ function App() {
   // single IPC channel. debugMode/devPluginPath are restored before this flips,
   // so the deferred first load already sees their final values.
   const plugins = usePlugins(pluginTrackRef, pluginPlayingRef, pluginPositionRef, pluginQueueRef, pluginPlaybackCallbacks, pluginHostCallbacksRef, debugMode, devPluginPath, !appRestoring);
+  useAssignRef(waveformPluginsRef, plugins.waveformBridge);
 
   // The `nowplaying` visualizer slot. resolveSlot returns null when the chosen
   // visualizer isn't available, so a disabled plugin silently frees the slot

@@ -3,12 +3,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const invokeMock = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invokeMock(...args) }));
 
-import { analyzeWaveform, shapePeaks, WAVEFORM_PROVIDERS } from "../waveform/providers";
+import { analyzeWaveform, shapePeaks, WAVEFORM_PROVIDERS, waveformProviders } from "../waveform/providers";
 import { ffmpegWaveformProvider } from "../waveform/ffmpegProvider";
-import type { WaveformAttempt, WaveformProvider, WaveformRequest } from "../waveform/types";
+import { PLUGIN_WAVEFORM_TIMEOUT_MS, pluginWaveformProvider, type WaveformPluginBridge } from "../waveform/pluginProvider";
+import { buildTrackAudioFacts } from "../hooks/useNowPlayingInfo";
+import type { TrackAudioFacts, WaveformAttempt, WaveformProvider, WaveformRequest } from "../waveform/types";
+import type { EngineMediaInfo } from "../playback/nativeEngine";
+
+const FACTS: TrackAudioFacts = {
+  title: "Song", artistName: "Artist", albumName: null, albumArtistName: null, durationSecs: 241,
+  codec: "flac", sampleRate: 44100, bitDepth: 16, channels: 2, bitrateKbps: 900,
+};
 
 function request(signal = new AbortController().signal): WaveformRequest {
-  return { path: "file:///music/song.flac", title: "Song", assetUrl: "asset://song.flac", signal };
+  return { path: "file:///music/song.flac", title: "Song", assetUrl: "asset://song.flac", signal, facts: async () => FACTS };
 }
 
 function provider(id: string, answer: WaveformAttempt | Error): WaveformProvider & { calls: number } {
@@ -124,5 +132,100 @@ describe("ffmpegWaveformProvider", () => {
     const analyzeCall = invokeMock.mock.calls.find((c) => c[0] === "analyze_waveform_ffmpeg");
     const cancelCall = invokeMock.mock.calls.find((c) => c[0] === "cancel_waveform_analysis");
     expect(cancelCall?.[1]).toEqual({ requestId: (analyzeCall?.[1] as { requestId: string }).requestId });
+  });
+});
+
+function bridge(ids: string[], lookup: WaveformPluginBridge["lookup"] = async () => null): WaveformPluginBridge {
+  return { lookupProviderIds: () => ids, lookup, share: vi.fn() };
+}
+
+describe("waveformProviders (the chain for one track)", () => {
+  it("asks plugin lookups before computing a local file", () => {
+    const ids = waveformProviders(bridge(["community"]), { canCompute: true }).map((p) => p.id);
+    expect(ids).toEqual(["plugin:community", "ffmpeg", "browser"]);
+  });
+
+  it("gives a stream the lookups alone — nothing computes one", () => {
+    const ids = waveformProviders(bridge(["community"]), { canCompute: false }).map((p) => p.id);
+    expect(ids).toEqual(["plugin:community"]);
+  });
+
+  it("is the computing providers alone before plugins load", () => {
+    expect(waveformProviders(null, { canCompute: true }).map((p) => p.id)).toEqual(["ffmpeg", "browser"]);
+    expect(waveformProviders(null, { canCompute: false })).toEqual([]);
+  });
+
+  it("a lookup hit wins and the computing providers never run", async () => {
+    const chain = waveformProviders(bridge(["community"], async () => [0.2, 1]), { canCompute: true });
+    expect(await analyzeWaveform(chain, request())).toEqual({ providerId: "plugin:community", rms: [0.2, 1] });
+    expect(invokeMock).not.toHaveBeenCalledWith("analyze_waveform_ffmpeg", expect.anything());
+  });
+});
+
+describe("pluginWaveformProvider", () => {
+  it("passes the track's facts to the plugin and returns its RMS", async () => {
+    const lookup = vi.fn(async () => [0.5]);
+    const p = pluginWaveformProvider("community", bridge([], lookup));
+    expect(await p.analyze(request())).toEqual({ status: "ok", rms: [0.5] });
+    expect(lookup).toHaveBeenCalledWith("community", FACTS);
+  });
+
+  it("skips on a miss or an empty answer", async () => {
+    expect((await pluginWaveformProvider("c", bridge([], async () => null)).analyze(request())).status).toBe("skipped");
+    expect((await pluginWaveformProvider("c", bridge([], async () => [])).analyze(request())).status).toBe("skipped");
+  });
+
+  it("skips without asking when there are no facts to match on", async () => {
+    const lookup = vi.fn(async () => [0.5]);
+    const p = pluginWaveformProvider("c", bridge([], lookup));
+    expect((await p.analyze({ ...request(), facts: async () => null })).status).toBe("skipped");
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("gives up on a slow plugin so the chain can compute it instead", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = pluginWaveformProvider("c", bridge([], () => new Promise(() => {})));
+      const pending = p.analyze(request());
+      await vi.advanceTimersByTimeAsync(PLUGIN_WAVEFORM_TIMEOUT_MS + 1);
+      expect((await pending).status).toBe("skipped");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers cancelled when the track changed meanwhile", async () => {
+    const controller = new AbortController();
+    const p = pluginWaveformProvider("c", bridge([], async () => { controller.abort(); return [0.5]; }));
+    expect(await p.analyze(request(controller.signal))).toEqual({ status: "cancelled" });
+  });
+});
+
+describe("buildTrackAudioFacts", () => {
+  const track = {
+    key: "q:1", path: "file:///m/a.flac", title: "Song", artist_name: "Artist", album_title: "Album",
+    album_artist_name: null, duration_secs: 241, format: "FLAC", liked: 0,
+  };
+  const engine: EngineMediaInfo = {
+    codec: "flac", sampleRate: 96000, format: "s32", bitrate: 2_800_000,
+    videoCodec: null, width: null, height: null, videoBitrate: null, fps: null,
+  };
+
+  it("prefers the file's own tags and lowercases the codec", () => {
+    const facts = buildTrackAudioFacts(track, 241, { sample_rate: 96000, bit_depth: 24, channels: 2, bitrate: 2800 }, engine);
+    expect(facts).toEqual({
+      title: "Song", artistName: "Artist", albumName: "Album", albumArtistName: null, durationSecs: 241,
+      codec: "flac", sampleRate: 96000, bitDepth: 24, channels: 2, bitrateKbps: 2800,
+    });
+  });
+
+  it("falls back to the engine for a stream, but never reads a depth off a wide decode format", () => {
+    const stream = { ...track, path: "subsonic://c/1", format: null };
+    const facts = buildTrackAudioFacts(stream, 241, null, engine);
+    expect(facts.codec).toBe("flac");
+    expect(facts.sampleRate).toBe(96000);
+    expect(facts.bitDepth).toBeNull(); // s32 is what ffmpeg emits for a 24-bit FLAC
+    expect(facts.bitrateKbps).toBe(2800);
+    expect(buildTrackAudioFacts(stream, 241, null, { ...engine, format: "s16" }).bitDepth).toBe(16);
   });
 });

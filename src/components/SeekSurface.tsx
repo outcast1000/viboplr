@@ -62,11 +62,9 @@ interface SeekLadderProps {
  *
  * A track must not change its seek surface just because the window went
  * fullscreen, so both bars call this rather than each writing the ladder out.
- * Video usually has a storyboard; audio never does and falls to the waveform
- * (local-only), then to the segmented bar — which is what a NETWORK audio track
- * actually gets, and which draws its own buffered edge. `WaveformSeekBar` takes
- * no `bufferedPct` on purpose: a waveform exists only for `file://` sources and
- * a buffer only for network ones, so the two can never co-occur.
+ * Video usually has a storyboard; audio never does and falls to the waveform,
+ * then to the segmented bar. Every surface that can be streamed takes
+ * `bufferedPct` — including the waveform, since a stream can show a shared one.
  */
 export function SeekLadder({
   storyboard, waveformPeaks, positionSecs, durationSecs, hoverPct, bufferedPct,
@@ -89,6 +87,7 @@ export function SeekLadder({
         peaks={waveformPeaks}
         progress={durationSecs > 0 ? positionSecs / durationSecs : 0}
         hoverPct={hoverPct}
+        bufferedPct={bufferedPct}
       />
     );
   }

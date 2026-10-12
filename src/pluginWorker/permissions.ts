@@ -103,6 +103,10 @@ export const PERMISSION_TABLE: Record<string, PermissionCheck | null> = {
   // bar is a separate ask from seeing what plays (and needs that one anyway to
   // know the track's key).
   "playback.setMarkers": need("playback:markers"),
+  // The facts handed to a lookup / share are the playing track's — the same
+  // reach as playback:read's events.
+  "waveforms.onLookup": need("playback:read"),
+  "waveforms.onShare": need("playback:read"),
   "playback.onStreamResolve": OWN,
   "playback.onResolveStreamByUri": OWN,
   "playback.onResolveStoryboard": OWN,

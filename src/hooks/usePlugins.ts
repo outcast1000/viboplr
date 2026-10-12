@@ -65,7 +65,10 @@ import type {
   ReplaceTrackFileResult,
   PluginCueSheet,
   PluginCollectionSource,
+  PluginWaveformLookupHandler,
+  PluginWaveformShareHandler,
 } from "../types/plugin";
+import type { WaveformPluginBridge } from "../waveform/pluginProvider";
 import type { InfoEntity, InfoFetchResult } from "../types/informationTypes";
 import type { Storyboard } from "../utils/storyboard";
 import { buildEntityKey } from "../types/informationTypes";
@@ -203,6 +206,9 @@ interface LoadedPlugin {
   streamResolveHandlers: Map<string, (title: string, artistName: string | null, albumName: string | null, durationSecs: number | null, opts?: { preferVideo?: boolean; externalAudio?: boolean; fresh?: boolean }) => Promise<StreamResolveResult | null>>;
   streamUriResolvers: Map<string, (id: string, quality?: string | null, opts?: { externalAudio?: boolean; fresh?: boolean; video?: boolean }) => Promise<string | { candidates: StreamCandidate[]; sourceUrl?: string } | null>>;
   storyboardResolvers: Map<string, (id: string) => Promise<Storyboard | null>>;
+  /** `api.waveforms.onLookup` / `onShare` — one of each per plugin, last wins. */
+  waveformLookupHandler: PluginWaveformLookupHandler | null;
+  waveformShareHandler: PluginWaveformShareHandler | null;
   schedulerHandlers: Map<string, () => void>;
   visualizerFactories: Map<string, () => PluginVisualizer>;
 }
@@ -1419,6 +1425,25 @@ export function usePlugins(
           },
         },
 
+        waveforms: {
+          onLookup(handler) {
+            loaded.waveformLookupHandler = handler;
+            const unsub = () => {
+              if (loaded.waveformLookupHandler === handler) loaded.waveformLookupHandler = null;
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+          onShare(handler) {
+            loaded.waveformShareHandler = handler;
+            const unsub = () => {
+              if (loaded.waveformShareHandler === handler) loaded.waveformShareHandler = null;
+            };
+            trackUnsubscribe(unsub);
+            return unsub;
+          },
+        },
+
         lyrics: {
           // The same write as the in-app lyrics editor: the song's cached
           // lyrics become these, and every open view of it re-reads.
@@ -2072,6 +2097,8 @@ export function usePlugins(
     loaded.streamResolveHandlers.clear();
     loaded.streamUriResolvers.clear();
     loaded.storyboardResolvers.clear();
+    loaded.waveformLookupHandler = null;
+    loaded.waveformShareHandler = null;
     loaded.schedulerHandlers.clear();
     loaded.visualizerFactories.clear();
 
@@ -2231,6 +2258,8 @@ export function usePlugins(
         streamResolveHandlers: new Map(),
         streamUriResolvers: new Map(),
         storyboardResolvers: new Map(),
+        waveformLookupHandler: null,
+        waveformShareHandler: null,
         schedulerHandlers: new Map(),
         visualizerFactories: new Map(),
       };
@@ -3722,6 +3751,36 @@ export function usePlugins(
     [mergedMenuItems, sidebarItems, allSearchProviders],
   );
 
+  // The waveform chain's plugin half (`api.waveforms`). Read from the loaded
+  // plugins at call time, so the one object stays valid across loads/reloads.
+  const waveformBridge = useMemo<WaveformPluginBridge>(() => ({
+    lookupProviderIds: () =>
+      [...loadedPluginsRef.current.values()].filter((lp) => lp.waveformLookupHandler).map((lp) => lp.id),
+    async lookup(pluginId, facts) {
+      const handler = loadedPluginsRef.current.get(pluginId)?.waveformLookupHandler;
+      if (!handler) return null;
+      try {
+        const answer = await handler(facts);
+        const rms = answer?.rms;
+        if (!Array.isArray(rms) || rms.length === 0) return null;
+        // A plugin's numbers become bar heights: anything non-finite or negative reads as silence.
+        return rms.map((v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0));
+      } catch (e) {
+        console.error(`Waveform lookup via ${pluginId} failed:`, e);
+        return null;
+      }
+    },
+    share(facts, rms) {
+      for (const lp of loadedPluginsRef.current.values()) {
+        const handler = lp.waveformShareHandler;
+        if (!handler) continue;
+        Promise.resolve()
+          .then(() => handler(facts, rms))
+          .catch((e) => console.error(`Sharing a waveform with ${lp.id} failed:`, e));
+      }
+    },
+  }), []);
+
   // Runtime-registered Now Playing info items, sorted by priority then label.
   const nowPlayingInfoItems = useMemo(
     () =>
@@ -3794,6 +3853,7 @@ export function usePlugins(
     resolveStreamByUri,
     streamUriResolverOwner,
     resolveStoryboardByUri,
+    waveformBridge,
     invokeHomeShelf,
     nowPlayingInfoItems,
     invokeNowPlayingInfo,

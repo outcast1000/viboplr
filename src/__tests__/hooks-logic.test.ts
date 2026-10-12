@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { isPositionOnScreen, clampToNearestMonitor, fitToMonitor, searchPanelGeometry } from "../hooks/useMiniMode";
 import { isCurrentPlayGeneration, decideHandlePlayOutcome, isActiveMediaElement, canDriveTransitionMachine, crossfadeGainPair } from "../hooks/usePlayback";
-import { isWaveformAnalyzable } from "../hooks/useWaveform";
+import { isWaveformComputable, isWaveformShowable } from "../hooks/useWaveform";
 import { isWaveformSizeAllowed, WAVEFORM_MAX_FILE_SIZE } from "../waveform/browserProvider";
 
 // --- Extracted pure functions from hooks ---
@@ -331,26 +331,47 @@ describe("crossfadeGainPair (captured-once fade target)", () => {
   });
 });
 
-describe("isWaveformAnalyzable (waveform eligibility gate)", () => {
+describe("isWaveformComputable (waveform compute gate)", () => {
   it("accepts a local audio file", () => {
-    expect(isWaveformAnalyzable({ path: "file:///music/song.flac", title: "Song", isVideo: false })).toBe(true);
+    expect(isWaveformComputable({ path: "file:///music/song.flac", title: "Song", isVideo: false })).toBe(true);
   });
 
   it("rejects video regardless of scheme", () => {
     // Decoding a whole container to PCM costs orders of magnitude more than an
     // audio file of the same duration.
-    expect(isWaveformAnalyzable({ path: "file:///music/clip.mp4", title: "Clip", isVideo: true })).toBe(false);
+    expect(isWaveformComputable({ path: "file:///music/clip.mp4", title: "Clip", isVideo: true })).toBe(false);
   });
 
   it("rejects remote schemes that the webview fetch can never read", () => {
-    expect(isWaveformAnalyzable({ path: "subsonic://col-1/42", title: "Song", isVideo: false })).toBe(false);
-    expect(isWaveformAnalyzable({ path: "https://example.com/song.mp3", title: "Song", isVideo: false })).toBe(false);
-    expect(isWaveformAnalyzable({ path: "ytdlp://abc123", title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformComputable({ path: "subsonic://col-1/42", title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformComputable({ path: "https://example.com/song.mp3", title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformComputable({ path: "ytdlp://abc123", title: "Song", isVideo: false })).toBe(false);
   });
 
   it("rejects tracks missing a path or title", () => {
-    expect(isWaveformAnalyzable({ path: null, title: "Song", isVideo: false })).toBe(false);
-    expect(isWaveformAnalyzable({ path: "file:///music/song.flac", title: null, isVideo: false })).toBe(false);
+    expect(isWaveformComputable({ path: null, title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformComputable({ path: "file:///music/song.flac", title: null, isVideo: false })).toBe(false);
+  });
+});
+
+describe("isWaveformShowable (waveform display gate)", () => {
+  it("accepts anything computable, with or without a duration", () => {
+    expect(isWaveformShowable({ path: "file:///music/song.flac", title: "Song", isVideo: false })).toBe(true);
+  });
+
+  it("accepts a stream once its length is known — a shared waveform can fit it", () => {
+    expect(isWaveformShowable({ path: "subsonic://col-1/42", title: "Song", isVideo: false, durationSecs: 241 })).toBe(true);
+    expect(isWaveformShowable({ path: "ytdlp://abc123", title: "Song", isVideo: false, durationSecs: 180 })).toBe(true);
+  });
+
+  it("rejects a stream with no length to match on", () => {
+    expect(isWaveformShowable({ path: "subsonic://col-1/42", title: "Song", isVideo: false })).toBe(false);
+    expect(isWaveformShowable({ path: "subsonic://col-1/42", title: "Song", isVideo: false, durationSecs: 0 })).toBe(false);
+  });
+
+  it("still rejects video and untitled tracks", () => {
+    expect(isWaveformShowable({ path: "ytdlp://abc123", title: "Clip", isVideo: true, durationSecs: 180 })).toBe(false);
+    expect(isWaveformShowable({ path: "ytdlp://abc123", title: null, isVideo: false, durationSecs: 180 })).toBe(false);
   });
 });
 

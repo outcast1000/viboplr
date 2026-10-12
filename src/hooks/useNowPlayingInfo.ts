@@ -9,6 +9,7 @@ import { useLyrics } from "./useLyrics";
 import { parseLrc, activeSyncedLine, plainLines, pickLineByRatio, hashStringToRatio, lyricPosition } from "../utils/lyrics";
 import { nativeEngine, type EngineMediaInfo } from "../playback/nativeEngine";
 import { subscribeVisiblePlaybackPosition, getPlaybackPosition } from "../playback/positionStore";
+import type { TrackAudioFacts } from "../waveform/types";
 
 // Stand-in subscription while no synced lyrics exist — keeps the
 // useSyncExternalStore call unconditional without ticking on position.
@@ -354,14 +355,7 @@ export async function resolveTrackQuality(
   track: QueueTrack,
   { playing }: { playing: boolean },
 ): Promise<string | null> {
-  let engineInfo: EngineMediaInfo | null = null;
-  if (playing) {
-    try {
-      engineInfo = await withTimeout(nativeEngine.getMediaInfo(), null);
-    } catch (e) {
-      console.error("Failed to resolve engine media quality:", e);
-    }
-  }
+  const engineInfo = playing ? await readEngineInfo() : null;
   // Video is the engine's alone — resolution is the answer there, and no
   // tag reader supplies it.
   const videoText = formatEngineVideoQuality(engineInfo);
@@ -371,22 +365,71 @@ export async function resolveTrackQuality(
   // decoder is emitting — s32 for a 24-bit FLAC (see
   // `bitDepthFromMpvFormat`). The engine stays the only source for
   // anything streamed.
-  let props: AudioProps | null = null;
-  if (track.path && isLocalTrack(track)) {
-    try {
-      props = await withTimeout(
-        invoke<AudioProps | null>("get_audio_properties_by_path", { path: track.path }),
-        null,
-      );
-    } catch (e) {
-      console.error("Failed to resolve audio quality:", e);
-    }
-  }
+  const props = await readFileProps(track);
   if (props) {
     const text = formatQuality(track.format, props);
     if (text) return text;
   }
   return formatEngineQuality(engineInfo) ?? formatQuality(track.format, null);
+}
+
+/** The engine's live decode facts for whatever is playing, or null. */
+async function readEngineInfo(): Promise<EngineMediaInfo | null> {
+  try {
+    return await withTimeout(nativeEngine.getMediaInfo(), null);
+  } catch (e) {
+    console.error("Failed to resolve engine media quality:", e);
+    return null;
+  }
+}
+
+/** What a local file's own tags say about its audio (lofty), or null. */
+async function readFileProps(track: QueueTrack): Promise<AudioProps | null> {
+  if (!track.path || !isLocalTrack(track)) return null;
+  try {
+    return await withTimeout(
+      invoke<AudioProps | null>("get_audio_properties_by_path", { path: track.path }),
+      null,
+    );
+  } catch (e) {
+    console.error("Failed to resolve audio quality:", e);
+    return null;
+  }
+}
+
+/** The facts that describe one copy of a song — what `api.waveforms` plugins
+ *  are told (to match the recording and count its format). Same sources and
+ *  precedence as `resolveTrackQuality`: the file's own tags for a local file,
+ *  the engine's live decode facts for a stream, and never a bit depth read off
+ *  the decoder's sample format beyond the unambiguous ones. Pure given its
+ *  inputs + exported for tests. */
+export function buildTrackAudioFacts(
+  track: QueueTrack,
+  durationSecs: number,
+  props: AudioProps | null,
+  engineInfo: EngineMediaInfo | null,
+): TrackAudioFacts {
+  const depth = bitDepthFromMpvFormat(engineInfo?.format);
+  const positive = (n: number | null | undefined) => (n != null && Number.isFinite(n) && n > 0 ? n : null);
+  return {
+    title: track.title,
+    artistName: track.artist_name,
+    albumName: track.album_title,
+    albumArtistName: track.album_artist_name ?? null,
+    durationSecs,
+    codec: (track.format || engineInfo?.codec || null)?.toLowerCase() ?? null,
+    sampleRate: positive(props?.sample_rate) ?? positive(engineInfo?.sampleRate),
+    bitDepth: positive(props?.bit_depth) ?? (depth ? parseInt(depth, 10) : null),
+    channels: positive(props?.channels),
+    // lofty reports kbps, the engine bits/s.
+    bitrateKbps: positive(props?.bitrate) ?? (positive(engineInfo?.bitrate) ? Math.round(engineInfo!.bitrate! / 1000) : null),
+  };
+}
+
+/** `buildTrackAudioFacts` for the track that is playing right now. */
+export async function resolveTrackAudioFacts(track: QueueTrack, durationSecs: number): Promise<TrackAudioFacts> {
+  const [props, engineInfo] = await Promise.all([readFileProps(track), readEngineInfo()]);
+  return buildTrackAudioFacts(track, durationSecs, props, engineInfo);
 }
 
 function artistSegment(track: QueueTrack, badge?: number | null): NowPlayingInfoSegment {

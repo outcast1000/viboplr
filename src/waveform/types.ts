@@ -4,17 +4,40 @@
 // once, by `shapePeaks`, for every provider, so a waveform looks the same whichever
 // provider produced it and the cache never mixes two looks under one key.
 //
-// The app decides the order providers are tried in (`WAVEFORM_PROVIDERS` in
-// providers.ts); a provider only says whether it could do this one.
+// The app decides the order providers are tried in (`waveformProviders` in
+// providers.ts); a provider only says whether it could do this one. Plugin
+// providers (`api.waveforms.onLookup`, e.g. Viboplr Community) come first and
+// *fetch* a waveform someone already computed, so they also serve streams; the
+// computing providers run only for local files.
+
+/** What a plugin waveform provider is told about the track: enough to find the
+ *  same recording elsewhere (metadata + duration) and to describe the copy
+ *  (codec, sample rate, bit depth…). Never a path or a file size. */
+export interface TrackAudioFacts {
+  title: string;
+  artistName: string | null;
+  albumName: string | null;
+  albumArtistName: string | null;
+  durationSecs: number;
+  codec: string | null;
+  sampleRate: number | null;
+  bitDepth: number | null;
+  channels: number | null;
+  bitrateKbps: number | null;
+}
 
 export interface WaveformRequest {
-  /** The track's `file://` path. Eligibility (local, audio) is checked before any provider runs. */
+  /** The track's path. The computing providers only ever see a `file://` one —
+   *  the chain leaves them out for anything else. */
   path: string;
   title: string;
   /** Webview-fetchable URL for the same file (asset protocol), when one exists. */
   assetUrl: string | null;
   /** Aborted when the track changes; a provider stops its work and answers `cancelled`. */
   signal: AbortSignal;
+  /** The track's audio facts, resolved on first call and shared by every provider
+   *  that asks. Only plugin providers need them; null when they can't be had. */
+  facts: () => Promise<TrackAudioFacts | null>;
 }
 
 export type WaveformAttempt =

@@ -10,6 +10,8 @@ import type {
 import type { Storyboard } from "../utils/storyboard";
 // Same reason: the host's Settings → Providers → Scrobblers status reads what plugins report.
 import type { ScrobbleReport } from "../utils/scrobblers";
+// And again: the facts a waveform plugin is told are the waveform chain's own.
+import type { TrackAudioFacts } from "../waveform/types";
 import type {
   PluginVisualizerAPI,
   PluginVisualizerDescriptor,
@@ -181,6 +183,9 @@ export interface PluginManifestContributes {
    *  false` starts it switched off in Settings → Providers → Scrobblers until the user
    *  turns it on — for a scrobbler that sends plays off the machine. */
   scrobbler?: { defaultEnabled?: boolean };
+  /** Declares that the plugin answers `api.waveforms` — documentation for the
+   *  user and for tooling; the host acts on the registrations, not this. */
+  waveformProvider?: { name: string };
 }
 
 export interface PluginApiUsage {
@@ -2018,6 +2023,31 @@ export interface PluginLyricsAPI {
   ): Promise<void>;
 }
 
+/** What a waveform plugin is told about a track — see `TrackAudioFacts`. */
+export type PluginWaveformFacts = TrackAudioFacts;
+
+/** Answer with a waveform someone already computed for this recording, or
+ *  null. `rms` is per-second loudness, normalized to 0..1, one value per
+ *  second of `facts.durationSecs`. */
+export type PluginWaveformLookupHandler = (
+  facts: PluginWaveformFacts,
+) => Promise<{ rms: number[] } | null> | { rms: number[] } | null;
+
+/** The host just computed this waveform (raw per-second RMS, unnormalized)
+ *  because no lookup had one. Fire-and-forget. */
+export type PluginWaveformShareHandler = (facts: PluginWaveformFacts, rms: number[]) => void | Promise<void>;
+
+export interface PluginWaveformsAPI {
+  /** Called only when the user has no local waveform for the playing track,
+   *  before the host computes one — and for streams, which the host can't
+   *  analyze at all. One handler per plugin; registering again replaces it.
+   *  Absent on older hosts — feature-detect. */
+  onLookup(handler: PluginWaveformLookupHandler): () => void;
+  /** Called only after the host computed a waveform itself (every lookup
+   *  missed). Never for a cached one, never back to the plugin that supplied it. */
+  onShare(handler: PluginWaveformShareHandler): () => void;
+}
+
 export interface PluginCuesAPI {
   get(title: string, artistName?: string | null): Promise<PluginCueSheet | null>;
   list(): Promise<PluginCueSheet[]>;
@@ -2048,6 +2078,8 @@ export interface ViboplrPluginAPI {
   playlists: PluginPlaylistsAPI;
   cues: PluginCuesAPI;
   lyrics: PluginLyricsAPI;
+  /** Share seek-bar waveforms between installs (lookup before computing, share after). */
+  waveforms: PluginWaveformsAPI;
   informationTypes: PluginInformationTypesAPI;
   imageProviders: PluginImageProvidersAPI;
   downloads: PluginDownloadsAPI;
